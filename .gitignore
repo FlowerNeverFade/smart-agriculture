@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.conda/
+.env
+node_modules/
+dist/
+data/
+*.jsonl
+.DS_Store
