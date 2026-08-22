@@ -3,7 +3,10 @@
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js';
-import { api } from './api.js?v=3';
+import { api } from './api.js?v=4';
+import { PlotTelemetryView } from './plot-telemetry-view.js';
+import { initTheme } from './theme.js';
+import { initSceneBackground } from './scene-background.js';
 
 class AgriApp {
   constructor() {
@@ -14,15 +17,19 @@ class AgriApp {
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
+      activeMainView: 'home',
       isLive: false
     };
 
     this.dom = {};
     this.pollTimer = null;
+    this.plotTelemetryView = new PlotTelemetryView(this);
   }
 
   async init() {
     this.cacheDom();
+    initTheme();
+    initSceneBackground();
     this.bindEvents();
 
     const conn = await api.connect();
@@ -49,6 +56,7 @@ class AgriApp {
     await this.loadOverview();
     this.renderPlots(this.dom.plotSearchInput?.value || '');
     this.updateSystemStatusPill();
+    this.plotTelemetryView.onLiveTick();
   }
 
   cacheDom() {
@@ -87,12 +95,16 @@ class AgriApp {
     this.dom.toastContainer = document.getElementById('toastContainer');
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
+    this.dom.btnOpenCropPacks = document.getElementById('btnOpenCropPacks');
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
+    this.dom.homeFeedContent = document.getElementById('homeFeedContent');
+    this.dom.plotTelemetryPanel = document.getElementById('plotTelemetryPanel');
+    this.plotTelemetryView.bind(this.dom.plotTelemetryPanel);
   }
 
   bindEvents() {
     // Logo Click -> Go to Home
-    this.dom.btnLogoHome?.addEventListener('click', () => this.navigate('home'));
+    this.dom.btnLogoHome?.addEventListener('click', () => this.showHomeView());
 
     // Quick Action button
     this.dom.btnQuickAction?.addEventListener('click', () => {
@@ -104,9 +116,28 @@ class AgriApp {
       this.openSubview('resource-coordination');
     });
 
+    this.dom.btnOpenCropPacks?.addEventListener('click', () => {
+      this.openSubview('crop-packs');
+    });
+
     // Search input filter for plots
     this.dom.plotSearchInput?.addEventListener('input', (e) => {
       this.filterPlots(e.target.value);
+    });
+
+    document.getElementById('btnOpenPlotTelemetry')?.addEventListener('click', () => {
+      this.showPlotTelemetryView(this.state.currentPlotId);
+    });
+
+    document.getElementById('mainFeedQuickActions')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.quick-nav-btn');
+      if (!btn) return;
+      const view = btn.dataset.view;
+      if (view === 'plot-detail') {
+        this.showPlotTelemetryView(this.state.currentPlotId);
+      } else if (view) {
+        this.openSubview(view, { plotId: this.state.currentPlotId });
+      }
     });
 
     // Global Search Keyboard Shortcut (⌘K / Ctrl+K / Slash)
@@ -155,15 +186,18 @@ class AgriApp {
       if (!item) return;
       const view = item.dataset.view;
       if (view === 'home') {
-        this.navigate('home');
-      } else {
+        this.showHomeView();
+      } else if (view === 'plot-detail') {
+        this.showPlotTelemetryView(this.state.currentPlotId);
+      } else if (view) {
+        this.showHomeView({ updateHash: false });
         this.openSubview(view, { plotId: this.state.currentPlotId });
       }
     });
 
     // Close Modal Button
     this.dom.btnCloseModal?.addEventListener('click', () => this.closeModal());
-    this.dom.btnBackToHome?.addEventListener('click', () => this.closeModal());
+    this.dom.btnBackToHome?.addEventListener('click', () => this.showHomeView());
     this.dom.subviewModal?.addEventListener('click', (e) => {
       if (e.target === this.dom.subviewModal) this.closeModal();
     });
@@ -252,14 +286,18 @@ class AgriApp {
     this.renderPlots(keyword);
   }
 
-  selectPlot(plotId) {
+  selectPlot(plotId, options = {}) {
     this.state.currentPlotId = plotId;
     const plot = this.state.plots.find(p => p.plotId === plotId);
     if (plot && this.dom.currentPlotContextBadge) {
       this.dom.currentPlotContextBadge.textContent = `/ 当前选中：${plot.name} (${plot.cropName} · ${plot.stageLabel})`;
     }
     this.renderPlots(this.dom.plotSearchInput?.value || '');
-    this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    if (this.state.activeMainView === 'plot-telemetry') {
+      void this.plotTelemetryView.open(plotId);
+    } else if (!options.silent) {
+      this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    }
   }
 
   renderFeed() {
@@ -371,9 +409,13 @@ class AgriApp {
 
         <div class="feed-actions-group">
           ${item.actions.map(act => {
-            const btnClass = act.type === 'primary' ? 'btn-primary' : act.type === 'success' ? 'btn-success' : act.type === 'secondary' ? 'btn-secondary' : 'btn-ghost';
+            const btnClass =
+              act.type === 'primary' ? 'btn-primary'
+              : act.type === 'success' ? 'btn-success'
+              : act.type === 'secondary' ? 'btn-secondary'
+              : 'btn-outline';
             return `
-              <button class="btn ${btnClass}" 
+              <button type="button" class="btn ${btnClass}" 
                 data-action="${act.action}" 
                 data-view="${act.view || ''}" 
                 data-plot-id="${act.plotId || ''}" 
@@ -507,8 +549,21 @@ class AgriApp {
         <span class="changelog-time">${item.time} · <span class="dep-tag" style="padding: 0 4px;">${item.tag}</span></span>
         <span class="changelog-title">${item.title}</span>
         <span style="color: var(--text-secondary); font-size: 11px; margin-top: 2px;">${item.content}</span>
+        ${item.view ? `
+          <div class="changelog-item-actions">
+            <button type="button" class="btn btn-sm btn-outline changelog-view-btn" data-view="${item.view}">
+              ${item.actionLabel || '查看详情'}
+            </button>
+          </div>
+        ` : ''}
       </li>
     `).join('');
+
+    this.dom.changelogContainer.querySelectorAll('.changelog-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.openSubview(btn.dataset.view, { plotId: this.state.currentPlotId });
+      });
+    });
   }
 
   /**
@@ -520,24 +575,69 @@ class AgriApp {
     const view = params.get('view');
     const plotId = params.get('plotId') || this.state.currentPlotId;
 
-    if (view && view !== 'home') {
+    if (view === 'plot-detail') {
+      this.showPlotTelemetryView(plotId, { updateHash: false });
+    } else if (view && view !== 'home') {
+      this.showHomeView({ updateHash: false });
       this.openSubview(view, { plotId, updateHash: false });
     } else {
+      this.showHomeView({ updateHash: false });
       this.closeModal(false);
     }
   }
 
   navigate(viewName, params = {}) {
     if (viewName === 'home') {
-      window.location.hash = '';
-      this.closeModal(false);
+      this.showHomeView();
+    } else if (viewName === 'plot-detail') {
+      this.showPlotTelemetryView(params.plotId || this.state.currentPlotId);
     } else {
       const searchParams = new URLSearchParams({ view: viewName, ...params });
       window.location.hash = searchParams.toString();
     }
   }
 
+  showPlotTelemetryView(plotId, options = {}) {
+    this.closeModal(false);
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    this.state.activeMainView = 'plot-telemetry';
+    if (plotId) this.state.currentPlotId = plotId;
+    this.dom.headerCurrentView.textContent = '地块监测数据时许可视化';
+    document.querySelectorAll('.module-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.view === 'plot-detail');
+    });
+    document.getElementById('btnOpenPlotTelemetry')?.classList.add('is-active');
+    void this.plotTelemetryView.open(plotId || this.state.currentPlotId);
+    if (options.updateHash !== false) {
+      const searchParams = new URLSearchParams({
+        view: 'plot-detail',
+        plotId: plotId || this.state.currentPlotId,
+      });
+      window.location.hash = searchParams.toString();
+    }
+  }
+
+  showHomeView(options = {}) {
+    this.plotTelemetryView.close();
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    this.state.activeMainView = 'home';
+    this.dom.headerCurrentView.textContent = 'Home (农智总览)';
+    document.querySelectorAll('.module-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.view === 'home');
+    });
+    document.getElementById('btnOpenPlotTelemetry')?.classList.remove('is-active');
+    if (options.updateHash !== false && window.location.hash) {
+      window.location.hash = '';
+    }
+  }
+
   openSubview(viewName, options = {}) {
+    if (viewName === 'plot-detail') {
+      this.showPlotTelemetryView(options.plotId || this.state.currentPlotId, options);
+      return;
+    }
+    this.showHomeView({ updateHash: false });
     const plotId = options.plotId || this.state.currentPlotId;
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,

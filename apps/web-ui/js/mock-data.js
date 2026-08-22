@@ -268,19 +268,25 @@ export const MOCK_DATA = {
       time: "2026-08-22 14:30",
       tag: "v1.2",
       title: "数据主线持久化去重与命令幂等锁升级",
-      content: "重构持久化事件去重机制，命令超时或失败时不占用 120min 灌溉冷却。"
+      content: "重构持久化事件去重机制，命令超时或失败时不占用 120min 灌溉冷却。",
+      view: "decision-passport",
+      actionLabel: "查看审计链路"
     },
     {
       time: "2026-08-21 17:00",
       tag: "CropPack",
       title: "加载番茄与黄瓜双作物标准化包",
-      content: "新增 6 类统一指标（土壤湿度、气温、光照、CO2、pH、水位）及生长阶段动态包络。"
+      content: "新增 6 类统一指标（土壤湿度、气温、光照、CO2、pH、水位）及生长阶段动态包络。",
+      view: "crop-packs",
+      actionLabel: "打开规则包"
     },
     {
       time: "2026-08-20 10:15",
       tag: "Security",
       title: "RBAC 细粒度权限与决策护照全链路审计",
-      content: "提供系统管理员、农场主管、田间操作员三级隔离；每次建议保留完整 TraceId。"
+      content: "提供系统管理员、农场主管、田间操作员三级隔离；每次建议保留完整 TraceId。",
+      view: "decision-passport",
+      actionLabel: "权限与护照"
     }
   ],
 

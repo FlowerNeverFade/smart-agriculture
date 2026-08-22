@@ -195,12 +195,12 @@ export class ApiService {
     return overview.plots;
   }
 
-  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50) {
     if (this.isLive) {
       try {
-        const resp = await this._fetch(
-          `/api/v1/plots/${plotId}/telemetry?metric=${encodeURIComponent(metric)}&limit=50`,
-        );
+        const q = new URLSearchParams({ limit: String(limit) });
+        if (metric) q.set('metric', metric);
+        const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?${q}`);
         if (resp?.data?.length) return resp.data;
       } catch (e) {
         console.warn('[AgriLoop] telemetry failed, using mock series:', e);
@@ -224,6 +224,29 @@ export class ApiService {
         quality: { status: 'GOOD', freshnessMs: 200, confidence: 0.98, sourceMode: 'SIMULATION' },
       };
     });
+  }
+
+  async getPlotTelemetryAll(plotId = 'plot-a01', limit = 120) {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?limit=${limit}`);
+        if (resp?.data?.length) return resp.data;
+      } catch (e) {
+        console.warn('[AgriLoop] full telemetry failed:', e);
+      }
+    }
+    const codes = [
+      'SOIL_MOISTURE',
+      'AIR_TEMPERATURE',
+      'LIGHT',
+      'CO2',
+      'PH',
+      'WATER_LEVEL',
+    ];
+    const batches = await Promise.all(codes.map((m) => this.getTelemetry(plotId, m, limit)));
+    return batches
+      .flat()
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
   }
 
   async agentChat(message, plotId = 'plot-a01') {
