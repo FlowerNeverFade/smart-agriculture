@@ -11,6 +11,13 @@ class AgriApp {
       currentPlotId: 'plot-a01',
       activeFilter: 'ALL',
       selectedFarmId: 'farm-demo',
+      currentTheme: localStorage.getItem('agriloop_theme') || 'linear',
+      currentUser: {
+        username: 'admin',
+        role: 'FARM_ADMIN',
+        roleLabel: '农场管理员',
+        avatar: '👑'
+      },
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
@@ -22,6 +29,7 @@ class AgriApp {
 
   async init() {
     this.cacheDom();
+    this.applyTheme(this.state.currentTheme);
     this.bindEvents();
 
     // Check backend connection
@@ -44,6 +52,17 @@ class AgriApp {
     this.dom.systemStatusText = document.getElementById('systemStatusText');
     this.dom.rightAiModeTag = document.getElementById('rightAiModeTag');
     this.dom.userDisplayName = document.getElementById('userDisplayName');
+    this.dom.userAvatar = document.getElementById('userAvatar');
+    this.dom.userMenuPopover = document.getElementById('userMenuPopover');
+    this.dom.popoverUsername = document.getElementById('popoverUsername');
+    this.dom.popoverRoleTag = document.getElementById('popoverRoleTag');
+    this.dom.btnUserMenu = document.getElementById('btnUserMenu');
+    this.dom.btnSwitchAccount = document.getElementById('btnSwitchAccount');
+    this.dom.btnShowAuthModal = document.getElementById('btnShowAuthModal');
+    this.dom.authModal = document.getElementById('authModal');
+    this.dom.loginForm = document.getElementById('loginForm');
+    this.dom.loginUsername = document.getElementById('loginUsername');
+    this.dom.loginPassword = document.getElementById('loginPassword');
     this.dom.plotListContainer = document.getElementById('plotListContainer');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
@@ -75,11 +94,56 @@ class AgriApp {
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
+    this.dom.schemeSwitcher = document.getElementById('schemeSwitcher');
   }
 
   bindEvents() {
     // Logo Click -> Go to Home
     this.dom.btnLogoHome?.addEventListener('click', () => this.navigate('home'));
+
+    // Theme Switcher Buttons
+    this.dom.schemeSwitcher?.querySelectorAll('.scheme-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const theme = btn.dataset.theme;
+        this.applyTheme(theme);
+      });
+    });
+
+    // User Menu Popover Toggle
+    this.dom.btnUserMenu?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.dom.userMenuPopover?.classList.toggle('active');
+    });
+
+    document.addEventListener('click', () => {
+      this.dom.userMenuPopover?.classList.remove('active');
+    });
+
+    // Switch Account & Show Auth Modal
+    this.dom.btnSwitchAccount?.addEventListener('click', () => {
+      this.dom.userMenuPopover?.classList.remove('active');
+      this.openAuthModal();
+    });
+    this.dom.btnShowAuthModal?.addEventListener('click', () => {
+      this.dom.userMenuPopover?.classList.remove('active');
+      this.openAuthModal();
+    });
+
+    // Login Form Submit
+    this.dom.loginForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const username = this.dom.loginUsername?.value.trim() || 'admin';
+      this.performLogin(username);
+    });
+
+    // Fast Role Login Pills
+    document.querySelectorAll('.role-pill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const username = btn.dataset.username || 'admin';
+        this.performLogin(username);
+      });
+    });
 
     // Quick Action button
     this.dom.btnQuickAction?.addEventListener('click', () => {
@@ -154,6 +218,60 @@ class AgriApp {
     this.dom.subviewModal?.addEventListener('click', (e) => {
       if (e.target === this.dom.subviewModal) this.closeModal();
     });
+    this.dom.authModal?.addEventListener('click', (e) => {
+      if (e.target === this.dom.authModal) this.closeAuthModal();
+    });
+  }
+
+  applyTheme(theme) {
+    this.state.currentTheme = theme;
+    localStorage.setItem('agriloop_theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+
+    this.dom.schemeSwitcher?.querySelectorAll('.scheme-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+
+    const themeNames = {
+      'oceanx': '🌊 方案一：OceanX 科考级深海数字驾驶舱',
+      'linear': '⚡ 方案二：Linear 极简暗黑工程系统',
+      'apple': '🍏 方案三：Apple 自然有机生态美学'
+    };
+    this.showToast(`已切换设计方案为：${themeNames[theme] || theme}`, 'info');
+  }
+
+  openAuthModal() {
+    this.dom.authModal?.classList.add('active');
+  }
+
+  closeAuthModal() {
+    this.dom.authModal?.classList.remove('active');
+  }
+
+  performLogin(username) {
+    const rolesMap = {
+      'admin': { role: 'FARM_ADMIN', label: '农场管理员', avatar: '👑', desc: '全地块控制权与处方审批' },
+      'farmer': { role: 'FARMER', label: '种植农户', avatar: '🧑‍🌾', desc: '地块时序监测与生长计划' },
+      'operator': { role: 'FIELD_OPERATOR', label: '田间操作员', avatar: '🔧', desc: '田间核验与受控执行' },
+      'sysadmin': { role: 'SYSTEM_ADMIN', label: '系统管理员', avatar: '⚙️', desc: '全域超管与基础设施' }
+    };
+
+    const userMeta = rolesMap[username] || rolesMap['admin'];
+    this.state.currentUser = {
+      username,
+      role: userMeta.role,
+      roleLabel: userMeta.label,
+      avatar: userMeta.avatar
+    };
+
+    // Update UI elements
+    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = username;
+    if (this.dom.userAvatar) this.dom.userAvatar.textContent = userMeta.avatar;
+    if (this.dom.popoverUsername) this.dom.popoverUsername.textContent = `${username} (${userMeta.label})`;
+    if (this.dom.popoverRoleTag) this.dom.popoverRoleTag.textContent = `ROLE_${userMeta.role} · ${userMeta.desc}`;
+
+    this.closeAuthModal();
+    this.showToast(`登录成功！当前身份：【${userMeta.label}】(${userMeta.role})`, 'success');
   }
 
   async loadOverview() {
