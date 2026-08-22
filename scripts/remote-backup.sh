@@ -8,6 +8,7 @@ if [[ -r "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   set +a
 fi
+umask 077
 mkdir -p "$APP_ROOT/backups"
 STAMP=$(date +%Y%m%d-%H%M%S)
 PGHOST="${PGHOST:-127.0.0.1}" PGPORT="${PGPORT:-5432}" PGUSER="${DATABASE_USER:-agri}" \
