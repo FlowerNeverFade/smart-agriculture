@@ -26,6 +26,8 @@ subprojects {
 
     dependencies {
         testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        // Gradle 9 requires the JUnit Platform launcher on the test runtime classpath.
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
     tasks.withType(Test).configureEach {
