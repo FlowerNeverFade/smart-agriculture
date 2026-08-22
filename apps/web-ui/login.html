@@ -321,16 +321,6 @@
     <!-- Right Login Form -->
     <div class="login-form-side">
       <div>
-        <!-- Visual Scheme Switcher -->
-        <div class="login-scheme-bar">
-          <span style="font-size: 12px; color: var(--text-muted);">🎨 视觉设计方案：</span>
-          <div class="scheme-switcher-group" id="loginSchemeSwitcher">
-            <button class="scheme-btn" data-theme="oceanx" title="方案一：OceanX 科考级深海数字驾驶舱">🌊 OceanX</button>
-            <button class="scheme-btn active" data-theme="linear" title="方案二：Linear 极简暗黑工程系统">⚡ Linear</button>
-            <button class="scheme-btn" data-theme="apple" title="方案三：Apple 自然有机生态美学">🍏 Apple</button>
-          </div>
-        </div>
-
         <h2 class="login-form-title">用户身份认证</h2>
         <p class="login-form-subtitle">请输入系统凭据或直接选择下方角色一键登录体验</p>
 
@@ -387,25 +377,6 @@
 
   <script type="module">
     import { api } from './js/api.js';
-
-    // Theme Switcher
-    const schemeGroup = document.getElementById('loginSchemeSwitcher');
-    const currentTheme = localStorage.getItem('agriloop_theme') || 'linear';
-    applyTheme(currentTheme);
-
-    schemeGroup.querySelectorAll('.scheme-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        applyTheme(btn.dataset.theme);
-      });
-    });
-
-    function applyTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('agriloop_theme', theme);
-      schemeGroup.querySelectorAll('.scheme-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.theme === theme);
-      });
-    }
 
     // Role Card Click
     const txtUser = document.getElementById('txtUsername');

@@ -82,15 +82,53 @@ class AgriApp {
     this.dom.placeholderDesc = document.getElementById('placeholderDesc');
     this.dom.modalDynamicContent = document.getElementById('modalDynamicContent');
     this.dom.modalCodeContract = document.getElementById('modalCodeContract');
-    this.dom.toastContainer = document.getElementById('toastContainer');
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
+    this.dom.btnLogout = document.getElementById('btnLogout');
   }
 
   bindEvents() {
     // Logo Click -> Go to Home
     this.dom.btnLogoHome?.addEventListener('click', () => this.navigate('home'));
+
+    // User Menu Popover Toggle
+    this.dom.btnUserMenu?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.dom.userMenuPopover?.classList.toggle('active');
+    });
+
+    document.addEventListener('click', () => {
+      this.dom.userMenuPopover?.classList.remove('active');
+    });
+
+    // Switch Account -> open Auth Modal
+    this.dom.btnSwitchAccount?.addEventListener('click', () => {
+      this.dom.userMenuPopover?.classList.remove('active');
+      this.openAuthModal();
+    });
+
+    // Logout -> redirect to login.html
+    this.dom.btnLogout?.addEventListener('click', () => {
+      localStorage.removeItem('agriloop_user');
+      window.location.href = 'login.html';
+    });
+
+    // Login Form Submit
+    this.dom.loginForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const username = this.dom.loginUsername?.value.trim() || 'admin';
+      this.performLogin(username);
+    });
+
+    // Fast Role Login Pills inside Modal
+    document.querySelectorAll('.role-pill-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const username = btn.dataset.username || 'admin';
+        this.performLogin(username);
+      });
+    });
 
     // Quick Action button
     this.dom.btnQuickAction?.addEventListener('click', () => {

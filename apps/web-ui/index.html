@@ -46,10 +46,28 @@
       <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发">
         <span>+</span> 快捷操作
       </button>
-      <div class="user-profile-badge" id="btnUserMenu" title="用户角色信息">
-        <div class="user-avatar" id="userAvatar">🧑‍🌾</div>
+      <div class="user-profile-badge" id="btnUserMenu" title="点击查看当前角色权限与切换">
+        <div class="user-avatar" id="userAvatar">👑</div>
         <span style="font-size: 13px; font-weight: 500;" id="userDisplayName">admin</span>
       </div>
+    </div>
+
+    <!-- User Profile & RBAC Popover Menu -->
+    <div class="user-menu-popover" id="userMenuPopover">
+      <div class="user-popover-header">
+        <div class="user-popover-name" id="popoverUsername">admin (农场管理员)</div>
+        <div class="user-popover-role" id="popoverRoleTag">ROLE_FARM_ADMIN · 全地块控制权</div>
+      </div>
+      <ul class="user-popover-menu">
+        <li class="user-popover-item" id="btnSwitchAccount">
+          <span>🔄 切换用户身份</span>
+          <span style="font-size: 11px; color: var(--text-muted);">RBAC</span>
+        </li>
+        <li class="user-popover-item" id="btnLogout">
+          <span>🚪 退出登录 (返回登录页)</span>
+          <span style="font-size: 11px; color: var(--red-primary);">Exit</span>
+        </li>
+      </ul>
     </div>
   </header>
 
