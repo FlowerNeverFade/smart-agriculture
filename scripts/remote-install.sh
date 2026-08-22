@@ -4,7 +4,7 @@ set -euo pipefail
 APP_ROOT="${APP_ROOT:-/srv/agriloop}"
 mkdir -p "$APP_ROOT"/app "$APP_ROOT"/logs "$APP_ROOT"/backups "$APP_ROOT"/data
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-17-jdk python3 python3-venv python3-pip postgresql redis-server mosquitto supervisor curl unzip
+DEBIAN_FRONTEND=noninteractive apt-get install -y openjdk-17-jdk python3 python3-venv python3-pip postgresql redis-server mosquitto supervisor cron curl unzip
 systemctl enable postgresql redis-server mosquitto supervisor || true
 systemctl start postgresql redis-server mosquitto supervisor || true
 if command -v pg_ctlcluster >/dev/null 2>&1; then pg_ctlcluster 14 main start >/dev/null 2>&1 || true; fi
