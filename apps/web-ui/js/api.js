@@ -3,6 +3,7 @@
  * Connects to Spring Boot backend (/api/v1) with seamless mock fallback
  */
 import { MOCK_DATA } from './mock-data.js';
+import { buildScenarioSeries, seededRandom, toNumber } from './modules/task5-utils.js';
 
 export class ApiService {
   constructor(baseUrl = '') {
@@ -75,10 +76,11 @@ export class ApiService {
     const now = Date.now();
     const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const baseValue = targetPlot.metrics[metric]?.value || 25.0;
+    const random = seededRandom(`${plotId}:${metric}:telemetry-v1`);
     
     return Array.from({ length: 24 }, (_, i) => {
       const offset = (24 - i) * 10 * 60 * 1000;
-      const noise = (Math.sin(i / 3) * 1.5) + (Math.random() * 0.4 - 0.2);
+      const noise = (Math.sin(i / 3) * 1.5) + (random() * 0.4 - 0.2);
       return {
         eventId: `mock-evt-${i}`,
         plotId,
@@ -89,6 +91,200 @@ export class ApiService {
         quality: { status: "GOOD", freshnessMs: 200, confidence: 0.98 }
       };
     });
+  }
+
+  /**
+   * CAP-09: short-horizon forecast with an explicit unavailable path. The
+   * live contract is returned untouched; the fallback mirrors its shape so
+   * the visual layer exercises the same renderer in offline demos.
+   */
+  async getRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/risk-forecast?metric=${encodeURIComponent(metric)}`);
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Falling back to deterministic risk forecast:', e);
+      }
+    }
+
+    const plot = MOCK_DATA.plots.find(item => item.plotId === plotId) || MOCK_DATA.plots[0];
+    const current = toNumber(plot?.metrics?.[metric]?.value, 24);
+    const slope = plot?.riskLevel === 'HIGH' ? -0.026 : plot?.riskLevel === 'MEDIUM' ? -0.008 : 0.002;
+    const horizons = [60, 120, 240].map(minutes => {
+      const value = current + slope * minutes;
+      const spread = 0.75 + minutes / 240 * 1.2;
+      return {
+        minutes,
+        value: Number(value.toFixed(2)),
+        lower: Number((value - spread).toFixed(2)),
+        upper: Number((value + spread).toFixed(2))
+      };
+    });
+    const timeToRiskMinutes = current <= 20 ? 0 : slope < 0 ? Math.ceil((current - 20) / -slope) : null;
+    return {
+      forecastId: `fc-demo-${plotId}`,
+      plotId,
+      metric,
+      issuedAt: new Date().toISOString(),
+      status: 'AVAILABLE',
+      horizons,
+      timeToRiskMinutes,
+      riskBoundary: { operator: 'LT', value: 20, unit: '%' },
+      inputWindow: { from: new Date(Date.now() - 12 * 60 * 1000).toISOString(), to: new Date().toISOString(), validSamples: 24 },
+      quality: { coverage: 0.98, confidenceBandSource: 'RESIDUAL_MAD' },
+      assumptions: ['NO_IRRIGATION', 'MOCK_WEATHER_STABLE'],
+      algorithmVersion: 'robust-trend-v1',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      provenance: 'DERIVED'
+    };
+  }
+
+  async evaluateForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/forecasts/evaluate', {
+          method: 'POST',
+          body: JSON.stringify({ plotId, metric })
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live forecast evaluation failed, using GET snapshot:', e);
+      }
+    }
+    return this.getRiskForecast(plotId, metric);
+  }
+
+  /** CAP-09 / Gate 2: start a deterministic, read-only scenario branch. */
+  async runScenario({ scenario = 'drought', seed = 42, plotId = 'plot-a01', scenarioId, branchId = 'MAIN', generateSample = true } = {}) {
+    const stableScenarioId = scenarioId || `task5-${scenario}-${seed}`;
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/scenarios/runs', {
+          method: 'POST',
+          body: JSON.stringify({ scenario, scenarioId: stableScenarioId, seed: Number(seed), plotId, branchId, generateSample })
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live scenario run failed, using deterministic local replay:', e);
+      }
+    }
+
+    const plot = MOCK_DATA.plots.find(item => item.plotId === plotId) || MOCK_DATA.plots[0];
+    const simulation = buildScenarioSeries({ scenario, seed: Number(seed), startValue: plot?.metrics?.SOIL_MOISTURE?.value });
+    return {
+      runId: `run-${stableScenarioId}-${branchId.toLowerCase()}`,
+      scenarioId: stableScenarioId,
+      scenario,
+      seed: Number(seed),
+      branchId,
+      status: 'COMPLETED',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      replayEvents: simulation.points.length,
+      mainEvents: 0,
+      readOnly: true,
+      provenance: 'SIMULATED',
+      snapshotHash: simulation.snapshotHash
+    };
+  }
+
+  async compareScenario({ scenarioId, scenario = 'drought', seed = 42, plotId = 'plot-a01', leftBranch = 'EXECUTE', rightBranch = 'NO_ACTION' } = {}) {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/scenarios/compare', {
+          method: 'POST',
+          body: JSON.stringify({ scenarioId, scenario, seed: Number(seed), plotId, leftBranch, rightBranch })
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live scenario compare failed, using deterministic local comparison:', e);
+      }
+    }
+
+    const plot = MOCK_DATA.plots.find(item => item.plotId === plotId) || MOCK_DATA.plots[0];
+    const simulation = buildScenarioSeries({ scenario, seed: Number(seed), startValue: plot?.metrics?.SOIL_MOISTURE?.value });
+    return {
+      scenarioId: scenarioId || `task5-${scenario}-${seed}`,
+      leftBranch: simulation.branches[leftBranch] || simulation.branches.EXECUTE,
+      rightBranch: simulation.branches[rightBranch] || simulation.branches.NO_ACTION,
+      sameSeed: Number(seed),
+      readOnly: true,
+      comparisonVersion: 'branch-compare-v1',
+      provenance: 'SIMULATED'
+    };
+  }
+
+  async getValueLedgers() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/value-ledgers');
+        if (resp && resp.data) return Array.isArray(resp.data) ? resp.data : [resp.data];
+      } catch (e) {
+        console.warn('Falling back to local value ledger:', e);
+      }
+    }
+    return MOCK_DATA.valueLedgers || [];
+  }
+
+  async createValueLedger(input = {}) {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/value-ledgers', {
+          method: 'POST',
+          body: JSON.stringify(input)
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live value ledger write failed, using local calculation:', e);
+      }
+    }
+    const planned = toNumber(input.plannedWaterLitres, 0);
+    const actual = toNumber(input.actualWaterLitres, planned);
+    const unitCost = toNumber(input.waterPricePerLitre, 0.004);
+    return {
+      valueLedgerId: `value-local-${Date.now()}`,
+      scope: input.scope || 'farm-demo',
+      status: planned > 0 && unitCost > 0 ? 'COMPUTED' : 'INCOMPLETE',
+      baseline: { waterLitres: planned, source: 'USER_PROVIDED' },
+      actual: { waterLitres: actual, source: 'OBSERVED', sourceMode: 'SIMULATION' },
+      counterfactual: { waterLitres: planned, source: 'SIMULATED' },
+      metrics: {
+        waterSavingLitres: planned - actual,
+        waterCost: actual * unitCost,
+        waterDeviationRate: planned ? (actual - planned) / planned : null,
+        costSaving: (planned - actual) * unitCost
+      },
+      sourceLabels: ['OBSERVED', 'USER_PROVIDED', 'DERIVED', 'SIMULATED'],
+      assumptions: [`水价 ${unitCost.toFixed(3)} 元/L`, '未提供产量/价格证据，不计算利润'],
+      algorithmVersion: 'value-ledger-v1',
+      formula: '(baselineWaterLitres - actualWaterLitres), actualWaterLitres × unitCost',
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async getCropPacks() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/crop-packs');
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Falling back to crop packs:', e);
+      }
+    }
+    return MOCK_DATA.cropPacks;
+  }
+
+  async getRules() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/rules');
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Falling back to crop pack rules:', e);
+      }
+    }
+    return MOCK_DATA.cropPacks.map(pack => ({ cropCode: pack.cropCode, version: pack.ruleVersion, rules: [] }));
   }
 
   async agentChat(message, plotId = 'plot-a01') {

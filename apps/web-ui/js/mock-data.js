@@ -240,6 +240,51 @@ export const MOCK_DATA = {
     status: "FEASIBLE"
   },
 
+  // Task 5 demo ledger. Every non-observed number is explicitly labelled in
+  // the value-ledger view so a disconnected demo never masquerades as a real
+  // profit statement.
+  valueLedgers: [
+    {
+      valueLedgerId: "value-demo-20260822",
+      scope: "farm-demo",
+      status: "COMPUTED",
+      baseline: { waterLitres: 1680, source: "USER_PROVIDED" },
+      actual: { waterLitres: 1240, source: "OBSERVED", sourceMode: "SIMULATION" },
+      counterfactual: { waterLitres: 1680, source: "SIMULATED" },
+      metrics: {
+        waterSavingLitres: 440,
+        waterCost: 4.96,
+        waterDeviationRate: -0.2619,
+        energySavingKwh: 8.4,
+        labourSavingHours: 3.6,
+        costSaving: 12.74
+      },
+      periodSeries: [
+        { label: "周一", planned: 380, actual: 318 },
+        { label: "周二", planned: 420, actual: 304 },
+        { label: "周三", planned: 410, actual: 296 },
+        { label: "周四", planned: 390, actual: 322 },
+        { label: "周五", planned: 430, actual: 318 },
+        { label: "周六", planned: 360, actual: 282 },
+        { label: "周日", planned: 380, actual: 310 }
+      ],
+      counterfactualSeries: [
+        { label: "基线", baseline: 0, closedLoop: 0 },
+        { label: "第 1 次", baseline: 8.4, closedLoop: 6.8 },
+        { label: "第 2 次", baseline: 17.3, closedLoop: 12.9 },
+        { label: "第 3 次", baseline: 26.1, closedLoop: 18.1 },
+        { label: "第 4 次", baseline: 35.5, closedLoop: 23.2 },
+        { label: "第 5 次", baseline: 45.1, closedLoop: 28.7 },
+        { label: "第 6 次", baseline: 54.8, closedLoop: 34.1 }
+      ],
+      sourceLabels: ["OBSERVED", "USER_PROVIDED", "DERIVED", "SIMULATED", "ESTIMATED"],
+      assumptions: ["水价 0.004 元/L", "泵功率与工时采用示范配置估算", "不包含产量和市场价格因果归因"],
+      algorithmVersion: "value-ledger-v1",
+      formula: "(baselineWaterLitres - actualWaterLitres), actualWaterLitres × unitCost",
+      createdAt: "2026-08-22T08:00:00.000Z"
+    }
+  ],
+
   cropPacks: [
     {
       cropCode: "tomato",

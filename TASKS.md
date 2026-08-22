@@ -4,7 +4,7 @@
 > 任务版本：v1.2（2026-08-22）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
-> 2026-08-22 后端实现已落盘并完成远端验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端页面仍不在本期后端交付范围。
+> 2026-08-22 后端实现已落盘并完成远端验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准。2026-08-22 追加交付前端任务 5（预测与经营），证据见 `docs/acceptance/FRONTEND_TASK5.md`。
 
 ## 1. 使用说明
 
@@ -43,7 +43,7 @@
 | T-023 | P1 | Crop Pack 逐包 Schema/规则/RAG/安全回归 | 项目组 | — | D14 | 已完成（后端基础） | 两 pack Schema + Spring 回归测试 |
 | T-024 | P0 | 一键启动、健康检查、环境说明 | 项目组 | — | D5/D14 | 已完成（后端） | Compose、standalone、Supervisor、healthcheck；部署脚本停止旧 JVM 后再替换 JAR |
 | T-025 | P0 | 集成、性能、安全、AI、就绪度及所有已宣称 P1 切片的预测/资源/案例/价值评测 | 项目组 | — | D14 | 已完成（后端验收） | Gradle、smoke、RBAC/SSE/1,000+、Redis/MQTT/ACK、远端报告 |
-| T-026 | P0 | 答辩 PPT、演示脚本、录屏和成果归档 | — | — | D15 | 未开始 | 本次只交付后端；前端/答辩物料不在本次范围 |
+| T-026 | P0 | 答辩 PPT、演示脚本、录屏和成果归档 | — | — | D15 | 未开始 | 仍待补充答辩物料；前端任务 5 代码与验收记录见 T-040 |
 | T-027 | P1 | 根据批次和 Crop Pack 生成全周期计划、阶段任务及版本变更记录 | 项目组 | — | D12 | 已完成（后端合同） | crop-batch plan + task_templates 来源 |
 | T-028 | P1 | 田间核验记录、巡田表单和人机证据融合 | 项目组 | — | D12 | 已完成（后端） | inspections API、USER_PROVIDED provenance |
 | T-029 | P0 | `diagnosis_result` 到结构化 `irrigation_plan` 的确定性链路 | 项目组 | — | D10 | 已完成（后端） | 诊断/处方/就绪度硬门及版本快照 |
@@ -57,6 +57,7 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
+| T-040 | P1 | 前端任务 5：风险预测、情景模拟/双轨回放、经营价值账本 | 项目组 | — | D15 | 已完成 | `apps/web-ui/js/modules/*`、`css/modules/task5.css`、`docs/acceptance/FRONTEND_TASK5.md` |
 
 ### 2.1 核心八项能力任务映射
 

@@ -4,6 +4,9 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
+import { renderRiskForecast } from './modules/risk-forecast.js';
+import { renderScenarioReplay } from './modules/scenario-replay.js';
+import { renderValueLedger } from './modules/value-ledger.js';
 
 class AgriApp {
   constructor() {
@@ -14,6 +17,7 @@ class AgriApp {
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
+      subviewToken: 0,
       isLive: false
     };
 
@@ -61,6 +65,7 @@ class AgriApp {
     this.dom.changelogContainer = document.getElementById('changelogContainer');
     this.dom.moduleNavList = document.getElementById('moduleNavList');
     this.dom.subviewModal = document.getElementById('subviewModal');
+    this.dom.subviewModalCard = this.dom.subviewModal?.querySelector('.subview-modal-card');
     this.dom.btnCloseModal = document.getElementById('btnCloseModal');
     this.dom.btnBackToHome = document.getElementById('btnBackToHome');
     this.dom.modalIcon = document.getElementById('modalIcon');
@@ -69,6 +74,7 @@ class AgriApp {
     this.dom.placeholderIcon = document.getElementById('placeholderIcon');
     this.dom.placeholderTitle = document.getElementById('placeholderTitle');
     this.dom.placeholderDesc = document.getElementById('placeholderDesc');
+    this.dom.placeholderBanner = this.dom.subviewModal?.querySelector('.subview-placeholder-banner');
     this.dom.modalDynamicContent = document.getElementById('modalDynamicContent');
     this.dom.modalCodeContract = document.getElementById('modalCodeContract');
     this.dom.toastContainer = document.getElementById('toastContainer');
@@ -503,6 +509,7 @@ class AgriApp {
 
   openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
+    this.state.activeSubview = viewName;
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
       desc: '预留独立子模块界面',
@@ -517,6 +524,9 @@ class AgriApp {
     this.dom.modalTag.textContent = meta.status;
     this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
+
+    const isTask5View = ['risk-forecast', 'scenario-replay', 'value-ledger'].includes(viewName);
+    this.dom.subviewModalCard?.classList.toggle('task5-modal', isTask5View);
 
     // Render Contextual Data Preview
     this.renderSubviewContextualContent(viewName, plot);
@@ -540,6 +550,11 @@ class AgriApp {
 
   closeModal(updateHash = true) {
     this.dom.subviewModal.classList.remove('active');
+    this.state.activeSubview = null;
+    this.state.subviewToken += 1;
+    this.dom.subviewModalCard?.classList.remove('task5-modal');
+    if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
+    if (this.dom.modalCodeContract) this.dom.modalCodeContract.style.display = '';
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');
@@ -565,6 +580,30 @@ class AgriApp {
   }
 
   renderSubviewContextualContent(viewName, plot) {
+    const task5Views = ['risk-forecast', 'scenario-replay', 'value-ledger'];
+    if (task5Views.includes(viewName)) {
+      const renderToken = ++this.state.subviewToken;
+      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
+      if (this.dom.modalCodeContract) this.dom.modalCodeContract.style.display = 'none';
+      const context = {
+        plot,
+        plots: this.state.plots,
+        api,
+        isLive: this.state.isLive,
+        mockData: MOCK_DATA,
+        notify: (message, type) => this.showToast(message, type),
+        openSubview: (nextView, options = {}) => this.openSubview(nextView, { ...options, plotId: options.plotId || plot.plotId }),
+        renderToken,
+        isCurrent: () => this.state.activeSubview === viewName && this.state.subviewToken === renderToken
+      };
+      if (viewName === 'risk-forecast') renderRiskForecast(this.dom.modalDynamicContent, context);
+      if (viewName === 'scenario-replay') renderScenarioReplay(this.dom.modalDynamicContent, context);
+      if (viewName === 'value-ledger') renderValueLedger(this.dom.modalDynamicContent, context);
+      return;
+    }
+
+    if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
+    if (this.dom.modalCodeContract) this.dom.modalCodeContract.style.display = '';
     let contentHtml = '';
 
     if (viewName === 'plot-detail') {

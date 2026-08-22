@@ -3,7 +3,7 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-22
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；前端页面、真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；前端任务 5（预测与经营）已实现并完成静态验收；其余前端页面、真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
 
@@ -22,7 +22,7 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 不在本期后端范围 | — | 未实现前端页面；REST/SSE/OpenAPI 已交付 |
+| 可视化主线实现 | 任务 5 已实现（其余页面按范围） | P1 切片 | `risk-forecast`、`scenario-replay`、`value-ledger` 页面、API/Mock 降级和静态验收；其余页面仍按后端交付范围处理 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -50,7 +50,8 @@
 - 后端代码、数据库迁移、两个 Crop Pack、模拟器、OpenAPI/Schema、自动化测试和远端 Supervisor 部署已落盘。
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
-- 可选后续工作：补充前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
+- 前端任务 5 已落盘：风险预测扇形带与 Time-to-Risk、固定 Seed 双轨回放、情景注入、价值账本计划/实际与反事实成本图；验收脚本为 `scripts/acceptance_task5_frontend.py`，记录见 `docs/acceptance/FRONTEND_TASK5.md`。
+- 可选后续工作：补充其余前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
 
