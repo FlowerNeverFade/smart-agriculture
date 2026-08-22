@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agriloop.local/schema/api-envelope.schema.json",
+  "type": "object",
+  "required": ["requestId", "timestamp", "schemaVersion"],
+  "properties": {
+    "requestId": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "schemaVersion": {"type": "string"},
+    "data": {},
+    "error": {"type": ["object", "null"]}
+  },
+  "additionalProperties": false
+}

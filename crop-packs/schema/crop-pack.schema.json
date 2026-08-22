@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["cropCode", "version", "stages", "metrics", "rules", "prescriptionConstraints", "forecastProfile", "scenarios"],
+  "properties": {
+    "cropCode": {"type": "string"}, "version": {"type": "string"}, "stages": {"type": "array", "minItems": 1},
+    "metrics": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["code", "availability"]}},
+    "rules": {"type": "array"}, "prescriptionConstraints": {"type": "object"}, "forecastProfile": {"type": "object"}, "scenarios": {"type": "object", "minProperties": 5}
+  }
+}

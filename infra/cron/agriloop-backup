@@ -1,0 +1,1 @@
+17 3 * * * root APP_ROOT=/srv/agriloop /srv/agriloop/app/scripts/remote-backup.sh >>/srv/agriloop/logs/backup.log 2>&1

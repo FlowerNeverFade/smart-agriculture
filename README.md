@@ -259,6 +259,46 @@ LLM/RAG 超时
 
 如果进度落后，优先保护基线、数据链路、规则告警、虚拟灌溉、RAG 问答和安全闸门；复杂 3D、视觉病害、语音和外部天气 API 只做 P2。
 
+## 后端实现与运行
+
+当前仓库已包含可运行的后端工作区：
+
+```text
+apps/api-service/        Spring Boot 3 + Java 17 模块化单体
+simulator/               可重复 Python/MQTT 情景模拟器
+crop-packs/              tomato/cucumber 配置与 Schema
+infra/                   Docker Compose、Mosquitto、Supervisor、日志/备份
+scripts/                 standalone、smoke、远端部署和健康检查
+docs/api/                OpenAPI 与 JSON Schema
+```
+
+本地 standalone（无需外部数据库/Redis/MQTT）执行：
+
+```bash
+./gradlew :apps:api-service:test
+./gradlew :apps:api-service:bootRun
+```
+
+真实依赖仿真执行：
+
+```bash
+docker compose -f infra/docker-compose.yml up --build
+python simulator/runner.py --scenario drought --seed 42 --mqtt --mqtt-host 127.0.0.1 --speed 20
+# 默认 60 个采样点 × 3 个地块 × 6 个指标 = 1,080 条可重复事件
+```
+
+默认演示用户为 `farmer`、`operator`、`admin`、`sysadmin`；演示密码只在受控环境配置，不进入 Git。API 默认端口为 `8080`，登录后可使用 `/api/v1/overview`、`/api/v1/plots/{plotId}/telemetry`、`/api/v1/diagnoses/evaluate`、`/api/v1/irrigation/estimate`、`/api/v1/commands/virtual`、`/api/v1/events/stream` 等接口。
+
+远端无 Docker/systemd 时，目标目录为 `/srv/agriloop`，使用 Supervisor：
+
+```bash
+/srv/agriloop/app/scripts/start-services.sh
+supervisorctl -c /srv/agriloop/supervisor.conf status
+/srv/agriloop/app/scripts/healthcheck.sh
+```
+
+远端环境文件 `/srv/agriloop/.env` 必须保持 `600`，JWT/数据库密钥不写入仓库。远端验收记录和已知边界见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
+
 ## 高分答辩演示
 
 P0 使用固定 `drought`；只有 CAP-09 已通过回测时才改用 `gradual-drydown` 展示预测，避免把未验收增强功能放进主演示：
@@ -322,13 +362,13 @@ smart-agriculture/
 
 ## 本地启动约定
 
-实现代码补齐后，建议使用以下方式启动软件仿真态：
+后端代码已补齐，推荐以下方式启动软件仿真态（本仓库不包含前端页面）：
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
-./gradlew :apps:api-service:bootRun
-pnpm --dir apps/web-console dev
-python simulator/runner/main.py --scenario drought --speed 1
+./gradlew :apps:api-service:test :apps:api-service:bootJar
+java -jar apps/api-service/build/libs/api-service-0.1.0.jar
+python simulator/runner.py --scenario drought --mqtt --speed 20
 ```
 
 关键配置：
@@ -337,7 +377,7 @@ python simulator/runner/main.py --scenario drought --speed 1
 APP_MODE=simulation
 MQTT_URL=tcp://localhost:1883
 REDIS_URL=redis://localhost:6379
-AI_MODE=rag          # rag | rules-only | mock
+AI_MODE=rules-only   # rules-only | mock | maxkb | openai-compatible（外部不可用自动降级）
 COMMAND_MODE=virtual
 ```
 

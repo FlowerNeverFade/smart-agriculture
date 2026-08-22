@@ -1,0 +1,31 @@
+cropCode: tomato
+version: 1.0.0
+schemaVersion: '1.0'
+identity: {name: 番茄, variety: demonstration, region: 重庆}
+stages:
+  - {code: seedling, sequence: 1, target: {soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28}, riskFocus: [WATER_DEFICIT, COLD_STRESS]}
+  - {code: vegetative, sequence: 2, target: {soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30}, riskFocus: [WATER_DEFICIT, HEAT_STRESS]}
+  - {code: flowering, sequence: 3, target: {soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32}, riskFocus: [WATER_DEFICIT, HEAT_STRESS]}
+  - {code: fruiting, sequence: 4, target: {soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32}, riskFocus: [WATER_DEFICIT, HEAT_STRESS]}
+metrics:
+  - {code: SOIL_MOISTURE, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: AIR_TEMPERATURE, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
+  - {code: LIGHT, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
+  - {code: CO2, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
+  - {code: PH, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
+  - {code: WATER_LEVEL, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+rules:
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 20, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
+  - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, threshold: 35, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
+coordinationProfile: {stageSensitivity: 0.9, starvationGuardMinutes: 120}
+knowledgeVersion: kb-1.0.0
+knowledge: {documents: [knowledge/irrigation.md], fallback: [plot, region, stage, crop, general]}
+scenarios:
+  normal: {quality: GOOD, expected: stable}
+  drought: {quality: GOOD, expected: soil_moisture_decline}
+  heavy-rain: {quality: GOOD, expected: soil_moisture_rise}
+  sensor-drift: {quality: DEGRADED, expected: quality_gate}
+  device-offline: {quality: BAD, expected: device_gate}
+testCases: [normal, drought, heavy-rain, sensor-drift, device-offline]

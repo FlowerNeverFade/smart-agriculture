@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agri
+      POSTGRES_USER: agri
+      POSTGRES_PASSWORD: agri
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["agriloop_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agri -d agri"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["agriloop_redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports: ["127.0.0.1:1883:1883"]
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - agriloop_mqtt:/mosquitto/data
+      - agriloop_mqtt_log:/mosquitto/log
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 2 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: simulation
+      APP_MODE: simulation
+      DATABASE_URL: jdbc:postgresql://postgres:5432/agri
+      DATABASE_USER: agri
+      DATABASE_PASSWORD: agri
+      REDIS_URL: redis://redis:6379
+      MQTT_URL: tcp://mqtt:1883
+      JWT_SECRET: change-me-in-compose-change-me-in-compose
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      mqtt: {condition: service_started}
+  simulator:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.simulator
+    command: ["--scenario", "drought", "--mqtt", "--mqtt-host", "mqtt", "--speed", "20"]
+    depends_on: [api, mqtt]
+
+volumes:
+  agriloop_pg:
+  agriloop_redis:
+  agriloop_mqtt:
+  agriloop_mqtt_log:

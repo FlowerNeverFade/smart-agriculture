@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agriloop.local/schema/telemetry.schema.json",
+  "type": "object",
+  "required": ["eventId", "plotId", "deviceId", "metric", "value", "ts"],
+  "properties": {
+    "eventId": {"type": "string", "minLength": 1},
+    "farmId": {"type": "string"},
+    "plotId": {"type": "string", "minLength": 1},
+    "deviceId": {"type": "string", "minLength": 1},
+    "metric": {"enum": ["SOIL_MOISTURE", "AIR_TEMPERATURE", "LIGHT", "CO2", "PH", "WATER_LEVEL"]},
+    "value": {"type": "number"},
+    "unit": {"type": "string"},
+    "ts": {"type": "string", "format": "date-time"},
+    "quality": {"type": "object"},
+    "scenarioId": {"type": "string"},
+    "branchId": {"enum": ["MAIN", "EXECUTE", "NO_ACTION"]}
+  },
+  "additionalProperties": true
+}
