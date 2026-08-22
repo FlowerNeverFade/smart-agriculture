@@ -1,0 +1,227 @@
+openapi: 3.0.3
+info:
+  title: AgriLoop 农智闭环后端 API
+  version: 1.0.0
+  description: |
+    Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
+    require JWT; command actions require idempotencyKey and approval.
+servers:
+  - url: http://localhost:8080
+  - url: http://127.0.0.1:8080
+security:
+  - bearerAuth: []
+tags:
+  - name: auth
+  - name: farm
+  - name: telemetry
+  - name: decision
+  - name: execution
+  - name: scenario
+  - name: management
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}}}
+      responses:
+        '200': {description: JWT 登录成功, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/auth/me:
+    get: {tags: [auth], responses: {'200': {description: 当前用户}}}
+  /api/v1/system/status:
+    get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/overview:
+    get: {tags: [farm], responses: {'200': {description: 多地块风险总览}}}
+  /api/v1/farms:
+    get: {tags: [farm], responses: {'200': {description: 授权农场列表}}}
+  /api/v1/plots:
+    get: {tags: [farm], responses: {'200': {description: 授权地块列表}}}
+    post: {tags: [farm], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}}}
+  /api/v1/plots/{plotId}/resolved-profile:
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 参数解析结果}}}
+  /api/v1/crop-packs:
+    get: {tags: [farm], responses: {'200': {description: tomato/cucumber Crop Pack}}}
+  /api/v1/crop-batches:
+    get: {tags: [farm], responses: {'200': {description: 作物批次}}}
+  /api/v1/crop-batches/{batchId}/plan:
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/BatchId'}], responses: {'200': {description: 阶段任务}}}
+  /api/v1/crop-batches/{batchId}/plan-actual:
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/BatchId'}], responses: {'200': {description: 计划/实际偏差}}}
+  /api/v1/plots/{plotId}/telemetry:
+    get:
+      tags: [telemetry]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+        - {name: metric, in: query, schema: {type: string}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: limit, in: query, schema: {type: integer, default: 1000, maximum: 10000}}
+      responses: {'200': {description: 遥测历史}}
+  /api/v1/telemetry:
+    post:
+      tags: [telemetry]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TelemetryEvent'}}}}
+      responses: {'200': {description: 校验/去重后的遥测}}
+  /api/v1/events/stream:
+    get:
+      tags: [telemetry]
+      responses: {'200': {description: SSE 实时事件流, content: {text/event-stream: {schema: {type: string}}}}}
+  /api/v1/plots/{plotId}/risk-forecast:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}, {name: metric, in: query, schema: {type: string, default: SOIL_MOISTURE}}], responses: {'200': {description: 预测或明确弃权}}}
+  /api/v1/plots/{plotId}/timeline:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 决策时间轴}}}
+  /api/v1/forecasts/evaluate:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: forecast_snapshot}}}
+  /api/v1/rules/evaluate:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 规则评估}}}
+  /api/v1/rules:
+    get: {tags: [decision], responses: {'200': {description: Crop Pack 规则目录}}}
+  /api/v1/diagnoses/evaluate:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 根因与证据}}}
+  /api/v1/diagnoses/{diagnosisId}:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], responses: {'200': {description: 根因详情}}}
+  /api/v1/decisions/{subjectType}/{subjectId}/readiness:
+    get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
+  /api/v1/decision-readiness/{readinessId}/evidence-requests:
+    post: {tags: [decision], parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 补证工单}}}
+  /api/v1/inspections:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 田间核验}}}
+  /api/v1/plots/{plotId}/inspections:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 核验记录}}}
+  /api/v1/irrigation/estimate:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+  /api/v1/agent/chat:
+    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
+  /api/v1/agent/tools:
+    get: {tags: [decision], responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
+  /api/v1/agent/runs/{traceId}:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], responses: {'200': {description: Agent trace}}}
+  /api/v1/decision-passports/{traceId}:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], responses: {'200': {description: 决策护照}}}
+  /api/v1/decisions/{traceId}/feedback:
+    post: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 反馈/合格案例}}}
+  /api/v1/decisions/{traceId}/similar-cases:
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], responses: {'200': {description: 确定性相似案例}}}
+  /api/v1/commands/virtual:
+    post:
+      tags: [execution]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualCommandRequest'}}}}
+      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等/冷却冲突}, '422': {description: 就绪度/安全拒绝}}
+  /api/v1/commands/{commandId}:
+    get: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], responses: {'200': {description: 命令与 ACK}}}
+  /api/v1/commands/{commandId}/ack:
+    post: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CommandAck'}}}}, responses: {'200': {description: ACK 与效果评价}}}
+  /api/v1/commands/{commandId}/evaluation:
+    get: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], responses: {'200': {description: 效果评价}}}
+  /api/v1/scenarios/runs:
+    post: {tags: [scenario], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 固定 seed 情景运行}}}
+    get: {tags: [scenario], responses: {'200': {description: 情景运行列表}}}
+  /api/v1/scenarios/runs/{runId}:
+    get: {tags: [scenario], parameters: [{$ref: '#/components/parameters/RunId'}], responses: {'200': {description: 情景运行}}}
+  /api/v1/scenarios/runs/{runId}/snapshot:
+    get: {tags: [scenario], parameters: [{$ref: '#/components/parameters/RunId'}], responses: {'200': {description: 冻结只读快照}}}
+  /api/v1/scenarios/compare:
+    post: {tags: [scenario], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: EXECUTE/NO_ACTION 双轨比较}}}
+  /api/v1/work-items/today:
+    get: {tags: [management], parameters: [{name: plotId, in: query, schema: {type: string}}], responses: {'200': {description: 今日农务}}}
+  /api/v1/work-orders:
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 工单}}}
+    get: {tags: [management], responses: {'200': {description: 授权工单}}}
+  /api/v1/alerts:
+    get: {tags: [management], responses: {'200': {description: 告警列表}}}
+  /api/v1/alerts/{alertId}/ack:
+    post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 确认告警}}}
+  /api/v1/alerts/{alertId}/close:
+    post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 关闭告警}}}
+  /api/v1/alerts/{alertId}/escalate:
+    post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 升级告警}}}
+  /api/v1/resource-plans/evaluate:
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: FEASIBLE/INFEASIBLE 资源计划}}}
+  /api/v1/resource-plans/{resourcePlanId}:
+    get: {tags: [management], parameters: [{name: resourcePlanId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 资源计划详情}}}
+  /api/v1/value-ledgers:
+    get: {tags: [management], responses: {'200': {description: 价值账本}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: COMPUTED/INCOMPLETE 价值账本}}}
+  /api/v1/strategy-candidates:
+    get: {tags: [management], responses: {'200': {description: 策略候选}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: DRAFT}}}
+  /api/v1/strategy-candidates/{id}/offline-validate:
+    post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: OFFLINE_VALIDATED}}}
+  /api/v1/strategy-candidates/{id}/transition:
+    post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 审批/激活/回滚}}}
+  /api/v1/devices:
+    get: {tags: [management], responses: {'200': {description: 设备列表}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 注册虚拟设备}}}
+  /api/v1/devices/{deviceId}/bind:
+    post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备}}}
+  /api/v1/devices/{deviceId}/unbind:
+    post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 解绑设备}}}
+  /api/v1/devices/{deviceId}/heartbeat:
+    post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 心跳恢复}}}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    PlotId: {name: plotId, in: path, required: true, schema: {type: string}}
+    BatchId: {name: batchId, in: path, required: true, schema: {type: string}}
+    DiagnosisId: {name: diagnosisId, in: path, required: true, schema: {type: string}}
+    CommandId: {name: commandId, in: path, required: true, schema: {type: string}}
+    TraceId: {name: traceId, in: path, required: true, schema: {type: string}}
+    RunId: {name: runId, in: path, required: true, schema: {type: string}}
+  requestBodies:
+    JsonObject:
+      required: true
+      content: {application/json: {schema: {type: object, additionalProperties: true}}}
+  responses:
+    Unauthorized: {description: 认证失败}
+  schemas:
+    ApiEnvelope:
+      type: object
+      required: [requestId, timestamp, schemaVersion]
+      properties:
+        requestId: {type: string, format: uuid}
+        timestamp: {type: string, format: date-time}
+        schemaVersion: {type: string}
+        data: {type: object, nullable: true}
+        error: {type: object, nullable: true}
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string, minLength: 1}
+        password: {type: string, format: password, minLength: 1}
+    TelemetryEvent:
+      type: object
+      required: [eventId, plotId, deviceId, metric, value, ts]
+      properties:
+        eventId: {type: string}
+        farmId: {type: string}
+        plotId: {type: string}
+        deviceId: {type: string}
+        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, LIGHT, CO2, PH, WATER_LEVEL]}
+        value: {type: number}
+        unit: {type: string}
+        ts: {type: string, format: date-time}
+        quality: {type: object, additionalProperties: true}
+        scenarioId: {type: string}
+        branchId: {type: string, enum: [MAIN, EXECUTE, NO_ACTION]}
+    VirtualCommandRequest:
+      type: object
+      required: [plotId, idempotencyKey, approved]
+      properties:
+        plotId: {type: string}
+        planId: {type: string}
+        idempotencyKey: {type: string, minLength: 8}
+        approved: {type: boolean}
+        outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
+    CommandAck:
+      type: object
+      required: [status]
+      properties:
+        commandId: {type: string}
+        status: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
+        actualWaterLitre: {type: number, minimum: 0}
+        receivedAt: {type: string, format: date-time}

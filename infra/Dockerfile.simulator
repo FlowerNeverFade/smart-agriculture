@@ -1,0 +1,6 @@
+FROM python:3.12-slim
+WORKDIR /workspace
+COPY simulator/requirements.txt /workspace/simulator/requirements.txt
+RUN pip install --no-cache-dir -r /workspace/simulator/requirements.txt
+COPY simulator /workspace/simulator
+ENTRYPOINT ["python", "simulator/runner.py"]

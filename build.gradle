@@ -1,0 +1,36 @@
+plugins {
+    id 'org.springframework.boot' version '3.3.5' apply false
+    id 'io.spring.dependency-management' version '1.1.6' apply false
+}
+
+allprojects {
+    group = 'com.agriloop'
+    version = '0.1.0'
+}
+
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'io.spring.dependency-management'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    configurations {
+        compileOnly {
+            extendsFrom annotationProcessor
+        }
+    }
+
+    dependencies {
+        testImplementation 'org.springframework.boot:spring-boot-starter-test'
+        // Gradle 9 requires the JUnit Platform launcher on the test runtime classpath.
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+    }
+}

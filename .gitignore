@@ -1,3 +1,10 @@
+.gradle/
+build/
+out/
+*.iml
+.idea/
+
+# Python and environment artifacts
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -5,8 +12,28 @@ __pycache__/
 venv/
 .conda/
 .env
+.env.*
+
+# Frontend/build artifacts
 node_modules/
 dist/
+
+# Generated project data
 data/
 *.jsonl
+logs/
+backups/
+*.log
+
+# Generated visual assets and Office temporary lock files
+output/
+~$*.doc
+~$*.docx
+~$*.xls
+~$*.xlsx
+~$*.ppt
+~$*.pptx
+
+# Common OS artifacts
 .DS_Store
+Thumbs.db

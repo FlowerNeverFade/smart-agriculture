@@ -1,0 +1,25 @@
+name: agriloop-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run backend tests
+        run: ./gradlew :apps:api-service:test --no-daemon
+      - name: Build boot jar
+        run: ./gradlew :apps:api-service:bootJar --no-daemon
+      - name: Validate simulator syntax
+        run: python3 -m py_compile simulator/runner.py
+      - name: Validate Crop Packs
+        run: |
+          python3 -m pip install -r simulator/requirements.txt
+          python3 scripts/validate_crop_packs.py

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agriloop.local/schema/command-ack.schema.json",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "commandId": {"type": "string"},
+    "status": {"enum": ["SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT"]},
+    "actualWaterLitre": {"type": "number", "minimum": 0},
+    "receivedAt": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": true
+}

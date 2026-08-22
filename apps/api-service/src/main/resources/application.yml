@@ -1,0 +1,98 @@
+server:
+  port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: agriloop-api
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  profiles:
+    default: standalone
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+  datasource:
+    url: ${DATABASE_URL:jdbc:h2:mem:agriloop;MODE=PostgreSQL;DB_CLOSE_DELAY=-1}
+    username: ${DATABASE_USER:sa}
+    password: ${DATABASE_PASSWORD:}
+    driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}
+    hikari:
+      maximum-pool-size: ${DATABASE_POOL_SIZE:8}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+agriloop:
+  mode: ${APP_MODE:standalone}
+  ai-mode: ${AI_MODE:rules-only}
+  command-mode: ${COMMAND_MODE:virtual}
+  forecast-mode: ${FORECAST_MODE:deterministic}
+  learning-mode: ${LEARNING_MODE:case-only}
+  value-mode: ${VALUE_MODE:simulation}
+  jwt-secret: ${JWT_SECRET:change-me-in-production-change-me-in-production}
+  jwt-ttl-minutes: ${JWT_TTL_MINUTES:720}
+  mqtt-url: ${MQTT_URL:tcp://localhost:1883}
+  mqtt-client-id: ${MQTT_CLIENT_ID:agriloop-api}
+  mqtt-username: ${MQTT_USERNAME:}
+  mqtt-password: ${MQTT_PASSWORD:}
+  telemetry-stream: ${TELEMETRY_STREAM:agri.telemetry}
+  device-timeout-seconds: ${DEVICE_TIMEOUT_SECONDS:90}
+  seed-data: ${SEED_DATA:true}
+  sse-heartbeat-seconds: ${SSE_HEARTBEAT_SECONDS:15}
+  max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}
+  daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
+  crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+
+logging:
+  level:
+    com.agriloop: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: simulation
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/agri}
+    username: ${DATABASE_USER:agri}
+    password: ${DATABASE_PASSWORD:agri}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+
+agriloop:
+  mode: simulation
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:agriloop_test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: true
+
+agriloop:
+  mode: standalone
+  seed-data: true
