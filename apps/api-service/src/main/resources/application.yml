@@ -50,13 +50,6 @@ agriloop:
   max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}
   daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
   crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
-  # Built-in virtual sensors (no external MQTT/Python simulator required)
-  virtual-sensor-enabled: ${VIRTUAL_SENSOR_ENABLED:true}
-  virtual-sensor-interval-seconds: ${VIRTUAL_SENSOR_INTERVAL_SECONDS:5}
-  virtual-sensor-initial-delay-seconds: ${VIRTUAL_SENSOR_INITIAL_DELAY_SECONDS:2}
-  virtual-sensor-scenario: ${VIRTUAL_SENSOR_SCENARIO:normal}
-  virtual-sensor-scenario-id: ${VIRTUAL_SENSOR_SCENARIO_ID:builtin-virtual-sensor}
-  virtual-sensor-seed: ${VIRTUAL_SENSOR_SEED:42}
 
 management:
   endpoints:
@@ -66,9 +59,6 @@ management:
   endpoint:
     health:
       show-details: when_authorized
-  health:
-    redis:
-      enabled: false
 
 logging:
   level:
@@ -89,7 +79,6 @@ spring:
 
 agriloop:
   mode: simulation
-  virtual-sensor-enabled: false
 
 ---
 spring:
@@ -107,4 +96,3 @@ spring:
 agriloop:
   mode: standalone
   seed-data: true
-  virtual-sensor-enabled: false
