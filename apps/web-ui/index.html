@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
+  <!-- Google Fonts: Inter & JetBrains Mono for world-class typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
-  <!-- Favicon Icon -->
-  <link rel="icon"
-    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
-
 <body>
 
   <!-- =========================================================================
-       Top Header Navigation (GitHub Inspired)
+       Top Frosted Glass Navigation (Raycast / Linear Header)
        ========================================================================= -->
   <header class="app-header">
     <div class="header-left">
@@ -44,7 +44,7 @@
         <span id="systemStatusText">后端仿真态 (POSTGRESQL)</span>
       </div>
 
-      <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发">
+      <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发处方决策">
         <span>+</span> 快捷操作
       </button>
 
@@ -82,13 +82,13 @@
        ========================================================================= -->
   <main class="app-container">
 
-    <!-- ======================== Left Rail (290px) ======================== -->
+    <!-- ======================== Left Rail (280px) ======================== -->
     <aside class="left-rail">
       <!-- 1. Plots & Crops Switcher -->
       <section class="rail-section">
         <div class="rail-section-header">
           <span class="rail-section-title">地块与作物</span>
-          <span style="font-size: 11px; color: var(--text-muted);" id="plotsCountTag">3 个地块</span>
+          <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);" id="plotsCountTag">3 个地块</span>
         </div>
 
         <select class="farm-switch-select" id="farmSelect" title="切换农场示范区">
@@ -112,61 +112,61 @@
         <ul class="module-nav-list" id="moduleNavList">
           <li>
             <a class="module-nav-item active" data-view="home">
-              <span><span class="icon">🏠</span>主面板 (Home)</span>
+              <span class="nav-left"><span>🏠</span> 主面板 (Home)</span>
               <span class="module-badge">实时</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="plot-detail">
-              <span><span class="icon">📊</span>地块时序遥测</span>
+              <span class="nav-left"><span>📊</span> 地块时序遥测</span>
               <span class="module-badge">B-01~03</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="decision-console">
-              <span><span class="icon">🧠</span>智能诊断与决策台</span>
+              <span class="nav-left"><span>🧠</span> 智能诊断与决策台</span>
               <span class="module-badge">CAP-04/05</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="work-orders">
-              <span><span class="icon">📋</span>今日农务与巡田</span>
+              <span class="nav-left"><span>📋</span> 今日农务与巡田</span>
               <span class="module-badge">CAP-02/03</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="risk-forecast">
-              <span><span class="icon">🔮</span>未来风险预测推演</span>
+              <span class="nav-left"><span>🔮</span> 未来风险预测推演</span>
               <span class="module-badge">CAP-09</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="resource-coordination">
-              <span><span class="icon">💧</span>水资源协同排程</span>
+              <span class="nav-left"><span>💧</span> 水资源协同排程</span>
               <span class="module-badge">CAP-11</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="value-ledger">
-              <span><span class="icon">💰</span>经营价值与效益对账</span>
+              <span class="nav-left"><span>💰</span> 经营价值与效益对账</span>
               <span class="module-badge">CAP-12</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="decision-passport">
-              <span><span class="icon">🛡️</span>决策护照与审计</span>
+              <span class="nav-left"><span>🛡️</span> 决策护照与审计</span>
               <span class="module-badge">CAP-13</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="scenario-replay">
-              <span><span class="icon">⚡</span>情景模拟与双轨回放</span>
+              <span class="nav-left"><span>⚡</span> 情景模拟与双轨回放</span>
               <span class="module-badge">Gate 2</span>
             </a>
           </li>
           <li>
             <a class="module-nav-item" data-view="crop-packs">
-              <span><span class="icon">📦</span>作物规则包管理</span>
+              <span class="nav-left"><span>📦</span> 作物规则包管理</span>
               <span class="module-badge">Schema</span>
             </a>
           </li>
@@ -176,71 +176,171 @@
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
-      <div class="main-feed-header">
-        <h1 class="main-feed-title">
-          <span>Home</span>
-          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/
-            示范农场全域</span>
-        </h1>
-        <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
-      </div>
-
-      <!-- Copilot Agent Prompt Box (GitHub Home Prompt Box Style) -->
-      <div class="copilot-prompt-card">
-        <div class="copilot-input-area">
-          <textarea class="copilot-textarea" id="copilotInput"
-            placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')..."></textarea>
+      
+      <!-- Top 4 Bento Spotlight Metrics Cards with Live Sparklines -->
+      <div class="bento-grid">
+        <!-- Bento 1: Soil Moisture & Telemetry Sparkline -->
+        <div class="bento-card">
+          <div class="bento-card-header">
+            <span class="bento-card-title">🍅 1号棚 · 土壤墒情</span>
+            <span class="bento-card-badge warn">缺水预警</span>
+          </div>
+          <div class="bento-metric-val">
+            <span>16.8%</span>
+            <span class="bento-metric-unit">/ 目标 25%</span>
+          </div>
+          <div class="bento-subtext">番茄果实膨大期 · 需补水 153L</div>
+          <div class="sparkline-box">
+            <!-- Smooth Gradient Sparkline -->
+            <svg viewBox="0 0 160 36">
+              <defs>
+                <linearGradient id="sparkGradAmber" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,8 Q30,12 60,18 T120,28 T160,32 L160,36 L0,36 Z" fill="url(#sparkGradAmber)"/>
+              <path d="M0,8 Q30,12 60,18 T120,28 T160,32" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="160" cy="32" r="3" fill="#f59e0b"/>
+            </svg>
+          </div>
         </div>
 
-        <div class="copilot-actions-bar">
-          <div class="copilot-chips">
-            <span style="font-size: 11px; color: var(--text-muted);">快捷意图：</span>
-            <button class="chip-btn" data-intent="diagnose">🌾 诊断异常</button>
-            <button class="chip-btn" data-intent="irrigation">💧 灌溉处方</button>
-            <button class="chip-btn" data-intent="forecast">🔮 风险预测</button>
-            <button class="chip-btn" data-intent="work">📋 今日农务</button>
-            <button class="chip-btn" data-intent="status">📊 地块状态</button>
+        <!-- Bento 2: Reservoir Water Quota -->
+        <div class="bento-card">
+          <div class="bento-card-header">
+            <span class="bento-card-title">💧 集中蓄水池配额</span>
+            <span class="bento-card-badge success">供水充足</span>
           </div>
+          <div class="bento-metric-val">
+            <span>1,240<span style="font-size: 16px; font-weight: normal;">L</span></span>
+            <span class="bento-metric-unit">/ 5,000L</span>
+          </div>
+          <div class="bento-subtext">消耗率 24.8% · 流量 18L/min</div>
+          <div class="sparkline-box">
+            <svg viewBox="0 0 160 36">
+              <defs>
+                <linearGradient id="sparkGradBlue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,28 Q40,22 80,18 T140,10 T160,8 L160,36 L0,36 Z" fill="url(#sparkGradBlue)"/>
+              <path d="M0,28 Q40,22 80,18 T140,10 T160,8" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="160" cy="8" r="3" fill="#38bdf8"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Bento 3: AI Decision Closed-Loop Stats -->
+        <div class="bento-card">
+          <div class="bento-card-header">
+            <span class="bento-card-title">🧠 今日农智决策流</span>
+            <span class="bento-card-badge info">12条闭环</span>
+          </div>
+          <div class="bento-metric-val">
+            <span>4<span style="font-size: 16px; font-weight: normal;">条待批</span></span>
+            <span class="bento-metric-unit">· 100% 审计</span>
+          </div>
+          <div class="bento-subtext">平均决策耗时 8.5min · 护照链完备</div>
+          <div class="sparkline-box">
+            <svg viewBox="0 0 160 36">
+              <defs>
+                <linearGradient id="sparkGradGreen" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#4ade80" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#4ade80" stop-opacity="0.0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,20 Q40,8 80,14 T120,6 T160,10 L160,36 L0,36 Z" fill="url(#sparkGradGreen)"/>
+              <path d="M0,20 Q40,8 80,14 T120,6 T160,10" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="160" cy="10" r="3" fill="#4ade80"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Bento 4: Safety Hard Gates Readiness -->
+        <div class="bento-card">
+          <div class="bento-card-header">
+            <span class="bento-card-title">🛡️ 决策安全就绪度</span>
+            <span class="bento-card-badge success">GATE PASS</span>
+          </div>
+          <div class="bento-metric-val">
+            <span>0.98</span>
+            <span class="bento-metric-unit">/ 1.00 满分</span>
+          </div>
+          <div class="bento-subtext">4/4 项硬锁检验通过 · 无漂移</div>
+          <div class="sparkline-box">
+            <svg viewBox="0 0 160 36">
+              <defs>
+                <linearGradient id="sparkGradPurple" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#a855f7" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#a855f7" stop-opacity="0.0"/>
+                </linearGradient>
+              </defs>
+              <path d="M0,15 Q50,15 90,8 T140,8 T160,6 L160,36 L0,36 Z" fill="url(#sparkGradPurple)"/>
+              <path d="M0,15 Q50,15 90,8 T140,8 T160,6" fill="none" stroke="#a855f7" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="160" cy="6" r="3" fill="#a855f7"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Raycast-Style Sleek AI Copilot Capsule Bar -->
+      <div class="copilot-capsule-card">
+        <div class="copilot-input-row">
+          <span class="copilot-sparkle-icon">✨</span>
+          <input type="text" class="copilot-input-field" id="copilotInput"
+            placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')...">
           <button class="copilot-send-btn" id="btnSendCopilot">
-            <span>✨ 智能分析</span>
+            <span>智能分析</span>
+            <span style="font-size: 11px;">↵</span>
           </button>
+        </div>
+
+        <div class="copilot-chips-row">
+          <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">快捷意图：</span>
+          <button class="intent-chip" data-intent="diagnose">🌾 诊断异常</button>
+          <button class="intent-chip" data-intent="irrigation">💧 灌溉处方</button>
+          <button class="intent-chip" data-intent="forecast">🔮 风险预测</button>
+          <button class="intent-chip" data-intent="work">📋 今日农务</button>
+          <button class="intent-chip" data-intent="status">📊 地块状态</button>
         </div>
 
         <!-- Dynamic Output Banner -->
         <div class="copilot-output-banner" id="copilotOutputBanner">
           <div class="copilot-output-header">
-            <span id="copilotOutputTitle">🤖 AgriLoop Agent 协同结果</span>
-            <span style="font-family: var(--font-mono); font-size: 11px;" id="copilotTraceId">traceId: run-demo</span>
+            <span id="copilotOutputTitle">🤖 AgriLoop Agent 协同推理结果</span>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);" id="copilotTraceId">traceId: run-demo</span>
           </div>
           <div class="copilot-output-text" id="copilotOutputText">正在分析...</div>
         </div>
       </div>
 
-      <!-- Feed Filter Bar -->
-      <div class="feed-filter-bar">
-        <div class="feed-tabs" id="feedTabButtons">
+      <!-- Feed Filter Header Bar -->
+      <div class="feed-header-bar">
+        <div class="feed-tabs-group" id="feedTabButtons">
           <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
           <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
           <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
           <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
           <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
         </div>
-        <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
+        <span style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);" id="feedCountTag">共 4 条关键动态</span>
       </div>
 
       <!-- Feed Stream Container -->
-      <div class="feed-stream" id="feedStreamContainer">
+      <div class="feed-stream-container" id="feedStreamContainer">
         <!-- Dynamically rendered feed items from JS -->
       </div>
     </section>
 
-    <!-- ======================== Right Rail (330px) ======================== -->
+    <!-- ======================== Right Rail (320px) ======================== -->
     <aside class="right-rail">
       <!-- 1. System Health Status Card -->
       <div class="system-status-card">
         <div class="system-status-header">
-          <span>系统与基础设施状态</span>
-          <span style="font-size: 11px; color: var(--green-bright);">● 全部正常</span>
+          <span>基础设施服务矩阵</span>
+          <span style="font-size: 11px; color: var(--green-bright); font-family: var(--font-mono);">● 全部就绪</span>
         </div>
         <ul class="dep-status-list">
           <li class="dep-status-item">
@@ -248,7 +348,7 @@
             <span class="dep-tag">UP</span>
           </li>
           <li class="dep-status-item">
-            <span>事件队列 (Redis Streams)</span>
+            <span>事件流队列 (Redis Streams)</span>
             <span class="dep-tag">UP</span>
           </li>
           <li class="dep-status-item">
@@ -256,55 +356,54 @@
             <span class="dep-tag">UP</span>
           </li>
           <li class="dep-status-item">
-            <span>决策引擎模式 (AI Mode)</span>
-            <span class="dep-tag" style="background-color: var(--blue-subtle); color: var(--blue-hover);"
-              id="rightAiModeTag">rules-only</span>
+            <span>决策引擎模式 (AI Engine)</span>
+            <span class="dep-tag" style="background-color: var(--blue-subtle); color: var(--blue-hover);" id="rightAiModeTag">rules-only</span>
           </li>
         </ul>
       </div>
 
-      <!-- 2. Water Quota & Resource Coordination -->
+      <!-- 2. Water Quota & Pipeline Schedule -->
       <div class="system-status-card">
         <div class="system-status-header">
-          <span>今日水资源调度配额</span>
-          <a class="btn-ghost" style="font-size: 11px; cursor: pointer;" id="btnViewResourceDetail">协同排程 →</a>
+          <span>全区水资源调度与负载</span>
+          <button class="btn btn-secondary" style="font-size: 11px; padding: 2px 8px;" id="btnViewResourceDetail">协同排程 ›</button>
         </div>
         <div class="quota-progress-container">
           <div class="quota-header">
             <span>蓄水池消耗：1,240L / 5,000L</span>
-            <span style="font-weight: 600; color: var(--green-bright);">24.8%</span>
+            <span style="font-family: var(--font-mono); font-weight: 600;">24.8%</span>
           </div>
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" style="width: 24.8%;"></div>
           </div>
-          <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-            当前流速：18 L/min · 无管道争用冲突 · 状态：FEASIBLE
-          </p>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 10px; line-height: 1.5;">
+          当前干管流量：18 L/min · 无管道冲突，调度状态：<strong style="color: var(--green-bright);">FEASIBLE</strong>
         </div>
       </div>
 
-      <!-- 3. Decision Readiness Hard Gates Radar -->
+      <!-- 3. Decision Readiness Hard-Gates -->
       <div class="system-status-card">
         <div class="system-status-header">
-          <span>决策就绪度安全门控</span>
-          <span style="font-size: 11px; color: var(--green-bright);">就绪分 0.98</span>
+          <span>处方硬锁安全门控</span>
+          <span style="font-size: 11px; color: var(--green-bright); font-family: var(--font-mono);">就绪分 0.98</span>
         </div>
-        <ul class="dep-status-list" style="font-size: 11px;">
+        <ul class="dep-status-list">
           <li class="dep-status-item">
             <span>遥测完整度 & 新鲜度 (≤180s)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
+            <span style="color: var(--green-bright); font-weight: 600; font-family: var(--font-mono);">PASS</span>
           </li>
           <li class="dep-status-item">
             <span>数据质量 (去漂移 / GOOD)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
+            <span style="color: var(--green-bright); font-weight: 600; font-family: var(--font-mono);">PASS</span>
           </li>
           <li class="dep-status-item">
             <span>执行时长安全上限 (≤900s)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
+            <span style="color: var(--green-bright); font-weight: 600; font-family: var(--font-mono);">PASS</span>
           </li>
           <li class="dep-status-item">
             <span>120min 灌溉冷却硬锁</span>
-            <span style="color: var(--green-bright); font-weight: 600;">READY</span>
+            <span style="color: var(--green-bright); font-weight: 600; font-family: var(--font-mono);">READY</span>
           </li>
         </ul>
       </div>
@@ -363,5 +462,4 @@
   <!-- Load ES Module Scripts -->
   <script type="module" src="js/app.js"></script>
 </body>
-
 </html>
