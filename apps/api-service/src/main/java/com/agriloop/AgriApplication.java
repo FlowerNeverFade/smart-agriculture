@@ -45,8 +45,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -105,6 +110,12 @@ class AgriProperties {
     private long maxIrrigationSeconds = 900;
     private double dailyWaterLimitLitres = 5000;
     private String cropPackPath = "classpath:/crop-packs";
+    private boolean virtualSensorEnabled = true;
+    private long virtualSensorIntervalSeconds = 5;
+    private long virtualSensorInitialDelaySeconds = 2;
+    private String virtualSensorScenario = "normal";
+    private String virtualSensorScenarioId = "builtin-virtual-sensor";
+    private long virtualSensorSeed = 42;
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -144,6 +155,18 @@ class AgriProperties {
     public void setDailyWaterLimitLitres(double dailyWaterLimitLitres) { this.dailyWaterLimitLitres = dailyWaterLimitLitres; }
     public String getCropPackPath() { return cropPackPath; }
     public void setCropPackPath(String cropPackPath) { this.cropPackPath = cropPackPath; }
+    public boolean isVirtualSensorEnabled() { return virtualSensorEnabled; }
+    public void setVirtualSensorEnabled(boolean virtualSensorEnabled) { this.virtualSensorEnabled = virtualSensorEnabled; }
+    public long getVirtualSensorIntervalSeconds() { return virtualSensorIntervalSeconds; }
+    public void setVirtualSensorIntervalSeconds(long virtualSensorIntervalSeconds) { this.virtualSensorIntervalSeconds = virtualSensorIntervalSeconds; }
+    public long getVirtualSensorInitialDelaySeconds() { return virtualSensorInitialDelaySeconds; }
+    public void setVirtualSensorInitialDelaySeconds(long virtualSensorInitialDelaySeconds) { this.virtualSensorInitialDelaySeconds = virtualSensorInitialDelaySeconds; }
+    public String getVirtualSensorScenario() { return virtualSensorScenario; }
+    public void setVirtualSensorScenario(String virtualSensorScenario) { this.virtualSensorScenario = virtualSensorScenario; }
+    public String getVirtualSensorScenarioId() { return virtualSensorScenarioId; }
+    public void setVirtualSensorScenarioId(String virtualSensorScenarioId) { this.virtualSensorScenarioId = virtualSensorScenarioId; }
+    public long getVirtualSensorSeed() { return virtualSensorSeed; }
+    public void setVirtualSensorSeed(long virtualSensorSeed) { this.virtualSensorSeed = virtualSensorSeed; }
 }
 
 @Configuration
@@ -644,7 +667,7 @@ class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable())
-                .cors(cors -> { })
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, ignored) -> writeError(response, HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要有效的登录令牌"))
@@ -654,6 +677,21 @@ class SecurityConfig {
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
+    }
+
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://[::1]:*"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 
     private void writeError(HttpServletResponse response, HttpStatus status, String code, String message) throws IOException {
@@ -828,6 +866,9 @@ class AgriEngine {
         status.put("mqttCommandTransport", mqttCommands.available() ? "UP" : "FALLBACK_OR_IDLE");
         status.put("persistence", store.persistenceKind());
         status.put("ai", properties.getAiMode());
+        status.put("virtualSensor", properties.isVirtualSensorEnabled() ? "UP" : "OFF");
+        status.put("virtualSensorScenario", properties.getVirtualSensorScenario());
+        status.put("virtualSensorIntervalSeconds", properties.getVirtualSensorIntervalSeconds());
         return status;
     }
 
@@ -1438,6 +1479,132 @@ class AgriEngine {
     private Map<String, Object> requireRecord(String type, String id) { Map<String, Object> value = store.find(type, id); if (value == null) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", type + " " + id + " 不存在"); return value; }
     private int riskRank(String value) { return switch (String.valueOf(value).toUpperCase(Locale.ROOT)) { case "CRITICAL", "EMERGENCY", "HIGH", "SEVERE" -> 4; case "MEDIUM", "GENERAL" -> 3; case "LOW", "INFO" -> 2; default -> 1; }; }
     private record StreamBuilder(List<Map<String, Object>> values) { StreamBuilder() { this(new ArrayList<>()); } void add(Map<String, Object> v) { values.add(v); } }
+}
+
+/**
+ * Built-in virtual environmental sensors for standalone demos.
+ * Generates live telemetry through the same ingest path as MQTT/simulator,
+ * without requiring a separate Python process or broker.
+ */
+@Service
+class VirtualSensorSimulator {
+    private static final Logger log = LoggerFactory.getLogger(VirtualSensorSimulator.class);
+    private static final List<String> PLOTS = List.of("plot-a01", "plot-a02", "plot-b01");
+    private static final double[] SOIL_BASE = {34.0, 28.0, 35.0};
+    private static final String[][] METRICS = {
+            {"SOIL_MOISTURE", "%"},
+            {"AIR_TEMPERATURE", "°C"},
+            {"LIGHT", "lux"},
+            {"CO2", "ppm"},
+            {"PH", "pH"},
+            {"WATER_LEVEL", "%"},
+    };
+
+    private final AgriEngine engine;
+    private final AgriProperties properties;
+    private final Random rng;
+    private int tick;
+
+    VirtualSensorSimulator(AgriEngine engine, AgriProperties properties) {
+        this.engine = engine;
+        this.properties = properties;
+        this.rng = new Random(properties.getVirtualSensorSeed());
+    }
+
+    @PostConstruct
+    void announce() {
+        if (properties.isVirtualSensorEnabled()) {
+            log.info("Virtual sensor enabled (scenario={}, interval={}s, scenarioId={})",
+                    properties.getVirtualSensorScenario(),
+                    properties.getVirtualSensorIntervalSeconds(),
+                    properties.getVirtualSensorScenarioId());
+        }
+    }
+
+    @Scheduled(
+            initialDelayString = "${agriloop.virtual-sensor-initial-delay-seconds:2}000",
+            fixedDelayString = "${agriloop.virtual-sensor-interval-seconds:5}000")
+    void emitTick() {
+        if (!properties.isVirtualSensorEnabled()) return;
+        tick++;
+        String scenario = properties.getVirtualSensorScenario();
+        String scenarioId = properties.getVirtualSensorScenarioId();
+        Instant now = Instant.now();
+        for (int plotIndex = 0; plotIndex < PLOTS.size(); plotIndex++) {
+            String plotId = PLOTS.get(plotIndex);
+            for (String[] metric : METRICS) {
+                String code = metric[0];
+                double value = sampleValue(scenario, plotIndex, code, tick);
+                Map<String, Object> quality = new LinkedHashMap<>();
+                String qualityStatus = qualityStatus(scenario, code, tick);
+                quality.put("status", qualityStatus);
+                quality.put("freshnessMs", 0L);
+                quality.put("confidence", "BAD".equals(qualityStatus) ? 0.2 : "DEGRADED".equals(qualityStatus) ? 0.55 : 0.98);
+                quality.put("sourceMode", "SIMULATION");
+                Map<String, Object> event = new LinkedHashMap<>();
+                event.put("eventId", scenarioId + "-vs-" + plotId + "-" + code + "-" + tick);
+                event.put("farmId", "farm-demo");
+                event.put("plotId", plotId);
+                event.put("deviceId", "mock-" + plotId);
+                event.put("metric", code);
+                event.put("value", Math.round(value * 10.0) / 10.0);
+                event.put("unit", metric[1]);
+                event.put("ts", now.toString());
+                event.put("quality", quality);
+                event.put("scenarioId", scenarioId);
+                event.put("branchId", "MAIN");
+                engine.ingest(event);
+            }
+        }
+        if (tick == 1) {
+            log.info("Virtual sensor first telemetry tick emitted for {} plots × {} metrics", PLOTS.size(), METRICS.length);
+        }
+    }
+
+    private double sampleValue(String scenario, int plotIndex, String metric, int index) {
+        double noise = (rng.nextDouble() - 0.5) * 2.0;
+        double wave = Math.sin(index / 8.0 + plotIndex);
+        return switch (metric) {
+            case "SOIL_MOISTURE" -> {
+                double base = SOIL_BASE[plotIndex];
+                if ("drought".equalsIgnoreCase(scenario) || "gradual-drydown".equalsIgnoreCase(scenario)) {
+                    base -= index * ("drought".equalsIgnoreCase(scenario) ? 0.08 : 0.04);
+                } else if ("heavy-rain".equalsIgnoreCase(scenario)) {
+                    base += index * 0.05;
+                } else if ("sensor-drift".equalsIgnoreCase(scenario)) {
+                    base += noise * 0.5;
+                }
+                yield clamp(base + wave * 0.6 + noise * 0.35, 0, 100);
+            }
+            case "AIR_TEMPERATURE" -> {
+                double base = 26.5 + plotIndex * 0.5 + ("heat-wave".equalsIgnoreCase(scenario) ? 6.0 : 0.0);
+                yield clamp(base + wave * 1.2 + noise * 0.75, -40, 80);
+            }
+            case "LIGHT" -> {
+                double daylight = Math.max(0, Math.sin((index % 48) / 48.0 * Math.PI * 2));
+                yield clamp(8000 + daylight * 32000 + noise * 900, 0, 100000);
+            }
+            case "CO2" -> clamp(650 + wave * 20 + noise * 15, 350, 1200);
+            case "PH" -> clamp(6.2 + noise * 0.08, 5.5, 7.2);
+            case "WATER_LEVEL" -> {
+                double drain = "limited-water".equalsIgnoreCase(scenario) ? 0.05 : 0.008;
+                yield clamp(75 - index * drain + noise * 0.5, 0, 100);
+            }
+            default -> 0;
+        };
+    }
+
+    private static String qualityStatus(String scenario, String metric, int index) {
+        if ("sensor-drift".equalsIgnoreCase(scenario) && ("SOIL_MOISTURE".equals(metric) || "PH".equals(metric))) {
+            return index % 4 == 0 ? "BAD" : "DEGRADED";
+        }
+        if ("device-offline".equalsIgnoreCase(scenario) && index >= 15) return "BAD";
+        return "GOOD";
+    }
+
+    private static double clamp(double value, double low, double high) {
+        return Math.max(low, Math.min(high, value));
+    }
 }
 
 @RestController
