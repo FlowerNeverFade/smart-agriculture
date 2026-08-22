@@ -4,7 +4,6 @@
  */
 
 :root {
-  /* Default Theme (Linear / GitHub Precision Dark) */
   --bg-canvas: #0d1117;
   --bg-surface: #161b22;
   --bg-subtle: #1c2128;
@@ -60,110 +59,9 @@
   --transition-normal: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* ==========================================================================
-   Scheme 1: OceanX / Palantir 风格 (科考深海与全息数字驾驶舱)
-   ========================================================================== */
-[data-theme="oceanx"] {
-  --bg-canvas: #06090e;
-  --bg-surface: #0b111a;
-  --bg-subtle: #101926;
-  --bg-card: #152232;
-  --bg-card-hover: #1c2d42;
-  --bg-input: #080d14;
-  --bg-overlay: rgba(6, 9, 14, 0.88);
-
-  --border-default: #1c2e44;
-  --border-muted: #132030;
-  --border-active: #00f2fe;
-  --border-success: #00e676;
-
-  --text-primary: #f0f7ff;
-  --text-secondary: #90a8c4;
-  --text-muted: #536d88;
-  --text-link: #00f2fe;
-
-  --green-primary: #00b0ff;
-  --green-hover: #0091ea;
-  --green-bright: #00e5ff;
-  --green-subtle: rgba(0, 229, 255, 0.15);
-
-  --blue-primary: #0072ff;
-  --blue-hover: #00c6ff;
-  --blue-subtle: rgba(0, 198, 255, 0.15);
-
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 6px;
-  --radius-xl: 8px;
-}
-
-/* ==========================================================================
-   Scheme 2: Linear / Vercel 风格 (极简极客与高密度工程系统)
-   ========================================================================== */
-[data-theme="linear"] {
-  --bg-canvas: #08080a;
-  --bg-surface: #101014;
-  --bg-subtle: #16161c;
-  --bg-card: #1c1c24;
-  --bg-card-hover: #24242e;
-  --bg-input: #0b0b0e;
-  --bg-overlay: rgba(8, 8, 10, 0.9);
-
-  --border-default: #272730;
-  --border-muted: #1c1c24;
-  --border-active: #5e6ad2;
-  --border-success: #27b66a;
-
-  --text-primary: #f7f8f8;
-  --text-secondary: #8a8f98;
-  --text-muted: #5e636e;
-  --text-link: #858ff8;
-
-  --green-primary: #27b66a;
-  --green-hover: #2ec976;
-  --green-bright: #38dc83;
-  --green-subtle: rgba(39, 182, 106, 0.15);
-
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 10px;
-}
-
-/* ==========================================================================
-   Scheme 3: Apple / Arc 风格 (高端玻璃拟物与自然有机生态美学)
-   ========================================================================== */
-[data-theme="apple"] {
-  --bg-canvas: #09130e;
-  --bg-surface: #0e1d16;
-  --bg-subtle: #14281f;
-  --bg-card: #1b352a;
-  --bg-card-hover: #234335;
-  --bg-input: #0c1812;
-  --bg-overlay: rgba(9, 19, 14, 0.88);
-
-  --border-default: #25493a;
-  --border-muted: #1a3429;
-  --border-active: #10b981;
-  --border-success: #10b981;
-
-  --text-primary: #f0fdf4;
-  --text-secondary: #a7f3d0;
-  --text-muted: #6ee7b7;
-  --text-link: #34d399;
-
-  --green-primary: #059669;
-  --green-hover: #10b981;
-  --green-bright: #34d399;
-  --green-subtle: rgba(16, 185, 129, 0.15);
-
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-}
-
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -216,6 +114,7 @@ body {
   border-radius: var(--radius-md);
   transition: background-color var(--transition-fast);
 }
+
 .brand-logo:hover {
   background-color: var(--bg-subtle);
 }
@@ -240,9 +139,11 @@ body {
   align-items: center;
   gap: 8px;
 }
+
 .header-nav-title span.slash {
   color: var(--text-muted);
 }
+
 .header-nav-title span.current {
   color: var(--text-primary);
   font-weight: 600;
@@ -318,6 +219,7 @@ body {
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
 }
+
 .status-pill .dot {
   width: 7px;
   height: 7px;
@@ -340,15 +242,18 @@ body {
   gap: 6px;
   transition: all var(--transition-fast);
 }
+
 .header-action-btn:hover {
   background-color: var(--bg-card);
   border-color: var(--text-muted);
 }
+
 .header-action-btn.primary {
   background-color: var(--green-primary);
   border-color: var(--green-primary);
   color: #fff;
 }
+
 .header-action-btn.primary:hover {
   background-color: var(--green-hover);
 }
@@ -362,6 +267,7 @@ body {
   border-radius: var(--radius-md);
   transition: background-color var(--transition-fast);
 }
+
 .user-profile-badge:hover {
   background-color: var(--bg-subtle);
 }
@@ -430,6 +336,7 @@ body {
   .app-container {
     grid-template-columns: 260px minmax(0, 1fr);
   }
+
   .right-rail {
     display: none;
   }
@@ -439,6 +346,7 @@ body {
   .app-container {
     grid-template-columns: 1fr;
   }
+
   .left-rail {
     display: none;
   }
@@ -482,6 +390,7 @@ body {
   cursor: pointer;
   outline: none;
 }
+
 .farm-switch-select:focus {
   border-color: var(--border-active);
 }
@@ -497,6 +406,7 @@ body {
   margin-bottom: 12px;
   outline: none;
 }
+
 .plot-filter-input:focus {
   border-color: var(--border-active);
 }
@@ -559,6 +469,7 @@ body {
   border: 1px solid var(--border-default);
   color: var(--text-primary);
 }
+
 .plot-metric-pill.warn {
   color: var(--amber-primary);
   border-color: var(--amber-primary);
@@ -611,6 +522,7 @@ body {
   color: var(--text-muted);
   border: 1px solid var(--border-default);
 }
+
 .module-badge.highlight {
   background-color: var(--green-subtle);
   color: var(--green-bright);
@@ -889,21 +801,25 @@ body {
   border-radius: var(--radius-pill);
   text-transform: uppercase;
 }
+
 .feed-card-badge.amber {
   background-color: var(--amber-subtle);
   color: var(--amber-primary);
   border: 1px solid var(--border-warning);
 }
+
 .feed-card-badge.green {
   background-color: var(--green-subtle);
   color: var(--green-bright);
   border: 1px solid var(--border-success);
 }
+
 .feed-card-badge.blue {
   background-color: var(--blue-subtle);
   color: var(--blue-hover);
   border: 1px solid var(--border-active);
 }
+
 .feed-card-badge.purple {
   background-color: var(--purple-subtle);
   color: var(--purple-primary);
@@ -948,6 +864,7 @@ body {
   gap: 8px;
   color: var(--text-secondary);
 }
+
 .evidence-item::before {
   content: "•";
   color: var(--green-bright);
@@ -971,6 +888,7 @@ body {
   justify-content: space-between;
   font-size: 11px;
 }
+
 .gate-chip .status-pass {
   color: var(--green-bright);
   font-weight: 600;
@@ -1001,6 +919,7 @@ body {
   border-color: var(--blue-primary);
   color: #fff;
 }
+
 .btn-primary:hover {
   background-color: var(--blue-hover);
 }
@@ -1010,6 +929,7 @@ body {
   border-color: var(--green-primary);
   color: #fff;
 }
+
 .btn-success:hover {
   background-color: var(--green-hover);
 }
@@ -1019,6 +939,7 @@ body {
   border-color: var(--border-default);
   color: var(--text-primary);
 }
+
 .btn-secondary:hover {
   background-color: var(--bg-card);
   border-color: var(--text-muted);
@@ -1029,6 +950,7 @@ body {
   border-color: transparent;
   color: var(--text-link);
 }
+
 .btn-ghost:hover {
   text-decoration: underline;
 }
@@ -1070,6 +992,7 @@ body {
   padding: 4px 0;
   border-bottom: 1px solid var(--border-muted);
 }
+
 .dep-status-item:last-child {
   border-bottom: none;
 }
@@ -1130,6 +1053,7 @@ body {
   position: relative;
   padding-left: 14px;
 }
+
 .changelog-item::before {
   content: "";
   position: absolute;
@@ -1212,6 +1136,7 @@ body {
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
 }
+
 .close-modal-btn:hover {
   color: var(--text-primary);
   background-color: var(--bg-subtle);
@@ -1289,317 +1214,34 @@ body {
   pointer-events: auto;
   animation: slideIn 0.3s ease;
 }
+
 .toast.success {
   border-left: 4px solid var(--green-bright);
 }
+
 .toast.info {
   border-left: 4px solid var(--blue-hover);
 }
 
-/* ==========================================================================
-   Scheme Selector Bar (Top Theme Switcher)
-   ========================================================================== */
-.scheme-switcher-group {
-  display: flex;
-  align-items: center;
-  background-color: var(--bg-input);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 2px;
-  gap: 2px;
-}
-
-.scheme-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all var(--transition-fast);
-}
-
-.scheme-btn:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-subtle);
-}
-
-.scheme-btn.active {
-  background-color: var(--bg-card);
-  color: var(--text-primary);
-  font-weight: 600;
-  box-shadow: var(--shadow-sm);
-}
-
-/* ==========================================================================
-   Login & Auth View (Dedicated Screen / Modal)
-   ========================================================================== */
-.auth-overlay-backdrop {
-  position: fixed;
-  inset: 0;
-  background-color: var(--bg-overlay);
-  backdrop-filter: blur(8px);
-  z-index: 500;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  animation: fadeIn 0.25s ease;
-}
-
-.auth-overlay-backdrop.active {
-  display: flex;
-}
-
-.auth-card {
-  width: 100%;
-  max-width: 860px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  display: grid;
-  grid-template-columns: 1fr 1.1fr;
-  overflow: hidden;
-  box-shadow: var(--shadow-lg);
-}
-
-@media (max-width: 768px) {
-  .auth-card {
-    grid-template-columns: 1fr;
-  }
-  .auth-sidebar-hero {
-    display: none;
-  }
-}
-
-.auth-sidebar-hero {
-  background: linear-gradient(145deg, var(--bg-subtle), var(--bg-canvas));
-  border-right: 1px solid var(--border-default);
-  padding: 32px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  position: relative;
-}
-
-.auth-hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background-color: var(--green-subtle);
-  color: var(--green-bright);
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.auth-hero-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.3;
-  margin-bottom: 10px;
-}
-
-.auth-hero-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin-bottom: 24px;
-}
-
-.auth-matrix-box {
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-md);
-  padding: 14px;
-  font-size: 12px;
-}
-
-.auth-matrix-title {
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.auth-form-container {
-  padding: 36px 32px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.auth-form-header {
-  margin-bottom: 24px;
-}
-
-.auth-form-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.auth-form-subtitle {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.form-group {
-  margin-bottom: 16px;
-}
-
-.form-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 6px;
-}
-
-.form-input {
-  width: 100%;
-  height: 38px;
-  background-color: var(--bg-input);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 14px;
-  padding: 0 12px;
-  outline: none;
-  transition: all var(--transition-fast);
-}
-
-.form-input:focus {
-  border-color: var(--border-active);
-  box-shadow: 0 0 0 3px rgba(56, 139, 253, 0.2);
-}
-
-.role-fast-login-section {
-  margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border-muted);
-}
-
-.role-fast-login-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-
-.role-pills-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.role-pill-btn {
-  background-color: var(--bg-subtle);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 8px 10px;
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  transition: all var(--transition-fast);
-}
-
-.role-pill-btn:hover {
-  background-color: var(--bg-card);
-  border-color: var(--border-active);
-}
-
-.role-pill-btn strong {
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.role-pill-btn span {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-/* User Role Drawer / Popover */
-.user-menu-popover {
-  position: absolute;
-  top: 52px;
-  right: 20px;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  width: 260px;
-  box-shadow: var(--shadow-lg);
-  z-index: 200;
-  display: none;
-  animation: fadeIn 0.15s ease;
-}
-
-.user-menu-popover.active {
-  display: block;
-}
-
-.user-popover-header {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border-default);
-}
-
-.user-popover-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.user-popover-role {
-  font-size: 12px;
-  color: var(--green-bright);
-}
-
-.user-popover-menu {
-  list-style: none;
-  padding: 6px;
-}
-
-.user-popover-item {
-  padding: 8px 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: all var(--transition-fast);
-}
-
-.user-popover-item:hover {
-  background-color: var(--bg-subtle);
-  color: var(--text-primary);
-}
-
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideIn {
-  from { transform: translateY(12px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }

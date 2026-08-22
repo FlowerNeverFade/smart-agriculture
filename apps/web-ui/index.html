@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
   <link rel="stylesheet" href="css/style.css">
   <!-- Favicon Icon -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
+
 <body>
 
   <!-- =========================================================================
@@ -27,13 +30,6 @@
       </div>
     </div>
 
-    <!-- Theme / Scheme Switcher Group -->
-    <div class="scheme-switcher-group" id="schemeSwitcher" title="切换视觉设计方案">
-      <button class="scheme-btn" data-theme="oceanx" title="方案一：OceanX 科考级深海数字驾驶舱">🌊 OceanX</button>
-      <button class="scheme-btn active" data-theme="linear" title="方案二：Linear 极简暗黑工程系统">⚡ Linear</button>
-      <button class="scheme-btn" data-theme="apple" title="方案三：Apple 自然有机生态美学">🍏 Apple</button>
-    </div>
-
     <div class="header-search">
       <div class="search-input-wrapper">
         <span class="search-icon">🔍</span>
@@ -50,28 +46,10 @@
       <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发">
         <span>+</span> 快捷操作
       </button>
-      <div class="user-profile-badge" id="btnUserMenu" title="点击查看当前角色权限与切换">
-        <div class="user-avatar" id="userAvatar">👑</div>
+      <div class="user-profile-badge" id="btnUserMenu" title="用户角色信息">
+        <div class="user-avatar" id="userAvatar">🧑‍🌾</div>
         <span style="font-size: 13px; font-weight: 500;" id="userDisplayName">admin</span>
       </div>
-    </div>
-
-    <!-- User Profile & RBAC Popover Menu -->
-    <div class="user-menu-popover" id="userMenuPopover">
-      <div class="user-popover-header">
-        <div class="user-popover-name" id="popoverUsername">admin (农场管理员)</div>
-        <div class="user-popover-role" id="popoverRoleTag">ROLE_FARM_ADMIN · 全地块控制权</div>
-      </div>
-      <ul class="user-popover-menu">
-        <li class="user-popover-item" id="btnSwitchAccount">
-          <span>🔄 切换用户身份</span>
-          <span style="font-size: 11px; color: var(--text-muted);">RBAC</span>
-        </li>
-        <li class="user-popover-item" id="btnShowAuthModal">
-          <span>🔐 登录认证中心</span>
-          <span style="font-size: 11px; color: var(--text-muted);">JWT</span>
-        </li>
-      </ul>
     </div>
   </header>
 
@@ -177,7 +155,8 @@
       <div class="main-feed-header">
         <h1 class="main-feed-title">
           <span>Home</span>
-          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/ 示范农场全域</span>
+          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/
+            示范农场全域</span>
         </h1>
         <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
       </div>
@@ -185,7 +164,8 @@
       <!-- Copilot Agent Prompt Box (GitHub Home Prompt Box Style) -->
       <div class="copilot-prompt-card">
         <div class="copilot-input-area">
-          <textarea class="copilot-textarea" id="copilotInput" placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')..."></textarea>
+          <textarea class="copilot-textarea" id="copilotInput"
+            placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')..."></textarea>
         </div>
 
         <div class="copilot-actions-bar">
@@ -253,7 +233,8 @@
           </li>
           <li class="dep-status-item">
             <span>决策引擎模式 (AI Mode)</span>
-            <span class="dep-tag" style="background-color: var(--blue-subtle); color: var(--blue-hover);" id="rightAiModeTag">rules-only</span>
+            <span class="dep-tag" style="background-color: var(--blue-subtle); color: var(--blue-hover);"
+              id="rightAiModeTag">rules-only</span>
           </li>
         </ul>
       </div>
@@ -352,89 +333,11 @@
     </div>
   </div>
 
-  <!-- =========================================================================
-       Authentication & Login Modal (RBAC Identity Center)
-       ========================================================================= -->
-  <div class="auth-overlay-backdrop" id="authModal">
-    <div class="auth-card">
-      <!-- Left Hero Banner -->
-      <div class="auth-sidebar-hero">
-        <div>
-          <div class="auth-hero-badge">
-            <span>🌱 AgriLoop 认证体系</span>
-          </div>
-          <h2 class="auth-hero-title">智慧农业数字孪生与 AI 决策中枢</h2>
-          <p class="auth-hero-desc">
-            基于 RBAC 细粒度权限控制与 JWT 安全令牌，实现生产、巡检、决策与系统管理四级隔离。
-          </p>
-        </div>
-
-        <div class="auth-matrix-box">
-          <div class="auth-matrix-title">
-            <span>🛡️ 权限矩阵说明</span>
-          </div>
-          <div style="color: var(--text-secondary); line-height: 1.6; font-size: 11px;">
-            <div>• <strong>FARM_ADMIN</strong>: 拥有农场全部地块的处方审批与下发权限</div>
-            <div>• <strong>FIELD_OPERATOR</strong>: 拥有巡检录入与受控执行权限</div>
-            <div>• <strong>FARMER</strong>: 查看遥测趋势、今日农务与生长计划</div>
-            <div>• <strong>SYSTEM_ADMIN</strong>: 全局设备注册、网络拓扑与用户管理</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Right Login Form -->
-      <div class="auth-form-container">
-        <div class="auth-form-header">
-          <h3 class="auth-form-title">用户身份认证</h3>
-          <p class="auth-form-subtitle">请输入农场系统凭据或选择一键体验角色</p>
-        </div>
-
-        <form id="loginForm">
-          <div class="form-group">
-            <label class="form-label" for="loginUsername">账号 (Username)</label>
-            <input type="text" class="form-input" id="loginUsername" placeholder="admin / farmer / operator" value="admin" required>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="loginPassword">密码 (Password)</label>
-            <input type="password" class="form-input" id="loginPassword" value="demo123" required>
-          </div>
-
-          <button type="submit" class="btn btn-success" style="width: 100%; justify-content: center; height: 38px;" id="btnLoginSubmit">
-            <span>🔐 安全登录进入系统</span>
-          </button>
-        </form>
-
-        <!-- Fast Role Selector Pills -->
-        <div class="role-fast-login-section">
-          <div class="role-fast-login-title">⚡ 一键快速切换体验角色：</div>
-          <div class="role-pills-grid">
-            <button class="role-pill-btn" data-username="admin" data-password="demo123">
-              <strong>👑 农场管理员</strong>
-              <span>admin (全地块控制)</span>
-            </button>
-            <button class="role-pill-btn" data-username="farmer" data-password="demo123">
-              <strong>🧑‍🌾 种植农户</strong>
-              <span>farmer (地块监测/农务)</span>
-            </button>
-            <button class="role-pill-btn" data-username="operator" data-password="demo123">
-              <strong>🔧 田间操作员</strong>
-              <span>operator (巡田/执行)</span>
-            </button>
-            <button class="role-pill-btn" data-username="sysadmin" data-password="demo123">
-              <strong>⚙️ 系统管理员</strong>
-              <span>sysadmin (全域超管)</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Load ES Module Scripts -->
   <script type="module" src="js/app.js"></script>
 </body>
+
 </html>

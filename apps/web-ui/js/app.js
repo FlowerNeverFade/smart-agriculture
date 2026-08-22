@@ -7,17 +7,19 @@ import { api } from './api.js';
 
 class AgriApp {
   constructor() {
+    const savedUser = JSON.parse(localStorage.getItem('agriloop_user') || 'null') || {
+      username: 'admin',
+      role: 'FARM_ADMIN',
+      roleLabel: '农场管理员',
+      avatar: '👑'
+    };
+
     this.state = {
       currentPlotId: 'plot-a01',
       activeFilter: 'ALL',
       selectedFarmId: 'farm-demo',
       currentTheme: localStorage.getItem('agriloop_theme') || 'linear',
-      currentUser: {
-        username: 'admin',
-        role: 'FARM_ADMIN',
-        roleLabel: '农场管理员',
-        avatar: '👑'
-      },
+      currentUser: savedUser,
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
@@ -30,6 +32,7 @@ class AgriApp {
   async init() {
     this.cacheDom();
     this.applyTheme(this.state.currentTheme);
+    this.applyUser(this.state.currentUser);
     this.bindEvents();
 
     // Check backend connection
@@ -52,17 +55,6 @@ class AgriApp {
     this.dom.systemStatusText = document.getElementById('systemStatusText');
     this.dom.rightAiModeTag = document.getElementById('rightAiModeTag');
     this.dom.userDisplayName = document.getElementById('userDisplayName');
-    this.dom.userAvatar = document.getElementById('userAvatar');
-    this.dom.userMenuPopover = document.getElementById('userMenuPopover');
-    this.dom.popoverUsername = document.getElementById('popoverUsername');
-    this.dom.popoverRoleTag = document.getElementById('popoverRoleTag');
-    this.dom.btnUserMenu = document.getElementById('btnUserMenu');
-    this.dom.btnSwitchAccount = document.getElementById('btnSwitchAccount');
-    this.dom.btnShowAuthModal = document.getElementById('btnShowAuthModal');
-    this.dom.authModal = document.getElementById('authModal');
-    this.dom.loginForm = document.getElementById('loginForm');
-    this.dom.loginUsername = document.getElementById('loginUsername');
-    this.dom.loginPassword = document.getElementById('loginPassword');
     this.dom.plotListContainer = document.getElementById('plotListContainer');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
@@ -94,56 +86,11 @@ class AgriApp {
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
-    this.dom.schemeSwitcher = document.getElementById('schemeSwitcher');
   }
 
   bindEvents() {
     // Logo Click -> Go to Home
     this.dom.btnLogoHome?.addEventListener('click', () => this.navigate('home'));
-
-    // Theme Switcher Buttons
-    this.dom.schemeSwitcher?.querySelectorAll('.scheme-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const theme = btn.dataset.theme;
-        this.applyTheme(theme);
-      });
-    });
-
-    // User Menu Popover Toggle
-    this.dom.btnUserMenu?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.dom.userMenuPopover?.classList.toggle('active');
-    });
-
-    document.addEventListener('click', () => {
-      this.dom.userMenuPopover?.classList.remove('active');
-    });
-
-    // Switch Account & Show Auth Modal
-    this.dom.btnSwitchAccount?.addEventListener('click', () => {
-      this.dom.userMenuPopover?.classList.remove('active');
-      this.openAuthModal();
-    });
-    this.dom.btnShowAuthModal?.addEventListener('click', () => {
-      this.dom.userMenuPopover?.classList.remove('active');
-      this.openAuthModal();
-    });
-
-    // Login Form Submit
-    this.dom.loginForm?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const username = this.dom.loginUsername?.value.trim() || 'admin';
-      this.performLogin(username);
-    });
-
-    // Fast Role Login Pills
-    document.querySelectorAll('.role-pill-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        const username = btn.dataset.username || 'admin';
-        this.performLogin(username);
-      });
-    });
 
     // Quick Action button
     this.dom.btnQuickAction?.addEventListener('click', () => {
@@ -240,6 +187,14 @@ class AgriApp {
     this.showToast(`已切换设计方案为：${themeNames[theme] || theme}`, 'info');
   }
 
+  applyUser(user) {
+    this.state.currentUser = user;
+    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = user.username;
+    if (this.dom.userAvatar) this.dom.userAvatar.textContent = user.avatar || '👑';
+    if (this.dom.popoverUsername) this.dom.popoverUsername.textContent = `${user.username} (${user.roleLabel || user.role})`;
+    if (this.dom.popoverRoleTag) this.dom.popoverRoleTag.textContent = `ROLE_${user.role} · 权限生效中`;
+  }
+
   openAuthModal() {
     this.dom.authModal?.classList.add('active');
   }
@@ -257,19 +212,15 @@ class AgriApp {
     };
 
     const userMeta = rolesMap[username] || rolesMap['admin'];
-    this.state.currentUser = {
+    const userObj = {
       username,
       role: userMeta.role,
       roleLabel: userMeta.label,
       avatar: userMeta.avatar
     };
 
-    // Update UI elements
-    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = username;
-    if (this.dom.userAvatar) this.dom.userAvatar.textContent = userMeta.avatar;
-    if (this.dom.popoverUsername) this.dom.popoverUsername.textContent = `${username} (${userMeta.label})`;
-    if (this.dom.popoverRoleTag) this.dom.popoverRoleTag.textContent = `ROLE_${userMeta.role} · ${userMeta.desc}`;
-
+    localStorage.setItem('agriloop_user', JSON.stringify(userObj));
+    this.applyUser(userObj);
     this.closeAuthModal();
     this.showToast(`登录成功！当前身份：【${userMeta.label}】(${userMeta.role})`, 'success');
   }
@@ -453,8 +404,8 @@ class AgriApp {
 
         <div class="feed-actions-group">
           ${item.actions.map(act => {
-            const btnClass = act.type === 'primary' ? 'btn-primary' : act.type === 'success' ? 'btn-success' : act.type === 'secondary' ? 'btn-secondary' : 'btn-ghost';
-            return `
+      const btnClass = act.type === 'primary' ? 'btn-primary' : act.type === 'success' ? 'btn-success' : act.type === 'secondary' ? 'btn-secondary' : 'btn-ghost';
+      return `
               <button class="btn ${btnClass}" 
                 data-action="${act.action}" 
                 data-view="${act.view || ''}" 
@@ -464,7 +415,7 @@ class AgriApp {
                 ${act.label}
               </button>
             `;
-          }).join('')}
+    }).join('')}
         </div>
       </article>
     `;
@@ -572,7 +523,7 @@ class AgriApp {
     if (!this.dom.copilotOutputBanner) return;
     this.dom.copilotOutputBanner.classList.add('active');
     this.dom.copilotTraceId.textContent = `traceId: ${response.traceId || 'run-mock'}`;
-    
+
     let citations = '';
     if (response.knowledgeEvidence && response.knowledgeEvidence.length > 0) {
       citations = `\n\n📚 知识与规则引用来源：\n` + response.knowledgeEvidence.map(k => `  • [${k.scope}] ${k.source} (${k.provenance})`).join('\n');
