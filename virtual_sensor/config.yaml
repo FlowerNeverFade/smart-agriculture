@@ -1,0 +1,58 @@
+mqtt:
+  host: 127.0.0.1
+  port: 1883
+  username: ""
+  password: ""
+  keepalive: 60
+  topics:
+    telemetry: agri/{device_id}/telemetry
+    heartbeat: agri/{device_id}/heartbeat
+    command: agri/{device_id}/command
+    status: agri/{device_id}/status
+
+simulation:
+  interval_seconds: 5
+  heartbeat_seconds: 30
+  timezone: Asia/Shanghai
+  # 1.0 = 实时；60 表示 1 秒现实时间推进 1 分钟模拟时间
+  time_scale: 1.0
+
+devices:
+  - device_id: GH-001
+    plot_id: plot-north
+    plot_name: 北棚
+    crop: 番茄
+    kind: greenhouse
+    initial:
+      soil_moisture: 48.0
+      temperature: 24.0
+    auto_irrigation:
+      enabled: false
+      moisture_min: 30.0
+      moisture_max: 55.0
+
+  - device_id: GH-002
+    plot_id: plot-south
+    plot_name: 南棚
+    crop: 黄瓜
+    kind: greenhouse
+    initial:
+      soil_moisture: 52.0
+      temperature: 23.0
+    auto_irrigation:
+      enabled: false
+      moisture_min: 32.0
+      moisture_max: 58.0
+
+  - device_id: FD-001
+    plot_id: plot-east
+    plot_name: 东田
+    crop: 水稻
+    kind: field
+    initial:
+      soil_moisture: 62.0
+      temperature: 26.0
+    auto_irrigation:
+      enabled: false
+      moisture_min: 40.0
+      moisture_max: 70.0
