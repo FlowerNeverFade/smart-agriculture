@@ -3,7 +3,7 @@
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js';
-import { api } from './api.js?v=3';
+import { api } from './api.js';
 
 class AgriApp {
   constructor() {
@@ -18,37 +18,24 @@ class AgriApp {
     };
 
     this.dom = {};
-    this.pollTimer = null;
   }
 
   async init() {
     this.cacheDom();
     this.bindEvents();
 
-    const conn = await api.connect();
-    this.state.isLive = conn.ok;
-    this.state.dataSource = conn.source;
+    // Check backend connection
+    this.state.isLive = await api.checkHealth();
     this.updateSystemStatusPill();
 
+    // Load initial data
     await this.loadOverview();
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
     this.handleRoute();
 
-    if (conn.ok) {
-      const intervalMs = (api.systemStatus?.virtualSensorIntervalSeconds || 5) * 1000;
-      this.pollTimer = setInterval(() => this.refreshLiveData(), intervalMs);
-    }
-
     window.addEventListener('hashchange', () => this.handleRoute());
-  }
-
-  async refreshLiveData() {
-    if (!api.isLive) return;
-    await this.loadOverview();
-    this.renderPlots(this.dom.plotSearchInput?.value || '');
-    this.updateSystemStatusPill();
   }
 
   cacheDom() {
@@ -173,40 +160,17 @@ class AgriApp {
     const overview = await api.getOverview();
     if (overview && overview.plots) {
       this.state.plots = overview.plots;
-      this.state.overviewMeta = {
-        eventCount: overview.eventCount,
-        generatedAt: overview.generatedAt,
-        activeAlertCount: overview.activeAlertCount,
-      };
     }
   }
 
   updateSystemStatusPill() {
-    const dot = this.dom.systemStatusPill?.querySelector('.dot');
     if (this.state.isLive) {
-      const label =
-        api.liveSource === 'virtual-sensor'
-          ? '虚拟传感器 · 实时'
-          : '后端 API · 实时';
-      const events = this.state.overviewMeta?.eventCount;
-      const suffix = events != null ? ` · 事件 ${events}` : '';
-      this.dom.systemStatusText.textContent = `${label} (8080)${suffix}`;
-      if (dot) dot.style.backgroundColor = 'var(--green-bright)';
-      if (this.dom.rightAiModeTag) {
-        this.dom.rightAiModeTag.textContent = `${api.systemStatus?.ai || 'rules-only'} (live)`;
-      }
-      if (this.dom.userDisplayName) {
-        try {
-          const user = JSON.parse(localStorage.getItem('agriloop_user') || '{}');
-          this.dom.userDisplayName.textContent = user.username || 'farmer';
-        } catch {
-          this.dom.userDisplayName.textContent = 'farmer';
-        }
-      }
+      this.dom.systemStatusText.textContent = "后端服务在线 (REST/SSE)";
+      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
+      this.dom.rightAiModeTag.textContent = "rules-only (live)";
     } else {
-      this.dom.systemStatusText.textContent = 'Mock 演示（后端不可用，已降级）';
-      if (dot) dot.style.backgroundColor = 'var(--yellow-bright, #d4a72c)';
-      if (this.dom.rightAiModeTag) this.dom.rightAiModeTag.textContent = 'mock fallback';
+      this.dom.systemStatusText.textContent = "本地仿真态 (POSTGRESQL)";
+      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
     }
   }
 
