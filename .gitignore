@@ -1,3 +1,4 @@
+# Python and environment artifacts
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -5,8 +6,23 @@ __pycache__/
 venv/
 .conda/
 .env
+
+# Frontend/build artifacts
 node_modules/
 dist/
+
+# Generated project data
 data/
 *.jsonl
+
+# Office temporary lock files
+~$*.doc
+~$*.docx
+~$*.xls
+~$*.xlsx
+~$*.ppt
+~$*.pptx
+
+# Common OS artifacts
 .DS_Store
+Thumbs.db
