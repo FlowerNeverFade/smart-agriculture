@@ -1223,6 +1223,66 @@ body {
   border-left: 4px solid var(--blue-hover);
 }
 
+/* ==========================================================================
+   User Profile & RBAC Popover Menu
+   ========================================================================== */
+.user-menu-popover {
+  position: absolute;
+  top: 56px;
+  right: 20px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  width: 250px;
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  display: none;
+  animation: fadeIn 0.15s ease;
+}
+
+.user-menu-popover.active {
+  display: block;
+}
+
+.user-popover-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.user-popover-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-popover-role {
+  font-size: 11px;
+  color: var(--green-bright);
+  margin-top: 2px;
+}
+
+.user-popover-menu {
+  list-style: none;
+  padding: 6px;
+}
+
+.user-popover-item {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+}
+
+.user-popover-item:hover {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from {

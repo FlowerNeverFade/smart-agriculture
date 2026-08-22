@@ -55,6 +55,13 @@ class AgriApp {
     this.dom.systemStatusText = document.getElementById('systemStatusText');
     this.dom.rightAiModeTag = document.getElementById('rightAiModeTag');
     this.dom.userDisplayName = document.getElementById('userDisplayName');
+    this.dom.userAvatar = document.getElementById('userAvatar');
+    this.dom.btnUserMenu = document.getElementById('btnUserMenu');
+    this.dom.userMenuPopover = document.getElementById('userMenuPopover');
+    this.dom.popoverUsername = document.getElementById('popoverUsername');
+    this.dom.popoverRoleTag = document.getElementById('popoverRoleTag');
+    this.dom.btnSwitchAccount = document.getElementById('btnSwitchAccount');
+    this.dom.btnLogout = document.getElementById('btnLogout');
     this.dom.plotListContainer = document.getElementById('plotListContainer');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
@@ -102,10 +109,10 @@ class AgriApp {
       this.dom.userMenuPopover?.classList.remove('active');
     });
 
-    // Switch Account -> open Auth Modal
+    // Switch Account -> redirect to login.html
     this.dom.btnSwitchAccount?.addEventListener('click', () => {
       this.dom.userMenuPopover?.classList.remove('active');
-      this.openAuthModal();
+      window.location.href = 'login.html';
     });
 
     // Logout -> redirect to login.html
