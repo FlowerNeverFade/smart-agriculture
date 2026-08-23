@@ -129,7 +129,12 @@ export async function renderValueLedger(container) {
   const barEl = container.querySelector('[data-role="bar-chart"]');
   const areaEl = container.querySelector('[data-role="area-chart"]');
 
-  const bar = initEChart(barEl);
+  const bar = await initEChart(barEl);
+  // 异步加载期间视图可能已被切换/关闭：容器内容被清空则放弃本次渲染
+  if (!container.isConnected || !container.querySelector('[data-role="bar-chart"]')) {
+    if (bar) { try { bar.dispose(); } catch (e) { /* noop */ } }
+    return () => {};
+  }
   if (bar) {
     // 自定义浮窗：内容自绘，不受原生 tooltip 容器行为影响
     tipCleanups.push(attachCustomTip(bar, (params) => {
@@ -207,7 +212,11 @@ export async function renderValueLedger(container) {
 
   // --- 反事实推演面积图 ---
   const cf = data.counterfactual;
-  const area = initEChart(areaEl);
+  const area = await initEChart(areaEl);
+  if (!container.isConnected || !container.querySelector('[data-role="area-chart"]')) {
+    if (area) { try { area.dispose(); } catch (e) { /* noop */ } }
+    return () => {};
+  }
   if (area) {
     tipCleanups.push(attachCustomTip(area, (params) => {
       const w = cf[params.dataIndex];

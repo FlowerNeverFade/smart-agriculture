@@ -152,7 +152,12 @@ export async function renderRiskForecast(container, plotId) {
   const gaugeEl = container.querySelector('[data-role="gauge"]');
   const chartEl = container.querySelector('[data-role="chart-body"]');
 
-  const gauge = initEChart(gaugeEl);
+  const gauge = await initEChart(gaugeEl);
+  // 异步加载期间视图可能已被切换/关闭：容器内容被清空则放弃本次渲染
+  if (!container.isConnected || !container.querySelector('[data-role="horizon-toggles"]')) {
+    if (gauge) { try { gauge.dispose(); } catch (e) { /* noop */ } }
+    return () => {};
+  }
   if (gauge) {
     gauge.setOption({
       series: [{
@@ -199,13 +204,16 @@ export async function renderRiskForecast(container, plotId) {
     });
   }
 
-  const renderChart = (horizon) => {
+  const renderChart = async (horizon) => {
+    // 视图已切换时放弃（异步 echarts 加载期间容器可能被清空）
+    if (!container.isConnected || !container.querySelector('[data-role="horizon-toggles"]')) return;
     const curve = data.curve.filter(p => p.minute <= horizon);
     const xMax = horizon;
     const yMin = Math.max(Math.floor(Math.min(...curve.map(p => p.lower)) - 2), 0);
     const yMax = Math.ceil(Math.max(...curve.map(p => p.upper)) + 2);
 
-    let chart = chartEl._agriEChart || initEChart(chartEl);
+    let chart = chartEl._agriEChart || await initEChart(chartEl);
+    if (!container.isConnected || !container.querySelector('[data-role="horizon-toggles"]')) return;
     if (chart) {
       chartEl._agriEChart = chart;
       // 原生 tooltip 仅保留 axisPointer 十字线，内容改由自定义浮窗渲染
@@ -570,9 +578,14 @@ export async function renderScenarioReplay(container, plotId) {
       };
     };
 
-    const renderChartAt = (t) => {
+    const renderChartAt = async (t) => {
       if (!activeChart) {
-        activeChart = initEChart(chartEl);
+        activeChart = await initEChart(chartEl);
+        // 视图已切换时放弃（异步 echarts 加载期间容器可能被清空）
+        if (!container.isConnected || !runOutput.isConnected) {
+          disposeCharts();
+          return;
+        }
         if (activeChart) {
           chartInstances.push(activeChart);
           // 自定义浮窗：内容自绘，不受原生 tooltip 容器行为影响
@@ -623,7 +636,7 @@ export async function renderScenarioReplay(container, plotId) {
       valExec.textContent = `${pExec.value}%`;
       valNoop.textContent = `${pNoop.value}%`;
       valDiff.textContent = `${(pExec.value - pNoop.value) >= 0 ? '+' : ''}${(pExec.value - pNoop.value).toFixed(1)}%`;
-      renderChartAt(t);
+      renderChartAt(t).catch(e => console.warn('renderChartAt failed:', e));
     };
 
     range.addEventListener('input', () => {

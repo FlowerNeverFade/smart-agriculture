@@ -28,10 +28,42 @@ export function linearScale(domainMin, domainMax, rangeMin, rangeMax) {
 }
 
 /**
- * 安全初始化 ECharts：
- *  - window.echarts 缺失           -> 返回 null（调用方回退纯 SVG 渲染）
- *  - 当前环境不支持 canvas 2D      -> 使用 ECharts 官方 SVG renderer（jsdom/低端环境）
- *  - 初始化异常                     -> 返回 null（调用方回退纯 SVG 渲染）
+ * 按需加载 ECharts（vendor/echarts.min.js，约 1MB）：
+ * 首页不再同步下载 1MB 库，仅在首次渲染图表时才动态注入 <script>。
+ * 已存在（页面预先加载/测试环境注入）时直接复用。
+ * 注入 3 秒未完成则回退纯 SVG 渲染（离线/异常环境不至于卡死）。
+ */
+let echartsLoading = null;
+function ensureEcharts() {
+  if (typeof window !== 'undefined' && window.echarts) return Promise.resolve(window.echarts);
+  if (!echartsLoading) {
+    echartsLoading = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = new URL('../vendor/echarts.min.js', import.meta.url).href;
+      const timer = setTimeout(() => {
+        console.warn('ECharts load timeout, using SVG fallback');
+        resolve(null);
+      }, 1500);
+      script.onload = () => {
+        clearTimeout(timer);
+        resolve(window.echarts || null);
+      };
+      script.onerror = () => {
+        clearTimeout(timer);
+        console.warn('ECharts load failed, using SVG fallback');
+        resolve(null);
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return echartsLoading;
+}
+
+/**
+ * 安全初始化 ECharts（异步：首次调用会按需加载 vendor 库）：
+ *  - echarts 不可用           -> 返回 null（调用方回退纯 SVG 渲染）
+ *  - 当前环境不支持 canvas 2D -> 使用 ECharts 官方 SVG renderer（jsdom/低端环境）
+ *  - 初始化异常               -> 返回 null（调用方回退纯 SVG 渲染）
  */
 function isCanvasSupported() {
   try {
@@ -42,8 +74,8 @@ function isCanvasSupported() {
   }
 }
 
-export function initEChart(el) {
-  const echarts = (typeof window !== 'undefined' && window.echarts) || null;
+export async function initEChart(el) {
+  const echarts = await ensureEcharts();
   if (!echarts) return null;
   try {
     return echarts.init(el, null, isCanvasSupported() ? undefined : { renderer: 'svg' });

@@ -90,6 +90,13 @@ const chartOk = sel => mode === 'stub'
   ? !!document.querySelector(`${sel} .stub-chart`)
   : (document.querySelector(sel)?.innerHTML || '').length > 50;
 
+/** 等待图表区渲染完成（echarts 按需加载 / 超时回退均可能延迟） */
+async function waitChart(sel, timeout = 8000) {
+  return waitFor(() => (mode === 'stub'
+    ? !!document.querySelector(`${sel} .stub-chart`)
+    : (document.querySelector(sel)?.innerHTML || '').length > 50), timeout);
+}
+
 // ---- 启动应用 ----
 await import(pathToFileURL(join(ROOT, 'apps', 'web-ui', 'js', 'app.js')).href);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -101,6 +108,8 @@ ok('risk-forecast 路由打开', document.querySelector('#modalTitle').textConte
 const rfReady = await waitFor(() => document.querySelector('.rf-root'), 6000);
 ok('risk-forecast 模块渲染 (.rf-root)', rfReady);
 if (rfReady) {
+  await waitChart('[data-role="gauge"]');
+  await waitChart('[data-role="chart-body"]');
   ok('Time-to-Risk 仪表盘', mode === 'stub' ? !!document.querySelector('[data-role="gauge"] .stub-chart') : !!document.querySelector('[data-role="gauge"] svg'));
   ok('预测曲线图区有内容', chartOk('[data-role="chart-body"]'));
   ok('3 档预测切换 chips', document.querySelectorAll('.rf-toggle-chip').length === 3);
@@ -120,6 +129,7 @@ if (srReady) {
   const srRun = await waitFor(() => document.querySelector('.sr-result-card'), 8000);
   ok('双轨推演结果渲染 (.sr-result-card)', srRun);
   if (srRun) {
+    await waitChart('[data-role="sr-chart"]');
     ok('双轨图区有内容', chartOk('[data-role="sr-chart"]'));
     ok('回放滑块存在', !!document.querySelector('[data-role="scrub-range"]'));
     ok('三路读数存在', !!document.querySelector('[data-role="val-exec"]') && !!document.querySelector('[data-role="val-diff"]'));
@@ -156,6 +166,8 @@ gotoView('#view=value-ledger');
 const vlReady = await waitFor(() => document.querySelector('.vl-kpi-grid'), 6000);
 ok('value-ledger 模块渲染 (.vl-kpi-grid)', vlReady);
 if (vlReady) {
+  await waitChart('[data-role="bar-chart"]');
+  await waitChart('[data-role="area-chart"]');
   ok('5 张 KPI 卡片', document.querySelectorAll('.vl-kpi').length === 5);
   ok('偏差率 KPI 数值 -7.3%', document.querySelector('.vl-kpi-value').textContent.includes('-7.3'));
   ok('柱状图区有内容', chartOk('[data-role="bar-chart"]'));

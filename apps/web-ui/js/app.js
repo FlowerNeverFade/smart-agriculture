@@ -4,14 +4,15 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
-import { renderRiskForecast, renderScenarioReplay } from './modules/risk-forecast.js';
-import { renderValueLedger } from './modules/value-ledger.js';
 
-/** 已实现的独立子模块渲染器（按 view 名分发，renderer 返回可选 cleanup） */
+/**
+ * 已实现的独立子模块渲染器（按 view 名分发，renderer 返回可选 cleanup）
+ * 动态 import：首页不加载模块代码，打开对应视图时才加载
+ */
 const SUBVIEW_RENDERERS = {
-  'risk-forecast': renderRiskForecast,
-  'scenario-replay': renderScenarioReplay,
-  'value-ledger': renderValueLedger
+  'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
+  'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
+  'value-ledger': async (container, plotId) => (await import('./modules/value-ledger.js')).renderValueLedger(container, plotId)
 };
 
 class AgriApp {
@@ -534,9 +535,13 @@ class AgriApp {
       if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
       this.dom.modalDynamicContent.innerHTML = '';
       this._activeSubviewCleanup = null;
+      // 视图代际：异步渲染完成时若已切换到别的视图，丢弃其结果与 cleanup，防止串台
+      this._subviewGen = (this._subviewGen || 0) + 1;
+      const viewGen = this._subviewGen;
       const result = renderer(this.dom.modalDynamicContent, plotId);
       if (result && typeof result.then === 'function') {
         result.then(cleanup => {
+          if (viewGen !== this._subviewGen) return; // 已切换到其他视图
           if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
         }).catch(e => console.warn('Subview render failed:', e));
       } else if (typeof result === 'function') {
