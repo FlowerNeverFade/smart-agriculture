@@ -188,17 +188,17 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec4 dyeSource(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 1.72;
-    vec2 driftA = vec2(0.007, -0.009) * time;
-    vec2 driftB = vec2(-0.006, 0.008) * time;
+    vec2 driftA = vec2(0.009, -0.011) * time;
+    vec2 driftB = vec2(-0.0075, 0.010) * time;
     vec2 domain = vec2(
       fbm(point * 0.88 + driftA),
       fbm(point * 0.96 + vec2(9.7, 3.4) + driftB)
     );
     vec2 territoryUv = uv + (domain - 0.5) * 0.19;
     territoryUv += vec2(
-      sin(time * 0.021 + domain.y * 4.3),
-      cos(time * 0.018 + domain.x * 4.7)
-    ) * 0.006;
+      sin(time * 0.035 + domain.y * 4.3),
+      cos(time * 0.028 + domain.x * 4.7)
+    ) * 0.0075;
 
     float mintNoise = fbm(point * 1.08 + domain * 0.64 + vec2(1.7, 8.4) + driftA * 0.32);
     float sageNoise = fbm(point * 1.13 + domain.yx * 0.58 + vec2(12.6, 2.8) + driftB * 0.27);
@@ -233,10 +233,12 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec2 idleFlow(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 6.28318530718;
+    float phaseA = point.x * 0.72 + point.y * 1.14 + time * 0.065;
+    float phaseB = point.x * 1.08 - point.y * 0.63 - time * 0.052;
     return vec2(
-      sin(point.y * 1.19 + sin(point.x * 0.61 + time * 0.070) * 0.19 + time * 0.039),
-      cos(point.x * 1.08 + sin(point.y * 0.84 - time * 0.050) * 0.21 - time * 0.031)
-    ) * 0.0024;
+      1.14 * cos(phaseA) - 0.45 * 0.63 * cos(phaseB),
+      -0.72 * cos(phaseA) - 0.45 * 1.08 * cos(phaseB)
+    ) * 0.0060;
   }
 
   void main() {
@@ -257,7 +259,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
       texture(uPreviousDye, backUv + vec2(0.0, uTexel.y)) +
       texture(uPreviousDye, backUv - vec2(0.0, uTexel.y))
     );
-    float diffusion = 1.0 - exp(-0.62 * uDelta);
+    float diffusion = 1.0 - exp(-0.48 * uDelta);
     vec4 dye = mix(advected, blurred, diffusion);
     float recovery = 1.0 - exp(-uRecoveryRate * uDelta);
     dye = mix(dye, sourceWeights, recovery);
@@ -326,10 +328,16 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     float response = smoothstep(0.025, 0.68, flowMagnitude);
     float dyeDistortion = mix(0.0015, 0.010, response);
     vec2 uvFlow = normalizedFlow / uScreenScale;
-    vec2 idleDisplayWarp = vec2(
-      sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.041),
-      cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.033)
-    ) / uScreenScale * 0.0011;
+    vec2 idleDisplayWarp = (
+      vec2(
+        sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.160),
+        cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.125)
+      ) * 0.0043
+      + vec2(
+        cos(vUv.y * 4.2 - vUv.x * 3.1 - uTime * 0.095),
+        sin(vUv.x * 4.8 + vUv.y * 2.7 + uTime * 0.135)
+      ) * 0.0020
+    ) / uScreenScale;
     vec2 warpedUv = vUv + (-uvFlow * dyeDistortion + idleDisplayWarp) * uTaskStrength;
     vec4 dyeWeights = texture(uDye, clamp(warpedUv, vec2(0.001), vec2(0.999)));
     vec3 color = paletteColor(dyeWeights);
@@ -339,7 +347,7 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     float topLuma = luminance(paletteColor(texture(uDye, clamp(warpedUv + vec2(0.0, uDyeTexel.y), vec2(0.001), vec2(0.999)))));
     float bottomLuma = luminance(paletteColor(texture(uDye, clamp(warpedUv - vec2(0.0, uDyeTexel.y), vec2(0.001), vec2(0.999)))));
     vec2 dyeGradient = vec2(rightLuma - leftLuma, topLuma - bottomLuma);
-    vec3 surfaceNormal = normalize(vec3(-dyeGradient * 16.0, 1.0));
+    vec3 surfaceNormal = normalize(vec3(-dyeGradient * 21.0, 1.0));
     float softLight = 0.988 + max(dot(surfaceNormal, normalize(vec3(-0.28, 0.38, 0.88))), 0.0) * 0.018;
     color *= softLight;
 
@@ -532,7 +540,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       try {
         dyeRead = createRenderTarget({ clearColor, internalFormat: gl.RGBA16F, type: gl.HALF_FLOAT });
         dyeWrite = createRenderTarget({ clearColor, internalFormat: gl.RGBA16F, type: gl.HALF_FLOAT });
-        dyeRecoveryRate = 0.06;
+        dyeRecoveryRate = 0.05;
         canvas.dataset.dyeFormat = 'rgba16f';
         return;
       } catch {
