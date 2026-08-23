@@ -384,18 +384,26 @@ function buildPotSceneSvg(cropCode) {
         <stop offset="0" stop-color="rgba(210,153,34,0.35)"/>
         <stop offset="1" stop-color="rgba(210,153,34,0)"/>
       </radialGradient>
+      <!-- 圆台花盆侧壁：左暗右亮，立体感 -->
       <linearGradient id="potBody" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="#7a4f2e"/>
-        <stop offset="0.35" stop-color="#96603a"/>
-        <stop offset="1" stop-color="#5f3a20"/>
+        <stop offset="0" stop-color="#5f3a20"/>
+        <stop offset="0.28" stop-color="#8a5a33"/>
+        <stop offset="0.55" stop-color="#a06a3e"/>
+        <stop offset="0.8" stop-color="#7a4f2e"/>
+        <stop offset="1" stop-color="#4a2d18"/>
       </linearGradient>
       <linearGradient id="potRim" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="#a97446"/>
+        <stop offset="0" stop-color="#b57c4c"/>
         <stop offset="1" stop-color="#7a4f2e"/>
       </linearGradient>
-      <linearGradient id="potShine" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0" stop-color="rgba(255,255,255,0.18)"/>
-        <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+      <!-- 叶片立体渐变：顶部受光亮、基部暗 -->
+      <linearGradient id="leafGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#4cc760"/>
+        <stop offset="1" stop-color="#227a3a"/>
+      </linearGradient>
+      <linearGradient id="leafGradDark" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2f9c4a"/>
+        <stop offset="1" stop-color="#195f2c"/>
       </linearGradient>
     </defs>
 
@@ -475,40 +483,57 @@ function buildPotSceneSvg(cropCode) {
     <rect x="0" y="340" width="380" height="3" fill="#1f2937"/>
     <ellipse cx="190" cy="402" rx="74" ry="12" fill="rgba(0,0,0,0.4)"/>
 
-    <!-- 花盆 -->
-    <path d="M146 300 L234 300 L248 398 L132 398 Z" fill="url(#potBody)" stroke="#4a2f1b" stroke-width="2.5"/>
-    <path d="M146 300 L234 300 L248 398 L132 398 Z" fill="url(#potShine)" opacity="0.5"/>
-    <rect x="140" y="288" width="100" height="16" rx="5" fill="url(#potRim)" stroke="#4a2f1b" stroke-width="2.5"/>
-    <path d="M150 332 L166 332" stroke="rgba(0,0,0,0.25)" stroke-width="3" stroke-linecap="round"/>
-    <path d="M158 356 L182 356" stroke="rgba(0,0,0,0.2)" stroke-width="3" stroke-linecap="round"/>
-    <path d="M152 378 L176 378" stroke="rgba(0,0,0,0.15)" stroke-width="3" stroke-linecap="round"/>
+    <!-- 花盆（圆台透视 3D：椭圆盆口 + 侧壁明暗 + 高光） -->
+    <!-- 盆口内部（深度阴影） -->
+    <ellipse cx="190" cy="290" rx="54" ry="13" fill="#241608"/>
+    <!-- 圆台侧壁 -->
+    <path d="M136 290 L244 290 L256 398 Q190 412 124 398 Z" fill="url(#potBody)" stroke="#3f2715" stroke-width="2"/>
+    <!-- 侧壁高光 -->
+    <path d="M152 300 Q190 290 228 300 L236 390 Q190 402 144 390 Z" fill="rgba(255,255,255,0.06)"/>
+    <!-- 盆口边沿（椭圆环：上缘亮、下缘暗，俯视立体） -->
+    <ellipse cx="190" cy="290" rx="54" ry="13" fill="none" stroke="url(#potRim)" stroke-width="6"/>
+    <path d="M138 289 Q190 276 242 289" stroke="rgba(255,255,255,0.3)" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <!-- 侧壁装饰线（贴合圆台弧度） -->
+    <path d="M143 330 Q190 324 237 330" stroke="rgba(0,0,0,0.22)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M139 358 Q190 352 241 358" stroke="rgba(0,0,0,0.16)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M134 384 Q190 378 246 384" stroke="rgba(0,0,0,0.12)" stroke-width="3" fill="none" stroke-linecap="round"/>
 
-    <!-- 土壤（湿度联动色 + 颗粒 + 干旱裂纹） -->
-    <rect class="pot-soil" x="150" y="276" width="80" height="16" rx="4" fill="var(--soil-color, #4a3624)"/>
-    <g class="pot-soil-grain" fill="rgba(255,255,255,0.08)">
-      <circle cx="164" cy="282" r="1.4"/><circle cx="178" cy="286" r="1.2"/><circle cx="192" cy="281" r="1.5"/>
-      <circle cx="206" cy="285" r="1.2"/><circle cx="218" cy="282" r="1.4"/><circle cx="170" cy="289" r="1.1"/>
-      <circle cx="200" cy="289" r="1.3"/><circle cx="184" cy="284" r="1"/>
+    <!-- 土壤（椭圆盘俯视 3D + 湿度联动色 + 颗粒 + 干旱裂纹） -->
+    <ellipse class="pot-soil" cx="190" cy="290" rx="44" ry="10" fill="var(--soil-color, #4a3624)"/>
+    <ellipse cx="190" cy="290" rx="44" ry="10" fill="rgba(0,0,0,0.18)"/>
+    <ellipse cx="190" cy="287" rx="36" ry="7.5" fill="rgba(255,255,255,0.07)"/>
+    <g class="pot-soil-grain" fill="rgba(255,255,255,0.09)">
+      <circle cx="170" cy="289" r="1.4"/><circle cx="184" cy="292" r="1.2"/><circle cx="198" cy="288" r="1.5"/>
+      <circle cx="210" cy="291" r="1.2"/><circle cx="220" cy="289" r="1.4"/><circle cx="176" cy="295" r="1.1"/>
+      <circle cx="204" cy="295" r="1.3"/><circle cx="190" cy="291" r="1"/>
     </g>
     <g class="pot-soil-cracks" stroke="#c9a06a" stroke-width="1.4" fill="none">
-      <path d="M168 280 q5 5 0 10"/>
-      <path d="M188 279 q-4 4 0 9 q4 4 0 9"/>
-      <path d="M210 280 q5 4 0 9"/>
-      <path d="M222 281 q-3 4 3 8"/>
+      <path d="M174 287 q5 4 0 8"/>
+      <path d="M192 286 q-4 3 0 8 q4 3 0 8"/>
+      <path d="M208 287 q5 3 0 8"/>
+      <path d="M220 288 q-3 3 3 7"/>
     </g>
 
-    <!-- 主茎 + 侧枝 -->
-    <path class="pot-stem" d="M190 282 Q184 240 192 176" stroke="#2ea043" stroke-width="5" fill="none" stroke-linecap="round"/>
-    <path class="pot-stem pot-branch" d="M188 246 Q214 232 226 240" stroke="#2ea043" stroke-width="3.5" fill="none" stroke-linecap="round"/>
-    <path class="pot-stem pot-branch2" d="M191 210 Q166 196 154 204" stroke="#2ea043" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <!-- 主茎 + 侧枝（双线立体：暗底 + 亮面） -->
+    <path class="pot-stem pot-stem-dark" d="M190 288 Q184 240 192 176" stroke="#1c6b33" stroke-width="6.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem" d="M190 288 Q184 240 192 176" stroke="#36ab52" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-stem-dark pot-branch" d="M188 246 Q214 232 226 240" stroke="#1c6b33" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-branch" d="M188 246 Q214 232 226 240" stroke="#36ab52" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-stem-dark pot-branch2" d="M191 210 Q166 196 154 204" stroke="#1c6b33" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-branch2" d="M191 210 Q166 196 154 204" stroke="#36ab52" stroke-width="2.2" fill="none" stroke-linecap="round"/>
 
-    <!-- 叶片（微风摆动 / 干旱下垂） -->
-    <path class="pot-leaf l1" d="M192 206 Q158 192 144 204 Q158 212 192 206 Z" fill="#3fb950"/>
-    <path class="pot-leaf l2" d="M192 192 Q226 176 240 188 Q226 196 192 192 Z" fill="#2ea043"/>
-    <path class="pot-leaf l3" d="M190 238 Q158 228 150 240 Q162 246 190 238 Z" fill="#3fb950"/>
-    <path class="pot-leaf l4" d="M190 232 Q222 220 232 232 Q220 240 190 232 Z" fill="#2ea043"/>
-    <path class="pot-leaf l5" d="M192 172 Q170 160 158 170 Q170 178 192 172 Z" fill="#3fb950"/>
-    <path class="pot-leaf l6" d="M191 258 Q164 250 158 262 Q168 268 191 258 Z" fill="#2ea043"/>
+    <!-- 后层叶片（暗色渐变，视觉在后） -->
+    <path class="pot-leaf pot-leaf-back l2b" d="M192 192 Q230 174 244 188 Q228 198 192 192 Z" fill="url(#leafGradDark)"/>
+    <path class="pot-leaf pot-leaf-back l4b" d="M190 232 Q226 218 236 232 Q222 242 190 232 Z" fill="url(#leafGradDark)"/>
+    <path class="pot-leaf pot-leaf-back l6b" d="M191 258 Q162 248 156 262 Q168 270 191 258 Z" fill="url(#leafGradDark)"/>
+
+    <!-- 前层叶片（亮色渐变 + 叶脉） -->
+    <path class="pot-leaf l1" d="M192 206 Q156 190 142 204 Q158 214 192 206 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l3" d="M190 238 Q156 226 148 240 Q162 248 190 238 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l5" d="M192 172 Q168 158 156 170 Q170 180 192 172 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l2" d="M192 192 Q224 178 238 190 Q224 200 192 192 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l4" d="M190 232 Q220 220 230 232 Q218 242 190 232 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l6" d="M191 258 Q162 250 156 262 Q168 270 191 258 Z" fill="url(#leafGrad)"/>
 
     ${fruit}
 
@@ -567,7 +592,9 @@ export async function renderScenarioReplay(container, plotId) {
               <span class="sr-pot-title">🪴 温室盆栽环境模拟</span>
               <span class="agri-pill agri-pill-ok" data-role="pot-badge">🌤️ 正常生长</span>
             </div>
-            <div class="sr-pot-scene normal" data-role="pot-scene">${buildPotSceneSvg(plot.cropCode)}</div>
+            <div class="sr-pot-stage" data-role="pot-stage">
+              <div class="sr-pot-scene normal" data-role="pot-scene">${buildPotSceneSvg(plot.cropCode)}</div>
+            </div>
             <div class="sr-pot-metrics">
               <div class="sr-pot-metric" title="土壤湿度（随回放滑块联动）">
                 <span>💧 土壤湿度</span>
@@ -617,6 +644,7 @@ export async function renderScenarioReplay(container, plotId) {
   const runOutput = container.querySelector('[data-role="run-output"]');
   const seedInput = container.querySelector('#srSeedInput');
   const potScene = container.querySelector('[data-role="pot-scene"]');
+  const potStage = container.querySelector('[data-role="pot-stage"]');
   const potBadge = container.querySelector('[data-role="pot-badge"]');
   const potDesc = container.querySelector('[data-role="pot-desc"]');
   const potMoisture = container.querySelector('[data-role="pot-moisture"]');
@@ -625,6 +653,20 @@ export async function renderScenarioReplay(container, plotId) {
   let selectedScenario = 'DROUGHT';
   let chartInstances = [];
   let activeChart = null; // 当前双轨图的 ECharts 实例（跨 renderRunOutput 生命周期）
+
+  // 3D 视差：鼠标在盆栽区域移动时场景跟随轻微旋转（perspective + rotate）
+  if (potStage) {
+    potStage.addEventListener('mousemove', (e) => {
+      const rect = potStage.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const px = (e.clientX - rect.left) / rect.width - 0.5;
+      const py = (e.clientY - rect.top) / rect.height - 0.5;
+      potStage.style.transform = `rotateY(${(px * 10).toFixed(2)}deg) rotateX(${(-py * 8).toFixed(2)}deg)`;
+    });
+    potStage.addEventListener('mouseleave', () => {
+      potStage.style.transform = '';
+    });
+  }
 
   /** 应用情景到盆栽可视化（CSS 类切换环境动画 + 环境指标） */
   const applySceneVisual = (scenario) => {

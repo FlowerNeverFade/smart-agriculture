@@ -591,8 +591,19 @@
   font-weight: 600;
   color: var(--text-primary);
 }
+/* 3D 场景：透视 + 鼠标视差旋转 */
+.sr-pot-stage {
+  perspective: 1100px;
+  transform-style: preserve-3d;
+  transition: transform 0.25s ease-out;
+  will-change: transform;
+}
+.sr-pot-stage:hover {
+  cursor: crosshair;
+}
 .sr-pot-scene {
   width: 100%;
+  transform-style: preserve-3d;
 }
 .sr-pot-scene svg {
   width: 100%;
@@ -681,39 +692,39 @@
   transition: fill 0.6s ease;
 }
 
-/* 正常态：微风叶片摆动 */
-.sr-pot-scene.normal .pot-leaf { animation: pot-breeze 3.2s ease-in-out infinite alternate; }
-.sr-pot-scene.normal .pot-leaf.l2 { animation-delay: 0.4s; }
-.sr-pot-scene.normal .pot-leaf.l3 { animation-delay: 0.8s; }
-.sr-pot-scene.normal .pot-leaf.l4 { animation-delay: 1.2s; }
-.sr-pot-scene.normal .pot-leaf.l5 { animation-delay: 0.6s; }
-.sr-pot-scene.normal .pot-leaf.l6 { animation-delay: 1s; }
+/* 正常态：微风叶片摆动（后层叶静止，增强前后层次） */
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back) { animation: pot-breeze 3.2s ease-in-out infinite alternate; }
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back).l2 { animation-delay: 0.4s; }
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back).l3 { animation-delay: 0.8s; }
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back).l4 { animation-delay: 1.2s; }
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back).l5 { animation-delay: 0.6s; }
+.sr-pot-scene.normal .pot-leaf:not(.pot-leaf-back).l6 { animation-delay: 1s; }
 @keyframes pot-breeze {
   from { transform: rotate(-2deg); }
   to { transform: rotate(3deg); }
 }
 
-/* 干旱情景 / 湿度联动萎蔫：叶下垂变黄、土壤开裂、太阳增强 */
-.sr-pot-scene.drought .pot-leaf,
-.sr-pot-scene.pot-wilt .pot-leaf {
+/* 干旱情景 / 湿度联动萎蔫：前层叶下垂变黄、土壤开裂、太阳增强 */
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back),
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back) {
   transform: rotate(-22deg);
   fill: #c9a06a;
   animation: none;
 }
-.sr-pot-scene.drought .pot-leaf.l2,
-.sr-pot-scene.pot-wilt .pot-leaf.l2 { transform: rotate(24deg); }
-.sr-pot-scene.drought .pot-leaf.l3,
-.sr-pot-scene.pot-wilt .pot-leaf.l3 { transform: rotate(-26deg); }
-.sr-pot-scene.drought .pot-leaf.l4,
-.sr-pot-scene.pot-wilt .pot-leaf.l4 { transform: rotate(28deg); }
-.sr-pot-scene.drought .pot-leaf.l5,
-.sr-pot-scene.pot-wilt .pot-leaf.l5 { transform: rotate(-28deg); }
-.sr-pot-scene.drought .pot-leaf.l6,
-.sr-pot-scene.pot-wilt .pot-leaf.l6 { transform: rotate(30deg); }
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back).l2,
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back).l2 { transform: rotate(24deg); }
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back).l3,
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back).l3 { transform: rotate(-26deg); }
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back).l4,
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back).l4 { transform: rotate(28deg); }
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back).l5,
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back).l5 { transform: rotate(-28deg); }
+.sr-pot-scene.drought .pot-leaf:not(.pot-leaf-back).l6,
+.sr-pot-scene.pot-wilt .pot-leaf:not(.pot-leaf-back).l6 { transform: rotate(30deg); }
 .sr-pot-scene.drought .pot-soil-cracks { opacity: 0.9; }
 .sr-pot-scene.drought .pot-sun { transform: scale(1.3); }
 /* 临界萎蔫：叶片更黄、果实暗淡 */
-.sr-pot-scene.pot-crit .pot-leaf,
+.sr-pot-scene.pot-crit .pot-leaf:not(.pot-leaf-back),
 .sr-pot-scene.pot-crit .pot-fruit { opacity: 0.7; fill: #a3854f; }
 .sr-pot-scene.pot-crit .pot-stem { stroke: #8a9a6a; }
 .sr-pot-scene.pot-crit .pot-soil-cracks { opacity: 1; }
