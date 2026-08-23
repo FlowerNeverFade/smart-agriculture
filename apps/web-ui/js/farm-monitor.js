@@ -61,53 +61,120 @@ const PLOT_LAYOUT = {
 };
 
 const RECLAMATION_SLOTS = [
+  // ========== 东区现代高效示范带 (East Agricultural Zone - E01 ~ E06) ==========
   {
     slotId: 'plot-e01',
     zoneName: '东区现代高效示范带',
     name: 'E01 优质粮蔬扩展田',
     defaultCrop: 'corn',
     defaultStage: 'seedling',
-    x: 32.0,
+    x: 35.0,
     z: -3.5,
-    width: 8.5,
-    depth: 7.0,
-    rotation: -0.015,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
     soilMoisture: '28.5%',
     estYield: '680 kg/亩',
-    canalStart: { x: 13.2, z: -3.5 },
-    canalEnd: { x: 27.5, z: -3.5 }
+    canalStart: { x: 26.5, z: -3.5 },
+    canalEnd: { x: 30.0, z: -3.5 }
   },
   {
     slotId: 'plot-e02',
     zoneName: '东区现代高效示范带',
-    name: 'E02 特色浆果栽培田',
+    name: 'E02 高产向日葵试验田',
+    defaultCrop: 'sunflower',
+    defaultStage: 'seedling',
+    x: 48.5,
+    z: -3.5,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '29.2%',
+    estYield: '560 kg/亩',
+    canalStart: { x: 40.0, z: -3.5 },
+    canalEnd: { x: 43.5, z: -3.5 }
+  },
+  {
+    slotId: 'plot-e03',
+    zoneName: '东区现代高效示范带',
+    name: 'E03 特色红颊草莓田',
     defaultCrop: 'strawberry',
     defaultStage: 'seedling',
-    x: 32.0,
-    z: 8.8,
-    width: 8.5,
-    depth: 7.0,
-    rotation: 0.015,
-    soilMoisture: '26.8%',
-    estYield: '850 kg/亩',
-    canalStart: { x: 13.2, z: 8.8 },
-    canalEnd: { x: 27.5, z: 8.8 }
+    x: 62.0,
+    z: -3.5,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '27.4%',
+    estYield: '880 kg/亩',
+    canalStart: { x: 53.5, z: -3.5 },
+    canalEnd: { x: 57.0, z: -3.5 }
   },
+  {
+    slotId: 'plot-e04',
+    zoneName: '东区现代高效示范带',
+    name: 'E04 绿色水果黄瓜田',
+    defaultCrop: 'cucumber',
+    defaultStage: 'seedling',
+    x: 35.0,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '26.8%',
+    estYield: '950 kg/亩',
+    canalStart: { x: 26.5, z: 8.8 },
+    canalEnd: { x: 30.0, z: 8.8 }
+  },
+  {
+    slotId: 'plot-e05',
+    zoneName: '东区现代高效示范带',
+    name: 'E05 精品无公害番茄田',
+    defaultCrop: 'tomato',
+    defaultStage: 'seedling',
+    x: 48.5,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '28.1%',
+    estYield: '1,120 kg/亩',
+    canalStart: { x: 40.0, z: 8.8 },
+    canalEnd: { x: 43.5, z: 8.8 }
+  },
+  {
+    slotId: 'plot-e06',
+    zoneName: '东区现代高效示范带',
+    name: 'E06 生态优质水稻田',
+    defaultCrop: 'rice',
+    defaultStage: 'seedling',
+    x: 62.0,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '33.8%',
+    estYield: '750 kg/亩',
+    canalStart: { x: 53.5, z: 8.8 },
+    canalEnd: { x: 57.0, z: 8.8 }
+  },
+
+  // ========== 西区绿色有机培育带 (West Agricultural Zone - W01 ~ W06) ==========
   {
     slotId: 'plot-w01',
     zoneName: '西区绿色有机培育带',
     name: 'W01 水果黄瓜架栽田',
     defaultCrop: 'cucumber',
     defaultStage: 'seedling',
-    x: -32.0,
+    x: -35.0,
     z: -3.5,
-    width: 8.5,
-    depth: 7.0,
-    rotation: 0.015,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
     soilMoisture: '27.2%',
     estYield: '920 kg/亩',
-    canalStart: { x: -14.8, z: -3.5 },
-    canalEnd: { x: -27.5, z: -3.5 }
+    canalStart: { x: -26.5, z: -3.5 },
+    canalEnd: { x: -30.0, z: -3.5 }
   },
   {
     slotId: 'plot-w02',
@@ -115,57 +182,189 @@ const RECLAMATION_SLOTS = [
     name: 'W02 高品质番茄培育田',
     defaultCrop: 'tomato',
     defaultStage: 'seedling',
-    x: -32.0,
-    z: 8.8,
-    width: 8.5,
-    depth: 7.0,
-    rotation: -0.015,
+    x: -48.5,
+    z: -3.5,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
     soilMoisture: '25.9%',
     estYield: '1,100 kg/亩',
-    canalStart: { x: -14.8, z: 8.8 },
-    canalEnd: { x: -27.5, z: 8.8 }
+    canalStart: { x: -40.0, z: -3.5 },
+    canalEnd: { x: -43.5, z: -3.5 }
   },
+  {
+    slotId: 'plot-w03',
+    zoneName: '西区绿色有机培育带',
+    name: 'W03 鲜食甜糯玉米田',
+    defaultCrop: 'corn',
+    defaultStage: 'seedling',
+    x: -62.0,
+    z: -3.5,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '28.8%',
+    estYield: '710 kg/亩',
+    canalStart: { x: -53.5, z: -3.5 },
+    canalEnd: { x: -57.0, z: -3.5 }
+  },
+  {
+    slotId: 'plot-w04',
+    zoneName: '西区绿色有机培育带',
+    name: 'W04 金秋向日葵观赏田',
+    defaultCrop: 'sunflower',
+    defaultStage: 'seedling',
+    x: -35.0,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '26.5%',
+    estYield: '580 kg/亩',
+    canalStart: { x: -26.5, z: 8.8 },
+    canalEnd: { x: -30.0, z: 8.8 }
+  },
+  {
+    slotId: 'plot-w05',
+    zoneName: '西区绿色有机培育带',
+    name: 'W05 富硒有机水稻田',
+    defaultCrop: 'rice',
+    defaultStage: 'seedling',
+    x: -48.5,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '34.5%',
+    estYield: '760 kg/亩',
+    canalStart: { x: -40.0, z: 8.8 },
+    canalEnd: { x: -43.5, z: 8.8 }
+  },
+  {
+    slotId: 'plot-w06',
+    zoneName: '西区绿色有机培育带',
+    name: 'W06 精品红颊草莓田',
+    defaultCrop: 'strawberry',
+    defaultStage: 'seedling',
+    x: -62.0,
+    z: 8.8,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '27.9%',
+    estYield: '860 kg/亩',
+    canalStart: { x: -53.5, z: 8.8 },
+    canalEnd: { x: -57.0, z: 8.8 }
+  },
+
+  // ========== 南区高产粮油核心带 (South Agricultural Zone - S01 ~ S06) ==========
   {
     slotId: 'plot-s01',
     zoneName: '南区高产粮油核心带',
-    name: 'S01 金秋油葵试验田',
-    defaultCrop: 'sunflower',
+    name: 'S01 西翼粮油高产田',
+    defaultCrop: 'corn',
     defaultStage: 'seedling',
-    x: -14.0,
-    z: 23.5,
-    width: 8.5,
-    depth: 7.0,
-    rotation: 0.0,
-    soilMoisture: '29.1%',
-    estYield: '540 kg/亩',
-    canalStart: { x: -14.0, z: 14.2 },
-    canalEnd: { x: -14.0, z: 20.0 }
+    x: -48.5,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '28.9%',
+    estYield: '730 kg/亩',
+    canalStart: { x: -48.5, z: 18.0 },
+    canalEnd: { x: -48.5, z: 21.8 }
   },
   {
     slotId: 'plot-s02',
     zoneName: '南区高产粮油核心带',
-    name: 'S02 绿色生态水稻田',
+    name: 'S02 西翼金秋油葵田',
+    defaultCrop: 'sunflower',
+    defaultStage: 'seedling',
+    x: -35.0,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '29.1%',
+    estYield: '540 kg/亩',
+    canalStart: { x: -35.0, z: 18.0 },
+    canalEnd: { x: -35.0, z: 21.8 }
+  },
+  {
+    slotId: 'plot-s03',
+    zoneName: '南区高产粮油核心带',
+    name: 'S03 中西生态水稻田',
     defaultCrop: 'rice',
     defaultStage: 'seedling',
-    x: 14.0,
-    z: 23.5,
-    width: 8.5,
-    depth: 7.0,
-    rotation: 0.0,
+    x: -16.0,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
     soilMoisture: '34.2%',
-    estYield: '720 kg/亩',
-    canalStart: { x: 14.0, z: 14.2 },
-    canalEnd: { x: 14.0, z: 20.0 }
+    estYield: '740 kg/亩',
+    canalStart: { x: -16.0, z: 18.0 },
+    canalEnd: { x: -16.0, z: 21.8 }
+  },
+  {
+    slotId: 'plot-s04',
+    zoneName: '南区高产粮油核心带',
+    name: 'S04 中东生态水稻田',
+    defaultCrop: 'rice',
+    defaultStage: 'seedling',
+    x: 16.0,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '34.0%',
+    estYield: '735 kg/亩',
+    canalStart: { x: 16.0, z: 18.0 },
+    canalEnd: { x: 16.0, z: 21.8 }
+  },
+  {
+    slotId: 'plot-s05',
+    zoneName: '南区高产粮油核心带',
+    name: 'S05 东翼鲜食玉米田',
+    defaultCrop: 'corn',
+    defaultStage: 'seedling',
+    x: 35.0,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '28.3%',
+    estYield: '710 kg/亩',
+    canalStart: { x: 35.0, z: 18.0 },
+    canalEnd: { x: 35.0, z: 21.8 }
+  },
+  {
+    slotId: 'plot-s06',
+    zoneName: '南区高产粮油核心带',
+    name: 'S06 东翼向日葵试验田',
+    defaultCrop: 'sunflower',
+    defaultStage: 'seedling',
+    x: 48.5,
+    z: 26.0,
+    width: 9.0,
+    depth: 7.5,
+    rotation: 0,
+    soilMoisture: '27.8%',
+    estYield: '550 kg/亩',
+    canalStart: { x: 48.5, z: 18.0 },
+    canalEnd: { x: 48.5, z: 21.8 }
   }
 ];
 
 const SECTOR_VIEWS = {
-  all: { name: '全域总览', icon: 'ph-globe', cam: { x: 0, y: 32, z: 46 }, target: { x: 0, y: 0, z: -2 } },
+  all: { name: '全域总览', icon: 'ph-globe', cam: { x: 0, y: 52, z: 80 }, target: { x: 0, y: 0, z: 8 } },
   core: { name: '核心示范区', icon: 'ph-squares-four', cam: { x: 0, y: 22, z: 28 }, target: { x: 0, y: 0, z: 4 } },
-  east: { name: '东区高效带', icon: 'ph-arrow-right', cam: { x: 28, y: 20, z: 22 }, target: { x: 26, y: 0, z: 2 } },
-  west: { name: '西区有机带', icon: 'ph-arrow-left', cam: { x: -28, y: 20, z: 22 }, target: { x: -26, y: 0, z: 2 } },
-  south: { name: '南区高产带', icon: 'ph-arrow-down', cam: { x: 0, y: 22, z: 38 }, target: { x: 0, y: 0, z: 20 } },
-  north: { name: '北区温室群', icon: 'ph-buildings', cam: { x: 0, y: 20, z: 8 }, target: { x: 0, y: 0, z: -14 } }
+  east: { name: '东区高效带', icon: 'ph-arrow-right', cam: { x: 48, y: 24, z: 32 }, target: { x: 48, y: 0, z: 3 } },
+  west: { name: '西区有机带', icon: 'ph-arrow-left', cam: { x: -48, y: 24, z: 32 }, target: { x: -48, y: 0, z: 3 } },
+  south: { name: '南区高产带', icon: 'ph-arrow-down', cam: { x: 0, y: 26, z: 52 }, target: { x: 0, y: 0, z: 26 } },
+  north: { name: '北区温室群', icon: 'ph-buildings', cam: { x: 0, y: 20, z: 10 }, target: { x: 0, y: 0, z: -14 } },
+  se_hub: { name: '东南风车景观区', icon: 'ph-fan', cam: { x: 65, y: 24, z: 70 }, target: { x: 65, y: 0, z: 46 } },
+  sw_hub: { name: '西南粮仓储运区', icon: 'ph-warehouse', cam: { x: -65, y: 24, z: 70 }, target: { x: -65, y: 0, z: 46 } }
 };
 
 const DEFAULT_PLOTS = [
@@ -711,12 +910,19 @@ class FarmWorld3D {
     const solarMaterial = new THREE.MeshStandardMaterial({ color: 0x1a2e40, roughness: 0.25, metalness: 0.7 });
 
     const lampPositions = [
-      // Front Main Road
-      { x: -22.0, z: 15.5 }, { x: -7.5, z: 15.5 }, { x: 7.5, z: 15.5 }, { x: 22.0, z: 15.5 },
-      // Mid Canal Road
-      { x: -22.0, z: 3.5 }, { x: -7.5, z: 3.5 }, { x: 7.5, z: 3.5 }, { x: 22.0, z: 3.5 },
-      // North Auxiliary Avenue
-      { x: -11.0, z: -8.0 }, { x: 11.0, z: -8.0 }
+      // South Main Arterial Road (z = 18.0, x: -70 to 70)
+      { x: -65.0, z: 18.0 }, { x: -50.0, z: 18.0 }, { x: -35.0, z: 18.0 }, { x: -20.0, z: 18.0 },
+      { x: -5.0, z: 18.0 }, { x: 10.0, z: 18.0 }, { x: 25.0, z: 18.0 }, { x: 40.0, z: 18.0 },
+      { x: 55.0, z: 18.0 }, { x: 70.0, z: 18.0 },
+      // Mid Canal Spine Road (z = 3.25, x: -70 to 70)
+      { x: -65.0, z: 3.25 }, { x: -50.0, z: 3.25 }, { x: -35.0, z: 3.25 }, { x: -20.0, z: 3.25 },
+      { x: 20.0, z: 3.25 }, { x: 35.0, z: 3.25 }, { x: 50.0, z: 3.25 }, { x: 65.0, z: 3.25 },
+      // North Service Avenue (z = -9.0)
+      { x: -45.0, z: -9.0 }, { x: -14.0, z: -9.0 }, { x: 14.0, z: -9.0 }, { x: 45.0, z: -9.0 },
+      // South Perimeter Promenade (z = 38.0)
+      { x: -48.0, z: 36.0 }, { x: -24.0, z: 36.0 }, { x: 24.0, z: 36.0 }, { x: 48.0, z: 36.0 },
+      // Hub entries
+      { x: -80.0, z: 3.5 }, { x: 80.0, z: 3.5 }, { x: -65.0, z: 42.0 }, { x: 65.0, z: 42.0 }
     ];
 
     lampPositions.forEach((pos) => {
@@ -741,7 +947,7 @@ class FarmWorld3D {
       solar.rotation.x = -0.25;
       lamp.add(solar);
 
-      // High-Glow LED Luminaire Head (Glows naturally at night)
+      // High-Glow LED Luminaire Head
       const lampHead = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18, 0.22, 0.14, 12),
         new THREE.MeshBasicMaterial({ color: 0x728076, toneMapped: false })
@@ -751,8 +957,8 @@ class FarmWorld3D {
       lamp.add(lampHead);
       this.streetLampBulbs.push(lampHead);
 
-      // Realistic Soft Spotlight (Feathered natural illumination, NO artificial flat circles!)
-      const spot = new THREE.SpotLight(0xffdf88, 0, 18, Math.PI / 3.0, 0.88, 1.3);
+      // Realistic Soft Spotlight (Feathered natural illumination)
+      const spot = new THREE.SpotLight(0xffdf88, 0, 20, Math.PI / 2.8, 0.85, 1.2);
       spot.position.set(bulbPos, 3.8, 0);
       spot.target.position.set(bulbPos, 0, 0);
       lamp.add(spot);
@@ -816,10 +1022,8 @@ class FarmWorld3D {
   }
 
   buildWater() {
-    // 1. Retention Pond: Raised cleanly with solid base basin
+    // 1. Central Retention Pond with solid stone base basin
     const pondGroup = new THREE.Group();
-    
-    // Stone foundation bed under the pond
     const basinBase = new THREE.Mesh(
       new THREE.CylinderGeometry(5.35, 5.35, 0.16, 48),
       new THREE.MeshStandardMaterial({ color: 0x6e7872, roughness: 0.9 })
@@ -827,14 +1031,12 @@ class FarmWorld3D {
     basinBase.position.y = 0.02;
     pondGroup.add(basinBase);
 
-    // Water surface disc (y = 0.08)
     const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 48), this.createWaterMaterial());
     water.rotation.x = -Math.PI / 2;
     water.position.y = 0.08;
     water.receiveShadow = true;
     pondGroup.add(water);
 
-    // River Stone Rim Curb encasing the pond (y = 0.12)
     const rim = new THREE.Mesh(
       new THREE.TorusGeometry(5.25, 0.22, 16, 48),
       new THREE.MeshStandardMaterial({ color: 0x7a8680, roughness: 0.88 })
@@ -848,10 +1050,9 @@ class FarmWorld3D {
     pondGroup.position.set(0, 0, -2.5);
     this.scene.add(pondGroup);
 
-    // 2. Irrigation Canal Network: Elevated at y = 0.08 with solid raised curbs
+    // 2. Full-Map Arterial Irrigation Canal Network
     const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x7c8a82, roughness: 0.9 });
     const addCanal = ({ width, depth, x, z, vertical = false }) => {
-      // Ditch bed
       const bed = new THREE.Mesh(
         new THREE.BoxGeometry(vertical ? width + 0.1 : width, 0.08, vertical ? depth : depth + 0.1),
         bankMaterial
@@ -859,9 +1060,8 @@ class FarmWorld3D {
       bed.position.set(x, 0.03, z);
       this.scene.add(bed);
 
-      // Water surface
       const canal = new THREE.Mesh(
-        new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 2)), Math.max(3, Math.round(depth * 2))),
+        new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 1.5)), Math.max(3, Math.round(depth * 1.5))),
         this.createWaterMaterial()
       );
       canal.rotation.x = -Math.PI / 2;
@@ -869,7 +1069,6 @@ class FarmWorld3D {
       canal.receiveShadow = true;
       this.scene.add(canal);
 
-      // Raised retaining banks
       const sideOffset = (vertical ? width : depth) / 2 + 0.12;
       [-sideOffset, sideOffset].forEach(offset => {
         const bank = new THREE.Mesh(
@@ -883,23 +1082,48 @@ class FarmWorld3D {
       });
     };
 
-    addCanal({ width: 56.0, depth: 0.9, x: 0, z: 3.5 });
-    addCanal({ width: 56.0, depth: 0.9, x: 0, z: 14.2 });
-    addCanal({ width: 0.9, depth: 22.0, x: -14.8, z: 4.0, vertical: true });
-    addCanal({ width: 0.9, depth: 22.0, x: 13.2, z: 4.0, vertical: true });
-    addCanal({ width: 0.9, depth: 22.0, x: 0, z: 4.0, vertical: true });
+    // Full-Map East-West Main Canals (Spanning across x: -75m to +75m)
+    addCanal({ width: 148.0, depth: 0.9, x: 0, z: 3.25 });
+    addCanal({ width: 128.0, depth: 0.9, x: 0, z: 18.0 });
+
+    // North-South Lateral Branch Canals (Connecting all plot rows)
+    const lateralX = [-53.5, -40.0, -26.5, -14.8, 0, 13.2, 26.5, 40.0, 53.5];
+    lateralX.forEach(lx => {
+      addCanal({ width: 0.9, depth: 24.0, x: lx, z: 5.0, vertical: true });
+    });
   }
 
   buildRoads() {
     const roadMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ba8d, roughness: 0.95 });
-    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(64, 0.08, 1.4), roadMaterial);
-    mainRoad.position.set(0, 0.03, 15.5);
+
+    // 1. South Arterial Highway (x: -80m to +80m, z: 19.6)
+    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(162, 0.08, 1.8), roadMaterial);
+    mainRoad.position.set(0, 0.03, 19.6);
     mainRoad.receiveShadow = true;
     this.scene.add(mainRoad);
 
-    [-26.5, 26.5].forEach(x => {
-      const path = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 26.0), roadMaterial);
-      path.position.set(x, 0.03, 3.5);
+    // 2. Central Farm Road (x: -80m to +80m, z: 1.8)
+    const midRoad = new THREE.Mesh(new THREE.BoxGeometry(162, 0.08, 1.4), roadMaterial);
+    midRoad.position.set(0, 0.03, 1.8);
+    midRoad.receiveShadow = true;
+    this.scene.add(midRoad);
+
+    // 3. South Perimeter Farm Track (x: -60m to +60m, z: 34.5)
+    const southTrack = new THREE.Mesh(new THREE.BoxGeometry(124, 0.08, 1.4), roadMaterial);
+    southTrack.position.set(0, 0.03, 34.5);
+    southTrack.receiveShadow = true;
+    this.scene.add(southTrack);
+
+    // 4. North Service Road (x: -50m to +50m, z: -8.8)
+    const northRoad = new THREE.Mesh(new THREE.BoxGeometry(105, 0.08, 1.3), roadMaterial);
+    northRoad.position.set(0, 0.03, -8.8);
+    northRoad.receiveShadow = true;
+    this.scene.add(northRoad);
+
+    // 5. North-South Connector Avenues
+    [-72.0, -26.5, 26.5, 72.0].forEach(x => {
+      const path = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 46.0), roadMaterial);
+      path.position.set(x, 0.03, 13.0);
       path.receiveShadow = true;
       this.scene.add(path);
     });
@@ -910,6 +1134,8 @@ class FarmWorld3D {
     const darkSteel = new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.45 });
     const timber = new THREE.MeshStandardMaterial({ color: 0xb58e65, roughness: 0.7 });
     const bluePanel = new THREE.MeshStandardMaterial({ color: 0x3d6b8c, roughness: 0.5 });
+    const brickRed = new THREE.MeshStandardMaterial({ color: 0x8b3e2f, roughness: 0.85 });
+    const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
     const glass = new THREE.MeshPhysicalMaterial({
       color: 0xc9edf2,
       transmission: 0.65,
@@ -922,21 +1148,15 @@ class FarmWorld3D {
 
     // 1. Classical / Modern Garden Gazebo IN THE EXACT CENTER OF THE WATER POND (水池正中央)
     const pavilionGroup = new THREE.Group();
-    // Central Island Stone Plinth Base (y = 0.12, solidly emerging from water)
-    const pavPlinth = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.80, 1.90, 0.24, 8),
-      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
-    );
+    const pavPlinth = new THREE.Mesh(new THREE.CylinderGeometry(1.80, 1.90, 0.24, 8), new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 }));
     pavPlinth.position.y = 0.12;
     pavilionGroup.add(pavPlinth);
 
-    // Pavilion Timber Floor (y = 0.25)
     const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 0.06, 8), timber);
     pavFloor.position.y = 0.25;
     pavFloor.receiveShadow = true;
     pavilionGroup.add(pavFloor);
 
-    // 4 Corner Timber Columns
     [[-0.82, -0.82], [0.82, -0.82], [-0.82, 0.82], [0.82, 0.82]].forEach(([cx, cz]) => {
       const col = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), darkSteel);
       col.position.set(cx, 1.35, cz);
@@ -944,104 +1164,65 @@ class FarmWorld3D {
       pavilionGroup.add(col);
     });
 
-    // Sloped Hip Roof
-    const pavRoof = new THREE.Mesh(
-      new THREE.ConeGeometry(2.5, 1.1, 4),
-      new THREE.MeshStandardMaterial({ color: 0x38453d, roughness: 0.7 })
-    );
+    const pavRoof = new THREE.Mesh(new THREE.ConeGeometry(2.5, 1.1, 4), new THREE.MeshStandardMaterial({ color: 0x38453d, roughness: 0.7 }));
     pavRoof.rotation.y = Math.PI / 4;
     pavRoof.position.y = 2.95;
     pavRoof.castShadow = true;
     pavilionGroup.add(pavRoof);
 
-    // Ambient Lantern in Pavilion
     const pavLight = new THREE.PointLight(0xffdd77, 0, 12, 1.8);
     pavLight.position.set(0, 2.1, 0);
     pavilionGroup.add(pavLight);
     this.nightLights.push(pavLight);
 
-    // --- SOUTH CORRIDOR BRIDGE (直通南侧开阔草坪) ---
-    // Span: connects Central Island Plinth (z = -0.65m) across water (z = 2.7m) deep into South Lawn (z = 5.2m)
-    // Span length: 5.85m, Center: z = 2.275m, Deck height y = 0.24m
+    // South Promenade Bridge
     const southBridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 5.85), timber);
     southBridge.position.set(0, 0.24, 2.275);
     southBridge.receiveShadow = true;
     southBridge.castShadow = true;
     pavilionGroup.add(southBridge);
 
-    // Water Support Piers (桥墩) under south bridge
     [0.3, 1.8, 3.4].forEach(pz => {
-      const pier = new THREE.Mesh(
-        new THREE.BoxGeometry(1.26, 0.28, 0.26),
-        new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 })
-      );
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.28, 0.26), new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 }));
       pier.position.set(0, 0.10, pz);
       pier.castShadow = true;
       pavilionGroup.add(pier);
     });
 
-    // South Bridge Railings / Balustrades
     [-0.56, 0.56].forEach(rx => {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 5.85), darkSteel);
       rail.position.set(rx, 0.45, 2.275);
       rail.castShadow = true;
       pavilionGroup.add(rail);
-
-      [-1.8, -0.6, 0.6, 1.8].forEach(bz => {
-        const baluster = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), darkSteel);
-        baluster.position.set(rx, 0.45, 2.275 + bz);
-        pavilionGroup.add(baluster);
-      });
     });
 
-    // South Meadow Landing Apron & Stone Steps (直接与南侧草地无缝相接)
-    const southLawnStep = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 0.16, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
-    );
+    const southLawnStep = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.6), new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 }));
     southLawnStep.position.set(0, 0.08, 5.35);
     southLawnStep.receiveShadow = true;
     pavilionGroup.add(southLawnStep);
 
-    // --- NORTH CORRIDOR PROMENADE (直通北侧设施草坪) ---
-    // Span: connects Central Island Plinth (z = -4.35m) across north water (z = -7.7m) to North Lawn (z = -9.2m)
-    // Span length: 4.85m, Center: z = -6.775m, Deck height y = 0.24m
+    // North Promenade Bridge
     const northBridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 4.85), timber);
     northBridge.position.set(0, 0.24, -6.775);
     northBridge.receiveShadow = true;
     northBridge.castShadow = true;
     pavilionGroup.add(northBridge);
 
-    // Water Support Piers under north bridge
     [-5.6, -7.2].forEach(pz => {
-      const pier = new THREE.Mesh(
-        new THREE.BoxGeometry(1.26, 0.28, 0.26),
-        new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 })
-      );
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.28, 0.26), new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 }));
       pier.position.set(0, 0.10, pz);
       pier.castShadow = true;
       pavilionGroup.add(pier);
     });
 
-    // North Bridge Railings
     [-0.56, 0.56].forEach(rx => {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 4.85), darkSteel);
       rail.position.set(rx, 0.45, -6.775);
       rail.castShadow = true;
       pavilionGroup.add(rail);
-
-      [-1.4, 0.0, 1.4].forEach(bz => {
-        const baluster = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), darkSteel);
-        baluster.position.set(rx, 0.45, -6.775 + bz);
-        pavilionGroup.add(baluster);
-      });
     });
 
-    // North Meadow Landing Apron & Stone Steps (直接与北侧草地无缝相接)
-    const northLawnStep = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 0.16, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
-    );
+    const northLawnStep = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.6), new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 }));
     northLawnStep.position.set(0, 0.08, -9.35);
     northLawnStep.receiveShadow = true;
     pavilionGroup.add(northLawnStep);
@@ -1051,9 +1232,9 @@ class FarmWorld3D {
 
     // 2. Modern Multi-Span High-Tech Glass Greenhouse (North Open Lawn, x: -14, z: -14.5)
     const greenhouse = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
-    base.position.y = 0.225;
-    greenhouse.add(base);
+    const ghBase = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
+    ghBase.position.y = 0.225;
+    greenhouse.add(ghBase);
 
     const glassBody = new THREE.Mesh(new THREE.BoxGeometry(12.2, 2.4, 7.8), glass);
     glassBody.position.y = 1.65;
@@ -1064,12 +1245,10 @@ class FarmWorld3D {
       rib.position.set(offset, 1.7, 0);
       greenhouse.add(rib);
     }
-
     const growLight = new THREE.PointLight(0xffdd80, 0, 16, 1.8);
     growLight.position.set(0, 2.2, 0);
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
-
     greenhouse.position.set(-14.0, 0, -14.5);
     this.scene.add(greenhouse);
 
@@ -1100,13 +1279,11 @@ class FarmWorld3D {
     centerLight.position.set(0, 2.0, 1.5);
     center.add(centerLight);
     this.nightLights.push(centerLight);
-
     center.position.set(14.0, 0, -14.5);
     this.scene.add(center);
 
     // 4. Stainless Fertigation & Water Tanks (North Open Lawn, x: -28.0, z: -14.5)
     const siloGroup = new THREE.Group();
-    const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
     [-1.3, 1.3].forEach(offset => {
       const silo = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 3.6, 18), siloMat);
       silo.position.set(offset, 1.8, 0);
@@ -1118,95 +1295,139 @@ class FarmWorld3D {
     siloGroup.position.set(-28.0, 0, -14.5);
     this.scene.add(siloGroup);
 
-    // 5. WEST OUTER MEADOW FACILITIES (西侧空旷大草坪, x: -48.0, 彻底远离树木与田地)
-    const westComplex = new THREE.Group();
-    const shed = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.0), whiteWall);
-    shed.position.set(0, 1.6, 0);
-    shed.castShadow = true;
-    westComplex.add(shed);
+    // 5. FAR-WEST AGRI-ROBOTICS & MACHINERY HUB (x: -86.0m, z: 3.5m)
+    const westHub = new THREE.Group();
+    const hangar = new THREE.Mesh(new THREE.BoxGeometry(12.0, 4.0, 8.5), whiteWall);
+    hangar.position.set(0, 2.0, 0);
+    hangar.castShadow = true;
+    hangar.receiveShadow = true;
+    westHub.add(hangar);
 
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 4.0), bluePanel);
-    door.position.set(4.15, 1.1, 0);
-    westComplex.add(door);
+    const hangarRoof = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.3, 9.2), darkSteel);
+    hangarRoof.position.y = 4.15;
+    westHub.add(hangarRoof);
 
-    const pad = new THREE.Mesh(
-      new THREE.BoxGeometry(4.4, 0.1, 4.4),
-      new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 })
-    );
-    pad.position.set(0, 3.25, 0);
-    westComplex.add(pad);
+    const rollerDoor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 6.0), bluePanel);
+    rollerDoor.position.set(6.05, 1.4, 0);
+    westHub.add(rollerDoor);
 
-    const padLight = new THREE.PointLight(0x52e0a2, 0, 10, 2.0);
-    padLight.position.set(0, 3.6, 0);
-    westComplex.add(padLight);
-    this.nightLights.push(padLight);
+    const dronePad = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.1, 5.2), new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 }));
+    dronePad.position.set(0, 4.2, 0);
+    westHub.add(dronePad);
 
-    westComplex.position.set(-48.0, 0, 3.5);
-    this.scene.add(westComplex);
+    const padBeacon = new THREE.PointLight(0x52e0a2, 0, 12, 2.0);
+    padBeacon.position.set(0, 4.6, 0);
+    westHub.add(padBeacon);
+    this.nightLights.push(padBeacon);
+    westHub.position.set(-86.0, 0, 3.5);
+    this.scene.add(westHub);
 
-    // Automated Agro-Meteorology Station Mast (West Outer Lawn, x: -48.0, z: 11.5)
-    const tower = new THREE.Group();
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 5.8, 8), darkSteel);
-    mast.position.y = 2.9;
-    mast.castShadow = true;
-    const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
-    );
-    led.position.y = 5.85;
-    tower.add(mast, led);
-    tower.position.set(-48.0, 0, 11.5);
-    this.scene.add(tower);
+    // 6. FAR-EAST SMART AGRI-SCIENCE & NURSERY HUB (x: +86.0m, z: 3.5m)
+    const eastHub = new THREE.Group();
+    const labBldg = new THREE.Mesh(new THREE.BoxGeometry(11.0, 3.8, 7.5), whiteWall);
+    labBldg.position.set(0, 1.9, 0);
+    labBldg.castShadow = true;
+    eastHub.add(labBldg);
 
-    // 6. EAST OUTER MEADOW FACILITIES (东侧空旷大草坪, x: +48.0, 彻底远离树木与田地)
-    const eastComplex = new THREE.Group();
-    const depot = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.2), whiteWall);
-    depot.position.set(0, 1.6, 0);
-    depot.castShadow = true;
-    eastComplex.add(depot);
+    const labGlass = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 5.0), glass);
+    labGlass.position.set(-5.55, 1.9, 0);
+    eastHub.add(labGlass);
 
-    const depotGlass = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 4.2), glass);
-    depotGlass.position.set(-4.15, 1.6, 0);
-    eastComplex.add(depotGlass);
+    const labRoof = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.25, 8.2), darkSteel);
+    labRoof.position.y = 3.9;
+    eastHub.add(labRoof);
 
-    const depotRoof = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.18, 6.8), darkSteel);
-    depotRoof.position.y = 3.3;
-    eastComplex.add(depotRoof);
+    const nurseryGlassDome = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 2.8, 16), glass);
+    nurseryGlassDome.position.set(0, 1.4, 7.5);
+    eastHub.add(nurseryGlassDome);
 
-    const depotLight = new THREE.PointLight(0xfff0b8, 0, 12, 1.8);
-    depotLight.position.set(-2.0, 2.0, 0);
-    eastComplex.add(depotLight);
-    this.nightLights.push(depotLight);
+    const eastLight = new THREE.PointLight(0xfff0b8, 0, 14, 1.8);
+    eastLight.position.set(0, 2.4, 0);
+    eastHub.add(eastLight);
+    this.nightLights.push(eastLight);
+    eastHub.position.set(86.0, 0, 3.5);
+    this.scene.add(eastHub);
 
-    eastComplex.position.set(48.0, 0, 3.5);
-    this.scene.add(eastComplex);
+    // 7. SOUTH-WEST GRAIN STORAGE & LOGISTICS DEPOT (x: -66.0m, z: 46.0m)
+    const grainHub = new THREE.Group();
+    const siloPositions = [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]];
+    siloPositions.forEach(([sx, sz]) => {
+      const silo = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 5.2, 18), siloMat);
+      silo.position.set(sx, 2.6, sz);
+      silo.castShadow = true;
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(1.65, 1.1, 18), darkSteel);
+      cone.position.set(sx, 5.75, sz);
+      grainHub.add(silo, cone);
+    });
+    const gantry = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.35, 6.8), darkSteel);
+    gantry.position.y = 5.2;
+    grainHub.add(gantry);
 
-    // Nursery Greenhouse Annex (East Outer Lawn, x: 48.0, z: 11.5)
-    const nursery = new THREE.Group();
-    const nurseryGlass = new THREE.Mesh(new THREE.BoxGeometry(7.2, 2.4, 4.8), glass);
-    nurseryGlass.position.y = 1.2;
-    nursery.add(nurseryGlass);
-    const nurseryBase = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.3, 5.0), darkSteel);
-    nurseryBase.position.y = 0.15;
-    nursery.add(nurseryBase);
-    const nurseryLight = new THREE.PointLight(0xffd577, 0, 10, 1.8);
-    nurseryLight.position.set(0, 1.6, 0);
-    nursery.add(nurseryLight);
-    this.nightLights.push(nurseryLight);
-    nursery.position.set(48.0, 0, 11.5);
-    this.scene.add(nursery);
+    const grainLight = new THREE.PointLight(0xffdd88, 0, 14, 2.0);
+    grainLight.position.set(0, 3.0, 0);
+    grainHub.add(grainLight);
+    this.nightLights.push(grainLight);
+    grainHub.position.set(-66.0, 0, 46.0);
+    this.scene.add(grainHub);
 
-    // 7. South Park Entrance Welcome Archway (南侧主入口门廊)
+    // 8. SOUTH-EAST ECOLOGICAL WINDMILL & SCENIC WATER PAVILION (x: +66.0m, z: 46.0m)
+    const windmillGroup = new THREE.Group();
+    const millBase = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.2, 5.8, 8), brickRed);
+    millBase.position.y = 2.9;
+    millBase.castShadow = true;
+    windmillGroup.add(millBase);
+
+    const millCap = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.6, 8), darkSteel);
+    millCap.position.y = 6.6;
+    windmillGroup.add(millCap);
+
+    // Rotating 4-Blade Windmill Rotor
+    this.windmillBlades = new THREE.Group();
+    for (let b = 0; b < 4; b++) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.8, 0.06), timber);
+      blade.position.y = 2.0;
+      const bladeArm = new THREE.Group();
+      bladeArm.rotation.z = (b * Math.PI) / 2;
+      bladeArm.add(blade);
+      this.windmillBlades.add(bladeArm);
+    }
+    this.windmillBlades.position.set(0, 5.8, 2.5);
+    windmillGroup.add(this.windmillBlades);
+
+    const millLight = new THREE.PointLight(0xffdd77, 0, 14, 1.8);
+    millLight.position.set(0, 3.0, 3.0);
+    windmillGroup.add(millLight);
+    this.nightLights.push(millLight);
+    windmillGroup.position.set(66.0, 0, 46.0);
+    this.scene.add(windmillGroup);
+
+    // 9. HIGH-ALTITUDE METEOROLOGICAL OBSERVATION TOWERS (x: ±95.0m, z: 22.0m)
+    [-95.0, 95.0].forEach(tx => {
+      const tower = new THREE.Group();
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.12, 7.5, 8), darkSteel);
+      mast.position.y = 3.75;
+      mast.castShadow = true;
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 12, 8),
+        new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
+      );
+      beacon.position.y = 7.6;
+      tower.add(mast, beacon);
+      tower.position.set(tx, 0, 22.0);
+      this.scene.add(tower);
+    });
+
+    // 10. South Park Welcome Archway (x: 0, z: 40.0m)
     const arch = new THREE.Group();
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.35, 0.8), timber);
-    beam.position.y = 4.2;
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(11.0, 0.4, 0.9), timber);
+    beam.position.y = 4.4;
     arch.add(beam);
-    [-4.6, 4.6].forEach(px => {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4.4, 0.8), darkSteel);
-      p.position.set(px, 2.2, 0);
+    [-5.0, 5.0].forEach(px => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.6, 4.6, 0.9), darkSteel);
+      p.position.set(px, 2.3, 0);
       arch.add(p);
     });
-    arch.position.set(0, 0, 18.5);
+    arch.position.set(0, 0, 40.0);
     this.scene.add(arch);
   }
 
@@ -1217,7 +1438,7 @@ class FarmWorld3D {
 
     this.plots.forEach((plot, index) => {
       const layout = PLOT_LAYOUT[plot.plotId] || Object.values(PLOT_LAYOUT)[index % Object.values(PLOT_LAYOUT).length];
-      if (layout.isGreenhouse) return; // Greenhouse handled separately
+      if (layout.isGreenhouse) return;
 
       const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilMaterial.clone());
       soil.position.set(layout.x, -0.02, layout.z);
@@ -1522,23 +1743,88 @@ class FarmWorld3D {
   }
 
   buildTrees() {
-    // Trees placed according to original natural layout (zero clipping with crops and far perimeter buildings)
+    // Guaranteed 100% Collision-Free Full-Map Ecological Forestry System
     const positions = [];
-    // Perimeter and mountain fringe trees (Original layout)
-    for (let i = 0; i < 70; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (26.5 + (i % 6) * 2.2) + Math.sin(i * 3.2) * 1.5;
-      const z = -20 + (i % 18) * 2.2 + Math.cos(i * 1.5) * 1.0;
-      if (z > 14.0) continue;
-      const y = 0.0;
-      positions.push({ x, y, z, scale: 0.75 + (Math.sin(i * 4.2) + 1) * 0.25 });
+
+    // Collision Detection against all Active Plots, Reclamation Slots, Canals, Roads, and Buildings
+    const isOccupied = (x, z, radius = 1.8) => {
+      // 1. Check active core plots
+      for (const p of Object.values(PLOT_LAYOUT)) {
+        if (Math.abs(x - p.x) < (p.width / 2 + radius) && Math.abs(z - p.z) < (p.depth / 2 + radius)) return true;
+      }
+      // 2. Check all 18 reclamation slots
+      for (const s of RECLAMATION_SLOTS) {
+        if (Math.abs(x - s.x) < (s.width / 2 + radius) && Math.abs(z - s.z) < (s.depth / 2 + radius)) return true;
+      }
+      // 3. Check central pond and bridges
+      if (Math.abs(x) < (6.5 + radius) && Math.abs(z - -2.5) < (6.5 + radius)) return true;
+      if (Math.abs(x) < 2.2 && z >= -10.0 && z <= 6.0) return true;
+      // 4. Check main road spines
+      if (Math.abs(x) < 82 && Math.abs(z - 19.6) < (1.2 + radius)) return true;
+      if (Math.abs(x) < 82 && Math.abs(z - 1.8) < (1.2 + radius)) return true;
+      if (Math.abs(x) < 64 && Math.abs(z - 34.5) < (1.2 + radius)) return true;
+      if (Math.abs(x) < 54 && Math.abs(z - -8.8) < (1.2 + radius)) return true;
+      // 5. Check North-South connectors
+      if ([-72.0, -26.5, 26.5, 72.0].some(rx => Math.abs(x - rx) < (1.2 + radius) && z >= -12.0 && z <= 38.0)) return true;
+      // 6. Check full-map architectural hubs & facilities
+      const buildings = [
+        { x: -14.0, z: -14.5, w: 14, d: 10 },
+        { x: 14.0, z: -14.5, w: 11, d: 9 },
+        { x: -28.0, z: -14.5, w: 6, d: 6 },
+        { x: -86.0, z: 3.5, w: 15, d: 11 },
+        { x: 86.0, z: 3.5, w: 15, d: 11 },
+        { x: -66.0, z: 46.0, w: 12, d: 12 },
+        { x: 66.0, z: 46.0, w: 12, d: 12 },
+        { x: -95.0, z: 22.0, w: 6, d: 6 },
+        { x: 95.0, z: 22.0, w: 6, d: 6 },
+        { x: 0, z: 40.0, w: 13, d: 5 }
+      ];
+      for (const b of buildings) {
+        if (Math.abs(x - b.x) < (b.w / 2 + radius) && Math.abs(z - b.z) < (b.d / 2 + radius)) return true;
+      }
+      return false;
+    };
+
+    const tryAddTree = (x, z, scale = 1.0) => {
+      if (!isOccupied(x, z, 1.8 * scale)) {
+        positions.push({ x, y: 0.0, z, scale });
+      }
+    };
+
+    // A. North Mountain Fringe Dense Pine Forest (z: -34m to -22m, x: -125m to 125m)
+    for (let i = 0; i < 110; i++) {
+      const x = -125 + (i / 110) * 250 + Math.sin(i * 2.7) * 2.5;
+      const z = -24.0 - (i % 6) * 1.6 + Math.cos(i * 3.1) * 1.2;
+      tryAddTree(x, z, 0.8 + (i % 4) * 0.08);
     }
-    // North hill forest (Original layout)
+
+    // B. Far-West Perimeter Forest Belt (x: -100m to -132m, z: -40m to +65m)
+    for (let i = 0; i < 70; i++) {
+      const x = -102 - (i % 6) * 4.8 + Math.sin(i * 1.9) * 2.0;
+      const z = -40 + (i / 70) * 105 + Math.cos(i * 2.3) * 2.5;
+      tryAddTree(x, z, 0.75 + (i % 5) * 0.08);
+    }
+
+    // C. Far-East Perimeter Forest Belt (x: 100m to 132m, z: -40m to +65m)
+    for (let i = 0; i < 70; i++) {
+      const x = 102 + (i % 6) * 4.8 + Math.cos(i * 1.9) * 2.0;
+      const z = -40 + (i / 70) * 105 + Math.sin(i * 2.3) * 2.5;
+      tryAddTree(x, z, 0.75 + (i % 5) * 0.08);
+    }
+
+    // D. South Perimeter Landscape Forest & Orchard Grove (z: 55m to 85m, x: -115m to 115m)
+    for (let i = 0; i < 85; i++) {
+      const x = -115 + (i / 85) * 230 + Math.sin(i * 2.5) * 3.0;
+      const z = 55 + (i % 6) * 4.8 + Math.cos(i * 1.7) * 2.5;
+      tryAddTree(x, z, 0.78 + (i % 4) * 0.08);
+    }
+
+    // E. Sector Buffer Greenbelts (Carefully placed in open meadow buffers between sectors)
     for (let i = 0; i < 50; i++) {
-      const x = -38 + i * 1.55;
-      const z = -24.0 + Math.sin(i * 0.8) * 3.5;
-      const y = 0.0;
-      positions.push({ x, y, z, scale: 0.72 + (i % 5) * 0.08 });
+      const side = i % 2 === 0 ? -1 : 1;
+      const x = side * (75.5 + (i % 5) * 3.2);
+      const z = -15 + (i % 12) * 4.2;
+      tryAddTree(x, z, 0.85);
     }
 
     const trunkGeometry = new THREE.CylinderGeometry(0.09, 0.16, 1.6, 10, 3);
@@ -1582,6 +1868,317 @@ class FarmWorld3D {
       this.windMaterials.push(crownMaterial);
       this.scene.add(crowns);
     });
+  }
+
+  buildPlots() {
+    const soilMaterial = new THREE.MeshStandardMaterial({ color: 0x6a482c, roughness: 0.98 });
+    const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xb59662, roughness: 0.88 });
+    const furrowMaterial = new THREE.MeshStandardMaterial({ color: 0x4c3523, roughness: 1.0 });
+
+    this.plots.forEach((plot, index) => {
+      const layout = PLOT_LAYOUT[plot.plotId] || Object.values(PLOT_LAYOUT)[index % Object.values(PLOT_LAYOUT).length];
+      if (layout.isGreenhouse) return; // Greenhouse handled separately
+
+      const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilMaterial.clone());
+      soil.position.set(layout.x, -0.02, layout.z);
+      soil.rotation.y = layout.rotation;
+      soil.receiveShadow = true;
+      soil.userData.plotId = plot.plotId;
+      soil.userData.baseColor = soil.material.color.clone();
+      this.soilMaterials.push(soil.material);
+      this.scene.add(soil);
+      this.plotMeshes.set(plot.plotId, soil);
+
+      const edgeGroup = new THREE.Group();
+      edgeGroup.position.set(layout.x, 0.05, layout.z);
+      edgeGroup.rotation.y = layout.rotation;
+      [
+        [layout.width + 0.16, 0.12, 0.14, 0, -layout.depth / 2],
+        [layout.width + 0.16, 0.12, 0.14, 0, layout.depth / 2],
+        [0.14, 0.12, layout.depth, -layout.width / 2, 0],
+        [0.14, 0.12, layout.depth, layout.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), edgeMaterial);
+        edge.position.set(x, 0, z);
+        edge.castShadow = true;
+        edgeGroup.add(edge);
+      });
+
+      const rowCount = 8;
+      for (let row = 0; row < rowCount; row++) {
+        const furrow = new THREE.Mesh(new THREE.BoxGeometry(layout.width - 0.35, 0.045, 0.14), furrowMaterial);
+        furrow.position.set(0, 0.08, (row / (rowCount - 1) - 0.5) * (layout.depth - 0.6));
+        furrow.receiveShadow = true;
+        edgeGroup.add(furrow);
+      }
+      this.scene.add(edgeGroup);
+
+      // Neon Highlight Border
+      const glowMaterial = new THREE.MeshStandardMaterial({
+        color: 0xfff1c4,
+        emissive: 0xffc75c,
+        emissiveIntensity: 3.3,
+        roughness: 0.35,
+        toneMapped: false
+      });
+      const glowGroup = new THREE.Group();
+      glowGroup.position.set(layout.x, 0.135, layout.z);
+      glowGroup.rotation.y = layout.rotation;
+      [
+        [layout.width + 0.1, 0.035, 0.045, 0, -layout.depth / 2],
+        [layout.width + 0.1, 0.035, 0.045, 0, layout.depth / 2],
+        [0.045, 0.035, layout.depth, -layout.width / 2, 0],
+        [0.045, 0.035, layout.depth, layout.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const glow = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glowMaterial);
+        glow.position.set(x, 0, z);
+        glowGroup.add(glow);
+      });
+      glowGroup.visible = plot.plotId === 'plot-a01';
+      this.plotGlows.set(plot.plotId, glowGroup);
+      this.scene.add(glowGroup);
+
+      // Per Plot Crop Field
+      const field = new CropField(this.scene, plot, layout, this.windMaterials);
+      this.cropFields.set(plot.plotId, field);
+    });
+  }
+
+  buildReclamationSlots() {
+    this.reclamationSlotMeshes = new Map();
+    const borderMat = new THREE.MeshBasicMaterial({ color: 0xffd359, transparent: true, opacity: 0.9 });
+    const fillMat = new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
+
+    RECLAMATION_SLOTS.forEach(slot => {
+      if (this.plots.some(p => p.plotId === slot.slotId)) return;
+
+      const group = new THREE.Group();
+      group.position.set(slot.x, 0.05, slot.z);
+      group.rotation.y = slot.rotation || 0;
+      group.userData.slotId = slot.slotId;
+      group.userData.slotConfig = slot;
+
+      // Holographic surface plane
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(slot.width, slot.depth), fillMat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.receiveShadow = false;
+      group.add(plane);
+
+      // Holographic boundary lines
+      [
+        [slot.width, 0.04, 0.08, 0, -slot.depth / 2],
+        [slot.width, 0.04, 0.08, 0, slot.depth / 2],
+        [0.08, 0.04, slot.depth, -slot.width / 2, 0],
+        [0.08, 0.04, slot.depth, slot.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), borderMat);
+        line.position.set(x, 0.02, z);
+        group.add(line);
+      });
+
+      // 4 Corner Survey Beacons
+      [
+        [-slot.width / 2, -slot.depth / 2],
+        [slot.width / 2, -slot.depth / 2],
+        [-slot.width / 2, slot.depth / 2],
+        [slot.width / 2, slot.depth / 2]
+      ].forEach(([cx, cz]) => {
+        const pillar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.06, 0.75, 8),
+          new THREE.MeshStandardMaterial({ color: 0xffd359, emissive: 0xffb700, emissiveIntensity: 0.6 })
+        );
+        pillar.position.set(cx, 0.38, cz);
+        group.add(pillar);
+
+        const beacon = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 10, 8),
+          new THREE.MeshBasicMaterial({ color: 0xfff077 })
+        );
+        beacon.position.set(cx, 0.78, cz);
+        group.add(beacon);
+      });
+
+      group.visible = false;
+      this.reclamationSlotMeshes.set(slot.slotId, group);
+      this.scene.add(group);
+    });
+  }
+
+  setReclamationMode(active) {
+    this.isReclamationMode = active;
+    this.reclamationSlotMeshes.forEach((group, slotId) => {
+      const isAlreadyReclaimed = this.plots.some(p => p.plotId === slotId);
+      group.visible = active && !isAlreadyReclaimed;
+    });
+  }
+
+  reclaimPlot(slotId, userConfig = {}) {
+    const slot = RECLAMATION_SLOTS.find(s => s.slotId === slotId);
+    if (!slot) return null;
+
+    // 1. Remove preview group
+    const preview = this.reclamationSlotMeshes.get(slotId);
+    if (preview) {
+      this.scene.remove(preview);
+      this.reclamationSlotMeshes.delete(slotId);
+    }
+
+    const cropCode = userConfig.cropCode || slot.defaultCrop || 'tomato';
+    const stageCode = userConfig.stageCode || slot.defaultStage || 'seedling';
+    const plotName = userConfig.plotName || slot.name;
+
+    // 2. Build 3D Field Meshes
+    const soilMaterial = new THREE.MeshStandardMaterial({ color: 0x6a482c, roughness: 0.98 });
+    const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xb59662, roughness: 0.88 });
+    const furrowMaterial = new THREE.MeshStandardMaterial({ color: 0x4c3523, roughness: 1.0 });
+
+    const soil = new THREE.Mesh(new THREE.BoxGeometry(slot.width, 0.22, slot.depth), soilMaterial.clone());
+    soil.position.set(slot.x, -0.02, slot.z);
+    soil.rotation.y = slot.rotation || 0;
+    soil.receiveShadow = true;
+    soil.userData.plotId = slotId;
+    soil.userData.baseColor = soil.material.color.clone();
+    this.soilMaterials.push(soil.material);
+    this.scene.add(soil);
+    this.plotMeshes.set(slotId, soil);
+
+    // Soil Texture Mapping
+    const loader = new THREE.TextureLoader();
+    loader.load('assets/textures/tilled-soil.png', texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(4.5, 3.5);
+      soil.material.map = texture;
+      soil.material.color.set(0x987456);
+      soil.material.needsUpdate = true;
+    }, undefined, () => {});
+
+    // Edges
+    const edgeGroup = new THREE.Group();
+    edgeGroup.position.set(slot.x, 0.05, slot.z);
+    edgeGroup.rotation.y = slot.rotation || 0;
+    [
+      [slot.width + 0.16, 0.12, 0.14, 0, -slot.depth / 2],
+      [slot.width + 0.16, 0.12, 0.14, 0, slot.depth / 2],
+      [0.14, 0.12, slot.depth, -slot.width / 2, 0],
+      [0.14, 0.12, slot.depth, slot.width / 2, 0]
+    ].forEach(([w, h, d, x, z]) => {
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), edgeMaterial);
+      edge.position.set(x, 0, z);
+      edge.castShadow = true;
+      edgeGroup.add(edge);
+    });
+
+    const rowCount = 8;
+    for (let row = 0; row < rowCount; row++) {
+      const furrow = new THREE.Mesh(new THREE.BoxGeometry(slot.width - 0.35, 0.045, 0.14), furrowMaterial);
+      furrow.position.set(0, 0.08, (row / (rowCount - 1) - 0.5) * (slot.depth - 0.6));
+      furrow.receiveShadow = true;
+      edgeGroup.add(furrow);
+    }
+    this.scene.add(edgeGroup);
+
+    // Neon Highlight Border
+    const glowMaterial = new THREE.MeshStandardMaterial({
+      color: 0xfff1c4,
+      emissive: 0xffc75c,
+      emissiveIntensity: 3.3,
+      roughness: 0.35,
+      toneMapped: false
+    });
+    const glowGroup = new THREE.Group();
+    glowGroup.position.set(slot.x, 0.135, slot.z);
+    glowGroup.rotation.y = slot.rotation || 0;
+    [
+      [slot.width + 0.1, 0.035, 0.045, 0, -slot.depth / 2],
+      [slot.width + 0.1, 0.035, 0.045, 0, slot.depth / 2],
+      [0.045, 0.035, layout.depth, -slot.width / 2, 0],
+      [0.045, 0.035, layout.depth, slot.width / 2, 0]
+    ].forEach(([w, h, d, x, z]) => {
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glowMaterial);
+      glow.position.set(x, 0, z);
+      glowGroup.add(glow);
+    });
+    glowGroup.visible = false;
+    this.plotGlows.set(slotId, glowGroup);
+    this.scene.add(glowGroup);
+
+    // 3. EXTEND IRRIGATION CANAL (自然延伸水渠至新农田)
+    if (slot.canalStart && slot.canalEnd) {
+      const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x7c8a82, roughness: 0.9 });
+      const dx = slot.canalEnd.x - slot.canalStart.x;
+      const dz = slot.canalEnd.z - slot.canalStart.z;
+      const isX = Math.abs(dx) > Math.abs(dz);
+      const canalLen = Math.max(0.5, isX ? Math.abs(dx) : Math.abs(dz));
+      const midX = (slot.canalStart.x + slot.canalEnd.x) / 2;
+      const midZ = (slot.canalStart.z + slot.canalEnd.z) / 2;
+      const canalWidth = isX ? canalLen : 0.85;
+      const canalDepth = isX ? 0.85 : canalLen;
+
+      // Bed
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(canalWidth, 0.08, canalDepth), bankMaterial);
+      bed.position.set(midX, 0.03, midZ);
+      this.scene.add(bed);
+
+      // Flowing Water surface
+      const water = new THREE.Mesh(new THREE.PlaneGeometry(canalWidth, canalDepth), this.createWaterMaterial());
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(midX, 0.075, midZ);
+      this.scene.add(water);
+
+      // Stone Retaining Banks
+      if (isX) {
+        [-0.54, 0.54].forEach(offZ => {
+          const bank = new THREE.Mesh(new THREE.BoxGeometry(canalLen, 0.16, 0.22), bankMaterial);
+          bank.position.set(midX, 0.09, midZ + offZ);
+          bank.castShadow = true;
+          this.scene.add(bank);
+        });
+      } else {
+        [-0.54, 0.54].forEach(offX => {
+          const bank = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, canalLen), bankMaterial);
+          bank.position.set(midX + offX, 0.09, midZ);
+          bank.castShadow = true;
+          this.scene.add(bank);
+        });
+      }
+
+      // Sluice Gate Valve at inlet
+      const gate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.6, 0.4),
+        new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.6 })
+      );
+      gate.position.set(slot.canalEnd.x, 0.3, slot.canalEnd.z);
+      this.scene.add(gate);
+    }
+
+    // 4. Create Crop Field Instance
+    const layout = { x: slot.x, z: slot.z, width: slot.width, depth: slot.depth, rotation: slot.rotation || 0 };
+    const newPlotData = {
+      plotId: slotId,
+      name: plotName,
+      cropCode,
+      cropName: CROP_PROFILES[cropCode]?.label || '特色作物',
+      stageCode,
+      stageLabel: STAGE_PROFILES[stageCode]?.label || '苗期',
+      riskLevel: 'LOW',
+      healthScore: 0.99,
+      metrics: {
+        SOIL_MOISTURE: { label: '土壤湿度', value: parseFloat(slot.soilMoisture) || 28.5, unit: '%', status: 'NORMAL', target: '20~40%' },
+        AIR_TEMPERATURE: { label: '空气温度', value: 26.5, unit: '°C', status: 'NORMAL', target: '20~30°C' },
+        LIGHT: { label: '光照强度', value: 44000, unit: 'lux', status: 'NORMAL', target: '30k~55k lux' },
+        CO2: { label: 'CO₂ 浓度', value: 680, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
+        SOIL_EC: { label: '土壤 EC 值', value: 1.4, unit: 'mS/cm', status: 'NORMAL', target: '1.0~2.2 mS/cm' },
+        NPK_RATIO: { label: '氮磷钾肥力', value: '185:98:210', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
+      }
+    };
+
+    const field = new CropField(this.scene, newPlotData, layout, this.windMaterials);
+    this.cropFields.set(slotId, field);
+    this.plots.push(newPlotData);
+
+    return newPlotData;
   }
 
   loadSurfaceTextures() {
@@ -1694,13 +2291,13 @@ class FarmWorld3D {
   bindEvents() {
     this.handleResize = () => this.resize();
 
-    // Mouse Wheel Smooth Zooming (14m ~ 130m)
+    // Mouse Wheel Smooth Zooming (12m ~ 160m)
     this.handleWheel = event => {
       event.preventDefault();
       const zoomDelta = event.deltaY * 0.04;
       const dir = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
       const currentDist = dir.length();
-      const newDist = clamp(currentDist + zoomDelta, 14, 130);
+      const newDist = clamp(currentDist + zoomDelta, 12, 160);
       dir.normalize().multiplyScalar(newDist);
       this.camera.position.copy(this.cameraTarget).add(dir);
     };
@@ -1753,8 +2350,8 @@ class FarmWorld3D {
 
         this.camera.position.add(offset);
         this.cameraTarget.add(offset);
-        this.cameraTarget.x = clamp(this.cameraTarget.x, -70, 70);
-        this.cameraTarget.z = clamp(this.cameraTarget.z, -50, 45);
+        this.cameraTarget.x = clamp(this.cameraTarget.x, -110, 110);
+        this.cameraTarget.z = clamp(this.cameraTarget.z, -65, 75);
       }
 
       // Directional Wind Physics
@@ -2057,6 +2654,10 @@ class FarmWorld3D {
       material.userData.waterUniforms.uTime.value = elapsed;
     });
 
+    if (this.windmillBlades) {
+      this.windmillBlades.rotation.z += 0.015;
+    }
+
     this.clouds.forEach((cloud, index) => {
       cloud.position.x += cloud.userData.speed * 0.009;
       if (cloud.position.x > 42) cloud.position.x = -42;
@@ -2236,6 +2837,8 @@ export class FarmMonitor {
         <button class="farm-sector-btn" type="button" data-sector="west"><i class="ph ph-arrow-left"></i> 西区有机带</button>
         <button class="farm-sector-btn" type="button" data-sector="south"><i class="ph ph-arrow-down"></i> 南区高产带</button>
         <button class="farm-sector-btn" type="button" data-sector="north"><i class="ph ph-buildings"></i> 北区温室群</button>
+        <button class="farm-sector-btn" type="button" data-sector="se_hub"><i class="ph ph-fan"></i> 东南风车景观区</button>
+        <button class="farm-sector-btn" type="button" data-sector="sw_hub"><i class="ph ph-warehouse"></i> 西南粮仓储运区</button>
       </nav>
 
       <!-- Top Action Right Dock (新田开垦规划入口) -->
