@@ -15,7 +15,11 @@ const MEAN_COLOR = '#58a6ff';
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
 
-/** 统一深色主题 tooltip：confine 限制在容器内，内容紧凑、按内容自适应尺寸 */
+/** 统一深色主题 tooltip：内容紧凑、按内容自适应尺寸
+ * 注意：ECharts 默认 shadowBlur:10 / shadowColor:rgba(0,0,0,.2) 会无条件注入
+ * box-shadow，深色背景下形成一圈"空黑区域"，必须显式关闭；
+ * line-height 由 ECharts 按 fontSize*1.5 强制生成（textStyle.lineHeight 不生效）。
+ */
 function darkTooltip() {
   return {
     trigger: 'axis',
@@ -23,10 +27,14 @@ function darkTooltip() {
     backgroundColor: '#161b22',
     borderColor: '#30363d',
     borderWidth: 1,
-    padding: [6, 10],
-    textStyle: { color: '#f0f6fc', fontSize: 12, lineHeight: 18 },
-    // !important 确保覆盖 ECharts 默认的 white-space: nowrap，避免内容不换行被撑宽
-    extraCssText: 'white-space: normal !important; max-width: 320px; word-break: break-word;',
+    padding: [5, 8],
+    shadowBlur: 0,
+    shadowColor: 'transparent',
+    shadowOffsetX: 0,
+    shadowOffsetY: 0,
+    textStyle: { color: '#f0f6fc', fontSize: 12 },
+    // !important 覆盖 ECharts 默认 white-space:nowrap 与强制 line-height:fontSize*1.5
+    extraCssText: 'white-space: normal !important; line-height: 16px !important; max-width: 320px; word-break: break-word;',
     axisPointer: { lineStyle: { color: '#58a6ff' } }
   };
 }
@@ -241,9 +249,9 @@ export async function renderRiskForecast(container, plotId) {
               formatter: (params) => {
                 const p = params[0];
                 const c = curve.find(pt => pt.minute === Number(p.axisValue)) || {};
-                return `<div style="color:#8b949e">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
-                  <div>期望值：<b style="color:#58a6ff">${p.value}%</b></div>
-                  <div style="color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>`;
+                return `<div style="line-height:16px">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
+                  <div style="line-height:16px">期望值：<b style="color:#58a6ff">${p.value}%</b></div>
+                  <div style="line-height:16px;color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>`;
               }
             },
             markLine: {
@@ -526,10 +534,10 @@ export async function renderScenarioReplay(container, plotId) {
             const av = valOf(a);
             const bv = valOf(b);
             const diff = av - bv;
-            return `<div style="color:#8b949e">t = ${a.axisValue} min</div>
-              <div>分支 A 执行：<b style="color:#3fb950">${av.toFixed(1)}%</b></div>
-              <div>分支 B 放任：<b style="color:#f85149">${bv.toFixed(1)}%</b></div>
-              <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
+            return `<div style="line-height:16px;color:#8b949e">t = ${a.axisValue} min</div>
+              <div style="line-height:16px">分支 A 执行：<b style="color:#3fb950">${av.toFixed(1)}%</b></div>
+              <div style="line-height:16px">分支 B 放任：<b style="color:#f85149">${bv.toFixed(1)}%</b></div>
+              <div style="line-height:16px">差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
           }
         },
         // value 轴：markLine 的 xAxis 直接按时间坐标定位，与曲线横轴严格对应
