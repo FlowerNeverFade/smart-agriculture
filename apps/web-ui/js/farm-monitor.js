@@ -548,8 +548,8 @@ class FarmWorld3D {
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Distant Gentle Rolling Green Hills (Original version)
-    const buildRollingHills = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
+    // Aesthetic Layered Mountain Ranges (Aesthetic Gaussian Peaks + Sculpted Organic Ridges)
+    const buildRidge = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
       const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
       const ridgePosition = ridgeGeometry.attributes.position;
       for (let index = 0; index < ridgePosition.count; index++) {
@@ -557,16 +557,18 @@ class FarmWorld3D {
         const y = ridgePosition.getY(index);
         const normY = (y + depth / 2) / depth;
         const peaks =
-          Math.exp(-((x + 36) ** 2) / 450) * 8.5 +
-          Math.exp(-((x + 12) ** 2) / 380) * 11.0 +
-          Math.exp(-((x - 14) ** 2) / 500) * 9.0 +
-          Math.exp(-((x - 38) ** 2) / 420) * 10.5;
+          Math.exp(-((x + 72) ** 2) / 320) * 11.0 +
+          Math.exp(-((x + 36) ** 2) / 260) * 14.5 +
+          Math.exp(-((x + 8) ** 2) / 210) * 17.0 +
+          Math.exp(-((x - 22) ** 2) / 280) * 13.5 +
+          Math.exp(-((x - 58) ** 2) / 240) * 16.0 +
+          Math.exp(-((x - 92) ** 2) / 340) * 12.0;
         const depthShape = Math.sin(normY * Math.PI * 0.85);
-        const detail = Math.sin(x * 0.22 + normY * 2.8) * 0.35;
+        const detail = Math.sin(x * 0.28 + normY * 3.2) * 0.65 + Math.cos(x * 0.14 - normY * 2.1) * 0.45;
         ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
       }
       ridgeGeometry.computeVertexNormals();
-      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.86, transparent: opacity < 1, opacity, depthWrite: true });
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.88, transparent: opacity < 1, opacity, depthWrite: true });
       this.ridgeMaterials.push(ridgeMaterial);
       const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
       ridge.rotation.x = -Math.PI / 2;
@@ -575,8 +577,10 @@ class FarmWorld3D {
       this.scene.add(ridge);
     };
 
-    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -70, heightScale: 0.32, color: 0x6e9974 });
-    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -98, heightScale: 0.45, color: 0x82a7a4, opacity: 0.92 });
+    // Staggered Beautiful Mountain Silhouettes (Layered depth without overlapping planes)
+    buildRidge({ width: 240, depth: 32, segmentsX: 110, segmentsZ: 32, z: -58, heightScale: 0.48, color: 0x5b8a68 });
+    buildRidge({ width: 270, depth: 40, segmentsX: 120, segmentsZ: 36, z: -88, heightScale: 0.82, color: 0x769b93, opacity: 0.95 });
+    buildRidge({ width: 300, depth: 48, segmentsX: 130, segmentsZ: 40, z: -124, heightScale: 1.25, color: 0x8eaeb6, opacity: 0.90 });
   }
 
   buildStreetLamps() {
@@ -798,21 +802,24 @@ class FarmWorld3D {
 
     // 1. Classical / Modern Garden Gazebo IN THE EXACT CENTER OF THE WATER POND (水池正中央)
     const pavilionGroup = new THREE.Group();
+    // Central Island Stone Plinth Base (y = 0.12, solidly emerging from water)
     const pavPlinth = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.75, 1.85, 0.22, 8),
+      new THREE.CylinderGeometry(1.80, 1.90, 0.24, 8),
       new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
     );
-    pavPlinth.position.y = 0.11;
+    pavPlinth.position.y = 0.12;
     pavilionGroup.add(pavPlinth);
 
-    const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.68, 1.68, 0.06, 8), timber);
-    pavFloor.position.y = 0.24;
+    // Pavilion Timber Floor (y = 0.25)
+    const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 0.06, 8), timber);
+    pavFloor.position.y = 0.25;
+    pavFloor.receiveShadow = true;
     pavilionGroup.add(pavFloor);
 
     // 4 Corner Timber Columns
     [[-0.82, -0.82], [0.82, -0.82], [-0.82, 0.82], [0.82, 0.82]].forEach(([cx, cz]) => {
       const col = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), darkSteel);
-      col.position.set(cx, 1.34, cz);
+      col.position.set(cx, 1.35, cz);
       col.castShadow = true;
       pavilionGroup.add(col);
     });
@@ -833,18 +840,48 @@ class FarmWorld3D {
     pavilionGroup.add(pavLight);
     this.nightLights.push(pavLight);
 
-    // Timber Boardwalk Bridge Connecting South Shore to Central Pavilion
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 3.6), timber);
-    bridge.position.set(0, 0.14, 1.8);
+    // Timber Corridor Bridge: Seamlessly connects South Shore Bank (z = 2.70m) to Central Pavilion Plinth (z = -0.65m)
+    // Span: length = 3.35m, center z = 1.025m, Deck height y = 0.24m (Cleanly 15cm above water y = 0.08m, ZERO CLIPPING)
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 3.35), timber);
+    bridge.position.set(0, 0.24, 1.025);
     bridge.receiveShadow = true;
+    bridge.castShadow = true;
     pavilionGroup.add(bridge);
 
-    // Low Bridge Railings
-    [-0.54, 0.54].forEach(rx => {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 3.6), darkSteel);
-      rail.position.set(rx, 0.34, 1.8);
-      pavilionGroup.add(rail);
+    // Bridge Solid Support Piers (桥墩) reaching down into pond bed (y = 0.10)
+    [0.1, 1.9].forEach(pz => {
+      const pier = new THREE.Mesh(
+        new THREE.BoxGeometry(1.26, 0.28, 0.26),
+        new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 })
+      );
+      pier.position.set(0, 0.10, pz);
+      pier.castShadow = true;
+      pavilionGroup.add(pier);
     });
+
+    // Timber Corridor Handrails / Balustrades
+    [-0.56, 0.56].forEach(rx => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 3.35), darkSteel);
+      rail.position.set(rx, 0.45, 1.025);
+      rail.castShadow = true;
+      pavilionGroup.add(rail);
+
+      // Intermediate Balusters
+      [-0.9, 0.0, 0.9].forEach(bz => {
+        const baluster = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), darkSteel);
+        baluster.position.set(rx, 0.45, 1.025 + bz);
+        pavilionGroup.add(baluster);
+      });
+    });
+
+    // South Shore Stone Approach Steps (z = 2.75)
+    const approachStep = new THREE.Mesh(
+      new THREE.BoxGeometry(1.4, 0.18, 0.42),
+      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
+    );
+    approachStep.position.set(0, 0.12, 2.75);
+    approachStep.receiveShadow = true;
+    pavilionGroup.add(approachStep);
 
     pavilionGroup.position.set(0, 0, -2.5);
     this.scene.add(pavilionGroup);
@@ -1166,17 +1203,22 @@ class FarmWorld3D {
     loader.load('assets/textures/mountain-forest.png', texture => {
       this.ridgeMaterials.forEach((material, index) => {
         if (index === 0) {
-          const ridgeTexture = prepare(texture.clone(), 6.0, 2.5);
+          const ridgeTexture = prepare(texture.clone(), 8.0, 2.5);
           ridgeTexture.needsUpdate = true;
           material.map = ridgeTexture;
-          material.color.set(0x6e9974);
+          material.color.set(0x5b8a68);
           material.emissive = new THREE.Color(0x1a3220);
-          material.emissiveIntensity = 0.08;
+          material.emissiveIntensity = 0.06;
+        } else if (index === 1) {
+          material.map = null;
+          material.color.set(0x769b93);
+          material.emissive = new THREE.Color(0x12262b);
+          material.emissiveIntensity = 0.04;
         } else {
           material.map = null;
-          material.color.set(0x82a7a4);
-          material.emissive = new THREE.Color(0x12262b);
-          material.emissiveIntensity = 0.05;
+          material.color.set(0x8eaeb6);
+          material.emissive = new THREE.Color(0x0e1e24);
+          material.emissiveIntensity = 0.03;
         }
         material.needsUpdate = true;
       });
