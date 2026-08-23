@@ -695,6 +695,11 @@ class AgriApp {
     return (evidence || []).map(item => labels[item.scope] || '检索知识').filter(Boolean);
   }
 
+  displayModelName(response) {
+    const model = response?.llm?.model || 'Qwen3.8-27B';
+    return model === 'agriloop-qwen38-agri' ? 'Qwen3.8-27B · 农智适配器' : model;
+  }
+
   displayCopilotBanner(response) {
     if (!this.dom.copilotOutputBanner) return;
     this.dom.copilotOutputBanner.classList.add('active');
@@ -717,13 +722,13 @@ class AgriApp {
     if (this.dom.copilotConnectionStatus) {
       this.dom.copilotConnectionStatus.classList.toggle('connected', hasQwenNarrative);
       if (hasQwenNarrative) {
-        const model = response.llm?.model || 'Qwen3.8-27B';
+        const model = this.displayModelName(response);
         this.dom.copilotConnectionStatus.textContent = `已连接 · ${model} · 规则事实 + 模型解释`;
       } else if (response.degraded) {
         this.dom.copilotConnectionStatus.textContent = `后端在线 · ${response.degradationReason || 'AI 降级'} · 规则结果仍可用`;
       }
     }
-    if (hasQwenNarrative) this.dom.rightAiModeTag.textContent = `${response.llm?.model || 'Qwen3.8-27B'} · 已连接`;
+    if (hasQwenNarrative) this.dom.rightAiModeTag.textContent = `${this.displayModelName(response)} · 已连接`;
 
     let citations = '';
     const evidenceLabels = this.formatKnowledgeEvidence(response.knowledgeEvidence);
@@ -732,7 +737,7 @@ class AgriApp {
     const body = this.sanitizeNarrative(response.narrative || response.summary || '后端未返回可展示的回答。')
       || '后端未返回可展示的回答。';
     const metadata = response.llm
-      ? `\n\n模型：${response.llm.model || 'openai-compatible'} · 延迟：${response.llm.latencyMs ?? '—'} ms`
+      ? `\n\n模型：${this.displayModelName(response)} · 延迟：${response.llm.latencyMs ?? '—'} ms`
       : '';
     const degradation = response.degraded
       ? `\n\n⚠️ ${response.degradationReason || 'AI_DEPENDENCY_UNAVAILABLE_FALLBACK'}：以上为规则/工具结果，不是模型生成文本。`
