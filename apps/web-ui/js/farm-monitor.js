@@ -539,7 +539,7 @@ class FarmWorld3D {
   }
 
   buildTerrain() {
-    // Vast Seamless Grass Basin (280m x 200m, completely covers viewport with zero empty margins)
+    // Vast Seamless Grass Basin (280m x 200m)
     const geometry = new THREE.PlaneGeometry(280, 200, 48, 36);
     const material = new THREE.MeshStandardMaterial({ color: 0x92b270, roughness: 0.94, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
@@ -548,25 +548,39 @@ class FarmWorld3D {
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Distant Deep Emerald Rolling Hills (Deep pine forest tones, never whitish or overpowering)
-    const buildRollingHills = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
+    // Natural Sculpted Mountain Ridges (Organic layered alpine ridges with realistic peaks and valleys)
+    const buildMountainRidge = ({ width, depth, segmentsX, segmentsZ, z, heightScale, peakOffset, color, roughness = 0.88, opacity = 1 }) => {
       const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
       const ridgePosition = ridgeGeometry.attributes.position;
       for (let index = 0; index < ridgePosition.count; index++) {
         const x = ridgePosition.getX(index);
         const y = ridgePosition.getY(index);
-        const normY = (y + depth / 2) / depth;
-        const peaks =
-          Math.exp(-((x + 36) ** 2) / 450) * 8.5 +
-          Math.exp(-((x + 12) ** 2) / 380) * 11.0 +
-          Math.exp(-((x - 14) ** 2) / 500) * 9.0 +
-          Math.exp(-((x - 38) ** 2) / 420) * 10.5;
-        const depthShape = Math.sin(normY * Math.PI * 0.85);
-        const detail = Math.sin(x * 0.22 + normY * 2.8) * 0.35;
-        ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
+        const normY = (y + depth / 2) / depth; // 0 (front) to 1 (back)
+
+        // Multi-frequency natural mountain noise harmonic
+        const p1 = Math.exp(-((x + 42 + peakOffset) ** 2) / 380) * 11.5;
+        const p2 = Math.exp(-((x + 18 - peakOffset) ** 2) / 300) * 14.0;
+        const p3 = Math.exp(-((x - 8 + peakOffset * 0.8) ** 2) / 420) * 10.8;
+        const p4 = Math.exp(-((x - 32 - peakOffset) ** 2) / 340) * 13.2;
+        const p5 = Math.exp(-((x - 56 + peakOffset) ** 2) / 280) * 9.5;
+        
+        const mainPeaks = (p1 + p2 + p3 + p4 + p5);
+        const envelope = Math.sin(normY * Math.PI * 0.82); // Smooth bell slope from front to back
+        const subRidges = Math.sin(x * 0.16 + normY * 2.2) * 1.8 + Math.cos(x * 0.32 - normY * 1.8) * 0.9;
+        const fineDetail = Math.sin(x * 0.65 + normY * 4.5) * 0.35;
+
+        const elevation = Math.max(0, (mainPeaks * envelope + subRidges * envelope + fineDetail) * heightScale);
+        ridgePosition.setZ(index, elevation);
       }
       ridgeGeometry.computeVertexNormals();
-      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.86, transparent: opacity < 1, opacity, depthWrite: true });
+      const ridgeMaterial = new THREE.MeshStandardMaterial({
+        color,
+        roughness,
+        metalness: 0.05,
+        transparent: opacity < 1,
+        opacity,
+        depthWrite: true
+      });
       this.ridgeMaterials.push(ridgeMaterial);
       const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
       ridge.rotation.x = -Math.PI / 2;
@@ -575,8 +589,12 @@ class FarmWorld3D {
       this.scene.add(ridge);
     };
 
-    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -72, heightScale: 0.35, color: 0x1f4426 });
-    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -100, heightScale: 0.48, color: 0x243e36, opacity: 0.95 });
+    // 1. Near Foothills (Lush forest slopes, z = -58m, height ~8-12m)
+    buildMountainRidge({ width: 220, depth: 36, segmentsX: 100, segmentsZ: 32, z: -58, heightScale: 0.58, peakOffset: 0, color: 0x27522d, roughness: 0.85 });
+    // 2. Mid Alpine Ridge (Deep emerald-slate crags, z = -84m, height ~14-22m)
+    buildMountainRidge({ width: 260, depth: 48, segmentsX: 120, segmentsZ: 36, z: -84, heightScale: 0.85, peakOffset: 12, color: 0x22443a, roughness: 0.88 });
+    // 3. Far Majestic Cloud Peaks (Atmospheric indigo-cyan mountains, z = -120m, height ~22-35m)
+    buildMountainRidge({ width: 300, depth: 60, segmentsX: 120, segmentsZ: 40, z: -120, heightScale: 1.25, peakOffset: -18, color: 0x2d4650, roughness: 0.92, opacity: 0.94 });
   }
 
   buildStreetLamps() {
@@ -827,7 +845,7 @@ class FarmWorld3D {
     pavilionGroup.position.set(0, 0, -2.5);
     this.scene.add(pavilionGroup);
 
-    // 2. Modern Multi-Span High-Tech Glass Greenhouse (North-West, x: -14, z: -12.5)
+    // 2. Modern Multi-Span High-Tech Glass Greenhouse (North Open Lawn, x: -12, z: -16.5)
     const greenhouse = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
     base.position.y = 0.225;
@@ -849,10 +867,10 @@ class FarmWorld3D {
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
 
-    greenhouse.position.set(-14.0, 0, -12.5);
+    greenhouse.position.set(-12.0, 0, -16.5);
     this.scene.add(greenhouse);
 
-    // 3. Smart Farm Command & Dispatch Center (North-East, x: 16, z: -12.5)
+    // 3. Smart Farm Command & Dispatch Center (North Open Lawn, x: 14, z: -16.5)
     const center = new THREE.Group();
     const bldg = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.4, 6.8), whiteWall);
     bldg.position.y = 1.7;
@@ -880,53 +898,10 @@ class FarmWorld3D {
     center.add(centerLight);
     this.nightLights.push(centerLight);
 
-    center.position.set(16.0, 0, -12.5);
+    center.position.set(14.0, 0, -16.5);
     this.scene.add(center);
 
-    // 4. WEST AUXILIARY BUILDINGS (西侧现代农机与无人机巡检站，解决空旷感)
-    const westComplex = new THREE.Group();
-    // Smart Drone & Machinery Shed
-    const shed = new THREE.Mesh(new THREE.BoxGeometry(7.6, 3.0, 5.8), whiteWall);
-    shed.position.set(0, 1.5, 0);
-    shed.castShadow = true;
-    westComplex.add(shed);
-
-    // Roll-up Service Doors
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 3.8), bluePanel);
-    door.position.set(3.85, 1.1, 0);
-    westComplex.add(door);
-
-    // Rooftop Drone Landing Pad (无人机机巢起降坪)
-    const pad = new THREE.Mesh(
-      new THREE.BoxGeometry(4.2, 0.1, 4.2),
-      new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 })
-    );
-    pad.position.set(0, 3.05, 0);
-    westComplex.add(pad);
-
-    const padLight = new THREE.PointLight(0x52e0a2, 0, 8, 2.0);
-    padLight.position.set(0, 3.4, 0);
-    westComplex.add(padLight);
-    this.nightLights.push(padLight);
-
-    westComplex.position.set(-24.5, 0, 3.5);
-    this.scene.add(westComplex);
-
-    // Automated Agro-Meteorology Station Mast (West, z: 9.5)
-    const tower = new THREE.Group();
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 5.4, 8), darkSteel);
-    mast.position.y = 2.7;
-    mast.castShadow = true;
-    const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.15, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
-    );
-    led.position.y = 5.45;
-    tower.add(mast, led);
-    tower.position.set(-24.5, 0, 10.5);
-    this.scene.add(tower);
-
-    // Stainless Fertigation & Water Tanks (North-West, z: -12.5)
+    // 4. Stainless Fertigation & Water Tanks (North Open Lawn, x: -28.0, z: -16.5)
     const siloGroup = new THREE.Group();
     const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
     [-1.3, 1.3].forEach(offset => {
@@ -937,22 +912,65 @@ class FarmWorld3D {
       cap.position.set(offset, 3.6, 0);
       siloGroup.add(silo, cap);
     });
-    siloGroup.position.set(-24.0, 0, -12.5);
+    siloGroup.position.set(-28.0, 0, -16.5);
     this.scene.add(siloGroup);
 
-    // 5. EAST AUXILIARY BUILDINGS (东侧现代分拣冷链与育苗温室，解决空旷感)
+    // 5. WEST OUTER MEADOW FACILITIES (西侧空旷大草坪, x: -38.0, 彻底远离作物田地)
+    const westComplex = new THREE.Group();
+    // Smart Drone & Machinery Shed
+    const shed = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.0), whiteWall);
+    shed.position.set(0, 1.6, 0);
+    shed.castShadow = true;
+    westComplex.add(shed);
+
+    // Roll-up Service Doors
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 4.0), bluePanel);
+    door.position.set(4.15, 1.1, 0);
+    westComplex.add(door);
+
+    // Rooftop Drone Landing Pad (无人机机巢起降坪)
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(4.4, 0.1, 4.4),
+      new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 })
+    );
+    pad.position.set(0, 3.25, 0);
+    westComplex.add(pad);
+
+    const padLight = new THREE.PointLight(0x52e0a2, 0, 10, 2.0);
+    padLight.position.set(0, 3.6, 0);
+    westComplex.add(padLight);
+    this.nightLights.push(padLight);
+
+    westComplex.position.set(-38.0, 0, 3.5);
+    this.scene.add(westComplex);
+
+    // Automated Agro-Meteorology Station Mast (West Outer Lawn, x: -38.0, z: 11.5)
+    const tower = new THREE.Group();
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 5.8, 8), darkSteel);
+    mast.position.y = 2.9;
+    mast.castShadow = true;
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
+    );
+    led.position.y = 5.85;
+    tower.add(mast, led);
+    tower.position.set(-38.0, 0, 11.5);
+    this.scene.add(tower);
+
+    // 6. EAST OUTER MEADOW FACILITIES (东侧空旷大草坪, x: +38.0, 彻底远离作物田地)
     const eastComplex = new THREE.Group();
     // Cold-Chain Logistics & Sorting Depot
-    const depot = new THREE.Mesh(new THREE.BoxGeometry(7.6, 3.2, 6.2), whiteWall);
+    const depot = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.2), whiteWall);
     depot.position.set(0, 1.6, 0);
     depot.castShadow = true;
     eastComplex.add(depot);
 
     const depotGlass = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 4.2), glass);
-    depotGlass.position.set(-3.85, 1.6, 0);
+    depotGlass.position.set(-4.15, 1.6, 0);
     eastComplex.add(depotGlass);
 
-    const depotRoof = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.18, 6.8), darkSteel);
+    const depotRoof = new THREE.Mesh(new THREE.BoxGeometry(8.8, 0.18, 6.8), darkSteel);
     depotRoof.position.y = 3.3;
     eastComplex.add(depotRoof);
 
@@ -961,25 +979,25 @@ class FarmWorld3D {
     eastComplex.add(depotLight);
     this.nightLights.push(depotLight);
 
-    eastComplex.position.set(24.5, 0, 3.5);
+    eastComplex.position.set(38.0, 0, 3.5);
     this.scene.add(eastComplex);
 
-    // Nursery Greenhouse Annex (East, z: 10.5)
+    // Nursery Greenhouse Annex (East Outer Lawn, x: 38.0, z: 11.5)
     const nursery = new THREE.Group();
-    const nurseryGlass = new THREE.Mesh(new THREE.BoxGeometry(6.8, 2.4, 4.8), glass);
+    const nurseryGlass = new THREE.Mesh(new THREE.BoxGeometry(7.2, 2.4, 4.8), glass);
     nurseryGlass.position.y = 1.2;
     nursery.add(nurseryGlass);
-    const nurseryBase = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.3, 5.0), darkSteel);
+    const nurseryBase = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.3, 5.0), darkSteel);
     nurseryBase.position.y = 0.15;
     nursery.add(nurseryBase);
     const nurseryLight = new THREE.PointLight(0xffd577, 0, 10, 1.8);
     nurseryLight.position.set(0, 1.6, 0);
     nursery.add(nurseryLight);
     this.nightLights.push(nurseryLight);
-    nursery.position.set(24.5, 0, 10.5);
+    nursery.position.set(38.0, 0, 11.5);
     this.scene.add(nursery);
 
-    // 6. South Park Entrance Welcome Archway (南侧主入口标识门廊)
+    // 7. South Park Entrance Welcome Archway (南侧主入口门廊)
     const arch = new THREE.Group();
     const beam = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.35, 0.8), timber);
     beam.position.y = 4.2;
@@ -989,7 +1007,7 @@ class FarmWorld3D {
       p.position.set(px, 2.2, 0);
       arch.add(p);
     });
-    arch.position.set(0, 0, 17.5);
+    arch.position.set(0, 0, 18.5);
     this.scene.add(arch);
   }
 
@@ -1068,23 +1086,23 @@ class FarmWorld3D {
   }
 
   buildTrees() {
-    // Trees placed strictly based on getTerrainElevation to guarantee zero clipping
+    // Trees placed strictly in greenbelts and road perimeter to guarantee zero plot clipping
     const positions = [];
-    // Perimeter and mountain fringe trees
-    for (let i = 0; i < 70; i++) {
+    // Perimeter avenue trees
+    for (let i = 0; i < 60; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (26.5 + (i % 6) * 2.2) + Math.sin(i * 3.2) * 1.5;
-      const z = -20 + (i % 18) * 2.2 + Math.cos(i * 1.5) * 1.0;
-      if (z > 14.0) continue;
-      const y = getTerrainElevation(x, z);
-      positions.push({ x, y, z, scale: 0.75 + (Math.sin(i * 4.2) + 1) * 0.25 });
+      const x = side * (30.0 + (i % 5) * 2.4);
+      const z = -16.0 + (i % 16) * 2.1;
+      if (z > 15.0) continue;
+      const y = 0.0;
+      positions.push({ x, y, z, scale: 0.78 + (Math.sin(i * 3.5) + 1) * 0.22 });
     }
-    // North hill forest
-    for (let i = 0; i < 50; i++) {
-      const x = -38 + i * 1.55;
-      const z = -24.0 + Math.sin(i * 0.8) * 3.5;
-      const y = getTerrainElevation(x, z);
-      positions.push({ x, y, z, scale: 0.72 + (i % 5) * 0.08 });
+    // North facility greenbelt
+    for (let i = 0; i < 40; i++) {
+      const x = -42 + i * 2.1;
+      const z = -20.5 + Math.sin(i * 0.9) * 2.5;
+      const y = 0.0;
+      positions.push({ x, y, z, scale: 0.75 + (i % 4) * 0.08 });
     }
 
     const trunkGeometry = new THREE.CylinderGeometry(0.09, 0.16, 1.6, 10, 3);
@@ -1119,13 +1137,11 @@ class FarmWorld3D {
       positions.forEach((item, index) => {
         dummy.position.set(item.x, item.y, item.z);
         dummy.scale.set(item.scale, item.scale, item.scale);
-        dummy.rotation.set(0, index * 1.17, 0);
         dummy.updateMatrix();
         crowns.setMatrixAt(index, dummy.matrix);
       });
       crowns.castShadow = true;
       crowns.receiveShadow = true;
-      this.windMaterials.push(crownMaterial);
       this.scene.add(crowns);
     });
   }
@@ -1143,7 +1159,7 @@ class FarmWorld3D {
     loader.load('assets/textures/terrain-grass.png', texture => {
       const terrainTexture = prepare(texture, 36, 26);
       this.terrain.material.map = terrainTexture;
-      this.terrain.material.color.set(0x9eb87e);
+      this.terrain.material.color.set(0x92b270);
       this.terrain.material.needsUpdate = true;
     }, undefined, () => {});
     loader.load('assets/textures/mountain-forest.png', texture => {
@@ -1152,14 +1168,19 @@ class FarmWorld3D {
           const ridgeTexture = prepare(texture.clone(), 6.0, 2.5);
           ridgeTexture.needsUpdate = true;
           material.map = ridgeTexture;
-          material.color.set(0xa2b896);
-          material.emissive = new THREE.Color(0x1a3220);
-          material.emissiveIntensity = 0.08;
+          material.color.set(0x27522d);
+          material.emissive = new THREE.Color(0x0a1c10);
+          material.emissiveIntensity = 0.04;
+        } else if (index === 1) {
+          material.map = null;
+          material.color.set(0x22443a);
+          material.emissive = new THREE.Color(0x081712);
+          material.emissiveIntensity = 0.03;
         } else {
           material.map = null;
-          material.color.set(0x6e8e8c);
-          material.emissive = new THREE.Color(0x12262b);
-          material.emissiveIntensity = 0.05;
+          material.color.set(0x2d4650);
+          material.emissive = new THREE.Color(0x0a161c);
+          material.emissiveIntensity = 0.02;
         }
         material.needsUpdate = true;
       });
