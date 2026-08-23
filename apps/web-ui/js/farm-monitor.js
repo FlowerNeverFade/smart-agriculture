@@ -840,16 +840,17 @@ class FarmWorld3D {
     pavilionGroup.add(pavLight);
     this.nightLights.push(pavLight);
 
-    // Timber Corridor Bridge: Seamlessly connects South Shore Bank (z = 2.70m) to Central Pavilion Plinth (z = -0.65m)
-    // Span: length = 3.35m, center z = 1.025m, Deck height y = 0.24m (Cleanly 15cm above water y = 0.08m, ZERO CLIPPING)
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 3.35), timber);
-    bridge.position.set(0, 0.24, 1.025);
-    bridge.receiveShadow = true;
-    bridge.castShadow = true;
-    pavilionGroup.add(bridge);
+    // --- SOUTH CORRIDOR BRIDGE (直通南侧开阔草坪) ---
+    // Span: connects Central Island Plinth (z = -0.65m) across water (z = 2.7m) deep into South Lawn (z = 5.2m)
+    // Span length: 5.85m, Center: z = 2.275m, Deck height y = 0.24m
+    const southBridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 5.85), timber);
+    southBridge.position.set(0, 0.24, 2.275);
+    southBridge.receiveShadow = true;
+    southBridge.castShadow = true;
+    pavilionGroup.add(southBridge);
 
-    // Bridge Solid Support Piers (桥墩) reaching down into pond bed (y = 0.10)
-    [0.1, 1.9].forEach(pz => {
+    // Water Support Piers (桥墩) under south bridge
+    [0.3, 1.8, 3.4].forEach(pz => {
       const pier = new THREE.Mesh(
         new THREE.BoxGeometry(1.26, 0.28, 0.26),
         new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 })
@@ -859,29 +860,71 @@ class FarmWorld3D {
       pavilionGroup.add(pier);
     });
 
-    // Timber Corridor Handrails / Balustrades
+    // South Bridge Railings / Balustrades
     [-0.56, 0.56].forEach(rx => {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 3.35), darkSteel);
-      rail.position.set(rx, 0.45, 1.025);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 5.85), darkSteel);
+      rail.position.set(rx, 0.45, 2.275);
       rail.castShadow = true;
       pavilionGroup.add(rail);
 
-      // Intermediate Balusters
-      [-0.9, 0.0, 0.9].forEach(bz => {
+      [-1.8, -0.6, 0.6, 1.8].forEach(bz => {
         const baluster = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), darkSteel);
-        baluster.position.set(rx, 0.45, 1.025 + bz);
+        baluster.position.set(rx, 0.45, 2.275 + bz);
         pavilionGroup.add(baluster);
       });
     });
 
-    // South Shore Stone Approach Steps (z = 2.75)
-    const approachStep = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 0.18, 0.42),
+    // South Meadow Landing Apron & Stone Steps (直接与南侧草地无缝相接)
+    const southLawnStep = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 0.16, 0.6),
       new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
     );
-    approachStep.position.set(0, 0.12, 2.75);
-    approachStep.receiveShadow = true;
-    pavilionGroup.add(approachStep);
+    southLawnStep.position.set(0, 0.08, 5.35);
+    southLawnStep.receiveShadow = true;
+    pavilionGroup.add(southLawnStep);
+
+    // --- NORTH CORRIDOR PROMENADE (直通北侧设施草坪) ---
+    // Span: connects Central Island Plinth (z = -4.35m) across north water (z = -7.7m) to North Lawn (z = -9.2m)
+    // Span length: 4.85m, Center: z = -6.775m, Deck height y = 0.24m
+    const northBridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 4.85), timber);
+    northBridge.position.set(0, 0.24, -6.775);
+    northBridge.receiveShadow = true;
+    northBridge.castShadow = true;
+    pavilionGroup.add(northBridge);
+
+    // Water Support Piers under north bridge
+    [-5.6, -7.2].forEach(pz => {
+      const pier = new THREE.Mesh(
+        new THREE.BoxGeometry(1.26, 0.28, 0.26),
+        new THREE.MeshStandardMaterial({ color: 0x68746e, roughness: 0.9 })
+      );
+      pier.position.set(0, 0.10, pz);
+      pier.castShadow = true;
+      pavilionGroup.add(pier);
+    });
+
+    // North Bridge Railings
+    [-0.56, 0.56].forEach(rx => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 4.85), darkSteel);
+      rail.position.set(rx, 0.45, -6.775);
+      rail.castShadow = true;
+      pavilionGroup.add(rail);
+
+      [-1.4, 0.0, 1.4].forEach(bz => {
+        const baluster = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.42, 6), darkSteel);
+        baluster.position.set(rx, 0.45, -6.775 + bz);
+        pavilionGroup.add(baluster);
+      });
+    });
+
+    // North Meadow Landing Apron & Stone Steps (直接与北侧草地无缝相接)
+    const northLawnStep = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 0.16, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
+    );
+    northLawnStep.position.set(0, 0.08, -9.35);
+    northLawnStep.receiveShadow = true;
+    pavilionGroup.add(northLawnStep);
 
     pavilionGroup.position.set(0, 0, -2.5);
     this.scene.add(pavilionGroup);
