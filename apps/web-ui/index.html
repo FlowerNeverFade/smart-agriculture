@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css?v=37">
+  <link rel="stylesheet" href="css/style.css?v=47">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   <script>
@@ -14,10 +14,63 @@
           document.documentElement.setAttribute('data-theme', 'light');
         }
       } catch (_) { /* ignore */ }
+      document.documentElement.classList.add('is-booting');
     })();
+  </script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./node_modules/three/build/three.module.js"
+    }
+  }
   </script>
 </head>
 <body>
+
+  <div id="appLoading" class="app-loading" aria-hidden="true">
+    <div class="app-loading-cinema" aria-hidden="true">
+      <div class="app-loading-vignette"></div>
+      <div class="app-loading-letterbox"></div>
+      <div class="app-loading-horizon"></div>
+      <div class="app-loading-flare"></div>
+      <div class="app-loading-scan"></div>
+      <div class="app-loading-grain"></div>
+    </div>
+    <div class="app-loading-hud">
+      <div class="app-loading-eyebrow">SMART AGRICULTURE · DIGITAL TWIN</div>
+      <div class="app-loading-title">
+        <span class="app-loading-logo" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M16 27V12" />
+            <path d="M16 18C10.5 18 7 14.4 7.2 9.5C12 9.9 15.2 12.6 16 18Z" />
+            <path d="M16 14.5C21.3 14.3 24.7 10.9 24.8 6C20 6.4 16.8 9.3 16 14.5Z" />
+          </svg>
+        </span>
+        <div>
+          <div class="app-loading-brand">AgriLoop</div>
+          <div class="app-loading-subtitle">农智闭环 · 智慧农业智能中枢</div>
+        </div>
+      </div>
+      <div class="app-loading-status">
+        <span class="app-loading-status-dot" aria-hidden="true"></span>
+        <span class="app-loading-text" id="appLoadingText">正在唤醒田野…</span>
+        <span class="app-loading-percent" id="appLoadingPercent">10%</span>
+      </div>
+      <div class="app-loading-bar" aria-hidden="true">
+        <span id="appLoadingBarFill"></span>
+        <i></i>
+      </div>
+      <div class="app-loading-steps" aria-hidden="true">
+        <span class="active" data-boot-step="scene">场景</span>
+        <span data-boot-step="render">渲染</span>
+        <span data-boot-step="system">系统</span>
+        <span data-boot-step="link">连接</span>
+        <span data-boot-step="data">数据</span>
+        <span data-boot-step="ready">就绪</span>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="js/boot-scene.js?v=46"></script>
 
   <div id="sceneBackground" aria-hidden="true"></div>
 
@@ -78,7 +131,7 @@
           <span class="rail-section-title">地块与作物</span>
         </div>
 
-        <button type="button" class="telemetry-entry-btn" id="btnOpenPlotTelemetry" title="地块监测数据时许可视化 · 查看各地块指标随时间变化曲线">
+        <button type="button" class="telemetry-entry-btn" id="btnOpenPlotTelemetry" title="地块监测数据时序可视化 · 查看各地块指标随时间变化曲线">
           <span class="telemetry-entry-btn__shine" aria-hidden="true"></span>
           <span class="telemetry-entry-btn__icon" aria-hidden="true">
             <svg class="telemetry-entry-btn__sparkline" viewBox="0 0 28 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -87,7 +140,7 @@
             </svg>
           </span>
           <span class="telemetry-entry-btn__text">
-            <span class="telemetry-entry-btn__label">地块监测数据时许可视化</span>
+            <span class="telemetry-entry-btn__label">地块监测数据时序可视化</span>
             <span class="telemetry-entry-btn__hint">指标曲线 · 全地块</span>
           </span>
           <span class="telemetry-entry-btn__arrow" aria-hidden="true">
@@ -123,7 +176,7 @@
           </li>
           <li>
             <button type="button" class="module-nav-item" data-view="plot-detail">
-              <span><span class="icon">📊</span>地块监测数据时许可视化</span>
+              <span><span class="icon">📊</span>地块监测数据时序可视化</span>
               <span class="module-badge">B-01~03</span>
             </button>
           </li>
@@ -190,7 +243,7 @@
         <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
         <div class="main-feed-quick-actions" id="mainFeedQuickActions">
           <button type="button" class="quick-nav-btn" data-view="plot-detail">
-            <span class="quick-nav-btn__icon">📊</span>地块监测数据时许可视化
+            <span class="quick-nav-btn__icon">📊</span>地块监测数据时序可视化
           </button>
           <button type="button" class="quick-nav-btn" data-view="decision-console">
             <span class="quick-nav-btn__icon">🧠</span>智能诊断
@@ -398,15 +451,6 @@
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- Load ES Module Scripts -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "./node_modules/three/build/three.module.js"
-    }
-  }
-  </script>
-
-  <script type="module" src="js/app.js?v=37"></script>
+  <script type="module" src="js/app.js?v=47"></script>
 </body>
 </html>

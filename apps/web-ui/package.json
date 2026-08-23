@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "lottie-web": "^5.13.0",
     "three": "^0.172.0"
   }
 }

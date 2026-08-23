@@ -33,8 +33,8 @@ const THEME_VARS = {
     '--border-default': '#d0d7de',
     '--border-muted': '#eaeef2',
     '--text-primary': '#1f2328',
-    '--text-secondary': '#59636e',
-    '--text-muted': '#818b98',
+    '--text-secondary': '#424a53',
+    '--text-muted': '#59636e',
     '--text-link': '#0969da',
   },
 };

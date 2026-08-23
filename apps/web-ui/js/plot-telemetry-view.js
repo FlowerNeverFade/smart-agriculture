@@ -93,18 +93,29 @@ export class PlotTelemetryView {
     }
   }
 
+  playEnterAnimation() {
+    const view = this.container?.querySelector('.telemetry-view');
+    if (!view) return;
+    view.classList.remove('telemetry-view--enter');
+    void view.offsetWidth;
+    view.classList.add('telemetry-view--enter');
+  }
+
   async open(plotId) {
     if (!this.container) return;
     const plotChanged = plotId && plotId !== this.plotId;
     this.plotId = plotId || this.app.state.currentPlotId;
     this.app.state.activeMainView = 'plot-telemetry';
     this.container.hidden = false;
+    this.container.classList.add('telemetry-panel--enter');
+    setTimeout(() => this.container?.classList.remove('telemetry-panel--enter'), 520);
 
     if (plotChanged || !this.container.querySelector('#telemetryChartsGrid')) {
       this.renderFrame();
     } else {
       this.syncPlotSlider();
     }
+    this.playEnterAnimation();
 
     await this.refresh({ force: true });
     this.startLiveTimer();
@@ -288,7 +299,7 @@ export class PlotTelemetryView {
       <div class="telemetry-view">
         <div class="telemetry-view-toolbar">
           <div>
-            <h2 class="telemetry-view-title">地块监测数据时许可视化</h2>
+            <h2 class="telemetry-view-title">地块监测数据时序可视化</h2>
             <p class="telemetry-view-subtitle">选中地块各项环境指标随时间变化 · 数据来源：${
               api.isLive ? (api.liveSource === 'virtual-sensor' ? '内置虚拟传感器' : '后端 API') : 'Mock 演示'
             }</p>
@@ -343,6 +354,7 @@ export class PlotTelemetryView {
           this.plotId = id;
           this.app.selectPlot(id, { silent: true });
           this.renderFrame();
+          this.playEnterAnimation();
           void this.refresh({ force: true });
         }
       });
@@ -378,7 +390,10 @@ export class PlotTelemetryView {
 
     this.loading = true;
     const statusEl = this.container.querySelector('#telemetryStatusLine');
-    if (!silent && statusEl) statusEl.textContent = '正在加载遥测序列…';
+    if (!silent && statusEl) {
+      statusEl.textContent = '正在加载遥测序列…';
+      statusEl.classList.add('is-loading');
+    }
 
     try {
       this.points = await api.getPlotTelemetryAll(this.plotId, 120);
@@ -394,6 +409,7 @@ export class PlotTelemetryView {
     } catch (e) {
       if (statusEl) statusEl.textContent = `加载失败：${e.message}`;
     } finally {
+      statusEl?.classList.remove('is-loading');
       this.loading = false;
       if (this.pendingRefresh) {
         this.pendingRefresh = false;

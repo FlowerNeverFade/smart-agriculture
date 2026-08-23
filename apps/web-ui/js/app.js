@@ -4,9 +4,9 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js?v=5';
-import { PlotTelemetryView } from './plot-telemetry-view.js?v=36';
+import { PlotTelemetryView } from './plot-telemetry-view.js?v=47';
 import { initTheme } from './theme.js?v=19';
-import { initSceneBackground } from './scene-background.js?v=20';
+import { initSceneBackground } from './scene-background.js?v=46';
 
 class AgriApp {
   constructor() {
@@ -26,30 +26,70 @@ class AgriApp {
     this.plotTelemetryView = new PlotTelemetryView(this);
   }
 
+  bootProgress(value, label) {
+    window.AgriBoot?.setProgress?.(value, label);
+  }
+
   async init() {
-    this.cacheDom();
-    initTheme();
-    initSceneBackground();
-    this.initRightRailCollapse();
-    this.bindEvents();
+    try {
+      this.bootProgress(0.12, '载入界面模块…');
+      this.cacheDom();
+      this.bootProgress(0.20, '配置主题与色彩…');
+      initTheme();
+      this.bootProgress(0.28, '绑定交互组件…');
+      initSceneBackground();
+      this.initRightRailCollapse();
+      this.bindEvents();
+      this.bootProgress(0.38, '渲染麦浪场景…');
+      await this.yieldFrame();
 
-    const conn = await api.connect();
-    this.state.isLive = conn.ok;
-    this.state.dataSource = conn.source;
-    this.updateSystemStatusPill();
+      this.bootProgress(0.48, '初始化决策内核…');
+      await this.yieldFrame();
+      this.bootProgress(0.56, '连接数据主线…');
+      const conn = await api.connect();
+      this.state.isLive = conn.ok;
+      this.state.dataSource = conn.source;
+      this.updateSystemStatusPill();
 
-    await this.loadOverview();
-    this.renderPlots();
-    this.renderFeed();
-    this.renderChangelog();
-    this.handleRoute();
+      this.bootProgress(0.66, '校验数据源…');
+      await this.yieldFrame();
+      this.bootProgress(0.74, '同步地块档案…');
+      await this.loadOverview();
+      this.bootProgress(0.82, '渲染动态流…');
+      this.renderPlots();
+      this.renderFeed();
+      this.renderChangelog();
+      this.handleRoute();
 
-    if (conn.ok) {
-      const intervalMs = (api.systemStatus?.virtualSensorIntervalSeconds || 5) * 1000;
-      this.pollTimer = setInterval(() => this.refreshLiveData(), intervalMs);
+      if (conn.ok) {
+        const intervalMs = (api.systemStatus?.virtualSensorIntervalSeconds || 5) * 1000;
+        this.pollTimer = setInterval(() => this.refreshLiveData(), intervalMs);
+      }
+
+      window.addEventListener('hashchange', () => this.handleRoute());
+      this.bootProgress(0.92, '校准可视化…');
+      await this.yieldFrame();
+      this.bootProgress(1, '田野已就绪');
+      await window.AgriBoot?.waitUntilProgress?.(0.96);
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    } finally {
+      this.hideAppLoading();
     }
+  }
 
-    window.addEventListener('hashchange', () => this.handleRoute());
+  yieldFrame() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  hideAppLoading() {
+    const loading = document.getElementById('appLoading');
+    if (!loading) return;
+    loading.classList.add('hidden');
+    document.documentElement.classList.remove('is-booting');
+    const reveal = window.AgriBoot?.reveal?.();
+    Promise.resolve(reveal).finally(() => {
+      setTimeout(() => loading.remove(), 80);
+    });
   }
 
   async refreshLiveData() {
@@ -639,9 +679,10 @@ class AgriApp {
   showPlotTelemetryView(plotId, options = {}) {
     this.closeModal(false);
     if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = false;
     this.state.activeMainView = 'plot-telemetry';
     if (plotId) this.state.currentPlotId = plotId;
-    this.dom.headerCurrentView.textContent = '地块监测数据时许可视化';
+    this.dom.headerCurrentView.textContent = '地块监测数据时序可视化';
     document.querySelectorAll('.module-nav-item').forEach((item) => {
       item.classList.toggle('active', item.dataset.view === 'plot-detail');
     });
