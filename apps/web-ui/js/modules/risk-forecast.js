@@ -15,7 +15,7 @@ const MEAN_COLOR = '#58a6ff';
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
 
-/** 统一深色主题 tooltip：confine 限制在容器内，限宽自动换行，避免超长浮窗 */
+/** 统一深色主题 tooltip：confine 限制在容器内，内容紧凑、按内容自适应尺寸 */
 function darkTooltip() {
   return {
     trigger: 'axis',
@@ -23,8 +23,10 @@ function darkTooltip() {
     backgroundColor: '#161b22',
     borderColor: '#30363d',
     borderWidth: 1,
-    textStyle: { color: '#f0f6fc', fontSize: 12 },
-    extraCssText: 'max-width: 280px; white-space: normal; word-break: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border-radius: 6px;',
+    padding: [6, 10],
+    textStyle: { color: '#f0f6fc', fontSize: 12, lineHeight: 18 },
+    // !important 确保覆盖 ECharts 默认的 white-space: nowrap，避免内容不换行被撑宽
+    extraCssText: 'white-space: normal !important; max-width: 320px; word-break: break-word;',
     axisPointer: { lineStyle: { color: '#58a6ff' } }
   };
 }
@@ -239,11 +241,9 @@ export async function renderRiskForecast(container, plotId) {
               formatter: (params) => {
                 const p = params[0];
                 const c = curve.find(pt => pt.minute === Number(p.axisValue)) || {};
-                return `<div style="line-height:1.8">
-                  <div style="color:#8b949e">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
+                return `<div style="color:#8b949e">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
                   <div>期望值：<b style="color:#58a6ff">${p.value}%</b></div>
-                  <div style="color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>
-                </div>`;
+                  <div style="color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>`;
               }
             },
             markLine: {
@@ -493,7 +493,7 @@ export async function renderScenarioReplay(container, plotId) {
       const series = [
         {
           name: bExec.label, type: 'line',
-          data: bExec.points.map(p => p.value),
+          data: bExec.points.map(p => [p.minute, p.value]), // value 轴：[分钟, 数值]
           symbol: 'circle', symbolSize: 4, showSymbol: false,
           lineStyle: { color: bExec.color, width: 2.4 },
           itemStyle: { color: bExec.color },
@@ -506,7 +506,7 @@ export async function renderScenarioReplay(container, plotId) {
         },
         {
           name: bNoop.label, type: 'line',
-          data: bNoop.points.map(p => p.value),
+          data: bNoop.points.map(p => [p.minute, p.value]),
           symbol: 'circle', symbolSize: 4, showSymbol: false,
           lineStyle: { color: bNoop.color, width: 2.2, type: 'dashed' },
           itemStyle: { color: bNoop.color }
@@ -522,22 +522,22 @@ export async function renderScenarioReplay(container, plotId) {
             const a = params[0];
             const b = params[1];
             if (!a || !b) return '';
-            const av = Number(a.value);
-            const bv = Number(b.value);
+            const valOf = p => Number(Array.isArray(p.value) ? p.value[1] : p.value); // value 轴 data 为 [x, y]
+            const av = valOf(a);
+            const bv = valOf(b);
             const diff = av - bv;
-            return `<div style="line-height:1.8">
-              <div style="color:#8b949e">t = ${a.axisValue} min</div>
+            return `<div style="color:#8b949e">t = ${a.axisValue} min</div>
               <div>分支 A 执行：<b style="color:#3fb950">${av.toFixed(1)}%</b></div>
               <div>分支 B 放任：<b style="color:#f85149">${bv.toFixed(1)}%</b></div>
-              <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>
-            </div>`;
+              <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
           }
         },
+        // value 轴：markLine 的 xAxis 直接按时间坐标定位，与曲线横轴严格对应
         xAxis: {
-          type: 'category', boundaryGap: false,
-          data: bExec.points.map(p => p.minute),
+          type: 'value', min: 0, max: 240,
           axisLine: { lineStyle: { color: '#30363d' } },
-          axisLabel: { color: AXIS_COLOR, fontSize: 11, formatter: v => v === 0 ? '现在' : `+${v}min` }
+          axisLabel: { color: AXIS_COLOR, fontSize: 11, formatter: v => v === 0 ? '现在' : `+${v}min` },
+          splitLine: { show: false }
         },
         yAxis: {
           type: 'value', min: yMin, max: yMax,

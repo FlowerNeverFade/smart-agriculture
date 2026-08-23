@@ -19,8 +19,9 @@ function darkTooltip() {
     backgroundColor: '#161b22',
     borderColor: '#30363d',
     borderWidth: 1,
-    textStyle: { color: '#f0f6fc', fontSize: 12 },
-    extraCssText: 'max-width: 280px; white-space: normal; word-break: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border-radius: 6px;'
+    padding: [6, 10],
+    textStyle: { color: '#f0f6fc', fontSize: 12, lineHeight: 18 },
+    extraCssText: 'white-space: normal !important; max-width: 320px; word-break: break-word;'
   };
 }
 
@@ -135,12 +136,10 @@ export async function renderValueLedger(container) {
           const planned = find('计划用水');
           const actual = find('实际用水');
           const dev = find('偏差率');
-          return `<div style="line-height:1.8">
-            <div style="color:#8b949e">${date}</div>
+          return `<div style="color:#8b949e">${date}</div>
             <div>计划用水：<b>${planned?.value ?? '-'} L</b></div>
             <div style="color:#3fb950">实际用水：<b>${actual?.value ?? '-'} L</b></div>
-            <div style="color:#d29922">偏差率：<b>${dev?.value ?? '-'}%</b></div>
-          </div>`;
+            <div style="color:#d29922">偏差率：<b>${dev?.value ?? '-'}%</b></div>`;
         }
       },
       legend: { show: false },
@@ -217,12 +216,10 @@ export async function renderValueLedger(container) {
           const t = find('传统粗放灌溉成本');
           const a = find('农智闭环成本');
           const s = find('累计节约');
-          return `<div style="line-height:1.8">
-            <div style="color:#8b949e">${week}</div>
+          return `<div style="color:#8b949e">${week}</div>
             <div style="color:#f85149">传统粗放：<b>¥${t?.value ?? '-'}</b></div>
             <div style="color:#3fb950">农智闭环：<b>¥${a?.value ?? '-'}</b></div>
-            <div style="color:#d29922">累计节约：<b>¥${s?.value ?? '-'}</b></div>
-          </div>`;
+            <div style="color:#d29922">累计节约：<b>¥${s?.value ?? '-'}</b></div>`;
         }
       },
       legend: { show: false },
