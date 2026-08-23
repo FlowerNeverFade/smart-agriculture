@@ -57,6 +57,7 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
+| T-040 | P1 | 极简浅绿色农业 WebGL 登录页与登录/退出回流 | 项目组 | — | D15+ | 待验收 | `apps/web-ui/login.html`、Three.js 连续生长、浏览器登录/退出回流验证、`design-qa.md` |
 
 ### 2.1 核心八项能力任务映射
 
