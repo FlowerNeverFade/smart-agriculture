@@ -58,6 +58,10 @@ import org.springframework.data.redis.connection.stream.StreamReadOptions;
 
 import javax.crypto.SecretKey;
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.time.Duration;
@@ -88,6 +92,12 @@ public class AgriApplication {
 class AgriProperties {
     private String mode = "standalone";
     private String aiMode = "rules-only";
+    /** OpenAI-compatible endpoint used by the optional Qwen/vLLM adapter. */
+    private String llmBaseUrl = "http://127.0.0.1:8000/v1";
+    private String llmModel = "Qwen3.8-27B";
+    private String llmApiKey = "";
+    private long llmTimeoutMs = 60000;
+    private int llmMaxTokens = 256;
     private String commandMode = "virtual";
     private String forecastMode = "deterministic";
     private String learningMode = "case-only";
@@ -110,6 +120,16 @@ class AgriProperties {
     public void setMode(String mode) { this.mode = mode; }
     public String getAiMode() { return aiMode; }
     public void setAiMode(String aiMode) { this.aiMode = aiMode; }
+    public String getLlmBaseUrl() { return llmBaseUrl; }
+    public void setLlmBaseUrl(String llmBaseUrl) { this.llmBaseUrl = llmBaseUrl; }
+    public String getLlmModel() { return llmModel; }
+    public void setLlmModel(String llmModel) { this.llmModel = llmModel; }
+    public String getLlmApiKey() { return llmApiKey; }
+    public void setLlmApiKey(String llmApiKey) { this.llmApiKey = llmApiKey; }
+    public long getLlmTimeoutMs() { return llmTimeoutMs; }
+    public void setLlmTimeoutMs(long llmTimeoutMs) { this.llmTimeoutMs = llmTimeoutMs; }
+    public int getLlmMaxTokens() { return llmMaxTokens; }
+    public void setLlmMaxTokens(int llmMaxTokens) { this.llmMaxTokens = llmMaxTokens; }
     public String getCommandMode() { return commandMode; }
     public void setCommandMode(String commandMode) { this.commandMode = commandMode; }
     public String getForecastMode() { return forecastMode; }
@@ -667,6 +687,7 @@ class SecurityConfig {
 @Service
 class AgriEngine {
     private final ObjectMapper mapper;
+    private final HttpClient llmHttpClient;
     private final AgriStore store;
     private final AgriEventBus events;
     private final AgriProperties properties;
@@ -685,7 +706,9 @@ class AgriEngine {
 
     AgriEngine(ObjectMapper mapper, AgriStore store, AgriEventBus events, AgriProperties properties,
                PasswordEncoder passwordEncoder, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
-        this.mapper = mapper; this.store = store; this.events = events; this.properties = properties;
+        this.mapper = mapper;
+        this.llmHttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.store = store; this.events = events; this.properties = properties;
         this.passwordEncoder = passwordEncoder; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
     }
 
@@ -1329,21 +1352,164 @@ class AgriEngine {
     }
 
     Map<String, Object> agentChat(Map<String, Object> input, UserPrincipal principal) {
-        String message = Jsons.text(input, "message", Jsons.text(input, "query", "")); String plotId = Jsons.text(input, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
-        String traceId = Jsons.id("run"); List<Map<String, Object>> tools = new ArrayList<>(); Map<String, Object> answer = new LinkedHashMap<>(); answer.put("traceId", traceId); answer.put("mode", properties.getAiMode()); answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT);
-        boolean degraded = !Set.of("mock").contains(aiMode);
-        answer.put("adapter", aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : aiMode.equals("openai") || aiMode.equals("openai-compatible") ? "openai-compatible" : "rules");
-        answer.put("degraded", degraded);
-        answer.put("degradationReason", degraded ? (aiMode.equals("rules-only") ? "RULES_ONLY_CONFIGURED" : "AI_DEPENDENCY_UNAVAILABLE_FALLBACK") : null);
+        String message = Jsons.text(input, "message", Jsons.text(input, "query", ""));
+        String plotId = Jsons.text(input, "plotId", "plot-a01");
+        ensurePlotAccess(principal, plotId);
+        String traceId = Jsons.id("run");
+        List<Map<String, Object>> tools = new ArrayList<>();
+        Map<String, Object> answer = new LinkedHashMap<>();
+        answer.put("traceId", traceId);
+        answer.put("plotId", plotId);
+        answer.put("mode", properties.getAiMode());
+        answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
+
+        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
+        answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
-        if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) { tools.add(tool("get_risk_forecast", Map.of("plotId", plotId), forecast(plotId, "SOIL_MOISTURE"))); answer.put("intent", "RISK_FORECAST"); answer.put("summary", "已生成土壤湿度短期预测"); answer.put("result", tools.get(tools.size() - 1).get("output")); }
-        else if (message.contains("灌溉") || message.contains("浇水") || message.toLowerCase(Locale.ROOT).contains("irrigation")) { Map<String, Object> plan = irrigationPlan(Map.of("plotId", plotId, "traceId", traceId), principal); tools.add(tool("generate_irrigation_plan", Map.of("plotId", plotId), plan)); answer.put("intent", "IRRIGATION_RECOMMENDATION"); answer.put("summary", Jsons.bool(plan, "executable", false) ? "已生成可审批灌溉处方" : "当前证据不足，先补证再灌溉"); answer.put("plan", plan); }
-        else if (message.contains("任务") || message.contains("农务")) { List<Map<String, Object>> work = todayWork(plotId); tools.add(tool("get_today_work_items", Map.of("plotId", plotId), work)); answer.put("intent", "TODAY_WORK"); answer.put("summary", "已汇总今日农务"); answer.put("workItems", work); }
-        else { Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId)); tools.add(tool("get_plot_status", Map.of("plotId", plotId), status)); answer.put("intent", "PLOT_STATUS"); answer.put("summary", "已读取地块状态"); answer.put("result", status); }
-        answer.put("tools", tools); answer.put("confidence", .86); answer.put("context", Map.of("cropPackVersion", "1.0.0", "ruleVersion", "rule-1.0.0", "knowledgeVersion", "kb-1.0.0", "agentVersion", "rules-agent-1.0"));
-        if (degraded) store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "mode", aiMode, "reason", answer.get("degradationReason"), "provenance", "DERIVED"));
-        store.save("agent-run", traceId, answer); store.logEvent("agent.run", answer); events.publish("agent.run.completed", answer); return answer;
+        if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) {
+            tools.add(tool("get_risk_forecast", Map.of("plotId", plotId), forecast(plotId, "SOIL_MOISTURE")));
+            answer.put("intent", "RISK_FORECAST");
+            answer.put("summary", "已生成土壤湿度短期预测");
+            answer.put("result", tools.get(tools.size() - 1).get("output"));
+        } else if (message.contains("灌溉") || message.contains("浇水") || message.toLowerCase(Locale.ROOT).contains("irrigation")) {
+            Map<String, Object> plan = irrigationPlan(Map.of("plotId", plotId, "traceId", traceId), principal);
+            tools.add(tool("generate_irrigation_plan", Map.of("plotId", plotId), plan));
+            answer.put("intent", "IRRIGATION_RECOMMENDATION");
+            answer.put("summary", Jsons.bool(plan, "executable", false) ? "已生成可审批灌溉处方" : "当前证据不足，先补证再灌溉");
+            answer.put("plan", plan);
+        } else if (message.contains("任务") || message.contains("农务")) {
+            List<Map<String, Object>> work = todayWork(plotId);
+            tools.add(tool("get_today_work_items", Map.of("plotId", plotId), work));
+            answer.put("intent", "TODAY_WORK");
+            answer.put("summary", "已汇总今日农务");
+            answer.put("workItems", work);
+        } else {
+            Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
+            tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
+            answer.put("intent", "PLOT_STATUS");
+            answer.put("summary", "已读取地块状态");
+            answer.put("result", status);
+        }
+        answer.put("tools", tools);
+        answer.put("confidence", .86);
+        answer.put("context", Map.of("cropPackVersion", "1.0.0", "ruleVersion", "rule-1.0.0", "knowledgeVersion", "kb-1.0.0", "agentVersion", "rules-agent-1.0"));
+
+        boolean degraded = false;
+        String degradationReason = null;
+        if (aiMode.equals("rules-only")) {
+            degraded = true;
+            degradationReason = "RULES_ONLY_CONFIGURED";
+        } else if (openAiCompatible) {
+            long started = System.nanoTime();
+            try {
+                String narrative = callOpenAiCompatible(message, answer);
+                long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
+                answer.put("narrative", narrative);
+                answer.put("narrativeProvenance", "DERIVED");
+                answer.put("llm", Map.of("provider", "openai-compatible", "model", configuredLlmModel(), "latencyMs", latencyMs));
+            } catch (Exception ex) {
+                degraded = true;
+                degradationReason = "AI_DEPENDENCY_UNAVAILABLE_FALLBACK";
+                answer.put("llmError", safeLlmError(ex));
+                store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "mode", aiMode, "reason", degradationReason,
+                        "error", safeLlmError(ex), "provenance", "DERIVED"));
+            }
+        } else if (!aiMode.equals("mock")) {
+            degraded = true;
+            degradationReason = "AI_DEPENDENCY_UNAVAILABLE_FALLBACK";
+        }
+        answer.put("degraded", degraded);
+        answer.put("degradationReason", degradationReason);
+        if (degraded && !openAiCompatible) {
+            store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "mode", aiMode, "reason", degradationReason, "provenance", "DERIVED"));
+        }
+        store.save("agent-run", traceId, answer);
+        store.logEvent("agent.run", answer);
+        events.publish("agent.run.completed", answer);
+        return answer;
+    }
+
+    /**
+     * Calls a local or remote OpenAI-compatible chat endpoint only for
+     * narrative generation.  Rules and tools above remain the source of
+     * truth for measurements, plans, permissions, and commands.
+     */
+    private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext) throws IOException {
+        String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
+        if (baseUrl.isBlank()) throw new IOException("LLM_BASE_URL_NOT_CONFIGURED");
+        while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        String endpoint = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
+        URI uri;
+        try {
+            uri = URI.create(endpoint);
+            if (!Set.of("http", "https").contains(uri.getScheme())) throw new IllegalArgumentException("unsupported scheme");
+        } catch (Exception ex) {
+            throw new IOException("LLM_ENDPOINT_INVALID", ex);
+        }
+
+        String context = Jsons.json(mapper, deterministicContext);
+        if (context.length() > 14000) context = context.substring(0, 14000) + "…";
+        String prompt = (userMessage == null ? "" : userMessage);
+        if (prompt.length() > 4000) prompt = prompt.substring(0, 4000) + "…";
+        String userContent = "用户问题：" + prompt + "\n\n已由规则与白名单工具冻结的事实（只可解释，不可改写）：\n" + context;
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("model", configuredLlmModel());
+        request.put("messages", List.of(
+                Map.of("role", "system", "content", "你是农智闭环助手。只根据给定事实回答，使用简洁中文；不得编造观测，不得生成 SQL、MQTT topic、HTTP 请求或控制命令；若处方不可执行，明确说明需要人工复核。"),
+                Map.of("role", "user", "content", userContent)));
+        request.put("temperature", 0.2);
+        request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
+        request.put("stream", false);
+
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofMillis(Math.max(1000, properties.getLlmTimeoutMs())))
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(Jsons.json(mapper, request), StandardCharsets.UTF_8));
+        if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
+            builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getLlmApiKey().trim());
+        }
+        HttpResponse<String> response;
+        try {
+            response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("LLM_REQUEST_INTERRUPTED", ex);
+        }
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("LLM_HTTP_" + response.statusCode());
+        }
+        try {
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode content = root.path("choices").path(0).path("message").path("content");
+            String text;
+            if (content.isTextual()) text = content.asText();
+            else if (content.isArray()) {
+                StringBuilder joined = new StringBuilder();
+                content.forEach(part -> {
+                    if (part.isTextual()) joined.append(part.asText());
+                    else if (part.has("text")) joined.append(part.path("text").asText());
+                });
+                text = joined.toString();
+            } else text = "";
+            if (text == null || text.isBlank()) throw new IOException("LLM_EMPTY_RESPONSE");
+            return text.trim();
+        } catch (JsonProcessingException ex) {
+            throw new IOException("LLM_RESPONSE_INVALID", ex);
+        }
+    }
+
+    private String configuredLlmModel() {
+        return properties.getLlmModel() == null || properties.getLlmModel().isBlank() ? "Qwen3.8-27B" : properties.getLlmModel().trim();
+    }
+
+    private String safeLlmError(Exception ex) {
+        String name = ex.getClass().getSimpleName();
+        String message = ex.getMessage() == null ? "" : ex.getMessage().replaceAll("[\\r\\n]+", " ");
+        if (message.length() > 160) message = message.substring(0, 160);
+        return message.isBlank() ? name : name + ":" + message;
     }
 
     private List<Map<String, Object>> knowledgeEvidence(String plotId) {
