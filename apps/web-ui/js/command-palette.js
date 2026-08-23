@@ -7,6 +7,9 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 
+/** 作物图标映射（与 crop-packs 视图一致） */
+const CROP_EMOJI = { tomato: '🍅', cucumber: '🥒', strawberry: '🍓', pepper: '🌶️' };
+
 export function initCommandPalette(app) {
   let items = [];
   let activeIndex = 0;
@@ -24,7 +27,7 @@ export function initCommandPalette(app) {
     MOCK_DATA.plots.forEach(p => {
       items.push({
         group: '地块',
-        icon: p.cropCode === 'tomato' ? '🍅' : '🥒',
+        icon: CROP_EMOJI[p.cropCode] || '🌾',
         title: p.name,
         sub: `${p.cropName} · ${p.stageLabel} · 湿度 ${p.metrics.SOIL_MOISTURE.value}%`,
         keywords: `${p.name} ${p.cropName} ${p.plotId} ${p.cropCode}`,
@@ -44,7 +47,7 @@ export function initCommandPalette(app) {
     MOCK_DATA.cropPackDetails.forEach(p => {
       items.push({
         group: '作物包',
-        icon: p.cropCode === 'tomato' ? '🍅' : '🥒',
+        icon: CROP_EMOJI[p.cropCode] || '🌾',
         title: `${p.identity.name} Pack v${p.version}`,
         sub: `${p.ruleVersion} · ${p.knowledgeVersion} · ${p.stages.length} 阶段`,
         keywords: `${p.cropCode} ${p.identity.name} pack`,

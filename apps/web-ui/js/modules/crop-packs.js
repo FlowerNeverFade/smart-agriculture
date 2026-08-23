@@ -6,7 +6,8 @@
 import { api } from '../api.js';
 import { escapeHtml } from '../charts.js';
 
-const STAGE_EMOJI = { seedling: '🌱', vegetative: '🌿', flowering: '🌸', fruiting: '🍅' };
+const CROP_EMOJI = { tomato: '🍅', cucumber: '🥒', strawberry: '🍓', pepper: '🌶️' };
+const STAGE_EMOJI = { seedling: '🌱', vegetative: '🌿', flowering: '🌸' };
 const AV_CLS = {
   SUPPORTED: 'agri-pill-ok',
   SIMULATION_ONLY: 'agri-pill-blue',
@@ -74,7 +75,7 @@ export async function renderCropPacks(container) {
       <div class="cp-tabs" data-role="cp-tabs">
         ${packs.map(p => `
           <button class="cp-tab ${p.cropCode === activePack.cropCode ? 'active' : ''}" data-crop="${p.cropCode}">
-            ${p.cropCode === 'tomato' ? '🍅' : '🥒'} ${escapeHtml(p.identity.name)}
+            ${CROP_EMOJI[p.cropCode] || '🌾'} ${escapeHtml(p.identity.name)}
             <span class="agri-mono cp-tab-ver">v${escapeHtml(p.version)}</span>
           </button>
         `).join('')}
@@ -127,7 +128,7 @@ export async function renderCropPacks(container) {
           ${pack.stages.map(s => `
             <div class="cp-stage">
               <div class="cp-stage-head">
-                <span class="cp-stage-emoji">${STAGE_EMOJI[s.code] || '🌾'}</span>
+                <span class="cp-stage-emoji">${STAGE_EMOJI[s.code] || CROP_EMOJI[pack.cropCode] || '🌾'}</span>
                 <div>
                   <div class="cp-stage-name">${escapeHtml(s.label)}</div>
                   <div class="agri-mono cp-stage-code">${s.code} · 第 ${s.sequence} 阶段</div>

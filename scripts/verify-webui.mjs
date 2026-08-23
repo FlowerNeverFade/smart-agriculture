@@ -194,7 +194,7 @@ gotoView('#view=crop-packs');
 const cpReady = await waitFor(() => document.querySelector('.cp-tabs'), 6000);
 ok('crop-packs 模块渲染', cpReady);
 if (cpReady) {
-  ok('两个作物 Tab（番茄/黄瓜）', document.querySelectorAll('.cp-tab').length === 2);
+  ok('四个作物 Tab（番茄/黄瓜/草莓/辣椒）', document.querySelectorAll('.cp-tab').length === 4);
   ok('身份档案（重庆 · v1.0.0）', document.querySelector('.cp-identity').textContent.includes('重庆') && document.querySelector('.cp-identity').textContent.includes('v1.0.0'));
   ok('6 项指标定义 + availability 徽标', document.querySelectorAll('.cp-metric').length === 6 && !!document.querySelector('.cp-metric .agri-pill-ok'));
   ok('4 个阶段参数卡片', document.querySelectorAll('.cp-stage').length === 4);
@@ -206,6 +206,14 @@ if (cpReady) {
   await sleep(100);
   const cuke = document.querySelector('[data-role="cp-body"]').textContent;
   ok('切换黄瓜后参数/阈值更新', cuke.includes('32 ~ 52%') && cuke.includes('WATER_DEFICIT'));
+  document.querySelector('.cp-tab[data-crop="strawberry"]').click();
+  await sleep(100);
+  const berry = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换草莓（🍓 图标 · 湿度 35~55 · 阈值 22）', berry.includes('草莓') && berry.includes('35 ~ 55%') && /22/.test(berry));
+  document.querySelector('.cp-tab[data-crop="pepper"]').click();
+  await sleep(100);
+  const pepper = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换辣椒（🌶️ · 湿度 20~40 · 阈值 18）', pepper.includes('辣椒') && pepper.includes('20 ~ 40%') && /18/.test(pepper));
 }
 
 // ============ 视图 5：⌘K 命令面板 + 交叉导航 ============
