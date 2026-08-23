@@ -84,6 +84,9 @@ export function attachCustomTip(chart, getContent) {
     const content = dataIndex == null ? null : getContent(params);
     if (content == null) return hide();
     const tip = ensureTip();
+    // 两阶段显示：先隐藏并完成定位，最后再可见，
+    // 避免"先出现空黑/错位帧"（未就绪状态被绘制出来）
+    tip.style.visibility = 'hidden';
     tip.innerHTML = content;
     tip.style.display = 'block';
     // 定位：跟随鼠标，超出视口时翻转
@@ -98,6 +101,7 @@ export function attachCustomTip(chart, getContent) {
     if (top + th > window.innerHeight - 4) top = py - th - 14;
     tip.style.left = Math.max(4, left) + 'px';
     tip.style.top = Math.max(4, top) + 'px';
+    tip.style.visibility = 'visible';
   };
 
   chart.on('mousemove', onMove);

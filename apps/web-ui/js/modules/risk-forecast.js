@@ -23,6 +23,8 @@ function darkTooltip() {
   return {
     trigger: 'axis',
     confine: true,
+    transitionDuration: 0, // 关闭原生容器位移过渡，避免过渡中间帧
+    className: 'agri-native-tip-hidden', // 配合 CSS 强制隐藏原生容器（axisPointer 在 canvas 内，不受影响）
     backgroundColor: '#21262d',
     borderColor: '#3d444d',
     borderWidth: 1,
@@ -220,6 +222,7 @@ export async function renderRiskForecast(container, plotId) {
       }
       const option = {
         backgroundColor: 'transparent',
+        animation: false, // 关闭入场动画：stack 置信带生长动画期间下半部分会短暂空黑
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
         tooltip: { ...darkTooltip(), formatter: () => null },
         xAxis: {
@@ -547,6 +550,7 @@ export async function renderScenarioReplay(container, plotId) {
       ];
       return {
         backgroundColor: 'transparent',
+        animation: false, // 关闭入场动画，避免首帧/切换时短暂空黑
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
         // 原生 tooltip 仅保留 axisPointer，内容由自定义浮窗渲染（attachCustomTip）
         tooltip: { ...darkTooltip(), formatter: () => null },

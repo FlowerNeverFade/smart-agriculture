@@ -148,6 +148,11 @@
   max-width: 320px;
   word-break: break-word;
 }
+
+/* 强制隐藏 ECharts 原生 tooltip 容器（内容由 .agri-custom-tip 提供） */
+.agri-native-tip-hidden {
+  display: none !important;
+}
 .chart-grid-line { stroke: #21262d; stroke-width: 1; }
 .chart-grid-line-v { stroke: #161b22; stroke-width: 1; }
 .chart-axis-label { fill: #8b949e; font-size: 10px; font-family: var(--font-mono); }

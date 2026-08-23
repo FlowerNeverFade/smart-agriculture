@@ -16,6 +16,8 @@ function darkTooltip() {
   return {
     trigger: 'axis',
     confine: true,
+    transitionDuration: 0, // 关闭原生容器位移过渡，避免过渡中间帧
+    className: 'agri-native-tip-hidden', // 配合 CSS 强制隐藏原生容器（axisPointer 在 canvas 内，不受影响）
     backgroundColor: '#21262d',
     borderColor: '#3d444d',
     borderWidth: 1,
@@ -141,6 +143,7 @@ export async function renderValueLedger(container) {
     // --- 柱状图：计划 vs 实际 + 偏差率折线 ---
     bar.setOption({
       backgroundColor: 'transparent',
+      animation: false, // 关闭入场动画，避免首帧/切换时短暂空黑
       grid: { left: 50, right: 52, top: 30, bottom: 30 },
       tooltip: { ...darkTooltip(), formatter: () => null },
       legend: { show: false },
@@ -217,6 +220,7 @@ export async function renderValueLedger(container) {
     }));
     area.setOption({
       backgroundColor: 'transparent',
+      animation: false, // 关闭入场动画，避免首帧/切换时短暂空黑
       grid: { left: 50, right: 24, top: 30, bottom: 30 },
       tooltip: { ...darkTooltip(), formatter: () => null },
       legend: { show: false },
