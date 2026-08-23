@@ -20,7 +20,7 @@ torchrun --nproc_per_node=2 training/train_lora.py \
   --model-path /srv/models/Qwen3.8-27B \
   --data training/data/agriloop_sft.jsonl \
   --output /srv/agriloop/models/agriloop-qwen38-lora \
-  --max-steps 90 --epochs 6
+  --max-steps 54 --epochs 3 --learning-rate 2e-5 --rank 8 --alpha 16
 ```
 
 训练前应停止 vLLM，训练后先执行 `evaluate_adapter.py`，通过固定的 `normal`、`drought`、`sensor-drift`、`device-offline` 和低就绪度样本验收，再切换在线适配器。

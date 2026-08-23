@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--dropout", type=float, default=0.05)
+    parser.add_argument("--target-modules", default="q_proj,k_proj,v_proj,o_proj")
     parser.add_argument("--seed", type=int, default=20260823)
     return parser.parse_args()
 
@@ -152,13 +153,16 @@ def main() -> None:
     if hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
+    target_modules = [item.strip() for item in args.target_modules.split(",") if item.strip()]
     lora_config = LoraConfig(
         r=args.rank,
         lora_alpha=args.alpha,
         lora_dropout=args.dropout,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules="all-linear",
+        # Do not adapt lm_head: with a small synthetic set that can create an
+        # EOS/logit collapse even when the base model is otherwise healthy.
+        target_modules=target_modules,
     )
     model = get_peft_model(model, lora_config)
     if rank == 0:

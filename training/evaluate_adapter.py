@@ -10,7 +10,7 @@ from pathlib import Path
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 
 PROBES = [
@@ -30,8 +30,11 @@ def main() -> None:
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True, use_fast=True)
+    config = AutoConfig.from_pretrained(args.model_path, trust_remote_code=True)
+    config.language_model_only = True
     base = AutoModelForCausalLM.from_pretrained(
         args.model_path,
+        config=config,
         torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
@@ -60,4 +63,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
