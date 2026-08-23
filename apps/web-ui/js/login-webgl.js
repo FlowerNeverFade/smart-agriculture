@@ -259,9 +259,9 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec2 idleFlow(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 6.28318530718;
-    float phaseA = point.x * 0.72 + point.y * 1.14 + time * 0.120;
-    float phaseB = point.x * 1.08 - point.y * 0.63 - time * 0.100;
-    float phaseC = point.x * 1.76 + point.y * 1.43 + time * 0.160;
+    float phaseA = point.x * 0.72 + point.y * 1.14 + time * 0.180;
+    float phaseB = point.x * 1.08 - point.y * 0.63 - time * 0.150;
+    float phaseC = point.x * 1.76 + point.y * 1.43 + time * 0.240;
     vec2 field = vec2(
       1.14 * cos(phaseA)
         - 0.45 * 0.63 * cos(phaseB)
@@ -270,7 +270,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
         - 0.45 * 1.08 * cos(phaseB)
         - 0.18 * 1.76 * cos(phaseC)
     );
-    return field * (16.0 / max(uCssMinDimension, 1.0)) / 1.073;
+    return field * (26.0 / max(uCssMinDimension, 1.0)) / 1.073;
   }
 
   void main() {
