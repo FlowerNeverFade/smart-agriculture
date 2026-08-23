@@ -479,6 +479,45 @@ export async function renderScenarioReplay(container, plotId) {
     const yMin = Math.max(Math.floor(Math.min(...yAll, cmp.stressBoundary) - 2), 0);
     const yMax = Math.ceil(Math.max(...yAll, cmp.baselineMoisture) + 3);
 
+    // 双轨摘要：末端对比 / 越界时刻 / 结论
+    const lastExec = bExec.points[bExec.points.length - 1];
+    const lastNoop = bNoop.points[bNoop.points.length - 1];
+    const breachExec = bExec.points.find(p => p.value <= cmp.stressBoundary);
+    const breachNoop = bNoop.points.find(p => p.value <= cmp.stressBoundary);
+    const endDiff = lastExec.value - lastNoop.value;
+    let conclusion = '';
+    let conclusionCls = 'ok';
+    if (breachNoop && !breachExec) {
+      conclusion = `执行补水使地块在 4h 内未触达 ${cmp.stressBoundary}% 胁迫边界（放任将在 t=${breachNoop.minute}min 触达）`;
+    } else if (breachNoop && breachExec) {
+      const delay = breachExec.minute - breachNoop.minute;
+      conclusionCls = delay > 0 ? 'ok' : 'warn';
+      conclusion = delay > 0
+        ? `执行补水将越界时刻推迟 ${delay} 分钟（A t=${breachExec.minute}min vs B t=${breachNoop.minute}min）`
+        : '执行补水未能改变越界时刻（补水量不足以覆盖蒸散）';
+    } else if (!breachNoop && !breachExec) {
+      conclusion = '两分支 4h 内均未触达胁迫边界，本情景对当前地块影响有限';
+      conclusionCls = 'warn';
+    } else {
+      conclusion = '执行分支出现越界但放任分支未越界（执行时刻或补水量需复核）';
+      conclusionCls = 'warn';
+    }
+    const summaryHtml = `
+      <div class="sr-summary">
+        <div class="sr-summary-item">
+          <span>4h 末端湿度</span>
+          <b class="agri-mono" style="color:#3fb950">A ${lastExec.value}%</b>
+          <b class="agri-mono" style="color:#f85149">B ${lastNoop.value}%</b>
+          <span class="agri-mono sr-summary-diff">Δ ${endDiff >= 0 ? '+' : ''}${endDiff.toFixed(1)}%</span>
+        </div>
+        <div class="sr-summary-item">
+          <span>触达极限边界（${cmp.stressBoundary}%）</span>
+          <b class="agri-mono" style="color:#3fb950">A ${breachExec ? `t=${breachExec.minute}min` : '未触达'}</b>
+          <b class="agri-mono" style="color:#f85149">B ${breachNoop ? `t=${breachNoop.minute}min` : '未触达'}</b>
+        </div>
+        <div class="sr-summary-conclusion ${conclusionCls}">💡 ${conclusion}</div>
+      </div>`;
+
     runOutput.innerHTML = `
       <div class="agri-card sr-result-card">
         <div class="sr-run-head">
@@ -532,6 +571,8 @@ export async function renderScenarioReplay(container, plotId) {
             </div>
           </div>
         </div>
+
+        ${summaryHtml}
 
         <div class="agri-meta-line">${escapeHtml(cmp.note)} · 场景参数：${escapeHtml(run.params.desc)}</div>
       </div>`;

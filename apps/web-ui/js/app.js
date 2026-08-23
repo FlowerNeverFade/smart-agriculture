@@ -52,6 +52,7 @@ class AgriApp {
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
+    this.renderHomeSummary();
     this.handleRoute();
 
     window.addEventListener('hashchange', () => this.handleRoute());
@@ -487,6 +488,61 @@ class AgriApp {
         <span style="color: var(--text-secondary); font-size: 11px; margin-top: 2px;">${item.content}</span>
       </li>
     `).join('');
+  }
+
+  /**
+   * Home 驾驶舱摘要：预测 / 效益 / 作物包 快速总览（点击直达子模块）
+   * 使用本地 mock 数据轻量计算，不请求 API，保证首屏即时渲染
+   */
+  renderHomeSummary() {
+    const el = document.getElementById('homeSummaryGrid');
+    if (!el) return;
+    const plots = this.state.plots;
+    const a01 = plots.find(p => p.plotId === 'plot-a01') || plots[0];
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const moisture = a01?.metrics?.SOIL_MOISTURE?.value ?? 20;
+    const boundary = cfg.stressBoundary;
+    // 与 api.getRiskForecast 相同的确定性 Time-to-Risk 公式
+    const kRef = Math.log(16.8 / boundary) / 72;
+    const ttr = Math.min(Math.round(Math.log(moisture / boundary) / kRef), cfg.maxHorizonMinutes);
+    const zone = ttr < 60 ? 'danger' : ttr < 150 ? 'warn' : 'ok';
+    const ledger = MOCK_DATA.valueLedger.summary;
+    const packs = MOCK_DATA.cropPackDetails;
+
+    el.innerHTML = `
+      <div class="home-summary-card" data-view="risk-forecast" title="打开未来风险预测推演">
+        <div class="hs-icon">🔮</div>
+        <div class="hs-body">
+          <div class="hs-title">未来风险 · ${a01 ? a01.name : '温室 1 号棚'}</div>
+          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= cfg.maxHorizonMinutes ? '>240' : ttr} 分钟</div>
+          <div class="hs-sub">当前湿度 ${moisture}% · 极限边界 ${boundary}%</div>
+        </div>
+        <span class="hs-go">→</span>
+      </div>
+      <div class="home-summary-card" data-view="value-ledger" title="打开经营价值与效益对账本">
+        <div class="hs-icon">💰</div>
+        <div class="hs-body">
+          <div class="hs-title">经营价值对账</div>
+          <div class="hs-value ok">¥ ${ledger.totalSavedRmb.toFixed(2)}</div>
+          <div class="hs-sub">节水 ${ledger.savedWaterLitres.toLocaleString()}L · 偏差率 ${ledger.deviationRatePct}%</div>
+        </div>
+        <span class="hs-go">→</span>
+      </div>
+      <div class="home-summary-card" data-view="crop-packs" title="打开作物包全景与规则注册表">
+        <div class="hs-icon">📦</div>
+        <div class="hs-body">
+          <div class="hs-title">作物包注册表</div>
+          <div class="hs-value">${packs.length} 个包 · ${packs.length * 4} 阶段</div>
+          <div class="hs-sub">${packs.map(p => p.identity.name).join(' / ')} · Schema v${packs[0]?.schemaVersion || '1.0'}</div>
+        </div>
+        <span class="hs-go">→</span>
+      </div>`;
+
+    el.querySelectorAll('.home-summary-card').forEach(card => {
+      card.addEventListener('click', () => {
+        this.openSubview(card.dataset.view, { plotId: this.state.currentPlotId });
+      });
+    });
   }
 
   /**

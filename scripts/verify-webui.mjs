@@ -103,6 +103,18 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor(() => document.querySelector('#plotListContainer .plot-list-item'), 3000);
 ok('应用启动：地块列表渲染', document.querySelectorAll('#plotListContainer .plot-list-item').length === 3);
 
+// ============ Home 驾驶舱摘要 ============
+const hsGrid = document.getElementById('homeSummaryGrid');
+ok('Home 摘要网格（预测/效益/作物包 3 卡）', !!hsGrid && hsGrid.querySelectorAll('.home-summary-card').length === 3);
+if (hsGrid) {
+  ok('预测卡 Time-to-Risk 72', hsGrid.querySelectorAll('.home-summary-card')[0].textContent.includes('72'));
+  ok('效益卡 ¥ 245.82', hsGrid.querySelectorAll('.home-summary-card')[1].textContent.includes('245.82'));
+  hsGrid.querySelectorAll('.home-summary-card')[0].click();
+  await sleep(300);
+  ok('点击预测卡直达 risk-forecast', window.location.hash.includes('view=risk-forecast'));
+  // 保持 risk-forecast 打开状态，视图 1 测试直接在此渲染实例上继续
+}
+
 // ============ 视图 1：risk-forecast ============
 ok('risk-forecast 路由打开', document.querySelector('#modalTitle').textContent.includes('风险预测'));
 const rfReady = await waitFor(() => document.querySelector('.rf-root'), 6000);
@@ -129,6 +141,8 @@ if (srReady) {
   const srRun = await waitFor(() => document.querySelector('.sr-result-card'), 8000);
   ok('双轨推演结果渲染 (.sr-result-card)', srRun);
   if (srRun) {
+    const srSummary = document.querySelector('.sr-summary');
+    ok('双轨摘要（末端对比/越界/结论）', !!srSummary && srSummary.textContent.includes('触达极限边界') && !!srSummary.querySelector('.sr-summary-conclusion'));
     await waitChart('[data-role="sr-chart"]');
     ok('双轨图区有内容', chartOk('[data-role="sr-chart"]'));
     ok('回放滑块存在', !!document.querySelector('[data-role="scrub-range"]'));

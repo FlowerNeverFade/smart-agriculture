@@ -506,3 +506,46 @@
 }
 .sr-readout span { font-size: 11px; color: var(--text-muted); }
 .sr-readout b { font-size: 16px; color: var(--text-primary); }
+
+/* 双轨对比摘要 */
+.sr-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.sr-summary-item {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sr-summary-item > span:first-child {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.sr-summary-diff {
+  color: var(--amber-primary);
+  font-weight: 600;
+}
+.sr-summary-conclusion {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+}
+.sr-summary-conclusion.ok {
+  background: var(--green-subtle);
+  border-color: rgba(63, 185, 80, 0.4);
+  color: var(--green-bright);
+}
+.sr-summary-conclusion.warn {
+  background: var(--amber-subtle);
+  border-color: rgba(210, 153, 34, 0.4);
+  color: var(--amber-primary);
+}
