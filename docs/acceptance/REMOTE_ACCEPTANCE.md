@@ -8,7 +8,7 @@
 - 运行方式：Java 17 + Spring Boot 3 + Supervisor（容器无 Docker/systemd）
 - 依赖：PostgreSQL 14、Redis 6、Mosquitto 2
 - API：`127.0.0.1:8080`，由 Nginx 6006 自定义服务代理
-- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B`；规则/工具优先，虚拟执行器：`virtual`
+- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 优先，虚拟执行器：`virtual`
 - 演示账号：`farmer`、`operator`、`admin`、`sysadmin`，统一演示密码在受控环境中维护，不写入仓库。
 
 ## 已复现证据
@@ -37,7 +37,8 @@
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
 | main 公网 Web/API | PASS | AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、健康检查和未认证 API 响应可访问 |
 | OpenAI-compatible Qwen | PASS | 公网登录后调用 `/api/v1/agent/chat` 返回 `adapter=openai-compatible`、`degraded=false`、`narrative`；vLLM 仅监听 `127.0.0.1:8000` |
-| Web Copilot 真实对话 | PASS | `/agriloop/` 登录弹窗保存 JWT；登录后网页显示 `Qwen3.8-27B 实时回答`、traceId、模型延迟和知识引用；未登录/失败不会伪装成真实回答 |
+| Web Copilot 真实对话 | PASS | `/agriloop/` 登录弹窗保存 JWT；登录后网页显示 Qwen 实时回答、模型延迟和可读知识引用；思维标签、提示词、工具字段和 traceId 不进入对话正文；未登录/失败不会伪装成真实回答 |
+| Qwen LoRA 微调与安全回归 | PASS | 双 GPU BF16、LoRA q/k/v/o、rank=8、18 步保守训练；适配器只影响表达，离线/质量降级/控制命令仍由后端硬门拦截 |
 | 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
 
 ## 自动化测试

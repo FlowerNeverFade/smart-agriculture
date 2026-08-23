@@ -7,7 +7,7 @@
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
 
-> 2026-08-23 main 部署记录：GitHub `main` 已基于回滚后的 `dbc9a53` 完成同步（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
+> 2026-08-23 main 部署记录：GitHub `main` 当前为 `c8075e1`（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen3.8-27B，并加载保守的 LoRA 表达适配器 `agriloop-qwen38-agri`；规则、数据库和 RAG 仍是事实与安全边界的唯一来源，模型只生成解释文本。思维输出已关闭，后端/浏览器均过滤内部字段，并对离线、降级质量和控制命令执行二次安全拦截。公网 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
 ## 1. 进度总览
 
@@ -37,9 +37,9 @@
 
 - `/actuator/health`、品牌入口 `/agriloop/`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
 - 网页登录后输入自然语言即可对话；UI 只有在响应包含 `adapter=openai-compatible`、`degraded=false`、`narrative` 时才标为 `Qwen3.8-27B 实时回答`，否则明确显示规则降级。
-- Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。
+- Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；问候/能力/短输入走规则快捷路径，模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。traceId 只保留在审计/决策护照接口，不在对话正文展示。
 - vLLM 监听 `127.0.0.1:8000`，数据库/消息服务不通过公网服务暴露；`SERVER_ADDRESS=127.0.0.1` 保护 Spring API，公网入口为 Nginx 的 6006 映射。
-- 远端磁盘约 58GB 可用，Qwen 权重约 52GB；数据目录、备份和应用日志位于服务器本地持久盘。
+- 远端磁盘约 185GB 可用，Qwen 权重约 52GB，LoRA 适配器约 40MB；数据目录、备份和应用日志位于服务器本地持久盘。
 
 ### 已完成的设计工作
 
