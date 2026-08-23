@@ -5,6 +5,8 @@
 import { MOCK_DATA } from './mock-data.js';
 import { ApiError, api } from './api.js';
 
+const LOGIN_ENTRY = 'login-concepts.html';
+
 const ROLE_PRESENTATION = {
   FARM_ADMIN: { roleLabel: '农场管理员', avatar: '👑' },
   FARMER: { roleLabel: '种植农户', avatar: '🧑‍🌾' },
@@ -39,7 +41,7 @@ class AgriApp {
   async init() {
     if (!this.session) {
       api.clearSession();
-      window.location.replace('login.html');
+      window.location.replace(LOGIN_ENTRY);
       return;
     }
 
@@ -61,7 +63,7 @@ class AgriApp {
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           api.clearSession();
-          window.location.replace('login.html');
+          window.location.replace(LOGIN_ENTRY);
           return;
         }
         this.state.isLive = false;
@@ -142,17 +144,17 @@ class AgriApp {
       this.dom.userMenuPopover?.classList.remove('active');
     });
 
-    // Switch Account -> redirect to login.html
+    // Switch Account -> return to the horizon login experience
     this.dom.btnSwitchAccount?.addEventListener('click', () => {
       this.dom.userMenuPopover?.classList.remove('active');
       api.clearSession();
-      window.location.replace('login.html');
+      window.location.replace(LOGIN_ENTRY);
     });
 
-    // Logout -> redirect to login.html
+    // Logout -> return to the horizon login experience
     this.dom.btnLogout?.addEventListener('click', () => {
       api.clearSession();
-      window.location.replace('login.html');
+      window.location.replace(LOGIN_ENTRY);
     });
 
     // Quick Action button

@@ -9,7 +9,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         dashboard: fileURLToPath(new URL('./index.html', import.meta.url)),
-        login: fileURLToPath(new URL('./login.html', import.meta.url))
+        login: fileURLToPath(new URL('./login.html', import.meta.url)),
+        horizon: fileURLToPath(new URL('./login-concepts.html', import.meta.url))
       }
     }
   },
