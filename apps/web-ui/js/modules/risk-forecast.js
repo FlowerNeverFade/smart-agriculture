@@ -593,6 +593,7 @@ export async function renderScenarioReplay(container, plotId) {
               <span class="agri-pill agri-pill-ok" data-role="pot-badge">🌤️ 正常生长</span>
             </div>
             <div class="sr-pot-stage" data-role="pot-stage">
+              <canvas class="sr-pot-canvas" data-role="pot-canvas"></canvas>
               <div class="sr-pot-scene normal" data-role="pot-scene">${buildPotSceneSvg(plot.cropCode)}</div>
             </div>
             <div class="sr-pot-metrics">
@@ -644,15 +645,36 @@ export async function renderScenarioReplay(container, plotId) {
   const runOutput = container.querySelector('[data-role="run-output"]');
   const seedInput = container.querySelector('#srSeedInput');
   const potScene = container.querySelector('[data-role="pot-scene"]');
+  const potCanvas = container.querySelector('[data-role="pot-canvas"]');
   const potStage = container.querySelector('[data-role="pot-stage"]');
   const potBadge = container.querySelector('[data-role="pot-badge"]');
   const potDesc = container.querySelector('[data-role="pot-desc"]');
   const potMoisture = container.querySelector('[data-role="pot-moisture"]');
   const potTemp = container.querySelector('[data-role="pot-temp"]');
   const potLight = container.querySelector('[data-role="pot-light"]');
+  let pot3d = null; // Three.js 3D 盆栽（WebGL 不可用时保持 SVG 降级）
   let selectedScenario = 'DROUGHT';
   let chartInstances = [];
   let activeChart = null; // 当前双轨图的 ECharts 实例（跨 renderRunOutput 生命周期）
+
+  // 动态加载 Three.js 3D 盆栽（失败/无 WebGL 时保留 SVG 场景）
+  (async () => {
+    try {
+      const { createPotScene } = await import('./three-pot.js');
+      pot3d = await createPotScene(potCanvas, { cropCode: plot.cropCode });
+      if (pot3d) {
+        potScene.style.display = 'none';
+        potCanvas.style.display = 'block';
+        pot3d.setMoisture(plot.metrics.SOIL_MOISTURE.value);
+        pot3d.setScenario((SCENE_VISUAL[selectedScenario] || SCENE_VISUAL.NORMAL).cls);
+      } else {
+        potCanvas.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('3D pot unavailable, using SVG fallback:', e);
+      potCanvas.style.display = 'none';
+    }
+  })();
 
   // 3D 视差：鼠标在盆栽区域移动时场景跟随轻微旋转（perspective + rotate）
   if (potStage) {
@@ -668,11 +690,12 @@ export async function renderScenarioReplay(container, plotId) {
     });
   }
 
-  /** 应用情景到盆栽可视化（CSS 类切换环境动画 + 环境指标） */
+  /** 应用情景到盆栽可视化（CSS 类切换环境动画 + 环境指标；3D 场景同步） */
   const applySceneVisual = (scenario) => {
     const v = SCENE_VISUAL[scenario] || SCENE_VISUAL.NORMAL;
     potScene.classList.remove('drought', 'heat', 'storm', 'drift', 'offline', 'normal');
     potScene.classList.add(v.cls);
+    if (pot3d) pot3d.setScenario(v.cls);
     potBadge.textContent = v.badge;
     potBadge.className = `agri-pill ${v.cls === 'drought' || v.cls === 'heat' ? 'agri-pill-danger' : v.cls === 'storm' || v.cls === 'drift' ? 'agri-pill-warn' : v.cls === 'offline' ? 'agri-pill-danger' : 'agri-pill-ok'}`;
     potTemp.textContent = v.temp;
@@ -683,6 +706,7 @@ export async function renderScenarioReplay(container, plotId) {
   /** 土壤湿度联动：颜色插值 + 植物健康状态（运行推演后随回放滑块更新） */
   const updatePot = (moisture) => {
     potMoisture.textContent = `${Number(moisture).toFixed(1)}%`;
+    if (pot3d) pot3d.setMoisture(moisture);
     const ratio = Math.min(1, Math.max(0, (moisture - 10) / 30)); // 10%~40% 映射到 干→湿
     const r = Math.round(138 - 80 * ratio);
     const g = Math.round(106 - 64 * ratio);
@@ -726,6 +750,10 @@ export async function renderScenarioReplay(container, plotId) {
   const cleanup = () => {
     stopPlayback();
     disposeCharts();
+    if (pot3d) {
+      try { pot3d.dispose(); } catch (e) { /* noop */ }
+      pot3d = null;
+    }
   };
 
   runBtn.addEventListener('click', async () => {
