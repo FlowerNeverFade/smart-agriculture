@@ -2234,16 +2234,16 @@ class FarmWorld3D {
   buildClouds() {
     const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.78, roughness: 1, depthWrite: false });
     this.clouds = [];
-    for (let index = 0; index < 16; index++) {
+    for (let index = 0; index < 28; index++) {
       const group = new THREE.Group();
       const puffCount = 5 + (index % 3);
       for (let puff = 0; puff < puffCount; puff++) {
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), cloudMaterial.clone());
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8), cloudMaterial.clone());
         mesh.scale.set(1.9 + (puff % 2) * 0.9, 0.75 + (puff % 3) * 0.22, 1.25);
-        mesh.position.set((puff - puffCount / 2) * 1.7, Math.sin(puff * 2.2) * 0.45, Math.cos(puff * 1.5) * 0.5);
+        mesh.position.set((puff - puffCount / 2) * 2.2, Math.sin(puff * 2.2) * 0.6, Math.cos(puff * 1.5) * 0.7);
         group.add(mesh);
       }
-      group.position.set(-45 + index * 6.8, 22.0 + (index % 4) * 2.5, -30 - (index % 5) * 6.5);
+      group.position.set(-140 + index * 10.5, 26.0 + (index % 5) * 2.8, -80 + (index % 7) * 22.0);
       group.userData.speed = 0.18 + (index % 4) * 0.04;
       group.userData.baseY = group.position.y;
       group.userData.cloudIndex = index;
@@ -2253,18 +2253,19 @@ class FarmWorld3D {
   }
 
   buildRain() {
-    const count = 3500;
+    // Full-Map Rain Simulation System (320m x 240m encompassing entire vast basin and mountains)
+    const count = 18000;
     const positions = new Float32Array(count * 3);
     const speeds = new Float32Array(count);
     for (let index = 0; index < count; index++) {
-      positions[index * 3] = (Math.random() - 0.5) * 65;
-      positions[index * 3 + 1] = Math.random() * 32;
-      positions[index * 3 + 2] = (Math.random() - 0.5) * 48;
-      speeds[index] = 18 + Math.random() * 14;
+      positions[index * 3] = (Math.random() - 0.5) * 320;
+      positions[index * 3 + 1] = Math.random() * 45;
+      positions[index * 3 + 2] = (Math.random() - 0.5) * 240;
+      speeds[index] = 22 + Math.random() * 16;
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const material = new THREE.PointsMaterial({ color: 0xc8e8ff, size: 0.08, transparent: true, opacity: 0, depthWrite: false });
+    const material = new THREE.PointsMaterial({ color: 0xd0e8ff, size: 0.14, transparent: true, opacity: 0, depthWrite: false });
     this.rain = new THREE.Points(geometry, material);
     this.rain.userData.speeds = speeds;
     this.rain.visible = false;
@@ -2501,12 +2502,12 @@ class FarmWorld3D {
   setWeather(weather) {
     this.weather = WEATHER_LABELS[weather] ? weather : 'sunny';
     const settings = {
-      sunny: { maxClouds: 4, rain: false },
-      cloudy: { maxClouds: 10, rain: false },
-      overcast: { maxClouds: 16, rain: false },
-      'light-rain': { maxClouds: 14, rain: true, rainOpacity: 0.45 },
-      'moderate-rain': { maxClouds: 16, rain: true, rainOpacity: 0.68 },
-      'heavy-rain': { maxClouds: 16, rain: true, rainOpacity: 0.88 }
+      sunny: { maxClouds: 6, rain: false },
+      cloudy: { maxClouds: 16, rain: false },
+      overcast: { maxClouds: 28, rain: false },
+      'light-rain': { maxClouds: 22, rain: true, rainOpacity: 0.55 },
+      'moderate-rain': { maxClouds: 28, rain: true, rainOpacity: 0.75 },
+      'heavy-rain': { maxClouds: 28, rain: true, rainOpacity: 0.92 }
     }[this.weather];
 
     this.clouds.forEach((cloud, index) => {
@@ -2520,7 +2521,7 @@ class FarmWorld3D {
 
     this.rain.visible = settings.rain;
     this.rain.material.opacity = settings.rainOpacity || 0;
-    this.scene.fog.density = 0.0035;
+    this.scene.fog.density = 0.0022;
     this.renderer.toneMappingExposure = 1.15;
   }
 
@@ -2658,23 +2659,28 @@ class FarmWorld3D {
       this.windmillBlades.rotation.z += 0.015;
     }
 
+    // Clouds drift across full 300m sky dome
     this.clouds.forEach((cloud, index) => {
-      cloud.position.x += cloud.userData.speed * 0.009;
-      if (cloud.position.x > 42) cloud.position.x = -42;
+      cloud.position.x += cloud.userData.speed * 0.012;
+      if (cloud.position.x > 155) cloud.position.x = -155;
       cloud.position.y = cloud.userData.baseY + Math.sin(elapsed * 0.2 + index) * 0.3;
     });
 
+    // Full-Map Rain Physics covering all 320m x 240m
     if (this.rain.visible) {
       const positions = this.rain.geometry.attributes.position;
       const speeds = this.rain.userData.speeds;
-      for (let index = 0; index < positions.count; index++) {
-        let y = positions.getY(index) - speeds[index] * 0.016;
-        let x = positions.getX(index) + this.currentWind.x * 0.014;
+      const count = positions.count;
+      for (let index = 0; index < count; index++) {
+        let y = positions.getY(index) - speeds[index] * 0.018;
+        let x = positions.getX(index) + this.currentWind.x * 0.016;
+        let z = positions.getZ(index);
         if (y < -0.2) {
-          y = 20 + Math.random() * 8;
-          x = (Math.random() - 0.5) * 60;
+          y = 38 + Math.random() * 10;
+          x = (Math.random() - 0.5) * 320;
+          z = (Math.random() - 0.5) * 240;
         }
-        positions.setXY(index, x, y);
+        positions.setXYZ(index, x, y, z);
       }
       positions.needsUpdate = true;
     }
