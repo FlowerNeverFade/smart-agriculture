@@ -79,7 +79,7 @@ const FLOW_FRAGMENT_SHADER = `#version 300 es
     );
 
     vec2 velocity = mix(advected, blurred, 0.025 * frameStep);
-    velocity *= pow(0.975, frameStep);
+    velocity *= pow(0.985, frameStep);
     float coreFilm = mix(advectedFilm.x, blurredFilm.x, 0.020 * frameStep);
     float trailFilm = mix(advectedFilm.y, blurredFilm.y, 0.040 * frameStep);
     coreFilm *= pow(0.870, frameStep);
@@ -90,31 +90,40 @@ const FLOW_FRAGMENT_SHADER = `#version 300 es
 
       vec2 rawDirection = uSplatDirection[index];
       vec2 direction = rawDirection / max(length(rawDirection), 0.00001);
+      vec2 perpendicular = vec2(-direction.y, direction.x);
       vec2 local = (vUv - uSplatPosition[index]) * uScreenScale;
       float halfLength = max(uSplatShape[index].y, 0.00001);
       float projection = clamp(dot(local, direction), -halfLength, halfLength);
       float distanceToSegment = length(local - direction * projection);
       float radius = max(uSplatShape[index].x, 0.00001);
-      float stroke = 1.0 - smoothstep(radius * 0.38, radius, distanceToSegment);
-      stroke *= stroke;
+      float filmStroke = 1.0 - smoothstep(radius * 0.38, radius, distanceToSegment);
+      filmStroke *= filmStroke;
+      float inkHalo = 1.0 - smoothstep(radius * 0.70, radius * 2.25, distanceToSegment);
+      inkHalo *= inkHalo;
+
+      float along = dot(local, direction) / max(halfLength + radius, 0.00001);
+      float across = dot(local, perpendicular) / max(radius * 2.25, 0.00001);
+      vec2 curl = direction * -across + perpendicular * along;
 
       float injection = clamp(uSplatShape[index].z / uVelocityMax, 0.0, 1.0);
       float filmStrength = smoothstep(0.015, 0.72, injection);
-      velocity += direction * uSplatShape[index].z * stroke * 0.68;
-      coreFilm = max(coreFilm, stroke * smoothstep(0.035, 0.54, injection));
-      trailFilm = max(trailFilm, stroke * filmStrength);
+      float splatSpeed = uSplatShape[index].z;
+      velocity += direction * splatSpeed * (filmStroke * 0.42 + inkHalo * 0.13);
+      velocity += curl * splatSpeed * inkHalo * 0.040;
+      coreFilm = max(coreFilm, filmStroke * smoothstep(0.035, 0.54, injection));
+      trailFilm = max(trailFilm, filmStroke * filmStrength);
     }
 
     float speed = length(velocity);
     float velocityStep = uVelocityMax / 127.0;
-    if (speed < velocityStep * 21.0) {
+    if (speed < velocityStep * 35.0) {
       float quantizedDrain = velocityStep * 0.62 * clamp(uDelta * 60.0, 0.25, 2.0);
       velocity *= max(speed - quantizedDrain, 0.0) / max(speed, 0.00001);
     }
     if (coreFilm < 4.0 / 255.0) {
       coreFilm = max(coreFilm - (1.0 / 255.0) * frameStep, 0.0);
     }
-    if (trailFilm < 11.0 / 255.0) {
+    if (trailFilm < 16.0 / 255.0) {
       trailFilm = max(trailFilm - (0.55 / 255.0) * frameStep, 0.0);
     }
     outColor = encodeFlow(velocity, coreFilm, trailFilm);
@@ -191,8 +200,8 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec4 dyeSource(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 1.72;
-    vec2 driftA = vec2(0.012, -0.014) * time;
-    vec2 driftB = vec2(-0.010, 0.013) * time;
+    vec2 driftA = vec2(0.008, -0.010) * time;
+    vec2 driftB = vec2(-0.007, 0.009) * time;
     vec2 domain = vec2(
       fbm(point * 0.88 + driftA),
       fbm(point * 0.96 + vec2(9.7, 3.4) + driftB)
@@ -237,9 +246,9 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 6.28318530718;
     return vec2(
-      sin(point.y * 1.19 + sin(point.x * 0.61 + time * 0.110) * 0.19 + time * 0.062),
-      cos(point.x * 1.08 + sin(point.y * 0.84 - time * 0.082) * 0.21 - time * 0.050)
-    ) * 0.0062;
+      sin(point.y * 1.19 + sin(point.x * 0.61 + time * 0.085) * 0.19 + time * 0.050),
+      cos(point.x * 1.08 + sin(point.y * 0.84 - time * 0.064) * 0.21 - time * 0.041)
+    ) * 0.0042;
   }
 
   void main() {
@@ -250,7 +259,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
     }
 
     vec2 velocity = decodeVelocity(texture(uFlow, vUv));
-    vec2 backUv = vUv - (velocity * 0.30 + idleFlow(vUv, uTime)) / uScreenScale * uDelta;
+    vec2 backUv = vUv - (velocity * 0.36 + idleFlow(vUv, uTime)) / uScreenScale * uDelta;
     backUv = clamp(backUv, uTexel * 0.5, 1.0 - uTexel * 0.5);
 
     vec4 advected = texture(uPreviousDye, backUv);
@@ -302,6 +311,15 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     return weights;
   }
 
+  vec4 sharpenInkWeights(vec4 weights, float strength) {
+    weights = normalizeInkWeights(weights);
+    float creamWeight = max(1.0 - dot(weights, vec4(1.0)), 0.0);
+    vec4 sharpened = pow(weights, vec4(strength));
+    float sharpenedCream = pow(creamWeight, strength);
+    float total = dot(sharpened, vec4(1.0)) + sharpenedCream;
+    return sharpened / max(total, 0.0001);
+  }
+
   vec3 paletteColor(vec4 sampleValue) {
     vec4 weights = normalizeInkWeights(sampleValue);
     float creamWeight = max(1.0 - dot(weights, vec4(1.0)), 0.0);
@@ -336,33 +354,29 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     }
 
     vec2 idleDisplayWarp = vec2(
-      sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.440),
-      cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.350)
-    ) / uScreenScale * 0.0100 * uTaskStrength;
+      sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.120),
+      cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.090)
+    ) / uScreenScale * 0.0032 * uTaskStrength;
     vec2 baseUv = vUv + idleDisplayWarp;
-    vec3 color = paletteColor(sampleDye(baseUv));
+    vec3 baseRaw = paletteColor(sampleDye(baseUv));
 
-    float baseLuma = luminance(color);
+    float baseLuma = luminance(baseRaw);
     vec2 baseDerivative = vec2(dFdx(baseLuma), dFdy(baseLuma));
-    float contourLight = clamp(dot(baseDerivative, vec2(-0.64, 0.77)) * 900.0, -1.0, 1.0);
-    color *= 1.0 + contourLight * 0.018;
+    float contourLight = clamp(
+      dot(baseDerivative, vec2(-0.64, 0.77)) * uCssMinDimension,
+      -1.0,
+      1.0
+    );
+    vec3 baseLit = baseRaw * (1.0 + contourLight * 0.010);
 
     float idleLight =
-      sin(vUv.x * 3.1 + vUv.y * 1.7 + uTime * 0.75)
-      * cos(vUv.y * 2.4 - uTime * 0.56);
-    color *= 1.0 + idleLight * 0.040 * uTaskStrength;
-    color += idleLight * vec3(-0.010, 0.006, 0.004) * uTaskStrength;
+      sin(vUv.x * 3.1 + vUv.y * 1.7 + uTime * 0.240)
+      * cos(vUv.y * 2.4 - uTime * 0.190);
+    baseLit *= 1.0 + idleLight * 0.010 * uTaskStrength;
+    baseLit += idleLight * vec3(-0.0020, 0.0012, 0.0008) * uTaskStrength;
+    vec3 color = baseLit;
 
     float filmEdge = smoothstep(0.0015, 0.026, length(filmDerivative));
-    if (filmEnergy > 0.006) {
-      float filmSheen = (
-        coreFilm * 0.045
-        + trailFilm * 0.025
-        + filmEdge * 0.055
-      ) * uTaskStrength;
-      color *= 1.0 + filmSheen;
-    }
-
     if (filmEnergy > 0.006 && speed > 0.004) {
       vec2 direction = normalizedFlow / max(speed, 0.00001);
       vec2 axis = direction / uScreenScale;
@@ -370,9 +384,9 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
       float noise = fract(
         52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))
       ) - 0.5;
-      float sampleStep = mix(0.00200, 0.00520, speedResponse)
+      float sampleStep = mix(0.00120, 0.00280, speedResponse)
         * mix(0.62, 1.0, trailFilm);
-      float dragDistance = mix(0.0100, 0.0420, speedResponse)
+      float dragDistance = mix(0.0060, 0.0220, speedResponse)
         * mix(0.48, 1.0, max(coreFilm, trailFilm));
       vec2 refractedCenter = baseUv - axis * dragDistance;
 
@@ -386,34 +400,40 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
         + sampleDye(refractedCenter + axis * sampleStep * 2.0) * 0.122
         + sampleDye(refractedCenter + axis * sampleStep * 3.0) * 0.054
         + sampleDye(refractedCenter + axis * sampleStep * 4.0) * 0.016;
-      vec3 refracted = paletteColor(directionalWeights);
-      float refractionMix = clamp(coreFilm * 0.76 + trailFilm * 0.52, 0.0, 0.84)
+      vec3 refracted = paletteColor(sharpenInkWeights(directionalWeights, 1.28));
+      float lumaRatio = clamp(
+        luminance(baseRaw) / max(luminance(refracted), 0.001),
+        0.94,
+        1.06
+      );
+      refracted *= lumaRatio;
+      float refractionMix = clamp(coreFilm * 0.34 + trailFilm * 0.20, 0.0, 0.42)
         * uTaskStrength;
-      color = mix(color, refracted, refractionMix);
+      color = baseLit + (refracted - baseRaw) * refractionMix;
 
       vec2 normal = vec2(-direction.y, direction.x) / uScreenScale;
-      float fringePixels = mix(0.38, 0.82, coreFilm) + noise * 0.16;
+      float fringePixels = mix(0.24, 0.52, coreFilm) + noise * 0.10;
       float fringeDistance = fringePixels / max(uCssMinDimension, 1.0);
       vec3 fringeMinus = paletteColor(sampleDye(refractedCenter - normal * fringeDistance));
       vec3 fringePlus = paletteColor(sampleDye(refractedCenter + normal * fringeDistance));
-      vec3 fringeColor = vec3(fringeMinus.r, color.g, fringePlus.b);
-      float fringeMix = (coreFilm * 0.22 + trailFilm * 0.10 + filmEdge * 0.16)
-        * uTaskStrength;
-      color = mix(color, fringeColor, fringeMix);
-
-      vec3 filmTint = mix(
-        COLOR_AQUA,
-        COLOR_MINT,
-        clamp(0.5 + direction.x * 0.5, 0.0, 1.0)
+      vec3 fringeDelta = vec3(
+        fringeMinus.r - baseRaw.r,
+        0.0,
+        fringePlus.b - baseRaw.b
       );
-      float filmTintMix = (coreFilm * 0.075 + trailFilm * 0.035) * uTaskStrength;
-      color = mix(color, filmTint, filmTintMix);
+      float fringeMix = (coreFilm * 0.060 + trailFilm * 0.030 + filmEdge * 0.040)
+        * uTaskStrength;
+      color += fringeDelta * fringeMix;
 
       float signedEdge = clamp(dot(filmDerivative, normal) * 95.0, -1.0, 1.0);
-      color += vec3(0.012, -0.004, 0.009) * signedEdge * filmEnergy * uTaskStrength;
+      color += vec3(0.0040, -0.0015, 0.0030)
+        * signedEdge
+        * filmEnergy
+        * uTaskStrength;
     }
 
-    color = clamp(color, vec3(0.68), vec3(0.995));
+    color *= 1.0 + filmEdge * filmEnergy * 0.015 * uTaskStrength;
+    color = clamp(color, vec3(0.68), vec3(0.990));
     outColor = vec4(color, 1.0);
   }
 `;
@@ -1118,7 +1138,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       const sampleUvDistance = Math.max(Math.hypot(sampleUvX, sampleUvY), 0.00001);
       const directionX = sampleUvX / sampleUvDistance;
       const directionY = sampleUvY / sampleUvDistance;
-      const radiusPixels = clamp(16 + Math.sqrt(sampleDistancePixels) * 2.2 + force * 4, 20, 48);
+      const radiusPixels = clamp(15 + Math.sqrt(sampleDistancePixels) * 1.9 + force * 3.5, 18, 40);
       const injectionSpeed = clamp(responseSpeed, 0, VELOCITY_MAX)
         * (0.22 + force * 0.78)
         * task.target;
