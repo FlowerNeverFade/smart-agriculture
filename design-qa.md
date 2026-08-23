@@ -61,7 +61,13 @@ Not required for this directional synthesis: it is not a pixel clone of one sour
 
 - 已将 `yyx` 分支的相关实现适配当前主线：预测仪表盘与置信带、情景注入和 `EXECUTE/NO_ACTION` 双轨回放、价值账本、Crop Pack 阶段/规则/知识阅读器、⌘K 命令面板和首页三张摘要卡。
 - 图表资源使用仓库内 `vendor/echarts.min.js` 按需加载；ECharts 不可用时自动回退纯 SVG，命令面板和动态模块均不阻断登录、Qwen 或 3D 监测主线。
-- 回归证据：`scripts/verify-webui.mjs` 在 `svg`、`stub`、`real` 三种模式均通过（46/46、46/46、47/47；real 模式确认 ECharts 5.5.1）。
+- 回归证据：`scripts/verify-webui.mjs` 在 `svg`、`stub`、`real` 三种模式均通过（48/48、48/48、49/49；real 模式确认 ECharts 5.5.1）。
 - 范围说明：未合并名为 `task5` 的独立分支；这不影响吸收 `yyx` 分支本身已经提交的相关功能。
 
 final result: passed
+
+## Latest quhl Login Integration
+
+- 最新 `quhl` 提供的真实番茄/根系背景资产已替换旧登录纹理；当前保留 WebGL 视差、风场和 reduced-motion 降级，因此静态背景不可用时仍有明确回退。
+- 登录脚本现在通过 `ApiService` 校验统一 envelope、保存 JWT、清理过期会话，并在后端不可达时仅以 `demo123` 进入标明的离线演示模式；不把演示身份冒充为在线 AI 会话。
+- `rium_dev` 的整页液态玻璃/启动动画方案已做兼容性评审，因会删除当前认证与 3D 监测入口，不覆盖默认主线。

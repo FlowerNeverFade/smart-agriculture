@@ -977,7 +977,8 @@ class AgriApp {
       window.location.hash = expect;
     }
     // 手动派发，驱动 handleRoute（幂等去重防重复渲染）
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    const HashChange = window.HashChangeEvent || window.Event;
+    window.dispatchEvent(new HashChange('hashchange'));
   }
 
   navigate(viewName, params = {}) {
@@ -1093,7 +1094,8 @@ class AgriApp {
     if (this._savedScrollPos !== null) {
       const pos = this._savedScrollPos;
       this._savedScrollPos = null;
-      requestAnimationFrame(() => {
+      const restoreScroll = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
+      restoreScroll(() => {
         try { window.scrollTo(pos.x, pos.y); } catch (e) { /* noop */ }
       });
     }

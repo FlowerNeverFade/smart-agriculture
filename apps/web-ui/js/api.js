@@ -9,12 +9,14 @@
 import { MOCK_DATA } from './mock-data.js';
 
 export class ApiError extends Error {
-  constructor(message, { status = 0, code = 'API_ERROR', payload = null } = {}) {
-    super(message);
+  constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
+    super(message, cause ? { cause } : undefined);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.payload = payload;
+    this.details = details;
+    this.isNetworkError = isNetworkError;
   }
 }
 
@@ -23,6 +25,7 @@ export class ApiService {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = localStorage.getItem('agriloop_token') || '';
     this.user = this.readStoredUser();
+    this.sessionMode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     this.isLive = false;
     this.sseSource = null;
   }
@@ -42,43 +45,85 @@ export class ApiService {
   }
 
   isAuthenticated() {
-    return Boolean(this.token);
+    // 离线演示会话只在后端不可用时视为已登录；一旦服务在线，仍必须提供 JWT。
+    return Boolean(this.token || (!this.isLive && this.sessionMode === 'demo' && this.user));
   }
 
-  async login(username, password) {
+  async login(credentials, password) {
+    const { username, password: secret } = typeof credentials === 'object'
+      ? (credentials || {})
+      : { username: credentials, password };
     const resp = await this._fetch('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password: secret })
     }, { auth: false });
     const session = resp?.data || resp;
-    if (!session?.accessToken) {
+    if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
       throw new ApiError('登录响应缺少 accessToken', { code: 'AUTH_RESPONSE_INVALID', payload: resp });
     }
-    this.token = session.accessToken;
-    this.user = session.user || null;
-    localStorage.setItem('agriloop_token', this.token);
-    if (this.user) localStorage.setItem('agriloop_user', JSON.stringify(this.user));
+    this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
     return session;
+  }
+
+  async getCurrentUser() {
+    const resp = await this._fetch('/api/v1/auth/me');
+    const user = resp?.data || resp;
+    if (user) {
+      this.user = user;
+      localStorage.setItem('agriloop_user', JSON.stringify(user));
+    }
+    return user;
+  }
+
+  saveSession({ mode, token = '', user }) {
+    if (!user?.username || !user?.role || !['live', 'demo'].includes(mode)) {
+      throw new ApiError('会话数据无效', { code: 'SESSION_INVALID' });
+    }
+    if (mode === 'live' && !token) {
+      throw new ApiError('实时会话缺少访问令牌', { code: 'SESSION_TOKEN_MISSING' });
+    }
+    this.sessionMode = mode;
+    this.token = mode === 'live' ? token : '';
+    this.user = user;
+    localStorage.setItem('agriloop_user', JSON.stringify(user));
+    localStorage.setItem('agriloop_session_mode', mode);
+    if (this.token) localStorage.setItem('agriloop_token', this.token);
+    else localStorage.removeItem('agriloop_token');
+  }
+
+  readSession() {
+    const mode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
+    const token = localStorage.getItem('agriloop_token') || '';
+    const user = this.readStoredUser();
+    if (!user?.username || !user?.role) return null;
+    if (mode === 'live' && token) return { mode, token, user };
+    if (mode === 'demo' && !token) return { mode, token: '', user };
+    return null;
   }
 
   async restoreSession() {
     if (!this.isAuthenticated()) return null;
     try {
-      const resp = await this._fetch('/api/v1/auth/me');
-      this.user = resp?.data || resp;
-      if (this.user) localStorage.setItem('agriloop_user', JSON.stringify(this.user));
-      return this.user;
+      return await this.getCurrentUser();
     } catch (e) {
-      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') this.logout();
+      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') this.clearSession();
       return null;
     }
   }
 
   logout() {
+    this.clearSession();
+  }
+
+  clearSession() {
     this.token = '';
     this.user = null;
+    this.sessionMode = null;
+    this.sseSource?.close();
+    this.sseSource = null;
     localStorage.removeItem('agriloop_token');
     localStorage.removeItem('agriloop_user');
+    localStorage.removeItem('agriloop_session_mode');
   }
 
   async checkHealth() {
@@ -559,31 +604,42 @@ export class ApiService {
   }
 
   async _fetch(path, options = {}, { auth = true } = {}) {
+    const { auth: optionAuth = auth, ...fetchOptions } = options;
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...(auth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      ...(optionAuth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
-    const response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
-    const raw = await response.text();
+    let response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
+    } catch (error) {
+      throw new ApiError('无法连接后端服务', {
+        code: 'NETWORK_ERROR',
+        isNetworkError: true,
+        cause: error
+      });
+    }
+
     let payload = null;
-    if (raw) {
-      try {
-        payload = JSON.parse(raw);
-      } catch (e) {
-        payload = { raw };
-      }
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
     }
     if (!response.ok) {
       const error = payload?.error || {};
       throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
         status: response.status,
         code: error.code || `HTTP_${response.status}`,
-        payload
+        payload,
+        details: error.details || {},
+        isNetworkError: [502, 503, 504].includes(response.status)
       });
     }
-    return payload || {};
+    if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
+    return payload;
   }
 }
 

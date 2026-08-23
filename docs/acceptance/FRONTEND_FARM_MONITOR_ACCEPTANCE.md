@@ -77,6 +77,6 @@
 
 ## 7. yyx 增强模块回归
 
-- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，分别覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、两个 Crop Pack、首页摘要和命令面板。
-- 结果：`svg 46/46`、`stub 46/46`、`real 47/47`（real 模式本地加载 vendored ECharts 5.5.1）。
+- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，分别覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、四个 Crop Pack（番茄/黄瓜/草莓/辣椒）、首页摘要和命令面板。
+- 结果：`svg 48/48`、`stub 48/48`、`real 49/49`（real 模式本地加载 vendored ECharts 5.5.1）。
 - 不合并名为 `task5` 的独立分支；上述 yyx 功能来自 `yyx` 分支本身，已适配并与主线认证、模拟器和 3D 监测共存。

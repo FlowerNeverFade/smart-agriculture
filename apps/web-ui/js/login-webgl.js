@@ -1,3 +1,5 @@
+import { api } from './api.js';
+
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const roles = {
   admin: { role: 'FARM_ADMIN', label: '农场管理员' },
@@ -345,21 +347,7 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
 forgotPassword.addEventListener('click', () => showToast('演示环境暂不发送重置邮件'));
 
 async function authenticate(account, secret) {
-  const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ username: account, password: secret })
-  });
-  const payload = await response.json().catch(() => null);
-  const session = payload?.data || payload;
-  if (!response.ok || !session?.accessToken) {
-    const error = new Error(response.status === 401 ? '账号或密码不正确' : '登录服务暂时不可用');
-    error.status = response.status;
-    throw error;
-  }
-  localStorage.setItem('agriloop_token', session.accessToken);
-  if (session.user) localStorage.setItem('agriloop_user', JSON.stringify(session.user));
-  return session;
+  return api.login({ username: account, password: secret });
 }
 
 form.addEventListener('submit', async (event) => {
@@ -383,13 +371,20 @@ form.addEventListener('submit', async (event) => {
       roleLabel: selected.label,
       avatar: ''
     };
-    localStorage.setItem('agriloop_user', JSON.stringify(user));
+    api.saveSession({ mode: 'live', token: session.accessToken, user });
     showToast('欢迎进入' + (user.roleLabel || selected.label) + '工作台');
     window.setTimeout(() => { window.location.href = 'index.html'; }, reducedMotion ? 100 : 500);
   } catch (error) {
-    formError.textContent = error.message || '登录失败，请稍后重试';
-    submitButton.disabled = false;
-    submitButton.classList.remove('is-loading');
+    if (error?.isNetworkError && password.value === 'demo123' && roles[account]) {
+      const demo = { username: account, role: roles[account].role, roleLabel: roles[account].label, avatar: '' };
+      api.saveSession({ mode: 'demo', user: demo });
+      showToast('已进入' + demo.roleLabel + '演示模式');
+      window.setTimeout(() => { window.location.href = 'index.html'; }, reducedMotion ? 100 : 500);
+    } else {
+      formError.textContent = error?.status === 401 ? '账号或密码不正确' : (error.message || '登录失败，请稍后重试');
+      submitButton.disabled = false;
+      submitButton.classList.remove('is-loading');
+    }
   }
 });
 
@@ -401,5 +396,9 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 2300);
 }
 
-initBackgroundMotion();
-requestAnimationFrame(() => document.body.classList.add('is-mounted'));
+if (api.readSession()) {
+  window.location.replace('index.html');
+} else {
+  initBackgroundMotion();
+  requestAnimationFrame(() => document.body.classList.add('is-mounted'));
+}

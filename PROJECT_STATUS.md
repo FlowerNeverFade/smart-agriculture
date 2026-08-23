@@ -5,7 +5,7 @@
 > 当前周期：15 天软件仿真交付
 > 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口与农田动态监测切片已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
 
-> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
+> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
 > 2026-08-23 main 部署记录：公网环境继续使用 GitHub `main` 的后端与 AI 配置；本次合并不引入名为 `task5` 的分支，但完整吸收 `yyx` 分支的预测/情景回放/价值账本/Crop Pack/命令面板与首页摘要更新。远端已启用 OpenAI-compatible Qwen3.8-27B，并加载保守的 LoRA 表达适配器 `agriloop-qwen38-agri`；规则、数据库和 RAG 仍是事实与安全边界的唯一来源，模型只生成解释文本。思维输出已关闭，后端/浏览器均过滤内部字段，并对离线、降级质量和控制命令执行二次安全拦截。公网 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
@@ -61,7 +61,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
-- `quhl` 的最新 ambient WebGL 登录背景已吸收，登录提交继续走真实 `/api/v1/auth/login` 与 JWT；`rium_dev` 的整页 Three.js/液态玻璃替代主站与认证、3D 监测入口冲突，因此只记录评审关系、不替换默认主站；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。
+- `quhl` 最新登录改版已评审：采用其更真实的番茄/根系背景资产和会话错误处理，但保留当前更有层次的 WebGL 视差/动效，并把真实 JWT、离线演示会话和 API 错误合同接入同一登录脚本；`rium_dev` 最新整页 Three.js/液态玻璃替代主站与认证、3D 监测入口冲突，因此只保留评审合并关系、不替换默认主站；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、番茄/黄瓜/草莓/辣椒 Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
