@@ -35,8 +35,9 @@
 | SSE | PASS | 首帧 `event:connected` 可读 |
 | 回放隔离 | PASS | `NO_ACTION/EXECUTE` 写入 `scenario-event`，不改变主遥测/设备/告警 |
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
-| main 公网 Web/API | PASS | AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；静态首页、健康检查和未认证 API 响应可访问 |
+| main 公网 Web/API | PASS | AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、健康检查和未认证 API 响应可访问 |
 | OpenAI-compatible Qwen | PASS | 公网登录后调用 `/api/v1/agent/chat` 返回 `adapter=openai-compatible`、`degraded=false`、`narrative`；vLLM 仅监听 `127.0.0.1:8000` |
+| Web Copilot 真实对话 | PASS | `/agriloop/` 登录弹窗保存 JWT；登录后网页显示 `Qwen3.8-27B 实时回答`、traceId、模型延迟和知识引用；未登录/失败不会伪装成真实回答 |
 | 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
 
 ## 自动化测试
@@ -56,4 +57,5 @@ BUILD SUCCESSFUL
 
 - 本期不实现真实传感器、GPIO、鸿蒙端、真实视觉/语音模型或真实生产控制器。
 - Redis/MQTT/AI 依赖不可用时 API 会明确返回 `DEGRADED`/`rules-only`，核心规则流程继续运行；当前远端 AI 已启用 Qwen，standalone profile 仍使用 H2/内存回退。
-- 前端页面不作为本期后端验收门槛；main 中的静态 Web 已随 Nginx 自定义服务发布，REST/SSE/OpenAPI 仍可供独立前端使用。
+- AutoDL 分配的主机名不能在服务器内直接改成自定义域名；当前用 `/agriloop/` 作为稳定品牌入口。若要使用 `agri.example.com`，需将自有域名 DNS 指向一个能反代该 AutoDL 服务的入口。
+- 静态 Web 已随 Nginx 自定义服务发布。首次打开 `/agriloop/` 会出现登录弹窗；登录后 Copilot 才调用真实 Qwen，后端不可用时页面会明确标注本地演示态。
