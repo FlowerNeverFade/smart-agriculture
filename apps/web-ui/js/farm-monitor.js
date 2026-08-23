@@ -431,12 +431,12 @@ class FarmWorld3D {
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xcfe2d0, 0.009);
+    this.scene.fog = new THREE.FogExp2(0xd2e5d5, 0.0035);
 
-    // Wide Panoramic Camera Position (Stable, no camera jitter on mouse move!)
-    this.camera = new THREE.PerspectiveCamera(48, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 260);
-    this.camera.position.set(0, 24, 38);
-    this.camera.lookAt(0, 1.2, 0);
+    // Elevated Panoramic Wide View Camera (High angle, fully reveals high sky, sun, and vast farmland)
+    this.camera = new THREE.PerspectiveCamera(50, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 350);
+    this.camera.position.set(0, 30, 44);
+    this.camera.lookAt(0, 0, -2);
     this.baseCamera = this.camera.position.clone();
 
     this.buildSky();
@@ -459,11 +459,11 @@ class FarmWorld3D {
 
   buildSky() {
     this.skyUniforms = {
-      uTop: { value: new THREE.Color(0x4aa4dc) },
-      uHorizon: { value: new THREE.Color(0xeaf6db) },
-      uSunDirection: { value: new THREE.Vector3(-0.35, 0.78, -0.5).normalize() },
-      uSunColor: { value: new THREE.Color(0xfff0b5) },
-      uSunStrength: { value: 1.15 }
+      uTop: { value: new THREE.Color(0x389adb) },
+      uHorizon: { value: new THREE.Color(0xe2f2db) },
+      uSunDirection: { value: new THREE.Vector3(0, 0.6, -0.8).normalize() },
+      uSunColor: { value: new THREE.Color(0xfff2be) },
+      uSunStrength: { value: 1.2 }
     };
     const material = new THREE.ShaderMaterial({
       side: THREE.BackSide,
@@ -486,69 +486,69 @@ class FarmWorld3D {
         uniform float uSunStrength;
         void main() {
           vec3 direction = normalize(vWorld - cameraPosition);
-          float heightMix = smoothstep(-0.05, 0.72, direction.y);
+          float heightMix = smoothstep(-0.02, 0.68, direction.y);
           vec3 sky = mix(uHorizon, uTop, heightMix);
-          float halo = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 32.0) * 0.5;
-          float core = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 650.0) * 1.8;
+          float halo = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 28.0) * 0.45;
+          float core = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 500.0) * 1.6;
           sky += uSunColor * (halo + core) * uSunStrength;
           gl_FragColor = vec4(sky, 1.0);
         }
       `
     });
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(140, 32, 22), material);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(180, 32, 22), material);
     this.scene.add(this.sky);
   }
 
   buildLights() {
-    this.hemiLight = new THREE.HemisphereLight(0xe8f6ff, 0x486c38, 2.4);
+    this.hemiLight = new THREE.HemisphereLight(0xeaf5ff, 0x486c38, 2.4);
     this.scene.add(this.hemiLight);
 
-    // Directional Sun Light synchronized with high celestial sun
+    // Directional Sun Light synchronized with celestial sun
     this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.5);
-    this.sunLight.position.set(-28, 50, -75);
+    this.sunLight.position.set(0, 42, -50);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
-    this.sunLight.shadow.camera.left = -42;
-    this.sunLight.shadow.camera.right = 42;
-    this.sunLight.shadow.camera.top = 36;
-    this.sunLight.shadow.camera.bottom = -28;
+    this.sunLight.shadow.camera.left = -45;
+    this.sunLight.shadow.camera.right = 45;
+    this.sunLight.shadow.camera.top = 40;
+    this.sunLight.shadow.camera.bottom = -30;
     this.sunLight.shadow.camera.near = 5;
-    this.sunLight.shadow.camera.far = 170;
+    this.sunLight.shadow.camera.far = 180;
     this.sunLight.shadow.bias = -0.00025;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    // Celestial High-Sky Sun Visual Disc (Always high in sky, sinks behind mountains)
+    // Celestial High-Sky Sun Visual Disc (Shines clearly in high sky dome)
     this.sunDisc = new THREE.Group();
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(2.6, 32, 22),
+      new THREE.SphereGeometry(2.8, 32, 22),
       new THREE.MeshBasicMaterial({ color: 0xfffae0, toneMapped: false })
     );
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(6.2, 28, 18),
-      new THREE.MeshBasicMaterial({ color: 0xffe078, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(6.8, 28, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffe078, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     const glowWide = new THREE.Mesh(
-      new THREE.SphereGeometry(11.0, 24, 14),
-      new THREE.MeshBasicMaterial({ color: 0xffec98, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(13.0, 24, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffeca0, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     this.sunDisc.add(core, glow, glowWide);
-    this.sunDisc.position.set(-28, 50, -95);
+    this.sunDisc.position.set(0, 38, -65);
     this.scene.add(this.sunDisc);
   }
 
   buildTerrain() {
-    // Vast Main Farm Basin (100m x 80m, flat plain)
-    const geometry = new THREE.PlaneGeometry(100, 80, 48, 36);
-    const material = new THREE.MeshStandardMaterial({ color: 0xa4b988, roughness: 0.95, metalness: 0 });
+    // Vast Seamless Grass Basin (280m x 200m, completely covers viewport with zero empty margins)
+    const geometry = new THREE.PlaneGeometry(280, 200, 48, 36);
+    const material = new THREE.MeshStandardMaterial({ color: 0x9eb87e, roughness: 0.94, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
     this.terrain.rotation.x = -Math.PI / 2;
-    this.terrain.position.y = -0.05;
+    this.terrain.position.y = 0.0;
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Distant Rolling Mountain Ranges (z = -40m to -75m, behind farm valley, depth testing enabled)
-    const buildMountainRidge = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
+    // Distant Gentle Rolling Green Hills (z = -70m & -98m, natural low profile ~4-6m, never overpowering)
+    const buildRollingHills = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
       const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
       const ridgePosition = ridgeGeometry.attributes.position;
       for (let index = 0; index < ridgePosition.count; index++) {
@@ -556,13 +556,12 @@ class FarmWorld3D {
         const y = ridgePosition.getY(index);
         const normY = (y + depth / 2) / depth;
         const peaks =
-          Math.exp(-((x + 32) ** 2) / 320) * 12.0 +
-          Math.exp(-((x + 12) ** 2) / 260) * 15.0 +
-          Math.exp(-((x - 8) ** 2) / 380) * 11.5 +
-          Math.exp(-((x - 28) ** 2) / 290) * 14.0 +
-          Math.exp(-((x - 48) ** 2) / 240) * 10.0;
-        const depthShape = Math.sin(normY * Math.PI * 0.8);
-        const detail = Math.sin(x * 0.28 + normY * 3.1) * 0.45;
+          Math.exp(-((x + 36) ** 2) / 450) * 8.5 +
+          Math.exp(-((x + 12) ** 2) / 380) * 11.0 +
+          Math.exp(-((x - 14) ** 2) / 500) * 9.0 +
+          Math.exp(-((x - 38) ** 2) / 420) * 10.5;
+        const depthShape = Math.sin(normY * Math.PI * 0.85);
+        const detail = Math.sin(x * 0.22 + normY * 2.8) * 0.35;
         ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
       }
       ridgeGeometry.computeVertexNormals();
@@ -570,63 +569,79 @@ class FarmWorld3D {
       this.ridgeMaterials.push(ridgeMaterial);
       const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
       ridge.rotation.x = -Math.PI / 2;
-      ridge.position.set(0, -0.15, z);
+      ridge.position.set(0, 0.0, z);
       ridge.receiveShadow = true;
       this.scene.add(ridge);
     };
 
-    buildMountainRidge({ width: 140, depth: 36, segmentsX: 100, segmentsZ: 36, z: -38, heightScale: 0.75, color: 0x5c8863 });
-    buildMountainRidge({ width: 180, depth: 48, segmentsX: 120, segmentsZ: 42, z: -62, heightScale: 1.05, color: 0x6e9592, opacity: 0.96 });
-    buildMountainRidge({ width: 220, depth: 60, segmentsX: 120, segmentsZ: 42, z: -92, heightScale: 1.35, color: 0x8aa8ac, opacity: 0.9 });
+    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -70, heightScale: 0.32, color: 0x6e9974 });
+    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -98, heightScale: 0.45, color: 0x82a7a4, opacity: 0.92 });
   }
 
   buildStreetLamps() {
     this.streetLights = [];
     this.streetLampBulbs = [];
-    const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x3d4b43, roughness: 0.6, metalness: 0.4 });
-    const solarMaterial = new THREE.MeshStandardMaterial({ color: 0x22384d, roughness: 0.3, metalness: 0.6 });
+    this.streetGroundGlows = [];
+
+    const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x2e3b33, roughness: 0.45, metalness: 0.5 });
+    const solarMaterial = new THREE.MeshStandardMaterial({ color: 0x1a2e40, roughness: 0.25, metalness: 0.7 });
 
     const lampPositions = [
-      { x: -25.5, z: 14.0 }, { x: -14.0, z: 14.0 }, { x: 0.0, z: 14.0 }, { x: 14.0, z: 14.0 }, { x: 25.5, z: 14.0 },
-      { x: -25.5, z: 2.8 }, { x: 25.5, z: 2.8 },
-      { x: -25.5, z: -8.0 }, { x: 25.5, z: -8.0 }
+      // Front Road
+      { x: -22.0, z: 15.5 }, { x: -7.5, z: 15.5 }, { x: 7.5, z: 15.5 }, { x: 22.0, z: 15.5 },
+      // Mid Canal Road
+      { x: -22.0, z: 3.5 }, { x: -7.5, z: 3.5 }, { x: 7.5, z: 3.5 }, { x: 22.0, z: 3.5 },
+      // North Avenue
+      { x: -11.0, z: -8.0 }, { x: 11.0, z: -8.0 }
     ];
 
-    lampPositions.forEach((pos, idx) => {
+    lampPositions.forEach((pos) => {
       const lamp = new THREE.Group();
-      // Pole
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 3.6, 8), poleMaterial);
-      pole.position.y = 1.8;
+
+      // Slender Dark Steel Mast (4.2m)
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 4.2, 8), poleMaterial);
+      pole.position.y = 2.1;
       pole.castShadow = true;
       lamp.add(pole);
 
-      // Arm & Solar Panel
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.7, 6), poleMaterial);
-      arm.position.set(pos.x < 0 ? 0.3 : -0.3, 3.5, 0);
-      arm.rotation.z = pos.x < 0 ? -Math.PI / 4 : Math.PI / 4;
+      // Angled Cantilever Arm
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.85, 6), poleMaterial);
+      const armDir = pos.x < 0 ? 0.38 : -0.38;
+      arm.position.set(armDir, 4.05, 0);
+      arm.rotation.z = pos.x < 0 ? -Math.PI / 3.8 : Math.PI / 3.8;
       lamp.add(arm);
 
-      const solar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.4), solarMaterial);
-      solar.position.set(0, 3.65, 0);
-      solar.rotation.x = -0.2;
+      // Top Solar Panel
+      const solar = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.04, 0.5), solarMaterial);
+      solar.position.set(armDir * 0.5, 4.25, 0);
+      solar.rotation.x = -0.25;
       lamp.add(solar);
 
-      // Glowing LED Bulb Head
-      const bulb = new THREE.Mesh(
-        new THREE.SphereGeometry(0.12, 10, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffdf88, transparent: true, opacity: 0, toneMapped: false })
+      // High-Glow LED Luminaire Head
+      const lampHead = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.22, 0.14, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffe28a, toneMapped: false })
       );
-      bulb.position.set(pos.x < 0 ? 0.5 : -0.5, 3.35, 0);
-      lamp.add(bulb);
-      this.streetLampBulbs.push(bulb);
+      const bulbPos = armDir * 1.8;
+      lampHead.position.set(bulbPos, 3.82, 0);
+      lamp.add(lampHead);
+      this.streetLampBulbs.push(lampHead);
 
-      // Warm Ground Point Light
-      if (idx % 2 === 0) {
-        const light = new THREE.PointLight(0xffdf88, 0, 14, 1.8);
-        light.position.set(pos.x < 0 ? 0.5 : -0.5, 3.2, 0);
-        lamp.add(light);
-        this.streetLights.push(light);
-      }
+      // Ground Warm Light Projection Pool
+      const groundGlow = new THREE.Mesh(
+        new THREE.CircleGeometry(3.6, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffd970, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+      );
+      groundGlow.rotation.x = -Math.PI / 2;
+      groundGlow.position.set(bulbPos, 0.02, 0);
+      lamp.add(groundGlow);
+      this.streetGroundGlows.push(groundGlow);
+
+      // Warm Point Light for dynamic road illumination
+      const light = new THREE.PointLight(0xffdf88, 0, 18, 1.6);
+      light.position.set(bulbPos, 3.7, 0);
+      lamp.add(light);
+      this.streetLights.push(light);
 
       lamp.position.set(pos.x, 0, pos.z);
       this.scene.add(lamp);
@@ -636,9 +651,9 @@ class FarmWorld3D {
   createWaterMaterial() {
     const uniforms = {
       uTime: { value: 0 },
-      uColorDeep: { value: new THREE.Color(0x247799) },
-      uColorLight: { value: new THREE.Color(0x7fd0c9) },
-      uSun: { value: new THREE.Color(0xffe8a8) },
+      uColorDeep: { value: new THREE.Color(0x1d6d8f) },
+      uColorLight: { value: new THREE.Color(0x6ec9c3) },
+      uSun: { value: new THREE.Color(0xfff0bc) },
       uBrightness: { value: 1 }
     };
     const material = new THREE.ShaderMaterial({
@@ -652,8 +667,8 @@ class FarmWorld3D {
         void main() {
           vUv = uv;
           vec3 moved = position;
-          float waveA = sin(position.x * 2.3 + uTime * 1.3) * 0.035;
-          float waveB = cos(position.y * 3.5 - uTime * 0.95) * 0.026;
+          float waveA = sin(position.x * 2.5 + uTime * 1.4) * 0.03;
+          float waveB = cos(position.y * 3.6 - uTime * 1.1) * 0.022;
           moved.z += waveA + waveB;
           vWave = waveA + waveB;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(moved, 1.0);
@@ -668,11 +683,11 @@ class FarmWorld3D {
         uniform vec3 uSun;
         uniform float uBrightness;
         void main() {
-          float ripple = sin((vUv.x + vUv.y) * 36.0 + uTime * 1.9) * 0.04;
-          float glint = pow(max(0.0, sin(vUv.x * 24.0 - uTime * 1.1) * cos(vUv.y * 19.0 + uTime * 0.75)), 9.0);
-          vec3 color = mix(uColorDeep, uColorLight, 0.44 + vWave * 4.5 + ripple);
-          color += uSun * glint * 0.32;
-          gl_FragColor = vec4(color * uBrightness, 0.92);
+          float ripple = sin((vUv.x + vUv.y) * 36.0 + uTime * 2.0) * 0.04;
+          float glint = pow(max(0.0, sin(vUv.x * 26.0 - uTime * 1.2) * cos(vUv.y * 20.0 + uTime * 0.8)), 8.0);
+          vec3 color = mix(uColorDeep, uColorLight, 0.45 + vWave * 4.2 + ripple);
+          color += uSun * glint * 0.35;
+          gl_FragColor = vec4(color * uBrightness, 0.94);
         }
       `
     });
@@ -682,160 +697,197 @@ class FarmWorld3D {
   }
 
   buildWater() {
-    // Retention Pond (蓄水池)
-    const pond = new THREE.Mesh(new THREE.CircleGeometry(5.8, 48), this.createWaterMaterial());
-    pond.rotation.x = -Math.PI / 2;
-    pond.position.set(0, -0.06, -2.5);
-    pond.receiveShadow = true;
-    this.scene.add(pond);
+    // Retention Pond (Elevated cleanly at y = 0.04 with stone bank rim, 100% unobstructed by grass)
+    const pondGroup = new THREE.Group();
+    const water = new THREE.Mesh(new THREE.CircleGeometry(4.8, 48), this.createWaterMaterial());
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = 0.04;
+    water.receiveShadow = true;
+    pondGroup.add(water);
 
-    // Canal Network
-    const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x92aa6a, roughness: 0.94 });
+    // Clean River Stone Rim Curb around Pond
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(4.85, 0.16, 12, 48),
+      new THREE.MeshStandardMaterial({ color: 0x7e8a83, roughness: 0.88 })
+    );
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = 0.06;
+    rim.castShadow = true;
+    rim.receiveShadow = true;
+    pondGroup.add(rim);
+
+    pondGroup.position.set(0, 0, -2.5);
+    this.scene.add(pondGroup);
+
+    // Canal Network with Raised Bank Curbs (Unobstructed by grass)
+    const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x829188, roughness: 0.9 });
     const addCanal = ({ width, depth, x, z, vertical = false }) => {
       const canal = new THREE.Mesh(
         new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 2)), Math.max(3, Math.round(depth * 2))),
         this.createWaterMaterial()
       );
       canal.rotation.x = -Math.PI / 2;
-      canal.position.set(x, -0.05, z);
+      canal.position.set(x, 0.03, z);
       canal.receiveShadow = true;
       this.scene.add(canal);
 
-      const sideOffset = (vertical ? width : depth) / 2 + 0.14;
+      const sideOffset = (vertical ? width : depth) / 2 + 0.1;
       [-sideOffset, sideOffset].forEach(offset => {
         const bank = new THREE.Mesh(
-          new THREE.BoxGeometry(vertical ? 0.24 : width + 0.36, 0.16, vertical ? depth + 0.36 : 0.24),
+          new THREE.BoxGeometry(vertical ? 0.18 : width + 0.28, 0.12, vertical ? depth + 0.28 : 0.18),
           bankMaterial
         );
-        bank.position.set(x + (vertical ? offset : 0), -0.04, z + (vertical ? 0 : offset));
+        bank.position.set(x + (vertical ? offset : 0), 0.05, z + (vertical ? 0 : offset));
         bank.castShadow = true;
         bank.receiveShadow = true;
         this.scene.add(bank);
       });
     };
 
-    addCanal({ width: 56.0, depth: 1.0, x: 0, z: 3.5 });
-    addCanal({ width: 56.0, depth: 1.0, x: 0, z: 14.2 });
-    addCanal({ width: 1.0, depth: 22.0, x: -14.8, z: 4.0, vertical: true });
-    addCanal({ width: 1.0, depth: 22.0, x: 13.2, z: 4.0, vertical: true });
-    addCanal({ width: 1.0, depth: 22.0, x: 0, z: 4.0, vertical: true });
+    addCanal({ width: 56.0, depth: 0.9, x: 0, z: 3.5 });
+    addCanal({ width: 56.0, depth: 0.9, x: 0, z: 14.2 });
+    addCanal({ width: 0.9, depth: 22.0, x: -14.8, z: 4.0, vertical: true });
+    addCanal({ width: 0.9, depth: 22.0, x: 13.2, z: 4.0, vertical: true });
+    addCanal({ width: 0.9, depth: 22.0, x: 0, z: 4.0, vertical: true });
   }
 
   buildRoads() {
-    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0xbaab78, roughness: 0.98 });
-    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(58, 0.14, 1.2), roadMaterial);
-    mainRoad.position.set(0, -0.06, 15.5);
+    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0xc8ba8d, roughness: 0.95 });
+    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(64, 0.08, 1.4), roadMaterial);
+    mainRoad.position.set(0, 0.03, 15.5);
     mainRoad.receiveShadow = true;
     this.scene.add(mainRoad);
 
     [-26.5, 26.5].forEach(x => {
-      const path = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.14, 24.0), roadMaterial);
-      path.position.set(x, -0.05, 3.5);
+      const path = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 26.0), roadMaterial);
+      path.position.set(x, 0.03, 3.5);
       path.receiveShadow = true;
       this.scene.add(path);
     });
   }
 
   buildBuildings() {
-    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xf4ecd2, roughness: 0.86 });
-    const roofMaterial = new THREE.MeshStandardMaterial({ color: 0xba5f3a, roughness: 0.78 });
-    const frame = new THREE.MeshStandardMaterial({ color: 0xe5eee4, roughness: 0.45, metalness: 0.35 });
-
-    // Modern Multi-Span Glass Greenhouse (智能连栋温室)
+    const whiteWall = new THREE.MeshStandardMaterial({ color: 0xf6f7f2, roughness: 0.8 });
+    const darkSteel = new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.45 });
+    const timber = new THREE.MeshStandardMaterial({ color: 0xb58e65, roughness: 0.7 });
     const glass = new THREE.MeshPhysicalMaterial({
-      color: 0xc4ede0,
-      transmission: 0.58,
+      color: 0xc9edf2,
+      transmission: 0.65,
       transparent: true,
-      opacity: 0.55,
-      roughness: 0.16,
+      opacity: 0.58,
+      roughness: 0.14,
       metalness: 0.05,
       side: THREE.DoubleSide
     });
+
+    // 1. Modern Multi-Span High-Tech Glass Greenhouse (Left Facility Area, x: -16, z: -12.5)
     const greenhouse = new THREE.Group();
-    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(11.6, 2.2, 7.8), glass);
-    glassBody.position.y = 1.1;
-    glassBody.castShadow = true;
+    const base = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
+    base.position.y = 0.225;
+    greenhouse.add(base);
+
+    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(12.2, 2.4, 7.8), glass);
+    glassBody.position.y = 1.65;
     greenhouse.add(glassBody);
 
-    for (let offset = -5.5; offset <= 5.5; offset += 1.38) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.9, 8.0), frame);
-      rib.position.set(offset, 1.45, 0);
-      rib.castShadow = true;
+    for (let offset = -5.8; offset <= 5.8; offset += 1.45) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.05, 3.0, 8.0), darkSteel);
+      rib.position.set(offset, 1.7, 0);
       greenhouse.add(rib);
     }
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.06, 0.06), frame);
-    ridge.position.set(0, 2.55, 0);
-    greenhouse.add(ridge);
 
-    // Greenhouse Interior Grow Light (Glows at night)
-    const growLight = new THREE.PointLight(0xffdf88, 0, 15);
-    growLight.position.set(0, 1.8, 0);
+    // Greenhouse Interior Warm Grow Lights
+    const growLight = new THREE.PointLight(0xffdd80, 0, 16, 1.8);
+    growLight.position.set(0, 2.2, 0);
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
 
-    greenhouse.position.set(-8.0, 0, -13.0);
+    greenhouse.position.set(-16.0, 0, -12.5);
     this.scene.add(greenhouse);
 
-    // Weather Sensor Mast with LED
-    const tower = new THREE.Group();
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.08, 4.8, 8), frame);
-    mast.position.y = 2.4;
-    mast.castShadow = true;
-    const led = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14, 12, 8),
-      new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
+    // 2. Smart Farm Command & Dispatch Center (Right Facility Area, x: 16, z: -12.5)
+    const center = new THREE.Group();
+    // 2-Story Main Building
+    const bldg = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.4, 6.8), whiteWall);
+    bldg.position.y = 1.7;
+    bldg.castShadow = true;
+    bldg.receiveShadow = true;
+    center.add(bldg);
+
+    // Panoramic Dark-Frame Glass Facade
+    const glassFacade = new THREE.Mesh(new THREE.BoxGeometry(8.6, 1.6, 0.2), glass);
+    glassFacade.position.set(0, 2.2, 3.45);
+    center.add(glassFacade);
+
+    // Flat Timber Overhang Roof with Solar Array
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.2, 7.6), timber);
+    roof.position.y = 3.5;
+    center.add(roof);
+
+    const solarGrid = new THREE.Mesh(
+      new THREE.BoxGeometry(8.4, 0.08, 6.0),
+      new THREE.MeshStandardMaterial({ color: 0x1f3448, roughness: 0.25, metalness: 0.8 })
     );
-    led.position.y = 4.85;
-    this.towerLed = led;
-    tower.add(mast, led);
-    tower.position.set(-15.2, 0, -12.5);
-    this.scene.add(tower);
+    solarGrid.position.set(0, 3.65, 0);
+    center.add(solarGrid);
 
-    // Agricultural Barn & Logistics House
-    const barn = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.2, 3.8), wallMaterial);
-    body.position.y = 1.1;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 1.5, 4), roofMaterial);
-    roof.position.y = 2.85;
-    roof.rotation.y = Math.PI / 4;
-    roof.scale.z = 0.78;
-    roof.castShadow = true;
-    barn.add(body, roof);
-    barn.position.set(9.5, 0, -13.5);
-    this.scene.add(barn);
+    // Command Center Interior Light
+    const centerLight = new THREE.PointLight(0xfff0b8, 0, 14, 1.8);
+    centerLight.position.set(0, 2.0, 1.5);
+    center.add(centerLight);
+    this.nightLights.push(centerLight);
 
-    // Grain Silos
+    center.position.set(16.0, 0, -12.5);
+    this.scene.add(center);
+
+    // 3. Lakeside Rest Deck & Standardized Viewing Pavilion (North of Pond, x: 0, z: -8.5)
+    const pavilion = new THREE.Group();
+    // Wooden Terrace Deck Extending to Pond Shore
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.16, 4.2), timber);
+    deck.position.y = 0.08;
+    deck.receiveShadow = true;
+    pavilion.add(deck);
+
+    // 4 Modern Square Timber Columns
+    [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]].forEach(([cx, cz]) => {
+      const col = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.2, 0.14), darkSteel);
+      col.position.set(cx, 1.18, cz);
+      col.castShadow = true;
+      pavilion.add(col);
+    });
+
+    // Dark Hip Roof
+    const pavRoof = new THREE.Mesh(
+      new THREE.ConeGeometry(2.8, 1.2, 4),
+      new THREE.MeshStandardMaterial({ color: 0x36423b, roughness: 0.7 })
+    );
+    pavRoof.rotation.y = Math.PI / 4;
+    pavRoof.position.y = 2.85;
+    pavRoof.castShadow = true;
+    pavilion.add(pavRoof);
+
+    // Warm Lantern in Pavilion
+    const pavLight = new THREE.PointLight(0xffdf88, 0, 10, 2.0);
+    pavLight.position.set(0, 2.0, 0);
+    pavilion.add(pavLight);
+    this.nightLights.push(pavLight);
+
+    pavilion.position.set(0, 0, -8.2);
+    this.scene.add(pavilion);
+
+    // 4. Stainless Fertigation Hub & Water Storage (Far Left, x: -25.5, z: -12.5)
     const siloGroup = new THREE.Group();
-    [-1.2, 1.2].forEach(offset => {
-      const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.95, 3.8, 16), new THREE.MeshStandardMaterial({ color: 0xdde5e0, roughness: 0.4, metalness: 0.45 }));
-      silo.position.set(offset, 1.9, 0);
+    const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
+    [-1.3, 1.3].forEach(offset => {
+      const silo = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 3.6, 18), siloMat);
+      silo.position.set(offset, 1.8, 0);
       silo.castShadow = true;
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.8, 16), roofMaterial);
-      cap.position.set(offset, 4.2, 0);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(1.0, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), siloMat);
+      cap.position.set(offset, 3.6, 0);
       siloGroup.add(silo, cap);
     });
-    siloGroup.position.set(17.5, 0, -13.5);
+    siloGroup.position.set(-25.5, 0, -12.5);
     this.scene.add(siloGroup);
-
-    // Gazebo Pavilion on the Pond
-    const pavilion = new THREE.Group();
-    const pavRoof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.0, 6), new THREE.MeshStandardMaterial({ color: 0x9a4e32, roughness: 0.8 }));
-    pavRoof.position.y = 1.9;
-    pavRoof.castShadow = true;
-    const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.2, 6), new THREE.MeshStandardMaterial({ color: 0xa48d68, roughness: 0.9 }));
-    pavFloor.position.y = 0.1;
-    pavilion.add(pavRoof, pavFloor);
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2;
-      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6), frame);
-      pillar.position.set(Math.cos(angle) * 1.1, 0.9, Math.sin(angle) * 1.1);
-      pillar.castShadow = true;
-      pavilion.add(pillar);
-    }
-    pavilion.position.set(0, 0.0, -2.5);
-    this.scene.add(pavilion);
   }
 
   buildPlots() {
@@ -986,25 +1038,25 @@ class FarmWorld3D {
       return texture;
     };
     loader.load('assets/textures/terrain-grass.png', texture => {
-      const terrainTexture = prepare(texture, 16, 12);
+      const terrainTexture = prepare(texture, 36, 26);
       this.terrain.material.map = terrainTexture;
-      this.terrain.material.color.set(0xb2c39c);
+      this.terrain.material.color.set(0x9eb87e);
       this.terrain.material.needsUpdate = true;
     }, undefined, () => {});
     loader.load('assets/textures/mountain-forest.png', texture => {
       this.ridgeMaterials.forEach((material, index) => {
         if (index === 0) {
-          const ridgeTexture = prepare(texture.clone(), 3.6, 1.8);
+          const ridgeTexture = prepare(texture.clone(), 6.0, 2.5);
           ridgeTexture.needsUpdate = true;
           material.map = ridgeTexture;
-          material.color.set(0xb6c7a9);
+          material.color.set(0xa2b896);
           material.emissive = new THREE.Color(0x1a3220);
-          material.emissiveIntensity = 0.12;
+          material.emissiveIntensity = 0.08;
         } else {
           material.map = null;
-          material.color.set(0x567979);
+          material.color.set(0x6e8e8c);
           material.emissive = new THREE.Color(0x12262b);
-          material.emissiveIntensity = 0.08;
+          material.emissiveIntensity = 0.05;
         }
         material.needsUpdate = true;
       });
@@ -1175,7 +1227,7 @@ class FarmWorld3D {
     this.rain.visible = settings.rain;
     this.rain.material.opacity = settings.rainOpacity || 0;
     // Keep atmosphere contrast rich and crisp (no thick white fog)
-    this.scene.fog.density = 0.005;
+    this.scene.fog.density = 0.0035;
     this.renderer.toneMappingExposure = 1.15;
   }
 
@@ -1202,10 +1254,10 @@ class FarmWorld3D {
     const day = getDayPhase(hour);
     const daylight = day.daylight;
     const warm = day.warm;
-    const dayTop = new THREE.Color(0x3f9fda);
-    const dayHorizon = new THREE.Color(0xcbe8e9);
+    const dayTop = new THREE.Color(0x389adb);
+    const dayHorizon = new THREE.Color(0xe2f2db);
     const nightTop = new THREE.Color(0x061124);
-    const nightHorizon = new THREE.Color(0x182e4e);
+    const nightHorizon = new THREE.Color(0x162a46);
     const sunsetTop = new THREE.Color(0x7699c2);
     const sunsetHorizon = new THREE.Color(0xffad5f);
 
@@ -1214,34 +1266,38 @@ class FarmWorld3D {
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
     this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.94 + warm * 0.42;
 
-    // True Celestial Sun Trajectory (High in distant sky, rising at 06:00, overhead noon, setting at 18:00 behind mountains)
-    const sunProgress = clamp((hour - 5.75) / 13.5, 0, 1);
+    // True Celestial Sun Trajectory (High in sky dome, shining in camera viewport, rising 06:00, setting 18:00 behind gentle hills)
+    const sunProgress = clamp((hour - 5.7) / 13.6, 0, 1);
     const sunAngle = sunProgress * Math.PI;
-    const sunX = lerp(-60, 60, sunProgress);
-    const sunY = Math.sin(sunAngle) * 54.0 + 4.0;
-    const sunZ = -95;
+    const sunX = lerp(-48, 48, sunProgress);
+    const sunY = Math.sin(sunAngle) * 36.0 + 8.0;
+    const sunZ = -65;
 
     this.sunDisc.position.set(sunX, sunY, sunZ);
-    this.sunLight.position.set(sunX, sunY, sunZ + 20);
+    this.sunLight.position.set(sunX, sunY + 8, sunZ + 25);
     this.skyUniforms.uSunDirection.value.copy(this.sunDisc.position).normalize();
     this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
     this.sunLight.intensity = 0.2 + daylight * 4.4;
-    this.hemiLight.color.set(daylight > 0.2 ? 0xe6f5ff : 0x5772a1);
-    this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x152333);
-    this.hemiLight.intensity = 0.38 + daylight * 2.0;
+    this.hemiLight.color.set(daylight > 0.2 ? 0xeaf5ff : 0x7fa2d8);
+    this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x223624);
+    // Crucial: Keep night ambient light bright enough so crops and roads are clearly visible in moonlight
+    this.hemiLight.intensity = 0.85 + daylight * 1.8;
     this.sunDisc.visible = hour >= 5.6 && hour <= 19.3;
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
-    // Night lighting: Greenhouse interior grow lights & Street lamps turn on at sunset/night!
-    const isNight = daylight < 0.36;
+    // Night lighting: Greenhouse interior grow lights, Pavilion Lantern & High-Glow Street Lamps
+    const isNight = daylight < 0.42;
     this.nightLights.forEach(light => {
-      light.intensity = isNight ? 3.2 : 0;
+      light.intensity = isNight ? 3.6 : 0;
     });
     this.streetLights?.forEach(light => {
-      light.intensity = isNight ? 2.4 : 0;
+      light.intensity = isNight ? 24.0 : 0;
     });
     this.streetLampBulbs?.forEach(bulb => {
-      bulb.material.opacity = isNight ? 0.95 : 0;
+      bulb.material.color.set(isNight ? 0xffe28a : 0x728076);
+    });
+    this.streetGroundGlows?.forEach(glow => {
+      glow.material.opacity = isNight ? 0.62 : 0;
     });
   }
 
