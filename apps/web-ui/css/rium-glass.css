@@ -59,14 +59,18 @@ body {
 }
 
 body > .app-header,
-body > .app-container,
-body > .toast-container,
-body > .subview-modal-backdrop,
-body > .auth-modal-backdrop,
-body > .cmd-palette-backdrop {
+body > .app-container {
   position: relative;
   z-index: 1;
 }
+
+/*
+ * Overlays already own fixed positioning and their own stacking contexts in
+ * style.css.  Do not include them in the relative glass-layer rule above:
+ * changing a backdrop to `position: relative` makes it participate in the
+ * document flow, so sub-module dialogs appear at the bottom of the page
+ * instead of centered over the current view.
+ */
 
 .app-header,
 .rail-section,
