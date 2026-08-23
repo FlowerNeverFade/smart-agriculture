@@ -708,9 +708,9 @@ class AgriEngine {
                PasswordEncoder passwordEncoder, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
         this.mapper = mapper;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
-        // with HTTP/1.1 short connections.  This avoids a known incompatibility
-        // with reused Java HTTP/2 upgrade connections while keeping the model
-        // endpoint private and bounded by the per-request timeout.
+        // with HTTP/1.1 requests.  This avoids a known incompatibility with
+        // Java HTTP/2 upgrade negotiation while keeping the model endpoint
+        // private and bounded by the per-request timeout.
         this.llmHttpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
