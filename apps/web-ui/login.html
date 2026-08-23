@@ -6,14 +6,17 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f3f7ef">
   <title>AgriLoop · 智慧农业登录</title>
-  <link rel="stylesheet" href="css/login-motion.css?v=quhl-04485ed">
+  <link rel="stylesheet" href="css/login-motion.css?v=ambient-liquid-1">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
     <div class="environment" aria-hidden="true">
-      <div class="environment__field environment__field--cursor"></div>
-      <div class="environment__field environment__field--ambient"></div>
-      <div class="environment__grid"></div>
+      <div class="environment__fallback" id="liquidFieldFallback">
+        <div class="environment__field environment__field--cursor"></div>
+        <div class="environment__field environment__field--ambient"></div>
+        <div class="environment__grid"></div>
+      </div>
+      <canvas class="environment__canvas" id="ambientLiquidCanvas"></canvas>
     </div>
 
     <header class="topbar">
@@ -76,6 +79,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=quhl-04485ed"></script>
+  <script type="module" src="js/login.js?v=ambient-liquid-1"></script>
 </body>
 </html>
