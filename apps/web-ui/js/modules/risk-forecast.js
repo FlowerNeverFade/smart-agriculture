@@ -346,8 +346,127 @@ export async function renderRiskForecast(container, plotId) {
 /* ================================================================
  * 视图 2：情景模拟器与双轨回放 (renderScenarioReplay)
  * ================================================================ */
+
+/** 盆栽可视化：按作物生成植物体（茎/叶/果），情景通过 CSS 类切换环境动画 */
+function buildPotSceneSvg(cropCode) {
+  const fruit = {
+    tomato: `<g class="pot-fruit"><circle cx="118" cy="66" r="7" fill="#f85149"/><circle cx="134" cy="80" r="6" fill="#f85149"/><circle cx="106" cy="82" r="5" fill="#f85149"/></g>`,
+    cucumber: `<g class="pot-fruit"><rect x="128" y="58" width="9" height="26" rx="4.5" fill="#3fb950"/><rect x="112" y="70" width="8" height="20" rx="4" fill="#2ea043"/></g>`,
+    strawberry: `<g class="pot-fruit"><path d="M118 60 q-8 -10 -2 -16 q6 -6 2 16 M118 60 q8 -10 2 -16 q-6 -6 -2 16 Z" fill="#f85149"/><circle cx="118" cy="54" r="1.6" fill="#ffd9a0"/><circle cx="112" cy="58" r="1.4" fill="#ffd9a0"/><circle cx="124" cy="58" r="1.4" fill="#ffd9a0"/></g>`,
+    pepper: `<g class="pot-fruit"><path d="M140 60 q10 -6 14 10 q3 12 -10 18 q-14 -4 -14 -16 q0 -10 10 -12 Z" fill="#d29922"/><path d="M112 66 q-8 -4 -12 8 q-3 10 8 14 q11 3 11 -10 q0 -8 -7 -12 Z" fill="#2ea043"/></g>`
+  }[cropCode] || '<g class="pot-fruit"><circle cx="120" cy="72" r="6" fill="#f85149"/></g>';
+
+  return `
+  <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="盆栽情景可视化">
+    <defs>
+      <linearGradient id="potSky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#10151d"/>
+        <stop offset="1" stop-color="#1c2430"/>
+      </linearGradient>
+      <linearGradient id="potBody" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#8a5a33"/>
+        <stop offset="1" stop-color="#6b4226"/>
+      </linearGradient>
+      <linearGradient id="potSoil" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#4a3624"/>
+        <stop offset="1" stop-color="#3a2a1c"/>
+      </linearGradient>
+    </defs>
+
+    <!-- 天空 -->
+    <rect class="pot-sky" width="240" height="220" fill="url(#potSky)"/>
+
+    <!-- 太阳（正常/干旱/热浪） -->
+    <g class="pot-sun" transform="translate(196,38)">
+      <circle r="13" fill="#d29922"/>
+      <g stroke="#d29922" stroke-width="2" stroke-linecap="round" opacity="0.7">
+        <line x1="0" y1="-20" x2="0" y2="-14"/>
+        <line x1="0" y1="14" x2="0" y2="20"/>
+        <line x1="-20" y1="0" x2="-14" y2="0"/>
+        <line x1="14" y1="0" x2="20" y2="0"/>
+        <line x1="-14" y1="-14" x2="-10" y2="-10"/>
+        <line x1="10" y1="10" x2="14" y2="14"/>
+        <line x1="14" y1="-14" x2="10" y2="-10"/>
+        <line x1="-10" y1="10" x2="-14" y2="14"/>
+      </g>
+    </g>
+
+    <!-- 云（暴雨） -->
+    <g class="pot-cloud" transform="translate(60,46)">
+      <ellipse cx="0" cy="0" rx="26" ry="12" fill="#3a4658"/>
+      <ellipse cx="20" cy="4" rx="18" ry="9" fill="#3a4658"/>
+      <ellipse cx="-18" cy="4" rx="16" ry="8" fill="#3a4658"/>
+    </g>
+
+    <!-- 雨滴（暴雨） -->
+    <g class="pot-rain" stroke="#58a6ff" stroke-width="2" stroke-linecap="round" opacity="0.85">
+      <line class="drop" x1="36" y1="52" x2="32" y2="62"/>
+      <line class="drop d2" x1="58" y1="42" x2="54" y2="52"/>
+      <line class="drop d3" x1="80" y1="50" x2="76" y2="60"/>
+      <line class="drop d4" x1="46" y1="66" x2="42" y2="76"/>
+      <line class="drop d5" x1="68" y1="60" x2="64" y2="70"/>
+      <line class="drop d6" x1="24" y1="70" x2="20" y2="80"/>
+    </g>
+
+    <!-- 热浪气流（极端热浪） -->
+    <g class="pot-heat" stroke="#f85149" stroke-width="2" stroke-linecap="round" opacity="0.5" fill="none">
+      <path d="M120 40 q6 -6 0 -12 q-6 -6 0 -12"/>
+      <path class="h2" d="M104 52 q6 -6 0 -12 q-6 -6 0 -12"/>
+      <path class="h3" d="M136 52 q6 -6 0 -12 q-6 -6 0 -12"/>
+    </g>
+
+    <!-- 花盆 -->
+    <path d="M84 150 L156 150 L168 210 L72 210 Z" fill="url(#potBody)" stroke="#55351f" stroke-width="2"/>
+    <rect x="78" y="142" width="84" height="12" rx="3" fill="#9c6b3f" stroke="#55351f" stroke-width="2"/>
+
+    <!-- 土壤（含干旱裂纹） -->
+    <rect class="pot-soil" x="86" y="132" width="68" height="12" rx="3" fill="url(#potSoil)"/>
+    <g class="pot-soil-cracks" stroke="#c9a06a" stroke-width="1" opacity="0" fill="none">
+      <path d="M96 134 q4 4 0 8"/>
+      <path d="M112 134 q-3 3 0 7 q3 3 0 8"/>
+      <path d="M132 135 q4 3 0 7"/>
+      <path d="M144 134 q-2 4 2 7"/>
+    </g>
+
+    <!-- 茎 -->
+    <path class="pot-stem" d="M120 132 Q118 106 122 84" stroke="#2ea043" stroke-width="4" fill="none" stroke-linecap="round"/>
+
+    <!-- 叶（正常微风摆动，干旱下垂变黄） -->
+    <path class="pot-leaf l1" d="M122 104 Q96 92 84 104 Q96 108 122 104 Z" fill="#3fb950"/>
+    <path class="pot-leaf l2" d="M122 94 Q148 82 160 94 Q148 98 122 94 Z" fill="#2ea043"/>
+    <path class="pot-leaf l3" d="M120 116 Q94 108 88 118 Q98 122 120 116 Z" fill="#3fb950"/>
+    <path class="pot-leaf l4" d="M121 124 Q146 116 152 126 Q142 130 121 124 Z" fill="#2ea043"/>
+
+    ${fruit}
+
+    <!-- 传感器漂移指示（漂移情景） -->
+    <g class="pot-drift" opacity="0">
+      <circle cx="30" cy="112" r="10" fill="none" stroke="#a371f7" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="30" y="116" text-anchor="middle" font-size="12" fill="#a371f7" font-weight="bold">?</text>
+    </g>
+
+    <!-- 设备离线指示 -->
+    <g class="pot-offline" opacity="0">
+      <path d="M22 120 a 10 10 0 0 1 16 0" stroke="#f85149" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M26 126 a 5 5 0 0 1 8 0" stroke="#f85149" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <circle cx="30" cy="132" r="1.8" fill="#f85149"/>
+    </g>
+  </svg>`;
+}
+
+/** 情景 -> 盆栽视觉类 / 状态文案 */
+const SCENE_VISUAL = {
+  DROUGHT: { cls: 'drought', label: '持续干旱 · 蒸散加快，土壤水分流失' },
+  HEAT_WAVE: { cls: 'heat', label: '极端热浪 · 棚温骤升，蒸散加剧' },
+  STORM: { cls: 'storm', label: '暴雨积水 · 土壤过湿风险' },
+  SENSOR_DRIFT: { cls: 'drift', label: '传感器漂移 · 读数缓慢偏移' },
+  OFFLINE: { cls: 'offline', label: '设备断网离线 · 遥测中断' },
+  NORMAL: { cls: 'normal', label: '正常生长 · 环境适宜' }
+};
+
 export async function renderScenarioReplay(container, plotId) {
   const catalog = MOCK_DATA.riskForecastConfig.scenarioCatalog;
+  const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   let playTimer = null;
 
   container.innerHTML = `
@@ -359,6 +478,21 @@ export async function renderScenarioReplay(container, plotId) {
           <button class="cmd-nav-btn" data-nav="risk-forecast">🔮 风险预测</button>
           <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
         </span>
+      </div>
+
+      <div class="agri-card sr-pot-card">
+        <div class="agri-card-title">🪴 温室盆栽可视化 · 情景环境模拟</div>
+        <div class="sr-pot-layout">
+          <div class="sr-pot-scene normal" data-role="pot-scene">${buildPotSceneSvg(plot.cropCode)}</div>
+          <div class="sr-pot-info">
+            <div class="sr-pot-status" data-role="pot-status">🌤️ 正常生长 · 环境适宜</div>
+            <div class="sr-pot-meta" data-role="pot-meta">作物：${escapeHtml(plot.cropName)}（${escapeHtml(plot.cropVariety)}）· 当前湿度 ${plot.metrics.SOIL_MOISTURE.value}%</div>
+            <ul class="agri-kv-list">
+              <li><span class="agri-kv-key">提示</span><span>点击下方情景按钮预览盆栽环境变化，再运行双轨推演对比执行 vs 放任的作物走势</span></li>
+              <li><span class="agri-kv-key">范围</span><span>盆栽为可视化示意（模拟器语义），推演曲线才代表量化结果</span></li>
+            </ul>
+          </div>
+        </div>
       </div>
 
       <div class="agri-card sr-inject-card">
@@ -386,9 +520,19 @@ export async function renderScenarioReplay(container, plotId) {
   const runBtn = container.querySelector('[data-role="run-btn"]');
   const runOutput = container.querySelector('[data-role="run-output"]');
   const seedInput = container.querySelector('#srSeedInput');
+  const potScene = container.querySelector('[data-role="pot-scene"]');
+  const potStatus = container.querySelector('[data-role="pot-status"]');
   let selectedScenario = 'DROUGHT';
   let chartInstances = [];
   let activeChart = null; // 当前双轨图的 ECharts 实例（跨 renderRunOutput 生命周期）
+
+  /** 应用情景到盆栽可视化（CSS 类切换环境动画） */
+  const applySceneVisual = (scenario) => {
+    const v = SCENE_VISUAL[scenario] || SCENE_VISUAL.NORMAL;
+    potScene.classList.remove('drought', 'heat', 'storm', 'drift', 'offline', 'normal');
+    potScene.classList.add(v.cls);
+    potStatus.textContent = `${v.cls === 'storm' ? '🌧️' : v.cls === 'heat' ? '🔥' : v.cls === 'drought' ? '☀️' : v.cls === 'drift' ? '⚠️' : v.cls === 'offline' ? '🔌' : '🌤️'} ${v.label}`;
+  };
 
   container.querySelectorAll('.sr-scenario-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -396,6 +540,7 @@ export async function renderScenarioReplay(container, plotId) {
       btn.classList.add('active');
       selectedScenario = btn.dataset.scenario;
       runBtn.disabled = false;
+      applySceneVisual(selectedScenario); // 选中情景即预览盆栽环境
     });
   });
   container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
