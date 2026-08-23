@@ -60,6 +60,114 @@ const PLOT_LAYOUT = {
   'plot-c01': { x: -8.0, z: -13.0, width: 12.0, depth: 8.5, rotation: 0.0, name: 'C01 智能连栋温室', defaultCrop: 'tomato', defaultStage: 'fruiting', isGreenhouse: true }
 };
 
+const RECLAMATION_SLOTS = [
+  {
+    slotId: 'plot-e01',
+    zoneName: '东区现代高效示范带',
+    name: 'E01 优质粮蔬扩展田',
+    defaultCrop: 'corn',
+    defaultStage: 'seedling',
+    x: 32.0,
+    z: -3.5,
+    width: 8.5,
+    depth: 7.0,
+    rotation: -0.015,
+    soilMoisture: '28.5%',
+    estYield: '680 kg/亩',
+    canalStart: { x: 13.2, z: -3.5 },
+    canalEnd: { x: 27.5, z: -3.5 }
+  },
+  {
+    slotId: 'plot-e02',
+    zoneName: '东区现代高效示范带',
+    name: 'E02 特色浆果栽培田',
+    defaultCrop: 'strawberry',
+    defaultStage: 'seedling',
+    x: 32.0,
+    z: 8.8,
+    width: 8.5,
+    depth: 7.0,
+    rotation: 0.015,
+    soilMoisture: '26.8%',
+    estYield: '850 kg/亩',
+    canalStart: { x: 13.2, z: 8.8 },
+    canalEnd: { x: 27.5, z: 8.8 }
+  },
+  {
+    slotId: 'plot-w01',
+    zoneName: '西区绿色有机培育带',
+    name: 'W01 水果黄瓜架栽田',
+    defaultCrop: 'cucumber',
+    defaultStage: 'seedling',
+    x: -32.0,
+    z: -3.5,
+    width: 8.5,
+    depth: 7.0,
+    rotation: 0.015,
+    soilMoisture: '27.2%',
+    estYield: '920 kg/亩',
+    canalStart: { x: -14.8, z: -3.5 },
+    canalEnd: { x: -27.5, z: -3.5 }
+  },
+  {
+    slotId: 'plot-w02',
+    zoneName: '西区绿色有机培育带',
+    name: 'W02 高品质番茄培育田',
+    defaultCrop: 'tomato',
+    defaultStage: 'seedling',
+    x: -32.0,
+    z: 8.8,
+    width: 8.5,
+    depth: 7.0,
+    rotation: -0.015,
+    soilMoisture: '25.9%',
+    estYield: '1,100 kg/亩',
+    canalStart: { x: -14.8, z: 8.8 },
+    canalEnd: { x: -27.5, z: 8.8 }
+  },
+  {
+    slotId: 'plot-s01',
+    zoneName: '南区高产粮油核心带',
+    name: 'S01 金秋油葵试验田',
+    defaultCrop: 'sunflower',
+    defaultStage: 'seedling',
+    x: -14.0,
+    z: 23.5,
+    width: 8.5,
+    depth: 7.0,
+    rotation: 0.0,
+    soilMoisture: '29.1%',
+    estYield: '540 kg/亩',
+    canalStart: { x: -14.0, z: 14.2 },
+    canalEnd: { x: -14.0, z: 20.0 }
+  },
+  {
+    slotId: 'plot-s02',
+    zoneName: '南区高产粮油核心带',
+    name: 'S02 绿色生态水稻田',
+    defaultCrop: 'rice',
+    defaultStage: 'seedling',
+    x: 14.0,
+    z: 23.5,
+    width: 8.5,
+    depth: 7.0,
+    rotation: 0.0,
+    soilMoisture: '34.2%',
+    estYield: '720 kg/亩',
+    canalStart: { x: 14.0, z: 14.2 },
+    canalEnd: { x: 14.0, z: 20.0 }
+  }
+];
+
+const SECTOR_VIEWS = {
+  all: { name: '全域总览', icon: 'ph-globe', cam: { x: 0, y: 32, z: 46 }, target: { x: 0, y: 0, z: -2 } },
+  core: { name: '核心示范区', icon: 'ph-squares-four', cam: { x: 0, y: 22, z: 28 }, target: { x: 0, y: 0, z: 4 } },
+  east: { name: '东区高效带', icon: 'ph-arrow-right', cam: { x: 28, y: 20, z: 22 }, target: { x: 26, y: 0, z: 2 } },
+  west: { name: '西区有机带', icon: 'ph-arrow-left', cam: { x: -28, y: 20, z: 22 }, target: { x: -26, y: 0, z: 2 } },
+  south: { name: '南区高产带', icon: 'ph-arrow-down', cam: { x: 0, y: 22, z: 38 }, target: { x: 0, y: 0, z: 20 } },
+  north: { name: '北区温室群', icon: 'ph-buildings', cam: { x: 0, y: 20, z: 8 }, target: { x: 0, y: 0, z: -14 } }
+};
+
 const DEFAULT_PLOTS = [
   {
     plotId: 'plot-a01', name: 'A01 号地块 (番茄示范田)', cropCode: 'tomato', cropName: '优质番茄', stageCode: 'fruiting', stageLabel: '挂果采收期',
@@ -392,12 +500,15 @@ class FarmWorld3D {
     this.plots = options.plots || DEFAULT_PLOTS;
     this.onSelect = options.onSelect || (() => {});
     this.onDoubleSelect = options.onDoubleSelect || (() => {});
+    this.onSelectSlot = options.onSelectSlot || (() => {});
     this.onFrame = options.onFrame || (() => {});
 
     this.windMaterials = [];
     this.plotMeshes = new Map();
     this.plotGlows = new Map();
     this.cropFields = new Map();
+    this.reclamationSlotMeshes = new Map();
+    this.isReclamationMode = false;
     this.clouds = [];
     this.waterMaterials = [];
     this.soilMaterials = [];
@@ -412,10 +523,18 @@ class FarmWorld3D {
     this.clock = new THREE.Timer ? new THREE.Timer() : new THREE.Clock();
     this.weather = 'sunny';
     this.hoveredPlotId = null;
+    this.hoveredSlotId = null;
     this.lastPointer = null;
     this.frameCount = 0;
     this.isDestroyed = false;
     this.clickTimer = null;
+
+    // Camera roaming & Pan controls
+    this.cameraTarget = new THREE.Vector3(0, 0, -2);
+    this.cameraAnimation = null;
+    this.isPanning = false;
+    this.isOrbiting = false;
+    this.panStart = new THREE.Vector2();
   }
 
   init() {
@@ -436,8 +555,8 @@ class FarmWorld3D {
 
     // Elevated Panoramic Wide View Camera (High angle, fully reveals high sky, sun, and vast farmland)
     this.camera = new THREE.PerspectiveCamera(50, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 350);
-    this.camera.position.set(0, 30, 44);
-    this.camera.lookAt(0, 0, -2);
+    this.camera.position.set(0, 32, 46);
+    this.camera.lookAt(this.cameraTarget);
     this.baseCamera = this.camera.position.clone();
 
     this.buildSky();
@@ -448,6 +567,7 @@ class FarmWorld3D {
     this.buildStreetLamps();
     this.buildBuildings();
     this.buildPlots();
+    this.buildReclamationSlots();
     this.buildTrees();
     this.buildClouds();
     this.buildRain();
@@ -1164,6 +1284,243 @@ class FarmWorld3D {
     });
   }
 
+  buildReclamationSlots() {
+    this.reclamationSlotMeshes = new Map();
+    const borderMat = new THREE.MeshBasicMaterial({ color: 0xffd359, transparent: true, opacity: 0.9 });
+    const fillMat = new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.18, side: THREE.DoubleSide });
+
+    RECLAMATION_SLOTS.forEach(slot => {
+      if (this.plots.some(p => p.plotId === slot.slotId)) return;
+
+      const group = new THREE.Group();
+      group.position.set(slot.x, 0.05, slot.z);
+      group.rotation.y = slot.rotation || 0;
+      group.userData.slotId = slot.slotId;
+      group.userData.slotConfig = slot;
+
+      // Holographic surface plane
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(slot.width, slot.depth), fillMat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.receiveShadow = false;
+      group.add(plane);
+
+      // Holographic boundary lines
+      [
+        [slot.width, 0.04, 0.08, 0, -slot.depth / 2],
+        [slot.width, 0.04, 0.08, 0, slot.depth / 2],
+        [0.08, 0.04, slot.depth, -slot.width / 2, 0],
+        [0.08, 0.04, slot.depth, slot.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const line = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), borderMat);
+        line.position.set(x, 0.02, z);
+        group.add(line);
+      });
+
+      // 4 Corner Survey Beacons
+      [
+        [-slot.width / 2, -slot.depth / 2],
+        [slot.width / 2, -slot.depth / 2],
+        [-slot.width / 2, slot.depth / 2],
+        [slot.width / 2, slot.depth / 2]
+      ].forEach(([cx, cz]) => {
+        const pillar = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.06, 0.06, 0.75, 8),
+          new THREE.MeshStandardMaterial({ color: 0xffd359, emissive: 0xffb700, emissiveIntensity: 0.6 })
+        );
+        pillar.position.set(cx, 0.38, cz);
+        group.add(pillar);
+
+        const beacon = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 10, 8),
+          new THREE.MeshBasicMaterial({ color: 0xfff077 })
+        );
+        beacon.position.set(cx, 0.78, cz);
+        group.add(beacon);
+      });
+
+      group.visible = false;
+      this.reclamationSlotMeshes.set(slot.slotId, group);
+      this.scene.add(group);
+    });
+  }
+
+  setReclamationMode(active) {
+    this.isReclamationMode = active;
+    this.reclamationSlotMeshes.forEach((group, slotId) => {
+      const isAlreadyReclaimed = this.plots.some(p => p.plotId === slotId);
+      group.visible = active && !isAlreadyReclaimed;
+    });
+  }
+
+  reclaimPlot(slotId, userConfig = {}) {
+    const slot = RECLAMATION_SLOTS.find(s => s.slotId === slotId);
+    if (!slot) return null;
+
+    // 1. Remove preview group
+    const preview = this.reclamationSlotMeshes.get(slotId);
+    if (preview) {
+      this.scene.remove(preview);
+      this.reclamationSlotMeshes.delete(slotId);
+    }
+
+    const cropCode = userConfig.cropCode || slot.defaultCrop || 'tomato';
+    const stageCode = userConfig.stageCode || slot.defaultStage || 'seedling';
+    const plotName = userConfig.plotName || slot.name;
+
+    // 2. Build 3D Field Meshes
+    const soilMaterial = new THREE.MeshStandardMaterial({ color: 0x6a482c, roughness: 0.98 });
+    const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xb59662, roughness: 0.88 });
+    const furrowMaterial = new THREE.MeshStandardMaterial({ color: 0x4c3523, roughness: 1.0 });
+
+    const soil = new THREE.Mesh(new THREE.BoxGeometry(slot.width, 0.22, slot.depth), soilMaterial.clone());
+    soil.position.set(slot.x, -0.02, slot.z);
+    soil.rotation.y = slot.rotation || 0;
+    soil.receiveShadow = true;
+    soil.userData.plotId = slotId;
+    soil.userData.baseColor = soil.material.color.clone();
+    this.soilMaterials.push(soil.material);
+    this.scene.add(soil);
+    this.plotMeshes.set(slotId, soil);
+
+    // Soil Texture Mapping
+    const loader = new THREE.TextureLoader();
+    loader.load('assets/textures/tilled-soil.png', texture => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(4.5, 3.5);
+      soil.material.map = texture;
+      soil.material.color.set(0x987456);
+      soil.material.needsUpdate = true;
+    }, undefined, () => {});
+
+    // Edges
+    const edgeGroup = new THREE.Group();
+    edgeGroup.position.set(slot.x, 0.05, slot.z);
+    edgeGroup.rotation.y = slot.rotation || 0;
+    [
+      [slot.width + 0.16, 0.12, 0.14, 0, -slot.depth / 2],
+      [slot.width + 0.16, 0.12, 0.14, 0, slot.depth / 2],
+      [0.14, 0.12, slot.depth, -slot.width / 2, 0],
+      [0.14, 0.12, slot.depth, slot.width / 2, 0]
+    ].forEach(([w, h, d, x, z]) => {
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), edgeMaterial);
+      edge.position.set(x, 0, z);
+      edge.castShadow = true;
+      edgeGroup.add(edge);
+    });
+
+    const rowCount = 8;
+    for (let row = 0; row < rowCount; row++) {
+      const furrow = new THREE.Mesh(new THREE.BoxGeometry(slot.width - 0.35, 0.045, 0.14), furrowMaterial);
+      furrow.position.set(0, 0.08, (row / (rowCount - 1) - 0.5) * (slot.depth - 0.6));
+      furrow.receiveShadow = true;
+      edgeGroup.add(furrow);
+    }
+    this.scene.add(edgeGroup);
+
+    // Neon Highlight Border
+    const glowMaterial = new THREE.MeshStandardMaterial({
+      color: 0xfff1c4,
+      emissive: 0xffc75c,
+      emissiveIntensity: 3.3,
+      roughness: 0.35,
+      toneMapped: false
+    });
+    const glowGroup = new THREE.Group();
+    glowGroup.position.set(slot.x, 0.135, slot.z);
+    glowGroup.rotation.y = slot.rotation || 0;
+    [
+      [slot.width + 0.1, 0.035, 0.045, 0, -slot.depth / 2],
+      [slot.width + 0.1, 0.035, 0.045, 0, slot.depth / 2],
+      [0.045, 0.035, slot.depth, -slot.width / 2, 0],
+      [0.045, 0.035, slot.depth, slot.width / 2, 0]
+    ].forEach(([w, h, d, x, z]) => {
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glowMaterial);
+      glow.position.set(x, 0, z);
+      glowGroup.add(glow);
+    });
+    glowGroup.visible = false;
+    this.plotGlows.set(slotId, glowGroup);
+    this.scene.add(glowGroup);
+
+    // 3. EXTEND IRRIGATION CANAL (自然延伸水渠至新农田)
+    if (slot.canalStart && slot.canalEnd) {
+      const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x7c8a82, roughness: 0.9 });
+      const dx = slot.canalEnd.x - slot.canalStart.x;
+      const dz = slot.canalEnd.z - slot.canalStart.z;
+      const isX = Math.abs(dx) > Math.abs(dz);
+      const canalLen = Math.max(0.5, isX ? Math.abs(dx) : Math.abs(dz));
+      const midX = (slot.canalStart.x + slot.canalEnd.x) / 2;
+      const midZ = (slot.canalStart.z + slot.canalEnd.z) / 2;
+      const canalWidth = isX ? canalLen : 0.85;
+      const canalDepth = isX ? 0.85 : canalLen;
+
+      // Bed
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(canalWidth, 0.08, canalDepth), bankMaterial);
+      bed.position.set(midX, 0.03, midZ);
+      this.scene.add(bed);
+
+      // Flowing Water surface
+      const water = new THREE.Mesh(new THREE.PlaneGeometry(canalWidth, canalDepth), this.createWaterMaterial());
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(midX, 0.075, midZ);
+      this.scene.add(water);
+
+      // Stone Retaining Banks
+      if (isX) {
+        [-0.54, 0.54].forEach(offZ => {
+          const bank = new THREE.Mesh(new THREE.BoxGeometry(canalLen, 0.16, 0.22), bankMaterial);
+          bank.position.set(midX, 0.09, midZ + offZ);
+          bank.castShadow = true;
+          this.scene.add(bank);
+        });
+      } else {
+        [-0.54, 0.54].forEach(offX => {
+          const bank = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, canalLen), bankMaterial);
+          bank.position.set(midX + offX, 0.09, midZ);
+          bank.castShadow = true;
+          this.scene.add(bank);
+        });
+      }
+
+      // Sluice Gate Valve at inlet
+      const gate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.6, 0.4),
+        new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.6 })
+      );
+      gate.position.set(slot.canalEnd.x, 0.3, slot.canalEnd.z);
+      this.scene.add(gate);
+    }
+
+    // 4. Create Crop Field Instance
+    const layout = { x: slot.x, z: slot.z, width: slot.width, depth: slot.depth, rotation: slot.rotation || 0 };
+    const newPlotData = {
+      plotId: slotId,
+      name: plotName,
+      cropCode,
+      cropName: CROP_PROFILES[cropCode]?.label || '特色作物',
+      stageCode,
+      stageLabel: STAGE_PROFILES[stageCode]?.label || '苗期',
+      riskLevel: 'LOW',
+      healthScore: 0.99,
+      metrics: {
+        SOIL_MOISTURE: { label: '土壤湿度', value: parseFloat(slot.soilMoisture) || 28.5, unit: '%', status: 'NORMAL', target: '20~40%' },
+        AIR_TEMPERATURE: { label: '空气温度', value: 26.5, unit: '°C', status: 'NORMAL', target: '20~30°C' },
+        LIGHT: { label: '光照强度', value: 44000, unit: 'lux', status: 'NORMAL', target: '30k~55k lux' },
+        CO2: { label: 'CO₂ 浓度', value: 680, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
+        SOIL_EC: { label: '土壤 EC 值', value: 1.4, unit: 'mS/cm', status: 'NORMAL', target: '1.0~2.2 mS/cm' },
+        NPK_RATIO: { label: '氮磷钾肥力', value: '185:98:210', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
+      }
+    };
+
+    const field = new CropField(this.scene, newPlotData, layout, this.windMaterials);
+    this.cropFields.set(slotId, field);
+    this.plots.push(newPlotData);
+
+    return newPlotData;
+  }
+
   buildTrees() {
     // Trees placed according to original natural layout (zero clipping with crops and far perimeter buildings)
     const positions = [];
@@ -1336,9 +1693,71 @@ class FarmWorld3D {
 
   bindEvents() {
     this.handleResize = () => this.resize();
+
+    // Mouse Wheel Smooth Zooming (14m ~ 130m)
+    this.handleWheel = event => {
+      event.preventDefault();
+      const zoomDelta = event.deltaY * 0.04;
+      const dir = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
+      const currentDist = dir.length();
+      const newDist = clamp(currentDist + zoomDelta, 14, 130);
+      dir.normalize().multiplyScalar(newDist);
+      this.camera.position.copy(this.cameraTarget).add(dir);
+    };
+
+    // Pointer Down (Orbit vs Pan Roaming)
+    this.handlePointerDown = event => {
+      if (event.button === 2 || event.button === 1 || event.shiftKey) {
+        this.isPanning = true;
+        this.panStart.set(event.clientX, event.clientY);
+        this.renderer.domElement.style.cursor = 'grabbing';
+      } else if (event.button === 0) {
+        this.isOrbiting = true;
+        this.panStart.set(event.clientX, event.clientY);
+      }
+    };
+
+    this.handlePointerUp = () => {
+      this.isPanning = false;
+      this.isOrbiting = false;
+      this.renderer.domElement.style.cursor = (this.hoveredPlotId || this.hoveredSlotId) ? 'pointer' : 'default';
+    };
+
+    this.handleContextMenu = event => event.preventDefault();
+
     this.handlePointerMove = event => {
       const rect = this.renderer.domElement.getBoundingClientRect();
       this.pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+
+      // Pan Roaming across vast terrain
+      if (this.isPanning) {
+        const dx = event.clientX - this.panStart.x;
+        const dy = event.clientY - this.panStart.y;
+        this.panStart.set(event.clientX, event.clientY);
+
+        const dist = this.camera.position.distanceTo(this.cameraTarget);
+        const panSpeed = dist * 0.0014;
+
+        const right = new THREE.Vector3();
+        this.camera.getWorldDirection(right);
+        right.cross(this.camera.up).normalize();
+
+        const forward = new THREE.Vector3(0, 0, 0);
+        this.camera.getWorldDirection(forward);
+        forward.y = 0;
+        forward.normalize();
+
+        const offset = new THREE.Vector3()
+          .addScaledVector(right, -dx * panSpeed)
+          .addScaledVector(forward, dy * panSpeed);
+
+        this.camera.position.add(offset);
+        this.cameraTarget.add(offset);
+        this.cameraTarget.x = clamp(this.cameraTarget.x, -70, 70);
+        this.cameraTarget.z = clamp(this.cameraTarget.z, -50, 45);
+      }
+
+      // Directional Wind Physics
       const now = performance.now();
       if (this.lastPointer) {
         const elapsed = Math.max(8, now - this.lastPointer.time);
@@ -1354,12 +1773,24 @@ class FarmWorld3D {
     this.handlePointerLeave = () => {
       this.pointer.set(10, 10);
       this.lastPointer = null;
+      this.isPanning = false;
+      this.isOrbiting = false;
       this.setHoveredPlot(null);
+      this.setHoveredSlot(null);
     };
 
     this.handleClick = event => {
       clearTimeout(this.clickTimer);
       this.clickTimer = setTimeout(() => {
+        // 1. Check if clicking reclamation slot
+        if (this.isReclamationMode) {
+          const hitSlot = this.pickSlot(event.clientX, event.clientY);
+          if (hitSlot) {
+            this.onSelectSlot(hitSlot.slotId, hitSlot.screen);
+            return;
+          }
+        }
+        // 2. Check active plot
         const hit = this.pickPlot(event.clientX, event.clientY);
         if (hit) this.onSelect(hit.plotId, hit.screen);
       }, 200);
@@ -1372,6 +1803,10 @@ class FarmWorld3D {
     };
 
     window.addEventListener('resize', this.handleResize);
+    this.renderer.domElement.addEventListener('wheel', this.handleWheel, { passive: false });
+    this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
+    window.addEventListener('pointerup', this.handlePointerUp);
+    this.renderer.domElement.addEventListener('contextmenu', this.handleContextMenu);
     this.renderer.domElement.addEventListener('pointermove', this.handlePointerMove);
     this.renderer.domElement.addEventListener('pointerleave', this.handlePointerLeave);
     this.renderer.domElement.addEventListener('click', this.handleClick);
@@ -1388,6 +1823,22 @@ class FarmWorld3D {
     return { plotId, screen: { x: clientX, y: clientY } };
   }
 
+  pickSlot(clientX, clientY) {
+    if (!this.isReclamationMode) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(pointer, this.camera);
+    const slots = [...this.reclamationSlotMeshes.values()].filter(g => g.visible);
+    const intersections = this.raycaster.intersectObjects(slots, true);
+    if (!intersections.length) return null;
+    let curr = intersections[0].object;
+    while (curr && !curr.userData?.slotId && curr.parent) curr = curr.parent;
+    if (curr?.userData?.slotId) {
+      return { slotId: curr.userData.slotId, screen: { x: clientX, y: clientY } };
+    }
+    return null;
+  }
+
   setHoveredPlot(plotId) {
     if (plotId === this.hoveredPlotId) return;
     this.hoveredPlotId = plotId;
@@ -1396,7 +1847,49 @@ class FarmWorld3D {
       mesh.material.emissive.set(id === plotId ? 0x26491e : 0x000000);
       mesh.material.emissiveIntensity = id === plotId ? 0.38 : 0;
     });
-    this.renderer.domElement.style.cursor = plotId ? 'pointer' : 'default';
+    if (!this.hoveredSlotId) {
+      this.renderer.domElement.style.cursor = plotId ? 'pointer' : 'default';
+    }
+  }
+
+  setHoveredSlot(slotId) {
+    if (slotId === this.hoveredSlotId) return;
+    this.hoveredSlotId = slotId;
+    this.reclamationSlotMeshes.forEach((group, id) => {
+      group.children.forEach(child => {
+        if (child.material && child.material.opacity !== undefined) {
+          child.material.opacity = id === slotId ? 0.45 : (child.geometry?.type === 'BoxGeometry' ? 0.9 : 0.18);
+        }
+      });
+    });
+    this.renderer.domElement.style.cursor = (slotId || this.hoveredPlotId) ? 'pointer' : 'default';
+  }
+
+  flyToSector(sectorId) {
+    const s = SECTOR_VIEWS[sectorId] || SECTOR_VIEWS.all;
+    this.animateCamera(s.cam, s.target, 850);
+  }
+
+  animateCamera(toPos, toTarget, duration = 800) {
+    const fromPos = this.camera.position.clone();
+    const fromTarget = this.cameraTarget.clone();
+    const targetPos = new THREE.Vector3(toPos.x, toPos.y, toPos.z);
+    const targetLookAt = new THREE.Vector3(toTarget.x, toTarget.y, toTarget.z);
+    const startTime = performance.now();
+
+    this.cameraAnimation = {
+      update: () => {
+        const now = performance.now();
+        const progress = Math.min(1.0, (now - startTime) / duration);
+        const ease = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        this.camera.position.lerpVectors(fromPos, targetPos, ease);
+        this.cameraTarget.lerpVectors(fromTarget, targetLookAt, ease);
+        this.camera.lookAt(this.cameraTarget);
+        if (progress >= 1.0) {
+          this.cameraAnimation = null;
+        }
+      }
+    };
   }
 
   resize() {
@@ -1419,7 +1912,6 @@ class FarmWorld3D {
       'heavy-rain': { maxClouds: 16, rain: true, rainOpacity: 0.88 }
     }[this.weather];
 
-    // Show clouds purely in the sky without whitening the ground!
     this.clouds.forEach((cloud, index) => {
       const isVisible = index < settings.maxClouds;
       cloud.visible = isVisible;
@@ -1431,12 +1923,10 @@ class FarmWorld3D {
 
     this.rain.visible = settings.rain;
     this.rain.material.opacity = settings.rainOpacity || 0;
-    // Keep atmosphere contrast rich and crisp (no thick white fog)
     this.scene.fog.density = 0.0035;
     this.renderer.toneMappingExposure = 1.15;
   }
 
-  // INDIVIDUAL plot crop & stage updates!
   setPlotCrop(plotId, cropCode) {
     const plot = this.plots.find(p => p.plotId === plotId);
     if (plot) plot.cropCode = cropCode;
@@ -1471,7 +1961,6 @@ class FarmWorld3D {
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
     this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.94 + warm * 0.42;
 
-    // True Celestial Sun Trajectory (High in sky dome, shining in camera viewport, rising 06:00, setting 18:00 behind gentle hills)
     const sunProgress = clamp((hour - 5.7) / 13.6, 0, 1);
     const sunAngle = sunProgress * Math.PI;
     const sunX = lerp(-48, 48, sunProgress);
@@ -1485,12 +1974,10 @@ class FarmWorld3D {
     this.sunLight.intensity = 0.2 + daylight * 4.4;
     this.hemiLight.color.set(daylight > 0.2 ? 0xeaf5ff : 0x7fa2d8);
     this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x223624);
-    // Crucial: Keep night ambient light bright enough so crops and roads are clearly visible in moonlight
     this.hemiLight.intensity = 0.85 + daylight * 1.8;
     this.sunDisc.visible = hour >= 5.6 && hour <= 19.3;
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
-    // Night lighting: Greenhouse interior grow lights, Pavilion Lantern & High-Glow Street Lamps
     const isNight = daylight < 0.42;
     this.nightLights.forEach(light => {
       light.intensity = isNight ? 3.6 : 0;
@@ -1505,8 +1992,10 @@ class FarmWorld3D {
 
   projectPlotMarkers() {
     const markers = {};
+    const reclamationMarkers = {};
+
     this.plots.forEach(plot => {
-      const layout = PLOT_LAYOUT[plot.plotId];
+      const layout = PLOT_LAYOUT[plot.plotId] || RECLAMATION_SLOTS.find(s => s.slotId === plot.plotId);
       if (!layout || layout.isGreenhouse) return;
       const profile = CROP_PROFILES[plot.cropCode] || CROP_PROFILES.tomato;
       const stage = STAGE_PROFILES[plot.stageCode] || STAGE_PROFILES.fruiting;
@@ -1522,12 +2011,33 @@ class FarmWorld3D {
         visible: labelPoint.z > -1 && labelPoint.z < 1
       };
     });
-    this.onFrame(markers);
+
+    if (this.isReclamationMode) {
+      RECLAMATION_SLOTS.forEach(slot => {
+        if (this.plots.some(p => p.plotId === slot.slotId)) return;
+        const slotPoint = new THREE.Vector3(slot.x, 0.6, slot.z);
+        slotPoint.project(this.camera);
+        reclamationMarkers[slot.slotId] = {
+          x: (slotPoint.x * 0.5 + 0.5) * this.host.clientWidth,
+          y: (-slotPoint.y * 0.5 + 0.5) * this.host.clientHeight,
+          visible: slotPoint.z > -1 && slotPoint.z < 1,
+          slot
+        };
+      });
+    }
+
+    this.onFrame({ markers, reclamationMarkers });
   }
 
   animate = () => {
     if (this.isDestroyed) return;
     this.animationFrame = requestAnimationFrame(this.animate);
+
+    if (this.cameraAnimation) {
+      this.cameraAnimation.update();
+    } else {
+      this.camera.lookAt(this.cameraTarget);
+    }
 
     if (this.clock.getDelta) this.clock.getDelta();
     const elapsed = performance.now() * 0.001;
@@ -1571,6 +2081,17 @@ class FarmWorld3D {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hoverHits = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
     this.setHoveredPlot(hoverHits[0]?.object?.userData?.plotId || null);
+
+    if (this.isReclamationMode) {
+      const slotHits = this.raycaster.intersectObjects([...this.reclamationSlotMeshes.values()].filter(g => g.visible), true);
+      let hitSlotId = null;
+      if (slotHits.length) {
+        let curr = slotHits[0].object;
+        while (curr && !curr.userData?.slotId && curr.parent) curr = curr.parent;
+        hitSlotId = curr?.userData?.slotId || null;
+      }
+      this.setHoveredSlot(hitSlotId);
+    }
 
     this.renderer.render(this.scene, this.camera);
     this.frameCount++;
@@ -1642,7 +2163,8 @@ export class FarmMonitor {
         plots: this.plots,
         onSelect: (id, origin) => this.selectPlot(id, origin),
         onDoubleSelect: id => this.openSandbox(id),
-        onFrame: markers => this.updateProjectedUi(markers)
+        onSelectSlot: (slotId, origin) => this.openReclamationWizard(slotId),
+        onFrame: data => this.updateProjectedUi(data)
       });
       this.world.init();
       this.world.setSelectedPlot(this.selectedPlotId);
@@ -1702,20 +2224,41 @@ export class FarmMonitor {
         <h1>现代智慧农田数字孪生全景</h1>
         <div class="farm-title-meta">
           <span data-location-label><i class="ph ph-map-pin"></i> 重庆 · 现代智慧农业生态示范园</span>
-          <span class="badge-plots"><i class="ph ph-squares-four"></i> 7 块独立监测示范区</span>
+          <span class="badge-plots" data-plot-counter><i class="ph ph-squares-four"></i> ${this.plots.length} 块独立监测示范区</span>
         </div>
       </header>
+
+      <!-- Panoramic Sector Navigator (全景区域漫游切换栏) -->
+      <nav class="farm-sector-nav" aria-label="全景区域漫游导航">
+        <button class="farm-sector-btn active" type="button" data-sector="all"><i class="ph ph-globe"></i> 全域总览</button>
+        <button class="farm-sector-btn" type="button" data-sector="core"><i class="ph ph-squares-four"></i> 核心示范区</button>
+        <button class="farm-sector-btn" type="button" data-sector="east"><i class="ph ph-arrow-right"></i> 东区高效带</button>
+        <button class="farm-sector-btn" type="button" data-sector="west"><i class="ph ph-arrow-left"></i> 西区有机带</button>
+        <button class="farm-sector-btn" type="button" data-sector="south"><i class="ph ph-arrow-down"></i> 南区高产带</button>
+        <button class="farm-sector-btn" type="button" data-sector="north"><i class="ph ph-buildings"></i> 北区温室群</button>
+      </nav>
+
+      <!-- Top Action Right Dock (新田开垦规划入口) -->
+      <div class="farm-top-actions" style="position: absolute; top: 20px; right: 20px; z-index: 30; display: flex; align-items: center; gap: 8px;">
+        <button class="farm-btn-reclaim" type="button" data-btn-reclaim><i class="ph ph-plant"></i><span>🌾 新田开垦规划</span></button>
+      </div>
+
+      <!-- Reclamation Mode Banner -->
+      <div class="farm-reclaim-banner" data-reclaim-banner>
+        <i class="ph ph-info"></i>
+        <span>开垦规划模式已开启：点击草地上高亮的 <strong>【待开垦槽位】</strong> 即可选定作物并自动引水建渠！</span>
+        <button class="farm-dialog-close" type="button" data-close-reclaim-mode style="background:transparent; border:0; color:#fff; cursor:pointer; font-size:14px; margin-left:8px;">✕</button>
+      </div>
 
       <!-- 2D Marker Overlay Layer -->
       <div class="farm-marker-layer" data-marker-layer></div>
 
       <!-- Bottom Floating Widgets -->
-      <div class="farm-wind-readout"><span class="farm-live-dot"></span><span>作物动力学风场</span><strong data-wind-state>自然微风 · 移动鼠标触发作物飘扬</strong></div>
-      <div class="farm-scene-hint"><i class="ph ph-mouse-left-click"></i><span>单击任意地块自定义作物与阶段 · 双击推演</span></div>
+      <div class="farm-wind-readout"><span class="farm-live-dot"></span><span>作物动力学风场</span><strong data-wind-state>自然微风 · 移动鼠标触发作物飘扬 · 滚轮缩放 / 右键拖拽漫游</strong></div>
+      <div class="farm-scene-hint"><i class="ph ph-mouse-left-click"></i><span>单击地块自定义作物与阶段 · 双击推演 · 滚轮缩放</span></div>
 
-      <!-- Floating Interactive Environment & Time Control Dock (悬浮式天气与昼夜调控坞) -->
+      <!-- Floating Interactive Environment & Time Control Dock -->
       <section class="farm-env-dock" aria-label="环境与光影调控坞">
-        <!-- Time Control Section -->
         <div class="farm-env-section">
           <span class="farm-env-label"><i class="ph ph-clock"></i> 昼夜光影</span>
           <div class="farm-env-btn-group">
@@ -1733,7 +2276,6 @@ export class FarmMonitor {
 
         <div class="farm-env-divider"></div>
 
-        <!-- Weather Control Section -->
         <div class="farm-env-section">
           <span class="farm-env-label"><i class="ph ph-cloud-sun"></i> 气象特效</span>
           <div class="farm-env-btn-group">
@@ -1749,6 +2291,58 @@ export class FarmMonitor {
 
       <!-- Expanding Detail Inspection Modal (由小变大丝滑展开) -->
       <aside class="farm-detail-panel" data-detail-panel aria-live="polite"></aside>
+
+      <!-- Cultivation Wizard Dialog (新田开垦向导) -->
+      <div class="farm-reclaim-dialog-backdrop" data-dialog="reclaim">
+        <div class="farm-reclaim-card" data-reclaim-card>
+          <div class="farm-reclaim-head">
+            <div>
+              <h3>🌾 规则化农田开垦与引水规划</h3>
+              <p data-reclaim-subtitle>请选择该开垦地块的主栽作物与灌溉规划</p>
+            </div>
+            <button class="farm-dialog-close" type="button" data-dialog-close>✕</button>
+          </div>
+
+          <div class="farm-reclaim-grid-info">
+            <div class="farm-reclaim-info-box">
+              <span>所属片区</span>
+              <strong data-reclaim-zone>东区现代高效示范带</strong>
+            </div>
+            <div class="farm-reclaim-info-box">
+              <span>规划面积</span>
+              <strong data-reclaim-area>8.5m × 7.0m (~60㎡)</strong>
+            </div>
+            <div class="farm-reclaim-info-box">
+              <span>土壤本底水分</span>
+              <strong data-reclaim-moisture>28.5% (适宜)</strong>
+            </div>
+          </div>
+
+          <label class="farm-reclaim-field-label">🌱 选择主栽作物类型</label>
+          <div class="farm-reclaim-crop-options" data-reclaim-crop-group>
+            ${Object.entries(CROP_PROFILES).map(([key, item], idx) => `
+              <button class="farm-reclaim-crop-btn ${idx === 0 ? 'active' : ''}" type="button" data-reclaim-crop="${key}">
+                <span class="crop-icon">${item.icon}</span>
+                <span>${item.label}</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <label class="farm-reclaim-field-label">💧 自动引水建渠方案</label>
+          <div class="farm-reclaim-info-box" style="margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span style="color: #10382b; font-weight: 700;">临近主水渠自动延展接驳</span>
+              <small style="color: #4c6c5e; display: block; margin-top: 2px;">计算最近主干水渠分支点，自动铺设石砌引水支渠与进水控制闸</small>
+            </div>
+            <span style="color: var(--farm-green-bright); font-weight: 800; font-size: 12px;">智能就绪</span>
+          </div>
+
+          <button class="farm-reclaim-submit-btn" type="button" data-submit-reclaim>
+            <i class="ph ph-sparkle"></i>
+            <span>✨ 立即开垦并引水建渠</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Time Simulation Dialog -->
       <div class="farm-dialog-backdrop" data-dialog="time">
@@ -1811,7 +2405,10 @@ export class FarmMonitor {
       windSpeed: q('[data-wind-speed]'),
       windState: q('[data-wind-state]'),
       location: q('[data-location-label]'),
-      chipsNav: q('.farm-plot-chips'),
+      plotCounter: q('[data-plot-counter]'),
+      reclaimBtn: q('[data-btn-reclaim]'),
+      reclaimBanner: q('[data-reclaim-banner]'),
+      reclaimDialog: q('[data-dialog="reclaim"]'),
       timeDialog: q('[data-dialog="time"]'),
       weatherDialog: q('[data-dialog="weather"]'),
       timeSlider: q('[data-time-slider]'),
@@ -1827,18 +2424,31 @@ export class FarmMonitor {
       this.onExit();
     });
 
-    this.shell.querySelectorAll('[data-select-plot]').forEach(btn => {
+    // Sector Navigator Clicks (Camera Roaming)
+    this.shell.querySelectorAll('[data-sector]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const plotId = btn.dataset.selectPlot;
-        this.selectPlot(plotId);
+        const sector = btn.dataset.sector;
+        this.shell.querySelectorAll('[data-sector]').forEach(b => b.classList.toggle('active', b === btn));
+        this.world?.flyToSector(sector);
+        this.showToast(`已漫游至【${SECTOR_VIEWS[sector]?.name || sector}】`);
       });
+    });
+
+    // Reclamation Planning Mode Toggle
+    this.dom.reclaimBtn?.addEventListener('click', () => {
+      this.toggleReclamationMode();
+    });
+
+    this.shell.querySelector('[data-close-reclaim-mode]')?.addEventListener('click', () => {
+      this.toggleReclamationMode(false);
     });
 
     this.shell.querySelector('[data-camera-reset]').addEventListener('click', () => {
       if (this.world) {
         this.world.targetWind.set(0, 0);
-        this.world.camera.position.copy(this.world.baseCamera);
+        this.world.flyToSector('all');
       }
+      this.shell.querySelectorAll('[data-sector]').forEach(b => b.classList.toggle('active', b.dataset.sector === 'all'));
       this.showToast('已恢复全景广角视角');
     });
 
@@ -1858,6 +2468,7 @@ export class FarmMonitor {
       btn.addEventListener('click', () => {
         this.dom.timeDialog.classList.remove('open');
         this.dom.weatherDialog.classList.remove('open');
+        this.dom.reclaimDialog?.classList.remove('open');
       });
     });
 
@@ -1955,6 +2566,18 @@ export class FarmMonitor {
       });
     });
 
+    // Wizard crop picker
+    this.shell.querySelectorAll('[data-reclaim-crop]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.shell.querySelectorAll('[data-reclaim-crop]').forEach(b => b.classList.toggle('active', b === btn));
+      });
+    });
+
+    // Wizard submit cultivation
+    this.shell.querySelector('[data-submit-reclaim]')?.addEventListener('click', () => {
+      this.submitReclamation();
+    });
+
     // Modal delegated clicks (Customizing THIS plot's crop and stage!)
     this.dom.panel.addEventListener('click', event => {
       if (event.target.closest('[data-panel-close]')) this.closePanel();
@@ -1968,7 +2591,6 @@ export class FarmMonitor {
         this.dom.panel.querySelectorAll('[data-set-plot-crop]').forEach(b => b.classList.toggle('active', b === cropBtn));
         const plot = this.plots.find(p => p.plotId === this.selectedPlotId);
         if (plot) plot.cropCode = cropCode;
-        this.updateTopChips();
         this.createMarkers();
         this.showToast(`已将【${plot?.name || this.selectedPlotId}】独立定制为【${CROP_PROFILES[cropCode]?.label || cropCode}】`);
       }
@@ -1992,7 +2614,9 @@ export class FarmMonitor {
     window.addEventListener('keydown', this.handleKeydown = event => {
       if (!this.isOpen) return;
       if (event.key === 'Escape') {
-        if (this.dom.timeDialog.classList.contains('open') || this.dom.weatherDialog.classList.contains('open')) {
+        if (this.dom.reclaimDialog?.classList.contains('open')) {
+          this.dom.reclaimDialog.classList.remove('open');
+        } else if (this.dom.timeDialog.classList.contains('open') || this.dom.weatherDialog.classList.contains('open')) {
           this.dom.timeDialog.classList.remove('open');
           this.dom.weatherDialog.classList.remove('open');
         } else if (this.dom.panel.classList.contains('open')) {
@@ -2005,19 +2629,77 @@ export class FarmMonitor {
     });
   }
 
-  updateTopChips() {
-    this.shell.querySelectorAll('[data-select-plot]').forEach(btn => {
-      const id = btn.dataset.selectPlot;
-      const plot = this.plots.find(p => p.plotId === id);
-      btn.classList.toggle('active', id === this.selectedPlotId);
-      if (plot) {
-        btn.querySelector('span:last-child').textContent = `${plot.plotId.replace('plot-', '').toUpperCase()} ${CROP_PROFILES[plot.cropCode]?.icon || ''}`;
-      }
+  toggleReclamationMode(forceState) {
+    const isNowActive = forceState !== undefined ? forceState : !this.world?.isReclamationMode;
+    this.world?.setReclamationMode(isNowActive);
+    this.dom.reclaimBtn?.classList.toggle('active', isNowActive);
+    this.dom.reclaimBanner?.classList.toggle('open', isNowActive);
+    this.createMarkers();
+    if (isNowActive) {
+      this.showToast('🌾 已进入新田开垦规划模式，草地上高亮显示预留槽位');
+    } else {
+      this.showToast('已退出新田开垦规划模式');
+    }
+  }
+
+  openReclamationWizard(slotId) {
+    const slot = RECLAMATION_SLOTS.find(s => s.slotId === slotId);
+    if (!slot) return;
+    this.activeReclaimSlotId = slotId;
+
+    const dialog = this.dom.reclaimDialog;
+    if (!dialog) return;
+
+    dialog.querySelector('[data-reclaim-subtitle]').textContent = `开垦槽位：${slot.name} · 规整农业网格`;
+    dialog.querySelector('[data-reclaim-zone]').textContent = slot.zoneName;
+    dialog.querySelector('[data-reclaim-area]').textContent = `${slot.width}m × ${slot.depth}m (~60㎡)`;
+    dialog.querySelector('[data-reclaim-moisture]').textContent = `${slot.soilMoisture} (适宜作物生长)`;
+
+    // Focus default crop
+    dialog.querySelectorAll('[data-reclaim-crop]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.reclaimCrop === (slot.defaultCrop || 'corn'));
     });
+
+    dialog.classList.add('open');
+  }
+
+  submitReclamation() {
+    const slotId = this.activeReclaimSlotId;
+    if (!slotId) return;
+
+    const slot = RECLAMATION_SLOTS.find(s => s.slotId === slotId);
+    const activeCropBtn = this.shell.querySelector('[data-reclaim-crop].active');
+    const cropCode = activeCropBtn?.dataset.reclaimCrop || slot?.defaultCrop || 'corn';
+
+    // Execute 3D World plot and canal construction
+    const newPlot = this.world?.reclaimPlot(slotId, {
+      cropCode,
+      stageCode: 'seedling',
+      plotName: slot?.name || '新开垦农田'
+    });
+
+    this.dom.reclaimDialog?.classList.remove('open');
+    if (newPlot) {
+      if (this.dom.plotCounter) {
+        this.dom.plotCounter.innerHTML = `<i class="ph ph-squares-four"></i> ${this.plots.length} 块独立监测示范区`;
+      }
+      this.createMarkers();
+      this.showToast(`🎉【${newPlot.name}】已成功开垦！已自动引水建渠并播种【${CROP_PROFILES[cropCode]?.label || cropCode}】`);
+
+      // Fly camera to the new plot and open panel
+      this.world?.animateCamera(
+        { x: slot.x, y: 18, z: slot.z + 18 },
+        { x: slot.x, y: 0, z: slot.z },
+        900
+      );
+      setTimeout(() => {
+        this.selectPlot(slotId);
+      }, 700);
+    }
   }
 
   createMarkers() {
-    this.dom.markerLayer.innerHTML = this.plots.map(plot => `
+    const plotsHtml = this.plots.map(plot => `
       <div class="farm-plot-marker ${plot.plotId === this.selectedPlotId ? 'active' : ''}" data-marker="${plot.plotId}">
         <div class="farm-plot-badge">
           <strong>${plot.plotId.replace('plot-', '').toUpperCase()} ${CROP_PROFILES[plot.cropCode]?.icon || ''}</strong>
@@ -2026,6 +2708,17 @@ export class FarmMonitor {
         ${plot.riskLevel === 'HIGH' ? '<span class="farm-warning-beacon"><i class="ph ph-warning"></i></span>' : ''}
       </div>
     `).join('');
+
+    const slotsHtml = (this.world?.isReclamationMode ? RECLAMATION_SLOTS.filter(s => !this.plots.some(p => p.plotId === s.slotId)) : []).map(slot => `
+      <div class="farm-reclaim-marker" data-reclaim-slot="${slot.slotId}">
+        <div class="farm-reclaim-badge">
+          <i class="ph ph-plus-circle"></i>
+          <span>开垦：${slot.name.split(' ')[0]}</span>
+        </div>
+      </div>
+    `).join('');
+
+    this.dom.markerLayer.innerHTML = plotsHtml + slotsHtml;
 
     this.dom.markerLayer.querySelectorAll('.farm-plot-marker').forEach(marker => {
       marker.addEventListener('click', e => {
@@ -2039,9 +2732,20 @@ export class FarmMonitor {
         this.openSandbox(plotId);
       });
     });
+
+    this.dom.markerLayer.querySelectorAll('.farm-reclaim-marker').forEach(marker => {
+      marker.addEventListener('click', e => {
+        e.stopPropagation();
+        const slotId = marker.dataset.reclaimSlot;
+        this.openReclamationWizard(slotId);
+      });
+    });
   }
 
-  updateProjectedUi(markers) {
+  updateProjectedUi(data) {
+    const markers = data.markers || data;
+    const reclamationMarkers = data.reclamationMarkers || {};
+
     Object.entries(markers).forEach(([plotId, position]) => {
       const marker = this.dom.markerLayer?.querySelector(`[data-marker="${plotId}"]`);
       if (!marker) return;
@@ -2054,13 +2758,20 @@ export class FarmMonitor {
         warning.style.setProperty('--warning-y', `${position.warningY - position.y}px`);
       }
     });
+
+    Object.entries(reclamationMarkers).forEach(([slotId, position]) => {
+      const marker = this.dom.markerLayer?.querySelector(`[data-reclaim-slot="${slotId}"]`);
+      if (!marker) return;
+      marker.style.setProperty('--marker-x', `${position.x}px`);
+      marker.style.setProperty('--marker-y', `${position.y}px`);
+      marker.classList.toggle('visible', position.visible);
+    });
   }
 
   selectPlot(plotId, origin = { x: window.innerWidth - 30, y: window.innerHeight / 2 }) {
     this.selectedPlotId = plotId;
     this.world?.setSelectedPlot(plotId);
-    this.updateTopChips();
-    this.shell.querySelectorAll('.farm-plot-marker').forEach(m => m.classList.toggle('active', m.dataset.marker === plotId));
+    this.shell?.querySelectorAll('.farm-plot-marker').forEach(m => m.classList.toggle('active', m.dataset.marker === plotId));
     this.openPanel(plotId, origin);
   }
 

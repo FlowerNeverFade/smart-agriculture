@@ -1215,3 +1215,340 @@ body.farm-monitor-open > .app-container {
   .farm-detail-panel { width: calc(100vw - 120px); right: 16px; }
   .farm-env-dock { left: 106px; bottom: 16px; }
 }
+
+/* =========================================================================
+   Panoramic Sector Navigator (全景区域漫游切换栏)
+   ========================================================================= */
+.farm-sector-nav {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(14, 44, 32, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 30px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(20px);
+}
+
+.farm-sector-btn {
+  height: 32px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 200ms var(--farm-ease);
+}
+
+.farm-sector-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.farm-sector-btn.active {
+  color: #fff;
+  background: var(--farm-green-bright);
+  border-color: #5effb2;
+  box-shadow: 0 4px 14px rgba(40, 167, 109, 0.45);
+}
+
+/* =========================================================================
+   Reclamation Mode Button & Floating Banner
+   ========================================================================= */
+.farm-btn-reclaim {
+  height: 36px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #10382b;
+  background: linear-gradient(135deg, #ffd359, #f7b03b);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 24px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(247, 176, 59, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: all 220ms var(--farm-ease);
+}
+
+.farm-btn-reclaim:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 8px 24px rgba(247, 176, 59, 0.6);
+  background: linear-gradient(135deg, #ffe285, #f8bc4c);
+}
+
+.farm-btn-reclaim.active {
+  background: linear-gradient(135deg, #ff6060, #d93838);
+  color: #fff;
+  border-color: #ffb8b8;
+  box-shadow: 0 6px 18px rgba(217, 56, 56, 0.5);
+}
+
+.farm-reclaim-banner {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  background: rgba(22, 60, 44, 0.92);
+  border: 1px solid rgba(247, 176, 59, 0.6);
+  border-radius: 24px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 280ms var(--farm-ease);
+}
+
+.farm-reclaim-banner.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+.farm-reclaim-banner strong {
+  color: #ffd359;
+}
+
+/* =========================================================================
+   3D Holographic Reclamation Marker Pins
+   ========================================================================= */
+.farm-reclaim-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 25;
+  transform: translate(-50%, -100%) translate(var(--marker-x, 0), var(--marker-y, 0));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 250ms ease, transform 150ms ease;
+}
+
+.farm-reclaim-marker.visible {
+  opacity: 1;
+}
+
+.farm-reclaim-badge {
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(20, 52, 38, 0.94);
+  border: 1.5px solid #ffd359;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(247, 176, 59, 0.45), 0 0 16px rgba(255, 211, 89, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+  animation: pulseReclaim 2s infinite alternate ease-in-out;
+  transition: transform 180ms ease;
+}
+
+.farm-reclaim-marker:hover .farm-reclaim-badge {
+  transform: scale(1.1);
+  background: rgba(30, 80, 58, 0.98);
+  border-color: #fff;
+}
+
+.farm-reclaim-badge i {
+  color: #ffd359;
+  font-size: 15px;
+}
+
+@keyframes pulseReclaim {
+  0% { transform: translateY(0); box-shadow: 0 8px 20px rgba(247, 176, 59, 0.35); }
+  100% { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(247, 176, 59, 0.7); }
+}
+
+/* =========================================================================
+   Cultivation Wizard Modal (新田开垦向导对话框)
+   ========================================================================= */
+.farm-reclaim-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 20, 14, 0.65);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+
+.farm-reclaim-dialog-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.farm-reclaim-card {
+  width: 90%;
+  max-width: 540px;
+  background: rgba(253, 254, 249, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 28px;
+  box-shadow: 0 32px 70px rgba(6, 24, 16, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  padding: 24px;
+  color: #10382b;
+  transform: scale(0.92);
+  transition: transform 280ms var(--farm-ease-spring);
+}
+
+.farm-reclaim-dialog-backdrop.open .farm-reclaim-card {
+  transform: scale(1);
+}
+
+.farm-reclaim-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  border-bottom: 1px solid rgba(16, 56, 43, 0.1);
+  padding-bottom: 14px;
+}
+
+.farm-reclaim-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #10382b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.farm-reclaim-head p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #4c6c5e;
+}
+
+.farm-reclaim-grid-info {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.farm-reclaim-info-box {
+  padding: 10px 12px;
+  background: rgba(16, 56, 43, 0.04);
+  border: 1px solid rgba(16, 56, 43, 0.08);
+  border-radius: 14px;
+}
+
+.farm-reclaim-info-box span {
+  display: block;
+  font-size: 11px;
+  color: #4c6c5e;
+  margin-bottom: 3px;
+}
+
+.farm-reclaim-info-box strong {
+  font-size: 13.5px;
+  font-weight: 750;
+  color: #10382b;
+}
+
+.farm-reclaim-field-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #10382b;
+  margin-bottom: 8px;
+}
+
+.farm-reclaim-crop-options {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.farm-reclaim-crop-btn {
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1.5px solid rgba(16, 56, 43, 0.12);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.farm-reclaim-crop-btn .crop-icon {
+  font-size: 20px;
+}
+
+.farm-reclaim-crop-btn:hover {
+  border-color: #28a76d;
+  background: rgba(40, 167, 109, 0.05);
+}
+
+.farm-reclaim-crop-btn.active {
+  border-color: #28a76d;
+  background: rgba(40, 167, 109, 0.12);
+  box-shadow: 0 0 0 2px rgba(40, 167, 109, 0.25);
+  color: #10382b;
+}
+
+.farm-reclaim-submit-btn {
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #28a76d, #14523d);
+  color: #fff;
+  border: 0;
+  border-radius: 22px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(20, 82, 61, 0.35);
+  transition: all 200ms ease;
+}
+
+.farm-reclaim-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(20, 82, 61, 0.5);
+  background: linear-gradient(135deg, #2ec480, #18634a);
+}
+
