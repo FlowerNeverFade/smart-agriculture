@@ -762,6 +762,28 @@
   pointer-events: none;
 }
 
+.resource-water-shader {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: .96;
+  mix-blend-mode: screen;
+}
+
+.resource-ops.water-shader-fallback .resource-water-shader {
+  display: none;
+}
+
+.resource-ops.webgl-water-ready .backdrop-water-sphere {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .45s ease, visibility .45s ease;
+}
+
 .resource-water-backdrop::before {
   content: "";
   position: absolute;
@@ -794,7 +816,7 @@
     0 0 145px rgba(56, 189, 248, .25);
   filter: saturate(1.28) contrast(1.05);
   transform: translateX(-50%);
-  animation: windowSphereFloat 10s ease-in-out infinite alternate;
+  animation: windowSphereFloat 7.2s ease-in-out infinite alternate;
 }
 
 .backdrop-water-sphere::before,
@@ -849,10 +871,10 @@
   border-top: 2px solid rgba(220, 249, 255, .74);
   background: rgba(142, 225, 255, .38);
   box-shadow: 0 8px 30px rgba(112, 221, 255, .38), inset 0 8px 20px rgba(217, 248, 255, .14);
-  animation: windowWaterWave 5.8s ease-in-out infinite alternate;
+  animation: windowWaterWave 4.2s ease-in-out infinite alternate;
 }
 
-.backdrop-water-volume::after { top: -15px; opacity: .48; animation-duration: 8.2s; animation-direction: alternate-reverse; }
+.backdrop-water-volume::after { top: -15px; opacity: .56; animation-duration: 5.7s; animation-direction: alternate-reverse; }
 
 .backdrop-water-volume span,
 .backdrop-water-volume i {
@@ -864,10 +886,10 @@
     radial-gradient(circle at 72% 62%, rgba(255,255,255,.24) 0 1px, transparent 3px),
     linear-gradient(118deg, transparent 12%, rgba(255,255,255,.13) 24%, transparent 39%);
   background-size: 58px 58px, 86px 86px, 220px 100%;
-  animation: windowWaterFlow 9s linear infinite;
+  animation: windowWaterFlow 6.6s linear infinite;
 }
 
-.backdrop-water-volume i { opacity: .17; filter: blur(5px); transform: scale(1.12) rotate(-9deg); animation-direction: reverse; animation-duration: 13s; }
+.backdrop-water-volume i { opacity: .22; filter: blur(5px); transform: scale(1.12) rotate(-9deg); animation-direction: reverse; animation-duration: 9.5s; }
 
 .backdrop-water-rim {
   position: absolute;
@@ -904,11 +926,12 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+  mix-blend-mode: screen;
 }
 
-@keyframes windowSphereFloat { to { transform: translateX(-50%) translateY(16px) scale(1.025); } }
-@keyframes windowWaterWave { to { transform: translateX(38px) rotate(1.8deg) scaleY(.8); } }
-@keyframes windowWaterFlow { to { background-position: 58px 26px, -86px 34px, 220px 0; } }
+@keyframes windowSphereFloat { to { transform: translateX(-50%) translateY(24px) scale(1.035); } }
+@keyframes windowWaterWave { to { transform: translateX(64px) rotate(3deg) scaleY(.76); } }
+@keyframes windowWaterFlow { to { background-position: 92px 38px, -128px 52px, 320px 0; } }
 @keyframes waterRimTurn { to { transform: rotate(360deg); } }
 @keyframes waterSprayBreathe { to { transform: scale(1.025); opacity: .72; } }
 
