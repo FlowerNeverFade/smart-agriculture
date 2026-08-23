@@ -2,7 +2,7 @@
  * Three.js wheat-field background — rolling hills, wind-swept stalks, theme-aware dusk/day.
  */
 import * as THREE from 'three';
-import { getTheme } from './theme.js';
+import { getTheme } from './theme.js?v=19';
 
 const PALETTES = {
   dark: {
@@ -54,6 +54,35 @@ function getPalette(theme) {
   return theme === 'light' ? PALETTES.light : PALETTES.dark;
 }
 
+function lerpNum(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function lerpHex(a, b, t) {
+  const c1 = new THREE.Color(a);
+  const c2 = new THREE.Color(b);
+  return c1.lerp(c2, t).getHex();
+}
+
+const COLOR_KEYS = new Set([
+  'sky', 'zenith', 'horizon', 'fog', 'soil', 'fieldLow', 'fieldHigh',
+  'wheatTip', 'wheatStem', 'particle', 'sun', 'moon', 'fill', 'cloud',
+]);
+
+function blendPalettes(fromKey, toKey, t) {
+  const a = PALETTES[fromKey];
+  const b = PALETTES[toKey];
+  const out = {};
+  for (const key of Object.keys(a)) {
+    if (COLOR_KEYS.has(key)) {
+      out[key] = lerpHex(a[key], b[key] ?? a[key], t);
+    } else if (typeof a[key] === 'number') {
+      out[key] = lerpNum(a[key], b[key], t);
+    }
+  }
+  return out;
+}
+
 const SKY_VERT = /* glsl */ `
   varying vec3 vDir;
   void main() {
@@ -66,14 +95,26 @@ const SKY_FRAG = /* glsl */ `
   uniform vec3 uZenith;
   uniform vec3 uHorizon;
   uniform vec3 uSunDir;
+  uniform vec3 uMoonDir;
   uniform float uSunGlow;
+  uniform float uMoonGlow;
   varying vec3 vDir;
   void main() {
     float h = clamp(vDir.y * 0.5 + 0.35, 0.0, 1.0);
     vec3 col = mix(uHorizon, uZenith, smoothstep(0.05, 0.85, h));
-    float sun = pow(max(dot(normalize(vDir), normalize(uSunDir)), 0.0), 48.0) * uSunGlow;
-    col += vec3(1.0, 0.93, 0.72) * sun;
-    col += vec3(1.0, 0.96, 0.86) * pow(max(dot(normalize(vDir), normalize(uSunDir)), 0.0), 8.0) * uSunGlow * 0.18;
+    vec3 dir = normalize(vDir);
+
+    float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
+    float sunDisk = smoothstep(0.992, 0.9996, sunDot) * uSunGlow;
+    col = mix(col, vec3(1.0, 0.90, 0.66), sunDisk);
+    col += vec3(1.0, 0.80, 0.50) * pow(sunDot, 128.0) * uSunGlow * 0.18;
+    col += vec3(1.0, 0.86, 0.58) * pow(sunDot, 24.0) * uSunGlow * 0.06;
+
+    float moonDot = max(dot(dir, normalize(uMoonDir)), 0.0);
+    float moonDisk = smoothstep(0.993, 0.9997, moonDot) * uMoonGlow;
+    col += vec3(0.94, 0.96, 1.0) * moonDisk;
+    col += vec3(0.82, 0.88, 1.0) * pow(moonDot, 48.0) * uMoonGlow * 0.35;
+
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -102,84 +143,96 @@ const STAR_FRAG = /* glsl */ `
   }
 `;
 
-function disposeGroup(group) {
-  group.traverse((obj) => {
-    if (obj.geometry) obj.geometry.dispose();
-    if (obj.material) obj.material.dispose();
+function makeCelestialTexture(kind) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size * 0.46;
+
+  if (kind === 'sun') {
+    // Soft outer halo (does not wash out the disc).
+    const halo = ctx.createRadialGradient(cx, cy, r * 0.46, cx, cy, r);
+    halo.addColorStop(0, 'rgba(255,220,150,0.14)');
+    halo.addColorStop(0.5, 'rgba(255,200,110,0.04)');
+    halo.addColorStop(1, 'rgba(255,190,80,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, size, size);
+
+    // Solid disc with a warm gradient so it stands out against a pale sky.
+    const discR = r * 0.34;
+    const body = ctx.createRadialGradient(cx - discR * 0.22, cy - discR * 0.22, 0, cx, cy, discR);
+    body.addColorStop(0, 'rgba(255,240,185,1)');
+    body.addColorStop(0.6, 'rgba(252,222,150,1)');
+    body.addColorStop(1, 'rgba(238,192,92,1)');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rim outline so the contour stays visible on bright backgrounds.
+    ctx.strokeStyle = 'rgba(160,92,24,0.92)';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    const halo = ctx.createRadialGradient(cx, cy, r * 0.28, cx, cy, r);
+    halo.addColorStop(0, 'rgba(220,228,242,0.28)');
+    halo.addColorStop(0.5, 'rgba(200,210,228,0.07)');
+    halo.addColorStop(1, 'rgba(180,190,210,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, size, size);
+
+    const discR = r * 0.30;
+    const body = ctx.createRadialGradient(cx - discR * 0.25, cy - discR * 0.25, 0, cx, cy, discR);
+    body.addColorStop(0, 'rgba(246,250,255,1)');
+    body.addColorStop(0.7, 'rgba(228,234,246,1)');
+    body.addColorStop(1, 'rgba(206,214,232,1)');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(148,160,186,0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(168,178,198,0.4)';
+    for (const [ox, oy, rr] of [
+      [0.12, -0.08, 0.09],
+      [-0.14, 0.1, 0.07],
+      [0.05, 0.16, 0.06],
+      [-0.06, -0.15, 0.05],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(cx + ox * r, cy + oy * r, rr * r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createSkySprite(texture, scale) {
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
   });
-}
-
-function placeCelestial(group, azDeg, elDeg, radius = 96) {
-  const az = THREE.MathUtils.degToRad(azDeg);
-  const el = THREE.MathUtils.degToRad(elDeg);
-  group.position.set(
-    radius * Math.cos(el) * Math.sin(az),
-    radius * Math.sin(el),
-    -radius * Math.cos(el) * Math.cos(az),
-  );
-}
-
-function createSunBody() {
-  const group = new THREE.Group();
-  group.renderOrder = 2;
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(5.4, 28, 28),
-    new THREE.MeshBasicMaterial({ color: 0xfff6dc, fog: false }),
-  );
-  group.add(core);
-  for (const [r, color, opacity] of [
-    [8.8, 0xffe8a8, 0.38],
-    [13.5, 0xffd070, 0.16],
-    [19.0, 0xffb848, 0.07],
-  ]) {
-    group.add(new THREE.Mesh(
-      new THREE.SphereGeometry(r, 20, 20),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity,
-        fog: false,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    ));
-  }
-  group.userData.core = core;
-  return group;
-}
-
-function createMoonBody() {
-  const group = new THREE.Group();
-  group.renderOrder = 2;
-  const coreMat = new THREE.MeshBasicMaterial({ color: 0xf0f4fc, fog: false });
-  const core = new THREE.Mesh(new THREE.SphereGeometry(4.2, 32, 32), coreMat);
-  group.add(core);
-  group.add(new THREE.Mesh(
-    new THREE.SphereGeometry(7.2, 20, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0xc8d8f0,
-      transparent: true,
-      opacity: 0.24,
-      fog: false,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }),
-  ));
-  const craterMat = new THREE.MeshBasicMaterial({ color: 0xb0bcd0, fog: false });
-  for (const [nx, ny, nz, s] of [
-    [0.85, 0.45, 0.28, 0.5],
-    [-0.55, 0.75, -0.32, 0.42],
-    [0.18, -0.68, 0.58, 0.36],
-    [-0.28, -0.38, -0.82, 0.44],
-    [0.48, 0.08, -0.72, 0.32],
-  ]) {
-    const len = Math.hypot(nx, ny, nz) || 1;
-    const spot = new THREE.Mesh(new THREE.SphereGeometry(s, 10, 10), craterMat);
-    spot.position.set((nx / len) * 4.25, (ny / len) * 4.25, (nz / len) * 4.25);
-    group.add(spot);
-  }
-  group.userData.coreMat = coreMat;
-  return group;
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(scale, scale, 1);
+  sprite.renderOrder = 50;
+  return sprite;
 }
 
 function terrainHeight(x, z) {
@@ -378,8 +431,10 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     uniforms: {
       uZenith: { value: new THREE.Color(palette.zenith) },
       uHorizon: { value: new THREE.Color(palette.horizon) },
-      uSunDir: { value: new THREE.Vector3(0.45, 0.72, 0.28).normalize() },
+      uSunDir: { value: new THREE.Vector3(0.55, 0.62, -0.55).normalize() },
+      uMoonDir: { value: new THREE.Vector3(-0.5, 0.58, -0.64).normalize() },
       uSunGlow: { value: palette.skyGlow },
+      uMoonGlow: { value: 0 },
     },
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
@@ -390,16 +445,25 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   skyDome.renderOrder = 0;
   scene.add(skyDome);
 
-  const celestials = new THREE.Group();
-  scene.add(celestials);
+  const sunTexture = makeCelestialTexture('sun');
+  const moonTexture = makeCelestialTexture('moon');
+  const sunSprite = createSkySprite(sunTexture, 24);
+  const CELESTIAL_PEAK = { x: 18, y: 20, z: -58 };
+  const CELESTIAL_ENTER_Y = 40;
+  const CELESTIAL_EXIT_Y = -30;
+  sunSprite.position.set(CELESTIAL_PEAK.x, CELESTIAL_PEAK.y, CELESTIAL_PEAK.z);
+  camera.add(sunSprite);
+  camera.updateMatrixWorld();
+  const celestialBase = new THREE.Vector3();
+  sunSprite.getWorldPosition(celestialBase);
+  camera.remove(sunSprite);
+  sunSprite.position.copy(celestialBase);
 
-  const sunGroup = createSunBody();
-  placeCelestial(sunGroup, 52, 34);
-  celestials.add(sunGroup);
+  const moonSprite = createSkySprite(moonTexture, 20);
+  moonSprite.position.copy(celestialBase);
 
-  const moonGroup = createMoonBody();
-  placeCelestial(moonGroup, -128, 36);
-  celestials.add(moonGroup);
+  const sunDirWorld = new THREE.Vector3();
+  const moonDirWorld = new THREE.Vector3();
 
   const starCount = 2200;
   const starPos = new Float32Array(starCount * 3);
@@ -464,19 +528,29 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   }
   scene.add(clouds);
 
+  function syncSkyDirections() {
+    sunSprite.getWorldPosition(sunDirWorld);
+    moonSprite.getWorldPosition(moonDirWorld);
+    sunDirWorld.sub(camera.position).normalize();
+    moonDirWorld.sub(camera.position).normalize();
+    skyMat.uniforms.uSunDir.value.copy(sunDirWorld);
+    skyMat.uniforms.uMoonDir.value.copy(moonDirWorld);
+  }
+
   function setDayNight(isDay) {
-    sunGroup.visible = isDay;
-    moonGroup.visible = !isDay;
+    sunSprite.visible = isDay;
+    moonSprite.visible = !isDay;
     clouds.visible = isDay;
     stars.visible = !isDay;
     pollen.visible = isDay;
     skyMat.uniforms.uSunGlow.value = isDay ? 1 : 0;
-    const body = isDay ? sunGroup : moonGroup;
-    skyMat.uniforms.uSunDir.value.copy(body.position).normalize();
+    skyMat.uniforms.uMoonGlow.value = isDay ? 0 : 1;
+    syncSkyDirections();
     if (isDay) {
-      sun.position.copy(sunGroup.position).normalize().multiplyScalar(40);
+      sun.position.copy(sunDirWorld).multiplyScalar(40);
     } else {
-      fill.position.set(-sunGroup.position.x * 0.3, 8, -sunGroup.position.z * 0.3);
+      fill.position.copy(moonDirWorld).multiplyScalar(-12);
+      fill.position.y = Math.max(fill.position.y, 6);
     }
   }
 
@@ -576,9 +650,12 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   world.add(pollen);
   setDayNight(getTheme() === 'light');
 
-  function applyPalette(next) {
+  function applyPalette(next, transition = null) {
     palette = next;
     const isDay = next === PALETTES.light;
+    const sunGlow = transition ? transition.sunGlow : (isDay ? 1 : 0);
+    const moonGlow = transition ? transition.moonGlow : (isDay ? 0 : 1);
+
     scene.background.setHex(palette.sky);
     scene.fog.color.setHex(palette.fog);
     scene.fog.near = palette.fogNear;
@@ -591,6 +668,8 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     fill.intensity = palette.fillIntensity;
     skyMat.uniforms.uZenith.value.setHex(palette.zenith);
     skyMat.uniforms.uHorizon.value.setHex(palette.horizon);
+    skyMat.uniforms.uSunGlow.value = sunGlow;
+    skyMat.uniforms.uMoonGlow.value = moonGlow;
     wheatMat.uniforms.uColorA.value.setHex(palette.wheatTip);
     wheatMat.uniforms.uColorB.value.setHex(palette.wheatStem);
     wheatMat.uniforms.uColorHead.value.setHex(palette.wheatTip);
@@ -598,12 +677,44 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     underMat.uniforms.uColorB.value.setHex(palette.wheatStem);
     underMat.uniforms.uColorHead.value.setHex(palette.fieldHigh);
     pollenMat.color.setHex(palette.particle);
-    moonGroup.userData.coreMat.color.setHex(palette.moon);
-    if (palette.cloud !== undefined) {
+
+    if (transition) {
+      const { to, progress } = transition;
+      const sunEntering = to === 'light';
+      const moonEntering = to === 'dark';
+      const sg = sunEntering ? progress : 1 - progress;
+      const mg = moonEntering ? progress : 1 - progress;
+      sunSprite.visible = true;
+      moonSprite.visible = true;
+      const sunLocalY = sunEntering
+        ? THREE.MathUtils.lerp(CELESTIAL_ENTER_Y, CELESTIAL_PEAK.y, progress)
+        : THREE.MathUtils.lerp(CELESTIAL_PEAK.y, CELESTIAL_EXIT_Y, progress);
+      const moonLocalY = moonEntering
+        ? THREE.MathUtils.lerp(CELESTIAL_ENTER_Y, CELESTIAL_PEAK.y, progress)
+        : THREE.MathUtils.lerp(CELESTIAL_PEAK.y, CELESTIAL_EXIT_Y, progress);
+      sunSprite.position.x = celestialBase.x;
+      moonSprite.position.x = celestialBase.x;
+      sunSprite.position.y = celestialBase.y + (sunLocalY - CELESTIAL_PEAK.y);
+      moonSprite.position.y = celestialBase.y + (moonLocalY - CELESTIAL_PEAK.y);
+      sunSprite.material.opacity = Math.pow(sg, 0.85);
+      moonSprite.material.opacity = Math.pow(mg, 0.85);
+      clouds.visible = sg > 0.06;
+      cloudMat.opacity = 0.94 * sg;
+      stars.visible = mg > 0.06;
+      pollen.visible = sg > 0.45;
+      syncSkyDirections();
+    } else {
+      sunSprite.position.copy(celestialBase);
+      moonSprite.position.copy(celestialBase);
+      sunSprite.material.opacity = 1;
+      moonSprite.material.opacity = 1;
+      setDayNight(isDay);
+    }
+
+    if (palette.cloud !== undefined && !transition) {
       cloudMat.color.setHex(palette.cloud);
       cloudMat.opacity = isDay ? 0.94 : 0;
     }
-    setDayNight(isDay);
 
     soil.setHex(palette.soil);
     fieldHigh.setHex(palette.fieldHigh);
@@ -619,13 +730,19 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     terrainGeo.attributes.color.needsUpdate = true;
   }
 
+  function onThemeTransition(e) {
+    const { from, to, progress } = e.detail;
+    const sunGlow = to === 'light' ? progress : 1 - progress;
+    const moonGlow = 1 - sunGlow;
+    applyPalette(blendPalettes(from, to, progress), { sunGlow, moonGlow, to, progress });
+  }
+
   function renderFrame(t = 0) {
     const time = t * 0.001;
     if (!reducedMotion) {
       wheatMat.uniforms.uTime.value = time;
       starMat.uniforms.uTime.value = time;
-      sunGroup.lookAt(camera.position);
-      moonGroup.lookAt(camera.position);
+      syncSkyDirections();
       pollen.rotation.y = time * 0.02;
       const pp = pollenGeo.attributes.position;
       for (let i = 0; i < pollenCount; i++) {
@@ -673,6 +790,7 @@ export function initSceneBackground(containerId = 'sceneBackground') {
 
   window.addEventListener('resize', onResize);
   window.addEventListener('mousemove', onMouseMove, { passive: true });
+  document.addEventListener('agriloop-theme-transition', onThemeTransition);
   document.addEventListener('agriloop-theme-change', onThemeChange);
   document.addEventListener('visibilitychange', onVisibilityChange);
 
@@ -684,13 +802,16 @@ export function initSceneBackground(containerId = 'sceneBackground') {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('agriloop-theme-transition', onThemeTransition);
       document.removeEventListener('agriloop-theme-change', onThemeChange);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       renderer.dispose();
       skyGeo.dispose();
       skyMat.dispose();
-      disposeGroup(sunGroup);
-      disposeGroup(moonGroup);
+      sunTexture.dispose();
+      moonTexture.dispose();
+      sunSprite.material.dispose();
+      moonSprite.material.dispose();
       starGeo.dispose();
       starMat.dispose();
       cloudGeo.dispose();

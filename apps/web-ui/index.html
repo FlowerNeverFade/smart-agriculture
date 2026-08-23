@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=37">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   <script>
@@ -259,7 +259,20 @@
     </section>
 
     <!-- ======================== Right Rail (330px) ======================== -->
-    <aside class="right-rail">
+    <aside class="right-rail" id="rightRail">
+      <div class="right-rail-panel" id="rightRailPanel">
+      <button
+        type="button"
+        class="right-rail-toggle"
+        id="btnToggleRightRail"
+        aria-expanded="true"
+        aria-controls="rightRailPanel"
+        title="收起系统状态面板"
+      >
+        <span class="right-rail-toggle-chevron" aria-hidden="true"></span>
+        <span class="right-rail-toggle-text">收回</span>
+      </button>
+      <div class="right-rail-cards">
       <!-- 1. System Health Status Card -->
       <div class="system-status-card">
         <div class="system-status-header">
@@ -342,6 +355,8 @@
           <!-- Populated by JS -->
         </ul>
       </div>
+      </div>
+      </div>
     </aside>
   </main>
 
@@ -391,6 +406,7 @@
     }
   }
   </script>
-  <script type="module" src="js/app.js?v=14"></script>
+
+  <script type="module" src="js/app.js?v=37"></script>
 </body>
 </html>

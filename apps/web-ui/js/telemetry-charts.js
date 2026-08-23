@@ -27,25 +27,31 @@ export function groupByMetric(points) {
 
 export function drawLineChart(canvas, series, options = {}) {
   if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
+  if (w < 2 || h < 2) {
+    const retries = (canvas._drawRetries || 0) + 1;
+    canvas._drawRetries = retries;
+    if (retries <= 12) {
+      requestAnimationFrame(() => drawLineChart(canvas, series, options));
+    }
+    return;
+  }
+  canvas._drawRetries = 0;
+
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   ctx.clearRect(0, 0, w, h);
 
-  const pad = { top: 14, right: 12, bottom: 28, left: 44 };
-  const plotW = w - pad.left - pad.right;
-  const plotH = h - pad.top - pad.bottom;
-
   const values = series.map((p) => Number(p.value)).filter((v) => !Number.isNaN(v));
   if (!values.length) {
     ctx.fillStyle = '#8b949e';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('暂无数据', pad.left, pad.top + plotH / 2);
+    ctx.fillText('暂无数据', 44, 14 + (h - 14 - 28) / 2);
     return;
   }
 
@@ -56,6 +62,11 @@ export function drawLineChart(canvas, series, options = {}) {
   const yPad = (yMax - yMin) * 0.12 || 1;
   yMin -= yPad;
   yMax += yPad;
+
+  const yLabelChars = Math.max(Math.abs(yMax), Math.abs(yMin)).toFixed(1).length;
+  const pad = { top: 14, right: 16, bottom: 28, left: Math.max(44, yLabelChars * 6 + 12) };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
 
   const toX = (i) => pad.left + (series.length <= 1 ? plotW / 2 : (i / (series.length - 1)) * plotW);
   const toY = (v) => pad.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
@@ -117,6 +128,12 @@ export function drawLineChart(canvas, series, options = {}) {
       return '';
     }
   };
-  if (series[0]?.ts) ctx.fillText(fmt(series[0].ts), toX(0), h - 8);
-  if (last?.ts && series.length > 1) ctx.fillText(fmt(last.ts), lx, h - 8);
+  if (series[0]?.ts) {
+    ctx.textAlign = 'left';
+    ctx.fillText(fmt(series[0].ts), toX(0), h - 8);
+  }
+  if (last?.ts && series.length > 1) {
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(last.ts), lx, h - 8);
+  }
 }

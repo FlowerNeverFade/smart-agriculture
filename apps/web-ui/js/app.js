@@ -3,10 +3,10 @@
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js';
-import { api } from './api.js?v=4';
-import { PlotTelemetryView } from './plot-telemetry-view.js';
-import { initTheme } from './theme.js';
-import { initSceneBackground } from './scene-background.js';
+import { api } from './api.js?v=5';
+import { PlotTelemetryView } from './plot-telemetry-view.js?v=36';
+import { initTheme } from './theme.js?v=19';
+import { initSceneBackground } from './scene-background.js?v=20';
 
 class AgriApp {
   constructor() {
@@ -30,6 +30,7 @@ class AgriApp {
     this.cacheDom();
     initTheme();
     initSceneBackground();
+    this.initRightRailCollapse();
     this.bindEvents();
 
     const conn = await api.connect();
@@ -53,10 +54,10 @@ class AgriApp {
 
   async refreshLiveData() {
     if (!api.isLive) return;
+    this.plotTelemetryView.onLiveTick();
     await this.loadOverview();
     this.renderPlots(this.dom.plotSearchInput?.value || '');
     this.updateSystemStatusPill();
-    this.plotTelemetryView.onLiveTick();
   }
 
   cacheDom() {
@@ -99,7 +100,41 @@ class AgriApp {
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
     this.dom.homeFeedContent = document.getElementById('homeFeedContent');
     this.dom.plotTelemetryPanel = document.getElementById('plotTelemetryPanel');
+    this.dom.appContainer = document.querySelector('.app-container');
+    this.dom.btnToggleRightRail = document.getElementById('btnToggleRightRail');
     this.plotTelemetryView.bind(this.dom.plotTelemetryPanel);
+  }
+
+  initRightRailCollapse() {
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem('agriloop-right-rail-collapsed') === '1';
+    } catch {
+      collapsed = false;
+    }
+    this.state.rightRailCollapsed = collapsed;
+    this.applyRightRailCollapsed(collapsed);
+  }
+
+  setRightRailCollapsed(collapsed) {
+    this.state.rightRailCollapsed = collapsed;
+    this.applyRightRailCollapsed(collapsed);
+    try {
+      localStorage.setItem('agriloop-right-rail-collapsed', collapsed ? '1' : '0');
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  applyRightRailCollapsed(collapsed) {
+    this.dom.appContainer?.classList.toggle('right-rail-collapsed', collapsed);
+    const btn = this.dom.btnToggleRightRail;
+    if (!btn) return;
+    btn.style.cssText = '';
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    btn.title = collapsed ? '展开系统状态面板' : '收起系统状态面板';
+    const label = btn.querySelector('.right-rail-toggle-text');
+    if (label) label.textContent = collapsed ? '展开状态' : '收回';
   }
 
   bindEvents() {
@@ -118,6 +153,10 @@ class AgriApp {
 
     this.dom.btnOpenCropPacks?.addEventListener('click', () => {
       this.openSubview('crop-packs');
+    });
+
+    this.dom.btnToggleRightRail?.addEventListener('click', () => {
+      this.setRightRailCollapsed(!this.state.rightRailCollapsed);
     });
 
     // Search input filter for plots

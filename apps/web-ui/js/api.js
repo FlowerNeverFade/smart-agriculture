@@ -195,13 +195,16 @@ export class ApiService {
     return overview.plots;
   }
 
-  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50) {
+  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
+    const { from, to } = options;
     if (this.isLive) {
       try {
         const q = new URLSearchParams({ limit: String(limit) });
         if (metric) q.set('metric', metric);
+        if (from) q.set('from', from);
+        if (to) q.set('to', to);
         const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?${q}`);
-        if (resp?.data?.length) return resp.data;
+        if (resp?.data) return resp.data;
       } catch (e) {
         console.warn('[AgriLoop] telemetry failed, using mock series:', e);
       }
@@ -209,21 +212,33 @@ export class ApiService {
     const now = Date.now();
     const targetPlot = MOCK_DATA.plots.find((p) => p.plotId === plotId) || MOCK_DATA.plots[0];
     const baseValue = targetPlot.metrics[metric]?.value || 25.0;
-    return Array.from({ length: 24 }, (_, i) => {
-      const offset = (24 - i) * 10 * 60 * 1000;
+    const startMs = from ? new Date(from).getTime() : now - 24 * 10 * 60 * 1000;
+    const endMs = to ? new Date(to).getTime() : now;
+    const stepMs = Math.max(5 * 60 * 1000, Math.floor((endMs - startMs) / Math.max(limit, 24)));
+    const points = [];
+    for (let t = startMs, i = 0; t <= endMs && points.length < limit; t += stepMs, i += 1) {
       const noise = Math.sin(i / 3) * 1.5 + (Math.random() * 0.4 - 0.2);
-      return {
+      points.push({
         eventId: `mock-evt-${i}`,
         plotId,
         metric,
         value: Number(
-          (baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? (24 - i) * 0.25 : 0)).toFixed(2),
+          (baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? i * 0.05 : 0)).toFixed(2),
         ),
         unit: targetPlot.metrics[metric]?.unit || '%',
-        ts: new Date(now - offset).toISOString(),
+        ts: new Date(t).toISOString(),
         quality: { status: 'GOOD', freshnessMs: 200, confidence: 0.98, sourceMode: 'SIMULATION' },
-      };
-    });
+      });
+    }
+    return points;
+  }
+
+  async getTelemetryDay(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 5000) {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const from = startOfDay.toISOString();
+    const to = new Date().toISOString();
+    return this.getTelemetry(plotId, metric, limit, { from, to });
   }
 
   async getPlotTelemetryAll(plotId = 'plot-a01', limit = 120) {
