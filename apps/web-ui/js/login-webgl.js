@@ -319,11 +319,11 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     return signedByte / 127.0 * uVelocityMax;
   }
 
-  const vec3 COLOR_MINT = vec3(0.795, 0.958, 0.835);
-  const vec3 COLOR_SAGE = vec3(0.735, 0.895, 0.755);
-  const vec3 COLOR_AQUA = vec3(0.800, 0.955, 0.910);
-  const vec3 COLOR_OLIVE = vec3(0.820, 0.925, 0.745);
-  const vec3 COLOR_CREAM = vec3(0.965, 0.982, 0.945);
+  const vec3 COLOR_MINT = vec3(0.620, 0.925, 0.720);
+  const vec3 COLOR_SAGE = vec3(0.530, 0.800, 0.590);
+  const vec3 COLOR_AQUA = vec3(0.620, 0.890, 0.920);
+  const vec3 COLOR_OLIVE = vec3(0.800, 0.865, 0.520);
+  const vec3 COLOR_CREAM = vec3(0.970, 0.965, 0.850);
 
   vec4 normalizeInkWeights(vec4 weights) {
     weights = max(weights, vec4(0.0));
@@ -384,7 +384,7 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     color *= softLight;
 
     color *= 1.0 + flowMagnitude * 0.006;
-    color = clamp(color, vec3(0.70), vec3(0.985));
+    color = clamp(color, vec3(0.50), vec3(0.985));
     outColor = vec4(color, 1.0);
   }
 `;
