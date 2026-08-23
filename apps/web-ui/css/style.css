@@ -823,6 +823,21 @@ body {
   padding-top: 14px;
 }
 
+.auth-horizon-link {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--green-bright);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.auth-horizon-link:hover,
+.auth-horizon-link:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
+  outline: none;
+}
+
 /* Feed Filter Tabs */
 .feed-filter-bar {
   display: flex;

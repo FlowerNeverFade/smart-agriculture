@@ -3,10 +3,75 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="0; url=login.html">
-  <title>正在进入 AgriLoop</title>
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#02070b">
+  <title>AgriLoop · 生长地平线</title>
+  <link rel="stylesheet" href="css/login-concepts.css?v=horizon-b0ed918">
 </head>
 <body>
-  <p>正在进入新版登录页。若未自动跳转，请<a href="login.html">点击这里</a>。</p>
+  <main class="experience" aria-labelledby="loginTitle">
+    <div class="scene" aria-hidden="true">
+      <img class="scene__frame" data-growth-frame="0" src="assets/login-concepts/horizon-start.png" alt="" fetchpriority="high">
+      <img class="scene__frame" data-growth-frame="1" src="assets/login-concepts/horizon-stage-25.png" alt="" decoding="async">
+      <img class="scene__frame" data-growth-frame="2" src="assets/login-concepts/horizon-stage-50.png" alt="" decoding="async">
+      <img class="scene__frame" data-growth-frame="3" src="assets/login-concepts/horizon-stage-75.png" alt="" decoding="async">
+      <img class="scene__frame" data-growth-frame="4" src="assets/login-concepts/horizon-stage-100.png" alt="" decoding="async">
+      <div class="scene__veil"></div>
+    </div>
+
+    <header class="brand" aria-label="AgriLoop 农智闭环">
+      <span class="brand__name">agri<span>loop</span></span>
+    </header>
+
+    <button class="motion-control" id="motionToggle" type="button" aria-label="暂停生长动画">暂停动画</button>
+
+    <section class="auth" aria-live="polite" aria-labelledby="loginTitle">
+      <h1 id="loginTitle">登录</h1>
+      <form id="loginForm" novalidate>
+        <label class="field">
+          <span>账号</span>
+          <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
+        </label>
+
+        <label class="field field--password">
+          <span>密码</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+          <button class="field__reveal" id="revealPassword" type="button" aria-label="显示密码">显示</button>
+        </label>
+
+        <p class="form-error" id="formError" role="alert"></p>
+
+        <button class="submit" id="submitButton" type="submit">
+          <span class="submit__label">进入系统</span>
+          <span class="submit__loading" aria-hidden="true">验证中</span>
+        </button>
+
+        <div class="auth__actions">
+          <button class="text-action" id="demoToggle" type="button" aria-expanded="false" aria-controls="demoPanel">演示身份</button>
+          <button class="text-action" id="forgotPassword" type="button">忘记密码</button>
+        </div>
+      </form>
+
+      <div class="demo-panel" id="demoPanel" hidden>
+        <p>选择体验身份</p>
+        <div class="demo-panel__roles">
+          <button type="button" data-user="admin">农场管理员</button>
+          <button type="button" data-user="farmer">种植农户</button>
+          <button type="button" data-user="operator">田间操作员</button>
+          <button type="button" data-user="sysadmin">系统管理员</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="growth-loader" aria-live="polite">
+      <span id="growthStatus">土壤苏醒</span>
+      <progress id="growthProgress" max="100" value="0">0%</progress>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script type="module" src="js/login.js?v=horizon-b0ed918"></script>
+  <script type="module" src="js/login-concepts.js?v=horizon-b0ed918"></script>
 </body>
 </html>
