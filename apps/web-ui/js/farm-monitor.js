@@ -444,6 +444,7 @@ class FarmWorld3D {
     this.buildTerrain();
     this.buildWater();
     this.buildRoads();
+    this.buildStreetLamps();
     this.buildBuildings();
     this.buildPlots();
     this.buildTrees();
@@ -502,75 +503,70 @@ class FarmWorld3D {
     this.hemiLight = new THREE.HemisphereLight(0xe8f6ff, 0x486c38, 2.4);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.4);
-    this.sunLight.position.set(-24, 30, -18);
+    // Directional Sun Light synchronized with high celestial sun
+    this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.5);
+    this.sunLight.position.set(-28, 50, -75);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
-    this.sunLight.shadow.camera.left = -38;
-    this.sunLight.shadow.camera.right = 38;
-    this.sunLight.shadow.camera.top = 32;
-    this.sunLight.shadow.camera.bottom = -24;
-    this.sunLight.shadow.camera.near = 1;
-    this.sunLight.shadow.camera.far = 100;
-    this.sunLight.shadow.bias = -0.00028;
+    this.sunLight.shadow.camera.left = -42;
+    this.sunLight.shadow.camera.right = 42;
+    this.sunLight.shadow.camera.top = 36;
+    this.sunLight.shadow.camera.bottom = -28;
+    this.sunLight.shadow.camera.near = 5;
+    this.sunLight.shadow.camera.far = 170;
+    this.sunLight.shadow.bias = -0.00025;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    // Sun Visual Flare in Sky
+    // Celestial High-Sky Sun Visual Disc (Always high in sky, sinks behind mountains)
     this.sunDisc = new THREE.Group();
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.85, 32, 22),
-      new THREE.MeshBasicMaterial({ color: 0xfff9da, toneMapped: false })
+      new THREE.SphereGeometry(2.6, 32, 22),
+      new THREE.MeshBasicMaterial({ color: 0xfffae0, toneMapped: false })
     );
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(1.85, 28, 18),
-      new THREE.MeshBasicMaterial({ color: 0xffe285, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(6.2, 28, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffe078, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     const glowWide = new THREE.Mesh(
-      new THREE.SphereGeometry(3.2, 24, 14),
-      new THREE.MeshBasicMaterial({ color: 0xffeca8, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(11.0, 24, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffec98, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     this.sunDisc.add(core, glow, glowWide);
+    this.sunDisc.position.set(-28, 50, -95);
     this.scene.add(this.sunDisc);
   }
 
   buildTerrain() {
-    // Vast Main Farm Basin (100m x 80m)
-    const geometry = new THREE.PlaneGeometry(100, 80, 90, 70);
-    const position = geometry.attributes.position;
-    for (let index = 0; index < position.count; index++) {
-      const x = position.getX(index);
-      const y = position.getY(index);
-      const elevation = getTerrainElevation(x, -y);
-      position.setZ(index, elevation - 0.25);
-    }
-    geometry.computeVertexNormals();
+    // Vast Main Farm Basin (100m x 80m, flat plain)
+    const geometry = new THREE.PlaneGeometry(100, 80, 48, 36);
     const material = new THREE.MeshStandardMaterial({ color: 0xa4b988, roughness: 0.95, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
     this.terrain.rotation.x = -Math.PI / 2;
-    this.terrain.position.y = -0.2;
+    this.terrain.position.y = -0.05;
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Natural Mountain Ranges at negative Z (No tree clipping!)
-    const buildRidge = ({ z, heightScale, color, opacity = 1 }) => {
-      const ridgeGeometry = new THREE.PlaneGeometry(110, 36, 120, 48);
+    // Distant Rolling Mountain Ranges (z = -40m to -75m, behind farm valley, depth testing enabled)
+    const buildMountainRidge = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
+      const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
       const ridgePosition = ridgeGeometry.attributes.position;
       for (let index = 0; index < ridgePosition.count; index++) {
         const x = ridgePosition.getX(index);
-        const depth = ridgePosition.getY(index);
+        const y = ridgePosition.getY(index);
+        const normY = (y + depth / 2) / depth;
         const peaks =
-          Math.exp(-((x + 36) ** 2) / 130) * 10.5 +
-          Math.exp(-((x + 16) ** 2) / 95) * 13.0 +
-          Math.exp(-((x - 6) ** 2) / 140) * 9.8 +
-          Math.exp(-((x - 28) ** 2) / 110) * 12.5 +
-          Math.exp(-((x - 46) ** 2) / 85) * 9.0;
-        const depthShape = 0.55 + Math.sin((depth + 18) / 36 * Math.PI) * 0.45;
-        const detail = Math.sin(x * 0.38 + depth * 0.18) * 0.55 + Math.cos(x * 0.15 - depth * 0.32) * 0.4;
+          Math.exp(-((x + 32) ** 2) / 320) * 12.0 +
+          Math.exp(-((x + 12) ** 2) / 260) * 15.0 +
+          Math.exp(-((x - 8) ** 2) / 380) * 11.5 +
+          Math.exp(-((x - 28) ** 2) / 290) * 14.0 +
+          Math.exp(-((x - 48) ** 2) / 240) * 10.0;
+        const depthShape = Math.sin(normY * Math.PI * 0.8);
+        const detail = Math.sin(x * 0.28 + normY * 3.1) * 0.45;
         ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
       }
       ridgeGeometry.computeVertexNormals();
-      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.96, transparent: opacity < 1, opacity });
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.96, transparent: opacity < 1, opacity, depthWrite: true });
       this.ridgeMaterials.push(ridgeMaterial);
       const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
       ridge.rotation.x = -Math.PI / 2;
@@ -579,8 +575,62 @@ class FarmWorld3D {
       this.scene.add(ridge);
     };
 
-    buildRidge({ z: -32, heightScale: 0.38, color: 0x6e9676 });
-    buildRidge({ z: -48, heightScale: 0.28, color: 0x8aa5a3, opacity: 0.92 });
+    buildMountainRidge({ width: 140, depth: 36, segmentsX: 100, segmentsZ: 36, z: -38, heightScale: 0.75, color: 0x5c8863 });
+    buildMountainRidge({ width: 180, depth: 48, segmentsX: 120, segmentsZ: 42, z: -62, heightScale: 1.05, color: 0x6e9592, opacity: 0.96 });
+    buildMountainRidge({ width: 220, depth: 60, segmentsX: 120, segmentsZ: 42, z: -92, heightScale: 1.35, color: 0x8aa8ac, opacity: 0.9 });
+  }
+
+  buildStreetLamps() {
+    this.streetLights = [];
+    this.streetLampBulbs = [];
+    const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x3d4b43, roughness: 0.6, metalness: 0.4 });
+    const solarMaterial = new THREE.MeshStandardMaterial({ color: 0x22384d, roughness: 0.3, metalness: 0.6 });
+
+    const lampPositions = [
+      { x: -25.5, z: 14.0 }, { x: -14.0, z: 14.0 }, { x: 0.0, z: 14.0 }, { x: 14.0, z: 14.0 }, { x: 25.5, z: 14.0 },
+      { x: -25.5, z: 2.8 }, { x: 25.5, z: 2.8 },
+      { x: -25.5, z: -8.0 }, { x: 25.5, z: -8.0 }
+    ];
+
+    lampPositions.forEach((pos, idx) => {
+      const lamp = new THREE.Group();
+      // Pole
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 3.6, 8), poleMaterial);
+      pole.position.y = 1.8;
+      pole.castShadow = true;
+      lamp.add(pole);
+
+      // Arm & Solar Panel
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.7, 6), poleMaterial);
+      arm.position.set(pos.x < 0 ? 0.3 : -0.3, 3.5, 0);
+      arm.rotation.z = pos.x < 0 ? -Math.PI / 4 : Math.PI / 4;
+      lamp.add(arm);
+
+      const solar = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.03, 0.4), solarMaterial);
+      solar.position.set(0, 3.65, 0);
+      solar.rotation.x = -0.2;
+      lamp.add(solar);
+
+      // Glowing LED Bulb Head
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 10, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffdf88, transparent: true, opacity: 0, toneMapped: false })
+      );
+      bulb.position.set(pos.x < 0 ? 0.5 : -0.5, 3.35, 0);
+      lamp.add(bulb);
+      this.streetLampBulbs.push(bulb);
+
+      // Warm Ground Point Light
+      if (idx % 2 === 0) {
+        const light = new THREE.PointLight(0xffdf88, 0, 14, 1.8);
+        light.position.set(pos.x < 0 ? 0.5 : -0.5, 3.2, 0);
+        lamp.add(light);
+        this.streetLights.push(light);
+      }
+
+      lamp.position.set(pos.x, 0, pos.z);
+      this.scene.add(lamp);
+    });
   }
 
   createWaterMaterial() {
@@ -971,19 +1021,21 @@ class FarmWorld3D {
   }
 
   buildClouds() {
-    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, roughness: 1, depthWrite: false });
-    for (let index = 0; index < 12; index++) {
+    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.78, roughness: 1, depthWrite: false });
+    this.clouds = [];
+    for (let index = 0; index < 16; index++) {
       const group = new THREE.Group();
-      const puffCount = 4 + (index % 3);
+      const puffCount = 5 + (index % 3);
       for (let puff = 0; puff < puffCount; puff++) {
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 8), cloudMaterial.clone());
-        mesh.scale.set(1.8 + (puff % 2) * 0.8, 0.7 + (puff % 3) * 0.2, 1.1);
-        mesh.position.set((puff - puffCount / 2) * 1.35, Math.sin(puff * 2.2) * 0.35, Math.cos(puff * 1.5) * 0.4);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), cloudMaterial.clone());
+        mesh.scale.set(1.9 + (puff % 2) * 0.9, 0.75 + (puff % 3) * 0.22, 1.25);
+        mesh.position.set((puff - puffCount / 2) * 1.7, Math.sin(puff * 2.2) * 0.45, Math.cos(puff * 1.5) * 0.5);
         group.add(mesh);
       }
-      group.position.set(-36 + index * 7.2, 12.5 + (index % 3) * 1.3, -46 - (index % 4) * 3.2);
-      group.userData.speed = 0.18 + (index % 4) * 0.038;
+      group.position.set(-45 + index * 6.8, 22.0 + (index % 4) * 2.5, -30 - (index % 5) * 6.5);
+      group.userData.speed = 0.18 + (index % 4) * 0.04;
       group.userData.baseY = group.position.y;
+      group.userData.cloudIndex = index;
       this.clouds.push(group);
       this.scene.add(group);
     }
@@ -994,9 +1046,9 @@ class FarmWorld3D {
     const positions = new Float32Array(count * 3);
     const speeds = new Float32Array(count);
     for (let index = 0; index < count; index++) {
-      positions[index * 3] = (Math.random() - 0.5) * 60;
-      positions[index * 3 + 1] = Math.random() * 30;
-      positions[index * 3 + 2] = (Math.random() - 0.5) * 44;
+      positions[index * 3] = (Math.random() - 0.5) * 65;
+      positions[index * 3 + 1] = Math.random() * 32;
+      positions[index * 3 + 2] = (Math.random() - 0.5) * 48;
       speeds[index] = 18 + Math.random() * 14;
     }
     const geometry = new THREE.BufferGeometry();
@@ -1009,19 +1061,19 @@ class FarmWorld3D {
   }
 
   buildStars() {
-    const count = 550;
+    const count = 600;
     const positions = new Float32Array(count * 3);
     for (let index = 0; index < count; index++) {
-      const radius = 70 + Math.random() * 30;
+      const radius = 85 + Math.random() * 35;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI * 0.45;
       positions[index * 3] = Math.cos(theta) * Math.cos(phi) * radius;
-      positions[index * 3 + 1] = Math.sin(phi) * radius + 6;
+      positions[index * 3 + 1] = Math.sin(phi) * radius + 8;
       positions[index * 3 + 2] = Math.sin(theta) * Math.cos(phi) * radius;
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfeaff, size: 0.22, transparent: true, opacity: 0, depthWrite: false }));
+    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfeaff, size: 0.24, transparent: true, opacity: 0, depthWrite: false }));
     this.scene.add(this.stars);
   }
 
@@ -1102,23 +1154,29 @@ class FarmWorld3D {
   setWeather(weather) {
     this.weather = WEATHER_LABELS[weather] ? weather : 'sunny';
     const settings = {
-      sunny: { clouds: 0.16, rain: false, fog: 0.005, exposure: 1.15 },
-      cloudy: { clouds: 0.48, rain: false, fog: 0.009, exposure: 1.08 },
-      overcast: { clouds: 0.75, rain: false, fog: 0.016, exposure: 0.94 },
-      'light-rain': { clouds: 0.85, rain: true, rainOpacity: 0.45, fog: 0.019, exposure: 0.90 },
-      'moderate-rain': { clouds: 0.92, rain: true, rainOpacity: 0.68, fog: 0.024, exposure: 0.82 },
-      'heavy-rain': { clouds: 0.98, rain: true, rainOpacity: 0.88, fog: 0.032, exposure: 0.72 }
+      sunny: { maxClouds: 4, rain: false },
+      cloudy: { maxClouds: 10, rain: false },
+      overcast: { maxClouds: 16, rain: false },
+      'light-rain': { maxClouds: 14, rain: true, rainOpacity: 0.45 },
+      'moderate-rain': { maxClouds: 16, rain: true, rainOpacity: 0.68 },
+      'heavy-rain': { maxClouds: 16, rain: true, rainOpacity: 0.88 }
     }[this.weather];
 
-    this.clouds.forEach((cloud, index) => cloud.children.forEach(mesh => {
-      mesh.material.opacity = clamp(settings.clouds + (index % 3) * 0.025, 0, 0.98);
-      mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xe9edf0 : 0xbfc8cc);
-    }));
+    // Show clouds purely in the sky without whitening the ground!
+    this.clouds.forEach((cloud, index) => {
+      const isVisible = index < settings.maxClouds;
+      cloud.visible = isVisible;
+      cloud.children.forEach(mesh => {
+        mesh.material.opacity = isVisible ? (this.weather === 'sunny' ? 0.65 : 0.88) : 0;
+        mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xecf0f2 : 0xcbd2d6);
+      });
+    });
 
     this.rain.visible = settings.rain;
     this.rain.material.opacity = settings.rainOpacity || 0;
-    this.scene.fog.density = settings.fog;
-    this.renderer.toneMappingExposure = settings.exposure;
+    // Keep atmosphere contrast rich and crisp (no thick white fog)
+    this.scene.fog.density = 0.005;
+    this.renderer.toneMappingExposure = 1.15;
   }
 
   // INDIVIDUAL plot crop & stage updates!
@@ -1154,29 +1212,36 @@ class FarmWorld3D {
     this.skyUniforms.uTop.value.copy(nightTop).lerp(dayTop, daylight).lerp(sunsetTop, warm * 0.44);
     this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78);
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
-    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.92 + warm * 0.4;
+    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.94 + warm * 0.42;
 
-    const sunProgress = clamp((hour - 5.8) / 13.4, 0, 1);
+    // True Celestial Sun Trajectory (High in distant sky, rising at 06:00, overhead noon, setting at 18:00 behind mountains)
+    const sunProgress = clamp((hour - 5.75) / 13.5, 0, 1);
     const sunAngle = sunProgress * Math.PI;
-    const sunX = lerp(-26, 12, sunProgress);
-    const sunY = Math.max(-4, Math.sin(sunAngle) * 5.0 + 3.2 - (hour > 18 ? (hour - 18) * 6.5 : hour < 6 ? (6 - hour) * 6.5 : 0));
-    const sunZ = -18;
+    const sunX = lerp(-60, 60, sunProgress);
+    const sunY = Math.sin(sunAngle) * 54.0 + 4.0;
+    const sunZ = -95;
 
     this.sunDisc.position.set(sunX, sunY, sunZ);
-    this.sunLight.position.set(sunX, Math.max(2, 10 + Math.sin(sunAngle) * 18), -14);
+    this.sunLight.position.set(sunX, sunY, sunZ + 20);
     this.skyUniforms.uSunDirection.value.copy(this.sunDisc.position).normalize();
     this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
-    this.sunLight.intensity = 0.2 + daylight * 4.3;
+    this.sunLight.intensity = 0.2 + daylight * 4.4;
     this.hemiLight.color.set(daylight > 0.2 ? 0xe6f5ff : 0x5772a1);
     this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x152333);
     this.hemiLight.intensity = 0.38 + daylight * 2.0;
-    this.sunDisc.visible = hour >= 5.65 && hour <= 19.2;
+    this.sunDisc.visible = hour >= 5.6 && hour <= 19.3;
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
-    // Night lighting for greenhouse
-    const isNight = daylight < 0.3;
+    // Night lighting: Greenhouse interior grow lights & Street lamps turn on at sunset/night!
+    const isNight = daylight < 0.36;
     this.nightLights.forEach(light => {
-      light.intensity = isNight ? 2.8 : 0;
+      light.intensity = isNight ? 3.2 : 0;
+    });
+    this.streetLights?.forEach(light => {
+      light.intensity = isNight ? 2.4 : 0;
+    });
+    this.streetLampBulbs?.forEach(bulb => {
+      bulb.material.opacity = isNight ? 0.95 : 0;
     });
   }
 
