@@ -1,7 +1,7 @@
 # 农田动态监测前端验收说明
 
-> 分支：`lxh-frontend`
-> 状态：已验收（Three.js 场景静态检查 + yyx 增强模块 svg/stub/real 回归；浏览器专项截图可继续复验）
+> 分支：`lxh-frontend` + `yyx` + `feat/farm-operations` + `rium_dev` 兼容增量
+> 状态：已验收（Three.js 场景静态检查 + 工单/资源沙盘 + rium 液态玻璃 + svg/stub/real 回归）
 > 日期：2026-08-23
 
 ## 1. 实现范围
@@ -77,6 +77,13 @@
 
 ## 7. yyx 增强模块回归
 
-- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，分别覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、四个 Crop Pack（番茄/黄瓜/草莓/辣椒）、首页摘要和命令面板。
-- 结果：`svg 48/48`、`stub 48/48`、`real 49/49`（real 模式本地加载 vendored ECharts 5.5.1）。
+- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、四个 Crop Pack（番茄/黄瓜/草莓/辣椒）、工单四态看板、巡田 `USER_PROVIDED` 证据、水资源超容量 `INFEASIBLE`、首页摘要和命令面板。
+- 结果：`svg 55/55`、`stub 55/55`、`real 56/56`（real 模式本地加载 vendored ECharts 5.5.1）。
 - 不合并名为 `task5` 的独立分支；上述 yyx 功能来自 `yyx` 分支本身，已适配并与主线认证、模拟器和 3D 监测共存。
+
+## 8. farm-operations 与 rium_dev 增量验收
+
+- `#view=work-orders`：透明农田沙盘、四态工单、角色按钮边界、拖拽状态流转、巡田抽屉和 `USER_PROVIDED` 来源标记可渲染；在线模式调用 `/api/v1/work-items/today`、`/api/v1/work-orders`、`/api/v1/inspections`。
+- `#view=resource-coordination`：水球背景、液面/试算分离、有限容量排序和未满足需求可见；模拟需求超过 900 L 时返回 `INFEASIBLE`，不会伪造可行结果。
+- rium 背景使用仓库 vendor Three，固定在 `#riumBackground`；玻璃层由 `css/rium-glass.css` 提供。全屏 lxh 监测打开时暂停背景，无 WebGL 时保留 CSS 玻璃降级。
+- 分支文件与取舍清单见 [`docs/branch-integration-review.md`](../branch-integration-review.md)。

@@ -7,6 +7,9 @@ import { api } from './api.js';
 import { FarmMonitor } from './farm-monitor.js';
 import { initParticles } from './particles.js';
 import { initCommandPalette } from './command-palette.js';
+import { initTheme } from './theme.js';
+import { initRiumBackground } from './rium-background.js';
+import { syncWaterVisuals } from './water-visual.js';
 
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
@@ -14,7 +17,27 @@ const SUBVIEW_RENDERERS = {
   'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
   'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
   'value-ledger': async (container) => (await import('./modules/value-ledger.js')).renderValueLedger(container),
-  'crop-packs': async (container) => (await import('./modules/crop-packs.js')).renderCropPacks(container)
+  'crop-packs': async (container) => (await import('./modules/crop-packs.js')).renderCropPacks(container),
+  'work-orders': async (container, plotId, app) => {
+    const { renderWorkOrders } = await import('./modules/work-orders.js');
+    return renderWorkOrders(container, {
+      api,
+      plots: app.state.plots,
+      selectedPlotId: plotId,
+      user: app.state.user || (!app.state.isLive ? MOCK_DATA.currentUser : null),
+      showToast: (message, type) => app.showToast(message, type)
+    });
+  },
+  'resource-coordination': async (container, plotId, app) => {
+    const { renderResourceCoordination } = await import('./modules/work-orders.js');
+    return renderResourceCoordination(container, {
+      api,
+      plots: app.state.plots,
+      selectedPlotId: plotId,
+      user: app.state.user || (!app.state.isLive ? MOCK_DATA.currentUser : null),
+      showToast: (message, type) => app.showToast(message, type)
+    });
+  }
 };
 
 class AgriApp {
@@ -35,6 +58,8 @@ class AgriApp {
 
     this.dom = {};
     this.farmMonitor = null;
+    this.riumBackground = null;
+    this._themeCleanup = null;
     this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
     this._lastHandledHash = null;  // hash 路由幂等去重
   }
@@ -42,6 +67,18 @@ class AgriApp {
   async init() {
     this.cacheDom();
     this.bindEvents();
+
+    // rium_dev 的主题事件与液态玻璃背景是可选增强；WebGL 不可用时不阻断主应用。
+    this._themeCleanup = initTheme();
+    const webglAvailable = typeof window.WebGLRenderingContext === 'function'
+      || typeof window.WebGL2RenderingContext === 'function';
+    if (webglAvailable) {
+      try {
+        this.riumBackground = initRiumBackground();
+      } catch (error) {
+        console.warn('Rium background unavailable; continuing with CSS glass shell:', error);
+      }
+    }
 
     // 轻量背景动效与全局命令面板来自 yyx；二者均有无 Canvas/无 DOM 的安全降级。
     this._particlesCleanup = initParticles();
@@ -69,6 +106,7 @@ class AgriApp {
     this.renderFeed();
     this.renderChangelog();
     this.renderHomeSummary();
+    syncWaterVisuals(document);
     this.handleRoute();
 
     window.addEventListener('hashchange', () => this.handleRoute());
@@ -1000,6 +1038,7 @@ class AgriApp {
     const plotId = options.plotId || this.state.currentPlotId;
     if (viewName === 'plot-detail') {
       this.cleanupActiveSubview();
+      this.riumBackground?.setVisible(false);
       this.dom.subviewModal.classList.remove('active');
       this.farmMonitor?.setPlots(this.state.plots);
       this.farmMonitor?.open(plotId);
@@ -1014,6 +1053,7 @@ class AgriApp {
     }
 
     this.farmMonitor?.close(false);
+    this.riumBackground?.setVisible(true);
     this.cleanupActiveSubview();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
@@ -1038,7 +1078,7 @@ class AgriApp {
       if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
       this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
       this.dom.subviewModal.classList.add('active');
-      Promise.resolve(renderer(this.dom.modalDynamicContent, plotId)).then(cleanup => {
+      Promise.resolve(renderer(this.dom.modalDynamicContent, plotId, this)).then(cleanup => {
         if (viewGen !== this._subviewGen) {
           if (typeof cleanup === 'function') cleanup();
           return;
@@ -1088,6 +1128,7 @@ class AgriApp {
     this.dom.subviewModal.classList.remove('active');
     if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
     this.farmMonitor?.close(false);
+    this.riumBackground?.setVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');

@@ -216,7 +216,27 @@ if (cpReady) {
   ok('切换辣椒（🌶️ · 湿度 20~40 · 阈值 18）', pepper.includes('辣椒') && pepper.includes('20 ~ 40%') && /18/.test(pepper));
 }
 
-// ============ 视图 5：⌘K 命令面板 + 交叉导航 ============
+// ============ 视图 5：farm-operations 工单/巡田/资源约束 ============
+gotoView('#view=work-orders&plotId=plot-a01');
+const opsReady = await waitFor(() => document.querySelector('.field-ops .work-kanban'), 6000);
+ok('farm-operations 工单沙盘渲染', opsReady);
+if (opsReady) {
+  ok('四态工单看板与时间轴', document.querySelectorAll('.kanban-column').length === 4 && !!document.querySelector('.field-vine-timeline'));
+  ok('巡田证据来源标签', document.querySelector('.inspection-strip')?.textContent.includes('USER_PROVIDED'));
+  ok('透明农田交互画布', !!document.querySelector('[data-field-effects]'));
+}
+gotoView('#view=resource-coordination');
+const resourceReady = await waitFor(() => document.querySelector('.resource-ops .demand-list'), 6000);
+ok('水资源协同排程渲染', resourceReady);
+if (resourceReady) {
+  ok('水球与水位来源标记', !!document.querySelector('.resource-ops .backdrop-water-sphere') && document.querySelector('.resource-ops').textContent.includes('SIMULATED'));
+  const evaluate = document.querySelector('#evaluateResourcePlan');
+  evaluate?.click();
+  const infeasible = await waitFor(() => document.querySelector('.resource-ops .resource-state')?.textContent.includes('INFEASIBLE'), 3000);
+  ok('超容量需求明确返回 INFEASIBLE', infeasible);
+}
+
+// ============ 视图 6：⌘K 命令面板 + 交叉导航 ============
 const cmdBackdrop = document.getElementById('cmdPaletteBackdrop');
 const cmdInput = document.getElementById('cmdInput');
 const keyEvt = (k, opts = {}) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));

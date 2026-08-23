@@ -215,6 +215,109 @@ export class ApiService {
     });
   }
 
+  /** farm-operations 增量合同：在线走后端，离线只使用显式标记的模拟数据。 */
+  async getTodayWorkItems(plotId = '') {
+    if (this.isLive) {
+      const query = plotId ? `?plotId=${encodeURIComponent(plotId)}` : '';
+      try {
+        const response = await this._fetch(`/api/v1/work-items/today${query}`);
+        if (Array.isArray(response?.data)) return response.data;
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) throw error;
+        console.warn('Falling back to simulated work items:', error);
+      }
+    }
+    return (MOCK_DATA.workOrders || [])
+      .filter(item => !plotId || item.plotId === plotId)
+      .map(item => ({ ...item }));
+  }
+
+  async getWorkOrders() {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/work-orders');
+      if (Array.isArray(response?.data)) return response.data;
+      throw new ApiError('后端返回了无效的工单数据', { code: 'WORK_ORDERS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.workOrders || []).map(item => ({ ...item }));
+  }
+
+  async saveWorkOrder(workOrder) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/work-orders', {
+        method: 'POST',
+        body: JSON.stringify(workOrder)
+      });
+      return response?.data || response;
+    }
+    const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
+    return { ...workOrder, workOrderId, workItemId: workOrder.workItemId || workOrderId, createdAt: workOrder.createdAt || new Date().toISOString() };
+  }
+
+  async getInspections(plotId = '') {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
+      if (Array.isArray(response?.data)) return response.data;
+      throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.inspections || []).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+  }
+
+  async createInspection(inspection) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/inspections', {
+        method: 'POST',
+        body: JSON.stringify(inspection)
+      });
+      return response?.data || response;
+    }
+    return {
+      ...inspection,
+      inspectionId: `ins-demo-${Date.now()}`,
+      operatorId: this.user?.userId || 'demo-operator',
+      observedAt: inspection.observedAt || new Date().toISOString(),
+      provenance: 'USER_PROVIDED',
+      sourceType: 'HUMAN_OBSERVATION'
+    };
+  }
+
+  async evaluateResourcePlan(input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/resource-plans/evaluate', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    const capacity = Number(MOCK_DATA.resourceProfile?.capacityLitres || 0);
+    let remaining = capacity;
+    const allocations = [];
+    const conflicts = [];
+    const unmetDemands = [];
+    const priorityRank = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const demands = [...(input.demands || [])].sort((a, b) => (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0));
+    demands.forEach(demand => {
+      const requested = Number(demand.requestedLitres ?? demand.waterLitre ?? 0);
+      const allocated = Math.min(remaining, Math.max(0, requested));
+      remaining -= allocated;
+      allocations.push({ plotId: demand.plotId, requestedLitres: requested, allocatedLitres: allocated, status: allocated >= requested ? 'ALLOCATED' : 'PARTIAL' });
+      if (allocated < requested) {
+        conflicts.push({ type: 'CAPACITY', plotId: demand.plotId });
+        unmetDemands.push({ plotId: demand.plotId, requestedLitres: requested, unmetLitres: requested - allocated, reason: 'WATER_CAPACITY' });
+      }
+    });
+    return {
+      resourcePlanId: `rp-demo-${Date.now()}`,
+      status: unmetDemands.length ? 'INFEASIBLE' : 'FEASIBLE',
+      scope: input.scope || 'farm-demo',
+      constraints: { waterCapacityLitres: capacity },
+      allocations,
+      conflicts,
+      unmetDemands,
+      algorithmVersion: 'capacity-priority-v1',
+      provenance: 'SIMULATED'
+    };
+  }
+
   async agentChat(message, plotId = 'plot-a01') {
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/agent/chat', {

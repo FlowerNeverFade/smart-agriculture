@@ -10,10 +10,15 @@
   <link rel="stylesheet" href="css/modules/forecast.css">
   <link rel="stylesheet" href="css/modules/value-ledger.css">
   <link rel="stylesheet" href="css/modules/crop-packs.css">
+  <link rel="stylesheet" href="css/modules/work-orders.css">
+  <link rel="stylesheet" href="css/rium-glass.css">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
 <body>
+
+  <!-- rium_dev wheat-field scene: additive background behind the existing shell -->
+  <div id="riumBackground" aria-hidden="true"></div>
 
   <!-- =========================================================================
        Top Header Navigation
@@ -41,6 +46,9 @@
     </div>
 
     <div class="header-right">
+      <button class="theme-toggle-btn" id="btnThemeToggle" type="button" aria-label="切换至浅色主题" title="切换至浅色主题">
+        <span class="theme-toggle-icon">☀️</span><span class="theme-toggle-label">浅色</span>
+      </button>
       <div class="status-pill" id="systemStatusPill" title="当前数据与后端运行模式">
         <span class="dot"></span>
         <span id="systemStatusText">后端仿真态 (POSTGRESQL)</span>
@@ -281,6 +289,31 @@
           <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
             当前流速：18 L/min · 无管道争用冲突 · 状态：FEASIBLE
           </p>
+        </div>
+      </div>
+
+      <!-- farm-operations 水资源微型液态玻璃球：与协同排程视图共享同一状态 -->
+      <div class="system-status-card water-rail-card">
+        <div class="system-status-header">
+          <span>水源实时余量</span>
+          <span class="water-source-tag" data-water-source>SIMULATED</span>
+        </div>
+        <div class="water-rail-content">
+          <div class="water-orb water-orb-mini" data-water-orb aria-label="集中蓄水池余量">
+            <div class="orb-shell"><i></i><i></i><i></i></div>
+            <div class="reservoir-water"><span></span></div>
+            <div class="mini-water-reading">
+              <strong data-water-percent>75.2%</strong>
+              <span>剩余配额</span>
+            </div>
+            <canvas class="water-effects-canvas" data-water-canvas aria-hidden="true"></canvas>
+          </div>
+          <div>
+            <div class="quota-header"><b data-water-remaining>3,760 L</b><span data-water-planned>0 L 已排程</span></div>
+            <div class="progress-bar-bg water-progress-bg"><div class="progress-bar-fill water-progress-fill" data-water-progress style="width:75.2%"></div></div>
+            <p class="water-rail-plan"><span>今日用量</span><strong data-water-used>1,240 L</strong></p>
+            <p>容量约束与试算结果在协同排程中可追溯。</p>
+          </div>
         </div>
       </div>
 

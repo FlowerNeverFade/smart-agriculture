@@ -61,7 +61,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
-- `quhl` 最新登录改版已评审：采用其更真实的番茄/根系背景资产和会话错误处理，但保留当前更有层次的 WebGL 视差/动效，并把真实 JWT、离线演示会话和 API 错误合同接入同一登录脚本；`rium_dev` 最新整页 Three.js/液态玻璃替代主站与认证、3D 监测入口冲突，因此只保留评审合并关系、不替换默认主站；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、番茄/黄瓜/草莓/辣椒 Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。
+- `quhl` 最新登录改版已评审：采用其更真实的番茄/根系背景资产和会话错误处理，但保留当前更有层次的 WebGL 视差/动效，并把真实 JWT、离线演示会话和 API 错误合同接入同一登录脚本；`rium_dev` 的麦田 Three.js 背景与液态玻璃层已作为兼容叠加加入 main（全屏 3D 监测时暂停、无 WebGL 时 CSS 降级），没有替换默认认证/监测路由；`feat/farm-operations` 的工单、巡田、资源约束和水/田交互沙盘已选择性移植，保留 main 的 AI/预测/模拟器；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、番茄/黄瓜/草莓/辣椒 Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
