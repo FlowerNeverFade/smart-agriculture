@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --background: #f3f7ef;
+  --background: #f2f8ee;
   --ink: #173327;
   --ink-soft: #68776e;
   --ink-faint: rgba(23, 51, 39, .38);
@@ -112,8 +112,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   width: clamp(760px, 56vw, 1080px);
   height: clamp(620px, 76vh, 860px);
   background:
-    radial-gradient(ellipse 62% 54% at 39% 51%, rgba(155, 205, 145, .18) 0%, rgba(155, 205, 145, .105) 38%, rgba(155, 205, 145, .035) 61%, transparent 78%),
-    radial-gradient(ellipse 44% 37% at 67% 64%, rgba(180, 216, 164, .09) 0%, rgba(180, 216, 164, .025) 58%, transparent 78%);
+    radial-gradient(ellipse 62% 54% at 39% 51%, rgba(111, 203, 133, .15) 0%, rgba(111, 203, 133, .08) 38%, rgba(111, 203, 133, .025) 61%, transparent 78%),
+    radial-gradient(ellipse 44% 37% at 67% 64%, rgba(145, 219, 174, .085) 0%, rgba(145, 219, 174, .02) 58%, transparent 78%);
   opacity: var(--field-opacity);
   transform: translate3d(calc(var(--field-x) - 50%), calc(var(--field-y) - 50%), 0);
 }
@@ -122,8 +122,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   width: clamp(860px, 64vw, 1240px);
   height: clamp(660px, 82vh, 940px);
   background:
-    radial-gradient(ellipse 58% 48% at 57% 43%, rgba(225, 218, 170, .105) 0%, rgba(225, 218, 170, .055) 40%, rgba(225, 218, 170, .018) 64%, transparent 80%),
-    radial-gradient(ellipse 40% 34% at 31% 69%, rgba(210, 226, 190, .055) 0%, transparent 72%);
+    radial-gradient(ellipse 58% 48% at 57% 43%, rgba(184, 222, 153, .09) 0%, rgba(184, 222, 153, .045) 40%, rgba(184, 222, 153, .014) 64%, transparent 80%),
+    radial-gradient(ellipse 40% 34% at 31% 69%, rgba(154, 220, 202, .06) 0%, transparent 72%);
   opacity: var(--ambient-opacity);
   transform: translate3d(calc(var(--ambient-x) - 50%), calc(var(--ambient-y) - 50%), 0);
 }
@@ -250,7 +250,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   background-color: rgba(241, 247, 238, .88);
   background-image:
     radial-gradient(110% 90% at 0% 100%, rgb(178 216 169 / var(--glass-tint-alpha)), transparent 58%),
-    linear-gradient(142deg, rgba(255, 255, 255, .14), rgba(220, 239, 215, .07) 56%, rgba(242, 234, 199, .035));
+    linear-gradient(142deg, rgba(255, 255, 255, .14), rgba(220, 239, 215, .07) 56%, rgba(210, 238, 218, .04));
   box-shadow:
     0 22px 58px rgba(29, 66, 46, .05),
     0 6px 18px rgba(29, 66, 46, .022),

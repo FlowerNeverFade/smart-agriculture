@@ -212,13 +212,13 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
       territoryScore(territoryUv, vec2(0.18, 0.20), aspectScale, sageNoise),
       territoryScore(territoryUv, vec2(0.58, 0.77), aspectScale, aquaNoise),
       territoryScore(territoryUv, vec2(0.82, 0.24), aspectScale, oliveNoise)
-    );
+    ) + vec4(0.16, 0.12, 0.05, -0.10);
     float creamScore = territoryScore(
       territoryUv,
       vec2(0.52, 0.43),
       aspectScale,
       creamNoise
-    ) + 0.08;
+    ) - 0.14;
 
     float scoreMaximum = max(
       max(max(inkScores.r, inkScores.g), max(inkScores.b, inkScores.a)),
@@ -285,11 +285,11 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     return signedByte / 127.0 * uVelocityMax;
   }
 
-  const vec3 COLOR_MINT = vec3(0.827, 0.941, 0.859);
-  const vec3 COLOR_SAGE = vec3(0.780, 0.871, 0.784);
-  const vec3 COLOR_AQUA = vec3(0.816, 0.933, 0.941);
-  const vec3 COLOR_OLIVE = vec3(0.890, 0.902, 0.718);
-  const vec3 COLOR_CREAM = vec3(0.953, 0.906, 0.776);
+  const vec3 COLOR_MINT = vec3(0.820, 0.953, 0.855);
+  const vec3 COLOR_SAGE = vec3(0.775, 0.890, 0.785);
+  const vec3 COLOR_AQUA = vec3(0.830, 0.951, 0.914);
+  const vec3 COLOR_OLIVE = vec3(0.845, 0.918, 0.790);
+  const vec3 COLOR_CREAM = vec3(0.951, 0.976, 0.933);
 
   vec4 normalizeInkWeights(vec4 weights) {
     weights = max(weights, vec4(0.0));
