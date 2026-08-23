@@ -17,6 +17,7 @@ venv/
 # Frontend/build artifacts
 node_modules/
 dist/
+.tools/
 
 # Generated project data
 data/

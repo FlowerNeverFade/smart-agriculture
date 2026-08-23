@@ -263,6 +263,80 @@ export const MOCK_DATA = {
     }
   ],
 
+  /**
+   * 风险预测与情景推演配置（CAP-09 / Gate 2 / Gate 3）
+   * 预测必须保存：输入窗口、预测时点、预测范围、算法版本、假设与不确定性
+   */
+  riskForecastConfig: {
+    algorithmVersion: "robust-trend-v1.2",
+    algorithmLabel: "Robust Trend 确定性趋势推演",
+    inputWindowMinutes: 60,
+    stressBoundary: 14.0,
+    baselineMoisture: 20.0,
+    maxHorizonMinutes: 240,
+    scenarioCatalog: [
+      { code: "DROUGHT", label: "持续干旱", emoji: "☀️", color: "#d29922", desc: "无降水、蒸散加快，水分按干旱速率衰减", decayFactor: 1.0, ttrMinutes: 72, driftRatePerHour: 0, rainBoostPct: 0, enabled: true },
+      { code: "HEAT_WAVE", label: "极端热浪", emoji: "🔥", color: "#f85149", desc: "棚内温度骤升至 38°C，蒸散速率提高 45%", decayFactor: 1.45, ttrMinutes: 48, driftRatePerHour: 0, rainBoostPct: 0, enabled: true },
+      { code: "STORM", label: "暴雨积水", emoji: "🌧️", color: "#58a6ff", desc: "连续暴雨 45 分钟，土壤湿度先抬升 6% 后回落", decayFactor: 0.8, ttrMinutes: null, driftRatePerHour: 0, rainBoostPct: 6, enabled: true },
+      { code: "SENSOR_DRIFT", label: "传感器零点漂移", emoji: "⚠️", color: "#a371f7", desc: "读数缓慢偏移 +0.6%/h，检测漂移后拒绝生成处方", decayFactor: 1.0, ttrMinutes: null, driftRatePerHour: 0.6, rainBoostPct: 0, enabled: true },
+      { code: "OFFLINE", label: "设备断网离线", emoji: "🔌", color: "#8b949e", desc: "遥测中断，样本不足，预测状态 UNAVAILABLE", decayFactor: 1.0, ttrMinutes: null, driftRatePerHour: 0, rainBoostPct: 0, enabled: true }
+    ]
+  },
+
+  /**
+   * 经营价值与效益对账本（CAP-12）
+   * 口径：OBSERVED (sourceMode=SIMULATION) / DERIVED / ESTIMATED，演示数据，不宣称真实收益
+   */
+  valueLedger: {
+    farmId: "farm-demo",
+    farmName: "农智示范农场",
+    period: { start: "2026-08-01", end: "2026-08-22" },
+    prices: {
+      waterPerLitre: 0.004,
+      electricityPerKwh: 0.55,
+      labourPerHour: 35.0
+    },
+    summary: {
+      plannedWaterLitres: 18600,
+      actualWaterLitres: 17240,
+      deviationRatePct: -7.3,
+      savedWaterLitres: 1360,
+      savedElectricityKwh: 42.5,
+      labourSavedHours: 6.2,
+      savedWaterCostRmb: 5.44,
+      savedElectricityCostRmb: 23.38,
+      labourSavedCostRmb: 217.0,
+      totalSavedRmb: 245.82
+    },
+    daily: (() => {
+      // 8/1 ~ 8/22 共 22 天：计划用水 845L/天，实际随执行效率波动（确定性生成）
+      const days = [];
+      for (let i = 0; i < 22; i++) {
+        const planned = 845;
+        const wave = Math.sin(i / 2.3) * 42 + Math.cos(i / 1.7) * 26;
+        const actual = Math.round((planned * (0.93 + wave / 2200)) * 10) / 10;
+        days.push({
+          date: `08-${String(i + 1).padStart(2, '0')}`,
+          planned,
+          actual,
+          deviationRatePct: Math.round(((actual - planned) / planned) * 1000) / 10
+        });
+      }
+      return days;
+    })(),
+    counterfactual: [
+      { week: "第 1 周", traditionalCostRmb: 320, agriLoopCostRmb: 240 },
+      { week: "第 2 周", traditionalCostRmb: 610, agriLoopCostRmb: 455 },
+      { week: "第 3 周", traditionalCostRmb: 870, agriLoopCostRmb: 645 },
+      { week: "第 4 周", traditionalCostRmb: 1120, agriLoopCostRmb: 830 }
+    ],
+    provenance: [
+      { key: "实际用水 / 用电 / 工时", value: "OBSERVED", tag: "sourceMode=SIMULATION（本期模拟遥测与虚拟执行）" },
+      { key: "偏差率 / 折合人民币", value: "DERIVED", tag: "由计划-实际差异确定性换算" },
+      { key: "传统粗放灌溉成本", value: "ESTIMATED", tag: "按行业经验参数估算，非实测" }
+    ]
+  },
+
   changelog: [
     {
       time: "2026-08-22 14:30",

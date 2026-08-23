@@ -4,6 +4,15 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
+import { renderRiskForecast, renderScenarioReplay } from './modules/risk-forecast.js';
+import { renderValueLedger } from './modules/value-ledger.js';
+
+/** 已实现的独立子模块渲染器（按 view 名分发，renderer 返回可选 cleanup） */
+const SUBVIEW_RENDERERS = {
+  'risk-forecast': renderRiskForecast,
+  'scenario-replay': renderScenarioReplay,
+  'value-ledger': renderValueLedger
+};
 
 class AgriApp {
   constructor() {
@@ -69,6 +78,7 @@ class AgriApp {
     this.dom.placeholderIcon = document.getElementById('placeholderIcon');
     this.dom.placeholderTitle = document.getElementById('placeholderTitle');
     this.dom.placeholderDesc = document.getElementById('placeholderDesc');
+    this.dom.placeholderBanner = document.querySelector('.subview-placeholder-banner');
     this.dom.modalDynamicContent = document.getElementById('modalDynamicContent');
     this.dom.modalCodeContract = document.getElementById('modalCodeContract');
     this.dom.toastContainer = document.getElementById('toastContainer');
@@ -518,8 +528,26 @@ class AgriApp {
     this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
 
-    // Render Contextual Data Preview
-    this.renderSubviewContextualContent(viewName, plot);
+    // 已实现的独立模块：隐藏占位横幅，将完整界面渲染进弹窗主体
+    const renderer = SUBVIEW_RENDERERS[viewName];
+    if (renderer) {
+      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
+      this.dom.modalDynamicContent.innerHTML = '';
+      this._activeSubviewCleanup = null;
+      const result = renderer(this.dom.modalDynamicContent, plotId);
+      if (result && typeof result.then === 'function') {
+        result.then(cleanup => {
+          if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
+        }).catch(e => console.warn('Subview render failed:', e));
+      } else if (typeof result === 'function') {
+        this._activeSubviewCleanup = result;
+      }
+    } else {
+      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
+      this._activeSubviewCleanup = null;
+      // Render Contextual Data Preview
+      this.renderSubviewContextualContent(viewName, plot);
+    }
 
     // Render Code Contract / API Endpoint Spec
     this.dom.modalCodeContract.textContent = this.getViewCodeContract(viewName, plot);
@@ -539,6 +567,11 @@ class AgriApp {
   }
 
   closeModal(updateHash = true) {
+    // 释放已渲染模块的资源（ECharts 实例 / 定时器）
+    if (this._activeSubviewCleanup) {
+      try { this._activeSubviewCleanup(); } catch (e) { console.warn('Subview cleanup failed:', e); }
+      this._activeSubviewCleanup = null;
+    }
     this.dom.subviewModal.classList.remove('active');
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {

@@ -263,6 +263,217 @@ export class ApiService {
     };
   }
 
+  /**
+   * 风险预测（CAP-09）：GET /api/v1/plots/{plotId}/risk-forecast?metric=SOIL_MOISTURE
+   * 返回确定性趋势：Time-to-Risk、1/2/4h 期望值与置信区间、算法版本与假设
+   */
+  async getRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch(`/api/v1/plots/${plotId}/risk-forecast?metric=${metric}`);
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live risk-forecast failed, falling back to mock:', e);
+      }
+    }
+
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const start = plot.metrics[metric]?.value ?? 25.0;
+    const boundary = cfg.stressBoundary;
+    const now = new Date();
+
+    // 样本不足或已越界 -> UNAVAILABLE，不得由模型补造
+    if (plot.deviceStatus !== 'ONLINE' || start <= boundary + 0.5) {
+      return {
+        status: 'UNAVAILABLE',
+        plotId, metric,
+        reason: plot.deviceStatus !== 'ONLINE' ? '设备离线，遥测样本不足' : '当前湿度已低于极限胁迫边界，无可推演余量',
+        generatedAt: now.toISOString(),
+        algorithmVersion: cfg.algorithmVersion
+      };
+    }
+
+    // 确定性衰减模型：m(t) = start * exp(-k * t)，k 使 plot-a01(16.8%) 的 Time-to-Risk 恰为 72 分钟
+    const kRef = Math.log(16.8 / boundary) / 72;
+    const timeToRisk = Math.min(Math.round(Math.log(start / boundary) / kRef), cfg.maxHorizonMinutes);
+    const points = [];
+    for (let t = 0; t <= cfg.maxHorizonMinutes; t += 5) {
+      const expected = start * Math.exp(-kRef * t);
+      const halfWidth = 0.6 + 0.007 * t; // 不确定性随时间线性放大
+      points.push({
+        minute: t,
+        expected: Number(expected.toFixed(2)),
+        lower: Number(Math.max(expected - halfWidth, 0).toFixed(2)),
+        upper: Number((expected + halfWidth).toFixed(2))
+      });
+    }
+
+    return {
+      status: 'AVAILABLE',
+      plotId, metric,
+      generatedAt: now.toISOString(),
+      inputWindowMinutes: cfg.inputWindowMinutes,
+      forecastRangeMinutes: cfg.maxHorizonMinutes,
+      algorithmVersion: cfg.algorithmVersion,
+      algorithmLabel: cfg.algorithmLabel,
+      startMoisture: start,
+      stressBoundary: boundary,
+      baselineMoisture: cfg.baselineMoisture,
+      timeToRiskMinutes: timeToRisk,
+      horizons: [60, 120, 240].map(m => {
+        const p = points.find(pt => pt.minute === m);
+        return {
+          minute: m,
+          expected: p.expected,
+          band: `${p.lower.toFixed(1)}% ~ ${p.upper.toFixed(1)}%`,
+          lower: p.lower,
+          upper: p.upper
+        };
+      }),
+      curve: points,
+      assumptions: ['无降水 / 无外界灌溉', '棚室通风与外部光热保持稳定', '设备保持在线，遥测质量 GOOD'],
+      uncertaintyNote: '置信区间随预测时距线性放大；超出 4h 不承诺，样本不足返回 UNAVAILABLE'
+    };
+  }
+
+  /**
+   * 情景注入：POST /api/v1/scenarios/runs { scenario, seed, plotId }
+   * 返回冻结快照 + 推演参数（同一 Seed 可重复，不写回主状态）
+   */
+  async runScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/scenarios/runs', {
+          method: 'POST',
+          body: JSON.stringify({ scenario, seed, plotId })
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live scenario run failed, falling back to mock:', e);
+      }
+    }
+
+    const catalog = MOCK_DATA.riskForecastConfig.scenarioCatalog;
+    const def = catalog.find(s => s.code === scenario) || catalog[0];
+    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    return {
+      scenarioId: `${scenario.toLowerCase()}-${seed}`,
+      scenario: def.code,
+      scenarioLabel: def.label,
+      seed,
+      runStatus: 'COMPLETED',
+      frozenSnapshot: {
+        plotId,
+        plotName: plot.name,
+        startMoisture: plot.metrics.SOIL_MOISTURE?.value ?? 25.0,
+        capturedAt: new Date().toISOString(),
+        snapshotLabel: '冻结快照（只读，不写回主状态）'
+      },
+      params: def
+    };
+  }
+
+  /**
+   * 双轨对比：POST /api/v1/scenarios/compare { scenarioId, seed, plotId }
+   * 同一冻结快照 + 同一随机种子：EXECUTE（执行灌溉处方）vs NO_ACTION（放任干旱）
+   */
+  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/scenarios/compare', {
+          method: 'POST',
+          body: JSON.stringify({ scenarioId: `${scenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' })
+        });
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live scenario compare failed, falling back to mock:', e);
+      }
+    }
+
+    const catalog = MOCK_DATA.riskForecastConfig.scenarioCatalog;
+    const def = catalog.find(s => s.code === scenario) || catalog[0];
+    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const start = plot.metrics.SOIL_MOISTURE?.value ?? 25.0;
+    const boundary = MOCK_DATA.riskForecastConfig.stressBoundary;
+    const baseline = MOCK_DATA.riskForecastConfig.baselineMoisture;
+    const execTime = 30; // 虚拟执行开始时刻（分钟）
+
+    if (scenario === 'OFFLINE') {
+      return {
+        status: 'UNAVAILABLE',
+        scenarioId: `offline-${seed}`,
+        seed, plotId,
+        reason: '设备断网离线，遥测样本不足：按确定性策略拒绝预测（UNAVAILABLE），不生成可执行处方'
+      };
+    }
+
+    // 物理衰减速率：使 DROUGHT 场景下 16.8% 在 72 分钟触达 14% 边界
+    const kBase = Math.log(16.8 / boundary) / (def.ttrMinutes || 72);
+    const k = kBase * (def.decayFactor || 1.0);
+    const rnd = mulberry32(seed);
+    const N = 49; // 0..240 分钟，步长 5
+    const phys = (t) => start * Math.exp(-k * t);
+
+    const buildBranch = (execute) => {
+      return Array.from({ length: N }, (_, i) => {
+        const t = i * 5;
+        let m;
+        if (def.code === 'STORM') {
+          // 暴雨：前 45 分钟抬升 6%，随后回落
+          const rainEnd = 45;
+          if (t <= rainEnd) m = start + def.rainBoostPct * (t / rainEnd);
+          else m = (start + def.rainBoostPct) * Math.exp(-k * (t - rainEnd));
+          if (execute && t >= execTime) m = Math.min(m + 13.2, 42);
+        } else if (execute && t >= execTime) {
+          const jump = Math.min(phys(execTime) + 13.2, 42);
+          m = jump * Math.exp(-k * 0.55 * (t - execTime));
+        } else {
+          m = phys(t);
+        }
+        // 传感器漂移：读数叠加偏移
+        if (def.code === 'SENSOR_DRIFT') m = m + def.driftRatePerHour * (t / 60);
+        return { minute: t, value: Number(Math.max(m, 0).toFixed(2)) };
+      });
+    };
+
+    return {
+      status: 'AVAILABLE',
+      scenarioId: `${scenario.toLowerCase()}-${seed}`,
+      scenario: def.code,
+      scenarioLabel: def.label,
+      seed, plotId,
+      frozenSnapshot: { startMoisture: start, capturedAt: new Date().toISOString() },
+      stressBoundary: boundary,
+      baselineMoisture: baseline,
+      execMinute: execTime,
+      markers: [
+        { minute: 0, label: '冻结快照' },
+        { minute: execTime, label: '⚡ 虚拟执行 (补水 ≈13.2%)' }
+      ],
+      branches: {
+        EXECUTE: { label: '分支 A · 执行灌溉处方', points: buildBranch(true), color: '#3fb950' },
+        NO_ACTION: { label: '分支 B · 不采取措施放任干旱', points: buildBranch(false), color: '#f85149' }
+      },
+      note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态'
+    };
+  }
+
+  /**
+   * 效益对账本：GET /api/v1/value-ledgers
+   */
+  async getValueLedgers() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/value-ledgers');
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live value-ledger failed, falling back to mock:', e);
+      }
+    }
+    return JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
+  }
+
   async _fetch(path, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
@@ -279,3 +490,18 @@ export class ApiService {
 }
 
 export const api = new ApiService();
+
+/**
+ * 确定性伪随机数生成器（mulberry32）
+ * 保证同一 Seed 的双轨推演与回放完全可重复
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

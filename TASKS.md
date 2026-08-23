@@ -57,6 +57,7 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
+| T-040 | P1 | 前端「预测与经营」子模块：`risk-forecast`（Time-to-Risk + 1/2/4h 置信带）、`scenario-replay`（一键情景注入 + 同 Seed 双轨回放）、`value-ledger`（偏差率/节水节电折合/反事实推演） | 成员 E（yyx 分支） | 成员 D | D15+ | 待验收 | `apps/web-ui/js/modules/{risk-forecast,value-ledger}.js`、`css/modules/{forecast,value-ledger}.css`、`vendor/echarts.min.js`（本地化 5.5.1）；本地 3000 端口运行 + `node scripts/verify-webui.mjs`（real 27/27、svg 26/26、stub 26/26） |
 
 ### 2.1 核心八项能力任务映射
 

@@ -137,7 +137,8 @@ apps/web-ui/
 
 ### 任务包 4：未来风险推演与情景模拟沙盘 (`risk-forecast` + `scenario-replay`)
 > **负责成员**：成员 D  
-> **核心定位**：解决“预测与实验”的问题，实现失水预警与双轨回放对比。
+> **核心定位**：解决“预测与实验”的问题，实现失水预警与双轨回放对比。  
+> **实现状态**：✅ 已完成（yyx 分支，2026-08-23）——`js/modules/risk-forecast.js`（`renderRiskForecast` + `renderScenarioReplay`）、`css/modules/forecast.css`、`vendor/echarts.min.js`（本地化 ECharts 5.5.1）。验收：`python -m http.server 3000 --directory apps/web-ui` 本地运行 + `node scripts/verify-webui.mjs` 回归通过（real 27/27 / svg 26/26 / stub 26/26）。
 
 * **对应路由**：`#view=risk-forecast` 与 `#view=scenario-replay`
 * **具体开发内容**：
@@ -158,7 +159,8 @@ apps/web-ui/
 
 ### 任务包 5：效益对账本、作物包管理与全局动效 (`value-ledger` + `crop-packs`)
 > **负责成员**：成员 E  
-> **核心定位**：解决“经营账本与全局质感”的问题，提升系统综合答辩表现力。
+> **核心定位**：解决“经营账本与全局质感”的问题，提升系统综合答辩表现力。  
+> **实现状态**：🔄 部分完成（yyx 分支，2026-08-23）——`value-ledger` 部分（效益对账本）已完成：`js/modules/value-ledger.js`、`css/modules/value-ledger.css`，验收方式同任务包 4；`crop-packs` 阅读器与全局动效（⌘K 已有、粒子背景、骨架屏）待后续任务包。
 
 * **对应路由**：`#view=value-ledger` 与 `#view=crop-packs`
 * **具体开发内容**：

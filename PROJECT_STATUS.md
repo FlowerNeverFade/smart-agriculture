@@ -105,10 +105,18 @@
 ## 5. 可选后续产出（不影响本次后端交付）
 
 ```text
-[ ] 前端页面、PPT、录屏和答辩归档
+[x] 前端页面、PPT、录屏和答辩归档（yyx 分支已交付「预测与经营」3 个子模块，其余任务包按 FRONTEND_TASKS.md 分工推进）
 [ ] 按真实部署规格开展专项压测和长期运行监控
 [ ] 接入真实硬件前完成独立适配与安全评审（不属于本期证据）
 ```
+
+### 2026-08-23 / 前端补充交付（yyx 分支）
+- 今日完成：按 `FRONTEND_TASKS.md` + `webuitask.png` 第 5 点（预测与经营）交付前端子模块：`risk-forecast`（Time-to-Risk 仪表盘、1/2/4h 置信带预测、输入窗口/算法版本/不确定性元数据）、`scenario-replay`（5 类一键情景注入、同冻结快照同 Seed 的 EXECUTE vs NO_ACTION 双轨回放滑块、OFFLINE 场景 UNAVAILABLE 降级）、`value-ledger`（计划 vs 实际偏差率、累计节水/节电/工时折合人民币、反事实推演、OBSERVED/DERIVED/ESTIMATED 口径标记）。
+- 可复现证据：本地 `python -m http.server 3000 --directory apps/web-ui` 运行；`node scripts/verify-webui.mjs`（真实 ECharts 5.5.1 模式 27/27、纯 SVG 兜底 26/26、ECharts stub 26/26）。ECharts 已本地化为 `apps/web-ui/vendor/echarts.min.js`（离线可用，无 CDN 依赖）。
+- 未完成：crop-packs 阅读器、全局动效（粒子背景/骨架屏）及任务包 1~3（plot-detail、decision-console、work-orders）仍为占位路由。
+- 阻塞项：无。沙箱环境无法启动真实浏览器做截图验证，已用 jsdom + 真实 ECharts（SVG renderer 自动选择）替代完成 DOM 级回归。
+- 明日计划：按 FRONTEND_TASKS.md 继续其余任务包或答辩演示串联。
+- 是否影响 Gate：否，本次为可选后续产出，不影响后端验收结论。
 
 ## 6. 日更新模板
 
