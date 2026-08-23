@@ -589,7 +589,7 @@ export async function renderScenarioReplay(container, plotId) {
         <div class="sr-left">
           <div class="agri-card sr-pot-card">
             <div class="sr-pot-head">
-              <span class="sr-pot-title">🪴 温室盆栽环境模拟</span>
+              <span class="sr-pot-title">🌾 作物田块环境模拟</span>
               <span class="agri-pill agri-pill-ok" data-role="pot-badge">🌤️ 正常生长</span>
             </div>
             <div class="sr-pot-stage" data-role="pot-stage">
@@ -611,7 +611,7 @@ export async function renderScenarioReplay(container, plotId) {
               </div>
             </div>
             <div class="sr-pot-desc" data-role="pot-desc">${escapeHtml(plot.cropName)} · ${escapeHtml(plot.cropVariety)} · 当前湿度 ${plot.metrics.SOIL_MOISTURE.value}%</div>
-            <div class="agri-meta-line">盆栽为可视化示意，推演曲线代表量化结果；运行推演后拖动回放滑块，盆栽土壤湿度与植物状态会随分支 A（执行）联动变化。</div>
+            <div class="agri-meta-line">多株作物田块 + 大气天空 + 天气粒子；运行推演后拖动回放滑块，整片作物随分支 A（执行）湿度联动变化。</div>
           </div>
         </div>
 
