@@ -2977,6 +2977,12 @@ export class FarmMonitor {
     });
   }
 
+  openSandbox(plotId) {
+    const targetId = plotId || this.selectedPlotId;
+    this.close(false);
+    this.onSandbox(targetId);
+  }
+
   toggleReclamationMode(forceState) {
     const isNowActive = forceState !== undefined ? forceState : !this.world?.isReclamationMode;
     this.world?.setReclamationMode(isNowActive);

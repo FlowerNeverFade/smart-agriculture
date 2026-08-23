@@ -1,10 +1,12 @@
 /**
+/**
  * AgriLoop Frontend - Main Application Controller
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
 import { FarmMonitor } from './farm-monitor.js';
+import { CropSandbox } from './crop-sandbox.js';
 
 class AgriApp {
   constructor() {
@@ -20,6 +22,7 @@ class AgriApp {
 
     this.dom = {};
     this.farmMonitor = null;
+    this.cropSandbox = null;
   }
 
   async init() {
@@ -35,13 +38,24 @@ class AgriApp {
 
     // Load initial data
     await this.loadOverview();
+    
+    this.cropSandbox = new CropSandbox({
+      onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
+      onPrescribe: (plotId, scenario) => {
+        this.openSubview('decision-console', { plotId });
+        this.showToast(`已根据【${scenario}】情景快速生成智能灌溉处方`);
+      }
+    });
+
     this.farmMonitor = new FarmMonitor({
       plots: this.state.plots,
       onExit: () => this.navigate('home'),
       onSandbox: (plotId) => {
         this.state.currentPlotId = plotId;
+        this.openSubview('scenario-replay', { plotId });
       }
     });
+
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
@@ -517,6 +531,7 @@ class AgriApp {
     const plotId = options.plotId || this.state.currentPlotId;
     if (viewName === 'plot-detail') {
       this.dom.subviewModal.classList.remove('active');
+      this.cropSandbox?.close();
       this.farmMonitor?.setPlots(this.state.plots);
       this.farmMonitor?.open(plotId);
       this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
@@ -529,7 +544,23 @@ class AgriApp {
       return;
     }
 
+    if (viewName === 'scenario-replay' || viewName === 'risk-forecast') {
+      this.dom.subviewModal.classList.remove('active');
+      this.farmMonitor?.close(false);
+      const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
+      this.cropSandbox?.open(plotId, plot);
+      this.dom.headerCurrentView.textContent = '未来风险推演与情景沙盘';
+      document.querySelectorAll('.module-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === viewName || item.dataset.view === 'risk-forecast');
+      });
+      if (options.updateHash !== false) {
+        this.navigate(viewName, { plotId });
+      }
+      return;
+    }
+
     this.farmMonitor?.close(false);
+    this.cropSandbox?.close();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
       desc: '预留独立子模块界面',
@@ -540,9 +571,9 @@ class AgriApp {
     const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
 
     this.dom.modalIcon.textContent = this.getViewIcon(viewName);
-    this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
+    this.dom.modalTitle.textContent = ${meta.title} · 【】;
     this.dom.modalTag.textContent = meta.status;
-    this.dom.placeholderTitle.textContent = `${meta.title}`;
+    this.dom.placeholderTitle.textContent = ${meta.title};
     this.dom.placeholderDesc.textContent = meta.desc;
 
     // Render Contextual Data Preview
@@ -565,7 +596,7 @@ class AgriApp {
     }
   }
 
-  closeModal(updateHash = true) {
+    closeModal(updateHash = true) {
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
