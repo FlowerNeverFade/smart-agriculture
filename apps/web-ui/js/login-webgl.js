@@ -270,7 +270,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
         - 0.45 * 1.08 * cos(phaseB)
         - 0.18 * 1.76 * cos(phaseC)
     );
-    return field * (26.0 / max(uCssMinDimension, 1.0)) / 1.073;
+    return field * (36.0 / max(uCssMinDimension, 1.0)) / 1.073;
   }
 
   void main() {
