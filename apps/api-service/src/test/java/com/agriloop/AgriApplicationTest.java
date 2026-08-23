@@ -84,4 +84,23 @@ class AgriApplicationTest {
         assertThat(compare.get("readOnly")).isEqualTo(true);
         assertThat(engine.valueLedger(Map.of("actualWaterLitres", 10), admin).get("status")).isEqualTo("INCOMPLETE");
     }
+
+    @Test
+    void qwenThinkingAndInternalMetadataAreNeverShownAsNarrative() {
+        String raw = "<think>内部推理 traceId: run-secret</think>\n\n你好！\n\ntraceId: run-secret\nsourceLabels: OBSERVED";
+        assertThat(AgriEngine.sanitizeNarrative(raw)).isEqualTo("你好！");
+    }
+
+    @Test
+    void greetingAndAmbiguousShortInputUseConciseFastPath() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> greeting = engine.agentChat(Map.of("message", "hi", "plotId", "plot-a01"), farmer);
+        assertThat(greeting.get("intent")).isEqualTo("GREETING");
+        assertThat(greeting.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(String.valueOf(greeting.get("narrative"))).doesNotContain("traceId", "<think>");
+
+        Map<String, Object> shortInput = engine.agentChat(Map.of("message", "1", "plotId", "plot-a01"), farmer);
+        assertThat(shortInput.get("intent")).isEqualTo("CLARIFICATION");
+        assertThat(String.valueOf(shortInput.get("narrative"))).contains("补充");
+    }
 }

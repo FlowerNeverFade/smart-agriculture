@@ -44,6 +44,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -98,6 +100,10 @@ class AgriProperties {
     private String llmApiKey = "";
     private long llmTimeoutMs = 60000;
     private int llmMaxTokens = 256;
+    /** Qwen3.8 enables thinking by default; the UI uses concise answer mode. */
+    private boolean llmEnableThinking = false;
+    private boolean llmPreserveThinking = false;
+    private String llmReasoningEffort = "low";
     private String commandMode = "virtual";
     private String forecastMode = "deterministic";
     private String learningMode = "case-only";
@@ -130,6 +136,12 @@ class AgriProperties {
     public void setLlmTimeoutMs(long llmTimeoutMs) { this.llmTimeoutMs = llmTimeoutMs; }
     public int getLlmMaxTokens() { return llmMaxTokens; }
     public void setLlmMaxTokens(int llmMaxTokens) { this.llmMaxTokens = llmMaxTokens; }
+    public boolean isLlmEnableThinking() { return llmEnableThinking; }
+    public void setLlmEnableThinking(boolean llmEnableThinking) { this.llmEnableThinking = llmEnableThinking; }
+    public boolean isLlmPreserveThinking() { return llmPreserveThinking; }
+    public void setLlmPreserveThinking(boolean llmPreserveThinking) { this.llmPreserveThinking = llmPreserveThinking; }
+    public String getLlmReasoningEffort() { return llmReasoningEffort; }
+    public void setLlmReasoningEffort(String llmReasoningEffort) { this.llmReasoningEffort = llmReasoningEffort; }
     public String getCommandMode() { return commandMode; }
     public void setCommandMode(String commandMode) { this.commandMode = commandMode; }
     public String getForecastMode() { return forecastMode; }
@@ -687,6 +699,7 @@ class SecurityConfig {
 @Service
 class AgriEngine {
     private final ObjectMapper mapper;
+    private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
     private final AgriStore store;
     private final AgriEventBus events;
@@ -704,9 +717,10 @@ class AgriEngine {
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
 
-    AgriEngine(ObjectMapper mapper, AgriStore store, AgriEventBus events, AgriProperties properties,
+    AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                PasswordEncoder passwordEncoder, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
         this.mapper = mapper;
+        this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
         // with HTTP/1.1 requests.  This avoids a known incompatibility with
         // Java HTTP/2 upgrade negotiation while keeping the model endpoint
@@ -1359,7 +1373,7 @@ class AgriEngine {
     }
 
     Map<String, Object> agentChat(Map<String, Object> input, UserPrincipal principal) {
-        String message = Jsons.text(input, "message", Jsons.text(input, "query", ""));
+        String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
         String plotId = Jsons.text(input, "plotId", "plot-a01");
         ensurePlotAccess(principal, plotId);
         String traceId = Jsons.id("run");
@@ -1375,7 +1389,32 @@ class AgriEngine {
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
-        if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) {
+        boolean fastPath = false;
+        if (isGreeting(message)) {
+            // Greetings and other social pleasantries do not need a 27B inference call.
+            // Keeping this deterministic also prevents a one-word message from causing
+            // the model to echo the whole telemetry context.
+            answer.put("intent", "GREETING");
+            answer.put("summary", "已识别为问候");
+            answer.put("narrative", "你好！我是农智助手。你可以问我地块状态、异常诊断、风险预测、今日农务或灌溉建议。");
+            answer.put("narrativeProvenance", "DERIVED");
+            answer.put("adapter", "rules-fast-path");
+            fastPath = true;
+        } else if (isAmbiguousShortInput(message)) {
+            answer.put("intent", "CLARIFICATION");
+            answer.put("summary", "输入信息不足");
+            answer.put("narrative", "我已连接到农智闭环。请补充你要查询的内容，例如“查看 plot-a01 状态”或“分析番茄缺水风险”。");
+            answer.put("narrativeProvenance", "DERIVED");
+            answer.put("adapter", "rules-fast-path");
+            fastPath = true;
+        } else if (isCapabilityQuestion(message)) {
+            answer.put("intent", "CAPABILITY_QUERY");
+            answer.put("summary", "已读取农智助手能力范围");
+            answer.put("result", Map.of(
+                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
+                    "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
+                    "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过审批执行命令")));
+        } else if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) {
             tools.add(tool("get_risk_forecast", Map.of("plotId", plotId), forecast(plotId, "SOIL_MOISTURE")));
             answer.put("intent", "RISK_FORECAST");
             answer.put("summary", "已生成土壤湿度短期预测");
@@ -1405,13 +1444,19 @@ class AgriEngine {
 
         boolean degraded = false;
         String degradationReason = null;
-        if (aiMode.equals("rules-only")) {
+        String rawNarrative = null;
+        if (fastPath) {
+            // The deterministic answer above is intentional and is not presented as
+            // a fabricated model response.
+        } else if (aiMode.equals("rules-only")) {
             degraded = true;
             degradationReason = "RULES_ONLY_CONFIGURED";
         } else if (openAiCompatible) {
             long started = System.nanoTime();
             try {
-                String narrative = callOpenAiCompatible(message, answer);
+                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId));
+                String narrative = sanitizeNarrative(rawNarrative);
+                if (narrative.isBlank()) narrative = Jsons.text(answer, "summary", "已完成规则评估");
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
                 answer.put("narrativeProvenance", "DERIVED");
@@ -1432,7 +1477,11 @@ class AgriEngine {
         if (degraded && !openAiCompatible) {
             store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "mode", aiMode, "reason", degradationReason, "provenance", "DERIVED"));
         }
-        store.save("agent-run", traceId, answer);
+        // Keep the public response clean while retaining the raw model output in the
+        // server-side audit record for troubleshooting and reproducibility.
+        Map<String, Object> auditAnswer = new LinkedHashMap<>(answer);
+        if (rawNarrative != null && !rawNarrative.isBlank()) auditAnswer.put("narrativeRaw", rawNarrative);
+        store.save("agent-run", traceId, auditAnswer);
         store.logEvent("agent.run", answer);
         events.publish("agent.run.completed", answer);
         return answer;
@@ -1457,18 +1506,28 @@ class AgriEngine {
         }
 
         String context = Jsons.json(mapper, deterministicContext);
-        if (context.length() > 14000) context = context.substring(0, 14000) + "…";
+        if (context.length() > 10000) context = context.substring(0, 10000) + "…";
         String prompt = (userMessage == null ? "" : userMessage);
         if (prompt.length() > 4000) prompt = prompt.substring(0, 4000) + "…";
-        String userContent = "用户问题：" + prompt + "\n\n已由规则与白名单工具冻结的事实（只可解释，不可改写）：\n" + context;
+        String userContent = "用户问题：" + prompt + "\n\n公开事实（只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", configuredLlmModel());
         request.put("messages", List.of(
-                Map.of("role", "system", "content", "你是农智闭环助手。只根据给定事实回答，使用简洁中文；不得编造观测，不得生成 SQL、MQTT topic、HTTP 请求或控制命令；若处方不可执行，明确说明需要人工复核。"),
+                Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。使用简洁中文：问候只问候，信息不足先提出一个最小澄清问题；最多 3 个短段或 5 条要点。只能使用给定公开事实，不得编造观测值；不得生成 SQL、MQTT topic、HTTP 请求或控制命令；处方不可执行时明确说明需要人工复核。"),
                 Map.of("role", "user", "content", userContent)));
-        request.put("temperature", 0.2);
+        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.7);
+        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.8);
+        request.put("top_k", 20);
+        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 1.5);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
+        Map<String, Object> chatTemplate = new LinkedHashMap<>();
+        chatTemplate.put("enable_thinking", properties.isLlmEnableThinking());
+        chatTemplate.put("preserve_thinking", properties.isLlmPreserveThinking());
+        request.put("chat_template_kwargs", chatTemplate);
+        if (properties.isLlmEnableThinking() && properties.getLlmReasoningEffort() != null && !properties.getLlmReasoningEffort().isBlank()) {
+            request.put("reasoning_effort", properties.getLlmReasoningEffort().trim());
+        }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getLlmTimeoutMs())))
@@ -1490,7 +1549,8 @@ class AgriEngine {
         }
         try {
             JsonNode root = mapper.readTree(response.body());
-            JsonNode content = root.path("choices").path(0).path("message").path("content");
+            JsonNode messageNode = root.path("choices").path(0).path("message");
+            JsonNode content = messageNode.path("content");
             String text;
             if (content.isTextual()) text = content.asText();
             else if (content.isArray()) {
@@ -1501,6 +1561,12 @@ class AgriEngine {
                 });
                 text = joined.toString();
             } else text = "";
+            // Some OpenAI-compatible servers expose only reasoning_content when a
+            // template ignores enable_thinking=false. Return it so the sanitizer can
+            // still prevent reasoning leakage instead of exposing a raw JSON object.
+            if ((text == null || text.isBlank()) && messageNode.path("reasoning_content").isTextual()) {
+                text = messageNode.path("reasoning_content").asText();
+            }
             if (text == null || text.isBlank()) throw new IOException("LLM_EMPTY_RESPONSE");
             return text.trim();
         } catch (JsonProcessingException ex) {
@@ -1517,6 +1583,119 @@ class AgriEngine {
         String message = ex.getMessage() == null ? "" : ex.getMessage().replaceAll("[\\r\\n]+", " ");
         if (message.length() > 160) message = message.substring(0, 160);
         return message.isBlank() ? name : name + ":" + message;
+    }
+
+    private boolean isGreeting(String message) {
+        if (message == null) return false;
+        String normalized = message.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s!！?？。．,，~～]+", "");
+        return Set.of("hi", "hello", "hey", "嗨", "你好", "您好", "早上好", "晚上好", "在吗", "在么").contains(normalized);
+    }
+
+    private boolean isAmbiguousShortInput(String message) {
+        if (message == null) return true;
+        String normalized = message.trim();
+        return normalized.length() <= 2 && normalized.matches("[0-9一二三四五六七八九十a-zA-Z]+[。.!！?？]?");
+    }
+
+    private boolean isCapabilityQuestion(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("专业知识") || normalized.contains("智慧农田") || normalized.contains("懂农业")
+                || normalized.contains("你会什么") || normalized.contains("能做什么") || normalized.contains("你是谁")
+                || normalized.contains("具备") && (normalized.contains("知识") || normalized.contains("能力"));
+    }
+
+    /**
+     * Projects the auditable agent result into facts that are safe and useful for
+     * a user-facing narrative. Trace IDs, tool contracts and version bookkeeping
+     * remain in the audit record but are never presented to the model as prose.
+     */
+    private Map<String, Object> narrativeContext(Map<String, Object> answer, String plotId) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("intent", answer.get("intent"));
+        context.put("summary", answer.get("summary"));
+        for (String key : List.of("result", "plan", "workItems")) {
+            if (answer.containsKey(key)) context.put(key, publicProjection(answer.get(key)));
+        }
+        String knowledge = knowledgeSnippet(plotId);
+        if (!knowledge.isBlank()) context.put("retrievedKnowledge", knowledge);
+        return context;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object publicProjection(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> projected = new LinkedHashMap<>();
+            Set<String> hidden = Set.of("traceId", "requestId", "sourceLabels", "adapter", "mode", "tools", "context",
+                    "knowledgeEvidence", "llm", "llmError", "narrative", "narrativeRaw", "inputSchema", "durationMs",
+                    "validated", "schemaVersion", "agentVersion", "ruleVersion", "cropPackVersion", "knowledgeVersion");
+            map.forEach((key, item) -> {
+                String name = String.valueOf(key);
+                if (!hidden.contains(name)) projected.put(name, publicProjection(item));
+            });
+            return projected;
+        }
+        if (value instanceof Collection<?> collection) return collection.stream().map(this::publicProjection).toList();
+        return value;
+    }
+
+    private String knowledgeSnippet(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        String crop = Jsons.text(plot, "cropCode", "tomato");
+        String location = "classpath:/crop-packs/" + crop + "/knowledge/irrigation.md";
+        try {
+            Resource resource = resourceLoader.getResource(location);
+            if (!resource.exists()) return "";
+            String text = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (text.length() > 1800) text = text.substring(0, 1800) + "…";
+            return text;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /** Removes Qwen reasoning blocks and common prompt/metadata leakage. */
+    static String sanitizeNarrative(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String text = raw.replace("\r", "").trim();
+        // Qwen3.8 can return thinking in content when an older compatible server
+        // ignores chat_template_kwargs. Remove both closed and unclosed blocks.
+        for (String openTag : List.of("<think>", "<thinking>", "<|thinking|>")) {
+            String closeTag = openTag.equals("<|thinking|>") ? "<|/thinking|>" : openTag.replace("<", "</");
+            while (true) {
+                String lower = text.toLowerCase(Locale.ROOT);
+                int start = lower.indexOf(openTag);
+                if (start < 0) break;
+                int end = lower.indexOf(closeTag, start + openTag.length());
+                if (end < 0) {
+                    text = text.substring(0, start).trim();
+                    break;
+                }
+                text = (text.substring(0, start) + text.substring(end + closeTag.length())).trim();
+            }
+        }
+        List<String> kept = new ArrayList<>();
+        Set<String> leakage = Set.of("traceid", "sourcelabels", "knowledgeevidence", "adapter:", "intent:",
+                "用户问题：", "系统提示：", "不得生成", "只根据给定事实", "工具入参", "工具出参", "result device", "<think>");
+        for (String line : text.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isBlank() || trimmed.equalsIgnoreCase("</think>")) {
+                if (!kept.isEmpty() && !kept.get(kept.size() - 1).isBlank()) kept.add("");
+                continue;
+            }
+            String lower = trimmed.toLowerCase(Locale.ROOT);
+            if (leakage.stream().anyMatch(lower::contains)) continue;
+            kept.add(trimmed);
+        }
+        while (!kept.isEmpty() && kept.get(kept.size() - 1).isBlank()) kept.remove(kept.size() - 1);
+        // Avoid showing a duplicated final paragraph when a server returns both a
+        // reasoning transcript and the answer in the same content field.
+        List<String> deduped = new ArrayList<>();
+        for (String line : kept) {
+            if (!line.isBlank() && deduped.stream().anyMatch(line::equals)) continue;
+            deduped.add(line);
+        }
+        return String.join("\n", deduped).replaceAll("\\n{3,}", "\\n\\n").trim();
     }
 
     private List<Map<String, Object>> knowledgeEvidence(String plotId) {

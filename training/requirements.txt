@@ -1,0 +1,4 @@
+# Installed into an isolated training overlay on the remote server.
+# torch/transformers/huggingface_hub are reused from the Qwen vLLM runtime.
+peft>=0.18.0
+accelerate>=1.10.0

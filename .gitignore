@@ -25,6 +25,13 @@ logs/
 backups/
 *.log
 
+# Reproducible fine-tuning dataset is intentionally tracked; checkpoints and
+# evaluation outputs stay remote/local-only.
+!training/data/
+!training/data/*.jsonl
+training/runs/
+training/checkpoints/
+
 # Generated visual assets and Office temporary lock files
 output/
 ~$*.doc

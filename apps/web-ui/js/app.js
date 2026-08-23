@@ -657,6 +657,44 @@ class AgriApp {
     }
   }
 
+  /**
+   * Defense in depth for model responses. The API removes Qwen reasoning blocks,
+   * but the browser also sanitizes responses so an older backend or a mock
+   * adapter can never render internal prompts/metadata as user-facing text.
+   */
+  sanitizeNarrative(value) {
+    let text = String(value || '').replace(/\r/g, '').trim();
+    for (const [open, close] of [['<think>', '</think>'], ['<thinking>', '</thinking>'], ['<|thinking|>', '<|/thinking|>']]) {
+      while (text.toLowerCase().includes(open)) {
+        const lower = text.toLowerCase();
+        const start = lower.indexOf(open);
+        const end = lower.indexOf(close, start + open.length);
+        if (end < 0) {
+          text = text.slice(0, start).trim();
+          break;
+        }
+        text = `${text.slice(0, start)}${text.slice(end + close.length)}`.trim();
+      }
+    }
+    const leakage = /(traceid|sourcelabels|knowledgeevidence|adapter\s*:|intent\s*:|用户问题：|系统提示：|不得生成|工具入参|工具出参|<think>)/i;
+    const lines = [];
+    for (const line of text.split(/\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.toLowerCase() === '</think>') {
+        if (lines.length && lines[lines.length - 1] !== '') lines.push('');
+        continue;
+      }
+      if (!leakage.test(trimmed)) lines.push(trimmed);
+    }
+    while (lines[lines.length - 1] === '') lines.pop();
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  formatKnowledgeEvidence(evidence) {
+    const labels = { PLOT: '地块知识', CROP: '作物规则', GENERAL: '通用安全规则', REGION: '地区知识', STAGE: '阶段知识' };
+    return (evidence || []).map(item => labels[item.scope] || '检索知识').filter(Boolean);
+  }
+
   displayCopilotBanner(response) {
     if (!this.dom.copilotOutputBanner) return;
     this.dom.copilotOutputBanner.classList.add('active');
@@ -667,6 +705,8 @@ class AgriApp {
       && response.degraded !== true;
     const title = hasQwenNarrative
       ? `🤖 Qwen3.8-27B 实时回答`
+      : response.adapter === 'rules-fast-path'
+        ? `🤝 农智助手快捷回复`
       : response.degraded
         ? `🛡️ 规则引擎回答 · AI 已降级`
         : `🤖 AgriLoop Agent 协同结果`;
@@ -684,11 +724,11 @@ class AgriApp {
     if (hasQwenNarrative) this.dom.rightAiModeTag.textContent = `${response.llm?.model || 'Qwen3.8-27B'} · 已连接`;
 
     let citations = '';
-    if (response.knowledgeEvidence && response.knowledgeEvidence.length > 0) {
-      citations = `\n\n📚 知识与规则引用来源：\n` + response.knowledgeEvidence.map(k => `  • [${k.scope}] ${k.source} (${k.provenance})`).join('\n');
-    }
+    const evidenceLabels = this.formatKnowledgeEvidence(response.knowledgeEvidence);
+    if (evidenceLabels.length > 0) citations = `\n\n📚 依据：${[...new Set(evidenceLabels)].join(' · ')}`;
 
-    const body = response.narrative || response.summary || '后端未返回可展示的回答。';
+    const body = this.sanitizeNarrative(response.narrative || response.summary || '后端未返回可展示的回答。')
+      || '后端未返回可展示的回答。';
     const metadata = response.llm
       ? `\n\n模型：${response.llm.model || 'openai-compatible'} · 延迟：${response.llm.latencyMs ?? '—'} ms`
       : '';
