@@ -366,6 +366,15 @@
   font-size: 13px;
 }
 .sr-seed-hint { font-size: 11px; color: var(--text-muted); margin-right: auto; }
+.sr-seed-input.sr-seed-error {
+  border-color: var(--red-primary);
+  box-shadow: 0 0 0 2px var(--red-subtle);
+}
+.sr-seed-params {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-muted);
+}
 
 .sr-run-head {
   display: flex;

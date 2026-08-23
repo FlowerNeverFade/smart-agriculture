@@ -25,7 +25,7 @@ function darkTooltip() {
     shadowOffsetX: 0,
     shadowOffsetY: 0,
     textStyle: { color: '#f0f6fc', fontSize: 12 },
-    extraCssText: 'white-space: normal !important; line-height: 16px !important; max-width: 320px; word-break: break-word;'
+    extraCssText: 'white-space: normal !important; line-height: 16px !important; font-size: 12px !important; color: #f0f6fc !important; padding: 6px 10px !important; background-color: #161b22 !important; border: 1px solid #30363d !important; border-radius: 6px !important; box-shadow: none !important; max-width: 320px !important; word-break: break-word !important;'
   };
 }
 

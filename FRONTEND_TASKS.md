@@ -185,11 +185,13 @@ apps/web-ui/
 ## 四、本地启动与联调测试指引
 
 ### 1. 启动静态前端开发服务器
-在项目根目录运行（内置 Python 即可，无需安装复杂环境）：
+在项目根目录运行（内置 Python 即可，无需安装复杂环境）。**推荐使用 no-cache 服务器**（避免浏览器缓存旧 JS/CSS，前端改完刷新即生效）：
 
 ```bash
-# 进入前端静态资源目录启动
-python -m http.server 3000 --directory apps/web-ui
+# 推荐：no-cache 开发服务器（scripts/serve-webui.py）
+python scripts/serve-webui.py 3000
+# 备选：Python 自带服务器（有 Last-Modified 缓存，改代码后需强刷 Ctrl+F5）
+# python -m http.server 3000 --directory apps/web-ui
 ```
 浏览器直接访问：`http://localhost:3000`
 

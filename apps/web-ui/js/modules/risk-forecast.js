@@ -16,9 +16,9 @@ const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
 
 /** 统一深色主题 tooltip：内容紧凑、按内容自适应尺寸
- * 注意：ECharts 默认 shadowBlur:10 / shadowColor:rgba(0,0,0,.2) 会无条件注入
- * box-shadow，深色背景下形成一圈"空黑区域"，必须显式关闭；
- * line-height 由 ECharts 按 fontSize*1.5 强制生成（textStyle.lineHeight 不生效）。
+ * 注意：ECharts TooltipHTMLContent 会无条件生成 box-shadow、强制
+ * line-height=fontSize*1.5、white-space:nowrap 等默认样式，
+ * 这里对全部相关属性使用 !important 彻底覆盖（级联优先级最高）。
  */
 function darkTooltip() {
   return {
@@ -33,8 +33,7 @@ function darkTooltip() {
     shadowOffsetX: 0,
     shadowOffsetY: 0,
     textStyle: { color: '#f0f6fc', fontSize: 12 },
-    // !important 覆盖 ECharts 默认 white-space:nowrap 与强制 line-height:fontSize*1.5
-    extraCssText: 'white-space: normal !important; line-height: 16px !important; max-width: 320px; word-break: break-word;',
+    extraCssText: 'white-space: normal !important; line-height: 16px !important; font-size: 12px !important; color: #f0f6fc !important; padding: 6px 10px !important; background-color: #161b22 !important; border: 1px solid #30363d !important; border-radius: 6px !important; box-shadow: none !important; max-width: 320px !important; word-break: break-word !important;',
     axisPointer: { lineStyle: { color: '#58a6ff' } }
   };
 }
@@ -381,8 +380,21 @@ export async function renderScenarioReplay(container, plotId) {
   };
 
   runBtn.addEventListener('click', async () => {
-    cleanup();
-    const seed = Math.max(1, Math.min(99999, Number(seedInput.value) || 42));
+    const seedRaw = String(seedInput.value).trim();
+    if (seedRaw === '') {
+      // 空种子必须拦截：缺失随机种子时推演不可复现，禁止运行
+      seedInput.classList.add('sr-seed-error');
+      runOutput.innerHTML = `
+        <div class="agri-alert agri-alert-danger">
+          <div class="agri-alert-icon">⚠️</div>
+          <div><strong>缺少随机种子</strong><p>请先填写 Seed（1 ~ 99999）后再运行双轨推演，同一 Seed 才能复现同一条推演路径。</p></div>
+        </div>`;
+      return;
+    }
+    seedInput.classList.remove('sr-seed-error');
+    const seed = Math.max(1, Math.min(99999, Number(seedRaw)));
+    stopPlayback();
+    disposeCharts();
     runBtn.disabled = true;
     runBtn.innerHTML = '<span>⏳ 正在冻结快照并推演...</span>';
 
@@ -440,6 +452,12 @@ export async function renderScenarioReplay(container, plotId) {
           <div class="sr-run-meta">
             <span>Seed <b class="agri-mono">${seed}</b></span>
             <span>冻结快照：${escapeHtml(run.frozenSnapshot.plotName)} · 湿度 ${cmp.frozenSnapshot.startMoisture}%</span>
+          </div>
+          <div class="sr-run-meta sr-seed-params">
+            <span>本 Seed 推演参数：蒸散速率 ×<b class="agri-mono">${cmp.seedParams.evapotranspirationFactor}</b></span>
+            <span>灌溉回升 <b class="agri-mono">+${cmp.seedParams.irrigationBoostPct}%</b></span>
+            ${cmp.seedParams.rainBoostPct ? `<span>暴雨抬升 <b class="agri-mono">+${cmp.seedParams.rainBoostPct}%</b></span>` : ''}
+            ${cmp.seedParams.driftRatePerHour ? `<span>漂移速率 <b class="agri-mono">${cmp.seedParams.driftRatePerHour}%/h</b></span>` : ''}
           </div>
         </div>
 

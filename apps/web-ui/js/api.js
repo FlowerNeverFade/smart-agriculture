@@ -410,8 +410,15 @@ export class ApiService {
 
     // 物理衰减速率：使 DROUGHT 场景下 16.8% 在 72 分钟触达 14% 边界
     const kBase = Math.log(16.8 / boundary) / (def.ttrMinutes || 72);
-    const k = kBase * (def.decayFactor || 1.0);
+
+    // Seed 驱动的确定性扰动：同一 Seed 完全可重复，不同 Seed 推演出不同演变路径
     const rnd = mulberry32(seed);
+    const kFactor = 0.9 + rnd() * 0.2;                              // 蒸散速率扰动 ±10%
+    const jumpBoost = 11.8 + rnd() * 2.8;                           // 灌溉补水回升量 11.8% ~ 14.6%
+    const rainBoostPct = def.rainBoostPct * (0.8 + rnd() * 0.4);    // 暴雨抬升量 80% ~ 120%
+    const driftRate = def.driftRatePerHour * (0.9 + rnd() * 0.2);   // 传感器漂移速率 ±10%
+
+    const k = kBase * (def.decayFactor || 1.0) * kFactor;
     const N = 49; // 0..240 分钟，步长 5
     const phys = (t) => start * Math.exp(-k * t);
 
@@ -420,19 +427,19 @@ export class ApiService {
         const t = i * 5;
         let m;
         if (def.code === 'STORM') {
-          // 暴雨：前 45 分钟抬升 6%，随后回落
+          // 暴雨：前 45 分钟抬升（量随 Seed 扰动），随后回落
           const rainEnd = 45;
-          if (t <= rainEnd) m = start + def.rainBoostPct * (t / rainEnd);
-          else m = (start + def.rainBoostPct) * Math.exp(-k * (t - rainEnd));
-          if (execute && t >= execTime) m = Math.min(m + 13.2, 42);
+          if (t <= rainEnd) m = start + rainBoostPct * (t / rainEnd);
+          else m = (start + rainBoostPct) * Math.exp(-k * (t - rainEnd));
+          if (execute && t >= execTime) m = Math.min(m + jumpBoost, 42);
         } else if (execute && t >= execTime) {
-          const jump = Math.min(phys(execTime) + 13.2, 42);
+          const jump = Math.min(phys(execTime) + jumpBoost, 42);
           m = jump * Math.exp(-k * 0.55 * (t - execTime));
         } else {
           m = phys(t);
         }
-        // 传感器漂移：读数叠加偏移
-        if (def.code === 'SENSOR_DRIFT') m = m + def.driftRatePerHour * (t / 60);
+        // 传感器漂移：读数叠加偏移（速率随 Seed 扰动）
+        if (def.code === 'SENSOR_DRIFT') m = m + driftRate * (t / 60);
         return { minute: t, value: Number(Math.max(m, 0).toFixed(2)) };
       });
     };
@@ -447,9 +454,15 @@ export class ApiService {
       stressBoundary: boundary,
       baselineMoisture: baseline,
       execMinute: execTime,
+      seedParams: {
+        evapotranspirationFactor: Number(kFactor.toFixed(3)),
+        irrigationBoostPct: Number(jumpBoost.toFixed(1)),
+        rainBoostPct: Number(rainBoostPct.toFixed(1)),
+        driftRatePerHour: Number(driftRate.toFixed(2))
+      },
       markers: [
         { minute: 0, label: '冻结快照' },
-        { minute: execTime, label: '⚡ 虚拟执行 (补水 ≈13.2%)' }
+        { minute: execTime, label: `⚡ 虚拟执行 (补水 ≈${jumpBoost.toFixed(1)}%)` }
       ],
       branches: {
         EXECUTE: { label: '分支 A · 执行灌溉处方', points: buildBranch(true), color: '#3fb950' },
