@@ -36,10 +36,6 @@
   background: var(--bg-canvas);
 }
 
-.subview-modal-card.farm-ops-mode .subview-placeholder-banner {
-  display: none;
-}
-
 .farm-ops {
   min-height: 100%;
   padding: 24px;

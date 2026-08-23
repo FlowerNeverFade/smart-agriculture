@@ -1362,34 +1362,6 @@ body {
   overflow-y: auto;
 }
 
-.subview-placeholder-banner {
-  background-color: var(--bg-subtle);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  text-align: center;
-  margin-bottom: 20px;
-}
-
-.subview-placeholder-icon {
-  font-size: 36px;
-  margin-bottom: 12px;
-}
-
-.subview-placeholder-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.subview-placeholder-desc {
-  font-size: 13px;
-  color: var(--text-secondary);
-  max-width: 540px;
-  margin: 0 auto 16px;
-}
-
 /* Toast Alerts */
 .toast-container {
   position: fixed;

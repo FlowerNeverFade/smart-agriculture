@@ -40,6 +40,8 @@ const ok = (name, pass, extra = '') => {
 };
 
 const html = readFileSync(join(ROOT, 'apps', 'web-ui', 'index.html'), 'utf8');
+ok('入口脚本已版本化避免旧缓存', /js\/app\.js\?v=[^"']+/.test(html));
+ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));
 const dom = new JSDOM(html, {
   url: 'http://localhost:3000/#view=risk-forecast',
   runScripts: 'outside-only',
@@ -119,7 +121,7 @@ if (hsGrid) {
 ok('risk-forecast 路由打开', document.querySelector('#modalTitle').textContent.includes('风险预测'));
 const rfReady = await waitFor(() => document.querySelector('.rf-root'), 6000);
 ok('risk-forecast 模块渲染 (.rf-root)', rfReady);
-ok('已实现模块隐藏三角尺占位卡', document.querySelector('.subview-placeholder-banner')?.style.display === 'none');
+ok('已实现模块已移除三角尺占位卡', !document.querySelector('.subview-placeholder-banner') && !document.querySelector('.subview-placeholder-icon'));
 ok('弹窗已移除底部接口契约栏', !document.querySelector('#modalCodeContract') && !document.querySelector('.code-contract-box'));
 if (rfReady) {
   await waitChart('[data-role="gauge"]');
@@ -222,7 +224,7 @@ if (cpReady) {
 gotoView('#view=decision-passport');
 const passportReady = await waitFor(() => document.querySelector('.subview-modal-body')?.textContent.includes('决策审计护照链'), 3000);
 ok('决策护照内容渲染', passportReady);
-ok('决策护照隐藏三角尺占位卡', document.querySelector('.subview-placeholder-banner')?.style.display === 'none');
+ok('决策护照已移除三角尺占位卡', !document.querySelector('.subview-placeholder-banner'));
 
 // ============ 视图 5：farm-operations 工单/巡田/资源约束 ============
 gotoView('#view=work-orders&plotId=plot-a01');

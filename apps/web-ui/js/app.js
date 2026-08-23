@@ -151,15 +151,10 @@ class AgriApp {
     this.dom.moduleNavList = document.getElementById('moduleNavList');
     this.dom.subviewModal = document.getElementById('subviewModal');
     this.dom.btnCloseModal = document.getElementById('btnCloseModal');
-    this.dom.btnBackToHome = document.getElementById('btnBackToHome');
     this.dom.modalIcon = document.getElementById('modalIcon');
     this.dom.modalTitle = document.getElementById('modalTitle');
     this.dom.modalTag = document.getElementById('modalTag');
-    this.dom.placeholderIcon = document.getElementById('placeholderIcon');
-    this.dom.placeholderTitle = document.getElementById('placeholderTitle');
-    this.dom.placeholderDesc = document.getElementById('placeholderDesc');
     this.dom.modalDynamicContent = document.getElementById('modalDynamicContent');
-    this.dom.placeholderBanner = this.dom.subviewModal?.querySelector('.subview-placeholder-banner');
     this.dom.toastContainer = document.getElementById('toastContainer');
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
@@ -268,7 +263,6 @@ class AgriApp {
 
     // Close Modal Button
     this.dom.btnCloseModal?.addEventListener('click', () => this.closeModal());
-    this.dom.btnBackToHome?.addEventListener('click', () => this.closeModal());
     this.dom.subviewModal?.addEventListener('click', (e) => {
       if (e.target === this.dom.subviewModal) this.closeModal();
     });
@@ -1067,15 +1061,12 @@ class AgriApp {
     this.dom.modalIcon.textContent = this.getViewIcon(viewName);
     this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
     this.dom.modalTag.textContent = meta.status;
-    this.dom.placeholderTitle.textContent = `${meta.title}`;
-    this.dom.placeholderDesc.textContent = meta.desc;
 
-    // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图；已有上下文内容的视图也不再显示占位卡。
+    // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图。
     const renderer = SUBVIEW_RENDERERS[viewName];
     this._subviewGen = (this._subviewGen || 0) + 1;
     const viewGen = this._subviewGen;
     if (renderer) {
-      this.dom.placeholderBanner?.style.setProperty('display', 'none');
       this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
       this.dom.subviewModal.classList.add('active');
       Promise.resolve(renderer(this.dom.modalDynamicContent, plotId, this)).then(cleanup => {
@@ -1091,8 +1082,6 @@ class AgriApp {
     } else {
       // Render Contextual Data Preview
       this.renderSubviewContextualContent(viewName, plot);
-      const hasContextualContent = viewName === 'decision-passport';
-      this.dom.placeholderBanner?.style.setProperty('display', hasContextualContent ? 'none' : '');
     }
 
     this.dom.subviewModal.classList.add('active');
@@ -1124,7 +1113,6 @@ class AgriApp {
   closeModal(updateHash = true) {
     this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
-    if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
     this.farmMonitor?.close(false);
     this.riumBackground?.setVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
@@ -1158,7 +1146,7 @@ class AgriApp {
       'scenario-replay': '⚡',
       'crop-packs': '📦'
     };
-    return map[viewName] || '📐';
+    return map[viewName] || '🧩';
   }
 
   renderSubviewContextualContent(viewName, plot) {
