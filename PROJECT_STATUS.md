@@ -3,11 +3,11 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-23
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；前端页面、真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
 
-> 2026-08-23 main 部署记录：GitHub `main` 已基于回滚后的 `dbc9a53` 完成同步（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
+> 2026-08-23 main 部署记录：GitHub `main` 已基于回滚后的 `dbc9a53` 完成同步（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
 ## 1. 进度总览
 
@@ -24,7 +24,7 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 不在本期后端范围 | — | 未实现前端页面；REST/SSE/OpenAPI 已交付 |
+| 可视化主线实现 | 已完成（最小 Web 入口） | 100%（入口） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；完整专业图表页面仍不在本期 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -35,7 +35,8 @@
 
 ### 2.1 2026-08-23 main 远端验收
 
-- `/actuator/health`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
+- `/actuator/health`、品牌入口 `/agriloop/`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
+- 网页登录后输入自然语言即可对话；UI 只有在响应包含 `adapter=openai-compatible`、`degraded=false`、`narrative` 时才标为 `Qwen3.8-27B 实时回答`，否则明确显示规则降级。
 - Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。
 - vLLM 监听 `127.0.0.1:8000`，数据库/消息服务不通过公网服务暴露；`SERVER_ADDRESS=127.0.0.1` 保护 Spring API，公网入口为 Nginx 的 6006 映射。
 - 远端磁盘约 58GB 可用，Qwen 权重约 52GB；数据目录、备份和应用日志位于服务器本地持久盘。
@@ -59,7 +60,7 @@
 - 后端代码、数据库迁移、两个 Crop Pack、模拟器、OpenAPI/Schema、自动化测试和远端 Supervisor 部署已落盘。
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
-- 可选后续工作：补充前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
+- 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
 
@@ -87,7 +88,7 @@
 
 ### Gate 3：D14 可答辩
 
-状态：**后端已完成；前端页面和答辩物料按范围不在本次后端交付**
+状态：**后端已完成；最小 Web 入口已验收，完整前端和答辩物料按范围不在本次后端交付**
 
 验收条件：
 
@@ -102,7 +103,7 @@
 | 类型 | 内容 | 影响 | 应对 |
 |---|---|---|---|
 | 已知边界 | 本地是否具备 MaxKB/LLM 服务和额度 | 外部增强不可用时不调用真实模型 | 默认 `rules-only`，保留 `mock`/可插拔适配器 |
-| 已知边界 | 前端页面与答辩物料未包含在本次后端工作区 | 不影响 REST/SSE/OpenAPI 验收 | 后续可独立接入，不把页面冒充后端完成 |
+| 已知边界 | 完整前端页面与答辩物料未包含在本次后端工作区 | 不影响 REST/SSE/OpenAPI 验收；最小 Web Copilot 已发布 | 后续可扩展专业页面，不把最小入口冒充完整前端 |
 | 风险 | Crop Pack 配置错误或跨作物引用 | 建议失真 | Schema、版本锁定、逐包回归 |
 | 风险 | 功能过多导致主线延期 | Gate 2/3 失败 | 先保 P0；P2 只留合同或明确 Mock，且不计完成 |
 | 风险 | 新增预测/学习/协同/经营被误写成已实现 | 状态失真、答辩失信 | 目标设计与实现分栏；只有测试证据才计完成 |
@@ -114,7 +115,7 @@
 ## 5. 可选后续产出（不影响本次后端交付）
 
 ```text
-[ ] 前端页面、PPT、录屏和答辩归档
+[ ] 完整前端页面、PPT、录屏和答辩归档
 [ ] 按真实部署规格开展专项压测和长期运行监控
 [ ] 接入真实硬件前完成独立适配与安全评审（不属于本期证据）
 ```

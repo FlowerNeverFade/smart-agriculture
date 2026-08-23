@@ -4,7 +4,7 @@
 > 任务版本：v1.2（2026-08-22）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
-> 2026-08-23 GitHub `main`（`ee6f2bd`）已完成远端部署；公网 Web/API、Qwen OpenAI-compatible 适配器和服务器数据存储已验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端页面仍不在本期后端交付范围。
+> 2026-08-23 GitHub `main`（`3361ddb`）已完成远端部署；公网 Web/API、`/agriloop/` 品牌入口、Qwen OpenAI-compatible 适配器和服务器数据存储已验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；完整业务前端仍不在本期后端交付范围。
 
 ## 1. 使用说明
 
@@ -30,7 +30,7 @@
 | T-010 | P0 | Crop Pack 驱动的规则、迟滞、冷却、多风险检测和候选根因评分 | 项目组 | — | D6 | 已完成（后端） | WATER_DEFICIT/SENSOR_DRIFT/DEVICE_FAULT/HEAT_STRESS |
 | T-011 | P0 | 告警状态机、统一农务工单和今日农务聚合 | 项目组 | — | D8/D13 | 已完成（后端） | alerts/work-orders/today-work 接口 |
 | T-012 | P0 | 今日农务、总览、指标卡、风险排序、决策就绪度入口、实时推送 | 项目组 | — | D7 | 已完成（后端） | overview/today-work/SSE |
-| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端） | telemetry/profile/devices REST；前端页面不在本期 |
+| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端） | telemetry/profile/devices REST；最小 Web 入口已发布，完整页面不在本期 |
 | T-014 | P0 | 虚拟灌溉开关、审批、幂等、ACK、执行实际量与非成功路径 | 项目组 | — | D11 | 已完成（后端） | FAILED/TIMEOUT/PARTIAL 状态与 INCONCLUSIVE |
 | T-015 | P0 | RAG 知识目录和检索回退策略 | 项目组 | — | D9 | 已完成（规则知识后端） | Crop Pack knowledge 目录与 rules-only 回退 |
 | T-016 | P0 | 感知/诊断/处方/安全 Agent；冻结任务、核验、预测、就绪度、效果、执行申请 Tool，按 P0/P1 启用 | 项目组 | — | D10 | 已完成（规则优先后端） | 白名单工具输出、trace、不可直连 SQL/MQTT |
@@ -57,7 +57,7 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
-| T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `ee6f2bd`、AutoDL 6006 自定义服务、`degraded=false` Agent 黑盒证据 |
+| T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `3361ddb`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据 |
 
 ### 2.1 核心八项能力任务映射
 
@@ -89,7 +89,7 @@
 | 启动与需求 | D1 | 需求冻结、风险和任务看板 | 已完成（后端） |
 | 合同与 Crop Pack 设计 | D2-D3 | API、事件、计划/核验/诊断/预测/就绪度/处方/评价/反馈/资源/价值 Tool、Pack Schema | 已完成（后端） |
 | 数据主线 | D4-D6 | 事件流、落库、心跳、告警、根因诊断、最小就绪度硬门 | 已完成（远端验收） |
-| 可视化主线 | D7-D8 | 今日农务、总览、曲线、核验、就绪度、设备、告警和控制 | 后端 REST/SSE 已完成；前端不在范围 |
+| 可视化主线 | D7-D8 | 今日农务、总览、曲线、核验、就绪度、设备、告警和控制 | 后端 REST/SSE 已完成；最小 Web 登录/Copilot 入口已发布，完整专业页面不在范围 |
 | 智能体主线 | D9-D10 | RAG、诊断/预测/就绪度/处方/操作工具、trace | 已完成（规则优先后端） |
 | 首次闭环 | D11 | 根因、就绪度、补证/审批、处方、虚拟执行和效果评价 | 已完成（远端验收） |
 | 创新增强 | D12-D13 | 第二作物、生命周期、短期预测、完整护照；按顺序选择协同、价值、案例 | 已完成（后端 P1/P2 切片） |
