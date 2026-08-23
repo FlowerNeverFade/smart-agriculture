@@ -375,6 +375,9 @@
 
 /* Full-window field mission sandbox */
 .field-ops {
+  --field-pointer-x: 50%;
+  --field-pointer-y: 30%;
+  --field-pointer-opacity: 0;
   position: relative;
   isolation: isolate;
   min-height: 100%;
@@ -404,6 +407,16 @@
   pointer-events: none;
 }
 
+.field-sandbox-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: var(--field-pointer-opacity);
+  background: radial-gradient(circle 230px at var(--field-pointer-x) var(--field-pointer-y), rgba(83, 235, 143, .13), rgba(42, 149, 87, .045) 42%, transparent 72%);
+  transition: opacity .28s ease;
+  will-change: opacity, background;
+}
+
 .field-effects-canvas {
   z-index: 12;
   pointer-events: none;
@@ -422,25 +435,71 @@
   mask-image: linear-gradient(to bottom, transparent 0, black 11%, black 88%, transparent);
   transform: perspective(720px) rotateX(54deg) scale(1.35) translateY(-6%);
   transform-origin: center top;
-  animation: fieldGridBreathe 9s ease-in-out infinite alternate;
 }
 
 .field-plot {
+  --plot-rotation: -7deg;
+  --plot-response: 0;
+  --plot-glow-x: 50%;
+  --plot-glow-y: 50%;
+  --plot-shift-x: 0px;
+  --plot-shift-y: 0px;
+  --plot-scale: 1;
   position: absolute;
   width: 28%;
   height: 260px;
+  isolation: isolate;
+  overflow: hidden;
   border: 1px solid rgba(105, 239, 160, .2);
   border-radius: 34% 66% 48% 52% / 44% 38% 62% 56%;
   background:
     repeating-linear-gradient(108deg, rgba(78, 194, 123, .08) 0 2px, transparent 2px 18px),
     radial-gradient(circle at 45% 42%, rgba(45, 173, 94, .1), transparent 67%);
   box-shadow: inset 0 0 60px rgba(47, 172, 92, .055), 0 0 46px rgba(46, 203, 107, .05);
-  transform: rotate(-7deg);
+  transform: translate3d(var(--plot-shift-x), var(--plot-shift-y), 0) rotate(var(--plot-rotation)) scale(var(--plot-scale));
+  transform-origin: center;
+  will-change: transform;
   animation: fieldPlotPulse 7s ease-in-out infinite alternate;
+}
+
+.field-plot::before,
+.field-plot::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  left: var(--plot-glow-x);
+  top: var(--plot-glow-y);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.field-plot::before {
+  width: 230px;
+  height: 180px;
+  opacity: var(--plot-response);
+  border-radius: 50%;
+  background:
+    repeating-linear-gradient(108deg, rgba(155, 255, 194, .16) 0 2px, transparent 2px 14px),
+    radial-gradient(circle, rgba(101, 243, 158, .32), rgba(65, 188, 111, .1) 43%, transparent 72%);
+  filter: blur(.2px);
+}
+
+.field-plot::after {
+  width: 88px;
+  height: 34px;
+  opacity: var(--plot-response);
+  border: 1px solid rgba(145, 255, 188, .58);
+  border-radius: 50%;
+  box-shadow: 0 0 20px rgba(79, 235, 139, .24), inset 0 0 15px rgba(111, 249, 165, .12);
+}
+
+.field-plot.field-plot-active {
+  border-color: rgba(126, 244, 174, .34);
 }
 
 .field-plot span {
   position: absolute;
+  z-index: 2;
   right: 14%;
   bottom: 11%;
   color: rgba(144, 247, 183, .17);
@@ -451,8 +510,8 @@
 }
 
 .field-plot-a { left: 3%; top: 250px; }
-.field-plot-b { right: 5%; top: 480px; width: 34%; transform: rotate(8deg); animation-delay: -2.4s; }
-.field-plot-c { left: 22%; top: 920px; width: 42%; height: 340px; transform: rotate(3deg); animation-delay: -4.8s; }
+.field-plot-b { --plot-rotation: 8deg; right: 5%; top: 480px; width: 34%; animation-delay: -2.4s; }
+.field-plot-c { --plot-rotation: 3deg; left: 22%; top: 920px; width: 42%; height: 340px; animation-delay: -4.8s; }
 
 .field-mist {
   position: absolute;
@@ -500,13 +559,12 @@
   background:
     linear-gradient(102deg, rgba(18, 91, 50, .35), transparent 48%),
     rgba(4, 18, 12, .32);
-  backdrop-filter: blur(9px);
+  backdrop-filter: blur(6px);
 }
 
 .field-command-hero .ops-role-card {
   border-color: rgba(103, 227, 151, .18);
   background: rgba(4, 18, 12, .5);
-  backdrop-filter: blur(12px);
 }
 
 .field-ops .ops-metric-row article,
@@ -514,9 +572,8 @@
 .field-ops .kanban-column,
 .field-ops .inspection-strip {
   border-color: rgba(111, 229, 157, .14);
-  background: rgba(5, 18, 13, .48);
+  background: rgba(5, 18, 13, .62);
   box-shadow: 0 18px 40px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(8px) saturate(1.06);
 }
 
 .field-ops .ops-metric-row article::before {
@@ -538,7 +595,7 @@
   border-radius: var(--radius-xl);
   background: rgba(4, 18, 12, .44);
   box-shadow: inset 0 0 48px rgba(39, 159, 85, .045), 0 18px 48px rgba(0, 0, 0, .18);
-  backdrop-filter: blur(9px);
+  backdrop-filter: blur(4px);
 }
 
 .field-timeline-heading {
@@ -621,7 +678,6 @@
   border-color: rgba(112, 220, 153, .12);
   background: rgba(3, 14, 9, .61);
   box-shadow: 0 12px 28px rgba(0, 0, 0, .19);
-  backdrop-filter: blur(5px);
 }
 
 .field-ops .work-card:hover {

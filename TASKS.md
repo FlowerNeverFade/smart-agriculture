@@ -58,7 +58,7 @@
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
-| T-041 | P1 | 独立前端分支实现农务执行、透明农田沙盘、巡田抽屉、水资源协同排程及动态交互 | 前端 | — | D15 | 待验收 | `apps/web-ui/FARM_OPERATIONS.md`、本地静态页视觉与交互验收；当前为 SIMULATED/Mock，待服务器接口联调 |
+| T-041 | P1 | 独立前端分支实现农务执行、透明农田沙盘、巡田抽屉、水资源协同排程及动态交互 | 前端 | — | D15 | 待验收 | `apps/web-ui/FARM_OPERATIONS.md`；已完成轨迹平滑、局部地块响应及本地静态页视觉/交互/控制台验收，当前仍为 SIMULATED/Mock，待服务器接口联调 |
 
 ### 2.1 核心八项能力任务映射
 
