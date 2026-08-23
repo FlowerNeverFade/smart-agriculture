@@ -15,14 +15,16 @@ const MEAN_COLOR = '#58a6ff';
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
 
-/** 统一深色主题 tooltip */
+/** 统一深色主题 tooltip：confine 限制在容器内，限宽自动换行，避免超长浮窗 */
 function darkTooltip() {
   return {
     trigger: 'axis',
+    confine: true,
     backgroundColor: '#161b22',
     borderColor: '#30363d',
     borderWidth: 1,
     textStyle: { color: '#f0f6fc', fontSize: 12 },
+    extraCssText: 'max-width: 280px; white-space: normal; word-break: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border-radius: 6px;',
     axisPointer: { lineStyle: { color: '#58a6ff' } }
   };
 }
@@ -457,6 +459,13 @@ export async function renderScenarioReplay(container, plotId) {
     const resetBtn = runOutput.querySelector('[data-role="reset-btn"]');
     let chart = null;
 
+    const buildMarkLineData = (t) => [
+      { xAxis: t, lineStyle: { color: '#f0f6fc' }, label: { formatter: `◉ t=${t}min`, color: '#f0f6fc' } },
+      { xAxis: cmp.execMinute, lineStyle: { color: '#3fb950' }, label: { formatter: '⚡ 虚拟执行', color: '#3fb950' } },
+      { yAxis: cmp.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR } },
+      { yAxis: cmp.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR } }
+    ];
+
     const buildEChartsOption = (t) => {
       const series = [
         {
@@ -469,12 +478,7 @@ export async function renderScenarioReplay(container, plotId) {
             silent: true, symbol: 'none',
             label: { color: '#8b949e', fontSize: 10 },
             lineStyle: { type: 'dashed' },
-            data: [
-              { xAxis: t, lineStyle: { color: '#f0f6fc' }, label: { formatter: `◉ t=${t}min`, color: '#f0f6fc' } },
-              { xAxis: cmp.execMinute, lineStyle: { color: '#3fb950' }, label: { formatter: '⚡ 虚拟执行', color: '#3fb950' } },
-              { yAxis: cmp.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR } },
-              { yAxis: cmp.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR } }
-            ]
+            data: buildMarkLineData(t)
           }
         },
         {
@@ -505,29 +509,36 @@ export async function renderScenarioReplay(container, plotId) {
     };
 
     const renderChartAt = (t) => {
-      if (!chart) { chart = initEChart(chartEl); if (chart) chartInstances.push(chart); }
-      if (chart) {
-        chart.setOption(buildEChartsOption(t), true);
+      if (!chart) {
+        chart = initEChart(chartEl);
+        if (chart) {
+          chartInstances.push(chart);
+          chart.setOption(buildEChartsOption(t), true); // 首次全量渲染
+        }
       } else {
-        const markers = cmp.markers.map(m => ({ x: m.minute, label: m.label, color: m.minute === cmp.execMinute ? '#3fb950' : '#8b949e' }));
-        markers.push({ x: t, label: `◉ t=${t}min`, color: '#f0f6fc', dashed: false });
-        chartEl.innerHTML = svgLineChart({
-          width: 760, height: 340,
-          xMin: 0, xMax: 240, yMin, yMax,
-          xFmt: v => v === 0 ? '现在' : `+${v}min`,
-          yFmt: v => `${v}%`,
-          yTickCount: 5,
-          series: [
-            { name: bExec.label, color: bExec.color, width: 2.4, points: bExec.points.map(p => [p.minute, p.value]) },
-            { name: bNoop.label, color: bNoop.color, width: 2.2, dashed: true, points: bNoop.points.map(p => [p.minute, p.value]) }
-          ],
-          markers,
-          hMarkers: [
-            { y: cmp.baselineMoisture, label: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR },
-            { y: cmp.stressBoundary, label: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR }
-          ]
-        });
+        // 增量更新：只移动回放标记线，不重建数据序列（避免播放抽搐）
+        chart.setOption({ series: [{ markLine: { animation: false, data: buildMarkLineData(t) } }] });
       }
+      if (chart) return;
+      // 纯 SVG 兜底
+      const markers = cmp.markers.map(m => ({ x: m.minute, label: m.label, color: m.minute === cmp.execMinute ? '#3fb950' : '#8b949e' }));
+      markers.push({ x: t, label: `◉ t=${t}min`, color: '#f0f6fc', dashed: false });
+      chartEl.innerHTML = svgLineChart({
+        width: 760, height: 340,
+        xMin: 0, xMax: 240, yMin, yMax,
+        xFmt: v => v === 0 ? '现在' : `+${v}min`,
+        yFmt: v => `${v}%`,
+        yTickCount: 5,
+        series: [
+          { name: bExec.label, color: bExec.color, width: 2.4, points: bExec.points.map(p => [p.minute, p.value]) },
+          { name: bNoop.label, color: bNoop.color, width: 2.2, dashed: true, points: bNoop.points.map(p => [p.minute, p.value]) }
+        ],
+        markers,
+        hMarkers: [
+          { y: cmp.baselineMoisture, label: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR },
+          { y: cmp.stressBoundary, label: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR }
+        ]
+      });
     };
 
     const updateReadouts = (t) => {

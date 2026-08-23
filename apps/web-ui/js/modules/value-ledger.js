@@ -15,10 +15,12 @@ const AMBER = '#d29922';
 function darkTooltip() {
   return {
     trigger: 'axis',
+    confine: true,
     backgroundColor: '#161b22',
     borderColor: '#30363d',
     borderWidth: 1,
-    textStyle: { color: '#f0f6fc', fontSize: 12 }
+    textStyle: { color: '#f0f6fc', fontSize: 12 },
+    extraCssText: 'max-width: 280px; white-space: normal; word-break: break-word; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border-radius: 6px;'
   };
 }
 
