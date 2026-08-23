@@ -707,7 +707,14 @@ class AgriEngine {
     AgriEngine(ObjectMapper mapper, AgriStore store, AgriEventBus events, AgriProperties properties,
                PasswordEncoder passwordEncoder, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
         this.mapper = mapper;
-        this.llmHttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        // vLLM/uvicorn on the private loopback endpoint is intentionally used
+        // with HTTP/1.1 short connections.  This avoids a known incompatibility
+        // with reused Java HTTP/2 upgrade connections while keeping the model
+        // endpoint private and bounded by the per-request timeout.
+        this.llmHttpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
         this.store = store; this.events = events; this.properties = properties;
         this.passwordEncoder = passwordEncoder; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
     }
@@ -1467,6 +1474,7 @@ class AgriEngine {
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getLlmTimeoutMs())))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .header("Connection", "close")
                 .POST(HttpRequest.BodyPublishers.ofString(Jsons.json(mapper, request), StandardCharsets.UTF_8));
         if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
             builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getLlmApiKey().trim());
