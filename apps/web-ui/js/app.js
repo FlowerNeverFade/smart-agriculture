@@ -159,7 +159,7 @@ class AgriApp {
     this.dom.placeholderTitle = document.getElementById('placeholderTitle');
     this.dom.placeholderDesc = document.getElementById('placeholderDesc');
     this.dom.modalDynamicContent = document.getElementById('modalDynamicContent');
-    this.dom.modalCodeContract = document.getElementById('modalCodeContract');
+    this.dom.placeholderBanner = this.dom.subviewModal?.querySelector('.subview-placeholder-banner');
     this.dom.toastContainer = document.getElementById('toastContainer');
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
@@ -1070,12 +1070,12 @@ class AgriApp {
     this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
 
-    // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图；未实现的视图继续使用主线占位合同。
+    // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图；已有上下文内容的视图也不再显示占位卡。
     const renderer = SUBVIEW_RENDERERS[viewName];
     this._subviewGen = (this._subviewGen || 0) + 1;
     const viewGen = this._subviewGen;
     if (renderer) {
-      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
+      this.dom.placeholderBanner?.style.setProperty('display', 'none');
       this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
       this.dom.subviewModal.classList.add('active');
       Promise.resolve(renderer(this.dom.modalDynamicContent, plotId, this)).then(cleanup => {
@@ -1089,13 +1089,11 @@ class AgriApp {
         this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
       });
     } else {
-      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
       // Render Contextual Data Preview
       this.renderSubviewContextualContent(viewName, plot);
+      const hasContextualContent = viewName === 'decision-passport';
+      this.dom.placeholderBanner?.style.setProperty('display', hasContextualContent ? 'none' : '');
     }
-
-    // Render Code Contract / API Endpoint Spec
-    this.dom.modalCodeContract.textContent = this.getViewCodeContract(viewName, plot);
 
     this.dom.subviewModal.classList.add('active');
     this.dom.headerCurrentView.textContent = meta.title.split(' ')[0];
@@ -1211,21 +1209,6 @@ class AgriApp {
     }
 
     this.dom.modalDynamicContent.innerHTML = contentHtml;
-  }
-
-  getViewCodeContract(viewName, plot) {
-    const contracts = {
-      'plot-detail': `// GET /api/v1/plots/${plot.plotId}/telemetry?metric=SOIL_MOISTURE&limit=1000\n// GET /api/v1/plots/${plot.plotId}/resolved-profile\n// GET /api/v1/plots/${plot.plotId}/timeline`,
-      'decision-console': `// POST /api/v1/diagnoses/evaluate { plotId: "${plot.plotId}" }\n// POST /api/v1/irrigation/estimate { plotId: "${plot.plotId}" }\n// GET  /api/v1/decisions/IRRIGATION_PLAN/{planId}/readiness`,
-      'work-orders': `// GET  /api/v1/work-items/today?plotId=${plot.plotId}\n// POST /api/v1/work-orders { plotId: "${plot.plotId}", priority: "HIGH" }\n// POST /api/v1/inspections { plotId: "${plot.plotId}", observation: "..." }`,
-      'risk-forecast': `// GET  /api/v1/plots/${plot.plotId}/risk-forecast?metric=SOIL_MOISTURE\n// POST /api/v1/forecasts/evaluate { plotId: "${plot.plotId}" }`,
-      'resource-coordination': `// POST /api/v1/resource-plans/evaluate { demands: [...] }\n// GET  /api/v1/resource-plans/{resourcePlanId}`,
-      'value-ledger': `// GET  /api/v1/value-ledgers\n// POST /api/v1/value-ledgers { plannedWaterLitres: 153, actualWaterLitres: 150 }\n// GET  /api/v1/crop-batches/batch-${plot.plotId}/plan-actual`,
-      'decision-passport': `// GET  /api/v1/decision-passports/{traceId}\n// GET  /api/v1/decisions/{traceId}/similar-cases`,
-      'scenario-replay': `// POST /api/v1/scenarios/runs { scenario: "drought", seed: 42 }\n// POST /api/v1/scenarios/compare { scenarioId: "drought-42", leftBranch: "EXECUTE", rightBranch: "NO_ACTION" }`,
-      'crop-packs': `// GET  /api/v1/crop-packs\n// GET  /api/v1/rules`
-    };
-    return contracts[viewName] || `// Endpoint: /api/v1/${viewName}`;
   }
 
   escapeHtml(value) {

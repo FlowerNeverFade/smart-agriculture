@@ -36,7 +36,6 @@
   background: var(--bg-canvas);
 }
 
-.subview-modal-card.farm-ops-mode .code-contract-box,
 .subview-modal-card.farm-ops-mode .subview-placeholder-banner {
   display: none;
 }
