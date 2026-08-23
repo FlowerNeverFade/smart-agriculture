@@ -28,6 +28,7 @@ backups/
 
 # Generated visual assets and Office temporary lock files
 output/
+artifacts/
 ~$*.doc
 ~$*.docx
 ~$*.xls

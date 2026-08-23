@@ -660,7 +660,7 @@ export async function renderScenarioReplay(container, plotId) {
   // 动态加载 Three.js 3D 盆栽（失败/无 WebGL 时保留 SVG 场景）
   (async () => {
     try {
-      const { createPotScene } = await import('./three-pot.js');
+      const { createPotScene } = await import('../three-pot.js');
       pot3d = await createPotScene(potCanvas, { cropCode: plot.cropCode });
       if (pot3d) {
         potScene.style.display = 'none';

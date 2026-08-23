@@ -1,17 +1,19 @@
 /**
- * AgriLoop Frontend - 3D 作物田块场景（对标 rium 麦田的材质/光照质量）
- * 与旧「单株盆栽」彻底不同：一片温室作物田块。
- *   - GLSL 大气天空：Rayleigh + 太阳/月亮盘 + 体积光柱 + 各向异性辉光
- *   - 起伏田垄地面（每行一条种植垄 + 行间沟）+ 草丛下木，随湿度/情景变色
- *   - 作物用「交叉平面 + 羽状/掌状复叶 + 果串」的几何，InstancedMesh 整田
- *   - 每像素光照：wrap 漫反射 + 边缘光 + 高光 + 叶片次表面散射（复刻 rium）
- *   - 顶点风场全田联动；天气：云 / 雨幕 / 太阳 / 月亮 / 闪烁星星 / 漂浮微粒
+ * AgriLoop Frontend - 3D 作物田块特写场景（对标 rium 麦田的材质/光照质量）
+ * 立足点：站在田垄之间，近距离特写作物——
+ *   - 低机位（近人视高）+ 前景植株占画面大半 + 行垄向远处雾中消退
+ *   - GLSL 大气天空：Rayleigh + 太阳/月亮盘 + 体积光柱 + 各向异性辉光 + 雷电闪光
+ *   - 每像素光照：wrap 漫反射 + 边缘光 + 高光 + 叶片次表面散射
+ *   - 天气逼近真实：billboard 软云层、雨丝（拉长线段）、雨雾、漂浮微粒、
+ *     地面薄雾、镜头眩光太阳；情景调色板平滑插值
+ *   - 湿度 → 叶片枯萎+萎缩，土壤干燥化；风场全田联动
  * WebGL 不可用返回 null，调用方回退 SVG。
  */
 
 function ensureThree() {
   if (typeof window !== 'undefined' && window.THREE) return Promise.resolve(window.THREE);
-  return import('../vendor/three.module.min.js').then(m => m.default || null).catch(e => { console.warn('three load fail', e); return null; });
+  // three.module.min.js 仅命名导出（无 default），必须回退到命名空间对象
+  return import('../vendor/three.module.min.js').then(m => (m && (m.default || m)) || null).catch(e => { console.warn('three load fail', e); return null; });
 }
 
 /* ------------------------------------------------------------------ 天空 */
@@ -22,13 +24,14 @@ const SKY_VERT = /* glsl */ `
 const SKY_FRAG = /* glsl */ `
   uniform vec3 uZenith; uniform vec3 uHorizon; uniform vec3 uHaze;
   uniform vec3 uSunDir; uniform vec3 uMoonDir; uniform float uSunGlow; uniform float uMoonGlow;
+  uniform float uFlash;
   varying vec3 vDir;
   void main(){
     vec3 dir = normalize(vDir);
-    float h = clamp(dir.y * 0.52 + 0.32, 0.0, 1.0);
-    vec3 col = mix(uHorizon, uZenith, smoothstep(0.02, 0.78, h));
+    float h = clamp(dir.y * 0.92 + 0.36, 0.0, 1.0);
+    vec3 col = mix(uHorizon, uZenith, smoothstep(0.04, 0.6, h));
     float rayleigh = pow(1.0 - max(dir.y, 0.0), 2.6);
-    col = mix(col, uHaze * vec3(1.08,0.9,0.68), rayleigh * mix(0.1,0.34,uSunGlow));
+    col = mix(col, uHaze * vec3(1.08,0.9,0.68), rayleigh * mix(0.12, 0.26, uSunGlow));
     float band = exp(-pow((h - 0.06)/0.12, 2.0));
     col = mix(col, uHaze, band * mix(0.18,0.58,uSunGlow));
     col += uHaze * exp(-pow(dir.y*4.4, 2.0)) * mix(0.06,0.2,uSunGlow);
@@ -50,7 +53,9 @@ const SKY_FRAG = /* glsl */ `
     col += vec3(0.72,0.82,1.0) * pow(moonDot,14.0) * uMoonGlow * 0.32;
     col += vec3(0.82,0.88,1.0) * pow(moonDot,48.0) * uMoonGlow * 0.24;
     col += vec3(0.7,0.78,1.0) * pow(moonDot,6.0) * uMoonGlow * 0.1;
+    col += vec3(1.0,1.0,1.0) * uFlash * 2.4;
     gl_FragColor = vec4(col, 1.0);
+    #include <colorspace_fragment>
   }
 `;
 
@@ -144,6 +149,7 @@ const PLANT_FRAG = /* glsl */ `
     col += vec3(1.0,0.76,0.36) * back * mix(0.06, 0.12, uDay);
     gl_FragColor = vec4(col, 1.0);
     #include <fog_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
@@ -158,7 +164,8 @@ const TERRAIN_VERT = /* glsl */ `
     vec4 wp = modelMatrix * vec4(position,1.0);
     vWorldPos = wp.xyz;
     vNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * wp;
+    vec4 mvPosition = viewMatrix * wp;
+    gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }
 `;
@@ -175,25 +182,29 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 L = normalize(uSunDir);
     float wrap = clamp(dot(N,L)*0.5 + 0.5, 0.0, 1.0);
     float rim = pow(1.0 - clamp(dot(N,V),0.0,1.0), 2.0);
-    vec3 dry = vec3(0.62,0.46,0.3);
-    vec3 alb = mix(vColor, dry, (1.0 - uMoisture) * 0.55);
+    vec3 dry = vec3(0.58,0.44,0.3);
+    vec3 alb = mix(vColor, dry, (1.0 - uMoisture) * 0.5);
+    // 沟垄明暗（沿 z 周期性），让地面有垄沟纹理
+    float furrow = 0.5 + 0.5 * sin(vWorldPos.z * 4.65 + sin(vWorldPos.x * 0.7) * 0.4);
+    alb *= 0.86 + furrow * 0.2;
     float grain = fract(sin(dot(vWorldPos.xz, vec2(41.98,83.23))) * 43758.5453);
     alb *= 0.94 + grain * 0.1;
-    vec3 col = alb * mix(0.7, 1.25, wrap);
+    vec3 col = alb * mix(0.72, 1.28, wrap);
     col += uRimColor * rim * 0.12;
     gl_FragColor = vec4(col, 1.0);
     #include <fog_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
 /* ------------------------------------------------------------------ 调色板 */
 const PALETTES = {
-  normal:  { sky:0x7fb2e8, zenith:0x2f6fb0, horizon:0xf6ecd8, haze:0xbfd6ea, fog:0xcfdbe4, fogNear:9, fogFar:26, exposure:1.05, sunGlow:1.0, sun:0xfff3d0, sunI:1.35, ambient:0.5, hemi:0.55, fill:0xb8d4f0, fillI:0.3, rim:0xffd080, rimI:0.42, soilWet:0x3a2c1c, soilDry:0x8a6a34, grassLow:0x5a7a2c, grassHigh:0x9ab84a, leaf:0x3f9a4a, leafWilt:0x9a9a4a, stem:0x3a7a42, fruit:0xe5483a, wind:0.5 },
-  drought: { sky:0xd8c79a, zenith:0x6f7fa8, horizon:0xf2d9a8, haze:0xd8b078, fog:0xe2cfae, fogNear:8, fogFar:22, exposure:1.12, sunGlow:1.3, sun:0xffdf90, sunI:1.7, ambient:0.52, hemi:0.5, fill:0xf0c078, fillI:0.3, rim:0xffc060, rimI:0.5, soilWet:0x6a4c28, soilDry:0xb08a48, grassLow:0x7a7a34, grassHigh:0xbfb860, leaf:0x8a9a42, leafWilt:0xc0a050, stem:0x6a7a38, fruit:0xd07038, wind:0.4 },
-  heat:    { sky:0xd8a080, zenith:0x8a4a38, horizon:0xf2c090, haze:0xe09050, fog:0xe0ac88, fogNear:7, fogFar:20, exposure:1.2, sunGlow:1.6, sun:0xffc070, sunI:2.1, ambient:0.56, hemi:0.5, fill:0xf0a060, fillI:0.34, rim:0xff9040, rimI:0.55, soilWet:0x6a4426, soilDry:0xc08a48, grassLow:0x8a7a30, grassHigh:0xd8b050, leaf:0x7aa03c, leafWilt:0xc09040, stem:0x6a8038, fruit:0xe86030, wind:0.45 },
-  storm:   { sky:0x2a3340, zenith:0x161c26, horizon:0x3c4654, haze:0x5a6a80, fog:0x2c3540, fogNear:5.5, fogFar:16, exposure:0.8, sunGlow:0.1, sun:0x9ab4ff, sunI:0.4, ambient:0.3, hemi:0.34, fill:0x4a5c88, fillI:0.26, rim:0x88a0cc, rimI:0.3, soilWet:0x2c2418, soilDry:0x4a3c28, grassLow:0x2c4a24, grassHigh:0x4a7a3a, leaf:0x2c8040, leafWilt:0x4a6a38, stem:0x2a6a38, fruit:0xc05040, wind:1.0 },
-  drift:   { sky:0x6a5a8a, zenith:0x2c2450, horizon:0xc8a8d0, haze:0xa08ac0, fog:0x6a5c82, fogNear:8, fogFar:24, exposure:0.95, sunGlow:0.6, sun:0xffd8e0, sunI:1.0, ambient:0.42, hemi:0.44, fill:0xc0a0e0, fillI:0.3, rim:0xe0a0ff, rimI:0.42, soilWet:0x3a2c3e, soilDry:0x6a4c50, grassLow:0x3a5a3a, grassHigh:0x6a9a5a, leaf:0x4a8a52, leafWilt:0x8a8a5a, stem:0x3a7248, fruit:0xc058a0, wind:0.55 },
-  offline: { sky:0x4a5056, zenith:0x2c3036, horizon:0x5c6268, haze:0x6a7076, fog:0x4a5056, fogNear:7, fogFar:20, exposure:0.85, sunGlow:0.32, sun:0xc8ccd0, sunI:0.55, ambient:0.34, hemi:0.32, fill:0x808890, fillI:0.22, rim:0x9aa0a8, rimI:0.26, soilWet:0x383a3c, soilDry:0x4c4e50, grassLow:0x3c403c, grassHigh:0x565a56, leaf:0x565a56, leafWilt:0x646864, stem:0x4a4e4a, fruit:0x707474, wind:0.15 }
+  normal:  { sky:0x5f9fe8, zenith:0x3a78cc, horizon:0xfdf3dc, haze:0xcfe0ea, fog:0xccdce8, fogNear:7, fogFar:26, exposure:1.0, sunGlow:1.0, sun:0xfff6dc, sunI:1.15, ambient:0.55, hemi:0.62, fill:0xb8d4f0, fillI:0.3, rim:0xffd080, rimI:0.45, soilWet:0x4a3520, soilDry:0x9a7440, grassLow:0x3f7426, grassHigh:0x86c04c, leaf:0x3fc35e, leafWilt:0x9a9a4a, stem:0x2f7a42, fruit:0xe5483a, wind:0.5 },
+  drought: { sky:0xd8c090, zenith:0x6478a0, horizon:0xf2d8a4, haze:0xd8b078, fog:0xe2cfae, fogNear:5.5, fogFar:18, exposure:1.12, sunGlow:1.35, sun:0xffdf90, sunI:1.75, ambient:0.52, hemi:0.5, fill:0xf0c078, fillI:0.3, rim:0xffc060, rimI:0.5, soilWet:0x6a4c28, soilDry:0xbc9850, grassLow:0x6e7a30, grassHigh:0xb0aa58, leaf:0x8a9a42, leafWilt:0xc4a250, stem:0x6a7a38, fruit:0xd07038, wind:0.42 },
+  heat:    { sky:0xd09070, zenith:0x7a4438, horizon:0xf2ba88, haze:0xe09050, fog:0xe0ac88, fogNear:5, fogFar:16, exposure:1.2, sunGlow:1.65, sun:0xffc070, sunI:2.15, ambient:0.56, hemi:0.5, fill:0xf0a060, fillI:0.34, rim:0xff9040, rimI:0.55, soilWet:0x64422a, soilDry:0xcaa050, grassLow:0x807638, grassHigh:0xc8a850, leaf:0x74983c, leafWilt:0xc49040, stem:0x648040, fruit:0xe86030, wind:0.45 },
+  storm:   { sky:0x232c38, zenith:0x121820, horizon:0x36404e, haze:0x4e5e74, fog:0x262e38, fogNear:4, fogFar:13, exposure:0.8, sunGlow:0.08, sun:0x9ab4ff, sunI:0.4, ambient:0.3, hemi:0.34, fill:0x4a5c88, fillI:0.26, rim:0x88a0cc, rimI:0.3, soilWet:0x2c2418, soilDry:0x483a28, grassLow:0x28482a, grassHigh:0x46743a, leaf:0x2c8040, leafWilt:0x4a6a38, stem:0x2a6a38, fruit:0xc05040, wind:1.1 },
+  drift:   { sky:0x6a5a8a, zenith:0x2c2450, horizon:0xc8a8d0, haze:0xa08ac0, fog:0x6a5c82, fogNear:5.5, fogFar:20, exposure:0.95, sunGlow:0.6, sun:0xffd8e0, sunI:1.0, ambient:0.42, hemi:0.44, fill:0xc0a0e0, fillI:0.3, rim:0xe0a0ff, rimI:0.42, soilWet:0x3a2c3e, soilDry:0x6e5058, grassLow:0x385c3a, grassHigh:0x64965a, leaf:0x4a8a52, leafWilt:0x8a8a5a, stem:0x3a7248, fruit:0xc058a0, wind:0.55 },
+  offline: { sky:0x454b50, zenith:0x2a2e33, horizon:0x565c62, haze:0x666c72, fog:0x474d52, fogNear:5.5, fogFar:17, exposure:0.85, sunGlow:0.3, sun:0xc8ccd0, sunI:0.55, ambient:0.34, hemi:0.32, fill:0x808890, fillI:0.22, rim:0x9aa0a8, rimI:0.26, soilWet:0x37393b, soilDry:0x4a4c4e, grassLow:0x3a3e3a, grassHigh:0x545854, leaf:0x565a56, leafWilt:0x646864, stem:0x4a4e4a, fruit:0x707474, wind:0.15 }
 };
 const NUM_KEYS = ['fogNear','fogFar','exposure','sunGlow','sunI','ambient','hemi','fillI','rimI','wind'];
 const COL_KEYS = ['sky','zenith','horizon','haze','fog','sun','fill','rim','soilWet','soilDry','grassLow','grassHigh','leaf','leafWilt','stem','fruit'];
@@ -224,7 +235,7 @@ function mergeParts(THREE, parts) {
   return m;
 }
 
-function leafShape() {
+function leafShape(THREE) {
   const s = new THREE.Shape();
   s.moveTo(0, 0);
   s.quadraticCurveTo(0.14, -0.11, 0.32, 0);
@@ -232,10 +243,10 @@ function leafShape() {
   return s;
 }
 
-/** 单株作物构建器：返回 {geometry, climbing}。parts 收集后统一 merge。 */
+/** 单株作物构建器：返回合并后的 BufferGeometry。 */
 function buildCrop(THREE, cropCode) {
   const parts = [];
-  const ls = leafShape();
+  const ls = leafShape(THREE);
   const V = new THREE.Vector3(), U = new THREE.Vector3(0, 1, 0), Q = new THREE.Quaternion();
   const push = (g, part) => parts.push([g, part]);
 
@@ -259,7 +270,7 @@ function buildCrop(THREE, cropCode) {
   };
   // 一枚羽状复叶：叶柄（rachis）+ 成对小叶 + 顶叶
   const compoundLeaf = (y, yaw, size) => {
-    const pitch = 0.5; // 叶柄上扬角
+    const pitch = 0.5;
     const len = 0.42 * size;
     const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     tubeAt(0.006 * size, 0.012 * size, len, new THREE.Vector3(0, y, 0), dir, STEM);
@@ -290,7 +301,6 @@ function buildCrop(THREE, cropCode) {
   };
 
   if (cropCode === 'tomato') {
-    // 主茎（微弯，三段）+ 节点
     const segs = [[0, 0.32], [0.32, 0.66], [0.66, 1.02], [1.02, 1.3]];
     for (let i = 0; i < segs.length; i++) {
       const y0 = segs[i][0], y1 = segs[i][1];
@@ -298,48 +308,40 @@ function buildCrop(THREE, cropCode) {
       tubeAt(0.018, 0.026, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.7) * 0.03, y0, Math.cos(i * 0.7) * 0.03), dir, STEM);
       const node = new THREE.SphereGeometry(0.03, 8, 6); node.scale(1, 0.7, 1); node.translate(0, y0, 0); push(node, STEM);
     }
-    // 羽状复叶（黄金角螺旋排布，6 枚）
     for (let i = 0; i < 6; i++) {
       const y = 0.2 + i * 0.19;
       compoundLeaf(y, i * 2.4 + 0.4, 1.0 - i * 0.055);
     }
-    // 果串（4 串，各 4 果）
     const trusses = [[0.14, 0.42, 0.5], [-0.15, 0.72, 2.4], [0.16, 1.02, 0.9], [-0.12, 1.18, 3.6]];
     trusses.forEach(([fx, fy, fz]) => {
       fruitCluster(fx, fy, fz, 4, 0.075, FRUIT);
       const cal = new THREE.SphereGeometry(0.026, 8, 6); cal.scale(1.4, 0.5, 1.4); cal.translate(fx, fy + 0.06, fz); push(cal, STEM);
     });
   } else if (cropCode === 'cucumber') {
-    // 攀援主蔓 + 竹竿
     const segs = [[0, 0.3], [0.3, 0.66], [0.66, 1.05], [1.05, 1.4]];
     for (let i = 0; i < segs.length; i++) {
       const y0 = segs[i][0], y1 = segs[i][1];
       const dir = new THREE.Vector3(Math.sin(i * 0.5) * 0.06, 1, 0).normalize();
       tubeAt(0.014, 0.02, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.5) * 0.02, y0, 0), dir, STEM);
     }
-    // 掌状叶（6 枚螺旋）
     for (let i = 0; i < 6; i++) {
       const y = 0.22 + i * 0.2;
       palmateLeaf(Math.sin(i * 2.4) * 0.08, y, Math.cos(i * 2.4) * 0.08, i * 2.4, 0.22);
     }
-    // 卷须（细螺旋管）
     for (let i = 0; i < 4; i++) {
       const y = 0.28 + i * 0.34;
       const dir = new THREE.Vector3(Math.sin(i * 1.7 + 1) * 0.9, 0.4, Math.cos(i * 1.7 + 1) * 0.9).normalize();
       tubeAt(0.004, 0.004, 0.26, new THREE.Vector3(0, y, 0), dir, STEM);
     }
-    // 长果
     [[0.16, 0.5, 0.4], [-0.16, 0.95, 2.2], [0.18, 1.22, 0.8]].forEach(([fx, fy, fz]) => {
       const c = new THREE.SphereGeometry(0.06, 11, 9); c.scale(0.72, 1.9, 0.72); c.translate(fx, fy, fz); push(c, FRUIT);
     });
   } else if (cropCode === 'strawberry') {
-    // 矮生莲座：中央短茎 + 放射叶 + 匍匐茎 + 浆果
     tubeAt(0.014, 0.02, 0.16, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
     for (let i = 0; i < 7; i++) {
       const a = i * (Math.PI * 2 / 7);
       broadLeaf(Math.sin(a) * 0.05, 0.05, Math.cos(a) * 0.05, a, -0.42, 0.24, LEAF);
     }
-    // 匍匐茎 + 小株
     for (let r = 0; r < 2; r++) {
       const a = r * 2.4 + 0.5;
       tubeAt(0.005, 0.005, 0.34, new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(Math.sin(a), -0.1, Math.cos(a)).normalize(), STEM);
@@ -349,7 +351,6 @@ function buildCrop(THREE, cropCode) {
     fruitCluster(0.07, 0.12, 0.06, 3, 0.05, FRUIT);
     fruitCluster(-0.07, 0.1, -0.05, 3, 0.045, FRUIT);
   } else { // pepper
-    // 灌木：短主干 + 密集叶 + 灯笼果
     tubeAt(0.016, 0.024, 0.3, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
     tubeAt(0.01, 0.016, 0.26, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(0.5, 0.6, 0.3).normalize(), STEM);
     tubeAt(0.01, 0.016, 0.26, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(-0.5, 0.6, -0.3).normalize(), STEM);
@@ -358,7 +359,6 @@ function buildCrop(THREE, cropCode) {
       const y = 0.16 + i * 0.06;
       broadLeaf(Math.sin(a) * 0.1, y, Math.cos(a) * 0.1, a, -0.24, 0.3, LEAF);
     }
-    // 灯笼果（3 个，略拉长）
     [[0.12, 0.4, 0.3], [-0.12, 0.52, 1.7], [0.1, 0.6, 2.6]].forEach(([fx, fy, fz]) => {
       const p = new THREE.SphereGeometry(0.06, 11, 9); p.scale(0.9, 1.15, 0.9); p.translate(fx, fy, fz); push(p, FRUIT);
     });
@@ -371,20 +371,19 @@ function buildCrop(THREE, cropCode) {
 function buildGrass(THREE) {
   const parts = [];
   const push = (g, part) => parts.push([g, part]);
-  const ls = leafShape();
+  const ls = leafShape(THREE);
   for (const yaw of [0, Math.PI / 2.4, Math.PI * 1.3]) {
     const g = new THREE.ShapeGeometry(ls, 5);
     g.rotateX(-Math.PI / 2);
     g.rotateY(yaw);
     g.rotateX(-0.7);
     g.scale(0.5, 0.5, 0.5);
-    g.translate(0, 0, 0);
     push(g, LEAF);
   }
   return mergeParts(THREE, parts);
 }
 
-/* ------------------------------------------------------------------ 日月纹理 */
+/* ------------------------------------------------------------------ 程序化纹理 */
 function celestialTex(THREE, kind) {
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const x = c.getContext('2d'); const cx = 128, cy = 128, r = 256 * 0.46;
@@ -409,6 +408,47 @@ function celestialTex(THREE, kind) {
     x.fillStyle = 'rgba(168,178,198,0.4)';
     for (const [ox, oy, rr] of [[0.12, -0.08, 0.09], [-0.14, 0.1, 0.07], [0.05, 0.16, 0.06], [-0.06, -0.15, 0.05]]) { x.beginPath(); x.arc(cx + ox * r, cy + oy * r, rr * r, 0, 6.283); x.fill(); }
   }
+  x.globalCompositeOperation = 'destination-out';
+  x.beginPath(); x.arc(cx, cy, 2, 0, 6.283); x.fill();
+  x.globalCompositeOperation = 'source-over';
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/** 软云纹理：多团径向渐变叠出蓬松云 */
+function cloudTex(THREE) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+  const x = c.getContext('2d');
+  const blobs = 12;
+  for (let i = 0; i < blobs; i++) {
+    const bx = 60 + Math.random() * 392;
+    const by = 100 + (Math.random() - 0.5) * 70;
+    const br = 34 + Math.random() * 58;
+    const g = x.createRadialGradient(bx, by, br * 0.1, bx, by, br);
+    g.addColorStop(0, 'rgba(255,255,255,0.85)');
+    g.addColorStop(0.55, 'rgba(250,250,252,0.38)');
+    g.addColorStop(1, 'rgba(240,244,250,0)');
+    x.fillStyle = g;
+    x.beginPath(); x.arc(bx, by, br, 0, 6.283); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/** 横向薄雾条纹理（地面雾气） */
+function mistTex(THREE) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.55)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 64);
+  // 左右羽化
+  const g2 = x.createLinearGradient(0, 0, 256, 0);
+  g2.addColorStop(0, 'rgba(0,0,0,1)'); g2.addColorStop(0.12, 'rgba(0,0,0,0)');
+  g2.addColorStop(0.88, 'rgba(0,0,0,0)'); g2.addColorStop(1, 'rgba(0,0,0,1)');
+  x.globalCompositeOperation = 'destination-out';
+  x.fillStyle = g2; x.fillRect(0, 0, 256, 64);
+  x.globalCompositeOperation = 'source-over';
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
@@ -418,7 +458,8 @@ export async function createPotScene(canvas, opts = {}) {
   const THREE = await ensureThree();
   if (!THREE) return null;
   let renderer;
-  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' }); }
+  const dbg = typeof location !== 'undefined' && new URLSearchParams(location.search).has('dbg3d');
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: dbg }); }
   catch (e) { return null; }
   if (!renderer.getContext()) return null;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -426,49 +467,60 @@ export async function createPotScene(canvas, opts = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80);
-  const HOME = { x: 0, y: 2.6, z: 6.6 };
+  // 低机位特写：站在田间，视线沿垄行向远方，太阳高处偏右（顺光+顶光，避免背光死黑）
+  const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 90);
+  const HOME = { x: 0, y: 1.52, z: 5.9 };
+  const LOOK = { x: 0, y: 1.42, z: -4.0 };
   camera.position.set(HOME.x, HOME.y, HOME.z);
-  camera.lookAt(0, 1.05, -0.6);
+  camera.lookAt(LOOK.x, LOOK.y, LOOK.z);
 
   let palette = { ...PALETTES.normal }, blended = { ...PALETTES.normal };
   let mouseX = 0, mouseY = 0, rafId = 0, visible = !document.hidden;
+  let flash = 0, nextFlash = 3;
   const reducedMotion = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   scene.background = new THREE.Color(palette.sky);
   scene.fog = new THREE.Fog(palette.fog, palette.fogNear, palette.fogFar);
 
-  const SUN_DIR = new THREE.Vector3(0.45, 0.62, -0.64).normalize();
-  const MOON_DIR = new THREE.Vector3(-0.5, 0.58, -0.62).normalize();
+  // 视觉太阳（仅天空盘面/眩光）：右上角贴边，制造斜阳+光柱
+  const SUN_DIR = new THREE.Vector3(0.38, 0.52, -0.72).normalize();
+  const MOON_DIR = new THREE.Vector3(-0.45, 0.6, -0.65).normalize();
+  // 打光方向：来自相机后上方（顺光），避免面朝观察者的叶片落到 wrap 暗部
+  const LIGHT_DIR = new THREE.Vector3(0.4, 0.8, 0.45).normalize();
 
   /* ---- 灯光 ---- */
   const hemi = new THREE.HemisphereLight(palette.zenith, palette.soilWet, palette.hemi); scene.add(hemi);
   const ambient = new THREE.AmbientLight(0xffffff, palette.ambient); scene.add(ambient);
-  const sun = new THREE.DirectionalLight(palette.sun, palette.sunI); sun.position.copy(SUN_DIR).multiplyScalar(20); scene.add(sun);
-  const fill = new THREE.DirectionalLight(palette.fill, palette.fillI); fill.position.set(-6, 4, -3); scene.add(fill);
+  const sun = new THREE.DirectionalLight(palette.sun, palette.sunI); sun.position.copy(LIGHT_DIR).multiplyScalar(20); scene.add(sun);
+  const fill = new THREE.DirectionalLight(palette.fill, palette.fillI); fill.position.set(-6, 5, 4); scene.add(fill);
   const rim = new THREE.DirectionalLight(palette.rim, palette.rimI); rim.position.set(-7, 6, -9); scene.add(rim);
 
   /* ---- 天空 ---- */
-  const skyGeo = new THREE.SphereGeometry(52, 36, 24);
+  const skyGeo = new THREE.SphereGeometry(56, 36, 24);
   const skyMat = new THREE.ShaderMaterial({
     uniforms: {
       uZenith: { value: new THREE.Color(palette.zenith) }, uHorizon: { value: new THREE.Color(palette.horizon) },
       uHaze: { value: new THREE.Color(palette.haze) }, uSunDir: { value: SUN_DIR.clone() }, uMoonDir: { value: MOON_DIR.clone() },
-      uSunGlow: { value: 1 }, uMoonGlow: { value: 0 },
+      uSunGlow: { value: 1 }, uMoonGlow: { value: 0 }, uFlash: { value: 0 },
     },
     vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false,
   });
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 
+  // 太阳：光晕 + 核心 + 横向眩光条
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: celestialTex(THREE, 'sun'), transparent: true, depthTest: false, depthWrite: false, fog: false }));
-  sunSprite.scale.set(4.2, 4.2, 1); sunSprite.position.copy(SUN_DIR).multiplyScalar(46); scene.add(sunSprite);
+  sunSprite.scale.set(2.2, 2.2, 1); sunSprite.position.copy(SUN_DIR).multiplyScalar(48); sunSprite.renderOrder = 51; scene.add(sunSprite);
+  const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: celestialTex(THREE, 'sun'), transparent: true, depthTest: false, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0.5 }));
+  sunGlow.scale.set(7, 7, 1); sunGlow.position.copy(SUN_DIR).multiplyScalar(47.5); sunGlow.renderOrder = 50; scene.add(sunGlow);
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: celestialTex(THREE, 'sun'), transparent: true, depthTest: false, depthWrite: false, fog: false, blending: THREE.AdditiveBlending, opacity: 0.28 }));
+  flare.scale.set(13, 0.55, 1); flare.position.copy(SUN_DIR).multiplyScalar(47); flare.renderOrder = 49; scene.add(flare);
   const moonSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: celestialTex(THREE, 'moon'), transparent: true, depthTest: false, depthWrite: false, fog: false }));
-  moonSprite.scale.set(3.0, 3.0, 1); moonSprite.position.copy(MOON_DIR).multiplyScalar(46); scene.add(moonSprite);
+  moonSprite.scale.set(2.6, 2.6, 1); moonSprite.position.copy(MOON_DIR).multiplyScalar(48); moonSprite.renderOrder = 51; scene.add(moonSprite);
 
   /* ---- 星星 ---- */
   const SN = 600, sp = new Float32Array(SN * 3), ss = new Float32Array(SN), sph = new Float32Array(SN);
   for (let i = 0; i < SN; i++) {
-    const th = Math.random() * 6.283, ph = Math.acos(0.08 + Math.random() * 0.92), rr = 48;
+    const th = Math.random() * 6.283, ph = Math.acos(0.1 + Math.random() * 0.9), rr = 50;
     sp[i * 3] = rr * Math.sin(ph) * Math.cos(th); sp[i * 3 + 1] = rr * Math.cos(ph); sp[i * 3 + 2] = rr * Math.sin(ph) * Math.sin(th);
     ss[i] = 0.5 + Math.random() * 1.6; sph[i] = Math.random() * 6.283;
   }
@@ -479,28 +531,27 @@ export async function createPotScene(canvas, opts = {}) {
   const starMat = new THREE.ShaderMaterial({ uniforms: { uTime: { value: 0 } }, vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const stars = new THREE.Points(starGeo, starMat); stars.visible = false; scene.add(stars);
 
-  /* ---- 起伏田垄地面 ---- */
-  const ROW_Z = [-2.7, -1.35, 0, 1.35, 2.7];
+  /* ---- 起伏田垄地面（覆盖到相机身后） ---- */
+  const ROW_Z = [-3.4, -2.05, -0.7, 0.65, 2.0, 3.35];
   const terrainHeight = (x, z) => {
-    const hills = Math.sin(x * 0.13) * 0.26 + Math.cos(z * 0.11) * 0.2 + Math.sin((x + z) * 0.075) * 0.14;
+    const hills = Math.sin(x * 0.13) * 0.16 + Math.cos(z * 0.11) * 0.12 + Math.sin((x + z) * 0.075) * 0.1;
     let bed = 0;
-    for (const zc of ROW_Z) { const dz = z - zc; bed += 0.14 * Math.exp(-dz * dz * 1.5); }
+    for (const zc of ROW_Z) { const dz = z - zc; bed += 0.1 * Math.exp(-dz * dz * 2.2); }
     return hills + bed;
   };
-  const terrainGeo = new THREE.PlaneGeometry(12, 9, 64, 56); terrainGeo.rotateX(-Math.PI / 2);
+  const terrainGeo = new THREE.PlaneGeometry(13, 11, 72, 60); terrainGeo.rotateX(-Math.PI / 2);
   const tp = terrainGeo.attributes.position;
   const tcol = new Float32Array(tp.count * 3);
   const soilWetC = new THREE.Color(palette.soilWet), soilDryC = new THREE.Color(palette.soilDry);
-  const soilBedC = soilWetC.clone().lerp(soilDryC, 0.35);
+  const soilBedC = soilWetC.clone().lerp(soilDryC, 0.4);
   const grassLowC = new THREE.Color(palette.grassLow), grassHighC = new THREE.Color(palette.grassHigh), tc = new THREE.Color();
   for (let i = 0; i < tp.count; i++) {
     const x = tp.getX(i), z = tp.getZ(i);
     const y = terrainHeight(x, z);
     tp.setY(i, y);
-    // 垄顶 = 土壤，沟底 = 草；高度混合
-    const bedAmt = THREE.MathUtils.clamp((y - 0.02) / 0.16, 0, 1);
-    tc.copy(grassLowC).lerp(grassHighC, THREE.MathUtils.clamp((y + 0.1) / 0.3, 0, 1));
-    tc.lerp(soilBedC, bedAmt * 0.7);
+    const bedAmt = THREE.MathUtils.clamp((y - 0.0) / 0.14, 0, 1);
+    tc.copy(grassLowC).lerp(grassHighC, THREE.MathUtils.clamp((y + 0.08) / 0.24, 0, 1));
+    tc.lerp(soilBedC, bedAmt * 0.85);
     tcol[i * 3] = tc.r; tcol[i * 3 + 1] = tc.g; tcol[i * 3 + 2] = tc.b;
   }
   terrainGeo.setAttribute('aColor', new THREE.BufferAttribute(tcol, 3));
@@ -508,7 +559,7 @@ export async function createPotScene(canvas, opts = {}) {
   const terrainMat = new THREE.ShaderMaterial({
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uSoilWet: { value: new THREE.Color(palette.soilWet) }, uSoilDry: { value: new THREE.Color(palette.soilDry) },
-      uSunDir: { value: SUN_DIR.clone() }, uRimColor: { value: new THREE.Color(palette.rim) },
+      uSunDir: { value: LIGHT_DIR.clone() }, uRimColor: { value: new THREE.Color(palette.rim) },
       uDay: { value: 1 }, uMoisture: { value: 0.3 },
     }]),
     vertexShader: TERRAIN_VERT, fragmentShader: TERRAIN_FRAG, fog: true,
@@ -523,23 +574,25 @@ export async function createPotScene(canvas, opts = {}) {
       uTime: { value: 0 }, uWindDir: { value: windDir.clone() }, uWind: { value: palette.wind }, uWilt: { value: 0 },
       uStem: { value: new THREE.Color(palette.stem) }, uLeaf: { value: new THREE.Color(palette.leaf) },
       uLeafWilt: { value: new THREE.Color(palette.leafWilt) }, uFruit: { value: new THREE.Color(palette.fruit) },
-      uSunDir: { value: SUN_DIR.clone() }, uRimColor: { value: new THREE.Color(palette.rim) },
+      uSunDir: { value: LIGHT_DIR.clone() }, uRimColor: { value: new THREE.Color(palette.rim) },
       uDay: { value: 1 }, uMoisture: { value: 0.3 },
     }]),
     vertexShader: PLANT_VERT, fragmentShader: PLANT_FRAG, side: THREE.DoubleSide, fog: true,
   });
 
-  const COLS = 10, ROWS = ROW_Z.length, N = COLS * ROWS;
+  const COLS = 12, ROWS = ROW_Z.length, N = COLS * ROWS;
   const crops = new THREE.InstancedMesh(plantGeo, plantMat, N);
   const d = new THREE.Object3D(); let n = 0;
+  // 靠相机的前排轻微放大作前景，但保持留有视线走廊
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-    const x = (c / (COLS - 1) - 0.5) * 6.6 + (Math.random() - 0.5) * 0.18;
-    const z = ROW_Z[r] + (Math.random() - 0.5) * 0.18;
+    const x = (c / (COLS - 1) - 0.5) * 6.4 + (Math.random() - 0.5) * 0.14;
+    const z = ROW_Z[r] + (Math.random() - 0.5) * 0.14;
     const y = terrainHeight(x, z);
     d.position.set(x, y, z);
     d.rotation.set((Math.random() - 0.5) * 0.05, Math.random() * 6.283, (Math.random() - 0.5) * 0.05);
-    const s = 0.82 + Math.random() * 0.36;
-    d.scale.set(s, s * (0.9 + Math.random() * 0.25), s);
+    const near = Math.max(0, 1 - Math.abs(z - 3.35) / 2.8);
+    const s = 1.12 + Math.random() * 0.35 + near * 0.3;
+    d.scale.set(s, s * (0.92 + Math.random() * 0.25), s);
     d.updateMatrix(); crops.setMatrixAt(n, d.matrix); n++;
   }
   crops.instanceMatrix.needsUpdate = true; scene.add(crops);
@@ -552,7 +605,7 @@ export async function createPotScene(canvas, opts = {}) {
     const d2 = new THREE.Object3D();
     for (let i = 0; i < N; i++) {
       const m = new THREE.Matrix4(); crops.getMatrixAt(i, m);
-      d2.position.setFromMatrixPosition(m); d2.position.y += 0.35; d2.position.x += 0.06;
+      d2.position.setFromMatrixPosition(m); d2.position.y += 0.25; d2.position.x += 0.07;
       d2.rotation.set(0, 0, 0); d2.scale.set(1, 1, 1);
       d2.updateMatrix(); stakes.setMatrixAt(i, d2.matrix);
     }
@@ -567,47 +620,70 @@ export async function createPotScene(canvas, opts = {}) {
   grassMat.uniforms.uLeaf.value = new THREE.Color(palette.grassHigh);
   grassMat.uniforms.uLeafWilt.value = new THREE.Color(palette.grassLow);
   grassMat.uniforms.uFruit.value = new THREE.Color(palette.grassHigh);
-  const GN = 420;
+  const GN = 460;
   const grass = new THREE.InstancedMesh(grassGeo, grassMat, GN);
   const d3 = new THREE.Object3D(); let gn = 0;
   for (let i = 0; i < GN; i++) {
-    const x = (Math.random() - 0.5) * 8;
-    const z = (Math.random() - 0.5) * 6.4;
+    const x = (Math.random() - 0.5) * 8.4;
+    const z = (Math.random() - 0.5) * 7.2;
     const y = terrainHeight(x, z) - 0.02;
     d3.position.set(x, y, z);
     d3.rotation.set(0, Math.random() * 6.283, 0);
-    const s = 0.35 + Math.random() * 0.5;
+    const s = 0.38 + Math.random() * 0.55;
     d3.scale.set(s, s * (0.6 + Math.random() * 0.7), s);
     d3.updateMatrix(); grass.setMatrixAt(gn, d3.matrix); gn++;
   }
   grass.instanceMatrix.needsUpdate = true; scene.add(grass);
 
-  /* ---- 云 ---- */
+  /* ---- 云（billboard 软云 sprite 层） ---- */
+  const cloudTexture = cloudTex(THREE);
+  const cloudMats = new THREE.SpriteMaterial({ map: cloudTexture, transparent: true, depthWrite: false, fog: false, opacity: 0.85, color: 0xffffff });
   const clouds = [];
-  const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, fog: false, depthWrite: false });
-  const cloudGeo = new THREE.SphereGeometry(1, 8, 6);
-  const cloudLayouts = [[-2.6, 3.4, -3.4, 1.3], [2.4, 3.8, -4.0, 1.0], [-0.4, 4.2, -4.6, 0.8], [3.4, 3.2, -2.8, 0.9]];
-  for (const [cx, cy, cz, s] of cloudLayouts) {
-    const puff = new THREE.Group();
-    for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(cloudGeo, cloudMat);
-      m.position.set((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.4);
-      m.scale.set(0.7 + Math.random() * 0.8, 0.45 + Math.random() * 0.3, 0.7 + Math.random() * 0.6);
-      puff.add(m);
-    }
-    puff.position.set(cx, cy, cz); puff.scale.set(s, s, s);
-    scene.add(puff); clouds.push({ group: puff, baseX: cx, phase: Math.random() * 6 });
+  const cloudLayouts = [
+    [-7, 7.5, -16, 9, 0.62], [4, 8.4, -19, 11, 0.5], [-3.5, 6.8, -13, 7.5, 0.66],
+    [8, 7.2, -14, 8, 0.56], [-10, 8.8, -21, 12, 0.42], [1, 9.4, -24, 13, 0.38],
+  ];
+  for (const [cx, cy, cz, s, op] of cloudLayouts) {
+    const m = new THREE.Sprite(cloudMats.clone());
+    m.material.opacity = op;
+    m.position.set(cx, cy, cz); m.scale.set(s, s * 0.34, 1);
+    m.renderOrder = 45;
+    m.userData.baseOp = op; m.userData.baseY = cy;
+    scene.add(m); clouds.push({ sprite: m, baseX: cx, baseY: cy, phase: Math.random() * 6, speed: 0.05 + Math.random() * 0.03 });
   }
 
-  /* ---- 雨 ---- */
-  const RN = 420, rp = new Float32Array(RN * 3);
-  for (let i = 0; i < RN; i++) { rp[i * 3] = (Math.random() - 0.5) * 8; rp[i * 3 + 1] = Math.random() * 5 + 0.2; rp[i * 3 + 2] = (Math.random() - 0.5) * 6 - 0.3; }
-  const rain = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(rp, 3)), new THREE.PointsMaterial({ color: 0x9fc0ff, size: 0.05, transparent: true, opacity: 0.65, depthWrite: false }));
+  /* ---- 雨丝（拉长线段） ---- */
+  const RN = 320;
+  const rainGeo = new THREE.BufferGeometry();
+  const rpos = new Float32Array(RN * 6);
+  const rainSpeed = new Float32Array(RN);
+  for (let i = 0; i < RN; i++) {
+    const x = (Math.random() - 0.5) * 9, y = Math.random() * 5, z = (Math.random() - 0.5) * 7 - 0.5;
+    const len = 0.16 + Math.random() * 0.12;
+    rpos[i * 6] = x; rpos[i * 6 + 1] = y; rpos[i * 6 + 2] = z;
+    rpos[i * 6 + 3] = x - 0.06; rpos[i * 6 + 4] = y - len; rpos[i * 6 + 5] = z;
+    rainSpeed[i] = 3.2 + Math.random() * 2.2;
+  }
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rpos, 3));
+  const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xbcd4f5, transparent: true, opacity: 0.42, depthWrite: false }));
   rain.visible = false; scene.add(rain);
 
+  /* ---- 地面薄雾 ---- */
+  const mistTexture = mistTex(THREE);
+  const mists = [];
+  const mistLayouts = [[0, 0.55, -7, 7, 0.16], [-1.5, 0.42, -2.5, 5.5, 0.14], [1.2, 0.7, -12, 9, 0.18]];
+  for (const [mx, my, mz, mw, mo] of mistLayouts) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(mw, mw * 0.24),
+      new THREE.MeshBasicMaterial({ map: mistTexture, transparent: true, opacity: mo, depthWrite: false, fog: false, side: THREE.DoubleSide })
+    );
+    m.position.set(mx, my, mz); m.renderOrder = 44;
+    scene.add(m); mists.push({ mesh: m, baseX: mx, phase: Math.random() * 6 });
+  }
+
   /* ---- 漂浮微粒（日间花粉 / 漂移雾滴） ---- */
-  const MN = 160, mp = new Float32Array(MN * 3);
-  for (let i = 0; i < MN; i++) { mp[i * 3] = (Math.random() - 0.5) * 8; mp[i * 3 + 1] = 0.6 + Math.random() * 4; mp[i * 3 + 2] = (Math.random() - 0.5) * 6; }
+  const MN = 150, mp = new Float32Array(MN * 3);
+  for (let i = 0; i < MN; i++) { mp[i * 3] = (Math.random() - 0.5) * 8; mp[i * 3 + 1] = 0.5 + Math.random() * 3.6; mp[i * 3 + 2] = (Math.random() - 0.5) * 6 - 0.5; }
   const motes = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(mp, 3)), new THREE.PointsMaterial({ color: 0xfff0c0, size: 0.05, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
   scene.add(motes);
 
@@ -631,10 +707,12 @@ export async function createPotScene(canvas, opts = {}) {
     skyMat.uniforms.uHaze.value.setHex(p.haze);
     skyMat.uniforms.uSunGlow.value = day ? dayAmt : 0;
     skyMat.uniforms.uMoonGlow.value = day ? 0 : 1;
-    sunSprite.visible = day; moonSprite.visible = !day; stars.visible = !day;
+    sunSprite.visible = day; sunGlow.visible = day; flare.visible = day;
+    moonSprite.visible = !day; stars.visible = !day;
     sunSprite.material.opacity = Math.min(1, dayAmt);
-    sunSprite.material.color.setHex(p.sun);
-    clouds.visible = day;
+    sunGlow.material.opacity = 0.75 * Math.max(0, dayAmt - 0.4);
+    flare.material.opacity = 0.4 * Math.max(0, dayAmt - 0.5);
+    clouds.forEach(c => { c.sprite.material.color.setHex(day ? 0xffffff : 0x8899aa); });
     motes.visible = day || state.scenario === 'drift';
     motes.material.color.setHex(state.scenario === 'drift' ? 0xc9a0ff : 0xfff0c0);
     plantMat.uniforms.uStem.value.setHex(p.stem);
@@ -653,7 +731,6 @@ export async function createPotScene(canvas, opts = {}) {
     grassMat.uniforms.uRimColor.value.setHex(p.rim);
     grassMat.uniforms.uDay.value = dayAmt;
     grassMat.uniforms.uWind.value = p.wind;
-    cloudMat.color.setHex(day ? 0xffffff : 0x8899aa);
     if (stakeMat) stakeMat.color.setHex(day ? 0xb08a4a : 0x8a8a8a);
   };
   const setScenario = (c) => { state.scenario = c || 'normal'; state.target = PALETTES[state.scenario] || PALETTES.normal; };
@@ -682,20 +759,48 @@ export async function createPotScene(canvas, opts = {}) {
     grassMat.uniforms.uTime.value = plantMat.uniforms.uTime.value;
     starMat.uniforms.uTime.value = time;
 
-    camera.position.x += (HOME.x + mouseX * 0.5 - camera.position.x) * 0.045;
-    camera.position.y += (HOME.y + mouseY * 0.3 - camera.position.y) * 0.045;
-    camera.lookAt(0, 1.05, -0.6);
+    // 雷电：随机触发，快速衰减
+    if (state.scenario === 'storm') {
+      nextFlash -= dt;
+      if (nextFlash <= 0) { flash = 1; nextFlash = 3 + Math.random() * 5; }
+    } else { flash = Math.max(0, flash - dt * 4); nextFlash = 3; }
+    flash = Math.max(0, flash - dt * 6);
+    skyMat.uniforms.uFlash.value = flash;
+    ambient.intensity = palette.ambient * (1 + flash * 3.2);
 
+    // 相机：轻微呼吸 + 鼠标视差（低机位特写幅度小）
+    const breathe = reducedMotion ? 0 : Math.sin(time * 0.4) * 0.018;
+    camera.position.x += (HOME.x + mouseX * 0.22 - camera.position.x) * 0.04;
+    camera.position.y += (HOME.y + mouseY * 0.14 + breathe - camera.position.y) * 0.04;
+    camera.lookAt(LOOK.x + mouseX * 0.1, LOOK.y, LOOK.z);
+
+    // 云缓慢漂移（风暴时加快、加浓、压低）
+    const stormy = state.scenario === 'storm';
+    const cloudSpeedMul = stormy ? 4.5 : 1;
     clouds.forEach((c) => {
-      c.group.position.x = c.baseX + Math.sin(time * 0.06 + c.phase) * 1.3 * (state.scenario === 'storm' ? 1.8 : 1);
-      cloudMat.opacity = (state.scenario === 'storm' ? 0.85 : 0.5) * (reducedMotion ? 1 : 1);
+      c.sprite.position.x = c.baseX + Math.sin(time * 0.05 + c.phase) * 1.2 + time * c.speed * cloudSpeedMul * 0.35;
+      c.sprite.position.y = (stormy ? c.sprite.userData.baseY - 0.8 : c.sprite.userData.baseY) + Math.sin(time * 0.12 + c.phase) * 0.15;
+      c.sprite.material.opacity = c.sprite.userData.baseOp * (stormy ? 0.72 : 1);
     });
+
+    // 地面薄雾漂移
+    mists.forEach((mi) => {
+      mi.mesh.position.x = mi.baseX + Math.sin(time * 0.08 + mi.phase) * 0.8;
+      mi.mesh.material.opacity = (state.scenario === 'storm' ? 0.3 : state.scenario === 'drift' ? 0.24 : 0.15) * (reducedMotion ? 0.6 : 1);
+    });
+
     rain.visible = state.scenario === 'storm';
     if (rain.visible) {
       const pos = rain.geometry.attributes.position.array;
       for (let i = 0; i < RN; i++) {
-        pos[i * 3 + 1] -= dt * (2.6 + (i % 3) * 0.7);
-        if (pos[i * 3 + 1] < 0.1) { pos[i * 3 + 1] = 5 + Math.random() * 0.4; pos[i * 3] = (Math.random() - 0.5) * 8; }
+        const fall = dt * rainSpeed[i];
+        pos[i * 6 + 1] -= fall; pos[i * 6 + 4] -= fall;
+        if (pos[i * 6 + 4] < 0.05) {
+          const nx = (Math.random() - 0.5) * 9, ny = 4.6 + Math.random() * 0.5, nz = (Math.random() - 0.5) * 7 - 0.5;
+          const len = pos[i * 6 + 1] - pos[i * 6 + 4];
+          pos[i * 6] = nx; pos[i * 6 + 1] = ny; pos[i * 6 + 2] = nz;
+          pos[i * 6 + 3] = nx - 0.06; pos[i * 6 + 4] = ny - len; pos[i * 6 + 5] = nz;
+        }
       }
       rain.geometry.attributes.position.needsUpdate = true;
     }
@@ -704,7 +809,7 @@ export async function createPotScene(canvas, opts = {}) {
       for (let i = 0; i < MN; i++) {
         pos[i * 3] += Math.sin(time * 0.5 + i) * 0.004 + (state.scenario === 'drift' ? 0.004 : 0);
         pos[i * 3 + 1] += Math.sin(time * 0.6 + i * 1.7) * 0.004;
-        if (pos[i * 3 + 1] > 5.5) pos[i * 3 + 1] = 0.5;
+        if (pos[i * 3 + 1] > 4.5) pos[i * 3 + 1] = 0.4;
       }
       motes.geometry.attributes.position.needsUpdate = true;
     }
@@ -720,6 +825,7 @@ export async function createPotScene(canvas, opts = {}) {
 
   return {
     setScenario, setMoisture, resize,
+    _debugState: dbg ? state : null,
     dispose() {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
