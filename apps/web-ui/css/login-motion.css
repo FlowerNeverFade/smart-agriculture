@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "AgriLoop Fangsong";
+  src: url("../assets/fonts/agriloop-fangsong.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
   --background: #f2f8ee;
@@ -44,7 +52,8 @@ body {
   overflow: hidden;
   background: var(--background);
   color: var(--ink);
-  font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "AgriLoop Fangsong", "Zhuque Fangsong", "STFangsong", "FangSong", "FangSong_GB2312", serif;
+  font-synthesis: weight;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -152,7 +161,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   color: rgba(23, 51, 39, .84);
   font-size: 12px;
   font-weight: 650;
-  letter-spacing: .22em;
+  letter-spacing: .12em;
 }
 
 .login-layout {
@@ -184,7 +193,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   color: var(--green);
   font-size: 12px;
   font-weight: 650;
-  letter-spacing: .18em;
+  letter-spacing: .12em;
   transition-delay: 160ms;
 }
 
@@ -194,8 +203,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   color: var(--ink);
   font-size: clamp(48px, 3.6vw, 68px);
   font-weight: 420;
-  letter-spacing: -.055em;
-  line-height: 1.28;
+  letter-spacing: .015em;
+  line-height: 1.22;
   transition-delay: 220ms;
 }
 
@@ -225,7 +234,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   color: var(--ink);
   font-size: 12px;
   font-weight: 650;
-  letter-spacing: .18em;
+  letter-spacing: .12em;
   transition-delay: 380ms;
 }
 
@@ -334,7 +343,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   color: var(--ink);
   font-size: clamp(34px, 2.2vw, 40px);
   font-weight: 430;
-  letter-spacing: -.055em;
+  letter-spacing: .02em;
   line-height: 1.12;
 }
 
