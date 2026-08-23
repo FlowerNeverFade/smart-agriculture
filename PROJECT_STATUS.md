@@ -7,7 +7,7 @@
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
 
-> 2026-08-23 main 部署记录：GitHub `main` 当前提交为 `ee6f2bd`（基于回滚后的 `dbc9a53`，不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
+> 2026-08-23 main 部署记录：GitHub `main` 已基于回滚后的 `dbc9a53` 完成同步（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
 ## 1. 进度总览
 
