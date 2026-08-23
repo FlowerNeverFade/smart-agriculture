@@ -722,7 +722,7 @@ class SimulatorControl {
         if (config == null || !Files.isRegularFile(config)) return unavailable("SUPERVISOR_CONFIG_NOT_FOUND");
         CommandResult result = execute("status");
         if (result == null) return unavailable("SUPERVISOR_NOT_AVAILABLE");
-        String line = result.output().lines().map(String::trim)
+        String line = stripAnsi(result.output()).lines().map(String::trim)
                 .filter(value -> value.startsWith(properties.getSimulatorProgram() + " "))
                 .findFirst().orElse("");
         if (line.isBlank()) return unavailable(result.output().isBlank() ? "SIMULATOR_STATUS_EMPTY" : result.output().trim());
@@ -792,6 +792,34 @@ class SimulatorControl {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String stripAnsi(String value) {
+        if (value == null || value.isBlank()) return value == null ? "" : value;
+        StringBuilder clean = new StringBuilder(value.length());
+        boolean escape = false;
+        boolean csi = false;
+        for (int index = 0; index < value.length(); index++) {
+            char ch = value.charAt(index);
+            if (ch == 27) {
+                escape = true;
+                csi = false;
+                continue;
+            }
+            if (escape) {
+                if (!csi && ch == '[') {
+                    csi = true;
+                    continue;
+                }
+                if (csi && ch >= '@' && ch <= '~') {
+                    escape = false;
+                    csi = false;
+                }
+                continue;
+            }
+            clean.append(ch);
+        }
+        return clean.toString();
     }
 
     private Map<String, Object> unavailable(String reason) {
