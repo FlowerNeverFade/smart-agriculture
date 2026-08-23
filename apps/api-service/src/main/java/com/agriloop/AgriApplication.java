@@ -1474,7 +1474,6 @@ class AgriEngine {
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getLlmTimeoutMs())))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .header("Connection", "close")
                 .POST(HttpRequest.BodyPublishers.ofString(Jsons.json(mapper, request), StandardCharsets.UTF_8));
         if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
             builder.header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.getLlmApiKey().trim());
