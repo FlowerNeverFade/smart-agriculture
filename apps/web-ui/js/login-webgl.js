@@ -322,8 +322,8 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
   const vec3 COLOR_MINT = vec3(0.620, 0.925, 0.720);
   const vec3 COLOR_SAGE = vec3(0.530, 0.800, 0.590);
   const vec3 COLOR_AQUA = vec3(0.620, 0.890, 0.920);
-  const vec3 COLOR_OLIVE = vec3(0.800, 0.865, 0.520);
-  const vec3 COLOR_CREAM = vec3(0.970, 0.965, 0.850);
+  const vec3 COLOR_OLIVE = vec3(0.690, 0.885, 0.600);
+  const vec3 COLOR_CREAM = vec3(0.955, 0.975, 0.910);
 
   vec4 normalizeInkWeights(vec4 weights) {
     weights = max(weights, vec4(0.0));
