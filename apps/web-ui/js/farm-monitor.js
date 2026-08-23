@@ -431,7 +431,8 @@ class FarmWorld3D {
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xd2e5d5, 0.0035);
+    // Ultra-clear atmospheric azure tint (Low density, zero chalky white wash on mountains)
+    this.scene.fog = new THREE.FogExp2(0x82b2d4, 0.0014);
 
     // Elevated Panoramic Wide View Camera (High angle, fully reveals high sky, sun, and vast farmland)
     this.camera = new THREE.PerspectiveCamera(50, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 350);
@@ -459,8 +460,8 @@ class FarmWorld3D {
 
   buildSky() {
     this.skyUniforms = {
-      uTop: { value: new THREE.Color(0x389adb) },
-      uHorizon: { value: new THREE.Color(0xe2f2db) },
+      uTop: { value: new THREE.Color(0x2b8ece) },
+      uHorizon: { value: new THREE.Color(0xd6eed0) },
       uSunDirection: { value: new THREE.Vector3(0, 0.6, -0.8).normalize() },
       uSunColor: { value: new THREE.Color(0xfff2be) },
       uSunStrength: { value: 1.2 }
@@ -540,14 +541,14 @@ class FarmWorld3D {
   buildTerrain() {
     // Vast Seamless Grass Basin (280m x 200m, completely covers viewport with zero empty margins)
     const geometry = new THREE.PlaneGeometry(280, 200, 48, 36);
-    const material = new THREE.MeshStandardMaterial({ color: 0x9eb87e, roughness: 0.94, metalness: 0 });
+    const material = new THREE.MeshStandardMaterial({ color: 0x92b270, roughness: 0.94, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
     this.terrain.rotation.x = -Math.PI / 2;
     this.terrain.position.y = 0.0;
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Distant Gentle Rolling Green Hills (z = -70m & -98m, natural low profile ~4-6m, never overpowering)
+    // Distant Deep Emerald Rolling Hills (Deep pine forest tones, never whitish or overpowering)
     const buildRollingHills = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
       const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
       const ridgePosition = ridgeGeometry.attributes.position;
@@ -565,7 +566,7 @@ class FarmWorld3D {
         ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
       }
       ridgeGeometry.computeVertexNormals();
-      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.96, transparent: opacity < 1, opacity, depthWrite: true });
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.86, transparent: opacity < 1, opacity, depthWrite: true });
       this.ridgeMaterials.push(ridgeMaterial);
       const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
       ridge.rotation.x = -Math.PI / 2;
@@ -574,24 +575,23 @@ class FarmWorld3D {
       this.scene.add(ridge);
     };
 
-    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -70, heightScale: 0.32, color: 0x6e9974 });
-    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -98, heightScale: 0.45, color: 0x82a7a4, opacity: 0.92 });
+    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -72, heightScale: 0.35, color: 0x1f4426 });
+    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -100, heightScale: 0.48, color: 0x243e36, opacity: 0.95 });
   }
 
   buildStreetLamps() {
     this.streetLights = [];
     this.streetLampBulbs = [];
-    this.streetGroundGlows = [];
 
     const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x2e3b33, roughness: 0.45, metalness: 0.5 });
     const solarMaterial = new THREE.MeshStandardMaterial({ color: 0x1a2e40, roughness: 0.25, metalness: 0.7 });
 
     const lampPositions = [
-      // Front Road
+      // Front Main Road
       { x: -22.0, z: 15.5 }, { x: -7.5, z: 15.5 }, { x: 7.5, z: 15.5 }, { x: 22.0, z: 15.5 },
       // Mid Canal Road
       { x: -22.0, z: 3.5 }, { x: -7.5, z: 3.5 }, { x: 7.5, z: 3.5 }, { x: 22.0, z: 3.5 },
-      // North Avenue
+      // North Auxiliary Avenue
       { x: -11.0, z: -8.0 }, { x: 11.0, z: -8.0 }
     ];
 
@@ -617,31 +617,23 @@ class FarmWorld3D {
       solar.rotation.x = -0.25;
       lamp.add(solar);
 
-      // High-Glow LED Luminaire Head
+      // High-Glow LED Luminaire Head (Glows naturally at night)
       const lampHead = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18, 0.22, 0.14, 12),
-        new THREE.MeshBasicMaterial({ color: 0xffe28a, toneMapped: false })
+        new THREE.MeshBasicMaterial({ color: 0x728076, toneMapped: false })
       );
       const bulbPos = armDir * 1.8;
       lampHead.position.set(bulbPos, 3.82, 0);
       lamp.add(lampHead);
       this.streetLampBulbs.push(lampHead);
 
-      // Ground Warm Light Projection Pool
-      const groundGlow = new THREE.Mesh(
-        new THREE.CircleGeometry(3.6, 24),
-        new THREE.MeshBasicMaterial({ color: 0xffd970, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
-      );
-      groundGlow.rotation.x = -Math.PI / 2;
-      groundGlow.position.set(bulbPos, 0.02, 0);
-      lamp.add(groundGlow);
-      this.streetGroundGlows.push(groundGlow);
-
-      // Warm Point Light for dynamic road illumination
-      const light = new THREE.PointLight(0xffdf88, 0, 18, 1.6);
-      light.position.set(bulbPos, 3.7, 0);
-      lamp.add(light);
-      this.streetLights.push(light);
+      // Realistic Soft Spotlight (Feathered natural illumination, NO artificial flat circles!)
+      const spot = new THREE.SpotLight(0xffdf88, 0, 18, Math.PI / 3.0, 0.88, 1.3);
+      spot.position.set(bulbPos, 3.8, 0);
+      spot.target.position.set(bulbPos, 0, 0);
+      lamp.add(spot);
+      lamp.add(spot.target);
+      this.streetLights.push(spot);
 
       lamp.position.set(pos.x, 0, pos.z);
       this.scene.add(lamp);
@@ -651,8 +643,8 @@ class FarmWorld3D {
   createWaterMaterial() {
     const uniforms = {
       uTime: { value: 0 },
-      uColorDeep: { value: new THREE.Color(0x1d6d8f) },
-      uColorLight: { value: new THREE.Color(0x6ec9c3) },
+      uColorDeep: { value: new THREE.Color(0x1a6585) },
+      uColorLight: { value: new THREE.Color(0x5cbdb7) },
       uSun: { value: new THREE.Color(0xfff0bc) },
       uBrightness: { value: 1 }
     };
@@ -699,7 +691,7 @@ class FarmWorld3D {
   buildWater() {
     // Retention Pond (Elevated cleanly at y = 0.04 with stone bank rim, 100% unobstructed by grass)
     const pondGroup = new THREE.Group();
-    const water = new THREE.Mesh(new THREE.CircleGeometry(4.8, 48), this.createWaterMaterial());
+    const water = new THREE.Mesh(new THREE.CircleGeometry(5.2, 48), this.createWaterMaterial());
     water.rotation.x = -Math.PI / 2;
     water.position.y = 0.04;
     water.receiveShadow = true;
@@ -707,7 +699,7 @@ class FarmWorld3D {
 
     // Clean River Stone Rim Curb around Pond
     const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(4.85, 0.16, 12, 48),
+      new THREE.TorusGeometry(5.25, 0.16, 12, 48),
       new THREE.MeshStandardMaterial({ color: 0x7e8a83, roughness: 0.88 })
     );
     rim.rotation.x = -Math.PI / 2;
@@ -770,6 +762,7 @@ class FarmWorld3D {
     const whiteWall = new THREE.MeshStandardMaterial({ color: 0xf6f7f2, roughness: 0.8 });
     const darkSteel = new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.45 });
     const timber = new THREE.MeshStandardMaterial({ color: 0xb58e65, roughness: 0.7 });
+    const bluePanel = new THREE.MeshStandardMaterial({ color: 0x3d6b8c, roughness: 0.5 });
     const glass = new THREE.MeshPhysicalMaterial({
       color: 0xc9edf2,
       transmission: 0.65,
@@ -780,7 +773,61 @@ class FarmWorld3D {
       side: THREE.DoubleSide
     });
 
-    // 1. Modern Multi-Span High-Tech Glass Greenhouse (Left Facility Area, x: -16, z: -12.5)
+    // 1. Classical / Modern Garden Gazebo IN THE EXACT CENTER OF THE WATER POND (水池正中央)
+    const pavilionGroup = new THREE.Group();
+    // Central Island Stone Plinth
+    const pavPlinth = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.75, 1.85, 0.22, 8),
+      new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
+    );
+    pavPlinth.position.y = 0.11;
+    pavilionGroup.add(pavPlinth);
+
+    const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.68, 1.68, 0.06, 8), timber);
+    pavFloor.position.y = 0.24;
+    pavilionGroup.add(pavFloor);
+
+    // 4 Corner Timber Columns
+    [[-0.82, -0.82], [0.82, -0.82], [-0.82, 0.82], [0.82, 0.82]].forEach(([cx, cz]) => {
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), darkSteel);
+      col.position.set(cx, 1.34, cz);
+      col.castShadow = true;
+      pavilionGroup.add(col);
+    });
+
+    // Sloped Hip Roof
+    const pavRoof = new THREE.Mesh(
+      new THREE.ConeGeometry(2.5, 1.1, 4),
+      new THREE.MeshStandardMaterial({ color: 0x38453d, roughness: 0.7 })
+    );
+    pavRoof.rotation.y = Math.PI / 4;
+    pavRoof.position.y = 2.95;
+    pavRoof.castShadow = true;
+    pavilionGroup.add(pavRoof);
+
+    // Ambient Lantern in Pavilion
+    const pavLight = new THREE.PointLight(0xffdd77, 0, 12, 1.8);
+    pavLight.position.set(0, 2.1, 0);
+    pavilionGroup.add(pavLight);
+    this.nightLights.push(pavLight);
+
+    // Timber Boardwalk Bridge Connecting South Shore to Central Pavilion
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.08, 3.6), timber);
+    bridge.position.set(0, 0.12, 1.8);
+    bridge.receiveShadow = true;
+    pavilionGroup.add(bridge);
+
+    // Low Bridge Railings
+    [-0.54, 0.54].forEach(rx => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 3.6), darkSteel);
+      rail.position.set(rx, 0.32, 1.8);
+      pavilionGroup.add(rail);
+    });
+
+    pavilionGroup.position.set(0, 0, -2.5);
+    this.scene.add(pavilionGroup);
+
+    // 2. Modern Multi-Span High-Tech Glass Greenhouse (North-West, x: -14, z: -12.5)
     const greenhouse = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
     base.position.y = 0.225;
@@ -802,24 +849,21 @@ class FarmWorld3D {
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
 
-    greenhouse.position.set(-16.0, 0, -12.5);
+    greenhouse.position.set(-14.0, 0, -12.5);
     this.scene.add(greenhouse);
 
-    // 2. Smart Farm Command & Dispatch Center (Right Facility Area, x: 16, z: -12.5)
+    // 3. Smart Farm Command & Dispatch Center (North-East, x: 16, z: -12.5)
     const center = new THREE.Group();
-    // 2-Story Main Building
     const bldg = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.4, 6.8), whiteWall);
     bldg.position.y = 1.7;
     bldg.castShadow = true;
     bldg.receiveShadow = true;
     center.add(bldg);
 
-    // Panoramic Dark-Frame Glass Facade
     const glassFacade = new THREE.Mesh(new THREE.BoxGeometry(8.6, 1.6, 0.2), glass);
     glassFacade.position.set(0, 2.2, 3.45);
     center.add(glassFacade);
 
-    // Flat Timber Overhang Roof with Solar Array
     const roof = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.2, 7.6), timber);
     roof.position.y = 3.5;
     center.add(roof);
@@ -831,7 +875,6 @@ class FarmWorld3D {
     solarGrid.position.set(0, 3.65, 0);
     center.add(solarGrid);
 
-    // Command Center Interior Light
     const centerLight = new THREE.PointLight(0xfff0b8, 0, 14, 1.8);
     centerLight.position.set(0, 2.0, 1.5);
     center.add(centerLight);
@@ -840,42 +883,50 @@ class FarmWorld3D {
     center.position.set(16.0, 0, -12.5);
     this.scene.add(center);
 
-    // 3. Lakeside Rest Deck & Standardized Viewing Pavilion (North of Pond, x: 0, z: -8.5)
-    const pavilion = new THREE.Group();
-    // Wooden Terrace Deck Extending to Pond Shore
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.16, 4.2), timber);
-    deck.position.y = 0.08;
-    deck.receiveShadow = true;
-    pavilion.add(deck);
+    // 4. WEST AUXILIARY BUILDINGS (西侧现代农机与无人机巡检站，解决空旷感)
+    const westComplex = new THREE.Group();
+    // Smart Drone & Machinery Shed
+    const shed = new THREE.Mesh(new THREE.BoxGeometry(7.6, 3.0, 5.8), whiteWall);
+    shed.position.set(0, 1.5, 0);
+    shed.castShadow = true;
+    westComplex.add(shed);
 
-    // 4 Modern Square Timber Columns
-    [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]].forEach(([cx, cz]) => {
-      const col = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.2, 0.14), darkSteel);
-      col.position.set(cx, 1.18, cz);
-      col.castShadow = true;
-      pavilion.add(col);
-    });
+    // Roll-up Service Doors
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 3.8), bluePanel);
+    door.position.set(3.85, 1.1, 0);
+    westComplex.add(door);
 
-    // Dark Hip Roof
-    const pavRoof = new THREE.Mesh(
-      new THREE.ConeGeometry(2.8, 1.2, 4),
-      new THREE.MeshStandardMaterial({ color: 0x36423b, roughness: 0.7 })
+    // Rooftop Drone Landing Pad (无人机机巢起降坪)
+    const pad = new THREE.Mesh(
+      new THREE.BoxGeometry(4.2, 0.1, 4.2),
+      new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 })
     );
-    pavRoof.rotation.y = Math.PI / 4;
-    pavRoof.position.y = 2.85;
-    pavRoof.castShadow = true;
-    pavilion.add(pavRoof);
+    pad.position.set(0, 3.05, 0);
+    westComplex.add(pad);
 
-    // Warm Lantern in Pavilion
-    const pavLight = new THREE.PointLight(0xffdf88, 0, 10, 2.0);
-    pavLight.position.set(0, 2.0, 0);
-    pavilion.add(pavLight);
-    this.nightLights.push(pavLight);
+    const padLight = new THREE.PointLight(0x52e0a2, 0, 8, 2.0);
+    padLight.position.set(0, 3.4, 0);
+    westComplex.add(padLight);
+    this.nightLights.push(padLight);
 
-    pavilion.position.set(0, 0, -8.2);
-    this.scene.add(pavilion);
+    westComplex.position.set(-24.5, 0, 3.5);
+    this.scene.add(westComplex);
 
-    // 4. Stainless Fertigation Hub & Water Storage (Far Left, x: -25.5, z: -12.5)
+    // Automated Agro-Meteorology Station Mast (West, z: 9.5)
+    const tower = new THREE.Group();
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 5.4, 8), darkSteel);
+    mast.position.y = 2.7;
+    mast.castShadow = true;
+    const led = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
+    );
+    led.position.y = 5.45;
+    tower.add(mast, led);
+    tower.position.set(-24.5, 0, 10.5);
+    this.scene.add(tower);
+
+    // Stainless Fertigation & Water Tanks (North-West, z: -12.5)
     const siloGroup = new THREE.Group();
     const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
     [-1.3, 1.3].forEach(offset => {
@@ -886,8 +937,60 @@ class FarmWorld3D {
       cap.position.set(offset, 3.6, 0);
       siloGroup.add(silo, cap);
     });
-    siloGroup.position.set(-25.5, 0, -12.5);
+    siloGroup.position.set(-24.0, 0, -12.5);
     this.scene.add(siloGroup);
+
+    // 5. EAST AUXILIARY BUILDINGS (东侧现代分拣冷链与育苗温室，解决空旷感)
+    const eastComplex = new THREE.Group();
+    // Cold-Chain Logistics & Sorting Depot
+    const depot = new THREE.Mesh(new THREE.BoxGeometry(7.6, 3.2, 6.2), whiteWall);
+    depot.position.set(0, 1.6, 0);
+    depot.castShadow = true;
+    eastComplex.add(depot);
+
+    const depotGlass = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 4.2), glass);
+    depotGlass.position.set(-3.85, 1.6, 0);
+    eastComplex.add(depotGlass);
+
+    const depotRoof = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.18, 6.8), darkSteel);
+    depotRoof.position.y = 3.3;
+    eastComplex.add(depotRoof);
+
+    const depotLight = new THREE.PointLight(0xfff0b8, 0, 12, 1.8);
+    depotLight.position.set(-2.0, 2.0, 0);
+    eastComplex.add(depotLight);
+    this.nightLights.push(depotLight);
+
+    eastComplex.position.set(24.5, 0, 3.5);
+    this.scene.add(eastComplex);
+
+    // Nursery Greenhouse Annex (East, z: 10.5)
+    const nursery = new THREE.Group();
+    const nurseryGlass = new THREE.Mesh(new THREE.BoxGeometry(6.8, 2.4, 4.8), glass);
+    nurseryGlass.position.y = 1.2;
+    nursery.add(nurseryGlass);
+    const nurseryBase = new THREE.Mesh(new THREE.BoxGeometry(7.0, 0.3, 5.0), darkSteel);
+    nurseryBase.position.y = 0.15;
+    nursery.add(nurseryBase);
+    const nurseryLight = new THREE.PointLight(0xffd577, 0, 10, 1.8);
+    nurseryLight.position.set(0, 1.6, 0);
+    nursery.add(nurseryLight);
+    this.nightLights.push(nurseryLight);
+    nursery.position.set(24.5, 0, 10.5);
+    this.scene.add(nursery);
+
+    // 6. South Park Entrance Welcome Archway (南侧主入口标识门廊)
+    const arch = new THREE.Group();
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.35, 0.8), timber);
+    beam.position.y = 4.2;
+    arch.add(beam);
+    [-4.6, 4.6].forEach(px => {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 4.4, 0.8), darkSteel);
+      p.position.set(px, 2.2, 0);
+      arch.add(p);
+    });
+    arch.position.set(0, 0, 17.5);
+    this.scene.add(arch);
   }
 
   buildPlots() {
@@ -1296,9 +1399,6 @@ class FarmWorld3D {
     this.streetLampBulbs?.forEach(bulb => {
       bulb.material.color.set(isNight ? 0xffe28a : 0x728076);
     });
-    this.streetGroundGlows?.forEach(glow => {
-      glow.material.opacity = isNight ? 0.62 : 0;
-    });
   }
 
   projectPlotMarkers() {
@@ -1503,19 +1603,6 @@ export class FarmMonitor {
           <span class="badge-plots"><i class="ph ph-squares-four"></i> 7 块独立监测示范区</span>
         </div>
       </header>
-
-      <!-- Top Right Quick Plot Chips -->
-      <div class="farm-top-actions">
-        <nav class="farm-plot-chips" aria-label="快捷地块导航">
-          ${this.plots.map(p => `
-            <button class="farm-plot-chip ${p.plotId === this.selectedPlotId ? 'active' : ''} ${p.riskLevel === 'HIGH' ? 'has-warn' : ''}" 
-                    type="button" data-select-plot="${p.plotId}">
-              <span class="chip-dot"></span>
-              <span>${p.plotId.replace('plot-', '').toUpperCase()} ${CROP_PROFILES[p.cropCode]?.icon || ''}</span>
-            </button>
-          `).join('')}
-        </nav>
-      </div>
 
       <!-- 2D Marker Overlay Layer -->
       <div class="farm-marker-layer" data-marker-layer></div>
