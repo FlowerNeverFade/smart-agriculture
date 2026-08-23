@@ -3,9 +3,9 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-23
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口与农田动态监测切片已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
 
-> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
+> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
 > 2026-08-23 main 部署记录：GitHub `main` 当前为 `6183803`（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen3.8-27B，并加载保守的 LoRA 表达适配器 `agriloop-qwen38-agri`；规则、数据库和 RAG 仍是事实与安全边界的唯一来源，模型只生成解释文本。思维输出已关闭，后端/浏览器均过滤内部字段，并对离线、降级质量和控制命令执行二次安全拦截。公网 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
@@ -24,7 +24,7 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 已完成（最小 Web 入口） | 100%（入口） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；完整专业图表页面仍不在本期 |
+| 可视化主线实现 | 已完成（最小入口 + 农田监测切片） | 100%（已交付切片） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；Canvas 全场农田监测支持昼夜/天气、作物阶段、预警和地块详情；完整业务页面仍不在本期 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -60,6 +60,8 @@
 - 后端代码、数据库迁移、两个 Crop Pack、模拟器、OpenAPI/Schema、自动化测试和远端 Supervisor 部署已落盘。
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
+- `lxh-frontend` 农田动态监测切片已合入 `main`：全场 Canvas 场景、昼夜/天气、作物/阶段图层、预警、地块详情和沙盘预留入口均已落盘；验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
+- `quhl` 与 `rium_dev` 的替代 WebGL/Three.js 场景经对比后保留为候选设计资料，不作为默认运行时依赖；当前默认入口优先保证认证、Qwen 对话和无构建依赖的农田监测稳定性。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
@@ -88,7 +90,7 @@
 
 ### Gate 3：D14 可答辩
 
-状态：**后端已完成；最小 Web 入口已验收，完整前端和答辩物料按范围不在本次后端交付**
+状态：**后端已完成；最小 Web 入口与农田动态监测切片已验收，完整前端和答辩物料按范围不在本次后端交付**
 
 验收条件：
 

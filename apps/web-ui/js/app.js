@@ -4,6 +4,7 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
+import { FarmMonitor } from './farm-monitor.js';
 
 class AgriApp {
   constructor() {
@@ -21,6 +22,7 @@ class AgriApp {
     };
 
     this.dom = {};
+    this.farmMonitor = null;
   }
 
   async init() {
@@ -37,6 +39,13 @@ class AgriApp {
 
     // Load initial data
     await this.loadOverview();
+    this.farmMonitor = new FarmMonitor({
+      plots: this.state.plots,
+      onExit: () => this.navigate('home'),
+      onSandbox: (plotId) => {
+        this.state.currentPlotId = plotId;
+      }
+    });
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
@@ -785,6 +794,21 @@ class AgriApp {
 
   openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
+    if (viewName === 'plot-detail') {
+      this.dom.subviewModal.classList.remove('active');
+      this.farmMonitor?.setPlots(this.state.plots);
+      this.farmMonitor?.open(plotId);
+      this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
+      document.querySelectorAll('.module-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === viewName);
+      });
+      if (options.updateHash !== false) {
+        this.navigate(viewName, { plotId });
+      }
+      return;
+    }
+
+    this.farmMonitor?.close(false);
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
       desc: '预留独立子模块界面',
@@ -822,6 +846,7 @@ class AgriApp {
 
   closeModal(updateHash = true) {
     this.dom.subviewModal.classList.remove('active');
+    this.farmMonitor?.close(false);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');
