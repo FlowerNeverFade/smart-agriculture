@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   base: './',
-  assetsInclude: ['**/*.glb'],
   build: {
     chunkSizeWarningLimit: 700,
     rollupOptions: {
