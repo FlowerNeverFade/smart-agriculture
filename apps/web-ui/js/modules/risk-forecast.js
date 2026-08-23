@@ -280,6 +280,15 @@ export async function renderRiskForecast(container, plotId) {
                 { yAxis: data.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `极限胁迫边界 ${data.stressBoundary}%`, color: BOUNDARY_COLOR } }
               ]
             }
+          },
+          {
+            // 隐形宽线命中区：扩大鼠标靠近曲线的浮窗判定范围（±8px），不参与渲染
+            name: '期望值命中区', type: 'line',
+            data: curve.map(p => p.expected),
+            symbol: 'none',
+            lineStyle: { width: 16, opacity: 0 },
+            tooltip: { show: false },
+            z: 3
           }
         ]
       };
@@ -614,7 +623,10 @@ export async function renderScenarioReplay(container, plotId) {
           symbol: 'circle', symbolSize: 4, showSymbol: false,
           lineStyle: { color: bNoop.color, width: 2.2, type: 'dashed' },
           itemStyle: { color: bNoop.color }
-        }
+        },
+        // 隐形宽线命中区：扩大鼠标靠近曲线的浮窗判定范围（±8px），不参与渲染
+        { name: '命中区A', type: 'line', data: bExec.points.map(p => [p.minute, p.value]), symbol: 'none', lineStyle: { width: 16, opacity: 0 }, tooltip: { show: false }, z: 3 },
+        { name: '命中区B', type: 'line', data: bNoop.points.map(p => [p.minute, p.value]), symbol: 'none', lineStyle: { width: 16, opacity: 0 }, tooltip: { show: false }, z: 3 }
       ];
       return {
         backgroundColor: 'transparent',

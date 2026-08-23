@@ -279,7 +279,10 @@ export async function renderValueLedger(container) {
           lineStyle: { color: AMBER, width: 1.8, type: 'dashed' },
           itemStyle: { color: AMBER },
           areaStyle: { color: 'rgba(210, 153, 34, 0.18)' }
-        }
+        },
+        // 隐形宽线命中区：扩大鼠标靠近曲线的浮窗判定范围（±8px），不参与渲染
+        { name: '命中区传统', type: 'line', data: cf.map(c => c.traditionalCostRmb), symbol: 'none', lineStyle: { width: 16, opacity: 0 }, tooltip: { show: false }, z: 3 },
+        { name: '命中区闭环', type: 'line', data: cf.map(c => c.agriLoopCostRmb), symbol: 'none', lineStyle: { width: 16, opacity: 0 }, tooltip: { show: false }, z: 3 }
       ]
     });
     charts.push(area);
