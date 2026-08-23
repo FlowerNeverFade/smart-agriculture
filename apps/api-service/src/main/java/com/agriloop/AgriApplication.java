@@ -1851,8 +1851,20 @@ class AgriEngine {
             boolean executable = Jsons.bool(plan, "executable", false);
             if (!executable || !"READY".equalsIgnoreCase(readiness)) {
                 String status = Jsons.text(plan, "status", "");
-                if ("NO_ACTION".equalsIgnoreCase(status)) {
-                    return "目前湿度已经达到阶段目标，暂时不用浇水。我会保留这次判断，等趋势继续下降再复核。";
+                Map<String, Object> expected = Jsons.map(mapper, plan.get("expectedResult"));
+                double current = Jsons.number(expected, "from", Double.NaN);
+                double target = Jsons.number(expected, "to", Double.NaN);
+                long duration = Jsons.whole(plan, "durationSeconds", 0);
+                double water = Jsons.number(plan, "waterLitre", 0);
+                if (duration <= 0 && Double.isFinite(current) && Double.isFinite(target) && current >= target) {
+                    return String.format(Locale.ROOT,
+                            "目前土壤湿度约 %.1f%%，已经达到阶段目标（约 %.1f%%），暂时不建议灌溉。设备或光照数据有提示，先复测一次；如果趋势继续下降，再重新评估。",
+                            current, target);
+                }
+                if ("HUMAN_REVIEW".equalsIgnoreCase(status) && duration > 0) {
+                    return String.format(Locale.ROOT,
+                            "我先给你一版人工复核参考：按当前估算约 %.1f L、持续 %d 秒。数据还有轻度不确定性，这个建议不会自动下发；复测土壤湿度和流量后，再决定是否采用。",
+                            water, duration);
                 }
                 return "我先给你一版保守的人工复核参考：当前证据不足以安全自动执行灌溉，所以不会直接下发。建议先复测土壤湿度和流量，确认后再决定具体水量。";
             }
