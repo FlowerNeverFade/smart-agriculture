@@ -1,46 +1,56 @@
 /**
  * AgriLoop Farmland Dynamic Digital Twin (农田动态监测)
- * Ultra-smooth Three.js + Canvas 2.5D/3D Living Farmland World
+ * Pure 3D WebGL Living Farmland World (Three.js)
+ * 
  * Features:
- * - Living photorealistic composite backgrounds (Day/Sunrise/Sunset/Night/Rain)
- * - 6:00 Sunrise & 18:00 Sunset slow cinematic lighting transitions
+ * - Full 3D procedural modeling (Lush mountains, glass greenhouse, water canals & pond, plots, crops, barn, weather mast)
+ * - 06:00 Sunrise & 18:00 Sunset slow cinematic lighting and shadow transitions
  * - Dynamic 6-state weather engine (Sunny, Cloudy, Overcast, Light Rain, Moderate Rain, Heavy Rain)
- * - Directional wind physics reacting smoothly to mouse velocity & idle breeze waves
+ * - Directional wind physics reacting smoothly to mouse velocity & idle natural breeze waves
  * - Multi-crop layer switcher (Tomato, Cucumber, Rice, Corn, Auto) & growth stage progression
- * - Plot A01 pulsating warning beacon & neon bounding frames
+ * - Plot A01 pulsating red warning beacon & neon bounding frames
  * - Expanding inspection modal with real-time IoT sensors & interactive environmental curves
  * - Double-click future risk sandbox simulation HUD
  */
 
 import * as THREE from '../vendor/three/three.module.min.js';
 
-const WEATHER_CONFIG = {
-  sunny: { label: '晴', icon: 'ph-sun', clouds: 0.15, rain: false, rainDensity: 0, fog: 0.005, exposure: 1.15, color: 0xfff0b5 },
-  cloudy: { label: '多云', icon: 'ph-cloud-sun', clouds: 0.52, rain: false, rainDensity: 0, fog: 0.010, exposure: 1.05, color: 0xe8eef5 },
-  overcast: { label: '阴', icon: 'ph-cloud', clouds: 0.85, rain: false, rainDensity: 0, fog: 0.016, exposure: 0.92, color: 0xc4cdd5 },
-  'light-rain': { label: '小雨', icon: 'ph-cloud-rain', clouds: 0.88, rain: true, rainDensity: 1200, rainSpeed: 16, fog: 0.020, exposure: 0.88, color: 0xb5c8d8 },
-  'moderate-rain': { label: '中雨', icon: 'ph-cloud-rain', clouds: 0.94, rain: true, rainDensity: 2600, rainSpeed: 24, fog: 0.026, exposure: 0.80, color: 0x9cb4ca },
-  'heavy-rain': { label: '大雨', icon: 'ph-cloud-lightning', clouds: 0.98, rain: true, rainDensity: 4500, rainSpeed: 34, fog: 0.035, exposure: 0.70, color: 0x829db5 }
+const WEATHER_LABELS = {
+  sunny: '晴',
+  cloudy: '多云',
+  overcast: '阴',
+  'light-rain': '小雨',
+  'moderate-rain': '中雨',
+  'heavy-rain': '大雨'
 };
 
-const CROP_SPECS = {
-  tomato: { label: '番茄', family: '茄果类 (Solanaceae)', stem: 0x2d6b38, leaf: 0x3da852, leafDark: 0x205f32, fruit: 0xed452a, height: 1.25, spacing: 0.52 },
-  cucumber: { label: '黄瓜', family: '葫芦科 (Cucurbitaceae)', stem: 0x367c3e, leaf: 0x48b84d, leafDark: 0x246b30, fruit: 0x6bb83d, height: 1.45, spacing: 0.56 },
-  rice: { label: '水稻', family: '禾本科 (Poaceae)', stem: 0x76ab3d, leaf: 0x98cb4a, leafDark: 0x568228, fruit: 0xe0c64a, height: 0.88, spacing: 0.38 },
-  corn: { label: '玉米', family: '禾本科 (Poaceae)', stem: 0x3a7e3d, leaf: 0x5bb049, leafDark: 0x276630, fruit: 0xe8ba3c, height: 1.75, spacing: 0.60 }
+const WEATHER_ICONS = {
+  sunny: 'ph-sun',
+  cloudy: 'ph-cloud-sun',
+  overcast: 'ph-cloud',
+  'light-rain': 'ph-cloud-rain',
+  'moderate-rain': 'ph-cloud-rain',
+  'heavy-rain': 'ph-cloud-lightning'
 };
 
-const STAGE_SPECS = {
-  seedling: { label: '苗期', scale: 0.42, density: 0.65, fruitScale: 0 },
-  vegetative: { label: '营养生长期', scale: 0.74, density: 0.85, fruitScale: 0.1 },
-  flowering: { label: '开花坐果期', scale: 0.92, density: 0.96, fruitScale: 0.55 },
-  fruiting: { label: '挂果采收期', scale: 1.0, density: 1.0, fruitScale: 1.0 }
+const CROP_PROFILES = {
+  tomato: { label: '番茄', icon: '●', family: '茄果类 (Solanaceae)', stem: 0x3d7c42, leaf: 0x3f9b4f, leafDark: 0x24713b, fruit: 0xe95a3f, height: 1.22, spacing: 0.5 },
+  cucumber: { label: '黄瓜', icon: '◆', family: '瓜类 (Cucurbitaceae)', stem: 0x3f8a47, leaf: 0x56ad55, leafDark: 0x2d7c3f, fruit: 0x7eb447, height: 1.42, spacing: 0.55 },
+  rice: { label: '水稻', icon: '〽', family: '粮食类 (Poaceae)', stem: 0x8eb84f, leaf: 0xa6c95d, leafDark: 0x678c36, fruit: 0xd8bd59, height: 0.86, spacing: 0.36 },
+  corn: { label: '玉米', icon: '▲', family: '粮食类 (Poaceae)', stem: 0x4c9348, leaf: 0x68ad4f, leafDark: 0x317b3d, fruit: 0xe1b84e, height: 1.68, spacing: 0.58 }
 };
 
-const PLOT_LAYOUTS = {
-  'plot-a01': { x: -6.85, z: 3.25, width: 6.9, depth: 7.15, rotation: -0.035, name: 'A01 号地块', defaultCrop: 'tomato', defaultStage: 'fruiting' },
-  'plot-a02': { x: 0.85, z: -1.65, width: 7.6, depth: 6.2, rotation: 0.016, name: 'A02 号地块', defaultCrop: 'corn', defaultStage: 'flowering' },
-  'plot-b01': { x: 4.85, z: 6.55, width: 8.2, depth: 8.4, rotation: 0.032, name: 'B01 号地块', defaultCrop: 'rice', defaultStage: 'vegetative' }
+const STAGE_PROFILES = {
+  seedling: { label: '苗期', height: 0.45, density: 0.68, fruit: 0 },
+  vegetative: { label: '营养生长期', height: 0.76, density: 0.85, fruit: 0.08 },
+  flowering: { label: '开花坐果期', height: 0.92, density: 0.95, fruit: 0.55 },
+  fruiting: { label: '挂果采收期', height: 1.0, density: 1.0, fruit: 1.0 }
+};
+
+const PLOT_LAYOUT = {
+  'plot-a01': { x: -7.18, z: 3.45, width: 7.1, depth: 7.35, rotation: -0.032, name: 'A01 号地块', defaultCrop: 'tomato', defaultStage: 'fruiting' },
+  'plot-a02': { x: 0.62, z: -1.5, width: 7.75, depth: 6.15, rotation: 0.018, name: 'A02 号地块', defaultCrop: 'corn', defaultStage: 'flowering' },
+  'plot-b01': { x: 4.55, z: 6.72, width: 8.35, depth: 8.55, rotation: 0.032, name: 'B01 号地块', defaultCrop: 'rice', defaultStage: 'vegetative' }
 };
 
 const DEFAULT_PLOTS = [
@@ -84,8 +94,9 @@ const DEFAULT_PLOTS = [
 
 const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
 const lerp = (a, b, t) => a + (b - a) * t;
-const smoothstep = (min, max, value) => {
-  const x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+const ease = v => v * v * (3 - 2 * v);
+const smoothstep = (min, max, val) => {
+  const x = Math.max(0, Math.min(1, (val - min) / (max - min)));
   return x * x * (3 - 2 * x);
 };
 
@@ -102,18 +113,18 @@ function createFlexAttribute(geometry) {
   return geometry;
 }
 
-function createSwayMaterial(color, roughness = 0.75) {
+function createSwayMaterial(color, roughness = 0.8) {
   const material = new THREE.MeshStandardMaterial({
     color,
     roughness,
-    metalness: 0.05,
+    metalness: 0.02,
     side: THREE.DoubleSide
   });
   material.userData.windUniforms = null;
   material.onBeforeCompile = shader => {
     shader.uniforms.uFarmTime = { value: 0 };
     shader.uniforms.uWindVector = { value: new THREE.Vector2(0.2, 0.08) };
-    shader.uniforms.uBreeze = { value: 0.05 };
+    shader.uniforms.uBreeze = { value: 0.045 };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `
         #include <common>
@@ -127,86 +138,112 @@ function createSwayMaterial(color, roughness = 0.75) {
         vec3 transformed = vec3(position);
         float farmFlex = aFlex * aFlex;
         vec3 farmInstance = vec3(instanceMatrix[3].xyz);
-        float wave = sin(uFarmTime * 1.8 + aPhase + farmInstance.x * 0.42 + farmInstance.z * 0.38);
-        float flutter = sin(uFarmTime * 4.6 + aPhase * 2.1 + position.y * 6.0);
-        float windSpeed = length(uWindVector);
-        transformed.x += farmFlex * (wave * uBreeze + uWindVector.x * 0.12 + flutter * windSpeed * 0.025);
-        transformed.z += farmFlex * (cos(uFarmTime * 1.35 + aPhase) * uBreeze * 0.6 + uWindVector.y * 0.12);
+        float farmWave = sin(uFarmTime * 1.55 + aPhase + farmInstance.x * 0.43 + farmInstance.z * 0.36);
+        float farmLeafFlutter = sin(uFarmTime * 4.3 + aPhase * 1.8 + position.y * 5.2);
+        float farmWind = length(uWindVector);
+        transformed.x += farmFlex * (farmWave * uBreeze + uWindVector.x * 0.11 + farmLeafFlutter * farmWind * 0.02);
+        transformed.z += farmFlex * (cos(uFarmTime * 1.15 + aPhase) * uBreeze * 0.55 + uWindVector.y * 0.11);
       `);
     material.userData.windUniforms = shader.uniforms;
   };
-  material.customProgramCacheKey = () => 'agriloop-crop-sway-v3';
+  material.customProgramCacheKey = () => 'agriloop-crop-sway-v4';
   return material;
 }
 
 function attachInstancePhases(geometry, count, offset = 0) {
   const phases = new Float32Array(count);
   for (let i = 0; i < count; i++) {
-    phases[i] = (i * 2.39996 + offset) % (Math.PI * 2);
+    phases[i] = (i * 2.399 + offset) % (Math.PI * 2);
   }
   geometry.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
   return geometry;
 }
 
-class CropFieldMesh {
-  constructor(scene, plotId, layout, windMaterials) {
+function makeLeafGeometry(height, side = 1, level = 0.58, yaw = 0) {
+  const geometry = new THREE.SphereGeometry(1, 10, 7);
+  geometry.scale(0.19, 0.026, 0.092);
+  geometry.rotateY(yaw);
+  geometry.rotateZ(side * 0.42);
+  geometry.translate(side * 0.15, height * level, 0);
+  return createFlexAttribute(geometry);
+}
+
+function getDayPhase(hour) {
+  if (hour < 5.8 || hour >= 19.3) return { phase: 'night', daylight: 0.05, warm: 0 };
+  if (hour < 6.8) {
+    const p = smoothstep(5.8, 6.8, hour);
+    return { phase: 'sunrise', daylight: 0.05 + p * 0.95, warm: Math.sin(p * Math.PI) * 0.85 };
+  }
+  if (hour < 17.8) return { phase: 'day', daylight: 1.0, warm: 0 };
+  if (hour < 18.9) {
+    const p = smoothstep(17.8, 18.9, hour);
+    return { phase: 'sunset', daylight: 1.0 - p * 0.95, warm: Math.sin(p * Math.PI) * 0.95 };
+  }
+  const p = smoothstep(18.9, 19.3, hour);
+  return { phase: 'dusk', daylight: 0.15 - p * 0.1, warm: 0.3 * (1 - p) };
+}
+
+class CropField {
+  constructor(scene, plot, layout, windMaterials) {
     this.scene = scene;
-    this.plotId = plotId;
+    this.plot = plot;
     this.layout = layout;
     this.windMaterials = windMaterials;
     this.group = new THREE.Group();
-    this.group.position.set(layout.x, 0.12, layout.z);
+    this.group.position.set(layout.x, 0.1, layout.z);
     this.group.rotation.y = layout.rotation;
     scene.add(this.group);
+    this.build(plot.cropCode || 'tomato', plot.stageCode || 'fruiting');
   }
 
   clear() {
-    while (this.group.children.length > 0) {
-      const child = this.group.children[0];
+    for (const child of [...this.group.children]) {
       this.group.remove(child);
       child.geometry?.dispose();
       child.material?.dispose();
-      const idx = this.windMaterials.indexOf(child.material);
-      if (idx >= 0) this.windMaterials.splice(idx, 1);
+      const index = this.windMaterials.indexOf(child.material);
+      if (index >= 0) this.windMaterials.splice(index, 1);
     }
   }
 
   build(cropCode, stageCode) {
     this.clear();
-    const crop = CROP_SPECS[cropCode] || CROP_SPECS.tomato;
-    const stage = STAGE_SPECS[stageCode] || STAGE_SPECS.fruiting;
-    const plantHeight = crop.height * stage.scale;
+    const crop = CROP_PROFILES[cropCode] || CROP_PROFILES.tomato;
+    const stage = STAGE_PROFILES[stageCode] || STAGE_PROFILES.fruiting;
+    this.cropCode = cropCode;
+    this.stageCode = stageCode;
+    const plantHeight = crop.height * stage.height;
     const spacing = crop.spacing / Math.sqrt(stage.density);
-    const cols = Math.max(4, Math.floor((this.layout.width - 0.7) / spacing));
-    const rows = Math.max(4, Math.floor((this.layout.depth - 0.7) / spacing));
-    const count = cols * rows;
-
+    const columns = Math.max(5, Math.floor((this.layout.width - 0.65) / spacing));
+    const rows = Math.max(4, Math.floor((this.layout.depth - 0.58) / spacing));
+    const count = columns * rows;
     const transforms = [];
     const dummy = new THREE.Object3D();
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const seed = r * cols + c;
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < columns; col++) {
+        const seed = row * columns + col;
         transforms.push({
-          x: (c / Math.max(1, cols - 1) - 0.5) * (this.layout.width - 0.7) + Math.sin(seed * 7.9) * 0.06,
-          z: (r / Math.max(1, rows - 1) - 0.5) * (this.layout.depth - 0.7) + Math.cos(seed * 4.3) * 0.05,
-          scale: 0.92 + (Math.sin(seed * 3.1) + 1) * 0.06,
-          rotation: Math.sin(seed * 5.2) * 0.6
+          x: (col / Math.max(1, columns - 1) - 0.5) * (this.layout.width - 0.65) + Math.sin(seed * 9.17) * 0.055,
+          z: (row / Math.max(1, rows - 1) - 0.5) * (this.layout.depth - 0.62) + Math.cos(seed * 5.63) * 0.045,
+          scale: 0.92 + (Math.sin(seed * 2.37) + 1) * 0.055,
+          rotation: Math.sin(seed * 4.11) * 0.58
         });
       }
     }
 
-    const addInstances = (geometry, material, configFn) => {
-      attachInstancePhases(geometry, count, this.layout.x * 0.2);
+    const addInstances = (geometry, material, configure) => {
+      attachInstancePhases(geometry, count, this.layout.x * 0.17);
       const mesh = new THREE.InstancedMesh(geometry, material, count);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      transforms.forEach((item, idx) => {
+      transforms.forEach((item, index) => {
         dummy.position.set(item.x, 0, item.z);
         dummy.rotation.set(0, item.rotation, 0);
         dummy.scale.setScalar(item.scale);
-        configFn?.(dummy, item, idx);
+        configure?.(dummy, item, index);
         dummy.updateMatrix();
-        mesh.setMatrixAt(idx, dummy.matrix);
+        mesh.setMatrixAt(index, dummy.matrix);
       });
       mesh.instanceMatrix.needsUpdate = true;
       this.group.add(mesh);
@@ -214,64 +251,52 @@ class CropFieldMesh {
       return mesh;
     };
 
-    // Stems
-    const stemRadius = cropCode === 'corn' ? 0.055 : cropCode === 'rice' ? 0.024 : 0.038;
-    const stemGeom = new THREE.CylinderGeometry(stemRadius * 0.7, stemRadius, plantHeight, 6, 3);
-    stemGeom.translate(0, plantHeight / 2, 0);
-    createFlexAttribute(stemGeom);
-    addInstances(stemGeom, createSwayMaterial(crop.stem));
+    const stemRadius = cropCode === 'corn' ? 0.058 : cropCode === 'rice' ? 0.024 : 0.036;
+    const stemGeometry = new THREE.CylinderGeometry(stemRadius * 0.72, stemRadius, plantHeight, 6, 4);
+    stemGeometry.translate(0, plantHeight / 2, 0);
+    createFlexAttribute(stemGeometry);
+    addInstances(stemGeometry, createSwayMaterial(crop.stem));
 
-    // Leaves
-    const makeLeaf = (h, side, level, yaw, scaleX, scaleY, scaleZ) => {
-      const g = new THREE.SphereGeometry(1, 8, 6);
-      g.scale(0.18 * scaleX, 0.025 * scaleY, 0.09 * scaleZ);
-      g.rotateY(yaw);
-      g.rotateZ(side * 0.45);
-      g.translate(side * 0.16 * scaleX, h * level, 0);
-      return createFlexAttribute(g);
-    };
+    const leftLeaf = makeLeafGeometry(plantHeight, -1, 0.52, -0.34);
+    const rightLeaf = makeLeafGeometry(plantHeight * 1.06, 1, 0.6, 0.28);
+    const lowerLeaf = makeLeafGeometry(plantHeight * 0.92, 1, 0.37, -0.62);
+    const upperLeaf = makeLeafGeometry(plantHeight * 1.04, -1, 0.76, 0.58);
+    const leaves = [leftLeaf, rightLeaf, lowerLeaf, upperLeaf];
+    if (cropCode === 'corn') leaves.forEach(leaf => leaf.scale(1.65, 0.84, 0.68));
+    else if (cropCode === 'rice') leaves.forEach((leaf, index) => leaf.scale(0.42, index % 2 ? 1.18 : 1.34, 0.32));
+    else if (cropCode === 'cucumber') leaves.forEach(leaf => leaf.scale(1.22, 1.05, 1.22));
 
-    const isCorn = cropCode === 'corn';
-    const isRice = cropCode === 'rice';
-    const isCucumber = cropCode === 'cucumber';
+    addInstances(leftLeaf, createSwayMaterial(crop.leaf, 0.9));
+    addInstances(rightLeaf, createSwayMaterial(crop.leafDark, 0.88));
+    addInstances(lowerLeaf, createSwayMaterial(crop.leafDark, 0.9));
+    addInstances(upperLeaf, createSwayMaterial(crop.leaf, 0.87));
 
-    const sx = isCorn ? 1.8 : isRice ? 0.45 : isCucumber ? 1.3 : 1.0;
-    const sy = isRice ? 1.4 : 1.0;
-    const sz = isCorn ? 0.7 : isRice ? 0.35 : 1.0;
-
-    const leaf1 = makeLeaf(plantHeight, -1, 0.55, -0.35, sx, sy, sz);
-    const leaf2 = makeLeaf(plantHeight * 1.05, 1, 0.65, 0.3, sx, sy, sz);
-    const leaf3 = makeLeaf(plantHeight * 0.9, 1, 0.38, -0.6, sx, sy, sz);
-    const leaf4 = makeLeaf(plantHeight * 1.02, -1, 0.78, 0.6, sx, sy, sz);
-
-    addInstances(leaf1, createSwayMaterial(crop.leaf, 0.85));
-    addInstances(leaf2, createSwayMaterial(crop.leafDark, 0.85));
-    addInstances(leaf3, createSwayMaterial(crop.leafDark, 0.88));
-    addInstances(leaf4, createSwayMaterial(crop.leaf, 0.82));
-
-    // Fruit / Grain clusters
-    if (stage.fruitScale > 0) {
-      let fruitGeom;
+    if (stage.fruit > 0) {
+      let fruitGeometry;
       if (cropCode === 'tomato') {
-        fruitGeom = new THREE.SphereGeometry(0.085 * stage.fruitScale, 10, 8);
-        fruitGeom.translate(0.13, plantHeight * 0.65, 0.05);
+        fruitGeometry = new THREE.SphereGeometry(0.08 + stage.fruit * 0.025, 10, 8);
+        fruitGeometry.translate(0.12, plantHeight * 0.66, 0.05);
       } else if (cropCode === 'cucumber') {
-        fruitGeom = new THREE.CylinderGeometry(0.04 * stage.fruitScale, 0.052 * stage.fruitScale, 0.32, 7);
-        fruitGeom.rotateZ(0.3);
-        fruitGeom.translate(0.14, plantHeight * 0.62, 0.05);
+        fruitGeometry = new THREE.CylinderGeometry(0.045, 0.055, 0.3, 7);
+        fruitGeometry.rotateZ(0.28);
+        fruitGeometry.translate(0.14, plantHeight * 0.63, 0.05);
       } else if (cropCode === 'rice') {
-        fruitGeom = new THREE.SphereGeometry(0.055, 6, 4);
-        fruitGeom.scale(0.7, 2.6 * stage.fruitScale, 0.7);
-        fruitGeom.translate(0.04, plantHeight * 0.95, 0);
+        fruitGeometry = new THREE.SphereGeometry(0.055, 6, 4);
+        fruitGeometry.scale(0.72, 2.8, 0.72);
+        fruitGeometry.translate(0.03, plantHeight * 0.94, 0);
       } else {
-        // Corn cob
-        fruitGeom = new THREE.SphereGeometry(0.09, 8, 6);
-        fruitGeom.scale(0.85, 2.4 * stage.fruitScale, 0.85);
-        fruitGeom.translate(0.12, plantHeight * 0.68, 0);
+        fruitGeometry = new THREE.SphereGeometry(0.09, 7, 5);
+        fruitGeometry.scale(0.8, 2.45, 0.8);
+        fruitGeometry.translate(0.12, plantHeight * 0.68, 0);
       }
-      createFlexAttribute(fruitGeom);
-      addInstances(fruitGeom, createSwayMaterial(crop.fruit, 0.65));
+      createFlexAttribute(fruitGeometry);
+      addInstances(fruitGeometry, createSwayMaterial(crop.fruit, 0.72), dummyObject => dummyObject.scale.multiplyScalar(0.55 + stage.fruit * 0.45));
     }
+  }
+
+  setCrop(cropCode, stageCode = this.stageCode) {
+    if (cropCode === this.cropCode && stageCode === this.stageCode) return;
+    this.build(cropCode, stageCode);
   }
 
   destroy() {
@@ -280,106 +305,208 @@ class CropFieldMesh {
   }
 }
 
-class LivingFarm3DWorld {
-  constructor(container, options = {}) {
-    this.container = container;
+class FarmWorld3D {
+  constructor(host, options = {}) {
+    this.host = host;
     this.plots = options.plots || DEFAULT_PLOTS;
-    this.onSelectPlot = options.onSelectPlot || (() => {});
-    this.onDoubleSelectPlot = options.onDoubleSelectPlot || (() => {});
-    this.onFrameUpdate = options.onFrameUpdate || (() => {});
+    this.onSelect = options.onSelect || (() => {});
+    this.onDoubleSelect = options.onDoubleSelect || (() => {});
+    this.onFrame = options.onFrame || (() => {});
 
     this.windMaterials = [];
     this.plotMeshes = new Map();
     this.plotGlows = new Map();
     this.cropFields = new Map();
+    this.clouds = [];
     this.waterMaterials = [];
-    this.particles = [];
+    this.soilMaterials = [];
+    this.ridgeMaterials = [];
+    this.crownMaterials = [];
 
-    this.pointer = new THREE.Vector2(0, 0);
+    this.pointer = new THREE.Vector2(10, 10);
     this.pointerTarget = new THREE.Vector2(0, 0);
-    this.lastPointerPos = null;
-    this.windVector = new THREE.Vector2(0.15, 0.05);
-    this.targetWindVector = new THREE.Vector2(0, 0);
-
+    this.currentWind = new THREE.Vector2(0.15, 0.05);
+    this.targetWind = new THREE.Vector2(0, 0);
     this.raycaster = new THREE.Raycaster();
     this.clock = new THREE.Timer ? new THREE.Timer() : new THREE.Clock();
     this.weather = 'sunny';
-    this.daylight = 1.0;
+    this.hoveredPlotId = null;
+    this.lastPointer = null;
+    this.frameCount = 0;
     this.isDestroyed = false;
     this.clickTimer = null;
   }
 
   init() {
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
-    this.renderer.setSize(width, height, false);
+    this.renderer.setSize(this.host.clientWidth, this.host.clientHeight, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.renderer.domElement.className = 'farm-webgl-canvas';
-    this.container.appendChild(this.renderer.domElement);
+    this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xcfe3d2, 0.008);
+    this.scene.fog = new THREE.FogExp2(0xcfe3d2, 0.011);
 
-    this.camera = new THREE.PerspectiveCamera(46, width / Math.max(1, height), 0.1, 200);
-    this.camera.position.set(0, 13.5, 24.0);
-    this.camera.lookAt(0, 1.4, 1.2);
-    this.baseCameraPos = this.camera.position.clone();
+    this.camera = new THREE.PerspectiveCamera(46, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 200);
+    this.camera.position.set(0, 13.2, 24.2);
+    this.camera.lookAt(0, 1.4, 1.15);
+    this.baseCamera = this.camera.position.clone();
 
+    this.buildSky();
     this.buildLights();
-    this.buildTerrainAndCanals();
+    this.buildTerrain();
+    this.buildWater();
+    this.buildRoads();
+    this.buildBuildings();
     this.buildPlots();
-    this.buildVegetationAndBuildings();
-    this.buildAtmosphericParticles();
+    this.buildTrees();
+    this.buildClouds();
+    this.buildRain();
+    this.buildStars();
+    this.loadSurfaceTextures();
     this.bindEvents();
+    this.resize();
     this.animate();
   }
 
+  buildSky() {
+    this.skyUniforms = {
+      uTop: { value: new THREE.Color(0x56aee2) },
+      uHorizon: { value: new THREE.Color(0xeaf7dc) },
+      uSunDirection: { value: new THREE.Vector3(-0.4, 0.75, -0.5).normalize() },
+      uSunColor: { value: new THREE.Color(0xfff0b5) },
+      uSunStrength: { value: 1.1 }
+    };
+    const material = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: this.skyUniforms,
+      vertexShader: `
+        varying vec3 vWorld;
+        void main() {
+          vec4 world = modelMatrix * vec4(position, 1.0);
+          vWorld = world.xyz;
+          gl_Position = projectionMatrix * viewMatrix * world;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorld;
+        uniform vec3 uTop;
+        uniform vec3 uHorizon;
+        uniform vec3 uSunDirection;
+        uniform vec3 uSunColor;
+        uniform float uSunStrength;
+        void main() {
+          vec3 direction = normalize(vWorld - cameraPosition);
+          float heightMix = smoothstep(-0.06, 0.68, direction.y);
+          vec3 sky = mix(uHorizon, uTop, heightMix);
+          float halo = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 32.0) * 0.48;
+          float core = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 650.0) * 1.6;
+          sky += uSunColor * (halo + core) * uSunStrength;
+          gl_FragColor = vec4(sky, 1.0);
+        }
+      `
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(95, 32, 20), material);
+    this.scene.add(this.sky);
+  }
+
   buildLights() {
-    this.hemiLight = new THREE.HemisphereLight(0xe8f6ff, 0x476b38, 2.4);
+    this.hemiLight = new THREE.HemisphereLight(0xe8f6ff, 0x486c38, 2.3);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xfff2ce, 4.2);
-    this.sunLight.position.set(-18, 24, -15);
+    this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.3);
+    this.sunLight.position.set(-18, 23, -14);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
     this.sunLight.shadow.camera.left = -26;
     this.sunLight.shadow.camera.right = 26;
-    this.sunLight.shadow.camera.top = 24;
-    this.sunLight.shadow.camera.bottom = -18;
+    this.sunLight.shadow.camera.top = 23;
+    this.sunLight.shadow.camera.bottom = -17;
     this.sunLight.shadow.camera.near = 1;
     this.sunLight.shadow.camera.far = 70;
-    this.sunLight.shadow.bias = -0.0003;
+    this.sunLight.shadow.bias = -0.00028;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
     // Sun Visual Flare
     this.sunDisc = new THREE.Group();
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.65, 32, 24),
-      new THREE.MeshBasicMaterial({ color: 0xfffae0, toneMapped: false })
+      new THREE.SphereGeometry(0.62, 32, 22),
+      new THREE.MeshBasicMaterial({ color: 0xfff9da, toneMapped: false })
     );
-    const flare = new THREE.Mesh(
-      new THREE.SphereGeometry(1.6, 28, 20),
-      new THREE.MeshBasicMaterial({ color: 0xffe28a, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, toneMapped: false })
+    const glow = new THREE.Mesh(
+      new THREE.SphereGeometry(1.45, 28, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffe285, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, toneMapped: false })
     );
-    this.sunDisc.add(core, flare);
+    const glowWide = new THREE.Mesh(
+      new THREE.SphereGeometry(2.4, 24, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffeca8, transparent: true, opacity: 0.065, blending: THREE.AdditiveBlending, toneMapped: false })
+    );
+    this.sunDisc.add(core, glow, glowWide);
     this.scene.add(this.sunDisc);
   }
 
-  createWaterShader() {
+  buildTerrain() {
+    const geometry = new THREE.PlaneGeometry(76, 54, 76, 54);
+    const position = geometry.attributes.position;
+    for (let index = 0; index < position.count; index++) {
+      const x = position.getX(index);
+      const y = position.getY(index);
+      const edge = clamp((Math.abs(x) - 18) / 16, 0, 1) + clamp((-y - 13) / 14, 0, 1);
+      const relief = edge * (0.85 + Math.sin(x * 0.24) * 0.28 + Math.cos(y * 0.27) * 0.24);
+      position.setZ(index, relief - 0.38);
+    }
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({ color: 0xa6b88c, roughness: 0.95, metalness: 0 });
+    this.terrain = new THREE.Mesh(geometry, material);
+    this.terrain.rotation.x = -Math.PI / 2;
+    this.terrain.position.y = -0.3;
+    this.terrain.receiveShadow = true;
+    this.scene.add(this.terrain);
+
+    const buildRidge = ({ z, heightScale, color, opacity = 1 }) => {
+      const ridgeGeometry = new THREE.PlaneGeometry(88, 28, 116, 40);
+      const ridgePosition = ridgeGeometry.attributes.position;
+      for (let index = 0; index < ridgePosition.count; index++) {
+        const x = ridgePosition.getX(index);
+        const depth = ridgePosition.getY(index);
+        const peaks =
+          Math.exp(-((x + 29) ** 2) / 110) * 8.8 +
+          Math.exp(-((x + 13) ** 2) / 82) * 11.0 +
+          Math.exp(-((x - 4) ** 2) / 126) * 8.2 +
+          Math.exp(-((x - 22) ** 2) / 94) * 10.6 +
+          Math.exp(-((x - 36) ** 2) / 72) * 7.5;
+        const depthShape = 0.58 + Math.sin((depth + 14) / 28 * Math.PI) * 0.42;
+        const detail = Math.sin(x * 0.42 + depth * 0.21) * 0.48 + Math.cos(x * 0.17 - depth * 0.36) * 0.34;
+        ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
+      }
+      ridgeGeometry.computeVertexNormals();
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.96, transparent: opacity < 1, opacity });
+      this.ridgeMaterials.push(ridgeMaterial);
+      const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
+      ridge.rotation.x = -Math.PI / 2;
+      ridge.position.set(0, -0.28, z);
+      ridge.receiveShadow = true;
+      this.scene.add(ridge);
+    };
+
+    buildRidge({ z: -25, heightScale: 0.34, color: 0x6e9676 });
+    buildRidge({ z: -39, heightScale: 0.24, color: 0x8aa5a3, opacity: 0.92 });
+  }
+
+  createWaterMaterial() {
     const uniforms = {
       uTime: { value: 0 },
-      uDeepColor: { value: new THREE.Color(0x277a9e) },
-      uShallowColor: { value: new THREE.Color(0x7ecbc3) },
-      uSunGlint: { value: new THREE.Color(0xffeeb0) },
-      uOpacity: { value: 0.88 }
+      uColorDeep: { value: new THREE.Color(0x277a9e) },
+      uColorLight: { value: new THREE.Color(0x84d2cb) },
+      uSun: { value: new THREE.Color(0xffe8a8) },
+      uBrightness: { value: 1 }
     };
     const material = new THREE.ShaderMaterial({
       uniforms,
@@ -392,10 +519,10 @@ class LivingFarm3DWorld {
         void main() {
           vUv = uv;
           vec3 moved = position;
-          float w1 = sin(position.x * 2.4 + uTime * 1.4) * 0.04;
-          float w2 = cos(position.y * 3.6 - uTime * 1.1) * 0.03;
-          moved.z += w1 + w2;
-          vWave = w1 + w2;
+          float waveA = sin(position.x * 2.3 + uTime * 1.3) * 0.038;
+          float waveB = cos(position.y * 3.5 - uTime * 0.95) * 0.028;
+          moved.z += waveA + waveB;
+          vWave = waveA + waveB;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(moved, 1.0);
         }
       `,
@@ -403,282 +530,453 @@ class LivingFarm3DWorld {
         varying vec2 vUv;
         varying float vWave;
         uniform float uTime;
-        uniform vec3 uDeepColor;
-        uniform vec3 uShallowColor;
-        uniform vec3 uSunGlint;
-        uniform float uOpacity;
+        uniform vec3 uColorDeep;
+        uniform vec3 uColorLight;
+        uniform vec3 uSun;
+        uniform float uBrightness;
         void main() {
-          float ripple = sin((vUv.x * 24.0 + vUv.y * 24.0) + uTime * 2.2) * 0.05;
-          float glint = pow(max(0.0, sin(vUv.x * 30.0 - uTime * 1.2) * cos(vUv.y * 22.0 + uTime * 0.8)), 10.0);
-          vec3 col = mix(uDeepColor, uShallowColor, 0.45 + vWave * 5.0 + ripple);
-          col += uSunGlint * glint * 0.45;
-          gl_FragColor = vec4(col, uOpacity);
+          float ripple = sin((vUv.x + vUv.y) * 36.0 + uTime * 1.9) * 0.04;
+          float glint = pow(max(0.0, sin(vUv.x * 24.0 - uTime * 1.1) * cos(vUv.y * 19.0 + uTime * 0.75)), 9.0);
+          vec3 color = mix(uColorDeep, uColorLight, 0.44 + vWave * 4.5 + ripple);
+          color += uSun * glint * 0.32;
+          gl_FragColor = vec4(color * uBrightness, 0.92);
         }
       `
     });
+    material.userData.waterUniforms = uniforms;
     this.waterMaterials.push(material);
     return material;
   }
 
-  buildTerrainAndCanals() {
-    // Subtle ground elevation plane
-    const groundGeom = new THREE.PlaneGeometry(74, 54, 64, 48);
-    groundGeom.computeVertexNormals();
-    const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x9fb688,
-      roughness: 0.95,
-      metalness: 0.0
-    });
-    this.groundMesh = new THREE.Mesh(groundGeom, groundMat);
-    this.groundMesh.rotation.x = -Math.PI / 2;
-    this.groundMesh.position.y = -0.28;
-    this.groundMesh.receiveShadow = true;
-    this.scene.add(this.groundMesh);
+  buildWater() {
+    const pond = new THREE.Mesh(new THREE.CircleGeometry(5.3, 48), this.createWaterMaterial());
+    pond.rotation.x = -Math.PI / 2;
+    pond.position.set(4.8, -0.09, -7.2);
+    pond.receiveShadow = true;
+    this.scene.add(pond);
 
-    // Water reservoir pond
-    const pondGeom = new THREE.CircleGeometry(5.4, 48);
-    const pondMesh = new THREE.Mesh(pondGeom, this.createWaterShader());
-    pondMesh.rotation.x = -Math.PI / 2;
-    pondMesh.position.set(4.8, -0.08, -7.2);
-    pondMesh.receiveShadow = true;
-    this.scene.add(pondMesh);
+    const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x96ad6e, roughness: 0.94 });
+    const addCanal = ({ width, depth, x, z, vertical = false }) => {
+      const canal = new THREE.Mesh(
+        new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 2)), Math.max(3, Math.round(depth * 2))),
+        this.createWaterMaterial()
+      );
+      canal.rotation.x = -Math.PI / 2;
+      canal.position.set(x, -0.06, z);
+      canal.receiveShadow = true;
+      this.scene.add(canal);
 
-    // Interconnecting Irrigation Canals
-    const canalMat = this.createWaterShader();
-    const addCanal = (w, d, x, z) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), canalMat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(x, -0.06, z);
-      m.receiveShadow = true;
-      this.scene.add(m);
+      const sideOffset = (vertical ? width : depth) / 2 + 0.12;
+      [-sideOffset, sideOffset].forEach(offset => {
+        const bank = new THREE.Mesh(
+          new THREE.BoxGeometry(vertical ? 0.22 : width + 0.34, 0.16, vertical ? depth + 0.34 : 0.22),
+          bankMaterial
+        );
+        bank.position.set(x + (vertical ? offset : 0), -0.05, z + (vertical ? 0 : offset));
+        bank.castShadow = true;
+        bank.receiveShadow = true;
+        this.scene.add(bank);
+      });
     };
-    addCanal(25.0, 0.92, -1.8, 1.88);
-    addCanal(28.0, 0.90, 0.5, 11.55);
-    addCanal(0.90, 16.0, -3.48, 4.1);
-    addCanal(0.90, 16.0, 8.95, 4.15);
+
+    addCanal({ width: 25.0, depth: 0.9, x: -1.8, z: 1.88 });
+    addCanal({ width: 28.0, depth: 0.88, x: 0.5, z: 11.55 });
+    addCanal({ width: 0.85, depth: 15.8, x: -3.48, z: 4.1, vertical: true });
+    addCanal({ width: 0.85, depth: 15.6, x: 8.95, z: 4.15, vertical: true });
   }
 
-  buildPlots() {
-    const soilBaseMat = new THREE.MeshStandardMaterial({ color: 0x5a3e26, roughness: 0.95 });
-    const furrowMat = new THREE.MeshStandardMaterial({ color: 0x462f1c, roughness: 1.0 });
-    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xaa8b58, roughness: 0.88 });
+  buildRoads() {
+    const pathMaterial = new THREE.MeshStandardMaterial({ color: 0xbca771, roughness: 0.98 });
+    const mainPath = new THREE.Mesh(new THREE.BoxGeometry(32, 0.12, 1.05), pathMaterial);
+    mainPath.position.set(0, -0.07, 12.6);
+    mainPath.receiveShadow = true;
+    this.scene.add(mainPath);
 
-    this.plots.forEach(plot => {
-      const layout = PLOT_LAYOUTS[plot.plotId] || PLOT_LAYOUTS['plot-a01'];
-
-      // Soil Bed
-      const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilBaseMat.clone());
-      soil.position.set(layout.x, -0.02, layout.z);
-      soil.rotation.y = layout.rotation;
-      soil.receiveShadow = true;
-      soil.userData.plotId = plot.plotId;
-      soil.userData.baseColor = soil.material.color.clone();
-      this.scene.add(soil);
-      this.plotMeshes.set(plot.plotId, soil);
-
-      // Raised Edge Frame
-      const edgeGroup = new THREE.Group();
-      edgeGroup.position.set(layout.x, 0.05, layout.z);
-      edgeGroup.rotation.y = layout.rotation;
-
-      // Furrows
-      const rows = 8;
-      for (let r = 0; r < rows; r++) {
-        const furrow = new THREE.Mesh(new THREE.BoxGeometry(layout.width - 0.35, 0.045, 0.14), furrowMat);
-        furrow.position.set(0, 0.08, (r / (rows - 1) - 0.5) * (layout.depth - 0.6));
-        furrow.receiveShadow = true;
-        edgeGroup.add(furrow);
-      }
-      this.scene.add(edgeGroup);
-
-      // Neon Selection Border
-      const neonMat = new THREE.MeshStandardMaterial({
-        color: 0xffea9f,
-        emissive: 0xffc44d,
-        emissiveIntensity: 3.5,
-        roughness: 0.3,
-        toneMapped: false
-      });
-      const glowGroup = new THREE.Group();
-      glowGroup.position.set(layout.x, 0.14, layout.z);
-      glowGroup.rotation.y = layout.rotation;
-      [
-        [layout.width + 0.12, 0.035, 0.045, 0, -layout.depth / 2],
-        [layout.width + 0.12, 0.035, 0.045, 0, layout.depth / 2],
-        [0.045, 0.035, layout.depth, -layout.width / 2, 0],
-        [0.045, 0.035, layout.depth, layout.width / 2, 0]
-      ].forEach(([w, h, d, x, z]) => {
-        const borderMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), neonMat);
-        borderMesh.position.set(x, 0, z);
-        glowGroup.add(borderMesh);
-      });
-      glowGroup.visible = plot.plotId === 'plot-a01';
-      this.plotGlows.set(plot.plotId, glowGroup);
-      this.scene.add(glowGroup);
-
-      // 3D Crops
-      const field = new CropFieldMesh(this.scene, plot.plotId, layout, this.windMaterials);
-      field.build(plot.cropCode || layout.defaultCrop, plot.stageCode || layout.defaultStage);
-      this.cropFields.set(plot.plotId, field);
+    [-11.25, 11.25].forEach(x => {
+      const path = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.12, 17.8), pathMaterial);
+      path.position.set(x, -0.06, 3.75);
+      path.receiveShadow = true;
+      this.scene.add(path);
     });
   }
 
-  buildVegetationAndBuildings() {
-    // Glass Greenhouse
-    const greenhouse = new THREE.Group();
-    const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0xc8ece0,
-      transmission: 0.6,
+  buildBuildings() {
+    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xf2e8cb, roughness: 0.86 });
+    const roofMaterial = new THREE.MeshStandardMaterial({ color: 0xba623f, roughness: 0.78 });
+
+    // Barn
+    const barn = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3.3, 1.6, 2.7), wallMaterial);
+    body.position.y = 0.8;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.5, 1.18, 4), roofMaterial);
+    roof.position.y = 2.0;
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.z = 0.76;
+    roof.castShadow = true;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.1, 0.08), new THREE.MeshStandardMaterial({ color: 0x6e7f59 }));
+    door.position.set(0, 0.55, 1.38);
+    barn.add(body, roof, door);
+    barn.position.set(-11.2, 0, -6.2);
+    barn.rotation.y = 0.1;
+    this.scene.add(barn);
+
+    // Greenhouse
+    const glass = new THREE.MeshPhysicalMaterial({
+      color: 0xc4ede0,
+      transmission: 0.55,
       transparent: true,
-      opacity: 0.5,
-      roughness: 0.15,
-      metalness: 0.1,
+      opacity: 0.52,
+      roughness: 0.18,
+      metalness: 0.05,
       side: THREE.DoubleSide
     });
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0xebf3ec, roughness: 0.4, metalness: 0.4 });
-    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.4, 3.1), glassMat);
-    glassBody.position.y = 0.75;
+    const frame = new THREE.MeshStandardMaterial({ color: 0xe5eee4, roughness: 0.45, metalness: 0.35 });
+    const greenhouse = new THREE.Group();
+    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(4.4, 1.38, 3.1), glass);
+    glassBody.position.y = 0.72;
     glassBody.castShadow = true;
     greenhouse.add(glassBody);
 
     for (let offset = -2.1; offset <= 2.1; offset += 1.05) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.1, 3.25), frameMat);
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.038, 2.1, 3.25), frame);
       rib.position.set(offset, 0.98, 0);
       rib.castShadow = true;
       greenhouse.add(rib);
     }
-    greenhouse.position.set(-5.6, 0, -7.2);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.05, 0.05), frame);
+    ridge.position.set(0, 1.82, 0);
+    greenhouse.add(ridge);
+    greenhouse.position.set(-5.4, 0, -7.1);
     this.scene.add(greenhouse);
 
-    // Weather Mast / Sensor Tower with pulsing LED
+    // Weather Sensor Mast with LED
     const tower = new THREE.Group();
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 4.2, 8), frameMat);
-    mast.position.y = 2.1;
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.075, 4.4, 8), frame);
+    mast.position.y = 2.2;
     mast.castShadow = true;
     const led = new THREE.Mesh(
       new THREE.SphereGeometry(0.12, 12, 8),
       new THREE.MeshBasicMaterial({ color: 0x50e396, toneMapped: false })
     );
-    led.position.y = 4.25;
+    led.position.y = 4.45;
     this.towerLed = led;
     tower.add(mast, led);
-    tower.position.set(-8.8, 0, -6.5);
+    tower.position.set(-8.8, 0, -6.6);
     this.scene.add(tower);
+
+    // Silo
+    const silo = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.64, 2.45, 14), new THREE.MeshStandardMaterial({ color: 0xd9e1dc, roughness: 0.4, metalness: 0.5 }));
+    tank.position.y = 1.22;
+    tank.castShadow = true;
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.52, 14), roofMaterial);
+    cap.position.y = 2.7;
+    silo.add(tank, cap);
+    silo.position.set(-14, 0, -4.8);
+    this.scene.add(silo);
   }
 
-  buildAtmosphericParticles() {
-    // Rain Particles
-    const rainCount = 3500;
-    const rainGeom = new THREE.BufferGeometry();
-    const rainPos = new Float32Array(rainCount * 3);
-    const rainSpeeds = new Float32Array(rainCount);
-    for (let i = 0; i < rainCount; i++) {
-      rainPos[i * 3] = (Math.random() - 0.5) * 50;
-      rainPos[i * 3 + 1] = Math.random() * 26;
-      rainPos[i * 3 + 2] = (Math.random() - 0.5) * 35;
-      rainSpeeds[i] = 18 + Math.random() * 14;
-    }
-    rainGeom.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
-    this.rainPoints = new THREE.Points(
-      rainGeom,
-      new THREE.PointsMaterial({
-        color: 0xc8e6ff,
-        size: 0.08,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false
-      })
-    );
-    this.rainSpeeds = rainSpeeds;
-    this.scene.add(this.rainPoints);
+  buildPlots() {
+    const soilMaterial = new THREE.MeshStandardMaterial({ color: 0x6a482c, roughness: 0.98 });
+    const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xb59662, roughness: 0.88 });
+    const furrowMaterial = new THREE.MeshStandardMaterial({ color: 0x4c3523, roughness: 1.0 });
 
-    // Sun Pollen / Dust Spores
-    const pollenCount = 180;
-    const pollenGeom = new THREE.BufferGeometry();
-    const pollenPos = new Float32Array(pollenCount * 3);
-    for (let i = 0; i < pollenCount; i++) {
-      pollenPos[i * 3] = (Math.random() - 0.5) * 36;
-      pollenPos[i * 3 + 1] = 0.5 + Math.random() * 8;
-      pollenPos[i * 3 + 2] = (Math.random() - 0.5) * 28;
-    }
-    pollenGeom.setAttribute('position', new THREE.BufferAttribute(pollenPos, 3));
-    this.pollenPoints = new THREE.Points(
-      pollenGeom,
-      new THREE.PointsMaterial({
-        color: 0xfff3a8,
-        size: 0.12,
-        transparent: true,
-        opacity: 0.45,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-    );
-    this.scene.add(this.pollenPoints);
+    this.plots.forEach((plot, index) => {
+      const layout = PLOT_LAYOUT[plot.plotId] || Object.values(PLOT_LAYOUT)[index % 3];
+      const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilMaterial.clone());
+      soil.position.set(layout.x, -0.02, layout.z);
+      soil.rotation.y = layout.rotation;
+      soil.receiveShadow = true;
+      soil.userData.plotId = plot.plotId;
+      soil.userData.baseColor = soil.material.color.clone();
+      this.soilMaterials.push(soil.material);
+      this.scene.add(soil);
+      this.plotMeshes.set(plot.plotId, soil);
 
-    // Night Fireflies
-    const fireflyCount = 120;
-    const fireflyGeom = new THREE.BufferGeometry();
-    const fireflyPos = new Float32Array(fireflyCount * 3);
-    for (let i = 0; i < fireflyCount; i++) {
-      fireflyPos[i * 3] = (Math.random() - 0.5) * 30;
-      fireflyPos[i * 3 + 1] = 0.3 + Math.random() * 3.5;
-      fireflyPos[i * 3 + 2] = (Math.random() - 0.5) * 24;
+      const edgeGroup = new THREE.Group();
+      edgeGroup.position.set(layout.x, 0.05, layout.z);
+      edgeGroup.rotation.y = layout.rotation;
+      [
+        [layout.width + 0.15, 0.11, 0.12, 0, -layout.depth / 2],
+        [layout.width + 0.15, 0.11, 0.12, 0, layout.depth / 2],
+        [0.12, 0.11, layout.depth, -layout.width / 2, 0],
+        [0.12, 0.11, layout.depth, layout.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), edgeMaterial);
+        edge.position.set(x, 0, z);
+        edge.castShadow = true;
+        edgeGroup.add(edge);
+      });
+
+      const rowCount = 8;
+      for (let row = 0; row < rowCount; row++) {
+        const furrow = new THREE.Mesh(new THREE.BoxGeometry(layout.width - 0.32, 0.045, 0.13), furrowMaterial);
+        furrow.position.set(0, 0.08, (row / (rowCount - 1) - 0.5) * (layout.depth - 0.55));
+        furrow.receiveShadow = true;
+        edgeGroup.add(furrow);
+      }
+      this.scene.add(edgeGroup);
+
+      const glowMaterial = new THREE.MeshStandardMaterial({
+        color: 0xfff1c4,
+        emissive: 0xffc75c,
+        emissiveIntensity: 3.3,
+        roughness: 0.35,
+        toneMapped: false
+      });
+      const glowGroup = new THREE.Group();
+      glowGroup.position.set(layout.x, 0.135, layout.z);
+      glowGroup.rotation.y = layout.rotation;
+      [
+        [layout.width + 0.1, 0.035, 0.045, 0, -layout.depth / 2],
+        [layout.width + 0.1, 0.035, 0.045, 0, layout.depth / 2],
+        [0.045, 0.035, layout.depth, -layout.width / 2, 0],
+        [0.045, 0.035, layout.depth, layout.width / 2, 0]
+      ].forEach(([w, h, d, x, z]) => {
+        const glow = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glowMaterial);
+        glow.position.set(x, 0, z);
+        glowGroup.add(glow);
+      });
+      glowGroup.visible = plot.plotId === 'plot-a01';
+      this.plotGlows.set(plot.plotId, glowGroup);
+      this.scene.add(glowGroup);
+
+      const field = new CropField(this.scene, plot, layout, this.windMaterials);
+      this.cropFields.set(plot.plotId, field);
+      if (plot.plotId !== 'plot-a01') this.buildTrellis(layout, plot.plotId === 'plot-b01' ? 1.42 : 1.24);
+    });
+  }
+
+  buildTrellis(layout, height) {
+    const group = new THREE.Group();
+    group.position.set(layout.x, 0.08, layout.z);
+    group.rotation.y = layout.rotation;
+    const postMaterial = new THREE.MeshStandardMaterial({ color: 0x827057, roughness: 0.86 });
+    const wireMaterial = new THREE.MeshStandardMaterial({ color: 0x73866f, roughness: 0.62, metalness: 0.22 });
+    const columns = 8;
+    for (let column = 0; column < columns; column++) {
+      const x = (column / (columns - 1) - 0.5) * (layout.width - 0.48);
+      [-layout.depth * 0.42, layout.depth * 0.42].forEach(z => {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.035, height, 8), postMaterial);
+        post.position.set(x, height / 2, z);
+        post.castShadow = true;
+        group.add(post);
+      });
+      const crossWire = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, layout.depth * 0.84, 6), wireMaterial);
+      crossWire.position.set(x, height * 0.82, 0);
+      crossWire.rotation.x = Math.PI / 2;
+      group.add(crossWire);
     }
-    fireflyGeom.setAttribute('position', new THREE.BufferAttribute(fireflyPos, 3));
-    this.fireflyPoints = new THREE.Points(
-      fireflyGeom,
-      new THREE.PointsMaterial({
-        color: 0x88ff88,
-        size: 0.16,
-        transparent: true,
-        opacity: 0,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      })
-    );
-    this.scene.add(this.fireflyPoints);
+    [-layout.depth * 0.42, 0, layout.depth * 0.42].forEach((z, index) => {
+      const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, layout.width - 0.45, 6), wireMaterial);
+      line.position.set(0, height * (0.52 + index * 0.15), z);
+      line.rotation.z = Math.PI / 2;
+      group.add(line);
+    });
+    this.scene.add(group);
+  }
+
+  buildTrees() {
+    const positions = [];
+    for (let index = 0; index < 90; index++) {
+      const side = index % 2 === 0 ? -1 : 1;
+      const x = side * (13.8 + (index % 8) * 1.45) + Math.sin(index * 2.8) * 1.2;
+      const z = -13 + (index % 15) * 1.35 + Math.cos(index * 1.3) * 0.7;
+      if (z > 7.5) continue;
+      positions.push({ x, z, scale: 0.7 + (Math.sin(index * 4.2) + 1) * 0.22 });
+    }
+    for (let index = 0; index < 45; index++) {
+      positions.push({ x: -20 + index * 0.94, z: -12.3 + Math.sin(index * 0.8) * 1.05, scale: 0.68 + (index % 5) * 0.07 });
+    }
+    const trunkGeometry = new THREE.CylinderGeometry(0.085, 0.145, 1.5, 10, 3);
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x71543b, roughness: 1 });
+    const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, positions.length);
+    const dummy = new THREE.Object3D();
+    positions.forEach((item, index) => {
+      dummy.position.set(item.x, 0.49 * item.scale, item.z);
+      dummy.scale.set(item.scale, item.scale, item.scale);
+      dummy.rotation.y = index * 1.93;
+      dummy.updateMatrix();
+      trunks.setMatrixAt(index, dummy.matrix);
+    });
+    trunks.castShadow = true;
+    trunks.receiveShadow = true;
+    this.scene.add(trunks);
+
+    const crownSpecs = [
+      { x: -0.28, y: 1.45, z: 0.02, sx: 0.88, sy: 1.04, sz: 0.88, color: 0x3b8648 },
+      { x: 0.28, y: 1.5, z: 0.08, sx: 0.86, sy: 1.08, sz: 0.84, color: 0x438f4d },
+      { x: 0.02, y: 1.82, z: -0.08, sx: 0.94, sy: 1.12, sz: 0.92, color: 0x4a9854 }
+    ];
+    crownSpecs.forEach((spec, crownIndex) => {
+      const crownGeometry = new THREE.SphereGeometry(0.68, 12, 9);
+      crownGeometry.scale(spec.sx, spec.sy, spec.sz);
+      crownGeometry.translate(spec.x, spec.y, spec.z);
+      createFlexAttribute(crownGeometry);
+      attachInstancePhases(crownGeometry, positions.length, crownIndex * 1.37);
+      const crownMaterial = createSwayMaterial(spec.color, 0.96);
+      this.crownMaterials.push(crownMaterial);
+      const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, positions.length);
+      positions.forEach((item, index) => {
+        dummy.position.set(item.x, 0, item.z);
+        dummy.scale.set(item.scale, item.scale, item.scale);
+        dummy.rotation.set(0, index * 1.17, 0);
+        dummy.updateMatrix();
+        crowns.setMatrixAt(index, dummy.matrix);
+      });
+      crowns.castShadow = true;
+      crowns.receiveShadow = true;
+      this.windMaterials.push(crownMaterial);
+      this.scene.add(crowns);
+    });
+  }
+
+  loadSurfaceTextures() {
+    const loader = new THREE.TextureLoader();
+    const prepare = (texture, repeatX, repeatY) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(repeatX, repeatY);
+      texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      return texture;
+    };
+    loader.load('assets/textures/terrain-grass.png', texture => {
+      const terrainTexture = prepare(texture, 13, 9);
+      this.terrain.material.map = terrainTexture;
+      this.terrain.material.color.set(0xb5c49e);
+      this.terrain.material.needsUpdate = true;
+    }, undefined, () => {});
+    loader.load('assets/textures/mountain-forest.png', texture => {
+      this.ridgeMaterials.forEach((material, index) => {
+        if (index === 0) {
+          const ridgeTexture = prepare(texture.clone(), 3.2, 1.7);
+          ridgeTexture.needsUpdate = true;
+          material.map = ridgeTexture;
+          material.color.set(0xb8c9ab);
+          material.emissive = new THREE.Color(0x1c3422);
+          material.emissiveIntensity = 0.12;
+        } else {
+          material.map = null;
+          material.color.set(0x587b7b);
+          material.emissive = new THREE.Color(0x14282d);
+          material.emissiveIntensity = 0.08;
+        }
+        material.needsUpdate = true;
+      });
+      this.crownMaterials.forEach((material, index) => {
+        const canopyTexture = prepare(texture.clone(), 1.2 + index * 0.12, 1.2 + index * 0.12);
+        canopyTexture.needsUpdate = true;
+        material.map = canopyTexture;
+        material.color.set(index === 2 ? 0xe0efd5 : 0xd3e7c8);
+        material.needsUpdate = true;
+      });
+    }, undefined, () => {});
+    loader.load('assets/textures/tilled-soil.png', texture => {
+      this.soilMaterials.forEach((material, index) => {
+        const soilTexture = prepare(texture.clone(), 4 + index * 0.35, 3.2);
+        soilTexture.needsUpdate = true;
+        material.map = soilTexture;
+        material.color.set(0x9a7658);
+        material.needsUpdate = true;
+      });
+    }, undefined, () => {});
+  }
+
+  buildClouds() {
+    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.68, roughness: 1, depthWrite: false });
+    for (let index = 0; index < 10; index++) {
+      const group = new THREE.Group();
+      const puffCount = 4 + (index % 3);
+      for (let puff = 0; puff < puffCount; puff++) {
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), cloudMaterial.clone());
+        mesh.scale.set(1.7 + (puff % 2) * 0.8, 0.65 + (puff % 3) * 0.18, 1.05);
+        mesh.position.set((puff - puffCount / 2) * 1.25, Math.sin(puff * 2.2) * 0.3, Math.cos(puff * 1.5) * 0.38);
+        group.add(mesh);
+      }
+      group.position.set(-29 + index * 6.4, 9.2 + (index % 3) * 1.22, -42 - (index % 4) * 2.8);
+      group.userData.speed = 0.16 + (index % 4) * 0.035;
+      group.userData.baseY = group.position.y;
+      this.clouds.push(group);
+      this.scene.add(group);
+    }
+  }
+
+  buildRain() {
+    const count = 3000;
+    const positions = new Float32Array(count * 3);
+    const speeds = new Float32Array(count);
+    for (let index = 0; index < count; index++) {
+      positions[index * 3] = (Math.random() - 0.5) * 48;
+      positions[index * 3 + 1] = Math.random() * 26;
+      positions[index * 3 + 2] = (Math.random() - 0.5) * 32;
+      speeds[index] = 16 + Math.random() * 12;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const material = new THREE.PointsMaterial({ color: 0xc8e8ff, size: 0.075, transparent: true, opacity: 0, depthWrite: false });
+    this.rain = new THREE.Points(geometry, material);
+    this.rain.userData.speeds = speeds;
+    this.rain.visible = false;
+    this.scene.add(this.rain);
+  }
+
+  buildStars() {
+    const count = 480;
+    const positions = new Float32Array(count * 3);
+    for (let index = 0; index < count; index++) {
+      const radius = 55 + Math.random() * 20;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.43;
+      positions[index * 3] = Math.cos(theta) * Math.cos(phi) * radius;
+      positions[index * 3 + 1] = Math.sin(phi) * radius + 4;
+      positions[index * 3 + 2] = Math.sin(theta) * Math.cos(phi) * radius;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfeaff, size: 0.18, transparent: true, opacity: 0, depthWrite: false }));
+    this.scene.add(this.stars);
   }
 
   bindEvents() {
     this.handleResize = () => this.resize();
-    this.handlePointerMove = e => {
+    this.handlePointerMove = event => {
       const rect = this.renderer.domElement.getBoundingClientRect();
-      const normX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const normY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      this.pointer.set(normX, normY);
-      this.pointerTarget.set(normX, normY);
-
+      this.pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+      this.pointerTarget.set(this.pointer.x, this.pointer.y);
       const now = performance.now();
-      if (this.lastPointerPos) {
-        const dt = Math.max(10, now - this.lastPointerPos.time);
-        const dx = e.clientX - this.lastPointerPos.x;
-        const dy = e.clientY - this.lastPointerPos.y;
-        const speed = Math.min(2.5, Math.hypot(dx, dy) / dt);
-        this.targetWindVector.x = clamp(this.targetWindVector.x + (dx * 0.035) * speed, -3.0, 3.0);
-        this.targetWindVector.y = clamp(this.targetWindVector.y - (dy * 0.035) * speed, -3.0, 3.0);
+      if (this.lastPointer) {
+        const elapsed = Math.max(8, now - this.lastPointer.time);
+        const dx = event.clientX - this.lastPointer.x;
+        const dy = event.clientY - this.lastPointer.y;
+        const gain = clamp(24 / elapsed, 0.4, 1.8);
+        this.targetWind.x = clamp(this.targetWind.x + dx * 0.025 * gain, -3.2, 3.2);
+        this.targetWind.y = clamp(this.targetWind.y - dy * 0.025 * gain, -3.2, 3.2);
       }
-      this.lastPointerPos = { x: e.clientX, y: e.clientY, time: now };
+      this.lastPointer = { x: event.clientX, y: event.clientY, time: now };
     };
 
     this.handlePointerLeave = () => {
       this.pointer.set(10, 10);
       this.pointerTarget.set(0, 0);
-      this.lastPointerPos = null;
-      this.highlightPlot(null);
+      this.lastPointer = null;
+      this.setHoveredPlot(null);
     };
 
-    this.handleClick = e => {
+    this.handleClick = event => {
       clearTimeout(this.clickTimer);
       this.clickTimer = setTimeout(() => {
-        const hit = this.pickPlot(e.clientX, e.clientY);
-        if (hit) this.onSelectPlot(hit.plotId, hit.screen);
+        const hit = this.pickPlot(event.clientX, event.clientY);
+        if (hit) this.onSelect(hit.plotId, hit.screen);
       }, 200);
     };
 
-    this.handleDoubleClick = e => {
+    this.handleDoubleClick = event => {
       clearTimeout(this.clickTimer);
-      const hit = this.pickPlot(e.clientX, e.clientY);
-      if (hit) this.onDoubleSelectPlot(hit.plotId, hit.screen);
+      const hit = this.pickPlot(event.clientX, event.clientY);
+      if (hit) this.onDoubleSelect(hit.plotId, hit.screen);
     };
 
     window.addEventListener('resize', this.handleResize);
@@ -690,200 +988,203 @@ class LivingFarm3DWorld {
 
   pickPlot(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const ptr = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    this.raycaster.setFromCamera(ptr, this.camera);
-    const hits = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
-    if (!hits.length) return null;
-    const plotId = hits[0].object.userData.plotId;
+    const pointer = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(pointer, this.camera);
+    const intersections = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
+    if (!intersections.length) return null;
+    const plotId = intersections[0].object.userData.plotId;
     return { plotId, screen: { x: clientX, y: clientY } };
   }
 
-  highlightPlot(plotId) {
+  setHoveredPlot(plotId) {
+    if (plotId === this.hoveredPlotId) return;
+    this.hoveredPlotId = plotId;
     this.plotMeshes.forEach((mesh, id) => {
       mesh.material.color.copy(mesh.userData.baseColor);
-      mesh.material.emissive.set(id === plotId ? 0x224818 : 0x000000);
-      mesh.material.emissiveIntensity = id === plotId ? 0.45 : 0;
+      mesh.material.emissive.set(id === plotId ? 0x26491e : 0x000000);
+      mesh.material.emissiveIntensity = id === plotId ? 0.38 : 0;
     });
     this.renderer.domElement.style.cursor = plotId ? 'pointer' : 'default';
   }
 
-  setSelectedPlot(plotId) {
-    this.plotGlows.forEach((glow, id) => { glow.visible = id === plotId; });
+  resize() {
+    if (!this.renderer || !this.camera) return;
+    const width = Math.max(1, this.host.clientWidth);
+    const height = Math.max(1, this.host.clientHeight);
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
   }
 
-  setCropOverride(cropCode) {
+  setWeather(weather) {
+    this.weather = WEATHER_LABELS[weather] ? weather : 'sunny';
+    const settings = {
+      sunny: { clouds: 0.16, rain: false, fog: 0.006, exposure: 1.15 },
+      cloudy: { clouds: 0.48, rain: false, fog: 0.011, exposure: 1.08 },
+      overcast: { clouds: 0.75, rain: false, fog: 0.018, exposure: 0.94 },
+      'light-rain': { clouds: 0.85, rain: true, rainOpacity: 0.45, fog: 0.021, exposure: 0.90 },
+      'moderate-rain': { clouds: 0.92, rain: true, rainOpacity: 0.68, fog: 0.026, exposure: 0.82 },
+      'heavy-rain': { clouds: 0.98, rain: true, rainOpacity: 0.88, fog: 0.034, exposure: 0.72 }
+    }[this.weather];
+
+    this.clouds.forEach((cloud, index) => cloud.children.forEach(mesh => {
+      mesh.material.opacity = clamp(settings.clouds + (index % 3) * 0.025, 0, 0.98);
+      mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xe9edf0 : 0xbfc8cc);
+    }));
+
+    this.rain.visible = settings.rain;
+    this.rain.material.opacity = settings.rainOpacity || 0;
+    this.scene.fog.density = settings.fog;
+    this.renderer.toneMappingExposure = settings.exposure;
+  }
+
+  setCropOverride(cropCode = null) {
     this.plots.forEach(plot => {
       const field = this.cropFields.get(plot.plotId);
-      field?.build(cropCode || plot.cropCode || 'tomato', plot.stageCode || 'vegetative');
+      field?.setCrop(cropCode || plot.cropCode || 'tomato', plot.stageCode || 'vegetative');
     });
+  }
+
+  setSelectedPlot(plotId) {
+    this.plotGlows.forEach((group, id) => { group.visible = id === plotId; });
   }
 
   setPlotStage(plotId, stageCode) {
     const plot = this.plots.find(p => p.plotId === plotId);
     if (plot) plot.stageCode = stageCode;
     const field = this.cropFields.get(plotId);
-    field?.build(plot.cropCode || 'tomato', stageCode);
+    field?.build(plot?.cropCode || 'tomato', stageCode);
   }
 
-  setWeather(weatherKey) {
-    this.weather = WEATHER_CONFIG[weatherKey] ? weatherKey : 'sunny';
-    const cfg = WEATHER_CONFIG[this.weather];
-    this.scene.fog.density = cfg.fog;
-    this.renderer.toneMappingExposure = cfg.exposure;
-    this.rainPoints.material.opacity = cfg.rain ? (weatherKey === 'heavy-rain' ? 0.9 : weatherKey === 'moderate-rain' ? 0.7 : 0.45) : 0;
-  }
+  updateDaylight(hour) {
+    const day = getDayPhase(hour);
+    const daylight = day.daylight;
+    const warm = day.warm;
+    const dayTop = new THREE.Color(0x3f9fda);
+    const dayHorizon = new THREE.Color(0xcbe8e9);
+    const nightTop = new THREE.Color(0x071328);
+    const nightHorizon = new THREE.Color(0x1a3152);
+    const sunsetTop = new THREE.Color(0x789bc5);
+    const sunsetHorizon = new THREE.Color(0xffae62);
 
-  updateDaylightCycle(hour) {
-    let daylight = 1.0;
-    let warmth = 0.0;
+    this.skyUniforms.uTop.value.copy(nightTop).lerp(dayTop, daylight).lerp(sunsetTop, warm * 0.44);
+    this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78);
+    this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
+    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.9 + warm * 0.38;
 
-    if (hour < 5.8 || hour >= 19.4) {
-      // Night
-      daylight = 0.05;
-      warmth = 0.0;
-    } else if (hour < 6.8) {
-      // Sunrise transition (6:00)
-      const p = smoothstep(5.8, 6.8, hour);
-      daylight = 0.05 + p * 0.95;
-      warmth = Math.sin(p * Math.PI) * 0.85;
-    } else if (hour < 17.8) {
-      // Day
-      daylight = 1.0;
-      warmth = 0.0;
-    } else if (hour < 18.9) {
-      // Sunset transition (18:00)
-      const p = smoothstep(17.8, 18.9, hour);
-      daylight = 1.0 - p * 0.95;
-      warmth = Math.sin(p * Math.PI) * 0.95;
-    } else {
-      // Dusk
-      const p = smoothstep(18.9, 19.4, hour);
-      daylight = 0.15 - p * 0.1;
-      warmth = 0.3 * (1 - p);
-    }
-
-    this.daylight = daylight;
-
-    // Sun trajectory
     const sunProgress = clamp((hour - 5.8) / 13.4, 0, 1);
     const sunAngle = sunProgress * Math.PI;
-    const sunX = lerp(-22, 10, sunProgress);
-    const sunY = Math.max(-5, Math.sin(sunAngle) * 22);
-    const sunZ = -16;
+    const sunX = lerp(-20, 8, sunProgress);
+    const sunY = Math.max(-4, Math.sin(sunAngle) * 4.2 + 2.75 - (hour > 18 ? (hour - 18) * 6.5 : hour < 6 ? (6 - hour) * 6.5 : 0));
+    const sunZ = -15;
 
     this.sunDisc.position.set(sunX, sunY, sunZ);
-    this.sunLight.position.set(sunX, Math.max(3, sunY), -12);
-
-    this.sunLight.color.set(warmth > 0.2 ? 0xff9f58 : 0xfffae0);
+    this.sunLight.position.set(sunX, Math.max(2, 8 + Math.sin(sunAngle) * 16), -12);
+    this.skyUniforms.uSunDirection.value.copy(this.sunDisc.position).normalize();
+    this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
     this.sunLight.intensity = 0.2 + daylight * 4.2;
-    this.hemiLight.intensity = 0.3 + daylight * 2.2;
-    this.sunDisc.visible = hour >= 5.7 && hour <= 19.2;
-
-    // Star / firefly opacity
-    const isNight = daylight < 0.25;
-    this.fireflyPoints.material.opacity = isNight ? 0.75 : 0;
-    this.pollenPoints.material.opacity = !isNight ? 0.45 : 0;
+    this.hemiLight.color.set(daylight > 0.2 ? 0xe6f5ff : 0x5772a1);
+    this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x152333);
+    this.hemiLight.intensity = 0.38 + daylight * 1.95;
+    this.sunDisc.visible = hour >= 5.65 && hour <= 19.2;
+    this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.84);
   }
 
-  resize() {
-    if (!this.renderer || !this.camera) return;
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
-    this.camera.aspect = w / Math.max(1, h);
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h, false);
+  projectPlotMarkers() {
+    const markers = {};
+    this.plots.forEach(plot => {
+      const layout = PLOT_LAYOUT[plot.plotId];
+      if (!layout) return;
+      const profile = CROP_PROFILES[this.cropFields.get(plot.plotId)?.cropCode || plot.cropCode] || CROP_PROFILES.tomato;
+      const stage = STAGE_PROFILES[plot.stageCode] || STAGE_PROFILES.vegetative;
+      const warningPoint = new THREE.Vector3(layout.x, 0.65 + profile.height * stage.height, layout.z);
+      const labelPoint = new THREE.Vector3(layout.x - layout.width * 0.36, 0.28, layout.z + layout.depth * 0.42);
+      warningPoint.project(this.camera);
+      labelPoint.project(this.camera);
+      markers[plot.plotId] = {
+        x: (labelPoint.x * 0.5 + 0.5) * this.host.clientWidth,
+        y: (-labelPoint.y * 0.5 + 0.5) * this.host.clientHeight,
+        warningX: (warningPoint.x * 0.5 + 0.5) * this.host.clientWidth,
+        warningY: (-warningPoint.y * 0.5 + 0.5) * this.host.clientHeight,
+        visible: labelPoint.z > -1 && labelPoint.z < 1
+      };
+    });
+    this.onFrame(markers);
   }
 
   animate = () => {
     if (this.isDestroyed) return;
-    requestAnimationFrame(this.animate);
+    this.animationFrame = requestAnimationFrame(this.animate);
 
-    if (this.clock.getDelta) {
-      this.clock.getDelta();
-    }
+    if (this.clock.getDelta) this.clock.getDelta();
     const elapsed = performance.now() * 0.001;
 
-    // Wind physics decay & lerp
-    this.targetWindVector.multiplyScalar(0.92);
-    this.windVector.lerp(this.targetWindVector, 0.08);
+    this.targetWind.multiplyScalar(0.915);
+    this.currentWind.lerp(this.targetWind, 0.09);
 
-    this.windMaterials.forEach(mat => {
-      const u = mat.userData.windUniforms;
-      if (!u) return;
-      u.uFarmTime.value = elapsed;
-      u.uWindVector.value.set(this.windVector.x, this.windVector.y);
-      u.uBreeze.value = 0.045 + Math.sin(elapsed * 0.5) * 0.015;
+    this.windMaterials.forEach(material => {
+      const uniforms = material.userData.windUniforms;
+      if (!uniforms) return;
+      uniforms.uFarmTime.value = elapsed;
+      uniforms.uWindVector.value.set(this.currentWind.x, this.currentWind.y);
+      uniforms.uBreeze.value = 0.045 + Math.sin(elapsed * 0.45) * 0.015;
     });
 
-    this.waterMaterials.forEach(mat => {
-      mat.uniforms.uTime.value = elapsed;
+    this.waterMaterials.forEach(material => {
+      material.userData.waterUniforms.uTime.value = elapsed;
     });
 
-    // Rain particles motion
-    if (this.rainPoints.material.opacity > 0) {
-      const pos = this.rainPoints.geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        let y = pos.getY(i) - this.rainSpeeds[i] * 0.016;
-        let x = pos.getX(i) + this.windVector.x * 0.015;
-        if (y < -0.3) {
-          y = 20 + Math.random() * 6;
-          x = (Math.random() - 0.5) * 50;
+    this.clouds.forEach((cloud, index) => {
+      cloud.position.x += cloud.userData.speed * 0.009;
+      if (cloud.position.x > 36) cloud.position.x = -36;
+      cloud.position.y = cloud.userData.baseY + Math.sin(elapsed * 0.2 + index) * 0.28;
+    });
+
+    if (this.rain.visible) {
+      const positions = this.rain.geometry.attributes.position;
+      const speeds = this.rain.userData.speeds;
+      for (let index = 0; index < positions.count; index++) {
+        let y = positions.getY(index) - speeds[index] * 0.016;
+        let x = positions.getX(index) + this.currentWind.x * 0.014;
+        if (y < -0.2) {
+          y = 18 + Math.random() * 6;
+          x = (Math.random() - 0.5) * 48;
         }
-        pos.setXY(i, x, y);
+        positions.setXY(index, x, y);
       }
-      pos.needsUpdate = true;
+      positions.needsUpdate = true;
     }
 
-    // Firefly / pollen gentle floating
-    if (this.fireflyPoints.material.opacity > 0) {
-      const pos = this.fireflyPoints.geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        pos.setY(i, pos.getY(i) + Math.sin(elapsed * 2.0 + i) * 0.008);
-      }
-      pos.needsUpdate = true;
-    }
+    this.camera.position.x = lerp(this.camera.position.x, this.baseCamera.x + this.pointerTarget.x * 0.85, 0.028);
+    this.camera.position.y = lerp(this.camera.position.y, this.baseCamera.y + this.pointerTarget.y * 0.32, 0.028);
+    this.camera.lookAt(this.pointerTarget.x * 0.3, 1.4, 1.15 - this.pointerTarget.y * 0.15);
 
-    // Camera 2.5D Parallax
-    this.camera.position.x = lerp(this.camera.position.x, this.baseCameraPos.x + this.pointerTarget.x * 0.9, 0.03);
-    this.camera.position.y = lerp(this.camera.position.y, this.baseCameraPos.y + this.pointerTarget.y * 0.35, 0.03);
-    this.camera.lookAt(this.pointerTarget.x * 0.35, 1.4, 1.2 - this.pointerTarget.y * 0.15);
-
-    // Hover picking
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
-    this.highlightPlot(hits[0]?.object?.userData?.plotId || null);
+    const hoverHits = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
+    this.setHoveredPlot(hoverHits[0]?.object?.userData?.plotId || null);
 
-    // Render
     this.renderer.render(this.scene, this.camera);
-
-    // Project screen coordinates for 2D UI markers
-    const markers = {};
-    this.plots.forEach(plot => {
-      const layout = PLOT_LAYOUTS[plot.plotId];
-      if (!layout) return;
-      const pt = new THREE.Vector3(layout.x, 0.35, layout.z + layout.depth * 0.42);
-      const warnPt = new THREE.Vector3(layout.x, 1.4, layout.z);
-      pt.project(this.camera);
-      warnPt.project(this.camera);
-      markers[plot.plotId] = {
-        x: (pt.x * 0.5 + 0.5) * this.container.clientWidth,
-        y: (-pt.y * 0.5 + 0.5) * this.container.clientHeight,
-        warningX: (warnPt.x * 0.5 + 0.5) * this.container.clientWidth,
-        warningY: (-warnPt.y * 0.5 + 0.5) * this.container.clientHeight,
-        visible: pt.z > -1 && pt.z < 1
-      };
-    });
-    this.onFrameUpdate(markers);
+    this.frameCount++;
+    if (this.frameCount % 2 === 0) this.projectPlotMarkers();
   };
 
   destroy() {
     this.isDestroyed = true;
+    cancelAnimationFrame(this.animationFrame);
+    clearTimeout(this.clickTimer);
     window.removeEventListener('resize', this.handleResize);
     this.renderer?.domElement.removeEventListener('pointermove', this.handlePointerMove);
     this.renderer?.domElement.removeEventListener('pointerleave', this.handlePointerLeave);
     this.renderer?.domElement.removeEventListener('click', this.handleClick);
     this.renderer?.domElement.removeEventListener('dblclick', this.handleDoubleClick);
-    this.cropFields.forEach(f => f.destroy());
+    this.cropFields.forEach(field => field.destroy());
+    this.scene?.traverse(object => {
+      if (object.isMesh || object.isPoints || object.isInstancedMesh) {
+        object.geometry?.dispose?.();
+        if (Array.isArray(object.material)) object.material.forEach(m => m.dispose?.());
+        else object.material?.dispose?.();
+      }
+    });
     this.renderer?.dispose();
     this.renderer?.domElement.remove();
   }
@@ -921,25 +1222,25 @@ export class FarmMonitor {
 
     this.shell = document.createElement('section');
     this.shell.className = 'farm-monitor-shell';
-    this.shell.innerHTML = this.renderHtml();
+    this.shell.innerHTML = this.renderShell();
     document.body.appendChild(this.shell);
 
     this.cacheDom();
-    this.bindEvents();
+    this.bindUi();
     this.createMarkers();
 
     try {
-      this.world = new LivingFarm3DWorld(this.dom.worldHost, {
+      this.world = new FarmWorld3D(this.dom.world, {
         plots: this.plots,
-        onSelectPlot: (id, origin) => this.selectPlot(id, origin),
-        onDoubleSelectPlot: id => this.openSandbox(id),
-        onFrameUpdate: markers => this.updateMarkerPositions(markers)
+        onSelect: (id, origin) => this.selectPlot(id, origin),
+        onDoubleSelect: id => this.openSandbox(id),
+        onFrame: markers => this.updateProjectedUi(markers)
       });
       this.world.init();
       this.world.setSelectedPlot(this.selectedPlotId);
       this.world.setWeather(this.weather);
-    } catch (err) {
-      console.error('[FarmMonitor] WebGL init error:', err);
+    } catch (error) {
+      console.error('[FarmMonitor] WebGL 启动异常:', error);
     }
 
     this.startClock();
@@ -947,21 +1248,15 @@ export class FarmMonitor {
     requestAnimationFrame(() => this.shell?.classList.add('active'));
   }
 
-  renderHtml() {
+  renderShell() {
     return `
-      <div class="farm-world-host" data-world-host>
-        <div class="farm-bg-layer farm-bg-day" data-bg="day"></div>
-        <div class="farm-bg-layer farm-bg-sunrise" data-bg="sunrise"></div>
-        <div class="farm-bg-layer farm-bg-sunset" data-bg="sunset"></div>
-        <div class="farm-bg-layer farm-bg-night" data-bg="night"></div>
-        <div class="farm-bg-layer farm-bg-rain" data-bg="rain"></div>
-      </div>
+      <div class="farm-world-host" data-farm-world></div>
 
-      <!-- Left Glass Tool Rail -->
-      <aside class="farm-tool-rail" aria-label="环境遥测与控制">
-        <button class="farm-rail-back" type="button" data-farm-back title="返回主面板"><i class="ph ph-arrow-left"></i></button>
+      <!-- Left Tool Rail -->
+      <aside class="farm-tool-rail" aria-label="环境与视角工具">
+        <button class="farm-rail-back" type="button" data-farm-back aria-label="返回总览"><i class="ph ph-arrow-left"></i></button>
         <div class="farm-rail-metrics">
-          <div class="farm-rail-metric clickable" data-action="open-weather" title="点击切换天气模式">
+          <div class="farm-rail-metric clickable" data-action="open-weather" title="点击切换天气">
             <i class="ph ph-sun" data-weather-icon></i>
             <strong data-temperature>28.4°C</strong>
             <span data-weather-label>晴</span>
@@ -981,16 +1276,16 @@ export class FarmMonitor {
             <strong>35</strong>
             <span>空气优</span>
           </div>
-          <div class="farm-rail-metric farm-rail-time clickable" data-action="open-time" title="点击调整昼夜/日落/日出时间">
+          <div class="farm-rail-metric farm-rail-time clickable" data-action="open-time" title="点击调整昼夜/日出/日落时间">
             <i class="ph ph-clock"></i>
             <strong data-clock>14:20:00</strong>
             <span data-date>08-23 周六</span>
           </div>
         </div>
         <div class="farm-rail-actions">
-          <button type="button" data-action="location" title="当前地理位置"><i class="ph ph-map-pin"></i><span>地理位置</span></button>
-          <button type="button" data-action="layers" title="图层与作物管理"><i class="ph ph-stack"></i><span>图层管理</span></button>
-          <button type="button" data-action="camera-reset" title="视角平滑复位"><i class="ph ph-crosshair"></i><span>视角复位</span></button>
+          <button type="button" data-location-action title="地理位置"><i class="ph ph-map-pin"></i><span>地理位置</span></button>
+          <button type="button" data-layer-action title="图层管理"><i class="ph ph-stack"></i><span>图层管理</span></button>
+          <button type="button" data-camera-reset title="视角复位"><i class="ph ph-crosshair"></i><span>视角复位</span></button>
         </div>
       </aside>
 
@@ -998,11 +1293,11 @@ export class FarmMonitor {
       <header class="farm-title-lockup">
         <p>AGRILOOP · DIGITAL TWIN</p>
         <h1>农田动态监测</h1>
-        <span data-location-text><i class="ph ph-map-pin"></i> 重庆 · 智慧农业示范区</span>
+        <span data-location-label><i class="ph ph-map-pin"></i> 重庆 · 智慧农业示范区</span>
       </header>
 
       <!-- Top Right Crop Switcher -->
-      <nav class="farm-crop-switcher" aria-label="切换农作物图层">
+      <nav class="farm-crop-switcher" aria-label="切换作物图层">
         <button class="active" type="button" data-crop="auto">自动</button>
         <button type="button" data-crop="tomato">番茄</button>
         <button type="button" data-crop="cucumber">黄瓜</button>
@@ -1013,8 +1308,8 @@ export class FarmMonitor {
       <!-- 2D Marker Overlay Layer -->
       <div class="farm-marker-layer" data-marker-layer></div>
 
-      <!-- Bottom Floating Indicators -->
-      <div class="farm-wind-readout"><span class="farm-live-dot"></span><span>作物风场交互</span><strong data-wind-desc>自然微风 · 随鼠标拂动</strong></div>
+      <!-- Bottom Floating Widgets -->
+      <div class="farm-wind-readout"><span class="farm-live-dot"></span><span>作物风场交互</span><strong data-wind-state>自然微风 · 随鼠标拂动</strong></div>
       <div class="farm-scene-hint"><i class="ph ph-mouse-left-click"></i><span>单击查看 · 双击推演</span></div>
 
       <!-- Expanding Detail Inspection Modal (由小变大丝滑展开) -->
@@ -1060,31 +1355,27 @@ export class FarmMonitor {
       </div>
 
       <!-- Toast Container -->
-      <div class="farm-toast" data-toast role="status"></div>
+      <div class="farm-toast" data-farm-toast role="status"></div>
     `;
   }
 
   cacheDom() {
     const q = s => this.shell.querySelector(s);
     this.dom = {
-      worldHost: q('[data-world-host]'),
-      bgDay: q('[data-bg="day"]'),
-      bgSunrise: q('[data-bg="sunrise"]'),
-      bgSunset: q('[data-bg="sunset"]'),
-      bgNight: q('[data-bg="night"]'),
-      bgRain: q('[data-bg="rain"]'),
+      world: q('[data-farm-world]'),
+      back: q('[data-farm-back]'),
+      panel: q('[data-detail-panel]'),
       markerLayer: q('[data-marker-layer]'),
-      detailPanel: q('[data-detail-panel]'),
-      toast: q('[data-toast]'),
+      toast: q('[data-farm-toast]'),
       clock: q('[data-clock]'),
       date: q('[data-date]'),
-      weatherIcon: q('[data-weather-icon]'),
       weatherLabel: q('[data-weather-label]'),
+      weatherIcon: q('[data-weather-icon]'),
       temperature: q('[data-temperature]'),
       humidity: q('[data-humidity]'),
       windSpeed: q('[data-wind-speed]'),
-      windDesc: q('[data-wind-desc]'),
-      locationText: q('[data-location-text]'),
+      windState: q('[data-wind-state]'),
+      location: q('[data-location-label]'),
       cropSwitcher: q('.farm-crop-switcher'),
       timeDialog: q('[data-dialog="time"]'),
       weatherDialog: q('[data-dialog="weather"]'),
@@ -1093,41 +1384,39 @@ export class FarmMonitor {
     };
   }
 
-  bindEvents() {
-    // Back
-    this.shell.querySelector('[data-farm-back]').addEventListener('click', () => {
+  bindUi() {
+    this.dom.back.addEventListener('click', () => {
       this.close(false);
       this.onExit();
     });
 
-    // Crop Switcher
     this.shell.querySelectorAll('[data-crop]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const crop = btn.dataset.crop;
-        this.cropOverride = crop === 'auto' ? null : crop;
+        const value = btn.dataset.crop;
+        this.cropOverride = value === 'auto' ? null : value;
         this.shell.querySelectorAll('[data-crop]').forEach(b => b.classList.toggle('active', b === btn));
         this.world?.setCropOverride(this.cropOverride);
-        this.showToast(crop === 'auto' ? '已恢复 Crop Pack 各地块规划作物' : `全部地块作物图层已切换为【${CROP_SPECS[crop]?.label || crop}】`);
+        this.showToast(value === 'auto' ? '已恢复 Crop Pack 作物规划' : `全部地块已切换为【${CROP_PROFILES[value]?.label || value}】图层`);
       });
     });
 
-    // Action buttons in rail
-    this.shell.querySelector('[data-action="camera-reset"]').addEventListener('click', () => {
+    this.shell.querySelector('[data-camera-reset]').addEventListener('click', () => {
       if (this.world) {
         this.world.pointerTarget.set(0, 0);
-        this.world.camera.position.copy(this.world.baseCameraPos);
+        this.world.targetWind.set(0, 0);
+        this.world.camera.position.copy(this.world.baseCamera);
       }
       this.showToast('视角已平滑复位');
     });
 
-    this.shell.querySelector('[data-action="layers"]').addEventListener('click', () => {
+    this.shell.querySelector('[data-location-action]').addEventListener('click', () => {
+      this.showToast(`当前定位：${this.locationLabel}`);
+    });
+
+    this.shell.querySelector('[data-layer-action]').addEventListener('click', () => {
       this.dom.cropSwitcher?.classList.add('attention');
       setTimeout(() => this.dom.cropSwitcher?.classList.remove('attention'), 1500);
       this.showToast('可在右上角切换农作物图层');
-    });
-
-    this.shell.querySelector('[data-action="location"]').addEventListener('click', () => {
-      this.showToast(`当前定位：${this.locationLabel}`);
     });
 
     this.shell.querySelector('[data-action="open-time"]').addEventListener('click', () => {
@@ -1138,7 +1427,6 @@ export class FarmMonitor {
       this.dom.weatherDialog.classList.add('open');
     });
 
-    // Dialog close buttons
     this.shell.querySelectorAll('[data-dialog-close]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.dom.timeDialog.classList.remove('open');
@@ -1146,12 +1434,12 @@ export class FarmMonitor {
       });
     });
 
-    // Time Presets
+    // Time presets
     this.shell.querySelectorAll('[data-set-time]').forEach(btn => {
       btn.addEventListener('click', () => {
         const hour = parseFloat(btn.dataset.setTime);
         this.simulatedHour = hour;
-        this.applyHour(hour);
+        this.world?.updateDaylight(hour);
         this.dom.sliderLabel.textContent = `${hour.toFixed(1)}:00 (模拟)`;
         this.dom.timeSlider.value = hour;
         this.dom.timeDialog.classList.remove('open');
@@ -1162,7 +1450,7 @@ export class FarmMonitor {
     this.dom.timeSlider.addEventListener('input', e => {
       const hour = parseFloat(e.target.value);
       this.simulatedHour = hour;
-      this.applyHour(hour);
+      this.world?.updateDaylight(hour);
       this.dom.sliderLabel.textContent = `${hour.toFixed(1)}:00 (模拟)`;
     });
 
@@ -1173,38 +1461,39 @@ export class FarmMonitor {
       this.showToast('已恢复系统实时时间');
     });
 
-    // Weather Presets
+    // Weather presets
     this.shell.querySelectorAll('[data-set-weather]').forEach(btn => {
       btn.addEventListener('click', () => {
         const w = btn.dataset.setWeather;
         this.applyWeather({ weather: w, temperature: 28.4, humidity: 58, windSpeed: 2.7 });
         this.dom.weatherDialog.classList.remove('open');
-        this.showToast(`已切换为【${WEATHER_CONFIG[w]?.label || w}】特效`);
+        this.showToast(`已切换为【${WEATHER_LABELS[w] || w}】特效`);
       });
     });
 
     // Panel delegated clicks
-    this.dom.detailPanel.addEventListener('click', e => {
-      if (e.target.closest('[data-panel-close]')) this.closePanel();
-      if (e.target.closest('[data-panel-sandbox]')) this.openSandbox(this.selectedPlotId);
-      const stageBtn = e.target.closest('[data-stage]');
+    this.dom.panel.addEventListener('click', event => {
+      if (event.target.closest('[data-panel-close]')) this.closePanel();
+      if (event.target.closest('[data-panel-sandbox]')) this.openSandbox(this.selectedPlotId);
+      const stageBtn = event.target.closest('[data-stage]');
       if (stageBtn) {
         const stage = stageBtn.dataset.stage;
         this.world?.setPlotStage(this.selectedPlotId, stage);
-        this.dom.detailPanel.querySelectorAll('[data-stage]').forEach(b => b.classList.toggle('active', b === stageBtn));
-        this.showToast(`地块已切换至【${STAGE_SPECS[stage]?.label || stage}】阶段`);
+        this.dom.panel.querySelectorAll('[data-stage]').forEach(b => b.classList.toggle('active', b === stageBtn));
+        this.showToast(`地块已切换至【${STAGE_PROFILES[stage]?.label || stage}】阶段`);
       }
-      if (e.target.closest('[data-action-irrigate]')) {
+      if (event.target.closest('[data-action-irrigate]')) {
         this.showToast('已触发微喷灌电磁阀：计划灌溉 15 分钟');
       }
     });
 
-    window.addEventListener('keydown', this.handleEsc = e => {
-      if (e.key === 'Escape') {
+    window.addEventListener('keydown', this.handleKeydown = event => {
+      if (!this.isOpen) return;
+      if (event.key === 'Escape') {
         if (this.dom.timeDialog.classList.contains('open') || this.dom.weatherDialog.classList.contains('open')) {
           this.dom.timeDialog.classList.remove('open');
           this.dom.weatherDialog.classList.remove('open');
-        } else if (this.dom.detailPanel.classList.contains('open')) {
+        } else if (this.dom.panel.classList.contains('open')) {
           this.closePanel();
         } else {
           this.close(false);
@@ -1236,47 +1525,46 @@ export class FarmMonitor {
     });
   }
 
-  updateMarkerPositions(markers) {
-    Object.entries(markers).forEach(([plotId, pos]) => {
-      const marker = this.dom.markerLayer.querySelector(`[data-marker="${plotId}"]`);
+  updateProjectedUi(markers) {
+    Object.entries(markers).forEach(([plotId, position]) => {
+      const marker = this.dom.markerLayer?.querySelector(`[data-marker="${plotId}"]`);
       if (!marker) return;
-      marker.style.setProperty('--marker-x', `${pos.x}px`);
-      marker.style.setProperty('--marker-y', `${pos.y}px`);
-      marker.classList.toggle('visible', pos.visible);
-      const warn = marker.querySelector('.farm-warning-beacon');
-      if (warn) {
-        warn.style.setProperty('--warning-x', `${pos.warningX - pos.x}px`);
-        warn.style.setProperty('--warning-y', `${pos.warningY - pos.y}px`);
+      marker.style.setProperty('--marker-x', `${position.x}px`);
+      marker.style.setProperty('--marker-y', `${position.y}px`);
+      marker.classList.toggle('visible', position.visible);
+      const warning = marker.querySelector('.farm-warning-beacon');
+      if (warning) {
+        warning.style.setProperty('--warning-x', `${position.warningX - position.x}px`);
+        warning.style.setProperty('--warning-y', `${position.warningY - position.y}px`);
       }
     });
   }
 
-  selectPlot(plotId, origin = { x: window.innerWidth - 20, y: window.innerHeight / 2 }) {
+  selectPlot(plotId, origin = { x: window.innerWidth - 24, y: window.innerHeight / 2 }) {
     this.selectedPlotId = plotId;
     this.world?.setSelectedPlot(plotId);
     this.openPanel(plotId, origin);
   }
 
   openPanel(plotId, origin) {
-    const plot = this.plots.find(p => p.plotId === plotId) || this.plots[0];
+    const plot = this.plots.find(item => item.plotId === plotId) || this.plots[0];
     if (!plot) return;
     const cropCode = this.cropOverride || plot.cropCode || 'tomato';
-    const crop = CROP_SPECS[cropCode] || CROP_SPECS.tomato;
+    const crop = CROP_PROFILES[cropCode] || CROP_PROFILES.tomato;
     const stageCode = plot.stageCode || 'fruiting';
-    const stage = STAGE_SPECS[stageCode] || STAGE_SPECS.fruiting;
+    const stage = STAGE_PROFILES[stageCode] || STAGE_PROFILES.fruiting;
     const metrics = plot.metrics || {};
 
-    this.dom.detailPanel.style.setProperty('--panel-origin-x', `${origin.x}px`);
-    this.dom.detailPanel.style.setProperty('--panel-origin-y', `${origin.y}px`);
-
-    this.dom.detailPanel.innerHTML = `
+    this.dom.panel.style.setProperty('--panel-origin-x', `${origin.x}px`);
+    this.dom.panel.style.setProperty('--panel-origin-y', `${origin.y}px`);
+    this.dom.panel.innerHTML = `
       <div class="farm-panel-head">
         <div>
           <span>${plot.plotId.replace('plot-', '').toUpperCase()} · ${crop.family}</span>
           <h2>${plot.name}</h2>
           <p>${crop.label} · 当前生长阶段：${stage.label}</p>
         </div>
-        <button type="button" data-panel-close aria-label="关闭"><i class="ph ph-x"></i></button>
+        <button type="button" data-panel-close aria-label="关闭详情"><i class="ph ph-x"></i></button>
       </div>
 
       <div class="farm-health-row">
@@ -1285,8 +1573,8 @@ export class FarmMonitor {
           <strong>${Math.round((plot.healthScore || 0.96) * 100)}%</strong>
         </div>
         <div>
-          <span>设备在线</span>
-          <strong class="online"><i class="ph ph-broadcast"></i> 正常</strong>
+          <span>设备状态</span>
+          <strong class="online"><i class="ph ph-broadcast"></i> 在线</strong>
         </div>
         <div>
           <span>风险等级</span>
@@ -1296,8 +1584,8 @@ export class FarmMonitor {
 
       <section class="farm-panel-section">
         <div class="farm-section-title">
-          <span>实时遥测传感器 (IoT)</span>
-          <small>1秒前更新</small>
+          <span>实时传感器 (IoT 遥测)</span>
+          <small>1秒前已更新</small>
         </div>
         <div class="farm-metric-grid">
           ${Object.entries(metrics).map(([key, m]) => `
@@ -1315,7 +1603,7 @@ export class FarmMonitor {
           <span>24小时环境时序曲线</span>
           <small>土壤湿度趋势</small>
         </div>
-        <canvas class="farm-chart" data-farm-chart></canvas>
+        <canvas class="farm-chart" data-farm-chart aria-label="环境曲线"></canvas>
         <div class="farm-chart-legend">
           <span><i></i>土壤湿度曲线</span>
           <strong>适宜区间 20~40%</strong>
@@ -1324,13 +1612,13 @@ export class FarmMonitor {
 
       <section class="farm-panel-section">
         <div class="farm-section-title">
-          <span>作物生长阶段调控</span>
-          <small>点击即时切换3D生长状态</small>
+          <span>作物阶段调控</span>
+          <small>点击即时切换3D外观</small>
         </div>
         <div class="farm-stage-track">
-          ${Object.entries(STAGE_SPECS).map(([code, s]) => `
-            <button class="farm-stage-btn ${code === stageCode ? 'active' : ''}" type="button" data-stage="${code}">
-              <i></i><span>${s.label}</span>
+          ${Object.entries(STAGE_PROFILES).map(([key, item]) => `
+            <button class="farm-stage-btn ${key === stageCode ? 'active' : ''}" type="button" data-stage="${key}">
+              <i></i><span>${item.label}</span>
             </button>
           `).join('')}
         </div>
@@ -1349,80 +1637,75 @@ export class FarmMonitor {
       <button class="farm-sandbox-button" type="button" data-panel-sandbox>
         <i class="ph ph-graph"></i>
         <span>进入未来风险推演与情景沙盘</span>
-        <small>双击地块亦可进入</small>
+        <small>双击地块也可进入</small>
       </button>
     `;
 
-    this.dom.detailPanel.classList.add('open');
+    this.dom.panel.classList.add('open');
     requestAnimationFrame(() => this.drawChart(plot));
   }
 
   drawChart(plot) {
-    const canvas = this.dom.detailPanel.querySelector('[data-farm-chart]');
+    const canvas = this.dom.panel.querySelector('[data-farm-chart]');
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.max(1, Math.round(rect.width * ratio));
     canvas.height = Math.max(1, Math.round(rect.height * ratio));
-    const ctx = canvas.getContext('2d');
-    ctx.scale(ratio, ratio);
+    const context = canvas.getContext('2d');
+    context.scale(ratio, ratio);
+    const width = rect.width;
+    const height = rect.height;
 
-    const w = rect.width;
-    const h = rect.height;
-    const baseVal = Number(plot.metrics?.SOIL_MOISTURE?.value || 25);
-    const dataPoints = Array.from({ length: 24 }, (_, i) => {
-      return baseVal + Math.sin(i * 0.45) * 3.5 + Math.cos(i * 0.25) * 1.8 + (i - 23) * 0.15;
-    });
+    const base = Number(plot.metrics?.SOIL_MOISTURE?.value || 28);
+    const values = Array.from({ length: 24 }, (_, index) => base + Math.sin(index * 0.48) * 3.2 + Math.cos(index * 0.22) * 1.6 + (index - 23) * 0.18);
+    context.clearRect(0, 0, width, height);
 
-    ctx.clearRect(0, 0, w, h);
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(18, 59, 46, 0.08)';
-    ctx.lineWidth = 1;
-    for (let i = 1; i <= 3; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, (h / 4) * i);
-      ctx.lineTo(w, (h / 4) * i);
-      ctx.stroke();
+    context.strokeStyle = 'rgba(19, 62, 45, 0.08)';
+    context.lineWidth = 1;
+    for (let row = 1; row < 4; row++) {
+      context.beginPath();
+      context.moveTo(0, (height / 4) * row);
+      context.lineTo(width, (height / 4) * row);
+      context.stroke();
     }
 
-    const min = Math.min(...dataPoints) - 2;
-    const max = Math.max(...dataPoints) + 2;
+    const min = Math.min(...values) - 2;
+    const max = Math.max(...values) + 2;
 
-    // Gradient fill
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, 'rgba(47, 158, 103, 0.35)');
+    const grad = context.createLinearGradient(0, 0, 0, height);
+    grad.addColorStop(0, 'rgba(47, 158, 103, 0.32)');
     grad.addColorStop(1, 'rgba(47, 158, 103, 0.0)');
 
-    ctx.beginPath();
-    dataPoints.forEach((val, i) => {
-      const x = (i / (dataPoints.length - 1)) * w;
-      const y = h - ((val - min) / (max - min)) * (h - 16) - 8;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    context.beginPath();
+    values.forEach((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const y = height - ((value - min) / (max - min)) * (height - 16) - 8;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
     });
+    context.lineTo(width, height);
+    context.lineTo(0, height);
+    context.closePath();
+    context.fillStyle = grad;
+    context.fill();
 
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Stroke line
-    ctx.beginPath();
-    dataPoints.forEach((val, i) => {
-      const x = (i / (dataPoints.length - 1)) * w;
-      const y = h - ((val - min) / (max - min)) * (h - 16) - 8;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    context.beginPath();
+    values.forEach((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const y = height - ((value - min) / (max - min)) * (height - 16) - 8;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
     });
-    ctx.strokeStyle = '#2f9e67';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
+    context.strokeStyle = '#2f9e67';
+    context.lineWidth = 2.4;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.stroke();
   }
 
   closePanel() {
-    this.dom.detailPanel?.classList.remove('open');
+    this.dom.panel?.classList.remove('open');
   }
 
   openSandbox(plotId) {
@@ -1433,53 +1716,16 @@ export class FarmMonitor {
   startClock() {
     const tick = () => {
       const now = new Date();
-      const h = now.getHours();
-      const m = now.getMinutes();
-      const s = now.getSeconds();
-      const decimalHour = h + m / 60 + s / 3600;
-
+      const hours = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
       this.dom.clock.textContent = now.toLocaleTimeString('zh-CN', { hour12: false });
       this.dom.date.textContent = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${['周日', '周一', '周二', '周三', '周四', '周五', '周六'][now.getDay()]}`;
 
       if (this.simulatedHour === null) {
-        this.applyHour(decimalHour);
+        this.world?.updateDaylight(hours);
       }
     };
     tick();
-    this.clockInterval = setInterval(tick, 1000);
-  }
-
-  applyHour(hour) {
-    this.world?.updateDaylightCycle(hour);
-
-    // Crossfade background layers
-    let dayO = 0, sunriseO = 0, sunsetO = 0, nightO = 0, rainO = 0;
-
-    if (this.weather.includes('rain')) {
-      rainO = 1;
-    } else if (hour < 5.8 || hour >= 19.4) {
-      nightO = 1;
-    } else if (hour < 6.8) {
-      const p = smoothstep(5.8, 6.8, hour);
-      sunriseO = 1 - Math.abs(p - 0.5) * 0.4;
-      dayO = p;
-      nightO = 1 - p;
-    } else if (hour < 17.8) {
-      dayO = 1;
-    } else if (hour < 18.9) {
-      const p = smoothstep(17.8, 18.9, hour);
-      sunsetO = 1 - Math.abs(p - 0.5) * 0.4;
-      dayO = 1 - p;
-      nightO = p * 0.8;
-    } else {
-      nightO = 1;
-    }
-
-    if (this.dom.bgDay) this.dom.bgDay.style.opacity = dayO;
-    if (this.dom.bgSunrise) this.dom.bgSunrise.style.opacity = sunriseO;
-    if (this.dom.bgSunset) this.dom.bgSunset.style.opacity = sunsetO;
-    if (this.dom.bgNight) this.dom.bgNight.style.opacity = nightO;
-    if (this.dom.bgRain) this.dom.bgRain.style.opacity = rainO;
+    this.clockTimer = window.setInterval(tick, 1000);
   }
 
   async resolveWeather() {
@@ -1487,45 +1733,44 @@ export class FarmMonitor {
     let place = fallback;
 
     if ('geolocation' in navigator) {
-      place = await new Promise(res => {
-        navigator.geolocation.getCurrentPosition(
-          pos => res({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, label: '当前位置 · 智慧农业站' }),
-          () => res(fallback),
-          { timeout: 3000 }
-        );
-      });
+      place = await new Promise(resolve => navigator.geolocation.getCurrentPosition(
+        position => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude, label: '当前位置 · 智慧农业站' }),
+        () => resolve(fallback),
+        { enableHighAccuracy: false, timeout: 3500, maximumAge: 600000 }
+      ));
     }
 
     this.locationLabel = place.label;
-    if (this.dom.locationText) this.dom.locationText.innerHTML = `<i class="ph ph-map-pin"></i> ${place.label}`;
+    if (this.dom.location) this.dom.location.innerHTML = `<i class="ph ph-map-pin"></i> ${place.label}`;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4500);
     try {
-      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,weather_code,precipitation,wind_speed_10m&timezone=auto`);
-      if (res.ok) {
-        const data = await res.json();
-        const cur = data.current;
-        let w = 'sunny';
-        const code = cur.weather_code;
-        const prec = cur.precipitation;
-        if (code >= 65 || prec >= 7.5) w = 'heavy-rain';
-        else if (code >= 63 || prec >= 2.5) w = 'moderate-rain';
-        else if (code >= 51 || prec > 0) w = 'light-rain';
-        else if ([3, 45, 48].includes(code)) w = 'overcast';
-        else if ([1, 2].includes(code)) w = 'cloudy';
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${place.latitude}&longitude=${place.longitude}&current=temperature_2m,relative_humidity_2m,weather_code,precipitation,wind_speed_10m&timezone=auto`;
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`weather ${response.status}`);
+      const current = (await response.json()).current;
 
-        this.applyWeather({
-          weather: w,
-          temperature: cur.temperature_2m,
-          humidity: cur.relative_humidity_2m,
-          windSpeed: (cur.wind_speed_10m / 3.6).toFixed(1)
-        });
-        return;
-      }
-    } catch (e) {
-      console.info('[FarmMonitor] Weather API fallback to default.');
+      let w = 'sunny';
+      const code = current.weather_code;
+      const prec = current.precipitation;
+      if (code >= 65 || prec >= 7.5) w = 'heavy-rain';
+      else if (code >= 63 || prec >= 2.5) w = 'moderate-rain';
+      else if (code >= 51 || prec > 0) w = 'light-rain';
+      else if ([3, 45, 48].includes(code)) w = 'overcast';
+      else if ([1, 2].includes(code)) w = 'cloudy';
+
+      this.applyWeather({
+        weather: w,
+        temperature: current.temperature_2m,
+        humidity: current.relative_humidity_2m,
+        windSpeed: current.wind_speed_10m / 3.6
+      });
+    } catch (error) {
+      this.applyWeather({ weather: 'sunny', temperature: 28.4, humidity: 58, windSpeed: 2.7 });
+    } finally {
+      clearTimeout(timeout);
     }
-
-    this.applyWeather({ weather: 'sunny', temperature: 28.4, humidity: 58, windSpeed: 2.7 });
   }
 
   applyWeather({ weather, temperature, humidity, windSpeed }) {
@@ -1533,22 +1778,17 @@ export class FarmMonitor {
     this.temperature = Number(temperature);
     this.humidity = Math.round(Number(humidity));
     this.windSpeed = Number(windSpeed);
-
-    const cfg = WEATHER_CONFIG[weather] || WEATHER_CONFIG.sunny;
-    this.dom.weatherLabel.textContent = cfg.label;
-    this.dom.weatherIcon.className = `ph ${cfg.icon}`;
+    this.dom.weatherLabel.textContent = WEATHER_LABELS[weather] || '晴';
     this.dom.temperature.textContent = `${this.temperature.toFixed(1)}°C`;
     this.dom.humidity.textContent = `${this.humidity}%`;
-    this.dom.windSpeed.textContent = `${this.windSpeed} m/s`;
-
+    this.dom.windSpeed.textContent = `${this.windSpeed.toFixed(1)} m/s`;
+    this.dom.weatherIcon.className = `ph ${WEATHER_ICONS[weather] || 'ph-sun'}`;
     this.world?.setWeather(weather);
-    if (this.simulatedHour !== null) this.applyHour(this.simulatedHour);
-    else this.applyHour(new Date().getHours());
   }
 
-  showToast(msg) {
+  showToast(message) {
     clearTimeout(this.toastTimer);
-    this.dom.toast.textContent = msg;
+    this.dom.toast.textContent = message;
     this.dom.toast.classList.add('show');
     this.toastTimer = setTimeout(() => this.dom.toast?.classList.remove('show'), 2200);
   }
@@ -1556,9 +1796,9 @@ export class FarmMonitor {
   close(notify = true) {
     if (!this.isOpen) return;
     this.isOpen = false;
-    clearInterval(this.clockInterval);
+    clearInterval(this.clockTimer);
     clearTimeout(this.toastTimer);
-    window.removeEventListener('keydown', this.handleEsc);
+    window.removeEventListener('keydown', this.handleKeydown);
     this.world?.destroy();
     this.world = null;
     this.shell?.remove();
