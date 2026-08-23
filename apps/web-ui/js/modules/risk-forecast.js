@@ -558,7 +558,8 @@ export async function renderScenarioReplay(container, plotId) {
       ];
       return {
         backgroundColor: 'transparent',
-        animation: false, // 关闭入场动画，避免首帧/切换时短暂空黑
+        // 双轨图为普通折线（无 stack 置信带），保留入场生长动画；
+        // 播放时增量更新仅移动 markLine，不受此动画影响
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
         // 原生 tooltip 仅保留 axisPointer，内容由自定义浮窗渲染（attachCustomTip）
         tooltip: { ...darkTooltip(), formatter: () => null },
