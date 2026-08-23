@@ -35,6 +35,8 @@ class AgriApp {
 
     this.dom = {};
     this.farmMonitor = null;
+    this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
+    this._lastHandledHash = null;  // hash 路由幂等去重
   }
 
   async init() {
@@ -941,8 +943,11 @@ class AgriApp {
    * Router and Sub-view modal/drawer controller
    */
   handleRoute() {
-    const hash = window.location.hash.replace(/^#/, '');
-    const params = new URLSearchParams(hash);
+    const hash = window.location.hash;
+    // 幂等：同一 hash 重复派发（pushState + 浏览器自动/手动事件）只处理一次
+    if (hash === this._lastHandledHash) return;
+    this._lastHandledHash = hash;
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
     const view = params.get('view');
     const plotId = params.get('plotId') || this.state.currentPlotId;
 
@@ -953,13 +958,34 @@ class AgriApp {
     }
   }
 
+  /**
+   * 更新 URL hash 而不触发浏览器锚点滚动：
+   * location.hash 赋值会执行锚点定位，把主页 window 滚动位置重置；
+   * history.pushState/replaceState 只改 URL（不滚动），再手动派发 hashchange。
+   * jsdom 等环境 pushState 不更新 location.hash 时兜底赋值（该环境无布局，无滚动副作用）。
+   */
+  _setHash(hashStr, replace = false) {
+    const base = window.location.href.split('#')[0];
+    const url = hashStr ? `${base}#${hashStr}` : base;
+    if (replace) {
+      window.history.replaceState(null, '', url);
+    } else {
+      window.history.pushState(null, '', url);
+    }
+    const expect = hashStr ? `#${hashStr}` : '';
+    if (window.location.hash !== expect) {
+      window.location.hash = expect;
+    }
+    // 手动派发，驱动 handleRoute（幂等去重防重复渲染）
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
+
   navigate(viewName, params = {}) {
     if (viewName === 'home') {
-      window.location.hash = '';
+      this._setHash('', true);
       this.closeModal(false);
     } else {
-      const searchParams = new URLSearchParams({ view: viewName, ...params });
-      window.location.hash = searchParams.toString();
+      this._setHash(new URLSearchParams({ view: viewName, ...params }).toString());
     }
   }
 
@@ -1032,9 +1058,13 @@ class AgriApp {
       item.classList.toggle('active', item.dataset.view === viewName);
     });
 
+    // 打开弹窗前保存主页滚动位置（关闭时恢复，避免回到初始位置）
+    if (this._savedScrollPos === null) {
+      this._savedScrollPos = { x: window.scrollX || 0, y: window.scrollY || 0 };
+    }
+
     if (options.updateHash !== false) {
-      const searchParams = new URLSearchParams({ view: viewName, plotId });
-      window.location.hash = searchParams.toString();
+      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString());
     }
   }
 
@@ -1056,7 +1086,16 @@ class AgriApp {
       item.classList.toggle('active', item.dataset.view === 'home');
     });
     if (updateHash && window.location.hash) {
-      window.location.hash = '';
+      this._setHash('', true);
+    }
+
+    // 关闭弹窗后恢复主页滚动位置（下一帧布局稳定后执行）
+    if (this._savedScrollPos !== null) {
+      const pos = this._savedScrollPos;
+      this._savedScrollPos = null;
+      requestAnimationFrame(() => {
+        try { window.scrollTo(pos.x, pos.y); } catch (e) { /* noop */ }
+      });
     }
   }
 
