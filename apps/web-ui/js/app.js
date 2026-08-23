@@ -4,6 +4,8 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
+import { renderWorkOrders, renderResourceCoordination } from './modules/work-orders.js';
+import { syncWaterVisuals } from './water-visual.js';
 
 class AgriApp {
   constructor() {
@@ -26,6 +28,7 @@ class AgriApp {
   async init() {
     this.cacheDom();
     this.bindEvents();
+    syncWaterVisuals();
 
     // Check backend connection
     this.state.isLive = await api.checkHealth();
@@ -83,6 +86,7 @@ class AgriApp {
     this.dom.changelogContainer = document.getElementById('changelogContainer');
     this.dom.moduleNavList = document.getElementById('moduleNavList');
     this.dom.subviewModal = document.getElementById('subviewModal');
+    this.dom.subviewModalCard = this.dom.subviewModal?.querySelector('.subview-modal-card');
     this.dom.btnCloseModal = document.getElementById('btnCloseModal');
     this.dom.btnBackToHome = document.getElementById('btnBackToHome');
     this.dom.modalIcon = document.getElementById('modalIcon');
@@ -783,7 +787,7 @@ class AgriApp {
     }
   }
 
-  openSubview(viewName, options = {}) {
+  async openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
@@ -796,17 +800,18 @@ class AgriApp {
 
     this.dom.modalIcon.textContent = this.getViewIcon(viewName);
     this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
-    this.dom.modalTag.textContent = meta.status;
+    const isFarmOperationsView = ['work-orders', 'resource-coordination'].includes(viewName);
+    this.dom.modalTag.textContent = isFarmOperationsView ? '功能已实现 · REST/Mock 双模' : meta.status;
     this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
-
-    // Render Contextual Data Preview
-    this.renderSubviewContextualContent(viewName, plot);
 
     // Render Code Contract / API Endpoint Spec
     this.dom.modalCodeContract.textContent = this.getViewCodeContract(viewName, plot);
 
     this.dom.subviewModal.classList.add('active');
+    this.dom.subviewModalCard?.classList.toggle('farm-ops-mode', isFarmOperationsView);
+    this.dom.subviewModal.classList.toggle('field-ops-backdrop', viewName === 'work-orders');
+    this.dom.subviewModalCard?.classList.toggle('field-ops-mode', viewName === 'work-orders');
     this.dom.headerCurrentView.textContent = meta.title.split(' ')[0];
 
     // Highlight left nav item
@@ -818,10 +823,30 @@ class AgriApp {
       const searchParams = new URLSearchParams({ view: viewName, plotId });
       window.location.hash = searchParams.toString();
     }
+
+    if (isFarmOperationsView) {
+      const context = {
+        api,
+        plots: this.state.plots,
+        selectedPlotId: plotId,
+        user: this.state.currentUser || MOCK_DATA.currentUser,
+        showToast: (message, type) => this.showToast(message, type)
+      };
+      if (viewName === 'work-orders') {
+        await renderWorkOrders(this.dom.modalDynamicContent, context);
+      } else {
+        await renderResourceCoordination(this.dom.modalDynamicContent, context);
+      }
+    } else {
+      this.renderSubviewContextualContent(viewName, plot);
+    }
   }
 
   closeModal(updateHash = true) {
     this.dom.subviewModal.classList.remove('active');
+    this.dom.subviewModal.classList.remove('field-ops-backdrop');
+    this.dom.subviewModalCard?.classList.remove('farm-ops-mode');
+    this.dom.subviewModalCard?.classList.remove('field-ops-mode');
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');

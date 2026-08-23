@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/modules/work-orders.css">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
@@ -238,22 +239,29 @@
       </div>
 
       <!-- 2. Water Quota & Resource Coordination -->
-      <div class="system-status-card">
+      <div class="system-status-card water-rail-card">
         <div class="system-status-header">
           <span>今日水资源调度配额</span>
           <a class="btn-ghost" style="font-size: 11px; cursor: pointer;" id="btnViewResourceDetail">协同排程 →</a>
         </div>
-        <div class="quota-progress-container">
-          <div class="quota-header">
-            <span>蓄水池消耗：1,240L / 5,000L</span>
-            <span style="font-weight: 600; color: var(--green-bright);">24.8%</span>
+        <div class="water-rail-content">
+          <div class="water-orb water-orb-mini" data-water-orb data-water-size="mini" role="img" aria-label="集中蓄水池剩余水量">
+            <div class="orb-shell" aria-hidden="true"><i></i><i></i></div>
+            <div class="reservoir-water" aria-hidden="true"><span></span></div>
+            <canvas class="water-effects-canvas" data-water-canvas aria-hidden="true"></canvas>
+            <div class="mini-water-reading"><strong data-water-percent>75.2%</strong><span>剩余</span></div>
           </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: 24.8%;"></div>
+          <div class="quota-progress-container">
+            <div class="quota-header">
+              <span>剩余 <b data-water-remaining-global>3,760 L</b></span>
+              <span data-water-percent-global>75.2%</span>
+            </div>
+            <div class="progress-bar-bg water-progress-bg">
+              <div class="progress-bar-fill water-progress-fill" data-water-progress style="width: 75.2%;"></div>
+            </div>
+            <div class="water-rail-plan"><span>排程状态</span><strong data-water-plan-status>NOT_EVALUATED</strong></div>
+            <p>流速 18 L/min · 试算分配 <span data-water-planned>0 L</span></p>
           </div>
-          <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-            当前流速：18 L/min · 无管道争用冲突 · 状态：FEASIBLE
-          </p>
         </div>
       </div>
 

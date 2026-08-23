@@ -8,6 +8,14 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 
+function resolveDefaultBaseUrl() {
+  const configured = window.AGRILOOP_API_BASE || localStorage.getItem('agriloop_api_base');
+  if (configured) return configured.replace(/\/$/, '');
+  const isLocalStaticServer = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    && !['', '80', '443', '8080'].includes(window.location.port);
+  return isLocalStaticServer ? `${window.location.protocol}//${window.location.hostname}:8080` : '';
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null } = {}) {
     super(message);
@@ -19,7 +27,7 @@ export class ApiError extends Error {
 }
 
 export class ApiService {
-  constructor(baseUrl = '') {
+  constructor(baseUrl = resolveDefaultBaseUrl()) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = localStorage.getItem('agriloop_token') || '';
     this.user = this.readStoredUser();
@@ -149,6 +157,115 @@ export class ApiService {
         quality: { status: "GOOD", freshnessMs: 200, confidence: 0.98 }
       };
     });
+  }
+
+  async getTodayWorkItems(plotId = '') {
+    if (this.isLive) {
+      const query = plotId ? `?plotId=${encodeURIComponent(plotId)}` : '';
+      try {
+        const response = await this._fetch(`/api/v1/work-items/today${query}`);
+        if (Array.isArray(response?.data)) return response.data;
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) throw error;
+        console.warn('Falling back to mock work items:', error);
+      }
+    }
+    return MOCK_DATA.workOrders
+      .filter((item) => !plotId || item.plotId === plotId)
+      .map((item) => ({ ...item }));
+  }
+
+  async getWorkOrders() {
+    if (this.isLive) {
+      try {
+        const response = await this._fetch('/api/v1/work-orders');
+        if (Array.isArray(response?.data)) return response.data;
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) throw error;
+        console.warn('Falling back to mock work orders:', error);
+      }
+    }
+    return MOCK_DATA.workOrders.map((item) => ({ ...item }));
+  }
+
+  async saveWorkOrder(workOrder) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/work-orders', {
+        method: 'POST',
+        body: JSON.stringify(workOrder)
+      });
+      return response?.data || response;
+    }
+    const id = workOrder.workOrderId || `wo-demo-${Date.now()}`;
+    return { ...workOrder, workOrderId: id, createdAt: workOrder.createdAt || new Date().toISOString() };
+  }
+
+  async getInspections(plotId) {
+    if (this.isLive) {
+      try {
+        const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
+        if (Array.isArray(response?.data)) return response.data;
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) throw error;
+        console.warn('Falling back to mock inspections:', error);
+      }
+    }
+    return MOCK_DATA.inspections.filter((item) => item.plotId === plotId).map((item) => ({ ...item }));
+  }
+
+  async createInspection(inspection) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/inspections', {
+        method: 'POST',
+        body: JSON.stringify(inspection)
+      });
+      return response?.data || response;
+    }
+    return {
+      ...inspection,
+      inspectionId: `ins-demo-${Date.now()}`,
+      operatorId: 'demo-operator',
+      observedAt: inspection.observedAt || new Date().toISOString(),
+      provenance: 'USER_PROVIDED',
+      sourceType: 'HUMAN_OBSERVATION'
+    };
+  }
+
+  async evaluateResourcePlan(input) {
+    if (this.isLive) {
+      const response = await this._fetch('/api/v1/resource-plans/evaluate', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    const capacity = MOCK_DATA.resourceProfile.capacityLitres;
+    let remaining = capacity;
+    const allocations = [];
+    const conflicts = [];
+    const unmetDemands = [];
+    const priorityRank = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+    const demands = [...(input.demands || [])].sort((a, b) => (priorityRank[b.priority] || 0) - (priorityRank[a.priority] || 0));
+    demands.forEach((demand) => {
+      const requested = Number(demand.requestedLitres || demand.waterLitre || 0);
+      const allocated = Math.min(remaining, requested);
+      remaining -= allocated;
+      allocations.push({ plotId: demand.plotId, requestedLitres: requested, allocatedLitres: allocated, status: allocated >= requested ? 'ALLOCATED' : 'PARTIAL' });
+      if (allocated < requested) {
+        conflicts.push({ type: 'CAPACITY', plotId: demand.plotId });
+        unmetDemands.push({ plotId: demand.plotId, requestedLitres: requested, unmetLitres: requested - allocated, reason: 'WATER_CAPACITY' });
+      }
+    });
+    return {
+      resourcePlanId: `rp-demo-${Date.now()}`,
+      status: unmetDemands.length ? 'INFEASIBLE' : 'FEASIBLE',
+      scope: input.scope || 'farm-demo',
+      constraints: { waterCapacityLitres: capacity },
+      allocations,
+      conflicts,
+      unmetDemands,
+      algorithmVersion: 'capacity-priority-v1'
+    };
   }
 
   async agentChat(message, plotId = 'plot-a01') {
@@ -324,7 +441,16 @@ export class ApiService {
       ...(auth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
-    const response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
+    let response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
+    } catch (error) {
+      throw new ApiError('无法连接后端 API，请检查服务状态、地址与跨域配置。', {
+        status: 0,
+        code: 'NETWORK_ERROR',
+        payload: error
+      });
+    }
     const raw = await response.text();
     let payload = null;
     if (raw) {

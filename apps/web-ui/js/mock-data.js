@@ -228,6 +228,91 @@ export const MOCK_DATA = {
     }
   ],
 
+  workOrders: [
+    {
+      workOrderId: "wo-alert-a01",
+      workItemId: "wo-alert-a01",
+      plotId: "plot-a01",
+      sourceType: "ALERT",
+      sourceRef: "alert-water-a01",
+      actionType: "IRRIGATION_REVIEW",
+      title: "核对缺水告警并审批补水处方",
+      reason: "土壤湿度连续低于番茄结果期目标下限",
+      priority: "HIGH",
+      status: "OPEN",
+      assigneeId: null,
+      dueAt: new Date(Date.now() + 35 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    },
+    {
+      workOrderId: "wo-inspect-b01",
+      workItemId: "wo-inspect-b01",
+      plotId: "plot-b01",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-cucumber-ec",
+      actionType: "INSPECTION",
+      title: "黄瓜棚水肥 EC/pH 便携仪比对",
+      reason: "Crop Pack 营养生长期例行核验",
+      priority: "MEDIUM",
+      status: "ASSIGNED",
+      assigneeId: "user-operator",
+      dueAt: new Date(Date.now() + 2.2 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    },
+    {
+      workOrderId: "wo-prune-a02",
+      workItemId: "wo-prune-a02",
+      plotId: "plot-a02",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-tomato-prune",
+      actionType: "FIELD_OPERATION",
+      title: "番茄第 4 穗花疏花打杈",
+      reason: "开花坐果期标准农务",
+      priority: "LOW",
+      status: "IN_PROGRESS",
+      assigneeId: "user-operator",
+      dueAt: new Date(Date.now() + 4.5 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    },
+    {
+      workOrderId: "wo-device-a02",
+      workItemId: "wo-device-a02",
+      plotId: "plot-a02",
+      sourceType: "DEVICE_HEALTH",
+      sourceRef: "mock-plot-a02",
+      actionType: "DEVICE_CHECK",
+      title: "检查 2 号棚流量计心跳延迟",
+      reason: "设备新鲜度短时下降，需完成复测",
+      priority: "MEDIUM",
+      status: "DONE",
+      assigneeId: "user-operator",
+      dueAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+      completedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    }
+  ],
+
+  inspections: [
+    {
+      inspectionId: "ins-demo-a01",
+      plotId: "plot-a01",
+      operatorId: "user-operator",
+      observedAt: new Date(Date.now() - 70 * 60 * 1000).toISOString(),
+      soilSurface: "DRY",
+      cropCondition: "LEAF_SLIGHT_WILT",
+      deviceStatus: "NORMAL",
+      portableSoilMoisture: 17.2,
+      notes: "表层干燥，无明显渗漏，建议继续核对流量计。",
+      provenance: "USER_PROVIDED",
+      sourceType: "HUMAN_OBSERVATION",
+      quality: { status: "GOOD", completeness: 1.0 }
+    }
+  ],
+
   resourceProfile: {
     resourcePlanId: "resource-default",
     resourceType: "WATER (示范农场集中蓄水池)",
