@@ -1,5 +1,4 @@
 /**
-/**
  * AgriLoop Frontend - Main Application Controller
  * High-density operational dashboard with modular router & interactive closed-loop
  */
@@ -571,9 +570,9 @@ class AgriApp {
     const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
 
     this.dom.modalIcon.textContent = this.getViewIcon(viewName);
-    this.dom.modalTitle.textContent = ${meta.title} · 【】;
+    this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
     this.dom.modalTag.textContent = meta.status;
-    this.dom.placeholderTitle.textContent = ${meta.title};
+    this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
 
     // Render Contextual Data Preview

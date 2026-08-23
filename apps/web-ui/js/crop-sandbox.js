@@ -1174,6 +1174,8 @@ export class CropSandbox {
     if (this.isDestroyed) return;
     this.animationFrame = requestAnimationFrame(this.animate);
 
+    if (!this.container.classList.contains('active')) return;
+
     const elapsed = performance.now() * 0.001;
 
     // Timeline Auto-Play Progression
