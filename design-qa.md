@@ -50,4 +50,11 @@ Not required for this directional synthesis: it is not a pixel clone of one sour
 - no runtime error surfaced during the tested interaction path; WebGL rendered throughout the captured states
 - responsive CSS includes tablet/mobile layout and reduced-motion fallbacks; a separate device-emulated capture was not available in the selected browser surface
 
+## Farm Monitor 3D Visual QA (latest `lxh-frontend`)
+
+- 默认入口：`index.html#view=plot-detail&plotId=plot-a01`；资源使用仓库内 `vendor/three/`、`vendor/phosphor/` 和 `assets/textures/`，不依赖 CDN。
+- 视觉结论：采用最新 3D 数字孪生版本作为默认农田监测效果；它提供广角山地、水面、作物实例、昼夜光照、天气粒子、鼠标风场、风险标记和玻璃详情面板，覆盖并 supersede 旧 Canvas 切片。
+- 分支验收证据：`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md` 记录了 WebGL、draw calls/三角面、地块拾取、响应式和控制台检查；外部机器路径的截图不作为本地可复现前提。
+- 运行边界：WebGL 初始化失败时保留主站并在监测层记录错误；公共天气请求失败回退重庆演示天气；双击沙盘仍明确标为下一阶段入口。
+
 final result: passed

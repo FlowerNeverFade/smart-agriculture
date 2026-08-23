@@ -6,7 +6,7 @@
 
 > 2026-08-23 GitHub `main`（`6183803`）已完成远端部署；公网 Web/API、`/agriloop/` 品牌入口、Qwen OpenAI-compatible + 保守 LoRA 适配器和服务器数据存储已验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；完整业务前端仍不在本期后端交付范围。
 >
-> 2026-08-23 已将 `lxh-frontend` 农田动态监测切片合入 `main`；`quhl`、`rium_dev` 的 Three.js 替代场景经评审后不作为默认运行时依赖，保留稳定的 Canvas 实现和认证/Qwen 主线；`yyx` 与 `main` 无独有提交。
+> 2026-08-23 已将远端最新 `lxh-frontend` 3D 数字孪生切片合入 `main`；`quhl` 仅吸收 ambient 登录背景并保留真实 JWT；`rium_dev` 的整页液态玻璃替代主站不替换默认认证/监测入口；`yyx` 的 task-pack-5 依赖链按既有范围不纳入。
 
 ## 1. 使用说明
 
@@ -32,7 +32,7 @@
 | T-010 | P0 | Crop Pack 驱动的规则、迟滞、冷却、多风险检测和候选根因评分 | 项目组 | — | D6 | 已完成（后端） | WATER_DEFICIT/SENSOR_DRIFT/DEVICE_FAULT/HEAT_STRESS |
 | T-011 | P0 | 告警状态机、统一农务工单和今日农务聚合 | 项目组 | — | D8/D13 | 已完成（后端） | alerts/work-orders/today-work 接口 |
 | T-012 | P0 | 今日农务、总览、指标卡、风险排序、决策就绪度入口、实时推送 | 项目组 | — | D7 | 已完成（后端） | overview/today-work/SSE |
-| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端 + 前端切片） | telemetry/profile/devices REST；`FarmMonitor` 全场/地块详情入口与静态资源已发布，完整页面不在本期 |
+| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端 + 前端切片） | telemetry/profile/devices REST；`FarmMonitor` Three.js 全景/地块详情入口、风场/天气/昼夜和本地运行时资源已发布，完整页面不在本期 |
 | T-014 | P0 | 虚拟灌溉开关、审批、幂等、ACK、执行实际量与非成功路径 | 项目组 | — | D11 | 已完成（后端） | FAILED/TIMEOUT/PARTIAL 状态与 INCONCLUSIVE |
 | T-015 | P0 | RAG 知识目录和检索回退策略 | 项目组 | — | D9 | 已完成（规则知识后端） | Crop Pack knowledge 目录与 rules-only 回退 |
 | T-016 | P0 | 感知/诊断/处方/安全 Agent；冻结任务、核验、预测、就绪度、效果、执行申请 Tool，按 P0/P1 启用 | 项目组 | — | D10 | 已完成（规则优先后端） | 白名单工具输出、trace、不可直连 SQL/MQTT |
@@ -60,7 +60,7 @@
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
-| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `lxh-frontend` Canvas 监测切片合入；`quhl`/`rium_dev` Three.js 依赖与主线认证冲突经评审，保留稳定实现；`yyx` 无独有提交 |
+| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片合入；`quhl` ambient 登录背景与真实 JWT 合并；`rium_dev` 整页替代场景不替换主线；`yyx` task-pack-5 依赖链按范围排除 |
 
 ### 2.1 核心八项能力任务映射
 
