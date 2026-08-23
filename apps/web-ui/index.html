@@ -7,6 +7,9 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/farm-monitor.css">
+  <link rel="stylesheet" href="css/modules/forecast.css">
+  <link rel="stylesheet" href="css/modules/value-ledger.css">
+  <link rel="stylesheet" href="css/modules/crop-packs.css">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
@@ -158,6 +161,9 @@
         </h1>
         <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
       </div>
+
+      <!-- 预测、经营、Crop Pack 快速摘要（yyx 增强能力；点击进入独立模块） -->
+      <div class="home-summary-grid" id="homeSummaryGrid"></div>
 
       <!-- Copilot Agent Prompt Box -->
       <div class="copilot-prompt-card">
@@ -377,6 +383,18 @@
 
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- 全局 ⌘K 命令面板：地块 / 视图 / 作物包 / 规则 / 关键动态 -->
+  <div class="cmd-palette-backdrop" id="cmdPaletteBackdrop">
+    <div class="cmd-palette" role="dialog" aria-modal="true" aria-label="全局命令面板">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">🔍</span>
+        <input type="text" class="cmd-input" id="cmdInput" placeholder="搜索地块、功能视图、作物包、规则、关键动态…（↑↓ 选择 · Enter 跳转）" autocomplete="off">
+        <span class="cmd-kbd">ESC</span>
+      </div>
+      <div class="cmd-results" id="cmdResults"></div>
+    </div>
+  </div>
 
   <!-- Load ES Module Scripts -->
   <script type="module" src="js/app.js"></script>

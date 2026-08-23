@@ -1,0 +1,551 @@
+/**
+ * AgriLoop - 预测与经营模块样式（成员 E：风险预测 / 情景双轨 / 效益对账）
+ * forecast.css：共享基元 + 风险预测 (rf-*) + 情景回放 (sr-*)
+ * 配套文件：value-ledger.css（效益对账 vl-*）
+ */
+
+/* ================= 共享基元（两个模块通用） ================= */
+.agri-module {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 全局粒子背景（OceanX 科考风，z-index -1 置于内容之下） */
+.agri-particles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* 加载骨架屏（shimmer 动效） */
+.agri-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.agri-skeleton {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, #1c2128 25%, #262c36 37%, #1c2128 63%);
+  background-size: 400% 100%;
+  animation: agri-shimmer 1.4s ease infinite;
+}
+.agri-skeleton-title { height: 20px; width: 45%; }
+.agri-skeleton-line { width: 92%; }
+.agri-skeleton-line.short { width: 62%; }
+@keyframes agri-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.agri-module-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agri-module-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.agri-module-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+}
+
+.agri-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--blue-hover);
+  border-radius: 50%;
+  animation: agri-spin 0.8s linear infinite;
+}
+@keyframes agri-spin {
+  to { transform: rotate(360deg); }
+}
+
+.agri-card {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.agri-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.agri-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.agri-pill-ok { background: var(--green-subtle); color: var(--green-bright); }
+.agri-pill-warn { background: var(--amber-subtle); color: var(--amber-primary); }
+.agri-pill-danger { background: var(--red-subtle); color: var(--red-primary); }
+.agri-pill-blue { background: var(--blue-subtle); color: var(--blue-hover); }
+
+.agri-mono {
+  font-family: var(--font-mono);
+}
+
+.agri-meta-line {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.agri-alert {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.agri-alert-danger {
+  background: var(--red-subtle);
+  border-color: rgba(248, 81, 73, 0.4);
+}
+.agri-alert-icon { font-size: 20px; flex: 0 0 auto; }
+
+.agri-kv-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.agri-kv-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.agri-kv-key {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+}
+
+/* SVG 兜底图表样式 */
+.agri-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* 自定义 HTML Tooltip（替代 ECharts 原生 tooltip，挂在 body 下，尺寸完全自控） */
+.agri-custom-tip {
+  position: fixed;
+  z-index: 99999;
+  display: none;
+  pointer-events: none;
+  background-color: #21262d;
+  border: 1px solid #3d444d;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: #f0f6fc;
+  white-space: nowrap;
+  max-width: 320px;
+  word-break: break-word;
+}
+
+/* 强制隐藏 ECharts 原生 tooltip 容器（内容由 .agri-custom-tip 提供） */
+.agri-native-tip-hidden {
+  display: none !important;
+}
+.chart-grid-line { stroke: #21262d; stroke-width: 1; }
+.chart-grid-line-v { stroke: #161b22; stroke-width: 1; }
+.chart-axis-label { fill: #8b949e; font-size: 10px; font-family: var(--font-mono); }
+.chart-axis-title { fill: #6e7681; font-size: 10px; }
+.chart-axis-right { fill: #d29922; }
+.chart-axis-right-line { stroke: #21262d; stroke-width: 1; }
+.chart-marker-line { stroke-dasharray: 6 5; }
+.chart-marker-label { fill: #8b949e; font-size: 10px; }
+.chart-dot { opacity: 0.55; }
+.chart-gauge-value {
+  fill: #f0f6fc;
+  font-size: 34px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+.chart-bar { transition: opacity 0.15s ease; }
+
+/* ================= 风险预测 (rf-*) ================= */
+.rf-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rf-header-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rf-top-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 14px;
+}
+@media (max-width: 820px) {
+  .rf-top-grid { grid-template-columns: 1fr; }
+}
+
+.rf-gauge-card {
+  display: flex;
+  flex-direction: column;
+}
+.rf-gauge-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 190px;
+}
+.rf-gauge-body > div {
+  width: 100%;
+  height: 190px;
+}
+.rf-gauge-foot {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 6px;
+}
+
+.rf-horizons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rf-horizon-card { padding: 12px 16px; }
+.rf-horizon-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.rf-horizon-label { font-size: 12px; color: var(--text-secondary); }
+.rf-horizon-expected {
+  font-size: 20px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.rf-horizon-band {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+.rf-horizon-bar {
+  height: 5px;
+  background: var(--bg-canvas);
+  border-radius: var(--radius-pill);
+  margin-top: 8px;
+  overflow: hidden;
+}
+.rf-horizon-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3fb950, #58a6ff);
+  border-radius: var(--radius-pill);
+}
+.rf-horizon-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.rf-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.rf-chart-head .agri-card-title { margin-bottom: 0; }
+.rf-chart-body { min-height: 330px; }
+.rf-chart-body > div { width: 100%; height: 330px; }
+
+.rf-horizon-toggles { display: flex; gap: 6px; flex-wrap: wrap; }
+.rf-toggle-chip {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.rf-toggle-chip:hover {
+  border-color: var(--blue-hover);
+  color: var(--text-primary);
+}
+.rf-toggle-chip.active {
+  background: var(--blue-subtle);
+  border-color: var(--blue-hover);
+  color: var(--blue-hover);
+  font-weight: 600;
+}
+
+.rf-chart-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.rf-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rf-legend-item i {
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+}
+.rf-legend-item .rf-legend-band {
+  width: 12px;
+  height: 8px;
+  background: rgba(88, 166, 255, 0.18);
+  border: 1px dashed rgba(88, 166, 255, 0.5);
+}
+
+.rf-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.rf-meta-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+/* ================= 情景模拟与双轨回放 (sr-*) ================= */
+.sr-scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sr-scenario-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.sr-scenario-btn:hover {
+  border-color: var(--scenario-color);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.sr-scenario-btn.active {
+  border-color: var(--scenario-color);
+  box-shadow: inset 0 0 0 1px var(--scenario-color), 0 0 16px rgba(0, 0, 0, 0.45);
+}
+.sr-scenario-emoji { font-size: 20px; }
+.sr-scenario-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.sr-scenario-desc { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
+
+.sr-inject-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-muted);
+}
+.sr-seed-label { font-size: 12px; color: var(--text-secondary); }
+.sr-seed-input {
+  width: 90px;
+  padding: 6px 10px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.sr-seed-hint { font-size: 11px; color: var(--text-muted); margin-right: auto; }
+.sr-seed-input.sr-seed-error {
+  border-color: var(--red-primary);
+  box-shadow: 0 0 0 2px var(--red-subtle);
+}
+.sr-seed-params {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-muted);
+}
+
+.sr-run-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.sr-run-badge {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-default);
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+}
+.sr-run-id { font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+.sr-run-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.sr-chart-body { min-height: 340px; }
+.sr-chart-body > div { width: 100%; height: 340px; }
+
+.sr-scrubber {
+  margin-top: 12px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+.sr-scrubber-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.sr-scrubber-time { color: var(--text-primary); font-weight: 600; }
+.sr-scrubber-controls { display: flex; align-items: center; gap: 12px; }
+.sr-range {
+  flex: 1;
+  accent-color: var(--blue-hover);
+  cursor: pointer;
+}
+.sr-readouts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+@media (max-width: 560px) {
+  .sr-readouts { grid-template-columns: 1fr; }
+}
+.sr-readout {
+  border: 1px solid var(--border-default);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-subtle);
+}
+.sr-readout span { font-size: 11px; color: var(--text-muted); }
+.sr-readout b { font-size: 16px; color: var(--text-primary); }
+
+/* 双轨对比摘要 */
+.sr-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.sr-summary-item {
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sr-summary-item > span:first-child {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.sr-summary-diff {
+  color: var(--amber-primary);
+  font-weight: 600;
+}
+.sr-summary-conclusion {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid;
+}
+.sr-summary-conclusion.ok {
+  background: var(--green-subtle);
+  border-color: rgba(63, 185, 80, 0.4);
+  color: var(--green-bright);
+}
+.sr-summary-conclusion.warn {
+  background: var(--amber-subtle);
+  border-color: rgba(210, 153, 34, 0.4);
+  color: var(--amber-primary);
+}

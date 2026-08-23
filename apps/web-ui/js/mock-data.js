@@ -355,6 +355,124 @@ export const MOCK_DATA = {
     }
   ],
 
+  // yyx 分支的 P1/P2 前端数据合同：作物包、确定性预测/情景和价值口径。
+  // 这些数据只用于离线演示；在线时 ApiService 会优先读取后端并做合同归一化。
+  cropPackDetails: [
+    {
+      cropCode: "tomato",
+      version: "1.0.0",
+      schemaVersion: "1.0",
+      identity: { name: "番茄", variety: "demonstration", region: "重庆" },
+      stages: [
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] },
+        { code: "flowering", sequence: 3, label: "开花坐果期", target: { soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "fruiting", sequence: 4, label: "果实成熟期", target: { soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] }
+      ],
+      metrics: [
+        { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
+        { code: "AIR_TEMPERATURE", label: "棚内空气温度", unit: "°C", availability: "SUPPORTED", range: { min: -40, max: 80 } },
+        { code: "LIGHT", label: "光照强度", unit: "lux", availability: "SIMULATION_ONLY", range: { min: 0, max: 100000 } },
+        { code: "CO2", label: "CO2 浓度", unit: "ppm", availability: "SIMULATION_ONLY", range: { min: 0, max: 10000 } },
+        { code: "PH", label: "土壤酸碱度", unit: "pH", availability: "SIMULATION_ONLY", range: { min: 0, max: 14 } },
+        { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
+      ],
+      rules: [
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
+      ],
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
+      coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
+      knowledgeVersion: "kb-1.0.0",
+      ruleVersion: "rule-1.0.0",
+      knowledge: { documents: ["knowledge/irrigation.md"], fallback: ["plot", "region", "stage", "crop", "general"], content: [
+        "# 番茄结果期灌溉知识", "", "结果期先确认土壤湿度时间窗口和设备流量，再决定灌溉时长。",
+        "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。", "",
+        "- 结果期土壤含水率适宜区间：20%~40%", "- 灌溉时长受 900s 安全上限和 120 分钟冷却约束", "- 数据质量不足时先巡田复测，不直接下发控制命令", "",
+        "> 证据范围：作物：番茄，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+      ] },
+      scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
+      testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
+    },
+    {
+      cropCode: "cucumber",
+      version: "1.0.0",
+      schemaVersion: "1.0",
+      identity: { name: "黄瓜", variety: "demonstration", region: "重庆" },
+      stages: [
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] },
+        { code: "flowering", sequence: 3, label: "初花期", target: { soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "fruiting", sequence: 4, label: "采收盛期", target: { soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] }
+      ],
+      metrics: [
+        { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
+        { code: "AIR_TEMPERATURE", label: "棚内空气温度", unit: "°C", availability: "SUPPORTED", range: { min: -40, max: 80 } },
+        { code: "LIGHT", label: "光照强度", unit: "lux", availability: "SIMULATION_ONLY", range: { min: 0, max: 100000 } },
+        { code: "CO2", label: "CO2 浓度", unit: "ppm", availability: "SIMULATION_ONLY", range: { min: 0, max: 10000 } },
+        { code: "PH", label: "土壤酸碱度", unit: "pH", availability: "SIMULATION_ONLY", range: { min: 0, max: 14 } },
+        { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
+      ],
+      rules: [
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 24, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
+      ],
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
+      coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
+      knowledgeVersion: "kb-1.0.0",
+      ruleVersion: "rule-1.0.0",
+      knowledge: { documents: ["knowledge/irrigation.md"], fallback: ["plot", "region", "stage", "crop", "general"], content: [
+        "# 黄瓜采收期灌溉知识", "", "黄瓜根系浅、喜湿怕涝，处方需同时参考阶段目标、趋势、设备健康和可用水量。",
+        "传感器漂移时优先人工核验，不把异常读数当成真实缺水。", "",
+        "- 采收盛期土壤含水率适宜区间：24%~44%", "- 数据质量 DEGRADED/BAD 时只触发巡田和复测", "- 根区水分保持稳定，避免过湿积水", "",
+        "> 证据范围：作物：黄瓜，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+      ] },
+      scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
+      testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
+    }
+  ],
+
+  riskForecastConfig: {
+    algorithmVersion: "robust-trend-v1.2",
+    algorithmLabel: "Robust Trend 确定性趋势推演",
+    inputWindowMinutes: 60,
+    stressBoundary: 14.0,
+    baselineMoisture: 20.0,
+    maxHorizonMinutes: 240,
+    scenarioCatalog: [
+      { code: "DROUGHT", label: "持续干旱", emoji: "☀️", color: "#d29922", desc: "无降水、蒸散加快，水分按干旱速率衰减", decayFactor: 1.0, ttrMinutes: 72, driftRatePerHour: 0, rainBoostPct: 0, enabled: true },
+      { code: "HEAT_WAVE", label: "极端热浪", emoji: "🔥", color: "#f85149", desc: "棚内温度骤升至 38°C，蒸散速率提高 45%", decayFactor: 1.45, ttrMinutes: 48, driftRatePerHour: 0, rainBoostPct: 0, enabled: true },
+      { code: "STORM", label: "暴雨积水", emoji: "🌧️", color: "#58a6ff", desc: "连续暴雨 45 分钟，土壤湿度先抬升 6% 后回落", decayFactor: 0.8, ttrMinutes: null, driftRatePerHour: 0, rainBoostPct: 6, enabled: true },
+      { code: "SENSOR_DRIFT", label: "传感器零点漂移", emoji: "⚠️", color: "#a371f7", desc: "读数缓慢偏移 +0.6%/h，检测漂移后拒绝生成处方", decayFactor: 1.0, ttrMinutes: null, driftRatePerHour: 0.6, rainBoostPct: 0, enabled: true },
+      { code: "OFFLINE", label: "设备断网离线", emoji: "🔌", color: "#8b949e", desc: "遥测中断，样本不足，预测状态 UNAVAILABLE", decayFactor: 1.0, ttrMinutes: null, driftRatePerHour: 0, rainBoostPct: 0, enabled: true }
+    ]
+  },
+
+  valueLedger: {
+    farmId: "farm-demo",
+    farmName: "农智示范农场",
+    period: { start: "2026-08-01", end: "2026-08-22" },
+    prices: { waterPerLitre: 0.004, electricityPerKwh: 0.55, labourPerHour: 35.0 },
+    summary: { plannedWaterLitres: 18600, actualWaterLitres: 17240, deviationRatePct: -7.3, savedWaterLitres: 1360, savedElectricityKwh: 42.5, labourSavedHours: 6.2, savedWaterCostRmb: 5.44, savedElectricityCostRmb: 23.38, labourSavedCostRmb: 217.0, totalSavedRmb: 245.82 },
+    daily: Array.from({ length: 22 }, (_, i) => {
+      const planned = 845;
+      const wave = Math.sin(i / 2.3) * 42 + Math.cos(i / 1.7) * 26;
+      const actual = Math.round((planned * (0.93 + wave / 2200)) * 10) / 10;
+      return { date: `08-${String(i + 1).padStart(2, '0')}`, planned, actual, deviationRatePct: Math.round(((actual - planned) / planned) * 1000) / 10 };
+    }),
+    counterfactual: [
+      { week: "第 1 周", traditionalCostRmb: 320, agriLoopCostRmb: 240 }, { week: "第 2 周", traditionalCostRmb: 610, agriLoopCostRmb: 455 },
+      { week: "第 3 周", traditionalCostRmb: 870, agriLoopCostRmb: 645 }, { week: "第 4 周", traditionalCostRmb: 1120, agriLoopCostRmb: 830 }
+    ],
+    provenance: [
+      { key: "实际用水 / 用电 / 工时", value: "OBSERVED", tag: "sourceMode=SIMULATION（本期模拟遥测与虚拟执行）" },
+      { key: "偏差率 / 折合人民币", value: "DERIVED", tag: "由计划-实际差异确定性换算" },
+      { key: "传统粗放灌溉成本", value: "ESTIMATED", tag: "按行业经验参数估算，非实测" }
+    ]
+  },
+
   changelog: [
     {
       time: "2026-08-22 14:30",

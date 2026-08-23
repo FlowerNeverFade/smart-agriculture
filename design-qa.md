@@ -57,4 +57,11 @@ Not required for this directional synthesis: it is not a pixel clone of one sour
 - 分支验收证据：`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md` 记录了 WebGL、draw calls/三角面、地块拾取、响应式和控制台检查；外部机器路径的截图不作为本地可复现前提。
 - 运行边界：WebGL 初始化失败时保留主站并在监测层记录错误；公共天气请求失败回退重庆演示天气；双击沙盘仍明确标为下一阶段入口。
 
+## yyx Enhancement Visual/Interaction QA
+
+- 已将 `yyx` 分支的相关实现适配当前主线：预测仪表盘与置信带、情景注入和 `EXECUTE/NO_ACTION` 双轨回放、价值账本、Crop Pack 阶段/规则/知识阅读器、⌘K 命令面板和首页三张摘要卡。
+- 图表资源使用仓库内 `vendor/echarts.min.js` 按需加载；ECharts 不可用时自动回退纯 SVG，命令面板和动态模块均不阻断登录、Qwen 或 3D 监测主线。
+- 回归证据：`scripts/verify-webui.mjs` 在 `svg`、`stub`、`real` 三种模式均通过（46/46、46/46、47/47；real 模式确认 ECharts 5.5.1）。
+- 范围说明：未合并名为 `task5` 的独立分支；这不影响吸收 `yyx` 分支本身已经提交的相关功能。
+
 final result: passed

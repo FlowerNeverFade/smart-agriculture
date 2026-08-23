@@ -5,6 +5,17 @@
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
 import { FarmMonitor } from './farm-monitor.js';
+import { initParticles } from './particles.js';
+import { initCommandPalette } from './command-palette.js';
+
+// yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
+// Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
+const SUBVIEW_RENDERERS = {
+  'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
+  'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
+  'value-ledger': async (container) => (await import('./modules/value-ledger.js')).renderValueLedger(container),
+  'crop-packs': async (container) => (await import('./modules/crop-packs.js')).renderCropPacks(container)
+};
 
 class AgriApp {
   constructor() {
@@ -30,6 +41,10 @@ class AgriApp {
     this.cacheDom();
     this.bindEvents();
 
+    // 轻量背景动效与全局命令面板来自 yyx；二者均有无 Canvas/无 DOM 的安全降级。
+    this._particlesCleanup = initParticles();
+    this._paletteCleanup = initCommandPalette(this);
+
     // Check backend connection
     this.state.isLive = await api.checkHealth();
     if (this.state.isLive && api.isAuthenticated()) {
@@ -51,6 +66,7 @@ class AgriApp {
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
+    this.renderHomeSummary();
     this.handleRoute();
 
     window.addEventListener('hashchange', () => this.handleRoute());
@@ -163,15 +179,9 @@ class AgriApp {
       this.filterPlots(e.target.value);
     });
 
-    // Global Search Keyboard Shortcut (⌘K / Ctrl+K / Slash)
+    // ⌘K / Ctrl+K / "/" 交给 yyx 命令面板；这里仅负责 Escape 关闭本应用弹窗。
     window.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        this.dom.globalSearchInput?.focus();
-      } else if (e.key === '/' && document.activeElement !== this.dom.copilotInput && document.activeElement !== this.dom.globalSearchInput) {
-        e.preventDefault();
-        this.dom.globalSearchInput?.focus();
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         if (this.dom.authModal?.classList.contains('active')) this.closeAuthModal();
         else this.closeModal();
       }
@@ -882,6 +892,51 @@ class AgriApp {
     `).join('');
   }
 
+  /** yyx 首页驾驶舱摘要：预测、价值账本、Crop Pack 三张可点击卡片。 */
+  renderHomeSummary() {
+    const grid = document.getElementById('homeSummaryGrid');
+    if (!grid) return;
+    const plots = this.state.plots || MOCK_DATA.plots;
+    const plot = plots.find(item => item.plotId === 'plot-a01') || plots[0];
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const ledger = MOCK_DATA.valueLedger?.summary || {};
+    const packs = MOCK_DATA.cropPackDetails || [];
+    const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 20);
+    const boundary = Number(cfg?.stressBoundary ?? 14);
+    const k = Math.log(16.8 / boundary) / 72;
+    const ttr = moisture > boundary ? Math.min(Math.max(Math.round(Math.log(moisture / boundary) / k), 0), cfg.maxHorizonMinutes) : 0;
+    const zone = ttr < 60 ? 'danger' : ttr < 150 ? 'warn' : 'ok';
+    const farmLabel = plot?.name || '温室 1 号棚';
+    const totalSaved = Number(ledger.totalSavedRmb ?? 0);
+    const savedWater = Number(ledger.savedWaterLitres ?? 0);
+    const deviation = Number(ledger.deviationRatePct ?? 0);
+    grid.innerHTML = `
+      <div class="home-summary-card" data-view="risk-forecast" title="打开未来风险预测推演">
+        <div class="hs-icon">🔮</div><div class="hs-body">
+          <div class="hs-title">未来风险 · ${this.escapeHtml(farmLabel)}</div>
+          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= cfg.maxHorizonMinutes ? '&gt;240' : ttr} 分钟</div>
+          <div class="hs-sub">当前湿度 ${moisture}% · 极限边界 ${boundary}%</div>
+        </div><span class="hs-go">→</span>
+      </div>
+      <div class="home-summary-card" data-view="value-ledger" title="打开经营价值与效益对账本">
+        <div class="hs-icon">💰</div><div class="hs-body">
+          <div class="hs-title">经营价值对账</div>
+          <div class="hs-value ok">¥ ${totalSaved.toFixed(2)}</div>
+          <div class="hs-sub">节水 ${savedWater.toLocaleString()}L · 偏差率 ${deviation}%</div>
+        </div><span class="hs-go">→</span>
+      </div>
+      <div class="home-summary-card" data-view="crop-packs" title="打开作物包全景与规则注册表">
+        <div class="hs-icon">📦</div><div class="hs-body">
+          <div class="hs-title">作物包注册表</div>
+          <div class="hs-value">${packs.length} 个包 · ${packs.reduce((sum, pack) => sum + (pack.stages?.length || 0), 0)} 阶段</div>
+          <div class="hs-sub">${packs.map(pack => this.escapeHtml(pack.identity?.name || pack.cropCode)).join(' / ')} · Schema v${this.escapeHtml(packs[0]?.schemaVersion || '1.0')}</div>
+        </div><span class="hs-go">→</span>
+      </div>`;
+    grid.querySelectorAll('.home-summary-card').forEach(card => {
+      card.addEventListener('click', () => this.openSubview(card.dataset.view, { plotId: this.state.currentPlotId }));
+    });
+  }
+
   /**
    * Router and Sub-view modal/drawer controller
    */
@@ -911,6 +966,7 @@ class AgriApp {
   openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
     if (viewName === 'plot-detail') {
+      this.cleanupActiveSubview();
       this.dom.subviewModal.classList.remove('active');
       this.farmMonitor?.setPlots(this.state.plots);
       this.farmMonitor?.open(plotId);
@@ -925,6 +981,7 @@ class AgriApp {
     }
 
     this.farmMonitor?.close(false);
+    this.cleanupActiveSubview();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
       desc: '预留独立子模块界面',
@@ -940,8 +997,29 @@ class AgriApp {
     this.dom.placeholderTitle.textContent = `${meta.title}`;
     this.dom.placeholderDesc.textContent = meta.desc;
 
-    // Render Contextual Data Preview
-    this.renderSubviewContextualContent(viewName, plot);
+    // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图；未实现的视图继续使用主线占位合同。
+    const renderer = SUBVIEW_RENDERERS[viewName];
+    this._subviewGen = (this._subviewGen || 0) + 1;
+    const viewGen = this._subviewGen;
+    if (renderer) {
+      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = 'none';
+      this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
+      this.dom.subviewModal.classList.add('active');
+      Promise.resolve(renderer(this.dom.modalDynamicContent, plotId)).then(cleanup => {
+        if (viewGen !== this._subviewGen) {
+          if (typeof cleanup === 'function') cleanup();
+          return;
+        }
+        if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
+      }).catch(error => {
+        if (viewGen !== this._subviewGen) return;
+        this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
+      });
+    } else {
+      if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
+      // Render Contextual Data Preview
+      this.renderSubviewContextualContent(viewName, plot);
+    }
 
     // Render Code Contract / API Endpoint Spec
     this.dom.modalCodeContract.textContent = this.getViewCodeContract(viewName, plot);
@@ -960,8 +1038,18 @@ class AgriApp {
     }
   }
 
+  cleanupActiveSubview() {
+    this._subviewGen = (this._subviewGen || 0) + 1;
+    if (typeof this._activeSubviewCleanup === 'function') {
+      try { this._activeSubviewCleanup(); } catch (error) { console.warn('Subview cleanup failed:', error); }
+    }
+    this._activeSubviewCleanup = null;
+  }
+
   closeModal(updateHash = true) {
+    this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
+    if (this.dom.placeholderBanner) this.dom.placeholderBanner.style.display = '';
     this.farmMonitor?.close(false);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1050,6 +1138,10 @@ class AgriApp {
       'crop-packs': `// GET  /api/v1/crop-packs\n// GET  /api/v1/rules`
     };
     return contracts[viewName] || `// Endpoint: /api/v1/${viewName}`;
+  }
+
+  escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   }
 
   showToast(message, type = 'info') {

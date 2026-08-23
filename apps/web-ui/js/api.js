@@ -336,6 +336,228 @@ export class ApiService {
     };
   }
 
+  /**
+   * yyx P1/P2 视图所需的确定性能力。在线优先读取后端合同，离线使用
+   * 同一套可重复的演示算法；所有返回值都标记为模拟/推导口径，不伪装成现场实测。
+   */
+  async getRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/risk-forecast?metric=${encodeURIComponent(metric)}`);
+      return this.normalizeForecast(resp?.data || resp, plotId, metric);
+    }
+    return this.mockRiskForecast(plotId, metric);
+  }
+
+  normalizeForecast(raw, plotId, metric) {
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const source = raw || {};
+    const boundary = Number(source.stressBoundary ?? source.riskBoundary?.value ?? cfg.stressBoundary);
+    const baseline = Number(source.baselineMoisture ?? cfg.baselineMoisture);
+    const start = Number(source.startMoisture ?? plot?.metrics?.[metric]?.value ?? 25);
+    const horizons = (source.horizons || []).map(h => ({
+      minute: Number(h.minute ?? h.minutes ?? 0),
+      expected: Number(h.expected ?? h.value ?? h.expectedMoisture ?? start),
+      lower: Number(h.lower ?? h.expected ?? h.value ?? start),
+      upper: Number(h.upper ?? h.expected ?? h.value ?? start)
+    })).filter(h => Number.isFinite(h.minute));
+    const maxHorizon = Number(source.forecastRangeMinutes ?? cfg.maxHorizonMinutes);
+    const curve = Array.isArray(source.curve) && source.curve.length
+      ? source.curve.map(p => ({ minute: Number(p.minute), expected: Number(p.expected ?? p.value), lower: Number(p.lower ?? p.expected ?? p.value), upper: Number(p.upper ?? p.expected ?? p.value) }))
+      : this.interpolateForecastCurve(start, horizons, maxHorizon);
+    const unavailable = String(source.status || '').toUpperCase() !== 'AVAILABLE';
+    return {
+      ...source,
+      status: unavailable ? (source.status || 'UNAVAILABLE') : 'AVAILABLE',
+      plotId, metric,
+      generatedAt: source.generatedAt || source.issuedAt || new Date().toISOString(),
+      inputWindowMinutes: Number(source.inputWindowMinutes ?? source.inputWindow?.validSamples ?? cfg.inputWindowMinutes),
+      forecastRangeMinutes: maxHorizon,
+      algorithmVersion: source.algorithmVersion || cfg.algorithmVersion,
+      algorithmLabel: source.algorithmLabel || cfg.algorithmLabel,
+      startMoisture: start,
+      stressBoundary: boundary,
+      baselineMoisture: baseline,
+      timeToRiskMinutes: source.timeToRiskMinutes == null ? maxHorizon : Number(source.timeToRiskMinutes),
+      horizons,
+      curve,
+      assumptions: source.assumptions || ['无降水 / 无外界灌溉', '设备保持在线，遥测质量 GOOD'],
+      uncertaintyNote: source.uncertaintyNote || '置信区间由历史残差 MAD 推导；样本不足时返回 UNAVAILABLE'
+    };
+  }
+
+  interpolateForecastCurve(start, horizons, maxHorizon = 240) {
+    const points = [{ minute: 0, expected: start, lower: start, upper: start }];
+    const sorted = horizons.slice().sort((a, b) => a.minute - b.minute);
+    for (let t = 5; t <= maxHorizon; t += 5) {
+      let left = points[0];
+      let right = sorted[sorted.length - 1] || left;
+      for (const h of sorted) {
+        if (h.minute >= t) { right = h; break; }
+        left = h;
+      }
+      const span = Math.max(1, right.minute - (left.minute || 0));
+      const ratio = Math.max(0, Math.min(1, (t - (left.minute || 0)) / span));
+      const mix = key => Number(((left[key] ?? start) + ((right[key] ?? left[key] ?? start) - (left[key] ?? start)) * ratio).toFixed(2));
+      points.push({ minute: t, expected: mix('expected'), lower: mix('lower'), upper: mix('upper') });
+    }
+    return points;
+  }
+
+  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const start = Number(plot?.metrics?.[metric]?.value ?? 25);
+    const boundary = cfg.stressBoundary;
+    if (plot?.deviceStatus !== 'ONLINE' || start <= boundary + 0.5) {
+      return { status: 'UNAVAILABLE', plotId, metric, reason: plot?.deviceStatus !== 'ONLINE' ? '设备离线，遥测样本不足' : '当前湿度已低于极限胁迫边界，无可推演余量', generatedAt: new Date().toISOString(), algorithmVersion: cfg.algorithmVersion };
+    }
+    const k = Math.log(16.8 / boundary) / 72;
+    const timeToRisk = Math.min(Math.round(Math.log(start / boundary) / k), cfg.maxHorizonMinutes);
+    const curve = [];
+    for (let t = 0; t <= cfg.maxHorizonMinutes; t += 5) {
+      const expected = start * Math.exp(-k * t);
+      const half = 0.6 + 0.007 * t;
+      curve.push({ minute: t, expected: Number(expected.toFixed(2)), lower: Number(Math.max(expected - half, 0).toFixed(2)), upper: Number((expected + half).toFixed(2)) });
+    }
+    return {
+      status: 'AVAILABLE', plotId, metric, generatedAt: new Date().toISOString(), inputWindowMinutes: cfg.inputWindowMinutes,
+      forecastRangeMinutes: cfg.maxHorizonMinutes, algorithmVersion: cfg.algorithmVersion, algorithmLabel: cfg.algorithmLabel,
+      startMoisture: start, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, timeToRiskMinutes: timeToRisk,
+      horizons: [60, 120, 240].map(minute => { const p = curve.find(x => x.minute === minute); return { minute, expected: p.expected, lower: p.lower, upper: p.upper, band: `${p.lower.toFixed(1)}% ~ ${p.upper.toFixed(1)}%` }; }),
+      curve, assumptions: ['无降水 / 无外界灌溉', '棚室通风与外部光热保持稳定', '设备保持在线，遥测质量 GOOD'],
+      uncertaintyNote: '置信区间随预测时距线性放大；超出 4h 不承诺，样本不足返回 UNAVAILABLE', provenance: 'SIMULATED'
+    };
+  }
+
+  async runScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
+    const normalizedScenario = String(scenario).toUpperCase();
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/scenarios/runs', { method: 'POST', body: JSON.stringify({ scenario: normalizedScenario, seed, plotId }) });
+      const run = resp?.data || resp;
+      const def = MOCK_DATA.riskForecastConfig.scenarioCatalog.find(s => s.code === normalizedScenario) || MOCK_DATA.riskForecastConfig.scenarioCatalog[0];
+      return { ...run, scenario: run.scenario || normalizedScenario, scenarioLabel: run.scenarioLabel || def.label, params: run.params || def, frozenSnapshot: { ...(run.frozenSnapshot || {}), plotId, plotName: run.frozenSnapshot?.plotName || this.mockPlot(plotId).name, startMoisture: run.frozenSnapshot?.startMoisture ?? this.mockPlot(plotId).metrics.SOIL_MOISTURE.value } };
+    }
+    const def = MOCK_DATA.riskForecastConfig.scenarioCatalog.find(s => s.code === normalizedScenario) || MOCK_DATA.riskForecastConfig.scenarioCatalog[0];
+    const plot = this.mockPlot(plotId);
+    return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', frozenSnapshot: { plotId, plotName: plot.name, startMoisture: plot.metrics.SOIL_MOISTURE.value, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
+  }
+
+  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
+    const normalizedScenario = String(scenario).toUpperCase();
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
+      const server = resp?.data || resp;
+      // 后端基础合同返回汇总统计；交互式曲线由同一 Seed 的只读确定性
+      // 回放补齐，serverSummary 保留在结果中供审计查看。
+      if (server?.branches?.EXECUTE?.points && server?.branches?.NO_ACTION?.points) return server;
+      return { ...this.mockScenarioCompare(normalizedScenario, seed, plotId), serverSummary: server, provenance: 'SIMULATED' };
+    }
+    return this.mockScenarioCompare(normalizedScenario, seed, plotId);
+  }
+
+  mockScenarioCompare(scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01') {
+    const cfg = MOCK_DATA.riskForecastConfig;
+    const def = cfg.scenarioCatalog.find(s => s.code === String(scenario).toUpperCase()) || cfg.scenarioCatalog[0];
+    const plot = this.mockPlot(plotId);
+    const start = Number(plot.metrics.SOIL_MOISTURE.value || 25);
+    if (def.code === 'OFFLINE') return { status: 'UNAVAILABLE', scenarioId: `offline-${seed}`, seed, plotId, reason: '设备断网离线，遥测样本不足：拒绝生成可执行处方', provenance: 'SIMULATED' };
+    const rnd = mulberry32(Number(seed) || 42);
+    const kFactor = 0.9 + rnd() * 0.2;
+    const jumpBoost = 11.8 + rnd() * 2.8;
+    const rainBoost = (def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
+    const driftRate = (def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
+    const kBase = Math.log(16.8 / cfg.stressBoundary) / (def.ttrMinutes || 72);
+    const k = kBase * (def.decayFactor || 1) * kFactor;
+    const build = execute => Array.from({ length: 49 }, (_, i) => {
+      const t = i * 5;
+      const phys = x => start * Math.exp(-k * x);
+      let value;
+      if (def.code === 'STORM') {
+        value = t <= 45 ? start + rainBoost * (t / 45) : (start + rainBoost) * Math.exp(-k * (t - 45));
+        if (execute && t >= 30) value = Math.min(value + jumpBoost, 42);
+      } else if (execute && t >= 30) {
+        value = Math.min(phys(30) + jumpBoost, 42) * Math.exp(-k * 0.55 * (t - 30));
+      } else value = phys(t);
+      if (def.code === 'SENSOR_DRIFT') value += driftRate * (t / 60);
+      return { minute: t, value: Number(Math.max(value, 0).toFixed(2)) };
+    });
+    return {
+      status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: def.code, scenarioLabel: def.label, seed, plotId,
+      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: cfg.stressBoundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
+      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: `⚡ 虚拟执行 (补水 ≈${jumpBoost.toFixed(1)}%)` }],
+      branches: { EXECUTE: { label: '分支 A · 执行灌溉处方', points: build(true), color: '#3fb950' }, NO_ACTION: { label: '分支 B · 不采取措施放任干旱', points: build(false), color: '#f85149' } },
+      note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态', provenance: 'SIMULATED'
+    };
+  }
+
+  mockPlot(plotId) {
+    return MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+  }
+
+  async getValueLedgers() {
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/value-ledgers');
+      const records = resp?.data || resp;
+      if (records && !Array.isArray(records) && records.summary) return records;
+      const fallback = JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
+      fallback.serverRecords = Array.isArray(records) ? records : [];
+      fallback.provenance = fallback.provenance.map(p => ({ ...p, tag: `${p.tag}；在线记录 ${fallback.serverRecords.length} 条` }));
+      return fallback;
+    }
+    return JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
+  }
+
+  async getCropPacks() {
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/crop-packs');
+      const raw = resp?.data || resp;
+      if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
+      if (raw?.cropCode) return [this.normalizeCropPack(raw)];
+      throw new ApiError('后端返回了无效的作物包数据', { code: 'CROP_PACKS_INVALID', payload: resp });
+    }
+    return JSON.parse(JSON.stringify(MOCK_DATA.cropPackDetails));
+  }
+
+  normalizeCropPack(pack) {
+    const fallback = MOCK_DATA.cropPackDetails.find(p => p.cropCode === pack?.cropCode) || MOCK_DATA.cropPackDetails[0];
+    const stages = (pack?.stages || fallback.stages).map((stage, index) => {
+      if (typeof stage === 'object') return stage;
+      const base = fallback.stages[index] || fallback.stages[fallback.stages.length - 1];
+      return { ...base, code: String(stage).split(' ')[0] || base.code, label: base.label };
+    });
+    const metrics = (pack?.metrics || fallback.metrics).map(metric => {
+      if (metric.range) return metric;
+      const target = metric.target || {};
+      return { ...metric, label: metric.label || metric.code, range: { min: target.low ?? target.min ?? 0, max: target.high ?? target.max ?? 100 } };
+    });
+    return {
+      ...fallback, ...pack,
+      identity: pack?.identity || { name: pack?.name || fallback.identity.name, variety: 'demonstration', region: '重庆' },
+      schemaVersion: pack?.schemaVersion || fallback.schemaVersion,
+      stages, metrics,
+      rules: pack?.rules || fallback.rules,
+      prescriptionConstraints: pack?.prescriptionConstraints || fallback.prescriptionConstraints,
+      forecastProfile: pack?.forecastProfile || fallback.forecastProfile,
+      coordinationProfile: pack?.coordinationProfile || fallback.coordinationProfile,
+      knowledgeVersion: pack?.knowledgeVersion || fallback.knowledgeVersion,
+      ruleVersion: pack?.ruleVersion || fallback.ruleVersion,
+      knowledge: pack?.knowledge || fallback.knowledge,
+      scenarios: pack?.scenarios || fallback.scenarios,
+      testCases: pack?.testCases || fallback.testCases
+    };
+  }
+
+  async getRules() {
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/rules');
+      const raw = resp?.data || resp;
+      if (Array.isArray(raw)) return raw.flatMap(entry => (entry.rules || []).map(rule => ({ ...rule, cropCode: entry.cropCode, cropName: MOCK_DATA.cropPackDetails.find(p => p.cropCode === entry.cropCode)?.identity.name || entry.cropCode, ruleVersion: entry.version || entry.ruleVersion })));
+    }
+    return MOCK_DATA.cropPackDetails.flatMap(pack => pack.rules.map(rule => ({ ...rule, cropCode: pack.cropCode, cropName: pack.identity.name, ruleVersion: pack.ruleVersion })));
+  }
+
   async _fetch(path, options = {}, { auth = true } = {}) {
     const headers = {
       'Content-Type': 'application/json',
@@ -366,3 +588,15 @@ export class ApiService {
 }
 
 export const api = new ApiService();
+
+// 确定性伪随机数：同一 scenario + seed 的双轨回放必须完全可复现。
+function mulberry32(seed) {
+  let a = (Number(seed) || 0) >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

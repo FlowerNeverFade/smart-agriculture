@@ -4,9 +4,9 @@
 > 任务版本：v1.2（2026-08-22）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
-> 2026-08-23 GitHub `main`（`6183803`）已完成远端部署；公网 Web/API、`/agriloop/` 品牌入口、Qwen OpenAI-compatible + 保守 LoRA 适配器和服务器数据存储已验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；完整业务前端仍不在本期后端交付范围。
+> 2026-08-23 GitHub `main` 的后端、AI 和公网部署链路已完成验收；本次合并不引入名为 `task5` 的分支，但保留 `yyx` 分支中已实现的预测、双轨回放、价值账本、Crop Pack 注册表、命令面板和首页摘要。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；完整业务前端仍不在本期后端交付范围。
 >
-> 2026-08-23 已将远端最新 `lxh-frontend` 3D 数字孪生切片合入 `main`；`quhl` 仅吸收 ambient 登录背景并保留真实 JWT；`rium_dev` 的整页液态玻璃替代主站不替换默认认证/监测入口；`yyx` 的 task-pack-5 依赖链按既有范围不纳入。
+> 2026-08-23 已将远端最新 `lxh-frontend` 3D 数字孪生切片合入 `main`；`quhl` 吸收 ambient 登录背景并保留真实 JWT；`rium_dev` 的整页液态玻璃替代主站不替换默认认证/监测入口；`yyx` 的相关增强模块和回归脚本已适配当前主线，仅不合并名为 `task5` 的分支。
 
 ## 1. 使用说明
 
@@ -60,7 +60,7 @@
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
-| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片合入；`quhl` ambient 登录背景与真实 JWT 合并；`rium_dev` 整页替代场景不替换主线；`yyx` task-pack-5 依赖链按范围排除 |
+| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片；`quhl` ambient 登录背景 + 真实 JWT；`yyx` 预测/情景双轨/价值账本/Crop Pack/命令面板/首页摘要均已适配并通过 svg/stub/real 回归；`rium_dev` 仅保留评审关系；未合并名为 `task5` 的分支 |
 
 ### 2.1 核心八项能力任务映射
 

@@ -1,12 +1,12 @@
 # 农田动态监测前端验收说明
 
 > 分支：`lxh-frontend`
-> 状态：待团队验收
+> 状态：已验收（Three.js 场景静态检查 + yyx 增强模块 svg/stub/real 回归；浏览器专项截图可继续复验）
 > 日期：2026-08-23
 
 ## 1. 实现范围
 
-- 入口：`apps/web-ui/index.html?demoTime=14:20:00&demoWeather=sunny#view=plot-detail&plotId=plot-a01`。
+- 入口：`apps/web-ui/index.html#view=plot-detail&plotId=plot-a01`。
 - 输入：浏览器当前时间、浏览器定位、Open-Meteo 当前天气、地块 Mock/后端数据、Crop Pack 作物与阶段上下文。
 - 处理：Three.js WebGL 场景、InstancedMesh 作物实例、顶点着色器风场、动态水面、云层/雨粒子、昼夜光照、阴影、射线拾取和地块面板状态机。
 - 输出：全屏三维农场、三块可交互地块、作物/阶段图层、预警、4 项传感器指标、环境曲线和阶段时间线。
@@ -74,3 +74,9 @@
 - 实现原则：不使用整幅静态农场图作为背景；草地、土壤和林冠图片只作为三维网格表面材质。
 - 对照报告：项目根目录 `design-qa.md`，最终结果为 `passed`。
 - 当前可继续增强但不阻塞验收的 P3 项：在性能预算允许时替换为更高精度的外部植物/建筑模型，并增加 GPU 级后处理光晕。
+
+## 7. yyx 增强模块回归
+
+- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，分别覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、两个 Crop Pack、首页摘要和命令面板。
+- 结果：`svg 46/46`、`stub 46/46`、`real 47/47`（real 模式本地加载 vendored ECharts 5.5.1）。
+- 不合并名为 `task5` 的独立分支；上述 yyx 功能来自 `yyx` 分支本身，已适配并与主线认证、模拟器和 3D 监测共存。
