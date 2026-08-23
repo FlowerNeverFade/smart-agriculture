@@ -53,6 +53,8 @@ export async function renderValueLedger(container) {
           <div class="agri-module-sub">统计周期 ${data.period.start} ~ ${data.period.end} · 口径 OBSERVED (sourceMode=SIMULATION) / DERIVED / ESTIMATED · 演示数据不宣称真实收益</div>
         </div>
         <div class="rf-header-right">
+          <button class="cmd-nav-btn" data-nav="risk-forecast">🔮 风险预测</button>
+          <button class="cmd-nav-btn" data-nav="crop-packs">📦 作物包</button>
           <span class="agri-pill agri-pill-blue">CAP-12 价值账本</span>
           <span class="agri-pill agri-pill-ok">sourceMode=SIMULATION</span>
         </div>
@@ -130,6 +132,11 @@ export async function renderValueLedger(container) {
   const tipCleanups = [];
   const barEl = container.querySelector('[data-role="bar-chart"]');
   const areaEl = container.querySelector('[data-role="area-chart"]');
+  container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.hash = `view=${btn.dataset.nav}`;
+    });
+  });
 
   const bar = await initEChart(barEl);
   // 异步加载期间视图可能已被切换/关闭：容器内容被清空则放弃本次渲染

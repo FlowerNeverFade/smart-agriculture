@@ -194,6 +194,31 @@ if (cpReady) {
   ok('切换黄瓜后参数/阈值更新', cuke.includes('32 ~ 52%') && cuke.includes('WATER_DEFICIT'));
 }
 
+// ============ 视图 5：⌘K 命令面板 + 交叉导航 ============
+const cmdBackdrop = document.getElementById('cmdPaletteBackdrop');
+const cmdInput = document.getElementById('cmdInput');
+const keyEvt = (k, opts = {}) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+keyEvt('k', { metaKey: true });
+await sleep(100);
+ok('⌘K 打开命令面板', cmdBackdrop.classList.contains('active'));
+if (cmdBackdrop.classList.contains('active')) {
+  ok('面板包含地块/视图/作物包/规则/动态条目', document.querySelectorAll('.cmd-item').length >= 16, `${document.querySelectorAll('.cmd-item').length} 条`);
+  cmdInput.value = '风险预测';
+  cmdInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(60);
+  keyEvt('Enter');
+  await sleep(300);
+  ok('搜索并跳转风险预测视图', window.location.hash.includes('view=risk-forecast'));
+  ok('面板已关闭', !cmdBackdrop.classList.contains('active'));
+}
+document.activeElement?.blur?.();
+keyEvt('/');
+await sleep(80);
+ok('"/" 呼出面板', cmdBackdrop.classList.contains('active'));
+keyEvt('Escape');
+await sleep(80);
+ok('ESC 关闭面板', !cmdBackdrop.classList.contains('active'));
+
 // ============ 关闭弹窗清理 + 返回 Home ============
 document.querySelector('#btnCloseModal').click();
 await sleep(200);

@@ -5,6 +5,7 @@
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
 import { initParticles } from './particles.js';
+import { initCommandPalette } from './command-palette.js';
 
 /**
  * 已实现的独立子模块渲染器（按 view 名分发，renderer 返回可选 cleanup）
@@ -38,6 +39,9 @@ class AgriApp {
 
     // 全局粒子背景（OceanX 科考风动效，任务包 5）
     this._particlesCleanup = initParticles();
+
+    // 全局 ⌘K 命令面板（任务包 5 · 快捷键系统）
+    this._paletteCleanup = initCommandPalette(this);
 
     // Check backend connection
     this.state.isLive = await api.checkHealth();
@@ -112,15 +116,9 @@ class AgriApp {
       this.filterPlots(e.target.value);
     });
 
-    // Global Search Keyboard Shortcut (⌘K / Ctrl+K / Slash)
+    // 全局快捷键：⌘K / "/" 由命令面板接管（command-palette.js），这里只保留 Escape 关弹窗
     window.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        this.dom.globalSearchInput?.focus();
-      } else if (e.key === '/' && document.activeElement !== this.dom.copilotInput && document.activeElement !== this.dom.globalSearchInput) {
-        e.preventDefault();
-        this.dom.globalSearchInput?.focus();
-      } else if (e.key === 'Escape') {
+      if (e.key === 'Escape') {
         this.closeModal();
       }
     });

@@ -65,6 +65,8 @@ export async function renderCropPacks(container) {
           <div class="agri-module-sub">版本化 Crop Pack 注入作物差异：阶段参数 / 指标定义 / 规则阈值 / 知识文档 / 处方约束（Schema ${escapeHtml(packs[0]?.schemaVersion || '1.0')}）</div>
         </div>
         <div class="rf-header-right">
+          <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
+          <button class="cmd-nav-btn" data-nav="risk-forecast">🔮 风险预测</button>
           <span class="agri-pill agri-pill-ok">Schema ${escapeHtml(packs[0]?.schemaVersion || '1.0')}</span>
         </div>
       </div>
@@ -83,6 +85,11 @@ export async function renderCropPacks(container) {
 
   const tabs = container.querySelector('[data-role="cp-tabs"]');
   const bodyEl = container.querySelector('[data-role="cp-body"]');
+  container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.hash = `view=${btn.dataset.nav}`;
+    });
+  });
 
   const renderBody = (pack) => {
     const stageIdx = {};

@@ -83,6 +83,8 @@ export async function renderRiskForecast(container, plotId) {
           <div class="agri-module-sub">${escapeHtml(plot.cropName)} · ${escapeHtml(plot.stageLabel)} · 指标 SOIL_MOISTURE · 输入窗口 ${data.inputWindowMinutes}min · 预测范围 ${data.forecastRangeMinutes}min</div>
         </div>
         <div class="rf-header-right">
+          <button class="cmd-nav-btn" data-nav="scenario-replay">⚡ 情景模拟</button>
+          <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
           <span class="agri-pill ${zone.cls}">${zone.label}</span>
           <span class="agri-pill agri-pill-blue">${escapeHtml(data.algorithmVersion)}</span>
         </div>
@@ -308,6 +310,11 @@ export async function renderRiskForecast(container, plotId) {
   };
 
   const toggles = container.querySelector('[data-role="horizon-toggles"]');
+  container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.hash = `view=${btn.dataset.nav}&plotId=${plotId}`;
+    });
+  });
   toggles.addEventListener('click', (e) => {
     const btn = e.target.closest('.rf-toggle-chip');
     if (!btn) return;
@@ -338,7 +345,12 @@ export async function renderScenarioReplay(container, plotId) {
     <div class="agri-module sr-root">
 
       <div class="agri-module-title">⚡ 情景模拟器与双轨回放</div>
-      <div class="agri-module-sub">一键注入故障情景 → 同一冻结快照 + 同一随机种子 → 执行 vs 放任 双轨对比（只读推演，不写回主状态）</div>
+      <div class="agri-module-sub">一键注入故障情景 → 同一冻结快照 + 同一随机种子 → 执行 vs 放任 双轨对比（只读推演，不写回主状态）
+        <span style="margin-left:10px">
+          <button class="cmd-nav-btn" data-nav="risk-forecast">🔮 风险预测</button>
+          <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
+        </span>
+      </div>
 
       <div class="agri-card sr-inject-card">
         <div class="agri-card-title">🎛️ 一键情景注入与故障发生器</div>
@@ -375,6 +387,11 @@ export async function renderScenarioReplay(container, plotId) {
       btn.classList.add('active');
       selectedScenario = btn.dataset.scenario;
       runBtn.disabled = false;
+    });
+  });
+  container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.location.hash = `view=${btn.dataset.nav}&plotId=${plotId}`;
     });
   });
 

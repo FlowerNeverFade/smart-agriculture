@@ -333,6 +333,18 @@
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- 全局 ⌘K 命令面板（搜索地块 / 视图 / 作物包 / 规则 / 动态） -->
+  <div class="cmd-palette-backdrop" id="cmdPaletteBackdrop">
+    <div class="cmd-palette">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">🔍</span>
+        <input type="text" class="cmd-input" id="cmdInput" placeholder="搜索地块、功能视图、作物包、规则、关键动态...（↑↓ 选择 · Enter 跳转）" autocomplete="off">
+        <span class="cmd-kbd">ESC</span>
+      </div>
+      <div class="cmd-results" id="cmdResults"></div>
+    </div>
+  </div>
+
   <!-- Load ES Module Scripts（echarts 由图表模块按需动态加载，首页不下载 1MB 库） -->
   <script type="module" src="js/app.js"></script>
 </body>
