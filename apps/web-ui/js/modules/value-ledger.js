@@ -127,7 +127,22 @@ export async function renderValueLedger(container) {
     bar.setOption({
       backgroundColor: 'transparent',
       grid: { left: 50, right: 52, top: 30, bottom: 30 },
-      tooltip: darkTooltip(),
+      tooltip: {
+        ...darkTooltip(),
+        formatter: (params) => {
+          const date = params[0]?.axisValue ?? '';
+          const find = name => params.find(p => p.seriesName === name);
+          const planned = find('计划用水');
+          const actual = find('实际用水');
+          const dev = find('偏差率');
+          return `<div style="line-height:1.8">
+            <div style="color:#8b949e">${date}</div>
+            <div>计划用水：<b>${planned?.value ?? '-'} L</b></div>
+            <div style="color:#3fb950">实际用水：<b>${actual?.value ?? '-'} L</b></div>
+            <div style="color:#d29922">偏差率：<b>${dev?.value ?? '-'}%</b></div>
+          </div>`;
+        }
+      },
       legend: { show: false },
       xAxis: {
         type: 'category',
@@ -194,7 +209,22 @@ export async function renderValueLedger(container) {
     area.setOption({
       backgroundColor: 'transparent',
       grid: { left: 50, right: 24, top: 30, bottom: 30 },
-      tooltip: darkTooltip(),
+      tooltip: {
+        ...darkTooltip(),
+        formatter: (params) => {
+          const week = params[0]?.axisValue ?? '';
+          const find = name => params.find(p => p.seriesName === name);
+          const t = find('传统粗放灌溉成本');
+          const a = find('农智闭环成本');
+          const s = find('累计节约');
+          return `<div style="line-height:1.8">
+            <div style="color:#8b949e">${week}</div>
+            <div style="color:#f85149">传统粗放：<b>¥${t?.value ?? '-'}</b></div>
+            <div style="color:#3fb950">农智闭环：<b>¥${a?.value ?? '-'}</b></div>
+            <div style="color:#d29922">累计节约：<b>¥${s?.value ?? '-'}</b></div>
+          </div>`;
+        }
+      },
       legend: { show: false },
       xAxis: {
         type: 'category',

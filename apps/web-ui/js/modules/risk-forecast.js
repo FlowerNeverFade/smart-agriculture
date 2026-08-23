@@ -234,6 +234,18 @@ export async function renderRiskForecast(container, plotId) {
             symbol: 'circle', symbolSize: 4, showSymbol: false,
             lineStyle: { color: MEAN_COLOR, width: 2.4 },
             itemStyle: { color: MEAN_COLOR },
+            tooltip: {
+              // 紧凑内容：浮窗按内容自适应大小
+              formatter: (params) => {
+                const p = params[0];
+                const c = curve.find(pt => pt.minute === Number(p.axisValue)) || {};
+                return `<div style="line-height:1.8">
+                  <div style="color:#8b949e">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
+                  <div>期望值：<b style="color:#58a6ff">${p.value}%</b></div>
+                  <div style="color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>
+                </div>`;
+              }
+            },
             markLine: {
               silent: true,
               symbol: 'none',
@@ -332,6 +344,7 @@ export async function renderScenarioReplay(container, plotId) {
   const seedInput = container.querySelector('#srSeedInput');
   let selectedScenario = 'DROUGHT';
   let chartInstances = [];
+  let activeChart = null; // 当前双轨图的 ECharts 实例（跨 renderRunOutput 生命周期）
 
   container.querySelectorAll('.sr-scenario-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -342,10 +355,21 @@ export async function renderScenarioReplay(container, plotId) {
     });
   });
 
-  const cleanup = () => {
+  /** 只停止回放定时器（不销毁图表，避免画布变黑） */
+  const stopPlayback = () => {
     if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  };
+
+  /** 销毁全部 ECharts 实例（关闭弹窗 / 重新推演时调用） */
+  const disposeCharts = () => {
     chartInstances.forEach(c => { try { c.dispose(); } catch (e) { /* noop */ } });
     chartInstances = [];
+    activeChart = null;
+  };
+
+  const cleanup = () => {
+    stopPlayback();
+    disposeCharts();
   };
 
   runBtn.addEventListener('click', async () => {
@@ -457,7 +481,6 @@ export async function renderScenarioReplay(container, plotId) {
     const valDiff = runOutput.querySelector('[data-role="val-diff"]');
     const playBtn = runOutput.querySelector('[data-role="play-btn"]');
     const resetBtn = runOutput.querySelector('[data-role="reset-btn"]');
-    let chart = null;
 
     const buildMarkLineData = (t) => [
       { xAxis: t, lineStyle: { color: '#f0f6fc' }, label: { formatter: `◉ t=${t}min`, color: '#f0f6fc' } },
@@ -492,7 +515,24 @@ export async function renderScenarioReplay(container, plotId) {
       return {
         backgroundColor: 'transparent',
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
-        tooltip: darkTooltip(),
+        tooltip: {
+          ...darkTooltip(),
+          // 紧凑内容：分支 A/B 数值 + 差值，浮窗按内容自适应大小
+          formatter: (params) => {
+            const a = params[0];
+            const b = params[1];
+            if (!a || !b) return '';
+            const av = Number(a.value);
+            const bv = Number(b.value);
+            const diff = av - bv;
+            return `<div style="line-height:1.8">
+              <div style="color:#8b949e">t = ${a.axisValue} min</div>
+              <div>分支 A 执行：<b style="color:#3fb950">${av.toFixed(1)}%</b></div>
+              <div>分支 B 放任：<b style="color:#f85149">${bv.toFixed(1)}%</b></div>
+              <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>
+            </div>`;
+          }
+        },
         xAxis: {
           type: 'category', boundaryGap: false,
           data: bExec.points.map(p => p.minute),
@@ -509,17 +549,17 @@ export async function renderScenarioReplay(container, plotId) {
     };
 
     const renderChartAt = (t) => {
-      if (!chart) {
-        chart = initEChart(chartEl);
-        if (chart) {
-          chartInstances.push(chart);
-          chart.setOption(buildEChartsOption(t), true); // 首次全量渲染
+      if (!activeChart) {
+        activeChart = initEChart(chartEl);
+        if (activeChart) {
+          chartInstances.push(activeChart);
+          activeChart.setOption(buildEChartsOption(t), true); // 首次全量渲染
         }
       } else {
         // 增量更新：只移动回放标记线，不重建数据序列（避免播放抽搐）
-        chart.setOption({ series: [{ markLine: { animation: false, data: buildMarkLineData(t) } }] });
+        activeChart.setOption({ series: [{ markLine: { animation: false, data: buildMarkLineData(t) } }] });
       }
-      if (chart) return;
+      if (activeChart) return;
       // 纯 SVG 兜底
       const markers = cmp.markers.map(m => ({ x: m.minute, label: m.label, color: m.minute === cmp.execMinute ? '#3fb950' : '#8b949e' }));
       markers.push({ x: t, label: `◉ t=${t}min`, color: '#f0f6fc', dashed: false });
@@ -552,12 +592,12 @@ export async function renderScenarioReplay(container, plotId) {
     };
 
     range.addEventListener('input', () => {
-      cleanup();
+      stopPlayback(); // 只停定时器，不销毁图表实例
       playBtn.innerHTML = '▶ 播放';
       updateReadouts(Number(range.value));
     });
     playBtn.addEventListener('click', () => {
-      if (playTimer) { cleanup(); playBtn.innerHTML = '▶ 播放'; return; }
+      if (playTimer) { stopPlayback(); playBtn.innerHTML = '▶ 播放'; return; }
       playBtn.innerHTML = '⏸ 暂停';
       playTimer = setInterval(() => {
         let t = Number(range.value) + 5;
@@ -567,7 +607,7 @@ export async function renderScenarioReplay(container, plotId) {
       }, 120);
     });
     resetBtn.addEventListener('click', () => {
-      cleanup();
+      stopPlayback();
       playBtn.innerHTML = '▶ 播放';
       range.value = 0;
       updateReadouts(0);
