@@ -4,6 +4,7 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
+import { initParticles } from './particles.js';
 
 /**
  * 已实现的独立子模块渲染器（按 view 名分发，renderer 返回可选 cleanup）
@@ -12,7 +13,8 @@ import { api } from './api.js';
 const SUBVIEW_RENDERERS = {
   'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
   'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
-  'value-ledger': async (container, plotId) => (await import('./modules/value-ledger.js')).renderValueLedger(container, plotId)
+  'value-ledger': async (container, plotId) => (await import('./modules/value-ledger.js')).renderValueLedger(container, plotId),
+  'crop-packs': async (container) => (await import('./modules/crop-packs.js')).renderCropPacks(container)
 };
 
 class AgriApp {
@@ -33,6 +35,9 @@ class AgriApp {
   async init() {
     this.cacheDom();
     this.bindEvents();
+
+    // 全局粒子背景（OceanX 科考风动效，任务包 5）
+    this._particlesCleanup = initParticles();
 
     // Check backend connection
     this.state.isLive = await api.checkHealth();

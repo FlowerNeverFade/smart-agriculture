@@ -175,6 +175,25 @@ if (vlReady) {
   ok('口径来源表 3 行', document.querySelectorAll('.vl-provenance-table tbody tr').length === 3);
 }
 
+// ============ 视图 4：crop-packs ============
+gotoView('#view=crop-packs');
+const cpReady = await waitFor(() => document.querySelector('.cp-tabs'), 6000);
+ok('crop-packs 模块渲染', cpReady);
+if (cpReady) {
+  ok('两个作物 Tab（番茄/黄瓜）', document.querySelectorAll('.cp-tab').length === 2);
+  ok('身份档案（重庆 · v1.0.0）', document.querySelector('.cp-identity').textContent.includes('重庆') && document.querySelector('.cp-identity').textContent.includes('v1.0.0'));
+  ok('6 项指标定义 + availability 徽标', document.querySelectorAll('.cp-metric').length === 6 && !!document.querySelector('.cp-metric .agri-pill-ok'));
+  ok('4 个阶段参数卡片', document.querySelectorAll('.cp-stage').length === 4);
+  const md = document.querySelector('.cp-md');
+  ok('知识文档阅读器（标题/列表/引用）', !!md?.querySelector('.cp-md-h') && md.querySelectorAll('.cp-md-list li').length >= 3 && !!md.querySelector('.cp-md-quote'));
+  ok('检索回退链展示', document.querySelector('.cp-fallback').textContent.includes('plot → region → stage → crop → general'));
+  ok('情景映射 5 项', document.querySelectorAll('.cp-scenario').length === 5);
+  document.querySelector('.cp-tab[data-crop="cucumber"]').click();
+  await sleep(100);
+  const cuke = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换黄瓜后参数/阈值更新', cuke.includes('32 ~ 52%') && cuke.includes('WATER_DEFICIT'));
+}
+
 // ============ 关闭弹窗清理 + 返回 Home ============
 document.querySelector('#btnCloseModal').click();
 await sleep(200);

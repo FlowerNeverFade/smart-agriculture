@@ -34,9 +34,11 @@ function darkTooltip() {
 export async function renderValueLedger(container) {
   const loadingId = `vl-loading-${Date.now()}`;
   container.innerHTML = `
-    <div class="agri-module-loading" id="${loadingId}">
-      <div class="agri-spinner"></div>
-      <span>正在拉取经营对账数据...</span>
+    <div class="agri-skeleton-wrap" id="${loadingId}">
+      <div class="agri-skeleton agri-skeleton-title"></div>
+      <div class="agri-skeleton agri-skeleton-line"></div>
+      <div class="agri-skeleton agri-skeleton-line short"></div>
+      <div class="agri-skeleton agri-skeleton-line"></div>
     </div>`;
 
   const data = await api.getValueLedgers();

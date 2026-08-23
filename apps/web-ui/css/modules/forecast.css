@@ -11,6 +11,40 @@
   gap: 14px;
 }
 
+/* 全局粒子背景（OceanX 科考风，z-index -1 置于内容之下） */
+.agri-particles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* 加载骨架屏（shimmer 动效） */
+.agri-skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.agri-skeleton {
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, #1c2128 25%, #262c36 37%, #1c2128 63%);
+  background-size: 400% 100%;
+  animation: agri-shimmer 1.4s ease infinite;
+}
+.agri-skeleton-title { height: 20px; width: 45%; }
+.agri-skeleton-line { width: 92%; }
+.agri-skeleton-line.short { width: 62%; }
+@keyframes agri-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
 .agri-module-title {
   font-size: 15px;
   font-weight: 600;

@@ -160,7 +160,7 @@ apps/web-ui/
 ### 任务包 5：效益对账本、作物包管理与全局动效 (`value-ledger` + `crop-packs`)
 > **负责成员**：成员 E  
 > **核心定位**：解决“经营账本与全局质感”的问题，提升系统综合答辩表现力。  
-> **实现状态**：🔄 部分完成（yyx 分支，2026-08-23）——`value-ledger` 部分（效益对账本）已完成：`js/modules/value-ledger.js`、`css/modules/value-ledger.css`，验收方式同任务包 4；`crop-packs` 阅读器与全局动效（⌘K 已有、粒子背景、骨架屏）待后续任务包。
+> **实现状态**：✅ 已完成（yyx 分支，2026-08-23）——`value-ledger` 效益对账本（`js/modules/value-ledger.js`、`css/modules/value-ledger.css`）、`crop-packs` 作物包阅读器（`js/modules/crop-packs.js`、`css/modules/crop-packs.css`，数据与后端 pack.yaml 对齐：阶段参数/指标定义/规则/知识文档/约束/情景映射）、全局动效（`js/particles.js` 粒子背景、骨架屏、⌘K 与 Toast 已有）。验收：本地 3000 端口 + `node scripts/verify-webui.mjs`（real 36/36、svg 35/35、stub 35/35）。
 
 * **对应路由**：`#view=value-ledger` 与 `#view=crop-packs`
 * **具体开发内容**：

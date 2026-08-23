@@ -45,9 +45,11 @@ function darkTooltip() {
 export async function renderRiskForecast(container, plotId) {
   const loadingId = `rf-loading-${Date.now()}`;
   container.innerHTML = `
-    <div class="agri-module-loading" id="${loadingId}">
-      <div class="agri-spinner"></div>
-      <span>正在运行确定性趋势推演 (robust-trend-v1.2)...</span>
+    <div class="agri-skeleton-wrap" id="${loadingId}">
+      <div class="agri-skeleton agri-skeleton-title"></div>
+      <div class="agri-skeleton agri-skeleton-line"></div>
+      <div class="agri-skeleton agri-skeleton-line short"></div>
+      <div class="agri-skeleton agri-skeleton-line"></div>
     </div>`;
 
   const data = await api.getRiskForecast(plotId, 'SOIL_MOISTURE');

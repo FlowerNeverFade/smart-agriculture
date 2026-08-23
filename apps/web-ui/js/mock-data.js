@@ -264,6 +264,119 @@ export const MOCK_DATA = {
   ],
 
   /**
+   * Crop Pack 完整配置（与 apps/api-service 的 crop-packs 目录下 pack.yaml 对齐）
+   * 作物差异全部由版本化 Crop Pack 注入，前端不复制作物分支
+   */
+  cropPackDetails: [
+    {
+      cropCode: "tomato",
+      version: "1.0.0",
+      schemaVersion: "1.0",
+      identity: { name: "番茄", variety: "demonstration", region: "重庆" },
+      stages: [
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] },
+        { code: "flowering", sequence: 3, label: "开花坐果期", target: { soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "fruiting", sequence: 4, label: "果实成熟期", target: { soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] }
+      ],
+      metrics: [
+        { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
+        { code: "AIR_TEMPERATURE", label: "棚内空气温度", unit: "°C", availability: "SUPPORTED", range: { min: -40, max: 80 } },
+        { code: "LIGHT", label: "光照强度", unit: "lux", availability: "SIMULATION_ONLY", range: { min: 0, max: 100000 } },
+        { code: "CO2", label: "CO2 浓度", unit: "ppm", availability: "SIMULATION_ONLY", range: { min: 0, max: 10000 } },
+        { code: "PH", label: "土壤酸碱度", unit: "pH", availability: "SIMULATION_ONLY", range: { min: 0, max: 14 } },
+        { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
+      ],
+      rules: [
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
+      ],
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
+      coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
+      knowledgeVersion: "kb-1.0.0",
+      ruleVersion: "rule-1.0.0",
+      knowledge: {
+        documents: ["knowledge/irrigation.md"],
+        fallback: ["plot", "region", "stage", "crop", "general"],
+        content: [
+          "# 番茄结果期灌溉知识",
+          "",
+          "在结果期，先确认土壤湿度的时间窗口和设备流量，再决定灌溉时长。",
+          "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。",
+          "",
+          "- 结果期土壤含水率适宜区间：20%~40%，过湿易裂果，过干易脐腐",
+          "- 蒸散加快时段（高温强光）优先补水，灌溉时长受 900s 安全上限约束",
+          "- 灌溉冷却窗口 120 分钟：冷却期内禁止重复下发，避免叠灌",
+          "",
+          "> 证据范围：作物：番茄，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+        ]
+      },
+      scenarios: {
+        normal: { quality: "GOOD", expected: "stable" },
+        drought: { quality: "GOOD", expected: "soil_moisture_decline" },
+        "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" },
+        "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" },
+        "device-offline": { quality: "BAD", expected: "device_gate" }
+      },
+      testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
+    },
+    {
+      cropCode: "cucumber",
+      version: "1.0.0",
+      schemaVersion: "1.0",
+      identity: { name: "黄瓜", variety: "demonstration", region: "重庆" },
+      stages: [
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] },
+        { code: "flowering", sequence: 3, label: "初花期", target: { soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }] },
+        { code: "fruiting", sequence: 4, label: "采收盛期", target: { soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }] }
+      ],
+      metrics: [
+        { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
+        { code: "AIR_TEMPERATURE", label: "棚内空气温度", unit: "°C", availability: "SUPPORTED", range: { min: -40, max: 80 } },
+        { code: "LIGHT", label: "光照强度", unit: "lux", availability: "SIMULATION_ONLY", range: { min: 0, max: 100000 } },
+        { code: "CO2", label: "CO2 浓度", unit: "ppm", availability: "SIMULATION_ONLY", range: { min: 0, max: 10000 } },
+        { code: "PH", label: "土壤酸碱度", unit: "pH", availability: "SIMULATION_ONLY", range: { min: 0, max: 14 } },
+        { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
+      ],
+      rules: [
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 24, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
+      ],
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
+      coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
+      knowledgeVersion: "kb-1.0.0",
+      ruleVersion: "rule-1.0.0",
+      knowledge: {
+        documents: ["knowledge/irrigation.md"],
+        fallback: ["plot", "region", "stage", "crop", "general"],
+        content: [
+          "# 黄瓜结果期灌溉知识",
+          "",
+          "黄瓜需保持较稳定的根区水分。",
+          "处方应同时参考阶段目标、近期趋势、设备健康和可用水量；传感器漂移时优先人工核验，不把异常读数当成真实缺水。",
+          "",
+          "- 采收盛期土壤含水率适宜区间：24%~44%，根系浅、喜湿怕涝",
+          "- 灌溉时长受 900s 安全上限约束，冷却窗口 120 分钟",
+          "- 数据质量 DEGRADED/BAD 时只触发巡田、复测和流量校准，不生成可执行处方",
+          "",
+          "> 证据范围：作物：黄瓜，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+        ]
+      },
+      scenarios: {
+        normal: { quality: "GOOD", expected: "stable" },
+        drought: { quality: "GOOD", expected: "soil_moisture_decline" },
+        "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" },
+        "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" },
+        "device-offline": { quality: "BAD", expected: "device_gate" }
+      },
+      testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
+    }
+  ],
+
+  /**
    * 风险预测与情景推演配置（CAP-09 / Gate 2 / Gate 3）
    * 预测必须保存：输入窗口、预测时点、预测范围、算法版本、假设与不确定性
    */

@@ -487,6 +487,38 @@ export class ApiService {
     return JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
   }
 
+  /**
+   * 作物包：GET /api/v1/crop-packs（完整包配置：阶段/指标/规则/知识/约束）
+   */
+  async getCropPacks() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/crop-packs');
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live crop-packs failed, falling back to mock:', e);
+      }
+    }
+    return JSON.parse(JSON.stringify(MOCK_DATA.cropPackDetails));
+  }
+
+  /**
+   * 规则注册表：GET /api/v1/rules（跨包统一规则视图）
+   */
+  async getRules() {
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch('/api/v1/rules');
+        if (resp && resp.data) return resp.data;
+      } catch (e) {
+        console.warn('Live rules failed, falling back to mock:', e);
+      }
+    }
+    return MOCK_DATA.cropPackDetails.flatMap(pack =>
+      pack.rules.map(r => ({ ...r, cropCode: pack.cropCode, cropName: pack.identity.name, ruleVersion: pack.ruleVersion }))
+    );
+  }
+
   async _fetch(path, options = {}) {
     const headers = {
       'Content-Type': 'application/json',
