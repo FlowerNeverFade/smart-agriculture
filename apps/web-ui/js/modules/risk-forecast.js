@@ -16,24 +16,23 @@ const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
 
 /** 统一深色主题 tooltip：内容紧凑、按内容自适应尺寸
- * 注意：ECharts TooltipHTMLContent 会无条件生成 box-shadow、强制
- * line-height=fontSize*1.5、white-space:nowrap 等默认样式，
- * 这里对全部相关属性使用 !important 彻底覆盖（级联优先级最高）。
+ * 关键：modal 背景为 #161b22，tooltip 若同色会完全融入背景、看不见浮窗边界。
+ * 因此 tooltip 背景提亮一档（--bg-card #21262d）+ 亮边框 + 投影，保证从页面浮起。
  */
 function darkTooltip() {
   return {
     trigger: 'axis',
     confine: true,
-    backgroundColor: '#161b22',
-    borderColor: '#30363d',
+    backgroundColor: '#21262d',
+    borderColor: '#3d444d',
     borderWidth: 1,
     padding: [5, 8],
-    shadowBlur: 0,
-    shadowColor: 'transparent',
+    shadowBlur: 16,
+    shadowColor: 'rgba(0, 0, 0, 0.55)',
     shadowOffsetX: 0,
-    shadowOffsetY: 0,
+    shadowOffsetY: 4,
     textStyle: { color: '#f0f6fc', fontSize: 12 },
-    extraCssText: 'white-space: normal !important; line-height: 16px !important; font-size: 12px !important; color: #f0f6fc !important; padding: 6px 10px !important; background-color: #161b22 !important; border: 1px solid #30363d !important; border-radius: 6px !important; box-shadow: none !important; max-width: 320px !important; word-break: break-word !important;',
+    extraCssText: 'white-space: normal !important; line-height: 16px !important; font-size: 12px !important; color: #f0f6fc !important; padding: 6px 10px !important; background-color: #21262d !important; border: 1px solid #3d444d !important; border-radius: 6px !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55) !important; max-width: 320px !important; word-break: break-word !important;',
     axisPointer: { lineStyle: { color: '#58a6ff' } }
   };
 }
