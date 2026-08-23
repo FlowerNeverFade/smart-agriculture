@@ -40,10 +40,9 @@ cd "$APP_ROOT/app"
   --data "$DATA_PATH" \
   --output "$OUTPUT_PATH" \
   --max-steps "${FINETUNE_MAX_STEPS:-90}" \
-  --epochs "${FINETUNE_EPOCHS:-3}" \
+  --epochs "${FINETUNE_EPOCHS:-6}" \
   --seq-len "${FINETUNE_SEQ_LEN:-2048}" \
   --gradient-accumulation "${FINETUNE_GRADIENT_ACCUMULATION:-8}"
 
 trap - EXIT
 restart_model
-

@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -174,6 +176,9 @@ def main() -> None:
 
     output = Path(args.output)
     if rank == 0:
+        # A failed/aborted run must never be mistaken for a usable adapter.
+        if output.exists():
+            shutil.rmtree(output)
         output.mkdir(parents=True, exist_ok=True)
         (output / "training_config.json").write_text(json.dumps(vars(args), ensure_ascii=False, indent=2), encoding="utf-8")
     if world_size > 1:
@@ -185,8 +190,18 @@ def main() -> None:
     micro_step = 0
     started = time.time()
     for epoch in range(args.epochs):
-        indices = list(range(rank, len(rows), world_size))
-        random.Random(args.seed + epoch).shuffle(indices)
+        # DDP requires every rank to execute exactly the same number of
+        # forward/backward collectives. Pad the shuffled global order to an
+        # equal per-rank length, then drop the same incomplete accumulation
+        # tail on every rank.
+        shuffled = list(range(len(rows)))
+        random.Random(args.seed + epoch).shuffle(shuffled)
+        total = math.ceil(len(shuffled) / world_size) * world_size
+        if total > len(shuffled):
+            shuffled.extend(shuffled[: total - len(shuffled)])
+        indices = shuffled[rank:total:world_size]
+        usable = (len(indices) // (args.batch_size * args.gradient_accumulation)) * (args.batch_size * args.gradient_accumulation)
+        indices = indices[:usable]
         for offset in range(0, len(indices), args.batch_size):
             batch_rows = [rows[index] for index in indices[offset : offset + args.batch_size]]
             batch = collate(batch_rows, tokenizer.pad_token_id, device)
@@ -223,4 +238,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
