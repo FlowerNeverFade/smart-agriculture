@@ -33,6 +33,11 @@ spring:
 agriloop:
   mode: ${APP_MODE:standalone}
   ai-mode: ${AI_MODE:rules-only}
+  llm-base-url: ${LLM_BASE_URL:http://127.0.0.1:8000/v1}
+  llm-model: ${LLM_MODEL:Qwen3.8-27B}
+  llm-api-key: ${LLM_API_KEY:}
+  llm-timeout-ms: ${LLM_TIMEOUT_MS:60000}
+  llm-max-tokens: ${LLM_MAX_TOKENS:256}
   command-mode: ${COMMAND_MODE:virtual}
   forecast-mode: ${FORECAST_MODE:deterministic}
   learning-mode: ${LEARNING_MODE:case-only}
