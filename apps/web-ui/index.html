@@ -43,9 +43,9 @@
       <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发">
         <span>+</span> 快捷操作
       </button>
-      <div class="user-profile-badge" id="btnUserMenu" title="用户角色信息">
-        <div class="user-avatar" id="userAvatar">🧑‍🌾</div>
-        <span style="font-size: 13px; font-weight: 500;" id="userDisplayName">admin</span>
+      <div class="user-profile-badge" id="btnUserMenu" title="登录后使用真实 Agent">
+        <div class="user-avatar" id="userAvatar">🔐</div>
+        <span style="font-size: 13px; font-weight: 500;" id="userDisplayName">未登录</span>
       </div>
     </div>
   </header>
@@ -159,6 +159,10 @@
 
       <!-- Copilot Agent Prompt Box (GitHub Home Prompt Box Style) -->
       <div class="copilot-prompt-card">
+        <div class="copilot-connection-row">
+          <span class="copilot-connection-status" id="copilotConnectionStatus">登录后连接服务器上的 Qwen3.8-27B</span>
+          <button class="btn-ghost copilot-login-link" id="btnCopilotLogin" type="button">登录</button>
+        </div>
         <div class="copilot-input-area">
           <textarea class="copilot-textarea" id="copilotInput" placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')..."></textarea>
         </div>
@@ -324,6 +328,29 @@
           // 预留的后端数据契约与接口已绑定
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Authentication Modal -->
+  <div class="auth-modal-backdrop" id="authModal" aria-hidden="true">
+    <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <div class="auth-modal-header">
+        <div>
+          <div class="auth-kicker">AGRILOOP ACCESS</div>
+          <h2 id="authModalTitle">登录农智闭环</h2>
+          <p>登录后，网页会把 Copilot 请求发送到服务器上的 Qwen3.8-27B。</p>
+        </div>
+        <button class="close-modal-btn" id="btnCloseAuthModal" type="button" title="关闭">✕</button>
+      </div>
+      <form class="auth-form" id="authForm">
+        <label for="authUsername">账号</label>
+        <input id="authUsername" name="username" type="text" autocomplete="username" placeholder="例如：farmer" required>
+        <label for="authPassword">密码</label>
+        <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="输入登录密码" required>
+        <p class="auth-error" id="authError" role="alert"></p>
+        <button class="auth-submit-btn" id="btnAuthSubmit" type="submit">登录并连接 AI</button>
+      </form>
+      <div class="auth-hint">可用角色：农户、执行员、农场管理员、系统管理员。权限仍由后端 JWT/RBAC 校验。</div>
     </div>
   </div>
 

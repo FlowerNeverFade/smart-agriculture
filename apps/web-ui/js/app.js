@@ -14,7 +14,10 @@ class AgriApp {
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
-      isLive: false
+      isLive: false,
+      authenticated: api.isAuthenticated(),
+      user: api.getUser(),
+      backendAiMode: null
     };
 
     this.dom = {};
@@ -26,6 +29,10 @@ class AgriApp {
 
     // Check backend connection
     this.state.isLive = await api.checkHealth();
+    if (this.state.isLive && api.isAuthenticated()) {
+      await api.restoreSession();
+    }
+    this.syncAuthState();
     this.updateSystemStatusPill();
 
     // Load initial data
@@ -36,6 +43,10 @@ class AgriApp {
     this.handleRoute();
 
     window.addEventListener('hashchange', () => this.handleRoute());
+
+    // A healthy deployment still requires a JWT. Make that boundary visible
+    // immediately instead of letting the first chat silently use demo data.
+    if (this.state.isLive && !api.isAuthenticated()) this.openAuthModal();
   }
 
   cacheDom() {
@@ -44,6 +55,17 @@ class AgriApp {
     this.dom.systemStatusText = document.getElementById('systemStatusText');
     this.dom.rightAiModeTag = document.getElementById('rightAiModeTag');
     this.dom.userDisplayName = document.getElementById('userDisplayName');
+    this.dom.userAvatar = document.getElementById('userAvatar');
+    this.dom.btnUserMenu = document.getElementById('btnUserMenu');
+    this.dom.copilotConnectionStatus = document.getElementById('copilotConnectionStatus');
+    this.dom.btnCopilotLogin = document.getElementById('btnCopilotLogin');
+    this.dom.authModal = document.getElementById('authModal');
+    this.dom.authForm = document.getElementById('authForm');
+    this.dom.authUsername = document.getElementById('authUsername');
+    this.dom.authPassword = document.getElementById('authPassword');
+    this.dom.authError = document.getElementById('authError');
+    this.dom.btnAuthSubmit = document.getElementById('btnAuthSubmit');
+    this.dom.btnCloseAuthModal = document.getElementById('btnCloseAuthModal');
     this.dom.plotListContainer = document.getElementById('plotListContainer');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
@@ -91,6 +113,32 @@ class AgriApp {
       this.openSubview('resource-coordination');
     });
 
+    // Authentication entry points
+    this.dom.btnUserMenu?.addEventListener('click', () => {
+      if (api.isAuthenticated()) {
+        api.logout();
+        this.state.authenticated = false;
+        this.state.user = null;
+        this.syncAuthState();
+        this.updateSystemStatusPill();
+        this.showToast('已退出登录；再次发送问题时会要求重新登录。', 'info');
+      } else {
+        this.openAuthModal();
+      }
+    });
+    this.dom.btnCopilotLogin?.addEventListener('click', () => {
+      if (api.isAuthenticated()) {
+        this.dom.btnUserMenu?.click();
+      } else {
+        this.openAuthModal();
+      }
+    });
+    this.dom.authForm?.addEventListener('submit', (e) => this.submitLogin(e));
+    this.dom.btnCloseAuthModal?.addEventListener('click', () => this.closeAuthModal());
+    this.dom.authModal?.addEventListener('click', (e) => {
+      if (e.target === this.dom.authModal) this.closeAuthModal();
+    });
+
     // Search input filter for plots
     this.dom.plotSearchInput?.addEventListener('input', (e) => {
       this.filterPlots(e.target.value);
@@ -105,7 +153,8 @@ class AgriApp {
         e.preventDefault();
         this.dom.globalSearchInput?.focus();
       } else if (e.key === 'Escape') {
-        this.closeModal();
+        if (this.dom.authModal?.classList.contains('active')) this.closeAuthModal();
+        else this.closeModal();
       }
     });
 
@@ -157,20 +206,153 @@ class AgriApp {
   }
 
   async loadOverview() {
-    const overview = await api.getOverview();
-    if (overview && overview.plots) {
-      this.state.plots = overview.plots;
+    if (this.state.isLive && !api.isAuthenticated()) return;
+    try {
+      const overview = await api.getOverview();
+      if (overview && overview.plots) {
+        this.state.plots = overview.plots.map(plot => this.normalizePlot(plot));
+      }
+      this.state.backendAiMode = overview?.aiMode || this.state.backendAiMode;
+    } catch (e) {
+      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') {
+        this.handleSessionExpired(false);
+      } else if (this.state.isLive) {
+        this.showToast('读取后端总览失败：' + e.message, 'error');
+      }
     }
+  }
+
+  normalizePlot(plot) {
+    const fallback = MOCK_DATA.plots.find(item => item.plotId === plot?.plotId) || MOCK_DATA.plots[0];
+    const metrics = { ...(fallback?.metrics || {}) };
+    const latest = plot?.latest || {};
+    Object.entries(latest).forEach(([metric, event]) => {
+      if (!event || event.value === undefined || event.value === null) return;
+      const base = metrics[metric] || { label: metric, target: '—' };
+      metrics[metric] = {
+        ...base,
+        value: Number(event.value),
+        unit: event.unit || base.unit || '',
+        status: event.quality?.status || base.status || 'GOOD',
+        ts: event.ts || event.timestamp
+      };
+    });
+    const device = plot?.device || {};
+    return {
+      ...fallback,
+      ...plot,
+      cropName: plot?.cropName || fallback?.cropName || plot?.cropCode || '作物',
+      stageLabel: plot?.stageLabel || fallback?.stageLabel || '当前阶段',
+      metrics,
+      deviceId: device.deviceId || fallback?.deviceId,
+      deviceStatus: device.status || fallback?.deviceStatus || 'UNKNOWN',
+      healthScore: device.healthScore ?? fallback?.healthScore,
+      lastSeen: device.lastSeen || fallback?.lastSeen
+    };
   }
 
   updateSystemStatusPill() {
     if (this.state.isLive) {
-      this.dom.systemStatusText.textContent = "后端服务在线 (REST/SSE)";
-      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
-      this.dom.rightAiModeTag.textContent = "rules-only (live)";
+      this.dom.systemStatusText.textContent = api.isAuthenticated() ? "后端在线 · 已登录" : "后端在线 · 需要登录";
+      this.dom.systemStatusPill?.querySelector('.dot')?.style.setProperty('backgroundColor', "var(--green-bright)");
+      const mode = this.state.backendAiMode || 'openai-compatible';
+      this.dom.rightAiModeTag.textContent = api.isAuthenticated()
+        ? (mode === 'openai-compatible' ? 'Qwen3.8-27B · 已连接' : `${mode} · 已连接`)
+        : 'AI 需登录';
     } else {
-      this.dom.systemStatusText.textContent = "本地仿真态 (POSTGRESQL)";
-      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
+      this.dom.systemStatusText.textContent = "本地演示数据 · 后端离线";
+      this.dom.systemStatusPill?.querySelector('.dot')?.style.setProperty('backgroundColor', "var(--amber-primary)");
+      this.dom.rightAiModeTag.textContent = "本地 mock";
+    }
+  }
+
+  syncAuthState() {
+    this.state.authenticated = api.isAuthenticated();
+    this.state.user = api.getUser();
+    const user = this.state.user;
+    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = user?.username || '未登录';
+    if (this.dom.userAvatar) this.dom.userAvatar.textContent = user ? '🧑‍🌾' : '🔐';
+    if (this.dom.btnUserMenu) {
+      this.dom.btnUserMenu.title = user
+        ? `${user.username} · ${user.role || '已登录'} · 点击退出`
+        : '登录后使用真实 Agent';
+    }
+    if (this.dom.copilotConnectionStatus) {
+      const connected = Boolean(user && this.state.isLive);
+      this.dom.copilotConnectionStatus.classList.toggle('connected', connected);
+      this.dom.copilotConnectionStatus.textContent = connected
+        ? '已登录 · Copilot 将调用服务器上的 Qwen3.8-27B'
+        : (this.state.isLive ? '登录后连接服务器上的 Qwen3.8-27B' : '后端离线 · 当前为本地演示数据');
+    }
+    if (this.dom.btnCopilotLogin) this.dom.btnCopilotLogin.textContent = user ? '退出' : '登录';
+  }
+
+  openAuthModal() {
+    if (!this.dom.authModal) return;
+    this.dom.authModal.classList.add('active');
+    this.dom.authModal.setAttribute('aria-hidden', 'false');
+    if (this.dom.authError) this.dom.authError.textContent = '';
+    if (this.dom.authUsername && !this.dom.authUsername.value) this.dom.authUsername.value = 'farmer';
+    window.setTimeout(() => {
+      (this.dom.authUsername?.value ? this.dom.authPassword : this.dom.authUsername)?.focus();
+    }, 0);
+  }
+
+  closeAuthModal() {
+    if (!this.dom.authModal) return;
+    this.dom.authModal.classList.remove('active');
+    this.dom.authModal.setAttribute('aria-hidden', 'true');
+  }
+
+  async submitLogin(event) {
+    event?.preventDefault();
+    const username = this.dom.authUsername?.value.trim();
+    const password = this.dom.authPassword?.value || '';
+    if (!username || !password) {
+      if (this.dom.authError) this.dom.authError.textContent = '请输入账号和密码。';
+      return;
+    }
+    if (!this.state.isLive) {
+      if (this.dom.authError) this.dom.authError.textContent = '后端当前不可达，请先确认公网服务已启动。';
+      return;
+    }
+
+    if (this.dom.btnAuthSubmit) {
+      this.dom.btnAuthSubmit.disabled = true;
+      this.dom.btnAuthSubmit.textContent = '正在验证…';
+    }
+    if (this.dom.authError) this.dom.authError.textContent = '';
+    try {
+      const session = await api.login(username, password);
+      this.state.user = session.user || api.getUser();
+      this.syncAuthState();
+      this.updateSystemStatusPill();
+      this.closeAuthModal();
+      await this.loadOverview();
+      this.renderPlots(this.dom.plotSearchInput?.value || '');
+      this.renderFeed();
+      this.showToast(`已登录 ${username}。Copilot 现在会调用真实后端 AI。`, 'success');
+    } catch (e) {
+      if (this.dom.authError) {
+        this.dom.authError.textContent = e.status === 401
+          ? '账号或密码错误，请重试。'
+          : `登录失败：${e.message || '后端未响应'}`;
+      }
+    } finally {
+      if (this.dom.btnAuthSubmit) {
+        this.dom.btnAuthSubmit.disabled = false;
+        this.dom.btnAuthSubmit.textContent = '登录并连接 AI';
+      }
+    }
+  }
+
+  handleSessionExpired(showMessage = true) {
+    api.logout();
+    this.syncAuthState();
+    this.updateSystemStatusPill();
+    if (showMessage) {
+      this.showToast('登录已过期，请重新登录后继续对话。', 'error');
+      this.openAuthModal();
     }
   }
 
@@ -373,6 +555,11 @@ class AgriApp {
   }
 
   async executeIrrigationAction(planId, plotId, triggerBtn) {
+    if (this.state.isLive && !api.isAuthenticated()) {
+      this.openAuthModal();
+      this.showToast('请先登录，再申请真实灌溉执行。', 'info');
+      return;
+    }
     if (triggerBtn) {
       triggerBtn.disabled = true;
       triggerBtn.innerHTML = `<span>⏳ 正在通过 MQTT 指令下发...</span>`;
@@ -411,9 +598,19 @@ class AgriApp {
   }
 
   async generatePrescriptionAction(plotId) {
+    if (this.state.isLive && !api.isAuthenticated()) {
+      this.openAuthModal();
+      this.showToast('请先登录，再生成真实处方。', 'info');
+      return;
+    }
     this.showToast(`正在基于【${plotId}】Crop Pack 模型生成精准处方...`, 'info');
-    const chatResult = await api.agentChat('生成灌溉处方', plotId);
-    this.displayCopilotBanner(chatResult);
+    try {
+      const chatResult = await api.agentChat('生成灌溉处方', plotId);
+      this.displayCopilotBanner(chatResult);
+    } catch (e) {
+      if (e.status === 401) this.handleSessionExpired();
+      else this.showToast('处方生成失败：' + e.message, 'error');
+    }
   }
 
   handleCopilotChip(intent) {
@@ -436,6 +633,12 @@ class AgriApp {
     const query = this.dom.copilotInput?.value.trim();
     if (!query) return;
 
+    if (this.state.isLive && !api.isAuthenticated()) {
+      this.openAuthModal();
+      this.showToast('请先登录；登录后这里会调用真实 Qwen3.8-27B。', 'info');
+      return;
+    }
+
     this.dom.btnSendCopilot.disabled = true;
     this.dom.btnSendCopilot.innerHTML = `<span>⏳ 分析中...</span>`;
 
@@ -443,7 +646,11 @@ class AgriApp {
       const response = await api.agentChat(query, this.state.currentPlotId);
       this.displayCopilotBanner(response);
     } catch (e) {
-      this.showToast('Agent 协同异常: ' + e.message, 'error');
+      if (e.status === 401) {
+        this.handleSessionExpired();
+      } else {
+        this.showToast('Agent 协同异常: ' + e.message, 'error');
+      }
     } finally {
       this.dom.btnSendCopilot.disabled = false;
       this.dom.btnSendCopilot.innerHTML = `<span>✨ 智能分析</span>`;
@@ -454,13 +661,41 @@ class AgriApp {
     if (!this.dom.copilotOutputBanner) return;
     this.dom.copilotOutputBanner.classList.add('active');
     this.dom.copilotTraceId.textContent = `traceId: ${response.traceId || 'run-mock'}`;
-    
+
+    const hasQwenNarrative = response.adapter === 'openai-compatible'
+      && Boolean(response.narrative)
+      && response.degraded !== true;
+    const title = hasQwenNarrative
+      ? `🤖 Qwen3.8-27B 实时回答`
+      : response.degraded
+        ? `🛡️ 规则引擎回答 · AI 已降级`
+        : `🤖 AgriLoop Agent 协同结果`;
+    this.dom.copilotOutputTitle.textContent = title;
+
+    if (this.dom.copilotConnectionStatus) {
+      this.dom.copilotConnectionStatus.classList.toggle('connected', hasQwenNarrative);
+      if (hasQwenNarrative) {
+        const model = response.llm?.model || 'Qwen3.8-27B';
+        this.dom.copilotConnectionStatus.textContent = `已连接 · ${model} · 规则事实 + 模型解释`;
+      } else if (response.degraded) {
+        this.dom.copilotConnectionStatus.textContent = `后端在线 · ${response.degradationReason || 'AI 降级'} · 规则结果仍可用`;
+      }
+    }
+    if (hasQwenNarrative) this.dom.rightAiModeTag.textContent = `${response.llm?.model || 'Qwen3.8-27B'} · 已连接`;
+
     let citations = '';
     if (response.knowledgeEvidence && response.knowledgeEvidence.length > 0) {
       citations = `\n\n📚 知识与规则引用来源：\n` + response.knowledgeEvidence.map(k => `  • [${k.scope}] ${k.source} (${k.provenance})`).join('\n');
     }
 
-    this.dom.copilotOutputText.textContent = response.summary + citations;
+    const body = response.narrative || response.summary || '后端未返回可展示的回答。';
+    const metadata = response.llm
+      ? `\n\n模型：${response.llm.model || 'openai-compatible'} · 延迟：${response.llm.latencyMs ?? '—'} ms`
+      : '';
+    const degradation = response.degraded
+      ? `\n\n⚠️ ${response.degradationReason || 'AI_DEPENDENCY_UNAVAILABLE_FALLBACK'}：以上为规则/工具结果，不是模型生成文本。`
+      : '';
+    this.dom.copilotOutputText.textContent = body + metadata + degradation + citations;
     this.dom.copilotOutputBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
@@ -633,7 +868,11 @@ class AgriApp {
     if (!this.dom.toastContainer) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `<span>${type === 'success' ? '✅' : 'ℹ️'}</span> <span>${message}</span>`;
+    const icon = document.createElement('span');
+    icon.textContent = type === 'success' ? '✅' : type === 'error' ? '⚠️' : 'ℹ️';
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.append(icon, text);
     this.dom.toastContainer.appendChild(toast);
 
     setTimeout(() => {

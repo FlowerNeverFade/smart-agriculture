@@ -1,15 +1,84 @@
 /**
  * AgriLoop API Service Client
- * Connects to Spring Boot backend (/api/v1) with seamless mock fallback
+ * Connects to Spring Boot backend (/api/v1).
+ *
+ * Mock data is intentionally used only when the backend is unreachable. When
+ * the backend is online, authentication and API failures are surfaced to the
+ * UI instead of being silently presented as real data.
  */
 import { MOCK_DATA } from './mock-data.js';
+
+export class ApiError extends Error {
+  constructor(message, { status = 0, code = 'API_ERROR', payload = null } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.payload = payload;
+  }
+}
 
 export class ApiService {
   constructor(baseUrl = '') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = localStorage.getItem('agriloop_token') || '';
+    this.user = this.readStoredUser();
     this.isLive = false;
     this.sseSource = null;
+  }
+
+  readStoredUser() {
+    try {
+      const raw = localStorage.getItem('agriloop_user');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      localStorage.removeItem('agriloop_user');
+      return null;
+    }
+  }
+
+  getUser() {
+    return this.user;
+  }
+
+  isAuthenticated() {
+    return Boolean(this.token);
+  }
+
+  async login(username, password) {
+    const resp = await this._fetch('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    }, { auth: false });
+    const session = resp?.data || resp;
+    if (!session?.accessToken) {
+      throw new ApiError('登录响应缺少 accessToken', { code: 'AUTH_RESPONSE_INVALID', payload: resp });
+    }
+    this.token = session.accessToken;
+    this.user = session.user || null;
+    localStorage.setItem('agriloop_token', this.token);
+    if (this.user) localStorage.setItem('agriloop_user', JSON.stringify(this.user));
+    return session;
+  }
+
+  async restoreSession() {
+    if (!this.isAuthenticated()) return null;
+    try {
+      const resp = await this._fetch('/api/v1/auth/me');
+      this.user = resp?.data || resp;
+      if (this.user) localStorage.setItem('agriloop_user', JSON.stringify(this.user));
+      return this.user;
+    } catch (e) {
+      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') this.logout();
+      return null;
+    }
+  }
+
+  logout() {
+    this.token = '';
+    this.user = null;
+    localStorage.removeItem('agriloop_token');
+    localStorage.removeItem('agriloop_user');
   }
 
   async checkHealth() {
@@ -31,12 +100,9 @@ export class ApiService {
 
   async getOverview() {
     if (this.isLive) {
-      try {
-        const resp = await this._fetch('/api/v1/overview');
-        if (resp && resp.data) return resp.data;
-      } catch (e) {
-        console.warn('Live API call failed, falling back to mock:', e);
-      }
+      const resp = await this._fetch('/api/v1/overview');
+      if (resp && resp.data) return resp.data;
+      throw new ApiError('后端返回了无效的总览数据', { code: 'OVERVIEW_INVALID', payload: resp });
     }
     return {
       farmId: "farm-demo",
@@ -52,24 +118,18 @@ export class ApiService {
 
   async getPlots() {
     if (this.isLive) {
-      try {
-        const resp = await this._fetch('/api/v1/plots');
-        if (resp && resp.data) return resp.data;
-      } catch (e) {
-        console.warn('Falling back to mock plots:', e);
-      }
+      const resp = await this._fetch('/api/v1/plots');
+      if (resp && resp.data) return resp.data;
+      throw new ApiError('后端返回了无效的地块数据', { code: 'PLOTS_INVALID', payload: resp });
     }
     return MOCK_DATA.plots;
   }
 
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
     if (this.isLive) {
-      try {
-        const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?metric=${metric}&limit=50`);
-        if (resp && resp.data) return resp.data;
-      } catch (e) {
-        console.warn('Falling back to mock telemetry:', e);
-      }
+      const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?metric=${metric}&limit=50`);
+      if (resp && resp.data) return resp.data;
+      throw new ApiError('后端返回了无效的遥测数据', { code: 'TELEMETRY_INVALID', payload: resp });
     }
     // Generate 20 realistic telemetry series points
     const now = Date.now();
@@ -93,15 +153,12 @@ export class ApiService {
 
   async agentChat(message, plotId = 'plot-a01') {
     if (this.isLive) {
-      try {
-        const resp = await this._fetch('/api/v1/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({ message, plotId })
-        });
-        if (resp && resp.data) return resp.data;
-      } catch (e) {
-        console.warn('Live agent chat failed, falling back to mock agent:', e);
-      }
+      const resp = await this._fetch('/api/v1/agent/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message, plotId })
+      });
+      if (resp && resp.data) return resp.data;
+      throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });
     }
 
     // High-Fidelity Smart Agent Response Generator
@@ -219,21 +276,18 @@ export class ApiService {
 
   async executeIrrigation(planId, plotId) {
     if (this.isLive) {
-      try {
-        const resp = await this._fetch('/api/v1/commands/virtual', {
-          method: 'POST',
-          body: JSON.stringify({
-            planId,
-            plotId,
-            idempotencyKey: 'cmd-key-' + Date.now(),
-            approved: true,
-            source: 'web-dashboard'
-          })
-        });
-        if (resp && resp.data) return resp.data;
-      } catch (e) {
-        console.warn('Live execution command failed, falling back to mock:', e);
-      }
+      const resp = await this._fetch('/api/v1/commands/virtual', {
+        method: 'POST',
+        body: JSON.stringify({
+          planId,
+          plotId,
+          idempotencyKey: 'cmd-key-' + Date.now(),
+          approved: true,
+          source: 'web-dashboard'
+        })
+      });
+      if (resp && resp.data) return resp.data;
+      throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
     // Mock realistic virtual execution sequence
@@ -263,18 +317,32 @@ export class ApiService {
     };
   }
 
-  async _fetch(path, options = {}) {
+  async _fetch(path, options = {}, { auth = true } = {}) {
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      ...(auth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
     const response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
-    if (!response.ok) {
-      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+    const raw = await response.text();
+    let payload = null;
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch (e) {
+        payload = { raw };
+      }
     }
-    return await response.json();
+    if (!response.ok) {
+      const error = payload?.error || {};
+      throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
+        status: response.status,
+        code: error.code || `HTTP_${response.status}`,
+        payload
+      });
+    }
+    return payload || {};
   }
 }
 
