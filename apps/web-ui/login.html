@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#e7f0e4">
+  <title>AgriLoop · 智慧农业登录</title>
+  <link rel="stylesheet" href="css/login-motion.css">
+</head>
+<body>
+  <main class="experience" aria-labelledby="loginTitle">
+    <div class="farm-scene" aria-hidden="true">
+      <canvas id="farmCanvas"></canvas>
+      <div class="scene-shade"></div>
+    </div>
+
+    <header class="brand" aria-label="AgriLoop 农智闭环">
+      <span class="brand__name">agri<span>loop</span></span>
+    </header>
+
+    <button class="motion-control" id="motionToggle" type="button">暂停动画</button>
+
+    <section class="auth" aria-live="polite">
+      <p class="auth__eyebrow">智慧农业工作台</p>
+      <h1 id="loginTitle">欢迎回来</h1>
+      <form id="loginForm" novalidate>
+        <label class="field">
+          <span>账号</span>
+          <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
+        </label>
+
+        <label class="field field--password">
+          <span>密码</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+          <button class="field__reveal" id="revealPassword" type="button" aria-label="显示密码">显示</button>
+        </label>
+
+        <p class="form-error" id="formError" role="alert"></p>
+
+        <button class="submit" id="submitButton" type="submit">
+          <span class="submit__label">进入系统</span>
+          <span class="submit__loading" aria-hidden="true">验证中</span>
+        </button>
+
+        <div class="auth__actions">
+          <button class="text-action" id="demoToggle" type="button" aria-expanded="false" aria-controls="demoPanel">演示身份</button>
+          <button class="text-action" id="forgotPassword" type="button">忘记密码</button>
+        </div>
+      </form>
+
+      <div class="demo-panel" id="demoPanel" hidden>
+        <p>选择体验身份</p>
+        <div class="demo-panel__roles">
+          <button type="button" data-user="admin">农场管理员</button>
+          <button type="button" data-user="farmer">种植农户</button>
+          <button type="button" data-user="operator">田间操作员</button>
+          <button type="button" data-user="sysadmin">系统管理员</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="scene-timeline">
+      <div class="scene-timeline__meta">
+        <span id="growthStatus">种子苏醒</span>
+        <span class="scene-timeline__hint">移动视角 · 点击唤醒根系</span>
+      </div>
+      <input id="timeScrubber" type="range" min="0" max="100" value="0" aria-label="生长进度">
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="js/login-webgl.js"></script>
+</body>
+</html>

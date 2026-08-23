@@ -1,0 +1,53 @@
+# Login WebGL Design QA
+
+- source visual truth paths:
+  - `design-qa-evidence/reference-active-theory-loaded.png`
+  - `design-qa-evidence/reference-apple-airpods.png`
+  - `design-qa-evidence/reference-cropx.png`
+  - `design-qa-evidence/reference-lettuce-grow.png`
+- implementation screenshot path: `design-qa-evidence/login-webgl-final.png`
+- full-view comparison evidence: `design-qa-evidence/comparison-pass-2.png`
+- viewport: 1600 x 775 CSS px, desktop, device scale factor 2; implementation screenshot 1600 x 775 px and source captures normalized into 520 x 300 tiles for the comparison board
+- source pixels: Active Theory 1600 x 775; Apple 1585 x 768; CropX 1569 x 760; Lettuce Grow 1569 x 760
+- implementation pixels: 1600 x 775
+- state: mature plant at 100% growth, light agricultural theme, empty login form
+
+## Findings
+
+- No remaining P0, P1, or P2 issue.
+- Fonts and typography: the implementation uses restrained sans-serif UI text and a single serif display heading, preserving the premium hierarchy and avoiding the dense promotional copy in the agriculture references.
+- Spacing and layout rhythm: the singular WebGL subject and login form occupy distinct visual zones with stable negative space; primary controls remain aligned and readable at the target viewport.
+- Colors and visual tokens: mist green, warm ivory, natural foliage green, soil brown, and one tomato accent map the selected agricultural direction without inheriting Active Theory's dark palette.
+- Image quality and asset fidelity: the hero is a live Three.js object rather than a frame sequence. Antialiasing, soft shadows, physical materials, leaf veins, fog, particles, and lighting render cleanly at the captured desktop density.
+- Copy and content: only identity, credentials, entry action, demo identity, password help, and subtle motion controls remain.
+- Accessibility and behavior: semantic labels, keyboard-visible focus, password reveal, reduced-motion handling, pause/restart, and scrub controls are present.
+
+## Focused Region Comparison
+
+Not required for this directional synthesis: it is not a pixel clone of one source. The full implementation capture is readable at native size, and the combined comparison board is sufficient to judge the selected qualities: single dynamic subject, negative space, light agriculture palette, and minimal form hierarchy.
+
+## Comparison History
+
+### Pass 1
+
+- Earlier P2 finding: the plant read as too schematic because the leaves were visually edge-on and the material response was flat.
+- Fixes made: corrected leaf orientation, added alternating physical materials, subtle clearcoat and sheen, visible leaf veins, and a stronger but restrained environmental halo.
+- Earlier evidence: `design-qa-evidence/login-webgl-mature-v2.png` and `design-qa-evidence/comparison-pass-1.png`.
+
+### Pass 2
+
+- Post-fix evidence: `design-qa-evidence/login-webgl-final.png` and `design-qa-evidence/comparison-pass-2.png`.
+- Result: the central subject is legible as a growing crop, the form remains visually quiet, and no actionable P0/P1/P2 mismatch remains.
+
+## Interaction and Runtime Checks
+
+- browser-rendered implementation opened at `login.html`
+- continuous growth, pointer parallax, click/root pulse, pause, restart, and range scrubber checked
+- demo identity selection populated `farmer` / `demo123`
+- form submission redirected to `index.html`
+- dashboard logout redirected back to the new `login.html`, not the retired concept screen
+- DOM runtime check returned `readyState: complete`, `is-mounted: true`, a 3200 x 1550 backing canvas, and the expected mature animation label
+- no runtime error surfaced during the tested interaction path; WebGL rendered throughout the captured states
+- responsive CSS includes tablet/mobile layout and reduced-motion fallbacks; a separate device-emulated capture was not available in the selected browser surface
+
+final result: passed
