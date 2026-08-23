@@ -70,6 +70,7 @@ const PALETTES = {
 function getPalette(theme) {
   return theme === 'light' ? PALETTES.light : PALETTES.dark;
 }
+
 function lerpNum(a, b, t) {
   return a + (b - a) * t;
 }
