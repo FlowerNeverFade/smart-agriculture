@@ -212,6 +212,25 @@
 
     <!-- ======================== Right Rail (330px) ======================== -->
     <aside class="right-rail">
+      <!-- 0. Server-side simulator control (admin only) -->
+      <div class="system-status-card simulator-control-card" id="simulatorControlCard">
+        <div class="system-status-header">
+          <span>数据模拟器</span>
+          <span class="simulator-status-tag" id="simulatorStatusTag">需登录</span>
+        </div>
+        <div class="simulator-control-row">
+          <div>
+            <strong id="simulatorStatusText">登录后查看状态</strong>
+            <p id="simulatorStatusHint">启动后会通过 MQTT 为 3 个演示地块发送遥测。</p>
+          </div>
+          <button class="btn btn-success simulator-toggle-btn" id="btnToggleSimulator" type="button" disabled>启动</button>
+        </div>
+        <div class="simulator-meta-row">
+          <span>默认情景：normal</span>
+          <button class="btn-ghost simulator-refresh-btn" id="btnRefreshSimulator" type="button">刷新</button>
+        </div>
+      </div>
+
       <!-- 1. System Health Status Card -->
       <div class="system-status-card">
         <div class="system-status-header">

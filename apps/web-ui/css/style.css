@@ -1103,6 +1103,87 @@ body {
   margin-bottom: 18px;
 }
 
+.simulator-control-card {
+  border-color: rgba(22, 163, 74, .36);
+  background: linear-gradient(145deg, rgba(22, 163, 74, .08), var(--bg-surface) 58%);
+}
+
+.simulator-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.simulator-control-row strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.simulator-control-row p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.simulator-status-tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-canvas);
+  color: var(--text-muted);
+  font: 600 10px var(--font-mono);
+}
+
+.simulator-status-tag.running {
+  background: var(--green-subtle);
+  color: var(--green-bright);
+}
+
+.simulator-status-tag.stopped {
+  background: rgba(245, 158, 11, .14);
+  color: var(--amber-primary);
+}
+
+.simulator-status-tag.unavailable {
+  background: rgba(239, 68, 68, .12);
+  color: var(--red-primary);
+}
+
+.simulator-toggle-btn {
+  min-width: 72px;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.simulator-toggle-btn.stop {
+  background: var(--bg-canvas);
+  border-color: rgba(239, 68, 68, .6);
+  color: #fca5a5;
+}
+
+.simulator-toggle-btn.stop:hover {
+  background: rgba(239, 68, 68, .14);
+  border-color: var(--red-primary);
+}
+
+.simulator-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-muted);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.simulator-refresh-btn {
+  padding: 0;
+  font-size: 10px;
+}
+
 .system-status-header {
   display: flex;
   align-items: center;

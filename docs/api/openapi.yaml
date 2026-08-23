@@ -33,6 +33,12 @@ paths:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/simulator/status:
+    get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
+  /api/v1/simulator/start:
+    post: {tags: [management], description: 仅农场管理员或系统管理员可启动默认 normal 情景模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/simulator/stop:
+    post: {tags: [management], description: 仅农场管理员或系统管理员可停止遥测模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/overview:
     get: {tags: [farm], responses: {'200': {description: 多地块风险总览}}}
   /api/v1/farms:

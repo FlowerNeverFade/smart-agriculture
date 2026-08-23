@@ -58,6 +58,9 @@ agriloop:
   max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}
   daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
   crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
+  simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
+  supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
+  simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
 
 management:
   endpoints:

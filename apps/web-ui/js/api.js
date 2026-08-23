@@ -116,6 +116,25 @@ export class ApiService {
     };
   }
 
+  async getSimulatorStatus() {
+    if (!this.isLive) return { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' };
+    const resp = await this._fetch('/api/v1/simulator/status');
+    if (resp && resp.data) return resp.data;
+    throw new ApiError('后端返回了无效的模拟器状态', { code: 'SIMULATOR_STATUS_INVALID', payload: resp });
+  }
+
+  async startSimulator() {
+    const resp = await this._fetch('/api/v1/simulator/start', { method: 'POST', body: JSON.stringify({}) });
+    if (resp && resp.data) return resp.data;
+    throw new ApiError('后端返回了无效的模拟器启动结果', { code: 'SIMULATOR_START_INVALID', payload: resp });
+  }
+
+  async stopSimulator() {
+    const resp = await this._fetch('/api/v1/simulator/stop', { method: 'POST', body: JSON.stringify({}) });
+    if (resp && resp.data) return resp.data;
+    throw new ApiError('后端返回了无效的模拟器停止结果', { code: 'SIMULATOR_STOP_INVALID', payload: resp });
+  }
+
   async getPlots() {
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/plots');

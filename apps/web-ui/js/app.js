@@ -18,7 +18,8 @@ class AgriApp {
       isLive: false,
       authenticated: api.isAuthenticated(),
       user: api.getUser(),
-      backendAiMode: null
+      backendAiMode: null,
+      simulator: { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' }
     };
 
     this.dom = {};
@@ -39,6 +40,7 @@ class AgriApp {
 
     // Load initial data
     await this.loadOverview();
+    await this.refreshSimulatorStatus(true);
     this.farmMonitor = new FarmMonitor({
       plots: this.state.plots,
       onExit: () => this.navigate('home'),
@@ -106,6 +108,11 @@ class AgriApp {
     this.dom.btnLogoHome = document.getElementById('btnLogoHome');
     this.dom.btnViewResourceDetail = document.getElementById('btnViewResourceDetail');
     this.dom.btnQuickAction = document.getElementById('btnQuickAction');
+    this.dom.simulatorStatusTag = document.getElementById('simulatorStatusTag');
+    this.dom.simulatorStatusText = document.getElementById('simulatorStatusText');
+    this.dom.simulatorStatusHint = document.getElementById('simulatorStatusHint');
+    this.dom.btnToggleSimulator = document.getElementById('btnToggleSimulator');
+    this.dom.btnRefreshSimulator = document.getElementById('btnRefreshSimulator');
   }
 
   bindEvents() {
@@ -116,6 +123,9 @@ class AgriApp {
     this.dom.btnQuickAction?.addEventListener('click', () => {
       this.openSubview('decision-console', { plotId: this.state.currentPlotId });
     });
+
+    this.dom.btnToggleSimulator?.addEventListener('click', () => this.toggleSimulator());
+    this.dom.btnRefreshSimulator?.addEventListener('click', () => this.refreshSimulatorStatus());
 
     // Resource schedule click
     this.dom.btnViewResourceDetail?.addEventListener('click', () => {
@@ -231,6 +241,110 @@ class AgriApp {
     }
   }
 
+  async refreshSimulatorStatus(silent = false) {
+    if (!this.state.isLive || !api.isAuthenticated()) {
+      this.state.simulator = { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' };
+      this.renderSimulatorControl();
+      return this.state.simulator;
+    }
+    try {
+      this.state.simulator = await api.getSimulatorStatus();
+      this.renderSimulatorControl();
+      return this.state.simulator;
+    } catch (e) {
+      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') this.handleSessionExpired(false);
+      this.state.simulator = { available: false, status: 'UNAVAILABLE', reason: e.code || 'STATUS_FAILED' };
+      this.renderSimulatorControl();
+      if (!silent) this.showToast(`读取模拟器状态失败：${e.message || '后端未响应'}`, 'error');
+      return this.state.simulator;
+    }
+  }
+
+  renderSimulatorControl() {
+    const tag = this.dom.simulatorStatusTag;
+    const text = this.dom.simulatorStatusText;
+    const hint = this.dom.simulatorStatusHint;
+    const toggle = this.dom.btnToggleSimulator;
+    const refresh = this.dom.btnRefreshSimulator;
+    if (!tag || !text || !hint || !toggle) return;
+
+    const user = this.state.user;
+    const isAdmin = ['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(String(user?.role || '').toUpperCase());
+    const simulator = this.state.simulator || {};
+    const status = String(simulator.status || 'UNAVAILABLE').toUpperCase();
+    const running = status === 'RUNNING';
+    const available = simulator.available !== false && status !== 'UNAVAILABLE';
+
+    tag.className = 'simulator-status-tag';
+    tag.classList.toggle('running', running);
+    tag.classList.toggle('stopped', status === 'STOPPED');
+    tag.classList.toggle('unavailable', !available || status === 'FATAL' || status === 'EXITED');
+    tag.textContent = !this.state.isLive || !user ? '需登录' : (running ? 'RUNNING' : status);
+
+    if (!this.state.isLive || !user) {
+      text.textContent = '登录后查看状态';
+      hint.textContent = '仅管理员可以启动或停止服务器模拟器。';
+    } else if (!available) {
+      text.textContent = '模拟器控制不可用';
+      hint.textContent = '当前运行环境没有可用的 Supervisor 控制服务。';
+    } else if (running) {
+      text.textContent = '模拟器运行中';
+      hint.textContent = '正在通过 MQTT 为 3 个演示地块发送遥测。';
+    } else {
+      text.textContent = '模拟器已停止';
+      hint.textContent = '启动后会恢复设备心跳和实时遥测。';
+    }
+
+    toggle.disabled = !this.state.isLive || !user || !isAdmin || !available;
+    toggle.classList.toggle('stop', running);
+    toggle.textContent = running ? '停止' : '启动';
+    toggle.title = isAdmin ? (running ? '停止服务器上的数据模拟器' : '启动服务器上的数据模拟器') : '需要农场管理员或系统管理员权限';
+    toggle.setAttribute('aria-pressed', String(running));
+    if (refresh) refresh.disabled = !this.state.isLive || !user;
+  }
+
+  async toggleSimulator() {
+    if (!api.isAuthenticated()) {
+      this.openAuthModal();
+      this.showToast('请先登录管理员账号，再控制数据模拟器。', 'info');
+      return;
+    }
+    const role = String(this.state.user?.role || '').toUpperCase();
+    if (!['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(role)) {
+      this.showToast('只有农场管理员或系统管理员可以控制模拟器。', 'error');
+      return;
+    }
+    const running = String(this.state.simulator?.status || '').toUpperCase() === 'RUNNING';
+    const button = this.dom.btnToggleSimulator;
+    if (button) {
+      button.disabled = true;
+      button.textContent = running ? '停止中…' : '启动中…';
+    }
+    try {
+      if (running) {
+        await api.stopSimulator();
+        this.showToast('模拟器已停止；设备将在数据过期后显示离线。', 'success');
+      } else {
+        await api.startSimulator();
+        this.showToast('模拟器已启动，正在恢复 MQTT 遥测。', 'success');
+      }
+      await this.refreshSimulatorStatus(true);
+      window.setTimeout(async () => {
+        try {
+          await this.loadOverview();
+          this.renderPlots(this.dom.plotSearchInput?.value || '');
+        } catch (e) {
+          console.warn('[AgriLoop] 刷新模拟器遥测失败。', e);
+        }
+      }, 2500);
+    } catch (e) {
+      if (e.status === 401 || e.code === 'AUTH_REQUIRED' || e.code === 'AUTH_INVALID') this.handleSessionExpired();
+      else this.showToast(`模拟器操作失败：${e.message || '后端未响应'}`, 'error');
+    } finally {
+      await this.refreshSimulatorStatus(true);
+    }
+  }
+
   normalizePlot(plot) {
     const fallback = MOCK_DATA.plots.find(item => item.plotId === plot?.plotId) || MOCK_DATA.plots[0];
     const metrics = { ...(fallback?.metrics || {}) };
@@ -294,6 +408,7 @@ class AgriApp {
         : (this.state.isLive ? '登录后连接服务器上的 Qwen3.8-27B' : '后端离线 · 当前为本地演示数据');
     }
     if (this.dom.btnCopilotLogin) this.dom.btnCopilotLogin.textContent = user ? '退出' : '登录';
+    this.renderSimulatorControl();
   }
 
   openAuthModal() {
@@ -338,6 +453,7 @@ class AgriApp {
       this.updateSystemStatusPill();
       this.closeAuthModal();
       await this.loadOverview();
+      await this.refreshSimulatorStatus(true);
       this.renderPlots(this.dom.plotSearchInput?.value || '');
       this.renderFeed();
       this.showToast(`已登录 ${username}。Copilot 现在会调用真实后端 AI。`, 'success');

@@ -64,6 +64,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.time.Duration;
@@ -121,6 +123,9 @@ class AgriProperties {
     private long maxIrrigationSeconds = 900;
     private double dailyWaterLimitLitres = 5000;
     private String cropPackPath = "classpath:/crop-packs";
+    private boolean simulatorControlEnabled = true;
+    private String supervisorConfig = "/srv/agriloop/supervisor.conf";
+    private String simulatorProgram = "agriloop-simulator";
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -176,6 +181,12 @@ class AgriProperties {
     public void setDailyWaterLimitLitres(double dailyWaterLimitLitres) { this.dailyWaterLimitLitres = dailyWaterLimitLitres; }
     public String getCropPackPath() { return cropPackPath; }
     public void setCropPackPath(String cropPackPath) { this.cropPackPath = cropPackPath; }
+    public boolean isSimulatorControlEnabled() { return simulatorControlEnabled; }
+    public void setSimulatorControlEnabled(boolean simulatorControlEnabled) { this.simulatorControlEnabled = simulatorControlEnabled; }
+    public String getSupervisorConfig() { return supervisorConfig; }
+    public void setSupervisorConfig(String supervisorConfig) { this.supervisorConfig = supervisorConfig; }
+    public String getSimulatorProgram() { return simulatorProgram; }
+    public void setSimulatorProgram(String simulatorProgram) { this.simulatorProgram = simulatorProgram; }
 }
 
 @Configuration
@@ -694,6 +705,111 @@ class SecurityConfig {
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         mapper.writeValue(response.getWriter(), ApiResponses.error(code, message, Map.of()));
     }
+}
+
+/** Admin-only bridge to the fixed Supervisor-managed telemetry simulator. */
+@Component
+class SimulatorControl {
+    private final AgriProperties properties;
+
+    SimulatorControl(AgriProperties properties) {
+        this.properties = properties;
+    }
+
+    Map<String, Object> status() {
+        if (!properties.isSimulatorControlEnabled()) return unavailable("SIMULATOR_CONTROL_DISABLED");
+        Path config = configPath();
+        if (config == null || !Files.isRegularFile(config)) return unavailable("SUPERVISOR_CONFIG_NOT_FOUND");
+        CommandResult result = execute("status");
+        if (result == null) return unavailable("SUPERVISOR_NOT_AVAILABLE");
+        String line = result.output().lines().map(String::trim)
+                .filter(value -> value.startsWith(properties.getSimulatorProgram() + " "))
+                .findFirst().orElse("");
+        if (line.isBlank()) return unavailable(result.output().isBlank() ? "SIMULATOR_STATUS_EMPTY" : result.output().trim());
+        String state = line.contains(" RUNNING ") ? "RUNNING"
+                : line.contains(" STOPPED ") ? "STOPPED"
+                : line.contains(" EXITED ") ? "EXITED"
+                : line.contains(" FATAL ") ? "FATAL" : "UNKNOWN";
+        Map<String, Object> response = base(state);
+        response.put("raw", line);
+        String[] tokens = line.split("\\s+");
+        for (int index = 0; index + 1 < tokens.length; index++) {
+            if ("pid".equalsIgnoreCase(tokens[index])) {
+                response.put("pid", tokens[index + 1].replaceAll("[^0-9]", ""));
+                break;
+            }
+        }
+        return response;
+    }
+
+    Map<String, Object> start() { return control("start"); }
+    Map<String, Object> stop() { return control("stop"); }
+
+    private Map<String, Object> control(String action) {
+        if (!properties.isSimulatorControlEnabled()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SIMULATOR_CONTROL_DISABLED", "服务器未启用模拟器控制");
+        }
+        Path config = configPath();
+        if (config == null || !Files.isRegularFile(config)) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SUPERVISOR_CONFIG_NOT_FOUND", "当前环境没有可用的 Supervisor 模拟器服务");
+        }
+        CommandResult result = execute(action);
+        if (result == null) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SUPERVISOR_NOT_AVAILABLE", "Supervisor 不可用，请检查服务器进程管理服务");
+        }
+        if (result.exitCode() != 0 && !result.output().toLowerCase(Locale.ROOT).contains("already")) {
+            String detail = result.output().isBlank() ? "Supervisor 命令失败" : result.output().trim();
+            throw new ApiException(HttpStatus.BAD_GATEWAY, "SIMULATOR_CONTROL_FAILED", detail);
+        }
+        Map<String, Object> response = status();
+        response.put("action", action.toUpperCase(Locale.ROOT));
+        response.put("message", result.output().trim());
+        return response;
+    }
+
+    private Path configPath() {
+        try {
+            String value = properties.getSupervisorConfig();
+            return value == null || value.isBlank() ? null : Path.of(value).toAbsolutePath().normalize();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private CommandResult execute(String action) {
+        Path config = configPath();
+        if (config == null) return null;
+        try {
+            Process process = new ProcessBuilder("supervisorctl", "-c", config.toString(), action, properties.getSimulatorProgram())
+                    .redirectErrorStream(true).start();
+            boolean finished = process.waitFor(6, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return new CommandResult(124, "Supervisor 命令超时");
+            }
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            return new CommandResult(process.exitValue(), output);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Map<String, Object> unavailable(String reason) {
+        Map<String, Object> response = base("UNAVAILABLE");
+        response.put("available", false);
+        response.put("reason", reason);
+        return response;
+    }
+
+    private Map<String, Object> base(String state) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("available", true);
+        response.put("status", state);
+        response.put("program", properties.getSimulatorProgram());
+        return response;
+    }
+
+    private record CommandResult(int exitCode, String output) { }
 }
 
 @Service
@@ -1853,8 +1969,11 @@ class AgriController {
     private final AgriStore store;
     private final AgriEventBus events;
     private final MqttBridge mqtt;
+    private final SimulatorControl simulator;
 
-    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt) { this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; }
+    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator) {
+        this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
+    }
 
     @PostMapping("/auth/login")
     ResponseEntity<?> login(@RequestBody Map<String, Object> body) { return ok(engine.login(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""))); }
@@ -1869,6 +1988,21 @@ class AgriController {
 
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }
+
+    @GetMapping("/simulator/status")
+    ResponseEntity<?> simulatorStatus() { return ok(simulator.status()); }
+
+    @PostMapping("/simulator/start")
+    ResponseEntity<?> simulatorStart(Authentication a) {
+        if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限启动模拟器");
+        return ok(simulator.start());
+    }
+
+    @PostMapping("/simulator/stop")
+    ResponseEntity<?> simulatorStop(Authentication a) {
+        if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限停止模拟器");
+        return ok(simulator.stop());
+    }
 
     @GetMapping("/crop-packs")
     ResponseEntity<?> cropPacks() { return ok(engine.cropPacks()); }
