@@ -548,55 +548,35 @@ class FarmWorld3D {
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
 
-    // Single Master Unified Mountain Range (100% Continuous Seamless Surface - Absolutely ZERO Inter-layer Clipping)
-    const mountainGeo = new THREE.PlaneGeometry(300, 110, 160, 70);
-    const mountainPos = mountainGeo.attributes.position;
-    for (let index = 0; index < mountainPos.count; index++) {
-      const x = mountainPos.getX(index);
-      const y = mountainPos.getY(index);
-      // normY: 0 (front edge at z = -45m) to 1 (back edge at z = -155m)
-      const normY = (y + 55) / 110;
+    // Distant Gentle Rolling Green Hills (Original version)
+    const buildRollingHills = ({ width, depth, segmentsX, segmentsZ, z, heightScale, color, opacity = 1 }) => {
+      const ridgeGeometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
+      const ridgePosition = ridgeGeometry.attributes.position;
+      for (let index = 0; index < ridgePosition.count; index++) {
+        const x = ridgePosition.getX(index);
+        const y = ridgePosition.getY(index);
+        const normY = (y + depth / 2) / depth;
+        const peaks =
+          Math.exp(-((x + 36) ** 2) / 450) * 8.5 +
+          Math.exp(-((x + 12) ** 2) / 380) * 11.0 +
+          Math.exp(-((x - 14) ** 2) / 500) * 9.0 +
+          Math.exp(-((x - 38) ** 2) / 420) * 10.5;
+        const depthShape = Math.sin(normY * Math.PI * 0.85);
+        const detail = Math.sin(x * 0.22 + normY * 2.8) * 0.35;
+        ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
+      }
+      ridgeGeometry.computeVertexNormals();
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.86, transparent: opacity < 1, opacity, depthWrite: true });
+      this.ridgeMaterials.push(ridgeMaterial);
+      const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
+      ridge.rotation.x = -Math.PI / 2;
+      ridge.position.set(0, 0.0, z);
+      ridge.receiveShadow = true;
+      this.scene.add(ridge);
+    };
 
-      // 1. Foothills profile (normY: 0.05 ~ 0.35)
-      const footEnvelope = Math.sin(Math.min(1.0, normY * 3.2) * Math.PI * 0.5) * Math.max(0, 1.0 - normY * 1.4);
-      const footPeaks = (Math.sin(x * 0.12 + 0.4) * 2.8 + Math.cos(x * 0.22) * 1.6 + 4.5) * footEnvelope;
-
-      // 2. Mid Alpine Ridge (normY: 0.3 ~ 0.75)
-      const midEnvelope = Math.sin(Math.max(0, Math.min(1.0, (normY - 0.22) * 2.1)) * Math.PI);
-      const m1 = Math.exp(-((x + 38) ** 2) / 450) * 16.0;
-      const m2 = Math.exp(-((x - 12) ** 2) / 380) * 18.5;
-      const m3 = Math.exp(-((x - 48) ** 2) / 420) * 15.0;
-      const midPeaks = (m1 + m2 + m3 + Math.sin(x * 0.18) * 3.2) * midEnvelope;
-
-      // 3. Majestic Far Peak Massifs (normY: 0.6 ~ 1.0)
-      const farEnvelope = Math.max(0, (normY - 0.45) / 0.55);
-      const f1 = Math.exp(-((x + 65) ** 2) / 600) * 28.0;
-      const f2 = Math.exp(-((x + 14) ** 2) / 520) * 34.0;
-      const f3 = Math.exp(-((x - 36) ** 2) / 580) * 30.0;
-      const f4 = Math.exp(-((x - 85) ** 2) / 620) * 26.0;
-      const farPeaks = (f1 + f2 + f3 + f4 + Math.sin(x * 0.08) * 4.0) * farEnvelope;
-
-      // Subtle natural rock ridges & erosion valleys
-      const rockDetails = (Math.sin(x * 0.4 + normY * 3.5) * 0.8 + Math.cos(x * 0.8) * 0.35) * Math.sin(normY * Math.PI);
-
-      // Smooth front blend: strictly 0 at the front baseline (meeting flat meadow smoothly)
-      const frontBlend = Math.min(1.0, normY * 5.0);
-      const totalElevation = Math.max(0, (footPeaks + midPeaks + farPeaks + rockDetails) * frontBlend);
-      mountainPos.setZ(index, totalElevation);
-    }
-    mountainGeo.computeVertexNormals();
-
-    const mountainMat = new THREE.MeshStandardMaterial({
-      color: 0x274a2e,
-      roughness: 0.88,
-      metalness: 0.04
-    });
-    this.ridgeMaterials = [mountainMat];
-    const mountainMesh = new THREE.Mesh(mountainGeo, mountainMat);
-    mountainMesh.rotation.x = -Math.PI / 2;
-    mountainMesh.position.set(0, 0.0, -100);
-    mountainMesh.receiveShadow = true;
-    this.scene.add(mountainMesh);
+    buildRollingHills({ width: 220, depth: 36, segmentsX: 80, segmentsZ: 28, z: -70, heightScale: 0.32, color: 0x6e9974 });
+    buildRollingHills({ width: 260, depth: 44, segmentsX: 90, segmentsZ: 32, z: -98, heightScale: 0.45, color: 0x82a7a4, opacity: 0.92 });
   }
 
   buildStreetLamps() {
@@ -712,10 +692,10 @@ class FarmWorld3D {
   }
 
   buildWater() {
-    // 1. Retention Pond: Raised distinctly above grass at y = 0.08 with solid stone basin base
+    // 1. Retention Pond: Raised cleanly with solid base basin
     const pondGroup = new THREE.Group();
     
-    // Stone foundation bed under the pond (y = 0.02)
+    // Stone foundation bed under the pond
     const basinBase = new THREE.Mesh(
       new THREE.CylinderGeometry(5.35, 5.35, 0.16, 48),
       new THREE.MeshStandardMaterial({ color: 0x6e7872, roughness: 0.9 })
@@ -747,7 +727,7 @@ class FarmWorld3D {
     // 2. Irrigation Canal Network: Elevated at y = 0.08 with solid raised curbs
     const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x7c8a82, roughness: 0.9 });
     const addCanal = ({ width, depth, x, z, vertical = false }) => {
-      // Solid concrete ditch bottom (y = 0.03)
+      // Ditch bed
       const bed = new THREE.Mesh(
         new THREE.BoxGeometry(vertical ? width + 0.1 : width, 0.08, vertical ? depth : depth + 0.1),
         bankMaterial
@@ -755,7 +735,7 @@ class FarmWorld3D {
       bed.position.set(x, 0.03, z);
       this.scene.add(bed);
 
-      // Water surface (y = 0.075)
+      // Water surface
       const canal = new THREE.Mesh(
         new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 2)), Math.max(3, Math.round(depth * 2))),
         this.createWaterMaterial()
@@ -765,7 +745,7 @@ class FarmWorld3D {
       canal.receiveShadow = true;
       this.scene.add(canal);
 
-      // Raised retaining banks (y = 0.11)
+      // Raised retaining banks
       const sideOffset = (vertical ? width : depth) / 2 + 0.12;
       [-sideOffset, sideOffset].forEach(offset => {
         const bank = new THREE.Mesh(
@@ -818,7 +798,6 @@ class FarmWorld3D {
 
     // 1. Classical / Modern Garden Gazebo IN THE EXACT CENTER OF THE WATER POND (水池正中央)
     const pavilionGroup = new THREE.Group();
-    // Central Island Stone Plinth
     const pavPlinth = new THREE.Mesh(
       new THREE.CylinderGeometry(1.75, 1.85, 0.22, 8),
       new THREE.MeshStandardMaterial({ color: 0x76827c, roughness: 0.88 })
@@ -870,7 +849,7 @@ class FarmWorld3D {
     pavilionGroup.position.set(0, 0, -2.5);
     this.scene.add(pavilionGroup);
 
-    // 2. Modern Multi-Span High-Tech Glass Greenhouse (North Open Lawn, x: -12, z: -16.5)
+    // 2. Modern Multi-Span High-Tech Glass Greenhouse (North Open Lawn, x: -14, z: -14.5)
     const greenhouse = new THREE.Group();
     const base = new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.45, 8.2), darkSteel);
     base.position.y = 0.225;
@@ -886,16 +865,15 @@ class FarmWorld3D {
       greenhouse.add(rib);
     }
 
-    // Greenhouse Interior Warm Grow Lights
     const growLight = new THREE.PointLight(0xffdd80, 0, 16, 1.8);
     growLight.position.set(0, 2.2, 0);
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
 
-    greenhouse.position.set(-12.0, 0, -16.5);
+    greenhouse.position.set(-14.0, 0, -14.5);
     this.scene.add(greenhouse);
 
-    // 3. Smart Farm Command & Dispatch Center (North Open Lawn, x: 14, z: -16.5)
+    // 3. Smart Farm Command & Dispatch Center (North Open Lawn, x: 14, z: -14.5)
     const center = new THREE.Group();
     const bldg = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.4, 6.8), whiteWall);
     bldg.position.y = 1.7;
@@ -923,10 +901,10 @@ class FarmWorld3D {
     center.add(centerLight);
     this.nightLights.push(centerLight);
 
-    center.position.set(14.0, 0, -16.5);
+    center.position.set(14.0, 0, -14.5);
     this.scene.add(center);
 
-    // 4. Stainless Fertigation & Water Tanks (North Open Lawn, x: -28.0, z: -16.5)
+    // 4. Stainless Fertigation & Water Tanks (North Open Lawn, x: -28.0, z: -14.5)
     const siloGroup = new THREE.Group();
     const siloMat = new THREE.MeshStandardMaterial({ color: 0xd8e2dc, roughness: 0.35, metalness: 0.65 });
     [-1.3, 1.3].forEach(offset => {
@@ -937,23 +915,20 @@ class FarmWorld3D {
       cap.position.set(offset, 3.6, 0);
       siloGroup.add(silo, cap);
     });
-    siloGroup.position.set(-28.0, 0, -16.5);
+    siloGroup.position.set(-28.0, 0, -14.5);
     this.scene.add(siloGroup);
 
-    // 5. WEST OUTER MEADOW FACILITIES (西侧空旷大草坪, x: -38.0, 彻底远离作物田地)
+    // 5. WEST OUTER MEADOW FACILITIES (西侧空旷大草坪, x: -48.0, 彻底远离树木与田地)
     const westComplex = new THREE.Group();
-    // Smart Drone & Machinery Shed
     const shed = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.0), whiteWall);
     shed.position.set(0, 1.6, 0);
     shed.castShadow = true;
     westComplex.add(shed);
 
-    // Roll-up Service Doors
     const door = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.2, 4.0), bluePanel);
     door.position.set(4.15, 1.1, 0);
     westComplex.add(door);
 
-    // Rooftop Drone Landing Pad (无人机机巢起降坪)
     const pad = new THREE.Mesh(
       new THREE.BoxGeometry(4.4, 0.1, 4.4),
       new THREE.MeshStandardMaterial({ color: 0x222e38, roughness: 0.5 })
@@ -966,10 +941,10 @@ class FarmWorld3D {
     westComplex.add(padLight);
     this.nightLights.push(padLight);
 
-    westComplex.position.set(-38.0, 0, 3.5);
+    westComplex.position.set(-48.0, 0, 3.5);
     this.scene.add(westComplex);
 
-    // Automated Agro-Meteorology Station Mast (West Outer Lawn, x: -38.0, z: 11.5)
+    // Automated Agro-Meteorology Station Mast (West Outer Lawn, x: -48.0, z: 11.5)
     const tower = new THREE.Group();
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, 5.8, 8), darkSteel);
     mast.position.y = 2.9;
@@ -980,12 +955,11 @@ class FarmWorld3D {
     );
     led.position.y = 5.85;
     tower.add(mast, led);
-    tower.position.set(-38.0, 0, 11.5);
+    tower.position.set(-48.0, 0, 11.5);
     this.scene.add(tower);
 
-    // 6. EAST OUTER MEADOW FACILITIES (东侧空旷大草坪, x: +38.0, 彻底远离作物田地)
+    // 6. EAST OUTER MEADOW FACILITIES (东侧空旷大草坪, x: +48.0, 彻底远离树木与田地)
     const eastComplex = new THREE.Group();
-    // Cold-Chain Logistics & Sorting Depot
     const depot = new THREE.Mesh(new THREE.BoxGeometry(8.2, 3.2, 6.2), whiteWall);
     depot.position.set(0, 1.6, 0);
     depot.castShadow = true;
@@ -1004,10 +978,10 @@ class FarmWorld3D {
     eastComplex.add(depotLight);
     this.nightLights.push(depotLight);
 
-    eastComplex.position.set(38.0, 0, 3.5);
+    eastComplex.position.set(48.0, 0, 3.5);
     this.scene.add(eastComplex);
 
-    // Nursery Greenhouse Annex (East Outer Lawn, x: 38.0, z: 11.5)
+    // Nursery Greenhouse Annex (East Outer Lawn, x: 48.0, z: 11.5)
     const nursery = new THREE.Group();
     const nurseryGlass = new THREE.Mesh(new THREE.BoxGeometry(7.2, 2.4, 4.8), glass);
     nurseryGlass.position.y = 1.2;
@@ -1019,7 +993,7 @@ class FarmWorld3D {
     nurseryLight.position.set(0, 1.6, 0);
     nursery.add(nurseryLight);
     this.nightLights.push(nurseryLight);
-    nursery.position.set(38.0, 0, 11.5);
+    nursery.position.set(48.0, 0, 11.5);
     this.scene.add(nursery);
 
     // 7. South Park Entrance Welcome Archway (南侧主入口门廊)
@@ -1111,59 +1085,24 @@ class FarmWorld3D {
   }
 
   buildTrees() {
-    // Strict bounding-box collision detection to guarantee ZERO trees in buildings, crops, water, or roads
-    const isTreeBlocked = (x, z) => {
-      // 1. Farmland crops and main canal matrix
-      if (x > -26.0 && x < 26.0 && z > -7.5 && z < 14.8) return true;
-      // 2. Central Water Pond, Gazebo, and Boardwalk Bridge
-      if (Math.abs(x) < 7.0 && z > -9.0 && z < 4.0) return true;
-      // 3. West Buildings (Drone Shed, Weather Tower)
-      if (x < -31.0 && x > -45.0 && z > -2.0 && z < 16.0) return true;
-      // 4. East Buildings (Cold-Chain Depot, Nursery Annex)
-      if (x > 31.0 && x < 45.0 && z > -2.0 && z < 16.0) return true;
-      // 5. North Buildings (Greenhouse, Command Center, Silos)
-      if (x > -34.0 && x < 24.0 && z > -22.0 && z < -11.0) return true;
-      // 6. South Main Road & Entrance Portal
-      if (Math.abs(x) < 12.0 && z > 14.0 && z < 22.0) return true;
-      // 7. West & East Side Transit Paths
-      if ((Math.abs(x - 26.5) < 1.8 || Math.abs(x + 26.5) < 1.8) && z > -10.0 && z < 17.0) return true;
-      return false;
-    };
-
-    const candidatePositions = [
-      // Far-West Open Meadow Grove (Outside the drone hangar and facilities)
-      ...Array.from({ length: 24 }, (_, i) => ({
-        x: -48.0 - (i % 4) * 2.8 + Math.sin(i * 2.3) * 1.2,
-        z: -14.0 + (i % 8) * 3.8 + Math.cos(i * 1.7) * 1.0,
-        scale: 0.82 + (i % 3) * 0.12
-      })),
-      // Far-East Open Meadow Grove (Outside the cold-chain depot and nursery)
-      ...Array.from({ length: 24 }, (_, i) => ({
-        x: 48.0 + (i % 4) * 2.8 + Math.sin(i * 2.3) * 1.2,
-        z: -14.0 + (i % 8) * 3.8 + Math.cos(i * 1.7) * 1.0,
-        scale: 0.82 + (i % 3) * 0.12
-      })),
-      // North Foothill Forest Belt (Deep behind the greenhouse and command center)
-      ...Array.from({ length: 36 }, (_, i) => ({
-        x: -54.0 + i * 3.0,
-        z: -26.0 + Math.sin(i * 0.85) * 3.5,
-        scale: 0.85 + (i % 4) * 0.1
-      })),
-      // South Scenic Greenbelts (Left and right flank of the entrance portal)
-      ...Array.from({ length: 12 }, (_, i) => ({
-        x: -32.0 + (i % 4) * 3.6,
-        z: 18.5 + (i % 3) * 2.2,
-        scale: 0.78 + (i % 3) * 0.1
-      })),
-      ...Array.from({ length: 12 }, (_, i) => ({
-        x: 20.0 + (i % 4) * 3.6,
-        z: 18.5 + (i % 3) * 2.2,
-        scale: 0.78 + (i % 3) * 0.1
-      }))
-    ];
-
-    const positions = candidatePositions.filter(p => !isTreeBlocked(p.x, p.z));
-    positions.forEach(p => { p.y = 0.0; });
+    // Trees placed according to original natural layout (zero clipping with crops and far perimeter buildings)
+    const positions = [];
+    // Perimeter and mountain fringe trees (Original layout)
+    for (let i = 0; i < 70; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const x = side * (26.5 + (i % 6) * 2.2) + Math.sin(i * 3.2) * 1.5;
+      const z = -20 + (i % 18) * 2.2 + Math.cos(i * 1.5) * 1.0;
+      if (z > 14.0) continue;
+      const y = 0.0;
+      positions.push({ x, y, z, scale: 0.75 + (Math.sin(i * 4.2) + 1) * 0.25 });
+    }
+    // North hill forest (Original layout)
+    for (let i = 0; i < 50; i++) {
+      const x = -38 + i * 1.55;
+      const z = -24.0 + Math.sin(i * 0.8) * 3.5;
+      const y = 0.0;
+      positions.push({ x, y, z, scale: 0.72 + (i % 5) * 0.08 });
+    }
 
     const trunkGeometry = new THREE.CylinderGeometry(0.09, 0.16, 1.6, 10, 3);
     const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x71543b, roughness: 1 });
@@ -1197,11 +1136,13 @@ class FarmWorld3D {
       positions.forEach((item, index) => {
         dummy.position.set(item.x, item.y, item.z);
         dummy.scale.set(item.scale, item.scale, item.scale);
+        dummy.rotation.set(0, index * 1.17, 0);
         dummy.updateMatrix();
         crowns.setMatrixAt(index, dummy.matrix);
       });
       crowns.castShadow = true;
       crowns.receiveShadow = true;
+      this.windMaterials.push(crownMaterial);
       this.scene.add(crowns);
     });
   }
@@ -1223,13 +1164,20 @@ class FarmWorld3D {
       this.terrain.material.needsUpdate = true;
     }, undefined, () => {});
     loader.load('assets/textures/mountain-forest.png', texture => {
-      this.ridgeMaterials.forEach(material => {
-        const ridgeTexture = prepare(texture.clone(), 12.0, 5.0);
-        ridgeTexture.needsUpdate = true;
-        material.map = ridgeTexture;
-        material.color.set(0x27522d);
-        material.emissive = new THREE.Color(0x0a1c10);
-        material.emissiveIntensity = 0.04;
+      this.ridgeMaterials.forEach((material, index) => {
+        if (index === 0) {
+          const ridgeTexture = prepare(texture.clone(), 6.0, 2.5);
+          ridgeTexture.needsUpdate = true;
+          material.map = ridgeTexture;
+          material.color.set(0x6e9974);
+          material.emissive = new THREE.Color(0x1a3220);
+          material.emissiveIntensity = 0.08;
+        } else {
+          material.map = null;
+          material.color.set(0x82a7a4);
+          material.emissive = new THREE.Color(0x12262b);
+          material.emissiveIntensity = 0.05;
+        }
         material.needsUpdate = true;
       });
     }, undefined, () => {});
