@@ -26,8 +26,11 @@ class AgriApp {
     this.cacheDom();
     this.bindEvents();
 
-    // Check backend connection
-    this.state.isLive = await api.checkHealth();
+    // Demo parameters intentionally pin the local simulation state and avoid a
+    // misleading health request when the static frontend is used for acceptance.
+    const demoParams = new URLSearchParams(window.location.search);
+    const isPinnedDemo = demoParams.has('demoTime') || demoParams.has('demoWeather');
+    this.state.isLive = isPinnedDemo ? false : await api.checkHealth();
     this.updateSystemStatusPill();
 
     // Load initial data

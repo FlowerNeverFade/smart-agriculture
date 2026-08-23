@@ -1,11 +1,11 @@
 # 智慧农业项目进度
 
 > 项目：农智闭环（AgriLoop）
-> 更新时间：2026-08-22
+> 更新时间：2026-08-23
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；`lxh-frontend` 已新增农田动态监测前端并待团队验收；真实硬件和生产级视觉/语音仍按原范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；`lxh-frontend` 已完成 WebGL 农田动态监测实现和本地设计/交互 QA，仍待团队验收；真实硬件和生产级视觉/语音仍按原范围不实现**
 
-> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、静态模块化 Web 前端、自动化测试和 Supervisor 远端部署。后端远端证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)，农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
+> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、模块化 Web 前端与 Three.js WebGL 农田场景、自动化测试和 Supervisor 远端部署。后端远端证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)，农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
 ## 1. 进度总览
 
@@ -22,7 +22,7 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 农田动态监测待验收 | 农田监测切片 100%（代码与本地 QA） | 全场动态场景、昼夜/天气、作物/阶段、预警、地块面板已实现；其他前端页面仍按既有范围 |
+| 可视化主线实现 | WebGL 农田动态监测待验收 | 农田监测切片 100%（代码、设计 QA 与浏览器交互 QA） | 真实三维作物风场、昼夜/天气、作物/阶段、预警、地块面板已实现；沙盘仅预留，其他前端页面仍按既有范围 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -51,7 +51,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - 可选后续工作：补充前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
-- `lxh-frontend` 已实现独立农田动态监测切片：06:00/18:00 时段边界、六类天气、定位回退、Canvas 风场/水面/天气、三地块作物与阶段图层、单一预警、点击详情和双击沙盘占位均完成本地验证；当前标记“待验收”，不把未实现沙盘写成已完成。
+- `lxh-frontend` 已实现独立 WebGL 农田动态监测切片：06:00/18:00 时段边界、六类天气、定位回退、InstancedMesh 作物与树冠、顶点着色器风场、动态水面/云雨、三地块作物与阶段图层、单一预警、点击详情和双击沙盘占位均完成本地验证；当前标记“待验收”，不把未实现沙盘写成已完成。
 
 ## 3. 阶段门
 
@@ -106,7 +106,7 @@
 ## 5. 可选后续产出（不影响本次后端交付）
 
 ```text
-[x] 农田动态监测前端代码与本地 QA（待团队验收）
+[x] WebGL 农田动态监测前端代码、设计 QA 与浏览器交互 QA（待团队验收）
 [ ] 其余前端页面、PPT、录屏和答辩归档
 [ ] 按真实部署规格开展专项压测和长期运行监控
 [ ] 接入真实硬件前完成独立适配与安全评审（不属于本期证据）

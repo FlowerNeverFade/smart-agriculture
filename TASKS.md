@@ -59,7 +59,7 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
-| T-040 | P0 | 沉浸式农田动态监测：全场风场、昼夜/天气、作物/阶段图层、预警、地块详情与沙盘预留入口 | lxh | 项目组 | D8 | 待验收 | `apps/web-ui/js/farm-monitor.js`、`apps/web-ui/css/farm-monitor.css`、`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md` |
+| T-040 | P0 | 沉浸式农田动态监测：全场风场、昼夜/天气、作物/阶段图层、预警、地块详情与沙盘预留入口 | lxh | 项目组 | D8 | 待验收 | Three.js WebGL 运行态；`apps/web-ui/js/farm-monitor.js`、`apps/web-ui/css/farm-monitor.css`、`design-qa.md`、`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md` |
 
 ### 2.1 核心八项能力任务映射
 
