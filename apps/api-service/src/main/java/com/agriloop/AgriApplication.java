@@ -726,10 +726,11 @@ class SimulatorControl {
                 .filter(value -> value.startsWith(properties.getSimulatorProgram() + " "))
                 .findFirst().orElse("");
         if (line.isBlank()) return unavailable(result.output().isBlank() ? "SIMULATOR_STATUS_EMPTY" : result.output().trim());
-        String state = line.contains(" RUNNING ") ? "RUNNING"
-                : line.contains(" STOPPED ") ? "STOPPED"
-                : line.contains(" EXITED ") ? "EXITED"
-                : line.contains(" FATAL ") ? "FATAL" : "UNKNOWN";
+        String normalizedLine = line.toUpperCase(Locale.ROOT);
+        String state = normalizedLine.contains(" RUNNING ") ? "RUNNING"
+                : normalizedLine.contains(" STOPPED ") ? "STOPPED"
+                : normalizedLine.contains(" EXITED ") ? "EXITED"
+                : normalizedLine.contains(" FATAL ") ? "FATAL" : "UNKNOWN";
         Map<String, Object> response = base(state);
         response.put("raw", line);
         String[] tokens = line.split("\\s+");
