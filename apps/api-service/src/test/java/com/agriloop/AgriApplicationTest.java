@@ -123,4 +123,19 @@ class AgriApplicationTest {
         assertThat(engine.safetyNarrativeOverride("给我灌溉建议", blockedPlan))
                 .contains("证据不足", "人工复核");
     }
+
+    @Test
+    void chineseQuickIntentsReachTheMatchingDeterministicTool() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+
+        Map<String, Object> irrigation = engine.agentChat(Map.of(
+                "message", "为温室1生成阶段精准补水处方与就绪度检查", "plotId", "plot-a01"), farmer);
+        assertThat(irrigation.get("intent")).isEqualTo("IRRIGATION_RECOMMENDATION");
+        assertThat(irrigation).containsKey("plan");
+
+        Map<String, Object> diagnosis = engine.agentChat(Map.of(
+                "message", "分析温室1的缺水与传感器漂移风险", "plotId", "plot-a01"), farmer);
+        assertThat(diagnosis.get("intent")).isEqualTo("DIAGNOSIS");
+        assertThat(diagnosis).containsKey("diagnosis");
+    }
 }

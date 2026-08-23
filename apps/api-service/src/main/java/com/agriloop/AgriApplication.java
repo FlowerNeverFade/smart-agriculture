@@ -1177,18 +1177,31 @@ class AgriEngine {
         String scenario = Jsons.text(request, "scenarioId", Jsons.text(soil, "scenarioId", "normal"));
         double moisture = Jsons.number(soil, "value", Double.NaN);
         List<Map<String, Object>> candidates = new ArrayList<>();
+        String qualityStatus = Jsons.text(quality, "status", "GOOD").toUpperCase(Locale.ROOT);
+        boolean explicitDrift = "sensor-drift".equalsIgnoreCase(scenario) || "BAD".equals(qualityStatus);
+        Map<String, Object> device = deviceForPlot(plotId);
         double waterScore = Double.isNaN(moisture) ? 0.15 : Math.max(0, Math.min(0.95, (20 - moisture) / 20 + 0.35));
-        double driftScore = "sensor-drift".equalsIgnoreCase(scenario) || "BAD".equals(Jsons.text(quality, "status", "GOOD")) ? 0.92 : 0.08;
-        double deviceScore = "OFFLINE".equals(Jsons.text(deviceForPlot(plotId), "status", "ONLINE")) ? 0.9 : 0.05;
+        double driftScore = explicitDrift ? 0.92 : 0.08;
+        double deviceScore = "OFFLINE".equals(Jsons.text(device, "status", "ONLINE")) ? 0.9 : 0.05;
         candidates.add(candidate("WATER_DEFICIT", waterScore)); candidates.add(candidate("SENSOR_DRIFT", driftScore)); candidates.add(candidate("DEVICE_FAULT", deviceScore));
         if (Jsons.number(Jsons.map(mapper, latest.get("AIR_TEMPERATURE")), "value", 0) > 35) candidates.add(candidate("HEAT_STRESS", 0.76));
         candidates.sort(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "confidence", 0)).reversed());
         String primary = Jsons.text(candidates.get(0), "code", "INSUFFICIENT_EVIDENCE");
         double confidence = Jsons.number(candidates.get(0), "confidence", 0.1);
+        // A normal, well-watered plot often has no dominant root cause.  Do not
+        // turn the small 0.08 fallback drift score into a false sensor-fault
+        // diagnosis; retain it as a low-confidence candidate instead.
+        if (!explicitDrift && deviceScore < 0.9 && confidence < 0.25) {
+            primary = "INSUFFICIENT_EVIDENCE";
+        }
         List<Map<String, Object>> supporting = new ArrayList<>(); List<Map<String, Object>> opposing = new ArrayList<>(); List<String> missing = new ArrayList<>();
         if (!soil.isEmpty()) supporting.add(Map.of("type", "telemetry", "metric", "SOIL_MOISTURE", "value", moisture, "source", Jsons.text(soil, "eventId", ""), "provenance", "OBSERVED"));
         else missing.add("SOIL_MOISTURE");
         if ("SENSOR_DRIFT".equals(primary)) { supporting.add(Map.of("type", "quality", "status", Jsons.text(quality, "status", "BAD"), "provenance", "DERIVED")); missing.add("FLOW_RATE_CALIBRATION"); }
+        if ("INSUFFICIENT_EVIDENCE".equals(primary)) {
+            missing.add("MORE_TELEMETRY_HISTORY");
+            opposing.add(Map.of("type", "rule", "reason", "当前没有形成明确的缺水或设备故障证据", "provenance", "DERIVED"));
+        }
         if ("DEVICE_FAULT".equals(primary)) supporting.add(Map.of("type", "device", "status", "OFFLINE", "provenance", "OBSERVED"));
         if (waterScore < 0.4) opposing.add(Map.of("type", "rule", "reason", "湿度未持续低于目标", "provenance", "DERIVED"));
         Map<String, Object> diagnosis = new LinkedHashMap<>(); diagnosis.put("diagnosisId", Jsons.id("diag")); diagnosis.put("plotId", plotId); diagnosis.put("riskType", primary);
@@ -1212,21 +1225,25 @@ class AgriEngine {
         Map<String, Object> device = deviceForPlot(plotId);
         boolean metricPass = !soil.isEmpty();
         boolean freshnessPass = metricPass && Duration.between(Jsons.instant(soil.get("ts"), Instant.EPOCH), Instant.now()).getSeconds() <= 180;
-        boolean qualityPass = "GOOD".equals(Jsons.text(quality, "status", "BAD"));
+        String qualityStatus = Jsons.text(quality, "status", "BAD").toUpperCase(Locale.ROOT);
+        boolean qualityPass = "GOOD".equals(qualityStatus);
+        boolean qualityHardFail = !metricPass || "BAD".equals(qualityStatus);
+        boolean qualityNeedsReview = "DEGRADED".equals(qualityStatus);
         boolean devicePass = !device.isEmpty() && !"OFFLINE".equals(Jsons.text(device, "status", "OFFLINE"));
-        boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(soil, "scenarioId", "")) || !qualityPass;
+        boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(soil, "scenarioId", "")) || "BAD".equals(qualityStatus);
         boolean resourcePass = store.find("resource-profile", "resource-default") != null;
         boolean permissionPass = true;
         boolean safetyPass = plan == null || Jsons.whole(plan, "durationSeconds", 0) <= properties.getMaxIrrigationSeconds();
         Map<String, String> gates = new LinkedHashMap<>(); gates.put("requiredMetrics", metricPass ? "PASS" : "FAIL"); gates.put("freshness", freshnessPass ? "PASS" : "FAIL");
-        gates.put("dataQuality", qualityPass ? "PASS" : "FAIL"); gates.put("deviceHealth", devicePass ? "PASS" : "FAIL"); gates.put("resourceCapacity", resourcePass ? "PASS" : "FAIL");
+        gates.put("dataQuality", qualityPass ? "PASS" : qualityNeedsReview ? "REVIEW" : "FAIL"); gates.put("deviceHealth", devicePass ? "PASS" : "FAIL"); gates.put("resourceCapacity", resourcePass ? "PASS" : "FAIL");
         gates.put("permission", permissionPass ? "PASS" : "FAIL"); gates.put("safetyLimit", safetyPass ? "PASS" : "FAIL");
         List<String> missing = new ArrayList<>(); if (!metricPass) missing.add("SOIL_MOISTURE"); if (!freshnessPass) missing.add("FRESH_TELEMETRY");
-        if (!qualityPass) missing.add("GOOD_DATA_QUALITY"); if (!devicePass) missing.add("DEVICE_HEALTH"); if (drift) missing.add("FLOW_RATE_CALIBRATION");
+        if (qualityHardFail) missing.add("GOOD_DATA_QUALITY"); else if (qualityNeedsReview) missing.add("QUALITY_REVIEW");
+        if (!devicePass) missing.add("DEVICE_HEALTH"); if (drift) missing.add("FLOW_RATE_CALIBRATION");
         String status;
-        if (!metricPass || !devicePass && !qualityPass) status = "UNAVAILABLE";
-        else if (drift || !qualityPass || !freshnessPass) status = "NEEDS_EVIDENCE";
-        else if (!safetyPass || !resourcePass) status = "HUMAN_REVIEW";
+        if (!metricPass || !devicePass) status = "UNAVAILABLE";
+        else if (!freshnessPass || qualityHardFail || drift) status = "NEEDS_EVIDENCE";
+        else if (qualityNeedsReview || !safetyPass || !resourcePass) status = "HUMAN_REVIEW";
         else status = "READY";
         double score = (metricPass ? .2 : 0) + (freshnessPass ? .15 : 0) + (qualityPass ? .2 : 0) + (devicePass ? .15 : 0) + (resourcePass ? .15 : 0) + (safetyPass ? .15 : 0);
         Map<String, Object> result = new LinkedHashMap<>(); result.put("readinessId", Jsons.id("ready")); result.put("subject", Map.of("type", subjectType, "id", subjectId));
@@ -1253,7 +1270,27 @@ class AgriEngine {
         if (diagnosis == null) diagnosis = diagnose(plotId, request);
         String primary = Jsons.text(diagnosis, "primaryCause", "INSUFFICIENT_EVIDENCE");
         Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
-        Map<String, Object> quality = Jsons.map(mapper, soil.get("quality")); boolean blocked = "SENSOR_DRIFT".equals(primary) || !"GOOD".equals(Jsons.text(quality, "status", "BAD"));
+        Map<String, Object> quality = Jsons.map(mapper, soil.get("quality"));
+        String qualityStatus = Jsons.text(quality, "status", "BAD").toUpperCase(Locale.ROOT);
+        double diagnosisConfidence = Jsons.number(diagnosis, "confidence", 0);
+        Map<String, Object> device = deviceForPlot(plotId);
+        boolean anyMetricDegraded = latest.values().stream().anyMatch(value -> {
+            if (!(value instanceof Map<?, ?> metricValue)) return false;
+            Map<String, Object> metric = Jsons.map(mapper, metricValue);
+            return "DEGRADED".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, metric.get("quality")), "status", "GOOD"));
+        });
+        boolean anyMetricBad = latest.values().stream().anyMatch(value -> {
+            if (!(value instanceof Map<?, ?> metricValue)) return false;
+            Map<String, Object> metric = Jsons.map(mapper, metricValue);
+            return "BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, metric.get("quality")), "status", "GOOD"));
+        });
+        boolean hardDataBlock = soil.isEmpty()
+                || "BAD".equals(qualityStatus)
+                || anyMetricBad
+                || "OFFLINE".equals(Jsons.text(device, "status", "OFFLINE"))
+                || ("SENSOR_DRIFT".equals(primary) && diagnosisConfidence >= 0.6);
+        boolean reviewOnly = !hardDataBlock
+                && (anyMetricDegraded || "DEGRADED".equals(qualityStatus) || "SENSOR_DRIFT".equals(primary) || "INSUFFICIENT_EVIDENCE".equals(primary));
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("planId", Jsons.id("plan")); plan.put("plotId", plotId); plan.put("diagnosisId", diagnosis.get("diagnosisId")); if (request.containsKey("traceId")) plan.put("traceId", request.get("traceId"));
         plan.put("cropPackVersion", "1.0.0"); plan.put("ruleVersion", "rule-1.0.0"); plan.put("knowledgeVersion", "kb-1.0.0"); plan.put("agentVersion", "rules-agent-1.0");
         plan.put("recommendedWindow", Map.of("start", Instant.now().plus(5, ChronoUnit.MINUTES).toString(), "end", Instant.now().plus(35, ChronoUnit.MINUTES).toString()));
@@ -1267,10 +1304,19 @@ class AgriEngine {
         // inspect its actual duration and plot instead of treating the plan id as
         // a plot id.  This is what makes a fresh, healthy plan truly READY.
         store.save("irrigation-plan", Jsons.text(plan, "planId", ""), plan);
-        String readinessStatus = blocked ? "NEEDS_EVIDENCE" : Jsons.text(readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", "")), "status", "HUMAN_REVIEW");
-        plan.put("why", blocked ? "数据质量或传感器漂移未通过硬门，需先补证" : "土壤湿度低于当前阶段目标"); plan.put("evidence", List.of(soil, diagnosis));
-        plan.put("requiresApproval", true); plan.put("executable", !blocked && "READY".equals(readinessStatus)); plan.put("readinessStatus", readinessStatus);
-        plan.put("status", blocked ? "BLOCKED" : "PROPOSED"); plan.put("createdAt", Instant.now().toString());
+        String readinessStatus = hardDataBlock ? "NEEDS_EVIDENCE" : Jsons.text(readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", "")), "status", "HUMAN_REVIEW");
+        if (reviewOnly && "READY".equals(readinessStatus)) readinessStatus = "HUMAN_REVIEW";
+        double currentMoisture = Jsons.number(soil, "value", 18);
+        boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
+        String why = hardDataBlock
+                ? "数据质量或设备状态未通过硬门，先补证更稳妥"
+                : reviewOnly
+                    ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
+                    : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+        plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
+        boolean executable = !hardDataBlock && !reviewOnly && !noWaterNeeded && "READY".equals(readinessStatus) && duration > 0;
+        plan.put("requiresApproval", true); plan.put("advisoryOnly", !executable); plan.put("executable", executable); plan.put("readinessStatus", readinessStatus);
+        plan.put("status", hardDataBlock ? "BLOCKED" : noWaterNeeded ? "NO_ACTION" : reviewOnly ? "HUMAN_REVIEW" : "PROPOSED"); plan.put("createdAt", Instant.now().toString());
         store.save("irrigation-plan", Jsons.text(plan, "planId", ""), plan); events.publish("irrigation.plan.created", plan); store.logEvent("irrigation.plan.created", plan);
         return plan;
     }
@@ -1571,12 +1617,21 @@ class AgriEngine {
             answer.put("intent", "RISK_FORECAST");
             answer.put("summary", "已生成土壤湿度短期预测");
             answer.put("result", tools.get(tools.size() - 1).get("output"));
-        } else if (message.contains("灌溉") || message.contains("浇水") || message.toLowerCase(Locale.ROOT).contains("irrigation")) {
+        } else if (isIrrigationQuestion(message)) {
             Map<String, Object> plan = irrigationPlan(Map.of("plotId", plotId, "traceId", traceId), principal);
             tools.add(tool("generate_irrigation_plan", Map.of("plotId", plotId), plan));
             answer.put("intent", "IRRIGATION_RECOMMENDATION");
-            answer.put("summary", Jsons.bool(plan, "executable", false) ? "已生成可审批灌溉处方" : "当前证据不足，先补证再灌溉");
+            answer.put("summary", Jsons.bool(plan, "executable", false)
+                    ? "已生成可审批灌溉处方"
+                    : "已生成保守参考，建议人工复核");
             answer.put("plan", plan);
+        } else if (isDiagnosisQuestion(message)) {
+            Map<String, Object> diagnosis = diagnose(plotId, Map.of("scenarioId", "normal", "traceId", traceId));
+            tools.add(tool("evaluate_diagnosis", Map.of("plotId", plotId), diagnosis));
+            answer.put("intent", "DIAGNOSIS");
+            answer.put("summary", "已完成缺水与传感器风险分析");
+            answer.put("diagnosis", diagnosis);
+            answer.put("result", Map.of("diagnosis", diagnosis, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId)));
         } else if (message.contains("任务") || message.contains("农务")) {
             List<Map<String, Object>> work = todayWork(plotId);
             tools.add(tool("get_today_work_items", Map.of("plotId", plotId), work));
@@ -1667,7 +1722,7 @@ class AgriEngine {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", configuredLlmModel());
         request.put("messages", List.of(
-                Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。使用简洁中文：问候只问候，信息不足先提出一个最小澄清问题；最多 3 个短段或 5 条要点。只能使用给定公开事实，不得编造观测值；不得生成 SQL、MQTT topic、HTTP 请求或控制命令；处方不可执行时明确说明需要人工复核。"),
+                Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。语气自然，像经验丰富的农技员：先说结论，再用一两句解释依据和下一步；可以使用‘目前看来’、‘更稳妥的是’等表达，避免机械重复同一句拒绝话术。问候只问候，信息不足先提出一个最小澄清问题；最多 3 个短段或 5 条要点。只能使用给定公开事实，不得编造观测值；不得生成 SQL、MQTT topic、HTTP 请求或控制命令。处方只是人工复核参考时要说清楚‘不会自动执行’，但仍可给出保守的建议和复测重点。"),
                 Map.of("role", "user", "content", userContent)));
         request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.7);
         request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.8);
@@ -1759,6 +1814,21 @@ class AgriEngine {
                 || normalized.contains("具备") && (normalized.contains("知识") || normalized.contains("能力"));
     }
 
+    private boolean isIrrigationQuestion(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("灌溉") || normalized.contains("浇水") || normalized.contains("补水")
+                || normalized.contains("处方") || normalized.contains("watering") || normalized.contains("irrigation");
+    }
+
+    private boolean isDiagnosisQuestion(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("诊断") || normalized.contains("缺水") || normalized.contains("漂移")
+                || normalized.contains("根因") || normalized.contains("异常") || normalized.contains("sensor drift")
+                || normalized.contains("drought risk") || normalized.contains("risk analysis");
+    }
+
     /**
      * Applies the same hard safety boundary after model generation.  The model
      * may explain a deterministic result, but it can never turn stale/unsafe
@@ -1780,9 +1850,18 @@ class AgriEngine {
             String readiness = Jsons.text(plan, "readinessStatus", "");
             boolean executable = Jsons.bool(plan, "executable", false);
             if (!executable || !"READY".equalsIgnoreCase(readiness)) {
-                return "当前证据不足或需要人工复核，不能生成可执行灌溉处方。请先恢复设备、补充合格遥测并重新评估就绪度。";
+                String status = Jsons.text(plan, "status", "");
+                if ("NO_ACTION".equalsIgnoreCase(status)) {
+                    return "目前湿度已经达到阶段目标，暂时不用浇水。我会保留这次判断，等趋势继续下降再复核。";
+                }
+                return "我先给你一版保守的人工复核参考：当前证据不足以安全自动执行灌溉，所以不会直接下发。建议先复测土壤湿度和流量，确认后再决定具体水量。";
             }
         }
+
+        // Diagnosis and status queries may explain a degraded signal.  They do
+        // not issue a command, so do not replace the model's useful explanation
+        // with the old one-line refusal template.
+        if ("DIAGNOSIS".equals(intent)) return null;
 
         Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
         Map<String, Object> device = Jsons.map(mapper, result.get("device"));
@@ -1799,7 +1878,7 @@ class AgriEngine {
             return "DEGRADED".equalsIgnoreCase(status) || "BAD".equalsIgnoreCase(status);
         });
         if (degraded) {
-            return "当前遥测质量降级，模型只能说明风险，不能据此生成可执行灌溉处方；请先人工复核或恢复合格数据。";
+            return "我看到一项遥测质量提醒，当前结论更适合作为风险参考。建议先复测对应传感器，再决定是否调整灌溉；如果你愿意，我也可以先帮你列一份复测清单。";
         }
         return null;
     }
@@ -1908,7 +1987,7 @@ class AgriEngine {
     }
 
     private Map<String, Object> tool(String name, Object input, Object output) {
-        Set<String> allowed = Set.of("get_risk_forecast", "generate_irrigation_plan", "get_today_work_items", "get_plot_status");
+        Set<String> allowed = Set.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status");
         if (!allowed.contains(name)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TOOL_NOT_ALLOWED", "工具不在白名单中");
         if (!(input instanceof Map<?, ?>)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TOOL_SCHEMA_INVALID", "工具入参必须是 JSON object");
         Map<String, Object> contract = new LinkedHashMap<>(); contract.put("name", name); contract.put("input", input); contract.put("output", output);
@@ -2130,6 +2209,7 @@ class AgriController {
     ResponseEntity<?> agentTools(Authentication a) { return ok(List.of(
             Map.of("name", "get_risk_forecast", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
             Map.of("name", "generate_irrigation_plan", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
+            Map.of("name", "evaluate_diagnosis", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
             Map.of("name", "get_today_work_items", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
             Map.of("name", "get_plot_status", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"))); }
 

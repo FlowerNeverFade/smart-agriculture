@@ -778,6 +778,12 @@ class AgriApp {
 
     this.dom.btnSendCopilot.disabled = true;
     this.dom.btnSendCopilot.innerHTML = `<span>⏳ 分析中...</span>`;
+    // Do not leave the previous answer visible while a new model request is
+    // pending; that made a fresh query look as if it had already completed.
+    this.dom.copilotOutputBanner?.classList.add('active');
+    if (this.dom.copilotOutputTitle) this.dom.copilotOutputTitle.textContent = '🤖 正在读取最新数据';
+    if (this.dom.copilotOutputText) this.dom.copilotOutputText.textContent = '正在结合遥测、规则和作物知识生成回答…';
+    if (this.dom.copilotTraceId) this.dom.copilotTraceId.textContent = '请求处理中';
 
     try {
       const response = await api.agentChat(query, this.state.currentPlotId);
