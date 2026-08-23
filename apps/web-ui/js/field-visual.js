@@ -13,6 +13,7 @@ function drawLeaf(context, point, alpha) {
   context.fill();
   context.restore();
 }
+
 function drawSmoothTrail(context, points, now, pointer) {
   if (points.length < 2) return;
   const first = points[0];
