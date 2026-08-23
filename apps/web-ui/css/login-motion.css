@@ -44,7 +44,6 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .farm-scene,
 .farm-scene__backdrop,
-.farm-scene canvas,
 .scene-shade {
   position: absolute;
   inset: 0;
@@ -59,24 +58,13 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .farm-scene__backdrop {
-  inset: -2.5%;
-  width: 105%;
-  height: 105%;
   object-fit: cover;
   object-position: center;
-  transform: translate3d(0, 0, 0) scale(1.035);
   filter: saturate(.88) brightness(1.025);
-  will-change: transform;
-}
-
-.farm-scene canvas {
-  z-index: 1;
-  display: block;
-  touch-action: none;
 }
 
 .scene-shade {
-  z-index: 2;
+  z-index: 1;
   background: rgba(248, 250, 240, .035);
   pointer-events: none;
 }

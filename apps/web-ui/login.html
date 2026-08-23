@@ -12,7 +12,6 @@
   <main class="experience" aria-labelledby="loginTitle">
     <div class="farm-scene" aria-hidden="true">
       <img class="farm-scene__backdrop" id="fieldBackdrop" src="assets/login-field-environment.png" alt="">
-      <canvas id="farmCanvas"></canvas>
       <div class="scene-shade"></div>
     </div>
 
@@ -62,13 +61,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "./node_modules/three/build/three.module.js"
-      }
-    }
-  </script>
-  <script type="module" src="js/login-webgl.js"></script>
+  <script src="js/login-webgl.js" defer></script>
 </body>
 </html>
