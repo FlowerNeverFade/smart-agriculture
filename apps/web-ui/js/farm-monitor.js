@@ -2938,7 +2938,12 @@ export class FarmMonitor {
         this.world?.setPlotCrop(this.selectedPlotId, cropCode);
         this.dom.panel.querySelectorAll('[data-set-plot-crop]').forEach(b => b.classList.toggle('active', b === cropBtn));
         const plot = this.plots.find(p => p.plotId === this.selectedPlotId);
-        if (plot) plot.cropCode = cropCode;
+        if (plot) {
+          plot.cropCode = cropCode;
+          const cropInfo = CROP_PROFILES[cropCode] || CROP_PROFILES.tomato;
+          const subtitle = this.dom.panel.querySelector('.farm-panel-head p');
+          if (subtitle) subtitle.textContent = `当前作物：${cropInfo.label} (${cropInfo.icon}) · 生长阶段：${STAGE_PROFILES[plot.stageCode || 'fruiting']?.label || '果实成熟期'}`;
+        }
         this.createMarkers();
         this.showToast(`已将【${plot?.name || this.selectedPlotId}】独立定制为【${CROP_PROFILES[cropCode]?.label || cropCode}】`);
       }
@@ -2950,7 +2955,13 @@ export class FarmMonitor {
         this.world?.setPlotStage(this.selectedPlotId, stage);
         this.dom.panel.querySelectorAll('[data-set-plot-stage]').forEach(b => b.classList.toggle('active', b === stageBtn));
         const plot = this.plots.find(p => p.plotId === this.selectedPlotId);
-        if (plot) plot.stageCode = stage;
+        if (plot) {
+          plot.stageCode = stage;
+          const stageInfo = STAGE_PROFILES[stage] || STAGE_PROFILES.fruiting;
+          const cropInfo = CROP_PROFILES[plot.cropCode || 'tomato'] || CROP_PROFILES.tomato;
+          const subtitle = this.dom.panel.querySelector('.farm-panel-head p');
+          if (subtitle) subtitle.textContent = `当前作物：${cropInfo.label} (${cropInfo.icon}) · 生长阶段：${stageInfo.label}`;
+        }
         this.showToast(`已将该地块阶段调控为【${STAGE_PROFILES[stage]?.label || stage}】`);
       }
 
@@ -3308,11 +3319,6 @@ export class FarmMonitor {
 
   closePanel() {
     this.dom.panel?.classList.remove('open');
-  }
-
-  openSandbox(plotId) {
-    this.onSandbox(plotId);
-    this.showToast(`正在构建【${plotId.replace('plot-', '').toUpperCase()}】数字孪生情景沙盘推演...`);
   }
 
   startClock() {

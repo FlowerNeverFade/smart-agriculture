@@ -25,6 +25,7 @@
 }
 
 .crop-sandbox-container {
+  display: none !important;
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -39,6 +40,7 @@
 }
 
 .crop-sandbox-container.active {
+  display: block !important;
   opacity: 1;
   pointer-events: auto;
   transform: scale(1);
