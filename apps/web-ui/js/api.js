@@ -4,12 +4,80 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 
+export class ApiError extends Error {
+  constructor(message, { status = 0, code = 'UNKNOWN', details = {}, isNetworkError = false, cause } = {}) {
+    super(message, cause ? { cause } : undefined);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
+    this.isNetworkError = isNetworkError;
+  }
+}
+
 export class ApiService {
   constructor(baseUrl = '') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.token = localStorage.getItem('agriloop_token') || '';
     this.isLive = false;
     this.sseSource = null;
+  }
+
+  async login({ username, password }) {
+    const response = await this._fetch('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+      auth: false
+    });
+    const result = response?.data;
+    if (!result?.accessToken || !result?.user?.username || !result?.user?.role) {
+      throw new ApiError('登录响应格式无效', { code: 'AUTH_CONTRACT_INVALID' });
+    }
+    return result;
+  }
+
+  async getCurrentUser() {
+    const response = await this._fetch('/api/v1/auth/me');
+    return response?.data || null;
+  }
+
+  saveSession({ mode, token = '', user }) {
+    if (!user?.username || !user?.role || !['live', 'demo'].includes(mode)) {
+      throw new ApiError('会话数据无效', { code: 'SESSION_INVALID' });
+    }
+    if (mode === 'live' && !token) {
+      throw new ApiError('实时会话缺少访问令牌', { code: 'SESSION_TOKEN_MISSING' });
+    }
+
+    this.token = mode === 'live' ? token : '';
+    localStorage.setItem('agriloop_user', JSON.stringify(user));
+    localStorage.setItem('agriloop_session_mode', mode);
+    if (this.token) localStorage.setItem('agriloop_token', this.token);
+    else localStorage.removeItem('agriloop_token');
+  }
+
+  clearSession() {
+    this.token = '';
+    this.sseSource?.close();
+    this.sseSource = null;
+    localStorage.removeItem('agriloop_token');
+    localStorage.removeItem('agriloop_user');
+    localStorage.removeItem('agriloop_session_mode');
+  }
+
+  readSession() {
+    const mode = localStorage.getItem('agriloop_session_mode');
+    const token = localStorage.getItem('agriloop_token') || '';
+    let user = null;
+    try {
+      user = JSON.parse(localStorage.getItem('agriloop_user') || 'null');
+    } catch {
+      return null;
+    }
+    if (!user?.username || !user?.role) return null;
+    if (mode === 'live' && token) return { mode, token, user };
+    if (mode === 'demo' && !token) return { mode, token: '', user };
+    return null;
   }
 
   async checkHealth() {
@@ -33,7 +101,30 @@ export class ApiService {
     if (this.isLive) {
       try {
         const resp = await this._fetch('/api/v1/overview');
-        if (resp && resp.data) return resp.data;
+        if (resp?.data) {
+          const live = resp.data;
+          const plots = Array.isArray(live.plots) ? live.plots.map((plot) => {
+            const fallback = MOCK_DATA.plots.find((item) => item.plotId === plot.plotId) || {};
+            const metrics = { ...(fallback.metrics || {}) };
+            Object.entries(plot.latest || {}).forEach(([metric, reading]) => {
+              const fallbackMetric = metrics[metric] || {};
+              metrics[metric] = {
+                ...fallbackMetric,
+                value: typeof reading === 'object' ? reading.value : reading,
+                unit: typeof reading === 'object' ? (reading.unit || fallbackMetric.unit) : fallbackMetric.unit
+              };
+            });
+            return {
+              ...fallback,
+              ...plot,
+              cropName: fallback.cropName || plot.cropCode,
+              stageLabel: fallback.stageLabel || '当前阶段',
+              metrics,
+              device: { ...(fallback.device || {}), ...(plot.device || {}) }
+            };
+          }) : MOCK_DATA.plots;
+          return { ...live, plots };
+        }
       } catch (e) {
         console.warn('Live API call failed, falling back to mock:', e);
       }
@@ -264,17 +355,41 @@ export class ApiService {
   }
 
   async _fetch(path, options = {}) {
+    const { auth = true, ...fetchOptions } = options;
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      ...(auth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
-    const response = await fetch(`${this.baseUrl}${path}`, { ...options, headers });
-    if (!response.ok) {
-      throw new Error(`HTTP Error ${response.status}: ${response.statusText}`);
+
+    let response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
+    } catch (error) {
+      throw new ApiError('无法连接后端服务', {
+        code: 'NETWORK_ERROR',
+        isNetworkError: true,
+        cause: error
+      });
     }
-    return await response.json();
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      throw new ApiError(payload?.error?.message || `请求失败 (${response.status})`, {
+        status: response.status,
+        code: payload?.error?.code || `HTTP_${response.status}`,
+        details: payload?.error?.details || {},
+        isNetworkError: [502, 503, 504].includes(response.status)
+      });
+    }
+    if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
+    return payload;
   }
 }
 

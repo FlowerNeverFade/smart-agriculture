@@ -1,53 +1,50 @@
-# Login WebGL Design QA
+# Static Agriculture Login QA
 
-- source visual truth paths:
-  - `design-qa-evidence/reference-active-theory-loaded.png`
-  - `design-qa-evidence/reference-apple-airpods.png`
-  - `design-qa-evidence/reference-cropx.png`
-  - `design-qa-evidence/reference-lettuce-grow.png`
-- implementation screenshot path: `design-qa-evidence/login-webgl-final.png`
-- full-view comparison evidence: `design-qa-evidence/comparison-pass-2.png`
-- viewport: 1600 x 775 CSS px, desktop, device scale factor 2; implementation screenshot 1600 x 775 px and source captures normalized into 520 x 300 tiles for the comparison board
-- source pixels: Active Theory 1600 x 775; Apple 1585 x 768; CropX 1569 x 760; Lettuce Grow 1569 x 760
-- implementation pixels: 1600 x 775
-- state: mature plant at 100% growth, light agricultural theme, empty login form
+- source visual truth path: `design-references/login-plant-concept.png`
+- implementation screenshot paths:
+  - `design-qa-evidence/login-concept-final.png`
+  - `design-qa-evidence/login-concept-mobile.png`
+- combined comparison evidence: `design-qa-evidence/comparison-login-concept-final.png`
+- source pixels: 1672 x 941
+- implementation pixels: 1280 x 720 desktop and 390 x 844 mobile
+- CSS viewport: 1280 x 720 desktop and 390 x 844 mobile
+- density normalization: source resized to 1280 x 720 at the same 16:9 ratio; implementation captured at CSS pixel density 1
+- state: empty login form, static mature tomato background, light agriculture theme
 
 ## Findings
 
-- No remaining P0, P1, or P2 issue.
-- Fonts and typography: the implementation uses restrained sans-serif UI text and a single serif display heading, preserving the premium hierarchy and avoiding the dense promotional copy in the agriculture references.
-- Spacing and layout rhythm: the singular WebGL subject and login form occupy distinct visual zones with stable negative space; primary controls remain aligned and readable at the target viewport.
-- Colors and visual tokens: mist green, warm ivory, natural foliage green, soil brown, and one tomato accent map the selected agricultural direction without inheriting Active Theory's dark palette.
-- Image quality and asset fidelity: the hero is a live Three.js object rather than a frame sequence. Antialiasing, soft shadows, physical materials, leaf veins, fog, particles, and lighting render cleanly at the captured desktop density.
-- Copy and content: only identity, credentials, entry action, demo identity, password help, and subtle motion controls remain.
-- Accessibility and behavior: semantic labels, keyboard-visible focus, password reveal, reduced-motion handling, pause/restart, and scrub controls are present.
+- No actionable P0, P1, or P2 difference remains.
+- Fonts and typography: the serif heading, compact sans-serif labels, weight hierarchy, line height and letter spacing remain clear against the bright scene.
+- Spacing and layout rhythm: the tomato and exposed roots dominate the left side while the 356px login surface stays in the source image's intentional right-side negative space.
+- Colors and tokens: warm ivory, pale sage, botanical green, natural soil brown and tomato red match the selected concept; the green submit action remains the only saturated control.
+- Image quality and asset fidelity: the runtime uses the exact approved concept image, with no generated substitute, CSS illustration, WebGL distortion, background video or frame sequence.
+- Copy and content: only the brand, login title, credential fields, primary action, demo identity and password help remain visible.
+- Interaction states: password visibility, validation, demo identity, loading, live login, offline demo login and logout remain functional; continuous scene motion and mouse parallax were intentionally removed.
+- Responsive behavior: at 390 x 844 the canopy remains visible, the form is fully contained within the viewport, and horizontal overflow is absent.
+- Accessibility: semantic labels, alert/status regions, visible keyboard focus and reduced-motion handling remain present.
 
 ## Focused Region Comparison
 
-Not required for this directional synthesis: it is not a pixel clone of one source. The full implementation capture is readable at native size, and the combined comparison board is sufficient to judge the selected qualities: single dynamic subject, negative space, light agriculture palette, and minimal form hierarchy.
+Not required. At 1280 x 720 the combined board keeps the complete plant, roots, brand, form typography and primary action readable; the separate 390 x 844 capture covers mobile spacing.
 
 ## Comparison History
 
-### Pass 1
+### Final pass — passed
 
-- Earlier P2 finding: the plant read as too schematic because the leaves were visually edge-on and the material response was flat.
-- Fixes made: corrected leaf orientation, added alternating physical materials, subtle clearcoat and sheen, visible leaf veins, and a stronger but restrained environmental halo.
-- Earlier evidence: `design-qa-evidence/login-webgl-mature-v2.png` and `design-qa-evidence/comparison-pass-1.png`.
+- The source and implementation use the same plant artwork and crop.
+- The only intentional addition is the functional AgriLoop brand and right-side login form.
+- No visual fix was required after the current static-background capture.
 
-### Pass 2
+## Runtime Checks
 
-- Post-fix evidence: `design-qa-evidence/login-webgl-final.png` and `design-qa-evidence/comparison-pass-2.png`.
-- Result: the central subject is legible as a growing crop, the form remains visually quiet, and no actionable P0/P1/P2 mismatch remains.
-
-## Interaction and Runtime Checks
-
-- browser-rendered implementation opened at `login.html`
-- continuous growth, pointer parallax, click/root pulse, pause, restart, and range scrubber checked
-- demo identity selection populated `farmer` / `demo123`
-- form submission redirected to `index.html`
-- dashboard logout redirected back to the new `login.html`, not the retired concept screen
-- DOM runtime check returned `readyState: complete`, `is-mounted: true`, a 3200 x 1550 backing canvas, and the expected mature animation label
-- no runtime error surfaced during the tested interaction path; WebGL rendered throughout the captured states
-- responsive CSS includes tablet/mobile layout and reduced-motion fallbacks; a separate device-emulated capture was not available in the selected browser surface
+- Vite production build passed.
+- Empty form and incorrect-password validation remain on the login page.
+- Correct backend credentials create a live session and enter `index.html`.
+- Backend-unavailable seeded credentials enter clearly labelled demo mode.
+- Logout clears the session and returns to the current `login.html`.
+- Direct dashboard access without a valid session returns to `login.html`.
+- Desktop and 390 x 844 mobile layouts were inspected.
+- Current login-page browser warning/error log was empty.
+- `git diff --check` passed.
 
 final result: passed

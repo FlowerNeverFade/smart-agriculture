@@ -3,16 +3,23 @@
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js';
-import { api } from './api.js';
+import { ApiError, api } from './api.js';
+
+const ROLE_PRESENTATION = {
+  FARM_ADMIN: { roleLabel: '农场管理员', avatar: '👑' },
+  FARMER: { roleLabel: '种植农户', avatar: '🧑‍🌾' },
+  FIELD_OPERATOR: { roleLabel: '田间操作员', avatar: '🔧' },
+  SYSTEM_ADMIN: { roleLabel: '系统管理员', avatar: '⚙️' }
+};
+
+function presentUser(user) {
+  return { ...user, ...(ROLE_PRESENTATION[user?.role] || {}) };
+}
 
 class AgriApp {
   constructor() {
-    const savedUser = JSON.parse(localStorage.getItem('agriloop_user') || 'null') || {
-      username: 'admin',
-      role: 'FARM_ADMIN',
-      roleLabel: '农场管理员',
-      avatar: '👑'
-    };
+    this.session = api.readSession();
+    const savedUser = presentUser(this.session?.user || {});
 
     this.state = {
       currentPlotId: 'plot-a01',
@@ -30,13 +37,39 @@ class AgriApp {
   }
 
   async init() {
+    if (!this.session) {
+      api.clearSession();
+      window.location.replace('login.html');
+      return;
+    }
+
     this.cacheDom();
     this.applyTheme(this.state.currentTheme);
     this.applyUser(this.state.currentUser);
     this.bindEvents();
 
-    // Check backend connection
-    this.state.isLive = await api.checkHealth();
+    if (this.session.mode === 'live') {
+      try {
+        const liveUser = await api.getCurrentUser();
+        if (liveUser) {
+          this.state.currentUser = presentUser(liveUser);
+          api.saveSession({ mode: 'live', token: this.session.token, user: this.state.currentUser });
+          this.applyUser(this.state.currentUser);
+        }
+        api.isLive = true;
+        this.state.isLive = true;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          api.clearSession();
+          window.location.replace('login.html');
+          return;
+        }
+        this.state.isLive = false;
+      }
+    } else {
+      api.isLive = false;
+      this.state.isLive = false;
+    }
     this.updateSystemStatusPill();
 
     // Load initial data
@@ -112,29 +145,14 @@ class AgriApp {
     // Switch Account -> redirect to login.html
     this.dom.btnSwitchAccount?.addEventListener('click', () => {
       this.dom.userMenuPopover?.classList.remove('active');
-      window.location.href = 'login.html';
+      api.clearSession();
+      window.location.replace('login.html');
     });
 
     // Logout -> redirect to login.html
     this.dom.btnLogout?.addEventListener('click', () => {
-      localStorage.removeItem('agriloop_user');
-      window.location.href = 'login.html';
-    });
-
-    // Login Form Submit
-    this.dom.loginForm?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const username = this.dom.loginUsername?.value.trim() || 'admin';
-      this.performLogin(username);
-    });
-
-    // Fast Role Login Pills inside Modal
-    document.querySelectorAll('.role-pill-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        const username = btn.dataset.username || 'admin';
-        this.performLogin(username);
-      });
+      api.clearSession();
+      window.location.replace('login.html');
     });
 
     // Quick Action button
@@ -210,9 +228,6 @@ class AgriApp {
     this.dom.subviewModal?.addEventListener('click', (e) => {
       if (e.target === this.dom.subviewModal) this.closeModal();
     });
-    this.dom.authModal?.addEventListener('click', (e) => {
-      if (e.target === this.dom.authModal) this.closeAuthModal();
-    });
   }
 
   applyTheme(theme) {
@@ -240,36 +255,6 @@ class AgriApp {
     if (this.dom.popoverRoleTag) this.dom.popoverRoleTag.textContent = `ROLE_${user.role} · 权限生效中`;
   }
 
-  openAuthModal() {
-    this.dom.authModal?.classList.add('active');
-  }
-
-  closeAuthModal() {
-    this.dom.authModal?.classList.remove('active');
-  }
-
-  performLogin(username) {
-    const rolesMap = {
-      'admin': { role: 'FARM_ADMIN', label: '农场管理员', avatar: '👑', desc: '全地块控制权与处方审批' },
-      'farmer': { role: 'FARMER', label: '种植农户', avatar: '🧑‍🌾', desc: '地块时序监测与生长计划' },
-      'operator': { role: 'FIELD_OPERATOR', label: '田间操作员', avatar: '🔧', desc: '田间核验与受控执行' },
-      'sysadmin': { role: 'SYSTEM_ADMIN', label: '系统管理员', avatar: '⚙️', desc: '全域超管与基础设施' }
-    };
-
-    const userMeta = rolesMap[username] || rolesMap['admin'];
-    const userObj = {
-      username,
-      role: userMeta.role,
-      roleLabel: userMeta.label,
-      avatar: userMeta.avatar
-    };
-
-    localStorage.setItem('agriloop_user', JSON.stringify(userObj));
-    this.applyUser(userObj);
-    this.closeAuthModal();
-    this.showToast(`登录成功！当前身份：【${userMeta.label}】(${userMeta.role})`, 'success');
-  }
-
   async loadOverview() {
     const overview = await api.getOverview();
     if (overview && overview.plots) {
@@ -278,13 +263,18 @@ class AgriApp {
   }
 
   updateSystemStatusPill() {
-    if (this.state.isLive) {
+    if (this.session.mode === 'demo') {
+      this.dom.systemStatusText.textContent = "离线演示模式 (MOCK)";
+      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--amber-primary)";
+      this.dom.rightAiModeTag.textContent = "demo / rules-only";
+    } else if (this.state.isLive) {
       this.dom.systemStatusText.textContent = "后端服务在线 (REST/SSE)";
       this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
       this.dom.rightAiModeTag.textContent = "rules-only (live)";
     } else {
-      this.dom.systemStatusText.textContent = "本地仿真态 (POSTGRESQL)";
-      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--green-bright)";
+      this.dom.systemStatusText.textContent = "后端暂不可用";
+      this.dom.systemStatusPill.querySelector('.dot').style.backgroundColor = "var(--amber-primary)";
+      this.dom.rightAiModeTag.textContent = "offline";
     }
   }
 

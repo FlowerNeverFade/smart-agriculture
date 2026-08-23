@@ -6,14 +6,12 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#e7f0e4">
   <title>AgriLoop · 智慧农业登录</title>
-  <link rel="stylesheet" href="css/login-motion.css?v=20260823-motion">
+  <link rel="stylesheet" href="css/login-motion.css">
 </head>
 <body>
   <main class="experience" aria-labelledby="loginTitle">
     <div class="farm-scene" aria-hidden="true">
-      <img class="farm-scene__backdrop" id="fieldBackdrop" src="assets/login-field-environment.png" alt="">
-      <canvas class="farm-scene__motion" id="farmMotionCanvas"></canvas>
-      <div class="scene-shade"></div>
+      <img class="farm-scene__backdrop" src="assets/login-field-environment.png" alt="">
     </div>
 
     <header class="brand" aria-label="AgriLoop 农智闭环">
@@ -62,6 +60,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script src="js/login-webgl.js?v=20260823-motion" defer></script>
+  <script type="module" src="js/login.js"></script>
 </body>
 </html>
