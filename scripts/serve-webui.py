@@ -30,9 +30,18 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         sys.stderr.write("[web-ui] %s %s\n" % (self.address_string(), fmt % args))
 
 
+# 多线程 + 大连接队列：
+# 浏览器无缓存时会并行请求 7+ 个资源，单线程 TCPServer 的默认 backlog(5)
+# 会拒绝超出队列的连接，浏览器被迫重试导致首次加载明显变慢（main 分支
+# 资源少恰好不触发，yyx 分支会触发）。改用多线程服务器后所有连接并行处理。
+class ThreadingServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+
 if __name__ == "__main__":
-    with socketserver.TCPServer(("127.0.0.1", PORT), NoCacheHandler) as httpd:
-        print("AgriLoop web-ui serving %s at http://127.0.0.1:%d (no-cache)" % (WEB_UI_DIR, PORT))
+    with ThreadingServer(("127.0.0.1", PORT), NoCacheHandler) as httpd:
+        print("AgriLoop web-ui serving %s at http://127.0.0.1:%d (no-cache, threaded)" % (WEB_UI_DIR, PORT))
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
