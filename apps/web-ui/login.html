@@ -6,20 +6,19 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#e7f0e4">
   <title>AgriLoop · 智慧农业登录</title>
-  <link rel="stylesheet" href="css/login-motion.css">
+  <link rel="stylesheet" href="css/login-motion.css?v=20260823-motion">
 </head>
 <body>
   <main class="experience" aria-labelledby="loginTitle">
     <div class="farm-scene" aria-hidden="true">
-      <canvas id="farmCanvas"></canvas>
+      <img class="farm-scene__backdrop" id="fieldBackdrop" src="assets/login-field-environment.png" alt="">
+      <canvas class="farm-scene__motion" id="farmMotionCanvas"></canvas>
       <div class="scene-shade"></div>
     </div>
 
     <header class="brand" aria-label="AgriLoop 农智闭环">
       <span class="brand__name">agri<span>loop</span></span>
     </header>
-
-    <button class="motion-control" id="motionToggle" type="button">暂停动画</button>
 
     <section class="auth" aria-live="polite">
       <p class="auth__eyebrow">智慧农业工作台</p>
@@ -60,24 +59,9 @@
       </div>
     </section>
 
-    <div class="scene-timeline">
-      <div class="scene-timeline__meta">
-        <span id="growthStatus">种子苏醒</span>
-        <span class="scene-timeline__hint">移动视角 · 点击唤醒根系</span>
-      </div>
-      <input id="timeScrubber" type="range" min="0" max="100" value="0" aria-label="生长进度">
-    </div>
-
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "./vendor/three.module.js"
-      }
-    }
-  </script>
-  <script type="module" src="js/login-webgl.js"></script>
+  <script src="js/login-webgl.js?v=20260823-motion" defer></script>
 </body>
 </html>
