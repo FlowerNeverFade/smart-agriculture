@@ -44,6 +44,7 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .farm-scene,
 .farm-scene__backdrop,
+.farm-scene__motion,
 .scene-shade {
   position: absolute;
   inset: 0;
@@ -58,13 +59,24 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .farm-scene__backdrop {
+  z-index: 0;
   object-fit: cover;
   object-position: center;
   filter: saturate(.88) brightness(1.025);
 }
 
-.scene-shade {
+.farm-scene__motion {
   z-index: 1;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 900ms var(--ease);
+}
+
+.farm-scene__motion.is-ready { opacity: 1; }
+
+.scene-shade {
+  z-index: 2;
   background: rgba(248, 250, 240, .035);
   pointer-events: none;
 }
@@ -86,6 +98,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .brand__name span { color: var(--green); }
 
 .auth {
+  --gloss-x: 50%;
+  --gloss-y: 28%;
   position: absolute;
   z-index: 4;
   top: 51%;
@@ -102,6 +116,36 @@ button { -webkit-tap-highlight-color: transparent; }
   transform: translateY(calc(-50% + 18px));
   transition: opacity 900ms var(--ease), transform 1000ms var(--ease);
 }
+
+.auth::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle 190px at var(--gloss-x) var(--gloss-y),
+    rgba(255, 255, 255, .12),
+    rgba(255, 255, 255, .035) 42%,
+    transparent 74%
+  );
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms ease;
+}
+
+body.has-background-motion .auth::before { opacity: 1; }
+
+.auth > .auth__eyebrow,
+.auth > h1,
+.auth > form,
+.auth > .demo-panel {
+  z-index: 1;
+}
+
+.auth > .auth__eyebrow,
+.auth > h1,
+.auth > form { position: relative; }
 
 body.is-mounted .auth {
   opacity: 1;
@@ -327,4 +371,7 @@ body.is-mounted .auth {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+
+  .farm-scene__motion,
+  .auth::before { display: none !important; }
 }
