@@ -4,7 +4,7 @@
  * 图表优先使用本地 vendored ECharts；缺失时回退纯 SVG（charts.js）。
  */
 import { api } from '../api.js';
-import { svgGroupedBarChart, svgAreaChart, initEChart, escapeHtml } from '../charts.js';
+import { svgGroupedBarChart, svgAreaChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
 
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
@@ -123,29 +123,26 @@ export async function renderValueLedger(container) {
     </div>`;
 
   const charts = [];
+  const tipCleanups = [];
   const barEl = container.querySelector('[data-role="bar-chart"]');
   const areaEl = container.querySelector('[data-role="area-chart"]');
 
   const bar = initEChart(barEl);
   if (bar) {
+    // 自定义浮窗：内容自绘，不受原生 tooltip 容器行为影响
+    tipCleanups.push(attachCustomTip(bar, (params) => {
+      const d = data.daily[params.dataIndex];
+      if (!d) return null;
+      return `<div style="color:#8b949e">${d.date}</div>
+        <div>计划用水：<b>${d.planned} L</b></div>
+        <div style="color:#3fb950">实际用水：<b>${d.actual} L</b></div>
+        <div style="color:#d29922">偏差率：<b>${d.deviationRatePct}%</b></div>`;
+    }));
     // --- 柱状图：计划 vs 实际 + 偏差率折线 ---
     bar.setOption({
       backgroundColor: 'transparent',
       grid: { left: 50, right: 52, top: 30, bottom: 30 },
-      tooltip: {
-        ...darkTooltip(),
-        formatter: (params) => {
-          const date = params[0]?.axisValue ?? '';
-          const find = name => params.find(p => p.seriesName === name);
-          const planned = find('计划用水');
-          const actual = find('实际用水');
-          const dev = find('偏差率');
-          return `<div style="line-height:16px;color:#8b949e">${date}</div>
-            <div style="line-height:16px">计划用水：<b>${planned?.value ?? '-'} L</b></div>
-            <div style="line-height:16px;color:#3fb950">实际用水：<b>${actual?.value ?? '-'} L</b></div>
-            <div style="line-height:16px;color:#d29922">偏差率：<b>${dev?.value ?? '-'}%</b></div>`;
-        }
-      },
+      tooltip: { ...darkTooltip(), formatter: () => null },
       legend: { show: false },
       xAxis: {
         type: 'category',
@@ -209,23 +206,19 @@ export async function renderValueLedger(container) {
   const cf = data.counterfactual;
   const area = initEChart(areaEl);
   if (area) {
+    tipCleanups.push(attachCustomTip(area, (params) => {
+      const w = cf[params.dataIndex];
+      if (!w) return null;
+      const save = w.traditionalCostRmb - w.agriLoopCostRmb;
+      return `<div style="color:#8b949e">${w.week}</div>
+        <div style="color:#f85149">传统粗放：<b>¥${w.traditionalCostRmb}</b></div>
+        <div style="color:#3fb950">农智闭环：<b>¥${w.agriLoopCostRmb}</b></div>
+        <div style="color:#d29922">累计节约：<b>¥${save}</b></div>`;
+    }));
     area.setOption({
       backgroundColor: 'transparent',
       grid: { left: 50, right: 24, top: 30, bottom: 30 },
-      tooltip: {
-        ...darkTooltip(),
-        formatter: (params) => {
-          const week = params[0]?.axisValue ?? '';
-          const find = name => params.find(p => p.seriesName === name);
-          const t = find('传统粗放灌溉成本');
-          const a = find('农智闭环成本');
-          const s = find('累计节约');
-          return `<div style="line-height:16px;color:#8b949e">${week}</div>
-            <div style="line-height:16px;color:#f85149">传统粗放：<b>¥${t?.value ?? '-'}</b></div>
-            <div style="line-height:16px;color:#3fb950">农智闭环：<b>¥${a?.value ?? '-'}</b></div>
-            <div style="line-height:16px;color:#d29922">累计节约：<b>¥${s?.value ?? '-'}</b></div>`;
-        }
-      },
+      tooltip: { ...darkTooltip(), formatter: () => null },
       legend: { show: false },
       xAxis: {
         type: 'category',
@@ -284,6 +277,7 @@ export async function renderValueLedger(container) {
   window.addEventListener('resize', onResize);
   return () => {
     window.removeEventListener('resize', onResize);
+    tipCleanups.forEach(fn => { try { fn(); } catch (e) { /* noop */ } });
     charts.forEach(c => { try { c.dispose(); } catch (e) { /* noop */ } });
   };
 }

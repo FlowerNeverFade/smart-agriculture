@@ -7,7 +7,7 @@
  */
 import { api } from '../api.js';
 import { MOCK_DATA } from '../mock-data.js';
-import { svgGauge, svgLineChart, initEChart, escapeHtml } from '../charts.js';
+import { svgGauge, svgLineChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
 
 const BOUNDARY_COLOR = '#f85149';
 const BASELINE_COLOR = '#d29922';
@@ -146,6 +146,7 @@ export async function renderRiskForecast(container, plotId) {
     </div>`;
 
   const charts = [];
+  const customTipCleanups = [];
   const gaugeEl = container.querySelector('[data-role="gauge"]');
   const chartEl = container.querySelector('[data-role="chart-body"]');
 
@@ -205,10 +206,22 @@ export async function renderRiskForecast(container, plotId) {
     let chart = chartEl._agriEChart || initEChart(chartEl);
     if (chart) {
       chartEl._agriEChart = chart;
+      // 原生 tooltip 仅保留 axisPointer 十字线，内容改由自定义浮窗渲染
+      if (!chart._agriCustomTipAttached) {
+        chart._agriCustomTipAttached = true;
+        customTipCleanups.push(attachCustomTip(chart, (params) => {
+          const p = data.curve[params.dataIndex];
+          if (!p) return null;
+          const tLabel = p.minute === 0 ? '现在' : `+${p.minute}min`;
+          return `<div style="color:#8b949e">${tLabel}</div>
+            <div>期望值：<b style="color:#58a6ff">${p.expected}%</b></div>
+            <div style="color:#8b949e">置信区间：${p.lower}% ~ ${p.upper}%</div>`;
+        }));
+      }
       const option = {
         backgroundColor: 'transparent',
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
-        tooltip: darkTooltip(),
+        tooltip: { ...darkTooltip(), formatter: () => null },
         xAxis: {
           type: 'category',
           boundaryGap: false,
@@ -242,16 +255,6 @@ export async function renderRiskForecast(container, plotId) {
             symbol: 'circle', symbolSize: 4, showSymbol: false,
             lineStyle: { color: MEAN_COLOR, width: 2.4 },
             itemStyle: { color: MEAN_COLOR },
-            tooltip: {
-              // 紧凑内容：浮窗按内容自适应大小
-              formatter: (params) => {
-                const p = params[0];
-                const c = curve.find(pt => pt.minute === Number(p.axisValue)) || {};
-                return `<div style="line-height:16px">${p.axisValue === 0 ? '现在' : `+${p.axisValue}min`}</div>
-                  <div style="line-height:16px">期望值：<b style="color:#58a6ff">${p.value}%</b></div>
-                  <div style="line-height:16px;color:#8b949e">置信区间：${c.lower ?? '-'}% ~ ${c.upper ?? '-'}%</div>`;
-              }
-            },
             markLine: {
               silent: true,
               symbol: 'none',
@@ -305,6 +308,7 @@ export async function renderRiskForecast(container, plotId) {
   window.addEventListener('resize', onResize);
   return () => {
     window.removeEventListener('resize', onResize);
+    customTipCleanups.forEach(fn => { try { fn(); } catch (e) { /* noop */ } });
     charts.forEach(c => { try { c.dispose(); } catch (e) { /* noop */ } });
     if (chartEl) chartEl._agriEChart = null;
   };
@@ -368,6 +372,10 @@ export async function renderScenarioReplay(container, plotId) {
 
   /** 销毁全部 ECharts 实例（关闭弹窗 / 重新推演时调用） */
   const disposeCharts = () => {
+    if (activeChart && activeChart._agriCustomTipCleanup) {
+      try { activeChart._agriCustomTipCleanup(); } catch (e) { /* noop */ }
+      activeChart._agriCustomTipCleanup = null;
+    }
     chartInstances.forEach(c => { try { c.dispose(); } catch (e) { /* noop */ } });
     chartInstances = [];
     activeChart = null;
@@ -540,23 +548,8 @@ export async function renderScenarioReplay(container, plotId) {
       return {
         backgroundColor: 'transparent',
         grid: { left: 46, right: 20, top: 36, bottom: 30 },
-        tooltip: {
-          ...darkTooltip(),
-          // 紧凑内容：分支 A/B 数值 + 差值，浮窗按内容自适应大小
-          formatter: (params) => {
-            const a = params[0];
-            const b = params[1];
-            if (!a || !b) return '';
-            const valOf = p => Number(Array.isArray(p.value) ? p.value[1] : p.value); // value 轴 data 为 [x, y]
-            const av = valOf(a);
-            const bv = valOf(b);
-            const diff = av - bv;
-            return `<div style="line-height:16px;color:#8b949e">t = ${a.axisValue} min</div>
-              <div style="line-height:16px">分支 A 执行：<b style="color:#3fb950">${av.toFixed(1)}%</b></div>
-              <div style="line-height:16px">分支 B 放任：<b style="color:#f85149">${bv.toFixed(1)}%</b></div>
-              <div style="line-height:16px">差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
-          }
-        },
+        // 原生 tooltip 仅保留 axisPointer，内容由自定义浮窗渲染（attachCustomTip）
+        tooltip: { ...darkTooltip(), formatter: () => null },
         // value 轴：markLine 的 xAxis 直接按时间坐标定位，与曲线横轴严格对应
         xAxis: {
           type: 'value', min: 0, max: 240,
@@ -578,6 +571,19 @@ export async function renderScenarioReplay(container, plotId) {
         activeChart = initEChart(chartEl);
         if (activeChart) {
           chartInstances.push(activeChart);
+          // 自定义浮窗：内容自绘，不受原生 tooltip 容器行为影响
+          activeChart._agriCustomTipCleanup = attachCustomTip(activeChart, (params) => {
+            const i = params.dataIndex;
+            if (i == null) return null;
+            const pa = bExec.points[i];
+            const pb = bNoop.points[i];
+            if (!pa || !pb) return null;
+            const diff = pa.value - pb.value;
+            return `<div style="color:#8b949e">t = ${pa.minute} min</div>
+              <div>分支 A 执行：<b style="color:#3fb950">${pa.value.toFixed(1)}%</b></div>
+              <div>分支 B 放任：<b style="color:#f85149">${pb.value.toFixed(1)}%</b></div>
+              <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
+          });
           activeChart.setOption(buildEChartsOption(t), true); // 首次全量渲染
         }
       } else {

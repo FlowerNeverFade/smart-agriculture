@@ -53,6 +53,66 @@ export function initEChart(el) {
   }
 }
 
+/**
+ * 自定义 HTML Tooltip（替代 ECharts 原生 tooltip）
+ * 原生 tooltip 容器样式由 ECharts 内部生成，部分浏览器中尺寸行为不可控；
+ * 这里把浮窗挂到 body（position: fixed），尺寸/样式完全自控，内容按数据自适应。
+ * @param chart       echarts 实例
+ * @param getContent  (params) => html 字符串；返回 null 时不显示
+ * @returns cleanup 函数（移除浮窗与监听）
+ */
+export function attachCustomTip(chart, getContent) {
+  if (!chart || typeof chart.on !== 'function') return () => {}; // 无事件能力的环境（stub/SVG）直接跳过
+  let tipEl = null;
+
+  const ensureTip = () => {
+    if (!tipEl) {
+      tipEl = document.createElement('div');
+      tipEl.className = 'agri-custom-tip';
+      document.body.appendChild(tipEl);
+    }
+    return tipEl;
+  };
+
+  const hide = () => {
+    if (tipEl) tipEl.style.display = 'none';
+  };
+
+  const onMove = (params) => {
+    if (!params || !params.event) return hide();
+    const dataIndex = params.dataIndex;
+    const content = dataIndex == null ? null : getContent(params);
+    if (content == null) return hide();
+    const tip = ensureTip();
+    tip.innerHTML = content;
+    tip.style.display = 'block';
+    // 定位：跟随鼠标，超出视口时翻转
+    const rect = chart.getDom().getBoundingClientRect();
+    const px = rect.left + (params.event.offsetX || 0);
+    const py = rect.top + (params.event.offsetY || 0);
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    let left = px + 14;
+    let top = py + 14;
+    if (left + tw > window.innerWidth - 4) left = px - tw - 14;
+    if (top + th > window.innerHeight - 4) top = py - th - 14;
+    tip.style.left = Math.max(4, left) + 'px';
+    tip.style.top = Math.max(4, top) + 'px';
+  };
+
+  chart.on('mousemove', onMove);
+  chart.on('mouseout', hide);
+  chart.on('mousedown', hide);
+
+  return () => {
+    chart.off('mousemove', onMove);
+    chart.off('mouseout', hide);
+    chart.off('mousedown', hide);
+    if (tipEl && tipEl.parentNode) tipEl.parentNode.removeChild(tipEl);
+    tipEl = null;
+  };
+}
+
 function niceTicks(min, max, count) {
   const span = max - min || 1;
   const step = Math.pow(10, Math.floor(Math.log10(span / count)));

@@ -129,6 +129,25 @@
   height: auto;
   display: block;
 }
+
+/* 自定义 HTML Tooltip（替代 ECharts 原生 tooltip，挂在 body 下，尺寸完全自控） */
+.agri-custom-tip {
+  position: fixed;
+  z-index: 99999;
+  display: none;
+  pointer-events: none;
+  background-color: #21262d;
+  border: 1px solid #3d444d;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 16px;
+  color: #f0f6fc;
+  white-space: nowrap;
+  max-width: 320px;
+  word-break: break-word;
+}
 .chart-grid-line { stroke: #21262d; stroke-width: 1; }
 .chart-grid-line-v { stroke: #161b22; stroke-width: 1; }
 .chart-axis-label { fill: #8b949e; font-size: 10px; font-family: var(--font-mono); }
