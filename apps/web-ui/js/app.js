@@ -698,7 +698,9 @@ class AgriApp {
   displayCopilotBanner(response) {
     if (!this.dom.copilotOutputBanner) return;
     this.dom.copilotOutputBanner.classList.add('active');
-    this.dom.copilotTraceId.textContent = `traceId: ${response.traceId || 'run-mock'}`;
+    // Trace IDs remain available through the decision-passport/audit APIs, but
+    // are deliberately not shown in the conversational answer area.
+    this.dom.copilotTraceId.textContent = response.traceId ? '已保存审计记录' : '演示记录';
 
     const hasQwenNarrative = response.adapter === 'openai-compatible'
       && Boolean(response.narrative)

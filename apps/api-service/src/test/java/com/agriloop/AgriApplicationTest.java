@@ -103,4 +103,24 @@ class AgriApplicationTest {
         assertThat(shortInput.get("intent")).isEqualTo("CLARIFICATION");
         assertThat(String.valueOf(shortInput.get("narrative"))).contains("补充");
     }
+
+    @Test
+    void capabilityQuestionIsConciseAndSafetyBoundaryWins() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> capability = engine.agentChat(Map.of("message", "你具备智慧农田专业知识吗", "plotId", "plot-a01"), farmer);
+        assertThat(capability.get("intent")).isEqualTo("CAPABILITY_QUERY");
+        assertThat(capability.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(String.valueOf(capability.get("narrative"))).doesNotContain("traceId", "<think>");
+
+        assertThat(engine.safetyNarrativeOverride("请通过 MQTT 发送开阀命令", Map.of()))
+                .contains("不能", "控制命令");
+        Map<String, Object> offline = Map.of("intent", "PLOT_STATUS", "result", Map.of(
+                "device", Map.of("status", "OFFLINE"), "latest", Map.of()));
+        assertThat(engine.safetyNarrativeOverride("查看地块状态", offline))
+                .contains("设备离线", "暂不生成");
+        Map<String, Object> blockedPlan = Map.of("intent", "IRRIGATION_RECOMMENDATION", "plan", Map.of(
+                "executable", false, "readinessStatus", "NEEDS_EVIDENCE"));
+        assertThat(engine.safetyNarrativeOverride("给我灌溉建议", blockedPlan))
+                .contains("证据不足", "人工复核");
+    }
 }

@@ -15,6 +15,10 @@ LORA_NAME="${QWEN_LORA_NAME:-agriloop-qwen38-agri}"
 LORA_PATH="${QWEN_LORA_PATH:-$APP_ROOT/models/agriloop-qwen38-lora}"
 GPU_LIST="${QWEN_GPU_LIST:-0,1}"
 export CUDA_VISIBLE_DEVICES="$GPU_LIST"
+# Blackwell support in the bundled FlashInfer build is incomplete on this host.
+# Keep attention on Triton and use vLLM's native sampler/all-reduce paths.
+export VLLM_USE_FLASHINFER_SAMPLER="${VLLM_USE_FLASHINFER_SAMPLER:-0}"
+export VLLM_ALLREDUCE_USE_FLASHINFER="${VLLM_ALLREDUCE_USE_FLASHINFER:-0}"
 
 args=(
   serve "$MODEL_PATH"
@@ -27,6 +31,7 @@ args=(
   --max-model-len "${QWEN_MAX_MODEL_LEN:-8192}"
   --max-num-seqs "${QWEN_MAX_NUM_SEQS:-8}"
   --max-num-batched-tokens "${QWEN_MAX_NUM_BATCHED_TOKENS:-8192}"
+  --attention-config "{\"backend\":\"${QWEN_ATTENTION_BACKEND:-TRITON_ATTN}\"}"
   --language-model-only
   --trust-remote-code
 )
@@ -39,4 +44,3 @@ else
 fi
 
 exec /srv/qwen-vllm312/bin/vllm "${args[@]}"
-

@@ -1414,6 +1414,13 @@ class AgriEngine {
                     "capabilities", List.of("地块状态查询", "异常与根因诊断", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
                     "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过审批执行命令")));
+            // Capability questions are a stable contract, not a generative task.
+            // Answering them locally avoids a needless 27B round trip and keeps
+            // the product boundary concise even when an LLM is enabled.
+            answer.put("narrative", "我可以查询地块状态、解释异常、做 1/2/4 小时风险预测、试算灌溉处方并汇总今日农务。实时事实来自规则、数据库和检索知识；执行控制必须经过权限、安全门和人工确认。");
+            answer.put("narrativeProvenance", "DERIVED");
+            answer.put("adapter", "rules-fast-path");
+            fastPath = true;
         } else if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) {
             tools.add(tool("get_risk_forecast", Map.of("plotId", plotId), forecast(plotId, "SOIL_MOISTURE")));
             answer.put("intent", "RISK_FORECAST");
@@ -1456,6 +1463,8 @@ class AgriEngine {
             try {
                 rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId));
                 String narrative = sanitizeNarrative(rawNarrative);
+                String safetyOverride = safetyNarrativeOverride(message, answer);
+                if (safetyOverride != null) narrative = safetyOverride;
                 if (narrative.isBlank()) narrative = Jsons.text(answer, "summary", "已完成规则评估");
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
@@ -1603,6 +1612,51 @@ class AgriEngine {
         return normalized.contains("专业知识") || normalized.contains("智慧农田") || normalized.contains("懂农业")
                 || normalized.contains("你会什么") || normalized.contains("能做什么") || normalized.contains("你是谁")
                 || normalized.contains("具备") && (normalized.contains("知识") || normalized.contains("能力"));
+    }
+
+    /**
+     * Applies the same hard safety boundary after model generation.  The model
+     * may explain a deterministic result, but it can never turn stale/unsafe
+     * evidence into an executable prescription or emit a control payload.
+     */
+    @SuppressWarnings("unchecked")
+    String safetyNarrativeOverride(String message, Map<String, Object> answer) {
+        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        if (normalized.contains("mqtt") || normalized.contains("topic") || normalized.contains("sql")
+                || normalized.contains("http 请求") || normalized.contains("http request")
+                || normalized.contains("发送命令") || normalized.contains("控制命令")
+                || normalized.contains("执行命令") || normalized.contains("开阀") || normalized.contains("关阀")) {
+            return "我不能在对话中直接发送或生成控制命令。请使用受控执行接口，并先完成权限、审批、幂等键和安全门校验。";
+        }
+
+        String intent = Jsons.text(answer, "intent", "");
+        if ("IRRIGATION_RECOMMENDATION".equals(intent)) {
+            Map<String, Object> plan = Jsons.map(mapper, answer.get("plan"));
+            String readiness = Jsons.text(plan, "readinessStatus", "");
+            boolean executable = Jsons.bool(plan, "executable", false);
+            if (!executable || !"READY".equalsIgnoreCase(readiness)) {
+                return "当前证据不足或需要人工复核，不能生成可执行灌溉处方。请先恢复设备、补充合格遥测并重新评估就绪度。";
+            }
+        }
+
+        Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+        Map<String, Object> device = Jsons.map(mapper, result.get("device"));
+        String deviceStatus = Jsons.text(device, "status", "");
+        if ("OFFLINE".equalsIgnoreCase(deviceStatus)) {
+            return "当前设备离线，无法把旧数据当作实时依据；请先恢复设备或人工复测，暂不生成可执行灌溉处方。";
+        }
+        Map<String, Object> latest = Jsons.map(mapper, result.get("latest"));
+        boolean degraded = latest.values().stream().anyMatch(value -> {
+            if (!(value instanceof Map<?, ?>)) return false;
+            Map<String, Object> metric = Jsons.map(mapper, value);
+            Map<String, Object> quality = Jsons.map(mapper, metric.get("quality"));
+            String status = Jsons.text(quality, "status", "GOOD");
+            return "DEGRADED".equalsIgnoreCase(status) || "BAD".equalsIgnoreCase(status);
+        });
+        if (degraded) {
+            return "当前遥测质量降级，模型只能说明风险，不能据此生成可执行灌溉处方；请先人工复核或恢复合格数据。";
+        }
+        return null;
     }
 
     /**
