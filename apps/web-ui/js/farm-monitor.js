@@ -1586,12 +1586,13 @@ class FarmWorld3D {
     const furrowMaterial = new THREE.MeshStandardMaterial({ color: 0x4c3523, roughness: 1.0 });
 
     this.plots.forEach((plot, index) => {
-      const layout = PLOT_LAYOUT[plot.plotId] || Object.values(PLOT_LAYOUT)[index % Object.values(PLOT_LAYOUT).length];
+      const slotConfig = RECLAMATION_SLOTS.find(s => s.slotId === plot.plotId);
+      const layout = PLOT_LAYOUT[plot.plotId] || slotConfig || Object.values(PLOT_LAYOUT)[index % Object.values(PLOT_LAYOUT).length];
       if (layout.isGreenhouse) return; // Greenhouse handled separately
 
       const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilMaterial.clone());
       soil.position.set(layout.x, -0.02, layout.z);
-      soil.rotation.y = layout.rotation;
+      soil.rotation.y = layout.rotation || 0;
       soil.receiveShadow = true;
       soil.userData.plotId = plot.plotId;
       soil.userData.baseColor = soil.material.color.clone();
@@ -1601,7 +1602,7 @@ class FarmWorld3D {
 
       const edgeGroup = new THREE.Group();
       edgeGroup.position.set(layout.x, 0.05, layout.z);
-      edgeGroup.rotation.y = layout.rotation;
+      edgeGroup.rotation.y = layout.rotation || 0;
       [
         [layout.width + 0.16, 0.12, 0.14, 0, -layout.depth / 2],
         [layout.width + 0.16, 0.12, 0.14, 0, layout.depth / 2],
@@ -1633,7 +1634,7 @@ class FarmWorld3D {
       });
       const glowGroup = new THREE.Group();
       glowGroup.position.set(layout.x, 0.135, layout.z);
-      glowGroup.rotation.y = layout.rotation;
+      glowGroup.rotation.y = layout.rotation || 0;
       [
         [layout.width + 0.1, 0.035, 0.045, 0, -layout.depth / 2],
         [layout.width + 0.1, 0.035, 0.045, 0, layout.depth / 2],
@@ -1647,6 +1648,51 @@ class FarmWorld3D {
       glowGroup.visible = plot.plotId === 'plot-a01';
       this.plotGlows.set(plot.plotId, glowGroup);
       this.scene.add(glowGroup);
+
+      // If reclaimed plot, also build its canal!
+      if (slotConfig && slotConfig.canalStart && slotConfig.canalEnd) {
+        const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x7c8a82, roughness: 0.9 });
+        const dx = slotConfig.canalEnd.x - slotConfig.canalStart.x;
+        const dz = slotConfig.canalEnd.z - slotConfig.canalStart.z;
+        const isX = Math.abs(dx) > Math.abs(dz);
+        const canalLen = Math.max(0.5, isX ? Math.abs(dx) : Math.abs(dz));
+        const midX = (slotConfig.canalStart.x + slotConfig.canalEnd.x) / 2;
+        const midZ = (slotConfig.canalStart.z + slotConfig.canalEnd.z) / 2;
+        const canalWidth = isX ? canalLen : 0.85;
+        const canalDepth = isX ? 0.85 : canalLen;
+
+        const bed = new THREE.Mesh(new THREE.BoxGeometry(canalWidth, 0.08, canalDepth), bankMaterial);
+        bed.position.set(midX, 0.03, midZ);
+        this.scene.add(bed);
+
+        const water = new THREE.Mesh(new THREE.PlaneGeometry(canalWidth, canalDepth), this.createWaterMaterial());
+        water.rotation.x = -Math.PI / 2;
+        water.position.set(midX, 0.075, midZ);
+        this.scene.add(water);
+
+        if (isX) {
+          [-0.54, 0.54].forEach(offZ => {
+            const bank = new THREE.Mesh(new THREE.BoxGeometry(canalLen, 0.16, 0.22), bankMaterial);
+            bank.position.set(midX, 0.09, midZ + offZ);
+            bank.castShadow = true;
+            this.scene.add(bank);
+          });
+        } else {
+          [-0.54, 0.54].forEach(offX => {
+            const bank = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, canalLen), bankMaterial);
+            bank.position.set(midX + offX, 0.09, midZ);
+            bank.castShadow = true;
+            this.scene.add(bank);
+          });
+        }
+
+        const gate = new THREE.Mesh(
+          new THREE.BoxGeometry(0.4, 0.6, 0.4),
+          new THREE.MeshStandardMaterial({ color: 0x2b3831, roughness: 0.4, metalness: 0.6 })
+        );
+        gate.position.set(slotConfig.canalEnd.x, 0.3, slotConfig.canalEnd.z);
+        this.scene.add(gate);
+      }
 
       // Per Plot Crop Field
       const field = new CropField(this.scene, plot, layout);
@@ -2477,10 +2523,11 @@ class FarmWorld3D {
 }
 
 export class FarmMonitor {
-  constructor({ plots = DEFAULT_PLOTS, onExit, onSandbox } = {}) {
+  constructor({ plots = DEFAULT_PLOTS, onExit, onSandbox, onPlotReclaimed } = {}) {
     this.plots = plots?.length ? plots : DEFAULT_PLOTS;
     this.onExit = onExit || (() => {});
     this.onSandbox = onSandbox || (() => {});
+    this.onPlotReclaimed = onPlotReclaimed || (() => {});
     this.selectedPlotId = this.plots[0]?.plotId || 'plot-a01';
     this.weather = 'sunny';
     this.temperature = 28.4;
@@ -3048,6 +3095,7 @@ export class FarmMonitor {
       if (!this.plots.some(p => p.plotId === newPlot.plotId)) {
         this.plots.push(newPlot);
       }
+      this.onPlotReclaimed(newPlot);
       if (this.dom.plotCounter) {
         this.dom.plotCounter.innerHTML = `<i class="ph ph-squares-four"></i> ${this.plots.length} 块独立监测示范区`;
       }

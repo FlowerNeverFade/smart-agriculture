@@ -52,6 +52,12 @@ class AgriApp {
       onSandbox: (plotId) => {
         this.state.currentPlotId = plotId;
         this.openSubview('scenario-replay', { plotId });
+      },
+      onPlotReclaimed: (newPlot) => {
+        if (!this.state.plots.some(p => p.plotId === newPlot.plotId)) {
+          this.state.plots.push(newPlot);
+          this.renderPlots(this.dom.plotSearchInput?.value || '');
+        }
       }
     });
 
