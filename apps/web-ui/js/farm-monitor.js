@@ -1803,8 +1803,8 @@ class FarmWorld3D {
     [
       [slot.width + 0.1, 0.035, 0.045, 0, -slot.depth / 2],
       [slot.width + 0.1, 0.035, 0.045, 0, slot.depth / 2],
-      [0.045, 0.035, layout.depth, -slot.width / 2, 0],
-      [0.045, 0.035, layout.depth, slot.width / 2, 0]
+      [0.045, 0.035, slot.depth, -slot.width / 2, 0],
+      [0.045, 0.035, slot.depth, slot.width / 2, 0]
     ].forEach(([w, h, d, x, z]) => {
       const glow = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glowMaterial);
       glow.position.set(x, 0, z);
@@ -3045,6 +3045,9 @@ export class FarmMonitor {
 
     this.dom.reclaimDialog?.classList.remove('open');
     if (newPlot) {
+      if (!this.plots.some(p => p.plotId === newPlot.plotId)) {
+        this.plots.push(newPlot);
+      }
       if (this.dom.plotCounter) {
         this.dom.plotCounter.innerHTML = `<i class="ph ph-squares-four"></i> ${this.plots.length} 块独立监测示范区`;
       }
