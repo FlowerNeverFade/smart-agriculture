@@ -2232,20 +2232,32 @@ class FarmWorld3D {
   }
 
   buildClouds() {
-    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.78, roughness: 1, depthWrite: false });
+    const cloudMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.75,
+      roughness: 1,
+      depthWrite: false
+    });
     this.clouds = [];
-    for (let index = 0; index < 28; index++) {
+    // High-Stratosphere Skyline Clouds (y: 65m ~ 85m, z: -60m ~ -130m)
+    // Placed high in the northern sky dome over mountain ridges, completely clear of camera line of sight to the farmland
+    for (let index = 0; index < 24; index++) {
       const group = new THREE.Group();
-      const puffCount = 5 + (index % 3);
+      const puffCount = 6 + (index % 3);
       for (let puff = 0; puff < puffCount; puff++) {
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 8), cloudMaterial.clone());
-        mesh.scale.set(1.9 + (puff % 2) * 0.9, 0.75 + (puff % 3) * 0.22, 1.25);
-        mesh.position.set((puff - puffCount / 2) * 2.2, Math.sin(puff * 2.2) * 0.6, Math.cos(puff * 1.5) * 0.7);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(3.2, 12, 8), cloudMaterial.clone());
+        mesh.scale.set(2.2 + (puff % 2) * 1.1, 0.72 + (puff % 3) * 0.25, 1.4);
+        mesh.position.set((puff - puffCount / 2) * 3.0, Math.sin(puff * 2.2) * 0.8, Math.cos(puff * 1.5) * 0.9);
         group.add(mesh);
       }
-      group.position.set(-140 + index * 10.5, 26.0 + (index % 5) * 2.8, -80 + (index % 7) * 22.0);
-      group.userData.speed = 0.18 + (index % 4) * 0.04;
-      group.userData.baseY = group.position.y;
+      const cloudX = -150 + (index / 24) * 300 + Math.sin(index * 2.3) * 10;
+      const cloudY = 65.0 + (index % 5) * 4.2;
+      const cloudZ = -65.0 - (index % 6) * 12.0;
+      group.position.set(cloudX, cloudY, cloudZ);
+      group.userData.speed = 0.16 + (index % 4) * 0.035;
+      group.userData.baseY = cloudY;
+      group.userData.baseOpacity = 0.75;
       group.userData.cloudIndex = index;
       this.clouds.push(group);
       this.scene.add(group);
@@ -2503,18 +2515,20 @@ class FarmWorld3D {
     this.weather = WEATHER_LABELS[weather] ? weather : 'sunny';
     const settings = {
       sunny: { maxClouds: 6, rain: false },
-      cloudy: { maxClouds: 16, rain: false },
-      overcast: { maxClouds: 28, rain: false },
-      'light-rain': { maxClouds: 22, rain: true, rainOpacity: 0.55 },
-      'moderate-rain': { maxClouds: 28, rain: true, rainOpacity: 0.75 },
-      'heavy-rain': { maxClouds: 28, rain: true, rainOpacity: 0.92 }
+      cloudy: { maxClouds: 14, rain: false },
+      overcast: { maxClouds: 24, rain: false },
+      'light-rain': { maxClouds: 18, rain: true, rainOpacity: 0.55 },
+      'moderate-rain': { maxClouds: 24, rain: true, rainOpacity: 0.75 },
+      'heavy-rain': { maxClouds: 24, rain: true, rainOpacity: 0.92 }
     }[this.weather];
 
     this.clouds.forEach((cloud, index) => {
       const isVisible = index < settings.maxClouds;
       cloud.visible = isVisible;
+      const targetOpacity = isVisible ? (this.weather === 'sunny' ? 0.65 : 0.88) : 0;
+      cloud.userData.targetOpacity = targetOpacity;
       cloud.children.forEach(mesh => {
-        mesh.material.opacity = isVisible ? (this.weather === 'sunny' ? 0.65 : 0.88) : 0;
+        mesh.material.opacity = targetOpacity;
         mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xecf0f2 : 0xcbd2d6);
       });
     });
@@ -2659,11 +2673,22 @@ class FarmWorld3D {
       this.windmillBlades.rotation.z += 0.015;
     }
 
-    // Clouds drift across full 300m sky dome
+    // Clouds drift across high-altitude sky dome with camera anti-occlusion proximity protection
     this.clouds.forEach((cloud, index) => {
       cloud.position.x += cloud.userData.speed * 0.012;
-      if (cloud.position.x > 155) cloud.position.x = -155;
+      if (cloud.position.x > 160) cloud.position.x = -160;
       cloud.position.y = cloud.userData.baseY + Math.sin(elapsed * 0.2 + index) * 0.3;
+
+      // Anti-occlusion fading: if elevated camera approaches cloud, smoothly fade out
+      if (cloud.visible) {
+        const dist = cloud.position.distanceTo(this.camera.position);
+        const fade = clamp((dist - 20) / 25, 0, 1);
+        const baseAlpha = cloud.userData.targetOpacity ?? 0.75;
+        const finalAlpha = baseAlpha * fade;
+        cloud.children.forEach(mesh => {
+          if (mesh.material) mesh.material.opacity = finalAlpha;
+        });
+      }
     });
 
     // Full-Map Rain Physics covering all 320m x 240m
