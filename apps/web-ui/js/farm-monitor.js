@@ -3,15 +3,15 @@
  * Pure 3D WebGL Living Farmland World (Three.js)
  * 
  * Features:
- * - Majestic, natural rolling mountain ranges in distant backdrop (zero clipping)
- * - True celestial Sun trajectory (06:00 sunrise over eastern peaks, noon overhead, 18:00 sunset behind western mountains)
- * - Modern high-standard agricultural facilities (Multi-span smart greenhouse, digital command center, fertigation silos, weather mast, lakeside deck)
- * - 7 independent customizable farmland plots (A01~A03, B01~B03, C01)
- * - Per-plot individual crop type and growth stage customizer
- * - Stable panoramic camera with dedicated silky directional mouse-wind physics
+ * - Expansive Panoramic Farmland Park (7 customizable plots across 90m x 70m terrain)
+ * - Zero-clipping procedural elevation system for terrain, mountains, trees, and buildings
+ * - Stable cinematic camera with dedicated silky directional mouse-wind physics
+ * - High-detail botanical 3D models for 6 crops: Tomato, Cucumber, Rice, Corn, Sunflower, Strawberry
+ * - Per-plot INDIVIDUAL crop and growth stage customizer (each plot can be independently changed!)
  * - Plot A01 pulsating red warning beacon & ground radar pulse
+ * - 06:00 Sunrise & 18:00 Sunset cinematic day/night cycle with night lights (greenhouse, streetlamps, fireflies)
  * - 6-state dynamic weather particle engine (Sunny, Cloudy, Overcast, Light Rain, Moderate Rain, Heavy Rain)
- * - Expanding glassmorphism inspection modal with IoT sensors, 24h curve, and AI prescription
+ * - Smooth expanding glassmorphism inspection modal with IoT sensors, 24h curve, and AI prescription
  */
 
 import * as THREE from '../vendor/three/three.module.min.js';
@@ -35,12 +35,12 @@ const WEATHER_ICONS = {
 };
 
 const CROP_PROFILES = {
-  tomato: { label: '优质番茄', icon: '🍅', family: '茄果类 (Solanaceae)', stem: 0x38783d, leaf: 0x3d9c4c, leafDark: 0x226c36, fruit: 0xeb4832, height: 1.25, spacing: 0.52 },
-  cucumber: { label: '水果黄瓜', icon: '🥒', family: '瓜果类 (Cucurbitaceae)', stem: 0x3c8544, leaf: 0x52a850, leafDark: 0x28763a, fruit: 0x72a93c, height: 1.45, spacing: 0.56 },
-  rice: { label: '生态水稻', icon: '🌾', family: '粮食类 (Poaceae)', stem: 0x8ab34a, leaf: 0xa2c558, leafDark: 0x638832, fruit: 0xd4b954, height: 0.88, spacing: 0.36 },
-  corn: { label: '鲜食玉米', icon: '🌽', family: '粮食类 (Poaceae)', stem: 0x468d42, leaf: 0x63a74a, leafDark: 0x2d7539, fruit: 0xdcb248, height: 1.72, spacing: 0.60 },
-  sunflower: { label: '油葵花海', icon: '🌻', family: '油料类 (Asteraceae)', stem: 0x488940, leaf: 0x5ba446, leafDark: 0x2a6d31, fruit: 0xf5bd26, height: 1.60, spacing: 0.58 },
-  strawberry: { label: '红颊草莓', icon: '🍓', family: '浆果类 (Rosaceae)', stem: 0x36733c, leaf: 0x469d4e, leafDark: 0x216a32, fruit: 0xe63636, height: 0.52, spacing: 0.42 }
+  tomato: { label: '优质番茄', icon: '🍅', family: '茄果类 (Solanaceae)', stem: 0x3a7940, leaf: 0x3c994c, leafDark: 0x226e38, fruit: 0xe94e36, height: 1.25, spacing: 0.52 },
+  cucumber: { label: '水果黄瓜', icon: '🥒', family: '瓜果类 (Cucurbitaceae)', stem: 0x3d8645, leaf: 0x54aa53, leafDark: 0x2a783c, fruit: 0x76ad40, height: 1.45, spacing: 0.56 },
+  rice: { label: '生态水稻', icon: '🌾', family: '粮食类 (Poaceae)', stem: 0x8cb54c, leaf: 0xa4c75a, leafDark: 0x658a34, fruit: 0xd6bb56, height: 0.88, spacing: 0.36 },
+  corn: { label: '鲜食玉米', icon: '🌽', family: '粮食类 (Poaceae)', stem: 0x488f44, leaf: 0x65a94c, leafDark: 0x2f773b, fruit: 0xdfb44b, height: 1.72, spacing: 0.60 },
+  sunflower: { label: '油葵花海', icon: '🌻', family: '油料类 (Asteraceae)', stem: 0x4a8b42, leaf: 0x5da648, leafDark: 0x2c6f33, fruit: 0xf5bf28, height: 1.60, spacing: 0.58 },
+  strawberry: { label: '红颊草莓', icon: '🍓', family: '浆果类 (Rosaceae)', stem: 0x38753e, leaf: 0x489f50, leafDark: 0x236c34, fruit: 0xe83838, height: 0.52, spacing: 0.42 }
 };
 
 const STAGE_PROFILES = {
@@ -51,12 +51,13 @@ const STAGE_PROFILES = {
 };
 
 const PLOT_LAYOUT = {
-  'plot-a01': { x: -19.5, z: 7.5, width: 8.5, depth: 7.2, rotation: -0.015, name: 'A01 番茄示范田', defaultCrop: 'tomato', defaultStage: 'fruiting' },
-  'plot-a02': { x: -9.0, z: 7.5, width: 8.5, depth: 7.2, rotation: 0.012, name: 'A02 玉米高产田', defaultCrop: 'corn', defaultStage: 'flowering' },
-  'plot-a03': { x: -19.5, z: -2.2, width: 8.5, depth: 7.2, rotation: -0.015, name: 'A03 黄瓜立体架', defaultCrop: 'cucumber', defaultStage: 'vegetative' },
-  'plot-b01': { x: 7.5, z: 7.8, width: 9.2, depth: 7.8, rotation: 0.018, name: 'B01 生态水稻田', defaultCrop: 'rice', defaultStage: 'vegetative' },
-  'plot-b02': { x: 19.5, z: 7.8, width: 9.2, depth: 7.8, rotation: -0.012, name: 'B02 向日葵花海', defaultCrop: 'sunflower', defaultStage: 'flowering' },
-  'plot-b03': { x: 19.5, z: -2.0, width: 9.2, depth: 7.5, rotation: 0.015, name: 'B03 草莓精品区', defaultCrop: 'strawberry', defaultStage: 'fruiting' }
+  'plot-a01': { x: -20.5, z: 8.5, width: 8.5, depth: 7.5, rotation: -0.02, name: 'A01 番茄示范田', defaultCrop: 'tomato', defaultStage: 'fruiting' },
+  'plot-a02': { x: -9.5, z: 8.5, width: 8.5, depth: 7.5, rotation: 0.015, name: 'A02 玉米高产田', defaultCrop: 'corn', defaultStage: 'flowering' },
+  'plot-a03': { x: -20.5, z: -2.0, width: 8.5, depth: 7.5, rotation: -0.018, name: 'A03 黄瓜立体架', defaultCrop: 'cucumber', defaultStage: 'vegetative' },
+  'plot-b01': { x: 6.5, z: 9.0, width: 9.5, depth: 8.5, rotation: 0.022, name: 'B01 生态水稻田', defaultCrop: 'rice', defaultStage: 'vegetative' },
+  'plot-b02': { x: 19.5, z: 9.0, width: 9.5, depth: 8.5, rotation: -0.015, name: 'B02 向日葵花海', defaultCrop: 'sunflower', defaultStage: 'flowering' },
+  'plot-b03': { x: 19.5, z: -1.5, width: 9.5, depth: 8.0, rotation: 0.018, name: 'B03 草莓精品区', defaultCrop: 'strawberry', defaultStage: 'fruiting' },
+  'plot-c01': { x: -8.0, z: -13.0, width: 12.0, depth: 8.5, rotation: 0.0, name: 'C01 智能连栋温室', defaultCrop: 'tomato', defaultStage: 'fruiting', isGreenhouse: true }
 };
 
 const DEFAULT_PLOTS = [
@@ -65,9 +66,9 @@ const DEFAULT_PLOTS = [
     riskLevel: 'HIGH', healthScore: 0.94,
     metrics: {
       SOIL_MOISTURE: { label: '土壤湿度', value: 16.8, unit: '%', status: 'WARN', target: '20~40%' },
-      AIR_TEMPERATURE: { label: '空气温度', value: 26.4, unit: '°C', status: 'NORMAL', target: '18~32°C' },
-      LIGHT: { label: '光照强度', value: 43500, unit: 'lux', status: 'NORMAL', target: '10k~70k lux' },
-      CO2: { label: 'CO₂ 浓度', value: 680, unit: 'ppm', status: 'NORMAL', target: '350~1200 ppm' },
+      AIR_TEMPERATURE: { label: '空气温度', value: 26.4, unit: '°C', status: 'NORMAL', target: '20~30°C' },
+      LIGHT: { label: '光照强度', value: 43500, unit: 'lux', status: 'NORMAL', target: '30k~55k lux' },
+      CO2: { label: 'CO₂ 浓度', value: 680, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
       SOIL_EC: { label: '土壤 EC 值', value: 1.4, unit: 'mS/cm', status: 'NORMAL', target: '1.0~2.2 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '180:95:210', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
@@ -77,9 +78,9 @@ const DEFAULT_PLOTS = [
     riskLevel: 'LOW', healthScore: 0.98,
     metrics: {
       SOIL_MOISTURE: { label: '土壤湿度', value: 28.5, unit: '%', status: 'NORMAL', target: '25~45%' },
-      AIR_TEMPERATURE: { label: '空气温度', value: 27.2, unit: '°C', status: 'NORMAL', target: '18~32°C' },
-      LIGHT: { label: '光照强度', value: 46800, unit: 'lux', status: 'NORMAL', target: '10k~70k lux' },
-      CO2: { label: 'CO₂ 浓度', value: 710, unit: 'ppm', status: 'NORMAL', target: '350~1200 ppm' },
+      AIR_TEMPERATURE: { label: '空气温度', value: 27.2, unit: '°C', status: 'NORMAL', target: '20~32°C' },
+      LIGHT: { label: '光照强度', value: 46800, unit: 'lux', status: 'NORMAL', target: '30k~60k lux' },
+      CO2: { label: 'CO₂ 浓度', value: 710, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
       SOIL_EC: { label: '土壤 EC 值', value: 1.6, unit: 'mS/cm', status: 'NORMAL', target: '1.2~2.4 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '195:102:220', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
@@ -89,9 +90,9 @@ const DEFAULT_PLOTS = [
     riskLevel: 'LOW', healthScore: 0.99,
     metrics: {
       SOIL_MOISTURE: { label: '土壤湿度', value: 26.2, unit: '%', status: 'NORMAL', target: '22~40%' },
-      AIR_TEMPERATURE: { label: '空气温度', value: 25.8, unit: '°C', status: 'NORMAL', target: '18~30°C' },
-      LIGHT: { label: '光照强度', value: 41200, unit: 'lux', status: 'NORMAL', target: '10k~60k lux' },
-      CO2: { label: 'CO₂ 浓度', value: 660, unit: 'ppm', status: 'NORMAL', target: '350~1200 ppm' },
+      AIR_TEMPERATURE: { label: '空气温度', value: 25.8, unit: '°C', status: 'NORMAL', target: '20~30°C' },
+      LIGHT: { label: '光照强度', value: 41200, unit: 'lux', status: 'NORMAL', target: '28k~50k lux' },
+      CO2: { label: 'CO₂ 浓度', value: 660, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
       SOIL_EC: { label: '土壤 EC 值', value: 1.3, unit: 'mS/cm', status: 'NORMAL', target: '1.0~2.0 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '170:90:200', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
@@ -101,9 +102,9 @@ const DEFAULT_PLOTS = [
     riskLevel: 'LOW', healthScore: 0.99,
     metrics: {
       SOIL_MOISTURE: { label: '田面湿度', value: 35.4, unit: '%', status: 'NORMAL', target: '30~55%' },
-      AIR_TEMPERATURE: { label: '环境温度', value: 25.1, unit: '°C', status: 'NORMAL', target: '20~30°C' },
-      LIGHT: { label: '光照强度', value: 39500, unit: 'lux', status: 'NORMAL', target: '10k~60k lux' },
-      CO2: { label: 'CO₂ 浓度', value: 650, unit: 'ppm', status: 'NORMAL', target: '350~1200 ppm' },
+      AIR_TEMPERATURE: { label: '空气温度', value: 25.1, unit: '°C', status: 'NORMAL', target: '20~30°C' },
+      LIGHT: { label: '光照强度', value: 39500, unit: 'lux', status: 'NORMAL', target: '25k~50k lux' },
+      CO2: { label: 'CO₂ 浓度', value: 650, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
       SOIL_EC: { label: '土壤 EC 值', value: 1.3, unit: 'mS/cm', status: 'NORMAL', target: '0.8~1.8 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '175:88:190', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
@@ -115,7 +116,7 @@ const DEFAULT_PLOTS = [
       SOIL_MOISTURE: { label: '土壤湿度', value: 24.8, unit: '%', status: 'NORMAL', target: '20~38%' },
       AIR_TEMPERATURE: { label: '空气温度', value: 27.6, unit: '°C', status: 'NORMAL', target: '20~32°C' },
       LIGHT: { label: '光照强度', value: 52000, unit: 'lux', status: 'NORMAL', target: '35k~65k lux' },
-      CO2: { label: 'CO₂ 浓度', value: 690, unit: 'ppm', status: 'NORMAL', target: '350~1200 ppm' },
+      CO2: { label: 'CO₂ 浓度', value: 690, unit: 'ppm', status: 'NORMAL', target: '500~800 ppm' },
       SOIL_EC: { label: '土壤 EC 值', value: 1.5, unit: 'mS/cm', status: 'NORMAL', target: '1.0~2.2 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '185:92:205', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
@@ -131,6 +132,18 @@ const DEFAULT_PLOTS = [
       SOIL_EC: { label: '基质 EC 值', value: 1.2, unit: 'mS/cm', status: 'NORMAL', target: '0.8~1.6 mS/cm' },
       NPK_RATIO: { label: '氮磷钾肥力', value: '160:85:195', unit: 'mg/kg', status: 'NORMAL', target: '均衡充足' }
     }
+  },
+  {
+    plotId: 'plot-c01', name: 'C01 号设施 (智能连栋温室)', cropCode: 'tomato', cropName: '设施番茄', stageCode: 'fruiting', stageLabel: '挂果采收期',
+    riskLevel: 'LOW', healthScore: 0.99,
+    metrics: {
+      SOIL_MOISTURE: { label: '基质湿度', value: 32.5, unit: '%', status: 'NORMAL', target: '28~45%' },
+      AIR_TEMPERATURE: { label: '室内温度', value: 24.5, unit: '°C', status: 'NORMAL', target: '22~28°C' },
+      LIGHT: { label: '补光强度', value: 45000, unit: 'lux', status: 'NORMAL', target: '35k~55k lux' },
+      CO2: { label: 'CO₂ 浓度', value: 820, unit: 'ppm', status: 'NORMAL', target: '700~1000 ppm' },
+      SOIL_EC: { label: '营养液 EC', value: 1.8, unit: 'mS/cm', status: 'NORMAL', target: '1.4~2.2 mS/cm' },
+      NPK_RATIO: { label: '水肥浓度', value: '210:110:240', unit: 'mg/L', status: 'NORMAL', target: '按配方精准供给' }
+    }
   }
 ];
 
@@ -140,6 +153,21 @@ const smoothstep = (min, max, val) => {
   const x = Math.max(0, Math.min(1, (val - min) / (max - min)));
   return x * x * (3 - 2 * x);
 };
+
+// Analytical Terrain Elevation (guarantees zero tree/mountain clipping)
+function getTerrainElevation(x, z) {
+  if (z > -16 && Math.abs(x) < 32) return 0.0; // flat farm basin
+  let elevation = 0.0;
+  if (z <= -16) {
+    const depth = (-z - 16);
+    elevation += depth * 0.28 + Math.sin(x * 0.18) * 1.2 + Math.cos(depth * 0.25) * 0.8;
+  }
+  if (Math.abs(x) >= 30) {
+    const side = (Math.abs(x) - 30);
+    elevation += side * 0.35 + Math.sin(z * 0.22) * 1.0;
+  }
+  return Math.max(0, elevation);
+}
 
 function createFlexAttribute(geometry) {
   geometry.computeBoundingBox();
@@ -187,7 +215,7 @@ function createSwayMaterial(color, roughness = 0.78) {
       `);
     material.userData.windUniforms = shader.uniforms;
   };
-  material.customProgramCacheKey = () => 'agriloop-crop-sway-v7';
+  material.customProgramCacheKey = () => 'agriloop-crop-sway-v6';
   return material;
 }
 
@@ -210,17 +238,17 @@ function makeLeafGeometry(height, side = 1, level = 0.58, yaw = 0) {
 }
 
 function getDayPhase(hour) {
-  if (hour < 5.75 || hour >= 19.25) return { phase: 'night', daylight: 0.04, warm: 0 };
-  if (hour < 6.85) {
-    const p = smoothstep(5.75, 6.85, hour);
-    return { phase: 'sunrise', daylight: 0.04 + p * 0.96, warm: Math.sin(p * Math.PI) * 0.92 };
+  if (hour < 5.8 || hour >= 19.3) return { phase: 'night', daylight: 0.04, warm: 0 };
+  if (hour < 6.8) {
+    const p = smoothstep(5.8, 6.8, hour);
+    return { phase: 'sunrise', daylight: 0.04 + p * 0.96, warm: Math.sin(p * Math.PI) * 0.9 };
   }
   if (hour < 17.8) return { phase: 'day', daylight: 1.0, warm: 0 };
   if (hour < 18.9) {
     const p = smoothstep(17.8, 18.9, hour);
     return { phase: 'sunset', daylight: 1.0 - p * 0.96, warm: Math.sin(p * Math.PI) * 0.98 };
   }
-  const p = smoothstep(18.9, 19.25, hour);
+  const p = smoothstep(18.9, 19.3, hour);
   return { phase: 'dusk', daylight: 0.12 - p * 0.08, warm: 0.3 * (1 - p) };
 }
 
@@ -373,7 +401,7 @@ class FarmWorld3D {
     this.clouds = [];
     this.waterMaterials = [];
     this.soilMaterials = [];
-    this.mountainMaterials = [];
+    this.ridgeMaterials = [];
     this.crownMaterials = [];
     this.nightLights = [];
 
@@ -403,10 +431,10 @@ class FarmWorld3D {
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0xcfe2d0, 0.0075);
+    this.scene.fog = new THREE.FogExp2(0xcfe2d0, 0.009);
 
-    // Wide Panoramic Camera Position (Stable, zero jitter on mouse move)
-    this.camera = new THREE.PerspectiveCamera(46, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 300);
+    // Wide Panoramic Camera Position (Stable, no camera jitter on mouse move!)
+    this.camera = new THREE.PerspectiveCamera(48, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 260);
     this.camera.position.set(0, 24, 38);
     this.camera.lookAt(0, 1.2, 0);
     this.baseCamera = this.camera.position.clone();
@@ -414,7 +442,6 @@ class FarmWorld3D {
     this.buildSky();
     this.buildLights();
     this.buildTerrain();
-    this.buildMountains();
     this.buildWater();
     this.buildRoads();
     this.buildBuildings();
@@ -431,11 +458,11 @@ class FarmWorld3D {
 
   buildSky() {
     this.skyUniforms = {
-      uTop: { value: new THREE.Color(0x429cd7) },
-      uHorizon: { value: new THREE.Color(0xe5f5dc) },
+      uTop: { value: new THREE.Color(0x4aa4dc) },
+      uHorizon: { value: new THREE.Color(0xeaf6db) },
       uSunDirection: { value: new THREE.Vector3(-0.35, 0.78, -0.5).normalize() },
       uSunColor: { value: new THREE.Color(0xfff0b5) },
-      uSunStrength: { value: 1.2 }
+      uSunStrength: { value: 1.15 }
     };
     const material = new THREE.ShaderMaterial({
       side: THREE.BackSide,
@@ -458,16 +485,16 @@ class FarmWorld3D {
         uniform float uSunStrength;
         void main() {
           vec3 direction = normalize(vWorld - cameraPosition);
-          float heightMix = smoothstep(-0.06, 0.72, direction.y);
+          float heightMix = smoothstep(-0.05, 0.72, direction.y);
           vec3 sky = mix(uHorizon, uTop, heightMix);
-          float halo = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 30.0) * 0.52;
-          float core = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 600.0) * 2.0;
+          float halo = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 32.0) * 0.5;
+          float core = pow(max(dot(direction, normalize(uSunDirection)), 0.0), 650.0) * 1.8;
           sky += uSunColor * (halo + core) * uSunStrength;
           gl_FragColor = vec4(sky, 1.0);
         }
       `
     });
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(180, 32, 22), material);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(140, 32, 22), material);
     this.scene.add(this.sky);
   }
 
@@ -475,103 +502,92 @@ class FarmWorld3D {
     this.hemiLight = new THREE.HemisphereLight(0xe8f6ff, 0x486c38, 2.4);
     this.scene.add(this.hemiLight);
 
-    // Directional Sun Light (synchronized with celestial sun)
-    this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.5);
-    this.sunLight.position.set(-28, 48, -65);
+    this.sunLight = new THREE.DirectionalLight(0xfff2cd, 4.4);
+    this.sunLight.position.set(-24, 30, -18);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(2048, 2048);
-    this.sunLight.shadow.camera.left = -42;
-    this.sunLight.shadow.camera.right = 42;
-    this.sunLight.shadow.camera.top = 36;
-    this.sunLight.shadow.camera.bottom = -28;
-    this.sunLight.shadow.camera.near = 5;
-    this.sunLight.shadow.camera.far = 160;
-    this.sunLight.shadow.bias = -0.00025;
+    this.sunLight.shadow.camera.left = -38;
+    this.sunLight.shadow.camera.right = 38;
+    this.sunLight.shadow.camera.top = 32;
+    this.sunLight.shadow.camera.bottom = -24;
+    this.sunLight.shadow.camera.near = 1;
+    this.sunLight.shadow.camera.far = 100;
+    this.sunLight.shadow.bias = -0.00028;
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
 
-    // Celestial High-Sky Sun Visual Disc
+    // Sun Visual Flare in Sky
     this.sunDisc = new THREE.Group();
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(2.4, 32, 22),
-      new THREE.MeshBasicMaterial({ color: 0xfffae0, toneMapped: false })
+      new THREE.SphereGeometry(0.85, 32, 22),
+      new THREE.MeshBasicMaterial({ color: 0xfff9da, toneMapped: false })
     );
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(5.8, 28, 18),
-      new THREE.MeshBasicMaterial({ color: 0xffe078, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(1.85, 28, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffe285, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     const glowWide = new THREE.Mesh(
-      new THREE.SphereGeometry(10.5, 24, 14),
-      new THREE.MeshBasicMaterial({ color: 0xffec98, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, toneMapped: false })
+      new THREE.SphereGeometry(3.2, 24, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffeca8, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, toneMapped: false })
     );
     this.sunDisc.add(core, glow, glowWide);
-    this.sunDisc.position.set(-28, 48, -85);
     this.scene.add(this.sunDisc);
   }
 
   buildTerrain() {
-    // Flat, clean fertile farm valley plain (100m x 70m, y = 0.0)
-    const geometry = new THREE.PlaneGeometry(100, 70, 48, 36);
-    const material = new THREE.MeshStandardMaterial({ color: 0xa6ba8a, roughness: 0.95, metalness: 0 });
+    // Vast Main Farm Basin (100m x 80m)
+    const geometry = new THREE.PlaneGeometry(100, 80, 90, 70);
+    const position = geometry.attributes.position;
+    for (let index = 0; index < position.count; index++) {
+      const x = position.getX(index);
+      const y = position.getY(index);
+      const elevation = getTerrainElevation(x, -y);
+      position.setZ(index, elevation - 0.25);
+    }
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({ color: 0xa4b988, roughness: 0.95, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
     this.terrain.rotation.x = -Math.PI / 2;
-    this.terrain.position.set(0, -0.05, 0);
+    this.terrain.position.y = -0.2;
     this.terrain.receiveShadow = true;
     this.scene.add(this.terrain);
-  }
 
-  buildMountains() {
-    // Beautiful, natural, rolling mountain ranges in distant backdrop (z = -60 to -95)
-    // Completely separated from foreground farm valley to guarantee zero clipping
-    const createMountainRidge = ({ width, depth, segmentsX, segmentsZ, zPos, heightScale, color, roughness = 0.96, opacity = 1 }) => {
-      const geometry = new THREE.PlaneGeometry(width, depth, segmentsX, segmentsZ);
-      const pos = geometry.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i);
-        const y = pos.getY(i); // along depth
-        const normY = (y + depth / 2) / depth; // 0 (front base) to 1 (rear peak)
-        
-        // Natural multi-harmonic rolling mountain silhouette
-        const ridge1 = Math.sin(x * 0.045 + 0.5) * 6.5 + Math.cos(x * 0.08 + 1.2) * 4.2;
-        const ridge2 = Math.sin(x * 0.12 - 0.8) * 2.8 + Math.cos(x * 0.025) * 8.0;
-        const peakEnvelope = Math.exp(-((x + 22) ** 2) / 320) * 14.0 +
-                             Math.exp(-((x - 26) ** 2) / 280) * 12.5 +
-                             Math.exp(-((x - 2) ** 2) / 450) * 9.0;
-        
-        // Taper height gracefully from base (0) to peak (1)
-        const heightProfile = Math.sin(normY * Math.PI * 0.75);
-        const zElevation = Math.max(0, (peakEnvelope + ridge1 + ridge2) * heightProfile * heightScale);
-        pos.setZ(i, zElevation);
+    // Natural Mountain Ranges at negative Z (No tree clipping!)
+    const buildRidge = ({ z, heightScale, color, opacity = 1 }) => {
+      const ridgeGeometry = new THREE.PlaneGeometry(110, 36, 120, 48);
+      const ridgePosition = ridgeGeometry.attributes.position;
+      for (let index = 0; index < ridgePosition.count; index++) {
+        const x = ridgePosition.getX(index);
+        const depth = ridgePosition.getY(index);
+        const peaks =
+          Math.exp(-((x + 36) ** 2) / 130) * 10.5 +
+          Math.exp(-((x + 16) ** 2) / 95) * 13.0 +
+          Math.exp(-((x - 6) ** 2) / 140) * 9.8 +
+          Math.exp(-((x - 28) ** 2) / 110) * 12.5 +
+          Math.exp(-((x - 46) ** 2) / 85) * 9.0;
+        const depthShape = 0.55 + Math.sin((depth + 18) / 36 * Math.PI) * 0.45;
+        const detail = Math.sin(x * 0.38 + depth * 0.18) * 0.55 + Math.cos(x * 0.15 - depth * 0.32) * 0.4;
+        ridgePosition.setZ(index, Math.max(0, (peaks * depthShape + detail) * heightScale));
       }
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshStandardMaterial({
-        color,
-        roughness,
-        transparent: opacity < 1,
-        opacity
-      });
-      this.mountainMaterials.push(material);
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(0, -0.2, zPos);
-      mesh.receiveShadow = true;
-      this.scene.add(mesh);
-      return mesh;
+      ridgeGeometry.computeVertexNormals();
+      const ridgeMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.96, transparent: opacity < 1, opacity });
+      this.ridgeMaterials.push(ridgeMaterial);
+      const ridge = new THREE.Mesh(ridgeGeometry, ridgeMaterial);
+      ridge.rotation.x = -Math.PI / 2;
+      ridge.position.set(0, -0.15, z);
+      ridge.receiveShadow = true;
+      this.scene.add(ridge);
     };
 
-    // Layer 1: Mid-distance lush green mountains
-    createMountainRidge({ width: 140, depth: 35, segmentsX: 100, segmentsZ: 36, zPos: -42, heightScale: 0.85, color: 0x5a8761 });
-    // Layer 2: Distant misty blue-green mountain range
-    createMountainRidge({ width: 180, depth: 45, segmentsX: 120, segmentsZ: 42, zPos: -68, heightScale: 1.15, color: 0x6e9491, opacity: 0.95 });
-    // Layer 3: Far atmospheric horizon peaks
-    createMountainRidge({ width: 220, depth: 55, segmentsX: 120, segmentsZ: 42, zPos: -98, heightScale: 1.45, color: 0x8aa8ac, opacity: 0.88 });
+    buildRidge({ z: -32, heightScale: 0.38, color: 0x6e9676 });
+    buildRidge({ z: -48, heightScale: 0.28, color: 0x8aa5a3, opacity: 0.92 });
   }
 
   createWaterMaterial() {
     const uniforms = {
       uTime: { value: 0 },
-      uColorDeep: { value: new THREE.Color(0x227394) },
-      uColorLight: { value: new THREE.Color(0x7bcbc5) },
+      uColorDeep: { value: new THREE.Color(0x247799) },
+      uColorLight: { value: new THREE.Color(0x7fd0c9) },
       uSun: { value: new THREE.Color(0xffe8a8) },
       uBrightness: { value: 1 }
     };
@@ -616,147 +632,101 @@ class FarmWorld3D {
   }
 
   buildWater() {
-    // Scenic Retention Pond (生态蓄水池)
-    const pond = new THREE.Mesh(new THREE.CircleGeometry(5.6, 48), this.createWaterMaterial());
+    // Retention Pond (蓄水池)
+    const pond = new THREE.Mesh(new THREE.CircleGeometry(5.8, 48), this.createWaterMaterial());
     pond.rotation.x = -Math.PI / 2;
-    pond.position.set(0, -0.04, -2.5);
+    pond.position.set(0, -0.06, -2.5);
     pond.receiveShadow = true;
     this.scene.add(pond);
 
     // Canal Network
-    const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x8fa866, roughness: 0.94 });
+    const bankMaterial = new THREE.MeshStandardMaterial({ color: 0x92aa6a, roughness: 0.94 });
     const addCanal = ({ width, depth, x, z, vertical = false }) => {
       const canal = new THREE.Mesh(
         new THREE.PlaneGeometry(width, depth, Math.max(4, Math.round(width * 2)), Math.max(3, Math.round(depth * 2))),
         this.createWaterMaterial()
       );
       canal.rotation.x = -Math.PI / 2;
-      canal.position.set(x, -0.03, z);
+      canal.position.set(x, -0.05, z);
       canal.receiveShadow = true;
       this.scene.add(canal);
 
       const sideOffset = (vertical ? width : depth) / 2 + 0.14;
       [-sideOffset, sideOffset].forEach(offset => {
         const bank = new THREE.Mesh(
-          new THREE.BoxGeometry(vertical ? 0.24 : width + 0.36, 0.14, vertical ? depth + 0.36 : 0.24),
+          new THREE.BoxGeometry(vertical ? 0.24 : width + 0.36, 0.16, vertical ? depth + 0.36 : 0.24),
           bankMaterial
         );
-        bank.position.set(x + (vertical ? offset : 0), -0.02, z + (vertical ? 0 : offset));
+        bank.position.set(x + (vertical ? offset : 0), -0.04, z + (vertical ? 0 : offset));
         bank.castShadow = true;
         bank.receiveShadow = true;
         this.scene.add(bank);
       });
     };
 
-    addCanal({ width: 54.0, depth: 0.95, x: 0, z: 2.8 });
-    addCanal({ width: 54.0, depth: 0.95, x: 0, z: 12.8 });
-    addCanal({ width: 0.95, depth: 20.0, x: -14.2, z: 3.2, vertical: true });
-    addCanal({ width: 0.95, depth: 20.0, x: 14.2, z: 3.2, vertical: true });
-    addCanal({ width: 0.95, depth: 20.0, x: 0, z: 3.2, vertical: true });
+    addCanal({ width: 56.0, depth: 1.0, x: 0, z: 3.5 });
+    addCanal({ width: 56.0, depth: 1.0, x: 0, z: 14.2 });
+    addCanal({ width: 1.0, depth: 22.0, x: -14.8, z: 4.0, vertical: true });
+    addCanal({ width: 1.0, depth: 22.0, x: 13.2, z: 4.0, vertical: true });
+    addCanal({ width: 1.0, depth: 22.0, x: 0, z: 4.0, vertical: true });
   }
 
   buildRoads() {
-    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0xb4a472, roughness: 0.98 });
-    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(56, 0.12, 1.2), roadMaterial);
-    mainRoad.position.set(0, -0.04, 14.0);
+    const roadMaterial = new THREE.MeshStandardMaterial({ color: 0xbaab78, roughness: 0.98 });
+    const mainRoad = new THREE.Mesh(new THREE.BoxGeometry(58, 0.14, 1.2), roadMaterial);
+    mainRoad.position.set(0, -0.06, 15.5);
     mainRoad.receiveShadow = true;
     this.scene.add(mainRoad);
 
-    [-25.5, 25.5].forEach(x => {
-      const path = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.12, 22.0), roadMaterial);
-      path.position.set(x, -0.03, 3.0);
+    [-26.5, 26.5].forEach(x => {
+      const path = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.14, 24.0), roadMaterial);
+      path.position.set(x, -0.05, 3.5);
       path.receiveShadow = true;
       this.scene.add(path);
     });
   }
 
   buildBuildings() {
-    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xf4ecd2, roughness: 0.85 });
-    const trimDark = new THREE.MeshStandardMaterial({ color: 0x3d4a41, roughness: 0.6 });
-    const roofSolar = new THREE.MeshStandardMaterial({ color: 0x22364a, roughness: 0.35, metalness: 0.5 });
-    const frame = new THREE.MeshStandardMaterial({ color: 0xe0eae0, roughness: 0.45, metalness: 0.35 });
+    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xf4ecd2, roughness: 0.86 });
+    const roofMaterial = new THREE.MeshStandardMaterial({ color: 0xba5f3a, roughness: 0.78 });
+    const frame = new THREE.MeshStandardMaterial({ color: 0xe5eee4, roughness: 0.45, metalness: 0.35 });
 
-    // 1. High-Tech Multi-Span Smart Glass Greenhouse (现代智能连栋温室)
+    // Modern Multi-Span Glass Greenhouse (智能连栋温室)
     const glass = new THREE.MeshPhysicalMaterial({
-      color: 0xcaede2,
-      transmission: 0.65,
+      color: 0xc4ede0,
+      transmission: 0.58,
       transparent: true,
-      opacity: 0.6,
-      roughness: 0.14,
+      opacity: 0.55,
+      roughness: 0.16,
       metalness: 0.05,
       side: THREE.DoubleSide
     });
     const greenhouse = new THREE.Group();
-    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(11.2, 2.2, 7.5), glass);
+    const glassBody = new THREE.Mesh(new THREE.BoxGeometry(11.6, 2.2, 7.8), glass);
     glassBody.position.y = 1.1;
     glassBody.castShadow = true;
     greenhouse.add(glassBody);
 
-    // Concrete Plinth Base
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.25, 7.7), trimDark);
-    plinth.position.y = 0.12;
-    plinth.castShadow = true;
-    greenhouse.add(plinth);
-
-    // Steel Structural Lattice Ribs
-    for (let offset = -5.2; offset <= 5.2; offset += 1.3) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.8, 7.7), frame);
-      rib.position.set(offset, 1.4, 0);
+    for (let offset = -5.5; offset <= 5.5; offset += 1.38) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.045, 2.9, 8.0), frame);
+      rib.position.set(offset, 1.45, 0);
       rib.castShadow = true;
       greenhouse.add(rib);
     }
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(11.4, 0.06, 0.06), frame);
-    ridge.position.set(0, 2.45, 0);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.06, 0.06), frame);
+    ridge.position.set(0, 2.55, 0);
     greenhouse.add(ridge);
 
-    // Greenhouse Interior Grow Lights (Glows softly at sunset/night)
-    const growLight = new THREE.PointLight(0xffdf88, 0, 16);
+    // Greenhouse Interior Grow Light (Glows at night)
+    const growLight = new THREE.PointLight(0xffdf88, 0, 15);
     growLight.position.set(0, 1.8, 0);
     greenhouse.add(growLight);
     this.nightLights.push(growLight);
 
-    greenhouse.position.set(-6.5, 0, -11.0);
+    greenhouse.position.set(-8.0, 0, -13.0);
     this.scene.add(greenhouse);
 
-    // 2. Modern Ag-Tech Digital Command & Operations Center (数智调度中心)
-    const commandCenter = new THREE.Group();
-    const mainBody = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.6, 4.5), wallMaterial);
-    mainBody.position.y = 1.3;
-    mainBody.castShadow = true;
-    mainBody.receiveShadow = true;
-
-    // Solar Panel Gabled Roof
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(4.8, 1.4, 4), roofSolar);
-    roof.position.y = 3.2;
-    roof.rotation.y = Math.PI / 4;
-    roof.scale.z = 0.75;
-    roof.castShadow = true;
-
-    // Glass Entrance & Trim
-    const glassEntrance = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.6, 0.1), glass);
-    glassEntrance.position.set(0, 0.8, 2.26);
-    commandCenter.add(mainBody, roof, glassEntrance);
-    commandCenter.position.set(11.5, 0, -11.5);
-    this.scene.add(commandCenter);
-
-    // 3. Stainless Fertigation Silos (水肥一体化储液与配肥中心)
-    const siloGroup = new THREE.Group();
-    [-1.2, 1.2].forEach(offset => {
-      const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.9, 3.6, 18), new THREE.MeshStandardMaterial({ color: 0xd6e0db, roughness: 0.35, metalness: 0.55 }));
-      silo.position.set(offset, 1.8, 0);
-      silo.castShadow = true;
-      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.9, 0.7, 18), trimDark);
-      cap.position.set(offset, 3.95, 0);
-      siloGroup.add(silo, cap);
-    });
-    // Manifold Blue Pipe
-    const pipe = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.12, 0.12), new THREE.MeshStandardMaterial({ color: 0x2b6cb0, roughness: 0.5 }));
-    pipe.position.set(0, 0.6, 0.95);
-    siloGroup.add(pipe);
-    siloGroup.position.set(20.5, 0, -11.5);
-    this.scene.add(siloGroup);
-
-    // 4. Weather Sensor Mast with LED
+    // Weather Sensor Mast with LED
     const tower = new THREE.Group();
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.08, 4.8, 8), frame);
     mast.position.y = 2.4;
@@ -768,16 +738,54 @@ class FarmWorld3D {
     led.position.y = 4.85;
     this.towerLed = led;
     tower.add(mast, led);
-    tower.position.set(-14.0, 0, -10.5);
+    tower.position.set(-15.2, 0, -12.5);
     this.scene.add(tower);
 
-    // 5. Lakeside Observation Platform (亲水木平台)
-    const deck = new THREE.Group();
-    const deckPlanks = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.15, 2.2), new THREE.MeshStandardMaterial({ color: 0x987b5a, roughness: 0.9 }));
-    deckPlanks.position.set(0, 0.08, -2.5);
-    deckPlanks.castShadow = true;
-    deck.add(deckPlanks);
-    this.scene.add(deck);
+    // Agricultural Barn & Logistics House
+    const barn = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.2, 3.8), wallMaterial);
+    body.position.y = 1.1;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 1.5, 4), roofMaterial);
+    roof.position.y = 2.85;
+    roof.rotation.y = Math.PI / 4;
+    roof.scale.z = 0.78;
+    roof.castShadow = true;
+    barn.add(body, roof);
+    barn.position.set(9.5, 0, -13.5);
+    this.scene.add(barn);
+
+    // Grain Silos
+    const siloGroup = new THREE.Group();
+    [-1.2, 1.2].forEach(offset => {
+      const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.95, 3.8, 16), new THREE.MeshStandardMaterial({ color: 0xdde5e0, roughness: 0.4, metalness: 0.45 }));
+      silo.position.set(offset, 1.9, 0);
+      silo.castShadow = true;
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.8, 16), roofMaterial);
+      cap.position.set(offset, 4.2, 0);
+      siloGroup.add(silo, cap);
+    });
+    siloGroup.position.set(17.5, 0, -13.5);
+    this.scene.add(siloGroup);
+
+    // Gazebo Pavilion on the Pond
+    const pavilion = new THREE.Group();
+    const pavRoof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.0, 6), new THREE.MeshStandardMaterial({ color: 0x9a4e32, roughness: 0.8 }));
+    pavRoof.position.y = 1.9;
+    pavRoof.castShadow = true;
+    const pavFloor = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.2, 6), new THREE.MeshStandardMaterial({ color: 0xa48d68, roughness: 0.9 }));
+    pavFloor.position.y = 0.1;
+    pavilion.add(pavRoof, pavFloor);
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.8, 6), frame);
+      pillar.position.set(Math.cos(angle) * 1.1, 0.9, Math.sin(angle) * 1.1);
+      pillar.castShadow = true;
+      pavilion.add(pillar);
+    }
+    pavilion.position.set(0, 0.0, -2.5);
+    this.scene.add(pavilion);
   }
 
   buildPlots() {
@@ -787,6 +795,7 @@ class FarmWorld3D {
 
     this.plots.forEach((plot, index) => {
       const layout = PLOT_LAYOUT[plot.plotId] || Object.values(PLOT_LAYOUT)[index % Object.values(PLOT_LAYOUT).length];
+      if (layout.isGreenhouse) return; // Greenhouse handled separately
 
       const soil = new THREE.Mesh(new THREE.BoxGeometry(layout.width, 0.22, layout.depth), soilMaterial.clone());
       soil.position.set(layout.x, -0.02, layout.z);
@@ -854,23 +863,27 @@ class FarmWorld3D {
   }
 
   buildTrees() {
-    // Trees placed strictly along roads, perimeter, and canal boundaries (at y = 0.0 on flat plain, zero mountain clipping)
+    // Trees placed strictly based on getTerrainElevation to guarantee zero clipping
     const positions = [];
-    // West & East perimeter avenues
-    for (let i = 0; i < 22; i++) {
-      const z = -14 + i * 1.35;
-      positions.push({ x: -27.2 + Math.sin(i * 1.5) * 0.4, y: 0, z, scale: 0.85 + (i % 3) * 0.1 });
-      positions.push({ x: 27.2 + Math.cos(i * 1.5) * 0.4, y: 0, z, scale: 0.85 + (i % 4) * 0.08 });
+    // Perimeter and mountain fringe trees
+    for (let i = 0; i < 70; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const x = side * (26.5 + (i % 6) * 2.2) + Math.sin(i * 3.2) * 1.5;
+      const z = -20 + (i % 18) * 2.2 + Math.cos(i * 1.5) * 1.0;
+      if (z > 14.0) continue;
+      const y = getTerrainElevation(x, z);
+      positions.push({ x, y, z, scale: 0.75 + (Math.sin(i * 4.2) + 1) * 0.25 });
     }
-    // North facility green belt
-    for (let i = 0; i < 18; i++) {
-      const x = -24 + i * 2.8;
-      if (x > -12 && x < 16) continue; // Leave facility entrance open
-      positions.push({ x, y: 0, z: -15.5 + Math.sin(i * 2.1) * 0.5, scale: 0.9 + (i % 3) * 0.12 });
+    // North hill forest
+    for (let i = 0; i < 50; i++) {
+      const x = -38 + i * 1.55;
+      const z = -24.0 + Math.sin(i * 0.8) * 3.5;
+      const y = getTerrainElevation(x, z);
+      positions.push({ x, y, z, scale: 0.72 + (i % 5) * 0.08 });
     }
 
     const trunkGeometry = new THREE.CylinderGeometry(0.09, 0.16, 1.6, 10, 3);
-    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x6e5239, roughness: 1 });
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x71543b, roughness: 1 });
     const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, positions.length);
     const dummy = new THREE.Object3D();
     positions.forEach((item, index) => {
@@ -885,9 +898,9 @@ class FarmWorld3D {
     this.scene.add(trunks);
 
     const crownSpecs = [
-      { x: -0.3, y: 1.5, z: 0.02, sx: 0.9, sy: 1.05, sz: 0.9, color: 0x367f43 },
-      { x: 0.3, y: 1.55, z: 0.08, sx: 0.88, sy: 1.1, sz: 0.86, color: 0x3e8a47 },
-      { x: 0.02, y: 1.88, z: -0.08, sx: 0.96, sy: 1.15, sz: 0.94, color: 0x46934e }
+      { x: -0.3, y: 1.5, z: 0.02, sx: 0.9, sy: 1.05, sz: 0.9, color: 0x388245 },
+      { x: 0.3, y: 1.55, z: 0.08, sx: 0.88, sy: 1.1, sz: 0.86, color: 0x408d4a },
+      { x: 0.02, y: 1.88, z: -0.08, sx: 0.96, sy: 1.15, sz: 0.94, color: 0x489652 }
     ];
     crownSpecs.forEach((spec, crownIndex) => {
       const crownGeometry = new THREE.SphereGeometry(0.72, 12, 9);
@@ -929,13 +942,20 @@ class FarmWorld3D {
       this.terrain.material.needsUpdate = true;
     }, undefined, () => {});
     loader.load('assets/textures/mountain-forest.png', texture => {
-      this.mountainMaterials.forEach((material, index) => {
-        const repeat = index === 0 ? 4.5 : index === 1 ? 3.0 : 2.0;
-        const mountainTexture = prepare(texture.clone(), repeat, repeat * 0.55);
-        mountainTexture.needsUpdate = true;
-        material.map = mountainTexture;
-        material.emissive = new THREE.Color(index === 0 ? 0x162c1c : 0x102226);
-        material.emissiveIntensity = 0.1;
+      this.ridgeMaterials.forEach((material, index) => {
+        if (index === 0) {
+          const ridgeTexture = prepare(texture.clone(), 3.6, 1.8);
+          ridgeTexture.needsUpdate = true;
+          material.map = ridgeTexture;
+          material.color.set(0xb6c7a9);
+          material.emissive = new THREE.Color(0x1a3220);
+          material.emissiveIntensity = 0.12;
+        } else {
+          material.map = null;
+          material.color.set(0x567979);
+          material.emissive = new THREE.Color(0x12262b);
+          material.emissiveIntensity = 0.08;
+        }
         material.needsUpdate = true;
       });
     }, undefined, () => {});
@@ -951,18 +971,18 @@ class FarmWorld3D {
   }
 
   buildClouds() {
-    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.72, roughness: 1, depthWrite: false });
+    const cloudMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, roughness: 1, depthWrite: false });
     for (let index = 0; index < 12; index++) {
       const group = new THREE.Group();
       const puffCount = 4 + (index % 3);
       for (let puff = 0; puff < puffCount; puff++) {
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), cloudMaterial.clone());
-        mesh.scale.set(1.9 + (puff % 2) * 0.8, 0.75 + (puff % 3) * 0.2, 1.2);
-        mesh.position.set((puff - puffCount / 2) * 1.6, Math.sin(puff * 2.2) * 0.4, Math.cos(puff * 1.5) * 0.45);
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 8), cloudMaterial.clone());
+        mesh.scale.set(1.8 + (puff % 2) * 0.8, 0.7 + (puff % 3) * 0.2, 1.1);
+        mesh.position.set((puff - puffCount / 2) * 1.35, Math.sin(puff * 2.2) * 0.35, Math.cos(puff * 1.5) * 0.4);
         group.add(mesh);
       }
-      group.position.set(-45 + index * 8.5, 18.0 + (index % 3) * 1.8, -55 - (index % 4) * 4.5);
-      group.userData.speed = 0.20 + (index % 4) * 0.04;
+      group.position.set(-36 + index * 7.2, 12.5 + (index % 3) * 1.3, -46 - (index % 4) * 3.2);
+      group.userData.speed = 0.18 + (index % 4) * 0.038;
       group.userData.baseY = group.position.y;
       this.clouds.push(group);
       this.scene.add(group);
@@ -974,9 +994,9 @@ class FarmWorld3D {
     const positions = new Float32Array(count * 3);
     const speeds = new Float32Array(count);
     for (let index = 0; index < count; index++) {
-      positions[index * 3] = (Math.random() - 0.5) * 65;
-      positions[index * 3 + 1] = Math.random() * 32;
-      positions[index * 3 + 2] = (Math.random() - 0.5) * 48;
+      positions[index * 3] = (Math.random() - 0.5) * 60;
+      positions[index * 3 + 1] = Math.random() * 30;
+      positions[index * 3 + 2] = (Math.random() - 0.5) * 44;
       speeds[index] = 18 + Math.random() * 14;
     }
     const geometry = new THREE.BufferGeometry();
@@ -989,19 +1009,19 @@ class FarmWorld3D {
   }
 
   buildStars() {
-    const count = 600;
+    const count = 550;
     const positions = new Float32Array(count * 3);
     for (let index = 0; index < count; index++) {
-      const radius = 85 + Math.random() * 35;
+      const radius = 70 + Math.random() * 30;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI * 0.45;
       positions[index * 3] = Math.cos(theta) * Math.cos(phi) * radius;
-      positions[index * 3 + 1] = Math.sin(phi) * radius + 8;
+      positions[index * 3 + 1] = Math.sin(phi) * radius + 6;
       positions[index * 3 + 2] = Math.sin(theta) * Math.cos(phi) * radius;
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfeaff, size: 0.24, transparent: true, opacity: 0, depthWrite: false }));
+    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: 0xdfeaff, size: 0.22, transparent: true, opacity: 0, depthWrite: false }));
     this.scene.add(this.stars);
   }
 
@@ -1134,24 +1154,23 @@ class FarmWorld3D {
     this.skyUniforms.uTop.value.copy(nightTop).lerp(dayTop, daylight).lerp(sunsetTop, warm * 0.44);
     this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78);
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
-    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.94 + warm * 0.42;
+    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.92 + warm * 0.4;
 
-    // True Celestial Sun Trajectory (High in distant sky, rising at 06:00, noon zenith, setting at 18:00)
-    const sunProgress = clamp((hour - 5.75) / 13.5, 0, 1);
+    const sunProgress = clamp((hour - 5.8) / 13.4, 0, 1);
     const sunAngle = sunProgress * Math.PI;
-    const sunX = lerp(-60, 60, sunProgress);
-    const sunY = Math.sin(sunAngle) * 52.0 + 6.0;
-    const sunZ = -85;
+    const sunX = lerp(-26, 12, sunProgress);
+    const sunY = Math.max(-4, Math.sin(sunAngle) * 5.0 + 3.2 - (hour > 18 ? (hour - 18) * 6.5 : hour < 6 ? (6 - hour) * 6.5 : 0));
+    const sunZ = -18;
 
     this.sunDisc.position.set(sunX, sunY, sunZ);
-    this.sunLight.position.set(sunX, sunY, sunZ + 20);
+    this.sunLight.position.set(sunX, Math.max(2, 10 + Math.sin(sunAngle) * 18), -14);
     this.skyUniforms.uSunDirection.value.copy(this.sunDisc.position).normalize();
     this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
-    this.sunLight.intensity = 0.2 + daylight * 4.4;
+    this.sunLight.intensity = 0.2 + daylight * 4.3;
     this.hemiLight.color.set(daylight > 0.2 ? 0xe6f5ff : 0x5772a1);
     this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x152333);
     this.hemiLight.intensity = 0.38 + daylight * 2.0;
-    this.sunDisc.visible = hour >= 5.6 && hour <= 19.3;
+    this.sunDisc.visible = hour >= 5.65 && hour <= 19.2;
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
     // Night lighting for greenhouse
@@ -1165,7 +1184,7 @@ class FarmWorld3D {
     const markers = {};
     this.plots.forEach(plot => {
       const layout = PLOT_LAYOUT[plot.plotId];
-      if (!layout) return;
+      if (!layout || layout.isGreenhouse) return;
       const profile = CROP_PROFILES[plot.cropCode] || CROP_PROFILES.tomato;
       const stage = STAGE_PROFILES[plot.stageCode] || STAGE_PROFILES.fruiting;
       const warningPoint = new THREE.Vector3(layout.x, 0.75 + profile.height * stage.height, layout.z);
@@ -1207,7 +1226,7 @@ class FarmWorld3D {
 
     this.clouds.forEach((cloud, index) => {
       cloud.position.x += cloud.userData.speed * 0.009;
-      if (cloud.position.x > 48) cloud.position.x = -48;
+      if (cloud.position.x > 42) cloud.position.x = -42;
       cloud.position.y = cloud.userData.baseY + Math.sin(elapsed * 0.2 + index) * 0.3;
     });
 
@@ -1218,8 +1237,8 @@ class FarmWorld3D {
         let y = positions.getY(index) - speeds[index] * 0.016;
         let x = positions.getX(index) + this.currentWind.x * 0.014;
         if (y < -0.2) {
-          y = 22 + Math.random() * 8;
-          x = (Math.random() - 0.5) * 65;
+          y = 20 + Math.random() * 8;
+          x = (Math.random() - 0.5) * 60;
         }
         positions.setXY(index, x, y);
       }
@@ -1360,7 +1379,7 @@ export class FarmMonitor {
         <h1>现代智慧农田数字孪生全景</h1>
         <div class="farm-title-meta">
           <span data-location-label><i class="ph ph-map-pin"></i> 重庆 · 现代智慧农业生态示范园</span>
-          <span class="badge-plots"><i class="ph ph-squares-four"></i> 6 块核心监测示范区</span>
+          <span class="badge-plots"><i class="ph ph-squares-four"></i> 7 块独立监测示范区</span>
         </div>
       </header>
 
@@ -1383,6 +1402,40 @@ export class FarmMonitor {
       <!-- Bottom Floating Widgets -->
       <div class="farm-wind-readout"><span class="farm-live-dot"></span><span>作物动力学风场</span><strong data-wind-state>自然微风 · 移动鼠标触发作物飘扬</strong></div>
       <div class="farm-scene-hint"><i class="ph ph-mouse-left-click"></i><span>单击任意地块自定义作物与阶段 · 双击推演</span></div>
+
+      <!-- Floating Interactive Environment & Time Control Dock (悬浮式天气与昼夜调控坞) -->
+      <section class="farm-env-dock" aria-label="环境与光影调控坞">
+        <!-- Time Control Section -->
+        <div class="farm-env-section">
+          <span class="farm-env-label"><i class="ph ph-clock"></i> 昼夜光影</span>
+          <div class="farm-env-btn-group">
+            <button class="farm-dock-btn" type="button" data-dock-time="6.0" title="06:00 晨曦日出">🌅 06:00</button>
+            <button class="farm-dock-btn" type="button" data-dock-time="12.0" title="12:00 正午艳阳">☀️ 12:00</button>
+            <button class="farm-dock-btn" type="button" data-dock-time="18.0" title="18:00 晚霞日落">🌇 18:00</button>
+            <button class="farm-dock-btn" type="button" data-dock-time="22.0" title="22:00 星空深夜">🌙 22:00</button>
+            <button class="farm-dock-btn active" type="button" data-dock-time="realtime" title="实时系统时间">⏱️ 实时</button>
+          </div>
+          <div class="farm-dock-slider-wrap">
+            <input class="farm-dock-slider" type="range" min="0" max="24" step="0.1" value="14.3" data-dock-time-slider title="拖动调整全天时间">
+            <span class="farm-dock-time-val" data-dock-time-val>14:20</span>
+          </div>
+        </div>
+
+        <div class="farm-env-divider"></div>
+
+        <!-- Weather Control Section -->
+        <div class="farm-env-section">
+          <span class="farm-env-label"><i class="ph ph-cloud-sun"></i> 气象特效</span>
+          <div class="farm-env-btn-group">
+            <button class="farm-dock-btn ${this.weather === 'sunny' ? 'active' : ''}" type="button" data-dock-weather="sunny" title="晴天">☀️ 晴</button>
+            <button class="farm-dock-btn ${this.weather === 'cloudy' ? 'active' : ''}" type="button" data-dock-weather="cloudy" title="多云">⛅ 多云</button>
+            <button class="farm-dock-btn ${this.weather === 'overcast' ? 'active' : ''}" type="button" data-dock-weather="overcast" title="阴天">☁️ 阴</button>
+            <button class="farm-dock-btn ${this.weather === 'light-rain' ? 'active' : ''}" type="button" data-dock-weather="light-rain" title="小雨">🌦️ 小雨</button>
+            <button class="farm-dock-btn ${this.weather === 'moderate-rain' ? 'active' : ''}" type="button" data-dock-weather="moderate-rain" title="中雨">🌧️ 中雨</button>
+            <button class="farm-dock-btn ${this.weather === 'heavy-rain' ? 'active' : ''}" type="button" data-dock-weather="heavy-rain" title="大雨">⛈️ 大雨</button>
+          </div>
+        </div>
+      </section>
 
       <!-- Expanding Detail Inspection Modal (由小变大丝滑展开) -->
       <aside class="farm-detail-panel" data-detail-panel aria-live="polite"></aside>
@@ -1452,7 +1505,9 @@ export class FarmMonitor {
       timeDialog: q('[data-dialog="time"]'),
       weatherDialog: q('[data-dialog="weather"]'),
       timeSlider: q('[data-time-slider]'),
-      sliderLabel: q('[data-slider-label]')
+      sliderLabel: q('[data-slider-label]'),
+      dockTimeSlider: q('[data-dock-time-slider]'),
+      dockTimeVal: q('[data-dock-time-val]')
     };
   }
 
@@ -1496,7 +1551,58 @@ export class FarmMonitor {
       });
     });
 
-    // Time presets
+    // Dock Time Controls
+    this.shell.querySelectorAll('[data-dock-time]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.dockTime;
+        this.shell.querySelectorAll('[data-dock-time]').forEach(b => b.classList.toggle('active', b === btn));
+        if (val === 'realtime') {
+          this.simulatedHour = null;
+          if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = '实时';
+          if (this.dom.sliderLabel) this.dom.sliderLabel.textContent = '实时同步';
+          this.showToast('已恢复系统实时时间');
+        } else {
+          const hour = parseFloat(val);
+          this.simulatedHour = hour;
+          this.world?.updateDaylight(hour);
+          const hh = Math.floor(hour);
+          const mm = Math.round((hour - hh) * 60);
+          const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+          if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = timeStr;
+          if (this.dom.dockTimeSlider) this.dom.dockTimeSlider.value = hour;
+          if (this.dom.timeSlider) this.dom.timeSlider.value = hour;
+          if (this.dom.sliderLabel) this.dom.sliderLabel.textContent = `${timeStr} (模拟)`;
+          this.showToast(`已切换至 ${timeStr} 昼夜光影`);
+        }
+      });
+    });
+
+    if (this.dom.dockTimeSlider) {
+      this.dom.dockTimeSlider.addEventListener('input', e => {
+        const hour = parseFloat(e.target.value);
+        this.simulatedHour = hour;
+        this.world?.updateDaylight(hour);
+        const hh = Math.floor(hour);
+        const mm = Math.round((hour - hh) * 60);
+        const timeStr = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+        if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = timeStr;
+        if (this.dom.sliderLabel) this.dom.sliderLabel.textContent = `${timeStr} (模拟)`;
+        if (this.dom.timeSlider) this.dom.timeSlider.value = hour;
+        this.shell.querySelectorAll('[data-dock-time]').forEach(b => b.classList.remove('active'));
+      });
+    }
+
+    // Dock Weather Controls
+    this.shell.querySelectorAll('[data-dock-weather]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const w = btn.dataset.dockWeather;
+        this.shell.querySelectorAll('[data-dock-weather]').forEach(b => b.classList.toggle('active', b === btn));
+        this.applyWeather({ weather: w, temperature: 28.4, humidity: 58, windSpeed: 2.7 });
+        this.showToast(`已切换为【${WEATHER_LABELS[w] || w}】特效`);
+      });
+    });
+
+    // Time presets (Dialog)
     this.shell.querySelectorAll('[data-set-time]').forEach(btn => {
       btn.addEventListener('click', () => {
         const hour = parseFloat(btn.dataset.setTime);
@@ -1504,6 +1610,8 @@ export class FarmMonitor {
         this.world?.updateDaylight(hour);
         this.dom.sliderLabel.textContent = `${hour.toFixed(1)}:00 (模拟)`;
         this.dom.timeSlider.value = hour;
+        if (this.dom.dockTimeSlider) this.dom.dockTimeSlider.value = hour;
+        if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = `${hour.toFixed(0)}:00`;
         this.dom.timeDialog.classList.remove('open');
         this.showToast(`已切换至 ${hour}:00 光影模拟`);
       });
@@ -1514,11 +1622,15 @@ export class FarmMonitor {
       this.simulatedHour = hour;
       this.world?.updateDaylight(hour);
       this.dom.sliderLabel.textContent = `${hour.toFixed(1)}:00 (模拟)`;
+      if (this.dom.dockTimeSlider) this.dom.dockTimeSlider.value = hour;
+      if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = `${hour.toFixed(0)}:00`;
     });
 
     this.shell.querySelector('[data-reset-realtime]').addEventListener('click', () => {
       this.simulatedHour = null;
       this.dom.sliderLabel.textContent = '实时同步';
+      if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = '实时';
+      this.shell.querySelectorAll('[data-dock-time]').forEach(b => b.classList.toggle('active', b.dataset.dockTime === 'realtime'));
       this.dom.timeDialog.classList.remove('open');
       this.showToast('已恢复系统实时时间');
     });
@@ -1837,6 +1949,8 @@ export class FarmMonitor {
 
       if (this.simulatedHour === null) {
         this.world?.updateDaylight(hours);
+        if (this.dom.dockTimeVal) this.dom.dockTimeVal.textContent = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        if (this.dom.dockTimeSlider) this.dom.dockTimeSlider.value = hours;
       }
     };
     tick();
@@ -1898,6 +2012,7 @@ export class FarmMonitor {
     this.dom.humidity.textContent = `${this.humidity}%`;
     this.dom.windSpeed.textContent = `${this.windSpeed.toFixed(1)} m/s`;
     this.dom.weatherIcon.className = `ph ${WEATHER_ICONS[weather] || 'ph-sun'}`;
+    this.shell?.querySelectorAll('[data-dock-weather]').forEach(b => b.classList.toggle('active', b.dataset.dockWeather === weather));
     this.world?.setWeather(weather);
   }
 
