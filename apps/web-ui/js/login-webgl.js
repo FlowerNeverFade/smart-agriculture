@@ -128,6 +128,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   uniform sampler2D uFlow;
   uniform vec2 uTexel;
   uniform vec2 uScreenScale;
+  uniform float uCssMinDimension;
   uniform float uDelta;
   uniform float uTime;
   uniform float uVelocityMax;
@@ -175,7 +176,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
     float organicVariation
   ) {
     vec2 delta = (uv - center) * aspectScale;
-    return -dot(delta, delta) * 5.2 + (organicVariation - 0.5) * 0.92;
+    return -dot(delta, delta) * 5.2 + (organicVariation - 0.5) * 1.14;
   }
 
   vec4 normalizeInkWeights(vec4 weights) {
@@ -188,23 +189,48 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec4 dyeSource(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 1.72;
-    vec2 driftA = vec2(0.009, -0.011) * time;
-    vec2 driftB = vec2(-0.0075, 0.010) * time;
+    vec2 driftA = vec2(0.010, -0.012) * time;
+    vec2 driftB = vec2(-0.0085, 0.011) * time;
     vec2 domain = vec2(
       fbm(point * 0.88 + driftA),
       fbm(point * 0.96 + vec2(9.7, 3.4) + driftB)
     );
     vec2 territoryUv = uv + (domain - 0.5) * 0.19;
     territoryUv += vec2(
-      sin(time * 0.035 + domain.y * 4.3),
-      cos(time * 0.028 + domain.x * 4.7)
-    ) * 0.0075;
+      sin(time * 0.045 + domain.y * 4.3),
+      cos(time * 0.036 + domain.x * 4.7)
+    ) * 0.009;
 
     float mintNoise = fbm(point * 1.08 + domain * 0.64 + vec2(1.7, 8.4) + driftA * 0.32);
     float sageNoise = fbm(point * 1.13 + domain.yx * 0.58 + vec2(12.6, 2.8) + driftB * 0.27);
     float aquaNoise = fbm(point * 1.04 + domain * 0.71 + vec2(5.3, 15.2) - driftA * 0.24);
     float oliveNoise = fbm(point * 1.17 + domain.yx * 0.61 + vec2(17.8, 10.1) - driftB * 0.30);
     float creamNoise = fbm(point * 0.98 + domain * 0.55 + vec2(8.9, 19.4) + driftA * 0.18);
+    mintNoise = mix(
+      mintNoise,
+      fbm(point * 2.35 + domain.yx * 1.12 + vec2(3.1, 17.4) + driftB * 0.55),
+      0.42
+    );
+    sageNoise = mix(
+      sageNoise,
+      fbm(point * 2.48 + domain * 1.06 + vec2(21.3, 6.2) - driftA * 0.48),
+      0.42
+    );
+    aquaNoise = mix(
+      aquaNoise,
+      fbm(point * 2.28 + domain.yx * 1.18 + vec2(11.8, 23.6) + driftA * 0.44),
+      0.42
+    );
+    oliveNoise = mix(
+      oliveNoise,
+      fbm(point * 2.56 + domain * 1.09 + vec2(25.7, 13.9) - driftB * 0.52),
+      0.42
+    );
+    creamNoise = mix(
+      creamNoise,
+      fbm(point * 2.18 + domain.yx * 1.02 + vec2(16.4, 27.1) + driftB * 0.40),
+      0.38
+    );
 
     vec2 aspectScale = vec2(mix(1.0, aspect, 0.58), 1.0);
     vec4 inkScores = vec4(
@@ -224,8 +250,8 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
       max(max(inkScores.r, inkScores.g), max(inkScores.b, inkScores.a)),
       creamScore
     );
-    vec4 inkCompetition = exp((inkScores - scoreMaximum) * 2.65);
-    float creamCompetition = exp((creamScore - scoreMaximum) * 2.65);
+    vec4 inkCompetition = exp((inkScores - scoreMaximum) * 3.20);
+    float creamCompetition = exp((creamScore - scoreMaximum) * 3.20);
     float competitionTotal = dot(inkCompetition, vec4(1.0)) + creamCompetition;
     return normalizeInkWeights(inkCompetition / max(competitionTotal, 0.0001));
   }
@@ -233,12 +259,18 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
   vec2 idleFlow(vec2 uv, float time) {
     float aspect = uScreenScale.x / max(uScreenScale.y, 0.0001);
     vec2 point = vec2(uv.x * aspect, uv.y) * 6.28318530718;
-    float phaseA = point.x * 0.72 + point.y * 1.14 + time * 0.065;
-    float phaseB = point.x * 1.08 - point.y * 0.63 - time * 0.052;
-    return vec2(
-      1.14 * cos(phaseA) - 0.45 * 0.63 * cos(phaseB),
-      -0.72 * cos(phaseA) - 0.45 * 1.08 * cos(phaseB)
-    ) * 0.0060;
+    float phaseA = point.x * 0.72 + point.y * 1.14 + time * 0.120;
+    float phaseB = point.x * 1.08 - point.y * 0.63 - time * 0.100;
+    float phaseC = point.x * 1.76 + point.y * 1.43 + time * 0.160;
+    vec2 field = vec2(
+      1.14 * cos(phaseA)
+        - 0.45 * 0.63 * cos(phaseB)
+        + 0.18 * 1.43 * cos(phaseC),
+      -0.72 * cos(phaseA)
+        - 0.45 * 1.08 * cos(phaseB)
+        - 0.18 * 1.76 * cos(phaseC)
+    );
+    return field * (16.0 / max(uCssMinDimension, 1.0)) / 1.073;
   }
 
   void main() {
@@ -259,7 +291,7 @@ const DYE_FRAGMENT_SHADER = `#version 300 es
       texture(uPreviousDye, backUv + vec2(0.0, uTexel.y)) +
       texture(uPreviousDye, backUv - vec2(0.0, uTexel.y))
     );
-    float diffusion = 1.0 - exp(-0.48 * uDelta);
+    float diffusion = 1.0 - exp(-0.40 * uDelta);
     vec4 dye = mix(advected, blurred, diffusion);
     float recovery = 1.0 - exp(-uRecoveryRate * uDelta);
     dye = mix(dye, sourceWeights, recovery);
@@ -287,11 +319,11 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     return signedByte / 127.0 * uVelocityMax;
   }
 
-  const vec3 COLOR_MINT = vec3(0.820, 0.953, 0.855);
-  const vec3 COLOR_SAGE = vec3(0.775, 0.890, 0.785);
-  const vec3 COLOR_AQUA = vec3(0.830, 0.951, 0.914);
-  const vec3 COLOR_OLIVE = vec3(0.845, 0.918, 0.790);
-  const vec3 COLOR_CREAM = vec3(0.951, 0.976, 0.933);
+  const vec3 COLOR_MINT = vec3(0.795, 0.958, 0.835);
+  const vec3 COLOR_SAGE = vec3(0.735, 0.895, 0.755);
+  const vec3 COLOR_AQUA = vec3(0.800, 0.955, 0.910);
+  const vec3 COLOR_OLIVE = vec3(0.820, 0.925, 0.745);
+  const vec3 COLOR_CREAM = vec3(0.965, 0.982, 0.945);
 
   vec4 normalizeInkWeights(vec4 weights) {
     weights = max(weights, vec4(0.0));
@@ -330,13 +362,13 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     vec2 uvFlow = normalizedFlow / uScreenScale;
     vec2 idleDisplayWarp = (
       vec2(
-        sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.160),
-        cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.125)
-      ) * 0.0043
+        sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.650),
+        cos(vUv.x * 6.8 - vUv.y * 1.7 - uTime * 0.520)
+      ) * 0.0250
       + vec2(
-        cos(vUv.y * 4.2 - vUv.x * 3.1 - uTime * 0.095),
-        sin(vUv.x * 4.8 + vUv.y * 2.7 + uTime * 0.135)
-      ) * 0.0020
+        cos(vUv.y * 4.2 - vUv.x * 3.1 - uTime * 0.430),
+        sin(vUv.x * 4.8 + vUv.y * 2.7 + uTime * 0.710)
+      ) * 0.0100
     ) / uScreenScale;
     vec2 warpedUv = vUv + (-uvFlow * dyeDistortion + idleDisplayWarp) * uTaskStrength;
     vec4 dyeWeights = texture(uDye, clamp(warpedUv, vec2(0.001), vec2(0.999)));
@@ -347,7 +379,7 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     float topLuma = luminance(paletteColor(texture(uDye, clamp(warpedUv + vec2(0.0, uDyeTexel.y), vec2(0.001), vec2(0.999)))));
     float bottomLuma = luminance(paletteColor(texture(uDye, clamp(warpedUv - vec2(0.0, uDyeTexel.y), vec2(0.001), vec2(0.999)))));
     vec2 dyeGradient = vec2(rightLuma - leftLuma, topLuma - bottomLuma);
-    vec3 surfaceNormal = normalize(vec3(-dyeGradient * 21.0, 1.0));
+    vec3 surfaceNormal = normalize(vec3(-dyeGradient * 32.0, 1.0));
     float softLight = 0.988 + max(dot(surfaceNormal, normalize(vec3(-0.28, 0.38, 0.88))), 0.0) * 0.018;
     color *= softLight;
 
@@ -579,6 +611,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       flow: gl.getUniformLocation(dyeProgram, 'uFlow'),
       texel: gl.getUniformLocation(dyeProgram, 'uTexel'),
       screenScale: gl.getUniformLocation(dyeProgram, 'uScreenScale'),
+      cssMinDimension: gl.getUniformLocation(dyeProgram, 'uCssMinDimension'),
       delta: gl.getUniformLocation(dyeProgram, 'uDelta'),
       time: gl.getUniformLocation(dyeProgram, 'uTime'),
       velocityMax: gl.getUniformLocation(dyeProgram, 'uVelocityMax'),
@@ -791,6 +824,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     gl.uniform1i(dyeUniforms.flow, 1);
     gl.uniform2f(dyeUniforms.texel, 1 / FLOW_WIDTH, 1 / FLOW_HEIGHT);
     gl.uniform2f(dyeUniforms.screenScale, canvasRect.width / minDimension, canvasRect.height / minDimension);
+    gl.uniform1f(dyeUniforms.cssMinDimension, minDimension);
     gl.uniform1f(dyeUniforms.delta, delta);
     gl.uniform1f(dyeUniforms.time, time);
     gl.uniform1f(dyeUniforms.velocityMax, VELOCITY_MAX);
