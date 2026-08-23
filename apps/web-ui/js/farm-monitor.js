@@ -2574,16 +2574,6 @@ export class FarmMonitor {
         </div>
       </aside>
 
-      <!-- Title Lockup -->
-      <header class="farm-title-lockup">
-        <p>AGRILOOP · DIGITAL TWIN PARK</p>
-        <h1>现代智慧农田数字孪生全景</h1>
-        <div class="farm-title-meta">
-          <span data-location-label><i class="ph ph-map-pin"></i> 重庆 · 现代智慧农业生态示范园</span>
-          <span class="badge-plots" data-plot-counter><i class="ph ph-squares-four"></i> ${this.plots.length} 块独立监测示范区</span>
-        </div>
-      </header>
-
       <!-- Panoramic Sector Navigator (全景区域漫游切换栏) -->
       <nav class="farm-sector-nav" aria-label="全景区域漫游导航">
         <button class="farm-sector-btn active" type="button" data-sector="all"><i class="ph ph-globe"></i> 全域总览</button>
@@ -2596,13 +2586,8 @@ export class FarmMonitor {
         <button class="farm-sector-btn" type="button" data-sector="sw_hub"><i class="ph ph-warehouse"></i> 西南粮仓储运区</button>
       </nav>
 
-      <!-- Top Action Right Dock (流畅/极清模式切换 + 新田开垦规划入口) -->
-      <div class="farm-top-actions" style="position: absolute; top: 20px; right: 20px; z-index: 30; display: flex; align-items: center; gap: 10px;">
-        <button class="farm-btn-perf" type="button" data-btn-perf title="点击切换流畅模式 (60FPS) / 极清画质模式">
-          <span class="farm-perf-indicator"></span>
-          <strong data-fps-val>60 FPS</strong>
-          <span class="farm-perf-label" data-perf-mode-label>⚡ 流畅优先</span>
-        </button>
+      <!-- Top Action Right Dock (新田开垦规划入口) -->
+      <div class="farm-top-actions" style="position: absolute; top: 20px; right: 20px; z-index: 30; display: flex; align-items: center; gap: 8px;">
         <button class="farm-btn-reclaim" type="button" data-btn-reclaim><i class="ph ph-plant"></i><span>🌾 新田开垦规划</span></button>
       </div>
 
@@ -2785,30 +2770,6 @@ export class FarmMonitor {
     this.dom.back.addEventListener('click', () => {
       this.close(false);
       this.onExit();
-    });
-
-    // Performance & FPS Mode Toggle
-    const perfBtn = this.shell.querySelector('[data-btn-perf]');
-    const fpsVal = this.shell.querySelector('[data-fps-val]');
-    const perfLabel = this.shell.querySelector('[data-perf-mode-label]');
-
-    if (this.world) {
-      this.world.onFpsUpdate = (fps, mode) => {
-        if (fpsVal) fpsVal.textContent = `${fps} FPS`;
-        if (perfLabel) perfLabel.textContent = mode === 'smooth' ? '⚡ 流畅优先' : '✨ 极清画质';
-        if (perfBtn) {
-          perfBtn.classList.toggle('fps-low', fps < 35);
-          perfBtn.classList.toggle('fps-good', fps >= 50);
-        }
-      };
-    }
-
-    perfBtn?.addEventListener('click', () => {
-      const currentMode = this.world?.performanceMode || 'smooth';
-      const nextMode = currentMode === 'smooth' ? 'ultra' : 'smooth';
-      this.world?.setPerformanceMode(nextMode);
-      if (perfLabel) perfLabel.textContent = nextMode === 'smooth' ? '⚡ 流畅优先' : '✨ 极清画质';
-      this.showToast(nextMode === 'smooth' ? '已开启【⚡ 60FPS 极速流畅模式】' : '已开启【✨ 4K 极清画质模式】');
     });
 
     // Sector Navigator Clicks (Camera Roaming)
