@@ -550,16 +550,49 @@
   color: var(--amber-primary);
 }
 
-/* ================= 盆栽可视化场景 ================= */
-.sr-pot-layout {
+/* ================= 情景模拟两栏布局（左盆栽固定 / 右滚动） ================= */
+.sr-layout {
+  display: grid;
+  grid-template-columns: 400px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.sr-left {
+  position: sticky;
+  top: 0;
+}
+.sr-right {
+  max-height: calc(90vh - 150px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) var(--bg-canvas);
   display: flex;
-  gap: 18px;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (max-width: 1120px) {
+  .sr-layout { grid-template-columns: 1fr; }
+  .sr-left { position: static; }
+  .sr-right { max-height: none; overflow-y: visible; }
+}
+
+/* ================= 盆栽可视化场景（大尺寸） ================= */
+.sr-pot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.sr-pot-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 .sr-pot-scene {
-  width: 250px;
-  flex: 0 0 auto;
+  width: 100%;
 }
 .sr-pot-scene svg {
   width: 100%;
@@ -567,27 +600,40 @@
   display: block;
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-lg);
-  background: #10151d;
+  background: #0d1219;
 }
-.sr-pot-info {
-  flex: 1;
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.sr-pot-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
 }
-.sr-pot-status {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
+.sr-pot-metric {
   background: var(--bg-canvas);
   border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
-.sr-pot-meta {
+.sr-pot-metric span {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.sr-pot-metric b {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.sr-pot-desc {
+  margin-top: 10px;
   font-size: 12px;
   color: var(--text-secondary);
+  padding: 8px 10px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  line-height: 1.6;
 }
 
 /* SVG 元素动画基础 */
@@ -597,10 +643,20 @@
   transform-origin: bottom center;
   transition: transform 0.8s ease, fill 0.8s ease;
 }
+.sr-pot-scene .pot-stem {
+  transition: opacity 0.5s ease, filter 0.5s ease;
+}
 .sr-pot-scene .pot-sun {
   transition: transform 0.8s ease, opacity 0.5s ease;
   transform-box: fill-box;
   transform-origin: center;
+}
+.sr-pot-scene .pot-glow {
+  animation: pot-glow-pulse 3.2s ease-in-out infinite;
+}
+@keyframes pot-glow-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
 }
 .sr-pot-scene .pot-cloud,
 .sr-pot-scene .pot-rain,
@@ -619,58 +675,99 @@
 .sr-pot-scene .pot-offline {
   opacity: 0;
 }
+/* 土壤湿度联动（--soil-color 由 JS 插值） */
+.sr-pot-scene .pot-soil {
+  fill: var(--soil-color, #4a3624);
+  transition: fill 0.6s ease;
+}
 
 /* 正常态：微风叶片摆动 */
 .sr-pot-scene.normal .pot-leaf { animation: pot-breeze 3.2s ease-in-out infinite alternate; }
 .sr-pot-scene.normal .pot-leaf.l2 { animation-delay: 0.4s; }
 .sr-pot-scene.normal .pot-leaf.l3 { animation-delay: 0.8s; }
 .sr-pot-scene.normal .pot-leaf.l4 { animation-delay: 1.2s; }
+.sr-pot-scene.normal .pot-leaf.l5 { animation-delay: 0.6s; }
+.sr-pot-scene.normal .pot-leaf.l6 { animation-delay: 1s; }
 @keyframes pot-breeze {
   from { transform: rotate(-2deg); }
   to { transform: rotate(3deg); }
 }
 
-/* 干旱：叶下垂变黄、土壤开裂、太阳增强 */
-.sr-pot-scene.drought .pot-leaf { transform: rotate(-22deg); fill: #c9a06a; animation: none; }
-.sr-pot-scene.drought .pot-leaf.l2 { transform: rotate(24deg); }
-.sr-pot-scene.drought .pot-leaf.l3 { transform: rotate(-26deg); }
-.sr-pot-scene.drought .pot-leaf.l4 { transform: rotate(28deg); }
+/* 干旱情景 / 湿度联动萎蔫：叶下垂变黄、土壤开裂、太阳增强 */
+.sr-pot-scene.drought .pot-leaf,
+.sr-pot-scene.pot-wilt .pot-leaf {
+  transform: rotate(-22deg);
+  fill: #c9a06a;
+  animation: none;
+}
+.sr-pot-scene.drought .pot-leaf.l2,
+.sr-pot-scene.pot-wilt .pot-leaf.l2 { transform: rotate(24deg); }
+.sr-pot-scene.drought .pot-leaf.l3,
+.sr-pot-scene.pot-wilt .pot-leaf.l3 { transform: rotate(-26deg); }
+.sr-pot-scene.drought .pot-leaf.l4,
+.sr-pot-scene.pot-wilt .pot-leaf.l4 { transform: rotate(28deg); }
+.sr-pot-scene.drought .pot-leaf.l5,
+.sr-pot-scene.pot-wilt .pot-leaf.l5 { transform: rotate(-28deg); }
+.sr-pot-scene.drought .pot-leaf.l6,
+.sr-pot-scene.pot-wilt .pot-leaf.l6 { transform: rotate(30deg); }
 .sr-pot-scene.drought .pot-soil-cracks { opacity: 0.9; }
-.sr-pot-scene.drought .pot-sun { transform: scale(1.25); }
-.sr-pot-scene.drought .pot-soil { fill: #5c4528; }
+.sr-pot-scene.drought .pot-sun { transform: scale(1.3); }
+/* 临界萎蔫：叶片更黄、果实暗淡 */
+.sr-pot-scene.pot-crit .pot-leaf,
+.sr-pot-scene.pot-crit .pot-fruit { opacity: 0.7; fill: #a3854f; }
+.sr-pot-scene.pot-crit .pot-stem { stroke: #8a9a6a; }
+.sr-pot-scene.pot-crit .pot-soil-cracks { opacity: 1; }
 
 /* 极端热浪：太阳放大变红 + 气流上升 */
-.sr-pot-scene.heat .pot-sun { transform: scale(1.5); }
+.sr-pot-scene.heat .pot-sun { transform: scale(1.55); }
 .sr-pot-scene.heat .pot-sun circle { fill: #f85149; }
 .sr-pot-scene.heat .pot-sun g { stroke: #f85149; }
+.sr-pot-scene.heat .pot-glow { fill: url(#potGlow); filter: hue-rotate(-30deg) saturate(1.4); }
 .sr-pot-scene.heat .pot-heat { opacity: 0.6; animation: pot-heat-rise 1.6s ease-in-out infinite; }
 .sr-pot-scene.heat .pot-heat .h2 { animation-delay: 0.3s; }
 .sr-pot-scene.heat .pot-heat .h3 { animation-delay: 0.6s; }
+.sr-pot-scene.heat .pot-heat .h4 { animation-delay: 0.9s; }
 @keyframes pot-heat-rise {
   0% { transform: translateY(6px); opacity: 0; }
   40% { opacity: 0.6; }
-  100% { transform: translateY(-8px); opacity: 0; }
+  100% { transform: translateY(-10px); opacity: 0; }
 }
 
-/* 暴雨：云与雨滴可见，太阳隐藏 */
+/* 暴雨：云与三层雨幕，太阳隐藏 */
 .sr-pot-scene.storm .pot-sun { opacity: 0; }
+.sr-pot-scene.storm .pot-glow { opacity: 0; }
 .sr-pot-scene.storm .pot-cloud { opacity: 1; }
 .sr-pot-scene.storm .pot-rain { opacity: 0.9; }
 .sr-pot-scene.storm .pot-leaf { fill: #1f8f4d; }
-.sr-pot-scene.storm .drop { animation: pot-rain-fall 0.7s linear infinite; }
-.sr-pot-scene.storm .drop.d2 { animation-delay: 0.15s; }
-.sr-pot-scene.storm .drop.d3 { animation-delay: 0.3s; }
-.sr-pot-scene.storm .drop.d4 { animation-delay: 0.45s; }
-.sr-pot-scene.storm .drop.d5 { animation-delay: 0.6s; }
-.sr-pot-scene.storm .drop.d6 { animation-delay: 0.75s; }
+.sr-pot-scene.storm .pot-stem { stroke: #1f8f4d; }
+.sr-pot-scene.storm .pot-soil { filter: brightness(0.85); }
+.sr-pot-scene.storm .drop { animation: pot-rain-fall 0.55s linear infinite; }
+.sr-pot-scene.storm .drop.d2 { animation-delay: 0.12s; }
+.sr-pot-scene.storm .drop.d3 { animation-delay: 0.24s; }
+.sr-pot-scene.storm .drop.d4 { animation-delay: 0.36s; }
+.sr-pot-scene.storm .drop.d5 { animation-delay: 0.48s; }
+.sr-pot-scene.storm .drop.d6 { animation-delay: 0.1s; }
+.sr-pot-scene.storm .drop.d7 { animation-delay: 0.3s; }
+.sr-pot-scene.storm .drop.d8 { animation-delay: 0.44s; }
+.sr-pot-scene.storm .drop.d9 { animation-delay: 0.2s; }
+.sr-pot-scene.storm .drop.r-bg { animation-duration: 0.8s; }
 @keyframes pot-rain-fall {
   0% { transform: translateY(0); opacity: 0.9; }
-  100% { transform: translateY(26px); opacity: 0.1; }
+  100% { transform: translateY(30px); opacity: 0.05; }
 }
 
-/* 传感器漂移：问号仪表闪烁 */
+/* 传感器漂移：仪表指针乱摆 + 整体闪烁 */
 .sr-pot-scene.drift .pot-drift { opacity: 1; animation: pot-blink 1.1s ease-in-out infinite; }
-.sr-pot-scene.drift .pot-sun { opacity: 0.5; }
+.sr-pot-scene.drift .pot-sun { opacity: 0.4; }
+.sr-pot-scene.drift .pot-gauge-needle {
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  animation: pot-needle 0.5s ease-in-out infinite alternate;
+}
+@keyframes pot-needle {
+  from { transform: rotate(-32deg); }
+  to { transform: rotate(32deg); }
+}
 @keyframes pot-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
@@ -679,5 +776,7 @@
 /* 设备离线：红色信号断开 + 植物灰化 */
 .sr-pot-scene.offline .pot-offline { opacity: 1; animation: pot-blink 1.4s ease-in-out infinite; }
 .sr-pot-scene.offline .pot-leaf,
-.sr-pot-scene.offline .pot-stem { filter: grayscale(0.9); opacity: 0.6; }
-.sr-pot-scene.offline .pot-sun { opacity: 0.2; }
+.sr-pot-scene.offline .pot-stem,
+.sr-pot-scene.offline .pot-fruit { filter: grayscale(0.9); opacity: 0.55; }
+.sr-pot-scene.offline .pot-sun { opacity: 0.15; }
+.sr-pot-scene.offline .pot-glow { opacity: 0; }
