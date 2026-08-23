@@ -4,7 +4,22 @@
  */
 
 :root {
-  --glass-blur: 8px;
+  --glass-blur: 6px;
+  --glass-saturate: 1.18;
+  --glass-header-fill: color-mix(in srgb, var(--bg-surface) 52%, transparent);
+  --glass-rail-fill: color-mix(in srgb, var(--bg-surface) 48%, transparent);
+  --glass-sheen: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.26) 0%,
+    rgba(255, 255, 255, 0.08) 22%,
+    rgba(255, 255, 255, 0.02) 46%,
+    transparent 62%
+  );
+  --glass-edge: rgba(255, 255, 255, 0.3);
+  --glass-inset:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+    inset 1px 0 0 rgba(255, 255, 255, 0.1);
   --bg-base: #070b16;
   --bg-canvas: rgba(13, 17, 23, 0.22);
   --bg-surface: rgba(22, 27, 34, 0.38);
@@ -65,12 +80,12 @@
 /* Light theme overrides */
 [data-theme="light"] {
   --bg-base: #f2f7fc;
-  --bg-canvas: rgba(255, 255, 255, 0.28);
-  --bg-surface: rgba(246, 248, 250, 0.42);
-  --bg-subtle: rgba(238, 241, 244, 0.36);
-  --bg-card: rgba(255, 255, 255, 0.4);
-  --bg-card-hover: rgba(243, 244, 246, 0.5);
-  --bg-input: rgba(255, 255, 255, 0.4);
+  --bg-canvas: rgba(255, 255, 255, 0.22);
+  --bg-surface: rgba(246, 248, 250, 0.34);
+  --bg-subtle: rgba(238, 241, 244, 0.28);
+  --bg-card: rgba(255, 255, 255, 0.32);
+  --bg-card-hover: rgba(243, 244, 246, 0.42);
+  --bg-input: rgba(255, 255, 255, 0.34);
   --bg-overlay: rgba(255, 255, 255, 0.72);
 
   --border-default: #d0d7de;
@@ -91,6 +106,20 @@
   --shadow-sm: 0 1px 2px rgba(31, 35, 40, 0.06);
   --shadow-md: 0 4px 12px rgba(31, 35, 40, 0.1);
   --shadow-lg: 0 8px 24px rgba(31, 35, 40, 0.12);
+
+  --glass-header-fill: color-mix(in srgb, var(--bg-surface) 52%, transparent);
+  --glass-rail-fill: color-mix(in srgb, var(--bg-surface) 48%, transparent);
+  --glass-sheen: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0.22) 24%,
+    transparent 58%
+  );
+  --glass-edge: rgba(255, 255, 255, 0.62);
+  --glass-inset:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(31, 35, 40, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.35);
 }
 
 [data-theme="light"] .status-pill .dot {
@@ -116,7 +145,62 @@
 
 html {
   background-color: var(--bg-base);
+  color-scheme: dark;
   transition: background-color var(--theme-transition-duration) ease;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* Liquid glass no longer depends on sampling the WebGL canvas. Keep Safari
+   fills only slightly denser so text stays readable over the field. */
+html.engine-safari:not([data-theme="light"]) {
+  --bg-canvas: rgba(13, 17, 23, 0.36);
+  --bg-surface: rgba(22, 27, 34, 0.5);
+  --bg-subtle: rgba(28, 33, 40, 0.44);
+  --bg-card: rgba(33, 38, 45, 0.48);
+  --bg-card-hover: rgba(41, 46, 54, 0.58);
+  --bg-input: rgba(13, 17, 23, 0.48);
+}
+
+html.engine-safari[data-theme="light"] {
+  --bg-canvas: rgba(255, 255, 255, 0.4);
+  --bg-surface: rgba(246, 248, 250, 0.5);
+  --bg-subtle: rgba(238, 241, 244, 0.44);
+  --bg-card: rgba(255, 255, 255, 0.54);
+  --bg-card-hover: rgba(243, 244, 246, 0.64);
+  --bg-input: rgba(255, 255, 255, 0.54);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-blur: 0px;
+    --bg-canvas: rgba(13, 17, 23, 0.92);
+    --bg-surface: rgba(22, 27, 34, 0.94);
+    --bg-subtle: rgba(28, 33, 40, 0.94);
+    --bg-card: rgba(33, 38, 45, 0.96);
+    --bg-input: rgba(13, 17, 23, 0.94);
+    --glass-header-fill: var(--bg-surface);
+    --glass-rail-fill: var(--bg-surface);
+  }
+
+  [data-theme="light"] {
+    --bg-canvas: rgba(255, 255, 255, 0.94);
+    --bg-surface: rgba(246, 248, 250, 0.96);
+    --bg-subtle: rgba(238, 241, 244, 0.96);
+    --bg-card: rgba(255, 255, 255, 0.98);
+    --bg-input: rgba(255, 255, 255, 0.96);
+  }
+
+  .app-header,
+  .right-rail-panel,
+  .right-rail-toggle,
+  .app-loading-hud,
+  .subview-modal-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 html.is-booting .app-header,
@@ -215,6 +299,7 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+  color-interpolation: sRGB;
 }
 
 body > :not(#sceneBackground):not(#appLoading) {
@@ -222,8 +307,9 @@ body > :not(#sceneBackground):not(#appLoading) {
   z-index: 1;
 }
 
-/* Glass panels — semi-transparent surfaces with blur */
-.glass-panel,
+/* Liquid glass — translucent fill + specular sheen. Blur only on a few large
+   surfaces so the WebGL field is not sampled by dozens of backdrop filters. */
+.liquid-glass,
 .rail-section,
 .copilot-prompt-card,
 .feed-card,
@@ -232,32 +318,22 @@ body > :not(#sceneBackground):not(#appLoading) {
 .plot-slider-item,
 .copilot-output-banner,
 .feed-details-box,
-.gate-chip,
-.chip-btn,
-.plot-list-item,
 .subview-modal-card,
-.toast,
-.feed-tab-btn.active,
-.quick-nav-btn,
-.theme-toggle-btn,
-.status-pill,
-.header-action-btn:not(.primary),
-.search-input-wrapper input,
-.farm-switch-select,
-.plot-filter-input,
-.telemetry-entry-btn,
-.btn-outline,
-.btn-secondary,
-.btn-ghost,
-.plot-metric-pill,
 .code-contract-box,
-.subview-placeholder-banner,
-.user-profile-badge,
-.brand-logo,
-.module-nav-item,
-.copilot-prompt-card .copilot-output-banner {
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+.subview-placeholder-banner {
+  background-image: var(--glass-sheen);
+  border-color: color-mix(in srgb, var(--border-default) 62%, var(--glass-edge));
+  box-shadow: var(--glass-inset), var(--shadow-sm);
+}
+
+.app-header,
+.right-rail-panel,
+.right-rail-toggle,
+.app-loading-hud,
+.subview-modal-card {
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
 /* ==========================================================================
@@ -268,10 +344,12 @@ body > :not(#sceneBackground):not(#appLoading) {
   top: 0;
   z-index: 100;
   height: 56px;
-  background-color: color-mix(in srgb, var(--bg-surface) 58%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border-default);
+  background-color: var(--glass-header-fill);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-bottom: 1px solid color-mix(in srgb, var(--border-default) 70%, var(--glass-edge));
+  box-shadow: var(--glass-inset);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -552,16 +630,14 @@ body > :not(#sceneBackground):not(#appLoading) {
   position: relative;
   width: 330px;
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background-color: color-mix(in srgb, var(--bg-surface) 60%, transparent);
-  backdrop-filter: blur(30px) saturate(180%) brightness(1.05);
-  -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(1.05);
+  border: 1px solid color-mix(in srgb, var(--border-default) 55%, var(--glass-edge));
+  background-color: var(--glass-rail-fill);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   box-shadow:
     0 14px 44px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.06),
-    inset 1px 0 0 rgba(255, 255, 255, 0.14),
-    inset -1px 0 0 rgba(255, 255, 255, 0.14);
+    var(--glass-inset);
 }
 
 .right-rail-cards {
@@ -593,18 +669,19 @@ body > :not(#sceneBackground):not(#appLoading) {
   width: 34px;
   min-height: 108px;
   padding: 12px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid color-mix(in srgb, var(--border-default) 55%, var(--glass-edge));
   border-right: none;
   border-radius: 10px 0 0 10px;
-  background-color: color-mix(in srgb, var(--bg-surface) 60%, transparent);
-  backdrop-filter: blur(30px) saturate(180%) brightness(1.05);
-  -webkit-backdrop-filter: blur(30px) saturate(180%) brightness(1.05);
+  background-color: var(--glass-rail-fill);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   color: var(--text-primary);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.2;
   cursor: pointer;
-  box-shadow: -6px 4px 18px rgba(0, 0, 0, 0.12);
+  box-shadow: -6px 4px 18px rgba(0, 0, 0, 0.12), var(--glass-inset);
   transform: translateX(-100%);
   transition:
     color var(--transition-fast),
@@ -953,13 +1030,13 @@ body > :not(#sceneBackground):not(#appLoading) {
   border-radius: var(--radius-lg);
   padding: 16px;
   margin-bottom: 24px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-inset), var(--shadow-sm);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .copilot-prompt-card:focus-within {
   border-color: var(--green-primary);
-  box-shadow: 0 0 0 3px rgba(35, 134, 54, 0.2);
+  box-shadow: var(--glass-inset), 0 0 0 3px rgba(35, 134, 54, 0.2);
 }
 
 .copilot-input-area {
@@ -1133,7 +1210,7 @@ body > :not(#sceneBackground):not(#appLoading) {
 
 .feed-card:hover {
   border-color: var(--text-muted);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--glass-inset), var(--shadow-sm);
 }
 
 .feed-card-header {
@@ -1505,7 +1582,6 @@ body > :not(#sceneBackground):not(#appLoading) {
   position: fixed;
   inset: 0;
   background-color: var(--bg-overlay);
-  backdrop-filter: blur(4px);
   z-index: 200;
   display: none;
   align-items: center;
@@ -2369,16 +2445,15 @@ button:not(:disabled):not(.right-rail-toggle):not(.telemetry-drum-nav):hover {
   margin-bottom: clamp(36px, 9vh, 88px);
   padding: 22px 24px 18px;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--border-default) 50%, var(--glass-edge));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.07), transparent 48%),
-    color-mix(in srgb, var(--bg-surface) 72%, transparent);
-  backdrop-filter: blur(24px) saturate(165%);
-  -webkit-backdrop-filter: blur(24px) saturate(165%);
+    var(--glass-sheen),
+    color-mix(in srgb, var(--bg-surface) 58%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   box-shadow:
     0 18px 56px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    0 0 0 1px color-mix(in srgb, var(--green-bright) 7%, transparent);
+    var(--glass-inset);
   pointer-events: none;
   animation: appLoadingHudIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -2638,4 +2713,20 @@ button:focus-visible {
   display: block;
   border-radius: var(--radius-md);
   background: var(--bg-canvas);
+}
+
+/* Re-assert liquid sheen after later background/border rules */
+.rail-section,
+.copilot-prompt-card,
+.feed-card,
+.system-status-card,
+.telemetry-chart-card,
+.plot-slider-item,
+.copilot-output-banner,
+.feed-details-box,
+.subview-modal-card,
+.code-contract-box,
+.subview-placeholder-banner {
+  background-image: var(--glass-sheen);
+  border-color: color-mix(in srgb, var(--border-default) 62%, var(--glass-edge));
 }

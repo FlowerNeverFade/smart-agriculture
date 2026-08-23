@@ -23,12 +23,12 @@ const THEME_VARS = {
   },
   light: {
     '--bg-base': '#f2f7fc',
-    '--bg-canvas': 'rgba(255, 255, 255, 0.28)',
-    '--bg-surface': 'rgba(246, 248, 250, 0.42)',
-    '--bg-subtle': 'rgba(238, 241, 244, 0.36)',
-    '--bg-card': 'rgba(255, 255, 255, 0.4)',
-    '--bg-card-hover': 'rgba(243, 244, 246, 0.5)',
-    '--bg-input': 'rgba(255, 255, 255, 0.4)',
+    '--bg-canvas': 'rgba(255, 255, 255, 0.22)',
+    '--bg-surface': 'rgba(246, 248, 250, 0.34)',
+    '--bg-subtle': 'rgba(238, 241, 244, 0.28)',
+    '--bg-card': 'rgba(255, 255, 255, 0.32)',
+    '--bg-card-hover': 'rgba(243, 244, 246, 0.42)',
+    '--bg-input': 'rgba(255, 255, 255, 0.34)',
     '--bg-overlay': 'rgba(255, 255, 255, 0.72)',
     '--border-default': '#d0d7de',
     '--border-muted': '#eaeef2',
@@ -110,11 +110,13 @@ function lerpColor(from, to, t) {
 }
 
 function setThemeAttribute(theme) {
+  const root = document.documentElement;
   if (theme === 'light') {
-    document.documentElement.setAttribute('data-theme', 'light');
+    root.setAttribute('data-theme', 'light');
   } else {
-    document.documentElement.removeAttribute('data-theme');
+    root.removeAttribute('data-theme');
   }
+  root.style.colorScheme = theme === 'light' ? 'light' : 'dark';
 }
 
 function clearInlineThemeVars() {

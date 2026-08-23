@@ -3,18 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css?v=47">
+  <link rel="stylesheet" href="css/style.css?v=50">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   <script>
     (function () {
+      var root = document.documentElement;
+      var ua = navigator.userAgent;
+      var isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Android/i.test(ua);
       try {
-        if (localStorage.getItem('agriloop-theme') === 'light') {
-          document.documentElement.setAttribute('data-theme', 'light');
-        }
+        var light = localStorage.getItem('agriloop-theme') === 'light';
+        if (light) root.setAttribute('data-theme', 'light');
+        root.style.colorScheme = light ? 'light' : 'dark';
       } catch (_) { /* ignore */ }
-      document.documentElement.classList.add('is-booting');
+      if (isSafari) root.classList.add('engine-safari');
+      root.classList.add('is-booting');
     })();
   </script>
   <script type="importmap">
@@ -70,7 +75,7 @@
       </div>
     </div>
   </div>
-  <script type="module" src="js/boot-scene.js?v=46"></script>
+  <script type="module" src="js/boot-scene.js?v=48"></script>
 
   <div id="sceneBackground" aria-hidden="true"></div>
 
@@ -451,6 +456,6 @@
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script type="module" src="js/app.js?v=47"></script>
+  <script type="module" src="js/app.js?v=49"></script>
 </body>
 </html>

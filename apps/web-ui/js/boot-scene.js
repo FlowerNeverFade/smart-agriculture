@@ -1,7 +1,7 @@
 /**
  * Starts the shared wheat-field scene as the boot camera, then hands it to the homepage.
  */
-import { initSceneBackground } from './scene-background.js?v=46';
+import { initSceneBackground } from './scene-background.js?v=51';
 
 const field = initSceneBackground();
 
