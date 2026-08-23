@@ -1,14 +1,14 @@
 # 农智闭环后端远端验收记录
 
-更新时间：2026-08-22（Asia/Shanghai）
+更新时间：2026-08-23（Asia/Shanghai）
 
 ## 环境
 
 - 目标目录：`/srv/agriloop`
 - 运行方式：Java 17 + Spring Boot 3 + Supervisor（容器无 Docker/systemd）
 - 依赖：PostgreSQL 14、Redis 6、Mosquitto 2
-- API：`127.0.0.1:8080`（仅 API 端口按远端网络策略暴露）
-- 默认 AI：`rules-only`；虚拟执行器：`virtual`
+- API：`127.0.0.1:8080`，由 Nginx 6006 自定义服务代理
+- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B`；规则/工具优先，虚拟执行器：`virtual`
 - 演示账号：`farmer`、`operator`、`admin`、`sysadmin`，统一演示密码在受控环境中维护，不写入仓库。
 
 ## 已复现证据
@@ -35,6 +35,9 @@
 | SSE | PASS | 首帧 `event:connected` 可读 |
 | 回放隔离 | PASS | `NO_ACTION/EXECUTE` 写入 `scenario-event`，不改变主遥测/设备/告警 |
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
+| main 公网 Web/API | PASS | AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；静态首页、健康检查和未认证 API 响应可访问 |
+| OpenAI-compatible Qwen | PASS | 公网登录后调用 `/api/v1/agent/chat` 返回 `adapter=openai-compatible`、`degraded=false`、`narrative`；vLLM 仅监听 `127.0.0.1:8000` |
+| 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
 
 ## 自动化测试
 
@@ -52,5 +55,5 @@ BUILD SUCCESSFUL
 ## 已知边界
 
 - 本期不实现真实传感器、GPIO、鸿蒙端、真实视觉/语音模型或真实生产控制器。
-- Redis/MQTT/AI 依赖不可用时 API 会明确返回 `DEGRADED`/`rules-only`，核心规则流程继续运行；standalone profile 使用 H2/内存回退。
-- 当前仓库未包含前端页面；REST/SSE/OpenAPI 已提供给前端或答辩演示使用。
+- Redis/MQTT/AI 依赖不可用时 API 会明确返回 `DEGRADED`/`rules-only`，核心规则流程继续运行；当前远端 AI 已启用 Qwen，standalone profile 仍使用 H2/内存回退。
+- 前端页面不作为本期后端验收门槛；main 中的静态 Web 已随 Nginx 自定义服务发布，REST/SSE/OpenAPI 仍可供独立前端使用。

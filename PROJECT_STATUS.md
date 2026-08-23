@@ -1,11 +1,13 @@
 # 智慧农业项目进度
 
 > 项目：农智闭环（AgriLoop）
-> 更新时间：2026-08-22
+> 更新时间：2026-08-23
 > 当前周期：15 天软件仿真交付
 > 当前总状态：**v1.0 后端已实现并完成远端验收；前端页面、真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
+
+> 2026-08-23 main 部署记录：GitHub `main` 当前提交为 `ee6f2bd`（基于回滚后的 `dbc9a53`，不包含 `task5`）。远端已启用 OpenAI-compatible Qwen 适配器（`Qwen3.8-27B`，规则/工具先行，模型仅生成解释文本），并通过 AutoDL 自定义服务发布 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
 
 ## 1. 进度总览
 
@@ -30,6 +32,13 @@
 > 说明：进度只按当前工作区中可复现的代码、日志、截图、测试和录屏计算；没有本地证据的内容不计入已完成。
 
 ## 2. 当前阶段判断
+
+### 2.1 2026-08-23 main 远端验收
+
+- `/actuator/health`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
+- Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。
+- vLLM 监听 `127.0.0.1:8000`，数据库/消息服务不通过公网服务暴露；`SERVER_ADDRESS=127.0.0.1` 保护 Spring API，公网入口为 Nginx 的 6006 映射。
+- 远端磁盘约 58GB 可用，Qwen 权重约 52GB；数据目录、备份和应用日志位于服务器本地持久盘。
 
 ### 已完成的设计工作
 
