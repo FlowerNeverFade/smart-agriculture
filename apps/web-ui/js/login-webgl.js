@@ -274,12 +274,10 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
   uniform sampler2D uDye;
   uniform sampler2D uFlow;
   uniform vec2 uDyeTexel;
-  uniform vec2 uCssResolution;
   uniform vec2 uScreenScale;
   uniform float uTime;
   uniform float uTaskStrength;
   uniform float uVelocityMax;
-  uniform float uGridSize;
   uniform float uDebug;
 
   vec2 decodeVelocity(vec4 sampleValue) {
@@ -314,14 +312,6 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     return dot(color, vec3(0.2126, 0.7152, 0.0722));
   }
 
-  float gridLine(vec2 pixelPosition) {
-    vec2 gridUv = fract(pixelPosition / uGridSize);
-    vec2 distanceToLine = min(gridUv, 1.0 - gridUv);
-    float lineDistance = min(distanceToLine.x, distanceToLine.y);
-    float antialias = max(fwidth(lineDistance) * 1.45, 0.0015);
-    return 1.0 - smoothstep(0.0, 0.0125 + antialias, lineDistance);
-  }
-
   void main() {
     vec4 flowSample = texture(uFlow, vUv);
     vec2 velocity = decodeVelocity(flowSample);
@@ -335,7 +325,6 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
 
     float response = smoothstep(0.025, 0.68, flowMagnitude);
     float dyeDistortion = mix(0.0015, 0.010, response);
-    float gridDistortion = mix(0.002, 0.027, response);
     vec2 uvFlow = normalizedFlow / uScreenScale;
     vec2 idleDisplayWarp = vec2(
       sin(vUv.y * 7.4 + vUv.x * 2.1 + uTime * 0.041),
@@ -353,11 +342,6 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     vec3 surfaceNormal = normalize(vec3(-dyeGradient * 16.0, 1.0));
     float softLight = 0.988 + max(dot(surfaceNormal, normalize(vec3(-0.28, 0.38, 0.88))), 0.0) * 0.018;
     color *= softLight;
-
-    vec2 gridUv = vUv + (-uvFlow * gridDistortion + idleDisplayWarp * 1.35) * uTaskStrength;
-    vec2 warpedGridPixels = gridUv * uCssResolution;
-    float grid = gridLine(warpedGridPixels);
-    color = mix(color, color * vec3(0.945, 0.958, 0.950), grid * 0.32);
 
     color *= 1.0 + flowMagnitude * 0.006;
     color = clamp(color, vec3(0.70), vec3(0.985));
@@ -600,12 +584,10 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       dye: gl.getUniformLocation(backgroundProgram, 'uDye'),
       flow: gl.getUniformLocation(backgroundProgram, 'uFlow'),
       dyeTexel: gl.getUniformLocation(backgroundProgram, 'uDyeTexel'),
-      cssResolution: gl.getUniformLocation(backgroundProgram, 'uCssResolution'),
       screenScale: gl.getUniformLocation(backgroundProgram, 'uScreenScale'),
       time: gl.getUniformLocation(backgroundProgram, 'uTime'),
       taskStrength: gl.getUniformLocation(backgroundProgram, 'uTaskStrength'),
       velocityMax: gl.getUniformLocation(backgroundProgram, 'uVelocityMax'),
-      gridSize: gl.getUniformLocation(backgroundProgram, 'uGridSize'),
       debug: gl.getUniformLocation(backgroundProgram, 'uDebug')
     };
   }
@@ -832,12 +814,10 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     gl.bindTexture(gl.TEXTURE_2D, flowRead.texture);
     gl.uniform1i(backgroundUniforms.flow, 1);
     gl.uniform2f(backgroundUniforms.dyeTexel, 1 / FLOW_WIDTH, 1 / FLOW_HEIGHT);
-    gl.uniform2f(backgroundUniforms.cssResolution, canvasRect.width, canvasRect.height);
     gl.uniform2f(backgroundUniforms.screenScale, canvasRect.width / minDimension, canvasRect.height / minDimension);
     gl.uniform1f(backgroundUniforms.time, time);
     gl.uniform1f(backgroundUniforms.taskStrength, task.current);
     gl.uniform1f(backgroundUniforms.velocityMax, VELOCITY_MAX);
-    gl.uniform1f(backgroundUniforms.gridSize, window.innerWidth <= 760 ? 64 : 80);
     gl.uniform1f(backgroundUniforms.debug, debugMode ? 1 : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

@@ -9,7 +9,6 @@
   --green: #246849;
   --green-deep: #17563a;
   --danger: #9a4038;
-  --grid-opacity: .78;
   --field-opacity: 1;
   --ambient-opacity: 1;
   --field-x: 24vw;
@@ -127,17 +126,6 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
     radial-gradient(ellipse 40% 34% at 31% 69%, rgba(210, 226, 190, .055) 0%, transparent 72%);
   opacity: var(--ambient-opacity);
   transform: translate3d(calc(var(--ambient-x) - 50%), calc(var(--ambient-y) - 50%), 0);
-}
-
-.environment__grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(35, 80, 55, .04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(35, 80, 55, .04) 1px, transparent 1px);
-  background-size: 80px 80px;
-  opacity: var(--grid-opacity);
-  transition: opacity 240ms ease;
 }
 
 .topbar {
@@ -581,7 +569,6 @@ body.is-mounted .auth {
 body.is-mounted .auth { pointer-events: auto; }
 
 body.is-tasking {
-  --grid-opacity: .54;
   --field-opacity: .64;
   --ambient-opacity: .7;
 }
@@ -682,8 +669,6 @@ body.is-leaving .environment {
 
   .brand-logo { width: 110px; }
   .topbar__meta { display: none; }
-
-  .environment__grid { background-size: 64px 64px; }
 
   .login-layout {
     gap: 26px;
