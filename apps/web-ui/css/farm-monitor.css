@@ -1552,3 +1552,54 @@ body.farm-monitor-open > .app-container {
   background: linear-gradient(135deg, #2ec480, #18634a);
 }
 
+/* Performance Mode & Live FPS Button */
+.farm-btn-perf {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 19px;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 24px rgba(10, 35, 25, 0.12);
+  color: #10382b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 220ms var(--farm-ease);
+  user-select: none;
+}
+
+.farm-btn-perf:hover {
+  background: rgba(255, 255, 255, 0.96);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgba(10, 35, 25, 0.18);
+}
+
+.farm-perf-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #28a76d;
+  box-shadow: 0 0 8px rgba(40, 167, 109, 0.8);
+  animation: pulse-dot 2s infinite ease-in-out;
+}
+
+.farm-btn-perf.fps-low .farm-perf-indicator {
+  background: #e65100;
+  box-shadow: 0 0 8px rgba(230, 81, 0, 0.8);
+}
+
+.farm-perf-label {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: rgba(40, 167, 109, 0.12);
+  color: #14523d;
+  font-weight: 800;
+}
+
+
