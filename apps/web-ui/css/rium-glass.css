@@ -78,7 +78,6 @@ body > .app-container {
 .feed-card,
 .system-status-card,
 .subview-modal-card,
-.auth-modal-card,
 .toast,
 .home-summary-card,
 .search-input-wrapper,
@@ -106,7 +105,6 @@ body > .app-container {
 .feed-card::before,
 .system-status-card::before,
 .subview-modal-card::before,
-.auth-modal-card::before,
 .home-summary-card::before {
   content: "";
   position: absolute;
@@ -126,7 +124,6 @@ body > .app-container {
 .feed-card > *,
 .system-status-card > *,
 .subview-modal-card > *,
-.auth-modal-card > *,
 .home-summary-card > * {
   position: relative;
   z-index: 1;
@@ -184,7 +181,6 @@ body > .app-container {
   .feed-card,
   .system-status-card,
   .subview-modal-card,
-  .auth-modal-card,
   .home-summary-card { transition: none; }
 }
 

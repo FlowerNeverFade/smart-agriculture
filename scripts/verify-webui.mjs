@@ -40,8 +40,14 @@ const ok = (name, pass, extra = '') => {
 };
 
 const html = readFileSync(join(ROOT, 'apps', 'web-ui', 'index.html'), 'utf8');
+const loginHtml = readFileSync(join(ROOT, 'apps', 'web-ui', 'login.html'), 'utf8');
+const appSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'app.js'), 'utf8');
+const loginSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'login.js'), 'utf8');
 ok('入口脚本已版本化避免旧缓存', /js\/app\.js\?v=[^"']+/.test(html));
 ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));
+ok('工作台已移除登录弹窗', !html.includes('authModal') && !html.includes('auth-modal-backdrop'));
+ok('quhl 独立登录页已接入', loginHtml.includes('environment__field--cursor') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=quhl-04485ed/.test(loginHtml));
+ok('未登录直接跳转 quhl 登录页', appSource.includes("const LOGIN_ENTRY = 'login.html'") && appSource.includes('if (!api.readSession())') && loginSource.includes("storedSession?.mode === 'live'"));
 const dom = new JSDOM(html, {
   url: 'http://localhost:3000/#view=risk-forecast',
   runScripts: 'outside-only',
@@ -52,6 +58,13 @@ const { window } = dom;
 globalThis.window = window;
 globalThis.document = window.document;
 globalThis.localStorage = window.localStorage;
+window.localStorage.setItem('agriloop_session_mode', 'demo');
+window.localStorage.setItem('agriloop_user', JSON.stringify({
+  username: 'admin',
+  role: 'FARM_ADMIN',
+  roleLabel: '农场管理员',
+  avatar: '👑'
+}));
 window.HTMLElement.prototype.scrollIntoView = function () {};
 
 if (mode === 'real') {

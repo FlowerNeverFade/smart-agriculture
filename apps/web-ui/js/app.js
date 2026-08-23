@@ -11,6 +11,13 @@ import { initTheme } from './theme.js';
 import { initRiumBackground } from './rium-background.js';
 import { syncWaterVisuals } from './water-visual.js';
 
+const LOGIN_ENTRY = 'login.html';
+
+function redirectToLogin() {
+  api.logout();
+  window.location.replace(LOGIN_ENTRY);
+}
+
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
 const SUBVIEW_RENDERERS = {
@@ -65,6 +72,11 @@ class AgriApp {
   }
 
   async init() {
+    if (!api.readSession()) {
+      redirectToLogin();
+      return;
+    }
+
     this.cacheDom();
     this.bindEvents();
 
@@ -86,8 +98,11 @@ class AgriApp {
 
     // Check backend connection
     this.state.isLive = await api.checkHealth();
-    if (this.state.isLive && api.isAuthenticated()) {
-      await api.restoreSession();
+    if (this.state.isLive) {
+      if (!api.isAuthenticated() || !await api.restoreSession()) {
+        redirectToLogin();
+        return;
+      }
     }
     this.syncAuthState();
     this.updateSystemStatusPill();
@@ -111,9 +126,6 @@ class AgriApp {
 
     window.addEventListener('hashchange', () => this.handleRoute());
 
-    // A healthy deployment still requires a JWT. Make that boundary visible
-    // immediately instead of letting the first chat silently use demo data.
-    if (this.state.isLive && !api.isAuthenticated()) this.openAuthModal();
   }
 
   cacheDom() {
@@ -126,13 +138,6 @@ class AgriApp {
     this.dom.btnUserMenu = document.getElementById('btnUserMenu');
     this.dom.copilotConnectionStatus = document.getElementById('copilotConnectionStatus');
     this.dom.btnCopilotLogin = document.getElementById('btnCopilotLogin');
-    this.dom.authModal = document.getElementById('authModal');
-    this.dom.authForm = document.getElementById('authForm');
-    this.dom.authUsername = document.getElementById('authUsername');
-    this.dom.authPassword = document.getElementById('authPassword');
-    this.dom.authError = document.getElementById('authError');
-    this.dom.btnAuthSubmit = document.getElementById('btnAuthSubmit');
-    this.dom.btnCloseAuthModal = document.getElementById('btnCloseAuthModal');
     this.dom.plotListContainer = document.getElementById('plotListContainer');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
@@ -185,28 +190,10 @@ class AgriApp {
 
     // Authentication entry points
     this.dom.btnUserMenu?.addEventListener('click', () => {
-      if (api.isAuthenticated()) {
-        api.logout();
-        this.state.authenticated = false;
-        this.state.user = null;
-        this.syncAuthState();
-        this.updateSystemStatusPill();
-        this.showToast('已退出登录；再次发送问题时会要求重新登录。', 'info');
-      } else {
-        this.openAuthModal();
-      }
+      redirectToLogin();
     });
     this.dom.btnCopilotLogin?.addEventListener('click', () => {
-      if (api.isAuthenticated()) {
-        this.dom.btnUserMenu?.click();
-      } else {
-        this.openAuthModal();
-      }
-    });
-    this.dom.authForm?.addEventListener('submit', (e) => this.submitLogin(e));
-    this.dom.btnCloseAuthModal?.addEventListener('click', () => this.closeAuthModal());
-    this.dom.authModal?.addEventListener('click', (e) => {
-      if (e.target === this.dom.authModal) this.closeAuthModal();
+      redirectToLogin();
     });
 
     // Search input filter for plots
@@ -217,8 +204,7 @@ class AgriApp {
     // ⌘K / Ctrl+K / "/" 交给 yyx 命令面板；这里仅负责 Escape 关闭本应用弹窗。
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (this.dom.authModal?.classList.contains('active')) this.closeAuthModal();
-        else this.closeModal();
+        this.closeModal();
       }
     });
 
@@ -349,8 +335,7 @@ class AgriApp {
 
   async toggleSimulator() {
     if (!api.isAuthenticated()) {
-      this.openAuthModal();
-      this.showToast('请先登录管理员账号，再控制数据模拟器。', 'info');
+      redirectToLogin();
       return;
     }
     const role = String(this.state.user?.role || '').toUpperCase();
@@ -455,74 +440,8 @@ class AgriApp {
     this.renderSimulatorControl();
   }
 
-  openAuthModal() {
-    if (!this.dom.authModal) return;
-    this.dom.authModal.classList.add('active');
-    this.dom.authModal.setAttribute('aria-hidden', 'false');
-    if (this.dom.authError) this.dom.authError.textContent = '';
-    if (this.dom.authUsername && !this.dom.authUsername.value) this.dom.authUsername.value = 'farmer';
-    window.setTimeout(() => {
-      (this.dom.authUsername?.value ? this.dom.authPassword : this.dom.authUsername)?.focus();
-    }, 0);
-  }
-
-  closeAuthModal() {
-    if (!this.dom.authModal) return;
-    this.dom.authModal.classList.remove('active');
-    this.dom.authModal.setAttribute('aria-hidden', 'true');
-  }
-
-  async submitLogin(event) {
-    event?.preventDefault();
-    const username = this.dom.authUsername?.value.trim();
-    const password = this.dom.authPassword?.value || '';
-    if (!username || !password) {
-      if (this.dom.authError) this.dom.authError.textContent = '请输入账号和密码。';
-      return;
-    }
-    if (!this.state.isLive) {
-      if (this.dom.authError) this.dom.authError.textContent = '后端当前不可达，请先确认公网服务已启动。';
-      return;
-    }
-
-    if (this.dom.btnAuthSubmit) {
-      this.dom.btnAuthSubmit.disabled = true;
-      this.dom.btnAuthSubmit.textContent = '正在验证…';
-    }
-    if (this.dom.authError) this.dom.authError.textContent = '';
-    try {
-      const session = await api.login(username, password);
-      this.state.user = session.user || api.getUser();
-      this.syncAuthState();
-      this.updateSystemStatusPill();
-      this.closeAuthModal();
-      await this.loadOverview();
-      await this.refreshSimulatorStatus(true);
-      this.renderPlots(this.dom.plotSearchInput?.value || '');
-      this.renderFeed();
-      this.showToast(`已登录 ${username}。Copilot 现在会调用真实后端 AI。`, 'success');
-    } catch (e) {
-      if (this.dom.authError) {
-        this.dom.authError.textContent = e.status === 401
-          ? '账号或密码错误，请重试。'
-          : `登录失败：${e.message || '后端未响应'}`;
-      }
-    } finally {
-      if (this.dom.btnAuthSubmit) {
-        this.dom.btnAuthSubmit.disabled = false;
-        this.dom.btnAuthSubmit.textContent = '登录并连接 AI';
-      }
-    }
-  }
-
-  handleSessionExpired(showMessage = true) {
-    api.logout();
-    this.syncAuthState();
-    this.updateSystemStatusPill();
-    if (showMessage) {
-      this.showToast('登录已过期，请重新登录后继续对话。', 'error');
-      this.openAuthModal();
-    }
+  handleSessionExpired() {
+    redirectToLogin();
   }
 
   renderPlots(filterKeyword = '') {
@@ -725,8 +644,7 @@ class AgriApp {
 
   async executeIrrigationAction(planId, plotId, triggerBtn) {
     if (this.state.isLive && !api.isAuthenticated()) {
-      this.openAuthModal();
-      this.showToast('请先登录，再申请真实灌溉执行。', 'info');
+      redirectToLogin();
       return;
     }
     if (triggerBtn) {
@@ -768,8 +686,7 @@ class AgriApp {
 
   async generatePrescriptionAction(plotId) {
     if (this.state.isLive && !api.isAuthenticated()) {
-      this.openAuthModal();
-      this.showToast('请先登录，再生成真实处方。', 'info');
+      redirectToLogin();
       return;
     }
     this.showToast(`正在基于【${plotId}】Crop Pack 模型生成精准处方...`, 'info');
@@ -803,8 +720,7 @@ class AgriApp {
     if (!query) return;
 
     if (this.state.isLive && !api.isAuthenticated()) {
-      this.openAuthModal();
-      this.showToast('请先登录；登录后这里会调用真实 Qwen3.8-27B。', 'info');
+      redirectToLogin();
       return;
     }
 
