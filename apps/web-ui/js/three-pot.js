@@ -376,8 +376,6 @@ function buildCrop(THREE, cropCode) {
     cucumberFruit(0.16, 0.6, 0.4, 0.56, 0.055, 0.05, VEG_FRUIT);
     cucumberFruit(-0.17, 0.98, 2.2, 0.5, 0.05, -0.05, VEG_FRUIT);
     cucumberFruit(0.18, 1.24, 0.8, 0.44, 0.05, 0.04, VEG_FRUIT);
-    // 顶花（小黄花）
-    const fl = new THREE.SphereGeometry(0.05, 8, 6); fl.scale(1, 0.5, 1); fl.translate(0.06, 1.34, 1.6); push(fl, FRUIT);
   } else if (cropCode === 'strawberry') {
     tubeAt(0.012, 0.017, 0.16, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
     for (let i = 0; i < 7; i++) {
@@ -796,7 +794,10 @@ export async function createPotScene(canvas, opts = {}) {
     terrainMat.uniforms.uMoisture.value += (mr - terrainMat.uniforms.uMoisture.value) * Math.min(1, dt * 3);
     grassMat.uniforms.uMoisture.value = plantMat.uniforms.uMoisture.value;
 
-    const wilt = (state.scenario === 'drought' || state.moisture < 20) ? Math.min(1, (20 - state.moisture) / 5 + (state.scenario === 'drought' ? 0.9 : 0)) : 0;
+    // 萎蔫强度恒为 [0,1]：干旱 + 低湿共同抬升；绝不允许为负（负值会把植株拉高）
+    let wilt = 0;
+    if (state.scenario === 'drought') wilt = Math.max(0, Math.min(1, 0.62 + Math.max(0, 20 - state.moisture) / 10));
+    else if (state.moisture < 20) wilt = Math.min(1, (20 - state.moisture) / 5);
     plantMat.uniforms.uWilt.value += (wilt - plantMat.uniforms.uWilt.value) * Math.min(1, dt * 3);
     plantMat.uniforms.uTime.value = time * (reducedMotion ? 0 : 1);
     grassMat.uniforms.uTime.value = plantMat.uniforms.uTime.value;
