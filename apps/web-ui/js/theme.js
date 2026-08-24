@@ -1,24 +1,117 @@
 /**
- * Lightweight theme controller shared by the rium_dev background and the main shell.
- * It deliberately owns only the theme attribute and transition events; the dashboard
- * remains the source of truth for all application state.
+ * Light/dark theme controller shared by the dashboard and the rium_dev scene.
+ * The two-second transition drives both CSS liquid glass and the 3D day/night palette.
  */
 const STORAGE_KEY = 'agriloop-theme';
+const TRANSITION_MS = 2000;
+
+let transitionRaf = 0;
+let overlayEl = null;
 
 export function getTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 }
 
+function easeInOutSine(value) {
+  return -(Math.cos(Math.PI * value) - 1) / 2;
+}
+
+function ensureOverlay() {
+  if (!overlayEl) {
+    overlayEl = document.createElement('div');
+    overlayEl.id = 'themeTransitionOverlay';
+    overlayEl.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(overlayEl);
+  }
+  return overlayEl;
+}
+
+function setThemeAttribute(theme) {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  root.style.colorScheme = theme;
+}
+
+function updateThemeToggle(theme) {
+  const button = document.getElementById('btnThemeToggle');
+  if (!button) return;
+  const light = theme === 'light';
+  button.dataset.theme = theme;
+  button.setAttribute('aria-label', light ? '切换至深色主题' : '切换至浅色主题');
+  button.title = light ? '切换至深色主题' : '切换至浅色主题';
+  const icon = button.querySelector('.theme-toggle-icon');
+  const label = button.querySelector('.theme-toggle-label');
+  if (icon) icon.textContent = light ? '🌙' : '☀️';
+  if (label) label.textContent = light ? '深色' : '浅色';
+}
+
+function dispatchTransition(from, to, progress) {
+  document.dispatchEvent(new CustomEvent('agriloop-theme-transition', {
+    detail: { from, to, progress }
+  }));
+}
+
+function finishTheme(theme, previous) {
+  const root = document.documentElement;
+  root.classList.remove('theme-animating');
+  try {
+    localStorage.setItem(STORAGE_KEY, theme);
+  } catch (_) {
+    // Storage can be disabled; the in-memory theme still works.
+  }
+  updateThemeToggle(theme);
+  const button = document.getElementById('btnThemeToggle');
+  if (button) button.disabled = false;
+  if (overlayEl) {
+    overlayEl.classList.remove('active');
+    overlayEl.style.background = 'transparent';
+  }
+  document.dispatchEvent(new CustomEvent('agriloop-theme-change', {
+    detail: { theme, previous }
+  }));
+}
+
+function animateTheme(from, to) {
+  cancelAnimationFrame(transitionRaf);
+  const root = document.documentElement;
+  const button = document.getElementById('btnThemeToggle');
+  const overlay = ensureOverlay();
+  root.classList.add('theme-animating');
+  setThemeAttribute(to);
+  updateThemeToggle(to);
+  if (button) button.disabled = true;
+
+  const start = performance.now();
+  const step = now => {
+    const raw = Math.min((now - start) / TRANSITION_MS, 1);
+    const progress = easeInOutSine(raw);
+    const peak = Math.sin(progress * Math.PI);
+    overlay.style.background = to === 'light'
+      ? `rgba(255, 236, 180, ${peak * 0.72})`
+      : `rgba(6, 10, 28, ${peak * 0.78})`;
+    overlay.classList.add('active');
+    dispatchTransition(from, to, progress);
+    if (raw < 1) {
+      transitionRaf = requestAnimationFrame(step);
+    } else {
+      finishTheme(to, from);
+    }
+  };
+  transitionRaf = requestAnimationFrame(step);
+}
+
 export function applyTheme(theme, { animated = false } = {}) {
   const next = theme === 'light' ? 'light' : 'dark';
   const previous = getTheme();
-  if (previous === next) {
-    document.documentElement.setAttribute('data-theme', next);
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (animated && !reducedMotion && previous !== next) {
+    animateTheme(previous, next);
     return next;
   }
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem(STORAGE_KEY, next);
-  document.dispatchEvent(new CustomEvent('agriloop-theme-change', { detail: { theme: next, previous, animated } }));
+
+  cancelAnimationFrame(transitionRaf);
+  setThemeAttribute(next);
+  finishTheme(next, previous);
   return next;
 }
 
@@ -27,25 +120,19 @@ export function toggleTheme() {
 }
 
 export function initTheme() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  applyTheme(saved === 'light' ? 'light' : 'dark');
+  let saved = 'dark';
+  try {
+    saved = localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark';
+  } catch (_) {
+    // Storage can be disabled; the dark default remains usable.
+  }
+  applyTheme(saved);
   const button = document.getElementById('btnThemeToggle');
-  const update = () => {
-    const light = getTheme() === 'light';
-    if (!button) return;
-    button.dataset.theme = light ? 'light' : 'dark';
-    button.setAttribute('aria-label', light ? '切换至深色主题' : '切换至浅色主题');
-    button.title = light ? '切换至深色主题' : '切换至浅色主题';
-    const icon = button.querySelector('.theme-toggle-icon');
-    const label = button.querySelector('.theme-toggle-label');
-    if (icon) icon.textContent = light ? '🌙' : '☀️';
-    if (label) label.textContent = light ? '深色' : '浅色';
-  };
   button?.addEventListener('click', toggleTheme);
-  document.addEventListener('agriloop-theme-change', update);
-  update();
   return () => {
+    cancelAnimationFrame(transitionRaf);
     button?.removeEventListener('click', toggleTheme);
-    document.removeEventListener('agriloop-theme-change', update);
+    overlayEl?.remove();
+    overlayEl = null;
   };
 }
