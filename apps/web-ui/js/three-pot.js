@@ -100,13 +100,13 @@ const PLANT_VERT = /* glsl */ `
     float ripple = sin(along*0.26 - uTime*1.22 + cross*0.04)*0.32;
     float wind = swell*0.78 + ripple*0.22;
     float bend = pow(clamp(pos.y, 0.0, 1.6), 1.45);
-    vec2 offset = windDir * wind * bend * (0.18 + uWind * 0.44);
-    float flutter = sin(along*0.18 - uTime*1.6 + pos.y*2.0) * bend*bend * 0.05;
+    vec2 offset = windDir * wind * bend * (0.12 + uWind * 0.3);
+    float flutter = sin(along*0.18 - uTime*1.6 + pos.y*2.0) * bend*bend * 0.035;
     offset += crossDir * flutter;
     float w = uWilt * bend;
-    pos.x += offset.x - windDir.x * w * 0.6;
-    pos.z += offset.y - windDir.y * w * 0.6;
-    pos.y -= uWilt * bend*bend * 0.5;
+    pos.x += offset.x - windDir.x * w * 0.5;
+    pos.z += offset.y - windDir.y * w * 0.5;
+    pos.y -= uWilt * bend*bend * 0.45;
     vShade = 0.82 + 0.18*sin(along*0.35);
     vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(pos, 1.0);
@@ -236,10 +236,11 @@ function mergeParts(THREE, parts) {
 }
 
 function leafShape(THREE) {
+  // 窄卵形尖叶：长 > 宽，便于排布成羽状复叶而不糊成一团
   const s = new THREE.Shape();
   s.moveTo(0, 0);
-  s.quadraticCurveTo(0.14, -0.11, 0.32, 0);
-  s.quadraticCurveTo(0.14, 0.11, 0, 0);
+  s.bezierCurveTo(0.10, -0.072, 0.24, -0.048, 0.30, 0);
+  s.bezierCurveTo(0.24, 0.048, 0.10, 0.072, 0, 0);
   return s;
 }
 
@@ -258,109 +259,124 @@ function buildCrop(THREE, cropCode) {
     g.translate(base.x + dir.x * len / 2, base.y + dir.y * len / 2, base.z + dir.z * len / 2);
     push(g, part);
   };
-  // 水平阔叶：基点在原点，沿 +x，先放平（法线 +y）再绕垂直轴偏转、再下垂
+  // 水平阔叶：沿 +x，先放平（法线 +y），沿长轴窝成弧形（避免纸片感），
+  // 再绕宽度轴下垂 droop>0（叶片随自己的方向自然低垂，而非绕世界 X 轴扭转），
+  // 最后绕垂直轴 yaw 指向外侧。
   const broadLeaf = (x, y, z, yaw, droop, scale, part) => {
-    const g = new THREE.ShapeGeometry(ls, 6);
+    const g = new THREE.ShapeGeometry(ls, 7);
     g.rotateX(-Math.PI / 2);
+    // 窝叶：尖端沿长度方向轻微下垂 + 边缘上翘，让叶片有体积感
+    const pp = g.attributes.position;
+    for (let i = 0; i < pp.count; i++) {
+      const lx = pp.getX(i), lz = pp.getZ(i);
+      const t = Math.max(0, lx) / 0.30;
+      pp.setY(i, pp.getY(i) - t * t * 0.055 + lz * lz * 0.9);
+    }
+    g.computeVertexNormals();
+    g.rotateZ(-droop);
     g.rotateY(yaw);
-    g.rotateX(droop);
     g.scale(scale, scale, scale);
     g.translate(x, y, z);
     push(g, part);
   };
-  // 一枚羽状复叶：叶柄（rachis）+ 成对小叶 + 顶叶
-  const compoundLeaf = (y, yaw, size) => {
-    const pitch = 0.5;
-    const len = 0.42 * size;
+  // 一枚羽状复叶：叶柄（rachis）上翘，成对小叶沿两侧羽状张开、大小向尖端收窄
+  const compoundLeaf = (y, yaw, size, phase) => {
+    const pitch = 0.44;
+    const len = 0.46 * size;
     const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
-    tubeAt(0.006 * size, 0.012 * size, len, new THREE.Vector3(0, y, 0), dir, STEM);
-    const tip = new THREE.Vector3(dir.x * len, y + dir.y * len, dir.z * len);
-    for (let i = 1; i <= 4; i++) {
-      const t = i / 4;
+    tubeAt(0.005 * size, 0.01 * size, len, new THREE.Vector3(0, y, 0), dir, STEM);
+    const pairs = 4;
+    for (let i = 1; i <= pairs; i++) {
+      const t = i / (pairs + 1);
       const px = dir.x * len * t, py = y + dir.y * len * t, pz = dir.z * len * t;
-      broadLeaf(px, py, pz, yaw + 0.9, -0.28, size * (0.72 - t * 0.28), LEAF);
-      broadLeaf(px, py, pz, yaw - 0.9, -0.28, size * (0.72 - t * 0.28), LEAF);
+      const leafScale = size * (0.5 - t * 0.2);
+      const spread = 0.62 + phase * 0.12;
+      const droop = 0.10 + t * 0.06;
+      broadLeaf(px, py, pz, yaw + spread, droop, leafScale, LEAF);
+      broadLeaf(px, py, pz, yaw - spread, droop, leafScale, LEAF);
     }
-    broadLeaf(tip.x, tip.y, tip.z, yaw, -0.34, size * 0.55, LEAF);
+    broadLeaf(dir.x * len, y + dir.y * len, dir.z * len, yaw, 0.06, size * 0.34, LEAF);
   };
   // 一枚掌状叶（黄瓜）：5 裂自一点放射
   const palmateLeaf = (x, y, z, yaw, size) => {
     for (let k = 0; k < 5; k++) {
-      const a = yaw + (k - 2) * 0.55;
-      broadLeaf(x, y, z, a, -0.18, size * (k === 2 ? 0.7 : 0.52), LEAF);
+      const a = yaw + (k - 2) * 0.5;
+      broadLeaf(x, y, z, a, 0.12, size * (k === 2 ? 0.48 : 0.36), LEAF);
     }
   };
-  // 果串：沿垂向排布的小球
+  // 果串：沿水平方向轻微铺展的簇（避免排成一串竖直糖葫芦）
   const fruitCluster = (x, y, z, count, r, part) => {
+    const m = (count - 1) / 2;
     for (let i = 0; i < count; i++) {
-      const f = new THREE.SphereGeometry(r * (1 - i * 0.07), 11, 9);
-      f.scale(1, 0.98, 1);
-      f.translate(x, y - i * r * 1.5, z);
+      const f = new THREE.SphereGeometry(r * (1 - i * 0.05), 11, 9);
+      f.scale(1, 0.97, 1);
+      const off = (i - m);
+      f.translate(x + off * r * 0.85, y - Math.abs(off) * r * 0.4, z + (i % 2 ? 0.02 : -0.02));
       push(f, part);
     }
   };
 
   if (cropCode === 'tomato') {
-    const segs = [[0, 0.32], [0.32, 0.66], [0.66, 1.02], [1.02, 1.3]];
+    const segs = [[0, 0.34], [0.34, 0.7], [0.7, 1.06], [1.06, 1.32]];
     for (let i = 0; i < segs.length; i++) {
       const y0 = segs[i][0], y1 = segs[i][1];
-      const dir = new THREE.Vector3(Math.sin(i * 0.7) * 0.05, 1, Math.cos(i * 0.7) * 0.05).normalize();
-      tubeAt(0.018, 0.026, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.7) * 0.03, y0, Math.cos(i * 0.7) * 0.03), dir, STEM);
-      const node = new THREE.SphereGeometry(0.03, 8, 6); node.scale(1, 0.7, 1); node.translate(0, y0, 0); push(node, STEM);
+      const dir = new THREE.Vector3(Math.sin(i * 0.7) * 0.04, 1, Math.cos(i * 0.7) * 0.04).normalize();
+      tubeAt(0.014, 0.02, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.7) * 0.02, y0, Math.cos(i * 0.7) * 0.02), dir, STEM);
+      const node = new THREE.SphereGeometry(0.022, 8, 6); node.scale(1, 0.7, 1); node.translate(0, y0, 0); push(node, STEM);
     }
     for (let i = 0; i < 6; i++) {
-      const y = 0.2 + i * 0.19;
-      compoundLeaf(y, i * 2.4 + 0.4, 1.0 - i * 0.055);
+      const y = 0.2 + i * 0.17;
+      compoundLeaf(y, i * 2.4 + 0.4, 1.0 - i * 0.05, (i % 3) / 3);
     }
-    const trusses = [[0.14, 0.42, 0.5], [-0.15, 0.72, 2.4], [0.16, 1.02, 0.9], [-0.12, 1.18, 3.6]];
+    const trusses = [[0.12, 0.5, 0.5], [-0.13, 0.82, 2.4], [0.14, 1.1, 0.9], [-0.1, 1.24, 3.6]];
     trusses.forEach(([fx, fy, fz]) => {
-      fruitCluster(fx, fy, fz, 4, 0.075, FRUIT);
-      const cal = new THREE.SphereGeometry(0.026, 8, 6); cal.scale(1.4, 0.5, 1.4); cal.translate(fx, fy + 0.06, fz); push(cal, STEM);
+      fruitCluster(fx, fy, fz, 3, 0.06, FRUIT);
+      const cal = new THREE.SphereGeometry(0.022, 8, 6); cal.scale(1.4, 0.5, 1.4); cal.translate(fx, fy + 0.05, fz); push(cal, STEM);
     });
   } else if (cropCode === 'cucumber') {
-    const segs = [[0, 0.3], [0.3, 0.66], [0.66, 1.05], [1.05, 1.4]];
+    const segs = [[0, 0.32], [0.32, 0.68], [0.68, 1.06], [1.06, 1.4]];
     for (let i = 0; i < segs.length; i++) {
       const y0 = segs[i][0], y1 = segs[i][1];
-      const dir = new THREE.Vector3(Math.sin(i * 0.5) * 0.06, 1, 0).normalize();
-      tubeAt(0.014, 0.02, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.5) * 0.02, y0, 0), dir, STEM);
+      const dir = new THREE.Vector3(Math.sin(i * 0.5) * 0.05, 1, 0).normalize();
+      tubeAt(0.012, 0.017, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.5) * 0.02, y0, 0), dir, STEM);
     }
-    for (let i = 0; i < 6; i++) {
-      const y = 0.22 + i * 0.2;
-      palmateLeaf(Math.sin(i * 2.4) * 0.08, y, Math.cos(i * 2.4) * 0.08, i * 2.4, 0.22);
+    for (let i = 0; i < 7; i++) {
+      const y = 0.22 + i * 0.18;
+      palmateLeaf(Math.sin(i * 2.4) * 0.06, y, Math.cos(i * 2.4) * 0.06, i * 2.4, 0.34);
     }
     for (let i = 0; i < 4; i++) {
-      const y = 0.28 + i * 0.34;
-      const dir = new THREE.Vector3(Math.sin(i * 1.7 + 1) * 0.9, 0.4, Math.cos(i * 1.7 + 1) * 0.9).normalize();
-      tubeAt(0.004, 0.004, 0.26, new THREE.Vector3(0, y, 0), dir, STEM);
+      const y = 0.3 + i * 0.34;
+      const dir = new THREE.Vector3(Math.sin(i * 1.7 + 1) * 0.9, 0.5, Math.cos(i * 1.7 + 1) * 0.9).normalize();
+      tubeAt(0.004, 0.004, 0.24, new THREE.Vector3(0, y, 0), dir, STEM);
     }
-    [[0.16, 0.5, 0.4], [-0.16, 0.95, 2.2], [0.18, 1.22, 0.8]].forEach(([fx, fy, fz]) => {
-      const c = new THREE.SphereGeometry(0.06, 11, 9); c.scale(0.72, 1.9, 0.72); c.translate(fx, fy, fz); push(c, FRUIT);
+    [[0.14, 0.55, 0.4], [-0.14, 1.0, 2.2], [0.16, 1.24, 0.8]].forEach(([fx, fy, fz]) => {
+      const c = new THREE.SphereGeometry(0.05, 11, 9); c.scale(0.72, 1.9, 0.72); c.translate(fx, fy, fz); push(c, FRUIT);
     });
   } else if (cropCode === 'strawberry') {
-    tubeAt(0.014, 0.02, 0.16, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
+    tubeAt(0.012, 0.017, 0.16, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
     for (let i = 0; i < 7; i++) {
       const a = i * (Math.PI * 2 / 7);
-      broadLeaf(Math.sin(a) * 0.05, 0.05, Math.cos(a) * 0.05, a, -0.42, 0.24, LEAF);
+      broadLeaf(Math.sin(a) * 0.04, 0.06, Math.cos(a) * 0.04, a, 0.22, 0.2, LEAF);
     }
     for (let r = 0; r < 2; r++) {
       const a = r * 2.4 + 0.5;
-      tubeAt(0.005, 0.005, 0.34, new THREE.Vector3(0, 0.05, 0), new THREE.Vector3(Math.sin(a), -0.1, Math.cos(a)).normalize(), STEM);
+      tubeAt(0.004, 0.004, 0.32, new THREE.Vector3(0, 0.04, 0), new THREE.Vector3(Math.sin(a), -0.08, Math.cos(a)).normalize(), STEM);
       const ex = Math.sin(a) * 0.3, ez = Math.cos(a) * 0.3;
-      for (let k = 0; k < 3; k++) broadLeaf(ex, 0.03, ez, a + k * 0.7, -0.4, 0.16, LEAF);
+      for (let k = 0; k < 3; k++) broadLeaf(ex, 0.04, ez, a + k * 0.6, 0.16, 0.13, LEAF);
     }
-    fruitCluster(0.07, 0.12, 0.06, 3, 0.05, FRUIT);
-    fruitCluster(-0.07, 0.1, -0.05, 3, 0.045, FRUIT);
+    fruitCluster(0.06, 0.1, 0.05, 3, 0.045, FRUIT);
+    fruitCluster(-0.06, 0.09, -0.04, 3, 0.04, FRUIT);
   } else { // pepper
-    tubeAt(0.016, 0.024, 0.3, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
-    tubeAt(0.01, 0.016, 0.26, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(0.5, 0.6, 0.3).normalize(), STEM);
-    tubeAt(0.01, 0.016, 0.26, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(-0.5, 0.6, -0.3).normalize(), STEM);
+    tubeAt(0.014, 0.02, 0.3, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
+    tubeAt(0.009, 0.014, 0.24, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(0.5, 0.6, 0.3).normalize(), STEM);
+    tubeAt(0.009, 0.014, 0.24, new THREE.Vector3(0, 0.22, 0), new THREE.Vector3(-0.5, 0.6, -0.3).normalize(), STEM);
     for (let i = 0; i < 8; i++) {
       const a = i * 2.3 + 0.3;
-      const y = 0.16 + i * 0.06;
-      broadLeaf(Math.sin(a) * 0.1, y, Math.cos(a) * 0.1, a, -0.24, 0.3, LEAF);
+      const y = 0.16 + i * 0.055;
+      broadLeaf(Math.sin(a) * 0.08, y, Math.cos(a) * 0.08, a, 0.14, 0.24, LEAF);
     }
-    [[0.12, 0.4, 0.3], [-0.12, 0.52, 1.7], [0.1, 0.6, 2.6]].forEach(([fx, fy, fz]) => {
-      const p = new THREE.SphereGeometry(0.06, 11, 9); p.scale(0.9, 1.15, 0.9); p.translate(fx, fy, fz); push(p, FRUIT);
+    [[0.1, 0.42, 0.3], [-0.1, 0.54, 1.7], [0.09, 0.62, 2.6]].forEach(([fx, fy, fz]) => {
+      const p = new THREE.SphereGeometry(0.055, 11, 9); p.scale(0.9, 1.15, 0.9); p.translate(fx, fy, fz); push(p, FRUIT);
     });
   }
 
@@ -591,8 +607,8 @@ export async function createPotScene(canvas, opts = {}) {
     d.position.set(x, y, z);
     d.rotation.set((Math.random() - 0.5) * 0.05, Math.random() * 6.283, (Math.random() - 0.5) * 0.05);
     const near = Math.max(0, 1 - Math.abs(z - 3.35) / 2.8);
-    const s = 1.12 + Math.random() * 0.35 + near * 0.3;
-    d.scale.set(s, s * (0.92 + Math.random() * 0.25), s);
+    const s = 0.96 + Math.random() * 0.3 + near * 0.22;
+    d.scale.set(s, s * (0.96 + Math.random() * 0.18), s);
     d.updateMatrix(); crops.setMatrixAt(n, d.matrix); n++;
   }
   crops.instanceMatrix.needsUpdate = true; scene.add(crops);

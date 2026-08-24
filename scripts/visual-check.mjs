@@ -39,10 +39,13 @@ const glProbe = await page.evaluate(async () => {
       renderer.dispose();
     }
     const mod = await import('/js/three-pot.js');
-    const cv2 = document.createElement('canvas');
-    const inst = await mod.createPotScene(cv2, { cropCode: 'tomato' });
-    out.createPotScene = inst && typeof inst.setScenario === 'function' ? 'OK' : 'NULL';
-    if (inst) { inst.dispose(); }
+    out.crops = {};
+    for (const cc of ['tomato', 'cucumber', 'strawberry', 'pepper']) {
+      const cv2 = document.createElement('canvas');
+      const inst = await mod.createPotScene(cv2, { cropCode: cc });
+      out.crops[cc] = inst && typeof inst.setScenario === 'function' ? 'OK' : 'NULL';
+      if (inst) { inst.dispose(); }
+    }
   } catch (e) { out.createPotScene = `ERR: ${e.message} ${(e.stack || '').split('\n').slice(0, 3).join(' | ')}`; }
   return out;
 });
