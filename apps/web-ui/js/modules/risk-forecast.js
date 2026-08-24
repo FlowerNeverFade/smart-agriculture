@@ -8,12 +8,17 @@
 import { api } from '../api.js';
 import { MOCK_DATA } from '../mock-data.js';
 import { svgGauge, svgLineChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
+import { getTheme } from '../theme.js';
 
 const BOUNDARY_COLOR = '#f85149';
 const BASELINE_COLOR = '#d29922';
 const MEAN_COLOR = '#58a6ff';
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
+// 主题相关文本/指针颜色：浅色主题用深色文字，深色主题用近白文字
+const themeTextColor = () => (getTheme() === 'light' ? '#1f2328' : '#f0f6fc');
+const themeAxisColor = () => (getTheme() === 'light' ? '#59636e' : '#8b949e');
+const themeTickColor = () => (getTheme() === 'light' ? '#6e7681' : '#6e7681');
 
 /** 统一深色主题 tooltip：内容紧凑、按内容自适应尺寸
  * 关键：modal 背景为 #161b22，tooltip 若同色会完全融入背景、看不见浮窗边界。
@@ -178,19 +183,20 @@ export async function renderRiskForecast(container, plotId) {
         },
         pointer: {
           length: '58%', width: 5,
-          itemStyle: { color: '#f0f6fc' }
+          itemStyle: { color: themeTextColor() }
         },
-        anchor: { show: true, size: 10, itemStyle: { color: '#f0f6fc' } },
-        axisTick: { distance: -22, length: 5, lineStyle: { color: '#6e7681' } },
-        splitLine: { distance: -28, length: 12, lineStyle: { color: '#6e7681', width: 1.5 } },
-        axisLabel: { distance: 2, color: AXIS_COLOR, fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
+        anchor: { show: true, size: 10, itemStyle: { color: themeTextColor() } },
+        // 刻度/分隔线向内收短，避免压住中央数字
+        axisTick: { distance: -24, length: 4, lineStyle: { color: themeTickColor() } },
+        splitLine: { distance: -26, length: 8, lineStyle: { color: themeTickColor(), width: 1.5 } },
+        axisLabel: { distance: 4, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
         detail: {
           valueAnimation: true,
           formatter: v => v >= 240 ? '>240' : v,
-          color: '#f0f6fc', fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
+          color: themeTextColor(), fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
           offsetCenter: [0, '-48%']
         },
-        title: { offsetCenter: [0, '-14%'], color: AXIS_COLOR, fontSize: 12 },
+        title: { offsetCenter: [0, '-14%'], color: themeAxisColor(), fontSize: 12 },
         data: [{ value: data.timeToRiskMinutes, name: '分钟 · 触达极限胁迫边界' }]
       }]
     });

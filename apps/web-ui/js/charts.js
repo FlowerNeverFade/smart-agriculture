@@ -414,8 +414,8 @@ export function svgGauge(opts) {
 
   let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
 
-  // 刻度背景弧
-  html += `<path d="M ${polar(180, r)[0].toFixed(2)} ${polar(180, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(0, r)[0].toFixed(2)} ${polar(0, r)[1].toFixed(2)}" fill="none" stroke="#21262d" stroke-width="14" stroke-linecap="round"/>`;
+  // 刻度背景弧（背景槽颜色随主题）
+  html += `<path d="M ${polar(180, r)[0].toFixed(2)} ${polar(180, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(0, r)[0].toFixed(2)} ${polar(0, r)[1].toFixed(2)}" fill="none" stroke="var(--text-muted)" stroke-width="14" stroke-linecap="round" opacity="0.28"/>`;
 
   // 分区色带（危险红 -> 警示橙 -> 安全绿）
   (opts.zones || []).forEach(z => {
@@ -424,16 +424,16 @@ export function svgGauge(opts) {
     html += `<path d="M ${polar(a0, r)[0].toFixed(2)} ${polar(a0, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(a1, r)[0].toFixed(2)} ${polar(a1, r)[1].toFixed(2)}" fill="none" stroke="${z.color}" stroke-width="14" stroke-linecap="butt" opacity="${z.opacity ?? 0.85}"/>`;
   });
 
-  // 指针
-  html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="#f0f6fc" stroke-width="2.5" stroke-linecap="round"/>`;
-  html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="#f0f6fc"/>`;
+  // 指针（颜色随主题）
+  html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="var(--text-primary)" stroke-width="2.5" stroke-linecap="round"/>`;
+  html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="var(--text-primary)"/>`;
 
-  // 刻度
+  // 刻度（长度收紧，颜色随主题）
   for (let v = opts.min; v <= opts.max; v += Math.ceil(span / 6)) {
     const a = 180 - ((v - opts.min) / span) * 180;
-    const [x1, y1] = polar(a, r + 10);
-    const [x2, y2] = polar(a, r + 16);
-    html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="#6e7681" stroke-width="1"/>`;
+    const [x1, y1] = polar(a, r + 8);
+    const [x2, y2] = polar(a, r + 14);
+    html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="var(--text-secondary)" stroke-width="1"/>`;
   }
 
   // 数值
