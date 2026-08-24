@@ -7,6 +7,8 @@ import { api } from './api.js';
 import { FarmMonitor } from './farm-monitor.js';
 import { CropSandbox } from './crop-sandbox.js';
 
+const RECLAIMED_PLOTS_STORAGE_KEY = 'agriloop.reclaimedPlots.v1';
+
 class AgriApp {
   constructor() {
     this.state = {
@@ -42,7 +44,8 @@ class AgriApp {
       onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
       onPrescribe: (plotId, scenario) => {
         this.openSubview('decision-console', { plotId });
-        this.showToast(`已根据【${scenario}】情景快速生成智能灌溉处方`);
+        const scenarioLabel = { drought: '缺水', heatwave: '高温', flood: '积水', drift: '数据异常', stuck: '水阀故障' }[scenario] || '当前';
+        this.showToast(`已根据【${scenarioLabel}】情况生成处理方案`);
       }
     });
 
@@ -53,12 +56,8 @@ class AgriApp {
         this.state.currentPlotId = plotId;
         this.openSubview('scenario-replay', { plotId });
       },
-      onPlotReclaimed: (newPlot) => {
-        if (!this.state.plots.some(p => p.plotId === newPlot.plotId)) {
-          this.state.plots.push(newPlot);
-          this.renderPlots(this.dom.plotSearchInput?.value || '');
-        }
-      }
+      onPlotReclaimed: (newPlot) => this.registerReclaimedPlot(newPlot),
+      onPlotUpdated: (plot) => this.updateRegisteredPlot(plot)
     });
 
     this.renderPlots();
@@ -189,9 +188,62 @@ class AgriApp {
 
   async loadOverview() {
     const overview = await api.getOverview();
-    if (overview && overview.plots) {
-      this.state.plots = overview.plots;
+    const basePlots = overview?.plots || this.state.plots;
+    const reclaimedPlots = this.readStoredReclaimedPlots();
+    const mergedPlots = new Map(basePlots.map(plot => [plot.plotId, plot]));
+    reclaimedPlots.forEach(plot => mergedPlots.set(plot.plotId, plot));
+    this.state.plots = [...mergedPlots.values()];
+  }
+
+  readStoredReclaimedPlots() {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(RECLAIMED_PLOTS_STORAGE_KEY) || '[]');
+      return Array.isArray(stored)
+        ? stored.filter(plot => plot?.plotId && plot?.metrics?.SOIL_MOISTURE)
+        : [];
+    } catch (error) {
+      console.warn('无法读取本地开垦地块，已回退到默认农场数据。', error);
+      return [];
     }
+  }
+
+  persistReclaimedPlot(plot) {
+    if (!plot?.plotId) return;
+    const stored = this.readStoredReclaimedPlots();
+    const snapshot = JSON.parse(JSON.stringify({
+      ...plot,
+      isReclaimed: true,
+      createdAt: plot.createdAt || new Date().toISOString()
+    }));
+    const index = stored.findIndex(item => item.plotId === snapshot.plotId);
+    if (index >= 0) stored[index] = snapshot;
+    else stored.push(snapshot);
+    window.localStorage.setItem(RECLAIMED_PLOTS_STORAGE_KEY, JSON.stringify(stored));
+  }
+
+  registerReclaimedPlot(newPlot) {
+    if (!newPlot?.plotId) return;
+    const existing = this.state.plots.find(plot => plot.plotId === newPlot.plotId);
+    const normalized = {
+      ...newPlot,
+      isReclaimed: true,
+      createdAt: newPlot.createdAt || existing?.createdAt || new Date().toISOString()
+    };
+    if (existing) Object.assign(existing, normalized);
+    else this.state.plots.push(normalized);
+
+    this.persistReclaimedPlot(existing || normalized);
+    this.farmMonitor?.setPlots(this.state.plots);
+    this.state.currentPlotId = normalized.plotId;
+    this.renderPlots(this.dom.plotSearchInput?.value || '');
+  }
+
+  updateRegisteredPlot(updatedPlot) {
+    if (!updatedPlot?.plotId) return;
+    const existing = this.state.plots.find(plot => plot.plotId === updatedPlot.plotId);
+    if (existing && existing !== updatedPlot) Object.assign(existing, updatedPlot);
+    if (updatedPlot.isReclaimed || existing?.isReclaimed) this.persistReclaimedPlot(existing || updatedPlot);
+    this.renderPlots(this.dom.plotSearchInput?.value || '');
   }
 
   updateSystemStatusPill() {
@@ -208,7 +260,7 @@ class AgriApp {
   renderPlots(filterKeyword = '') {
     if (!this.dom.plotListContainer) return;
     const filtered = this.state.plots.filter(p => {
-      const match = (p.name + p.cropName + p.cropVariety + p.plotId).toLowerCase();
+      const match = `${p.name || ''}${p.cropName || ''}${p.cropVariety || ''}${p.plotId || ''}`.toLowerCase();
       return match.includes(filterKeyword.toLowerCase());
     });
 
@@ -223,7 +275,7 @@ class AgriApp {
         <li class="plot-list-item ${isActive ? 'active' : ''}" data-plot-id="${plot.plotId}">
           <div class="plot-info">
             <span class="plot-name">
-              ${plot.cropCode === 'tomato' ? '🍅' : '🥒'} ${plot.name}
+              ${{ tomato: '🍅', cucumber: '🥒', corn: '🌽', rice: '🌾', sunflower: '🌻', strawberry: '🍓' }[plot.cropCode] || '🌱'} ${plot.name}
             </span>
             <span class="plot-meta">${plot.cropName} · ${plot.stageLabel}</span>
           </div>

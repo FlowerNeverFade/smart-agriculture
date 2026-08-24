@@ -884,8 +884,9 @@ class FarmWorld3D {
   }
 
   buildTerrain() {
-    // Vast Seamless Grass Basin (280m x 200m)
-    const geometry = new THREE.PlaneGeometry(280, 200, 36, 24);
+    // Overscan terrain remains under the camera even at the furthest legal
+    // orbit/pan combination, so the rectangular world edge is never exposed.
+    const geometry = new THREE.PlaneGeometry(560, 420, 48, 36);
     const material = new THREE.MeshStandardMaterial({ color: 0x92b270, roughness: 0.94, metalness: 0 });
     this.terrain = new THREE.Mesh(geometry, material);
     this.terrain.rotation.x = -Math.PI / 2;
@@ -1358,10 +1359,6 @@ class FarmWorld3D {
     const labRoof = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.25, 8.2), darkSteel);
     labRoof.position.y = 3.9;
     eastHub.add(labRoof);
-
-    const nurseryGlassDome = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 2.8, 16), glass);
-    nurseryGlassDome.position.set(0, 1.4, 7.5);
-    eastHub.add(nurseryGlassDome);
 
     const eastLight = new THREE.PointLight(0xfff0b8, 0, 14, 1.8);
     eastLight.position.set(0, 2.4, 0);
@@ -1916,10 +1913,17 @@ class FarmWorld3D {
       name: plotName,
       cropCode,
       cropName: CROP_PROFILES[cropCode]?.label || '特色作物',
+      cropVariety: `${CROP_PROFILES[cropCode]?.label || '特色作物'}示范品种`,
       stageCode,
       stageLabel: STAGE_PROFILES[stageCode]?.label || '苗期',
+      areaM2: Math.round(slot.width * slot.depth),
       riskLevel: 'LOW',
       healthScore: 0.99,
+      deviceStatus: 'ONLINE',
+      deviceId: `reclaimed-${slotId}`,
+      lastSeen: '刚刚',
+      isReclaimed: true,
+      createdAt: new Date().toISOString(),
       metrics: {
         SOIL_MOISTURE: { label: '土壤湿度', value: parseFloat(slot.soilMoisture) || 28.5, unit: '%', status: 'NORMAL', target: '20~40%' },
         AIR_TEMPERATURE: { label: '空气温度', value: 26.5, unit: '°C', status: 'NORMAL', target: '20~30°C' },
@@ -1932,7 +1936,6 @@ class FarmWorld3D {
 
     const field = new CropField(this.scene, newPlotData, layout);
     this.cropFields.set(slotId, field);
-    this.plots.push(newPlotData);
 
     return newPlotData;
   }
@@ -1948,7 +1951,7 @@ class FarmWorld3D {
       return texture;
     };
     loader.load('assets/textures/terrain-grass.png', texture => {
-      const terrainTexture = prepare(texture, 36, 26);
+      const terrainTexture = prepare(texture, 72, 54);
       this.terrain.material.map = terrainTexture;
       this.terrain.material.color.set(0x92b270);
       this.terrain.material.needsUpdate = true;
@@ -2060,15 +2063,16 @@ class FarmWorld3D {
   bindEvents() {
     this.handleResize = () => this.resize();
 
-    // Mouse Wheel Smooth Zooming (12m ~ 160m)
+    // Mouse wheel zooming stays inside the useful farm observation envelope.
     this.handleWheel = event => {
       event.preventDefault();
       const zoomDelta = event.deltaY * 0.04;
       const dir = new THREE.Vector3().subVectors(this.camera.position, this.cameraTarget);
       const currentDist = dir.length();
-      const newDist = clamp(currentDist + zoomDelta, 12, 160);
+      const newDist = clamp(currentDist + zoomDelta, 14, 112);
       dir.normalize().multiplyScalar(newDist);
       this.camera.position.copy(this.cameraTarget).add(dir);
+      this.camera.position.y = clamp(this.camera.position.y, 7, 78);
     };
 
     // Pointer Down (Orbit vs Pan Roaming)
@@ -2118,10 +2122,28 @@ class FarmWorld3D {
           .addScaledVector(right, -dx * panSpeed)
           .addScaledVector(forward, dy * panSpeed);
 
-        this.camera.position.add(offset);
-        this.cameraTarget.add(offset);
-        this.cameraTarget.x = clamp(this.cameraTarget.x, -110, 110);
-        this.cameraTarget.z = clamp(this.cameraTarget.z, -65, 75);
+        // Clamp the target first and apply only the accepted delta to the camera.
+        // The former implementation moved the camera even after the target reached
+        // its limit, eventually pushing the camera outside the sky sphere.
+        const nextTarget = this.cameraTarget.clone().add(offset);
+        nextTarget.x = clamp(nextTarget.x, -96, 96);
+        nextTarget.z = clamp(nextTarget.z, -58, 68);
+        const acceptedOffset = nextTarget.clone().sub(this.cameraTarget);
+        this.camera.position.add(acceptedOffset);
+        this.cameraTarget.copy(nextTarget);
+      } else if (this.isOrbiting) {
+        const dx = event.clientX - this.panStart.x;
+        const dy = event.clientY - this.panStart.y;
+        this.panStart.set(event.clientX, event.clientY);
+
+        const spherical = new THREE.Spherical().setFromVector3(
+          this.camera.position.clone().sub(this.cameraTarget)
+        );
+        spherical.radius = clamp(spherical.radius, 14, 112);
+        spherical.theta -= dx * 0.0042;
+        spherical.phi = clamp(spherical.phi + dy * 0.0036, 0.42, 1.31);
+        this.camera.position.copy(this.cameraTarget).add(new THREE.Vector3().setFromSpherical(spherical));
+        this.camera.position.y = clamp(this.camera.position.y, 7, 78);
       }
 
       // Directional Wind Physics
@@ -2271,29 +2293,35 @@ class FarmWorld3D {
   setWeather(weather) {
     this.weather = WEATHER_LABELS[weather] ? weather : 'sunny';
     const settings = {
-      sunny: { maxClouds: 6, rain: false },
-      cloudy: { maxClouds: 14, rain: false },
-      overcast: { maxClouds: 24, rain: false },
-      'light-rain': { maxClouds: 18, rain: true, rainOpacity: 0.55 },
-      'moderate-rain': { maxClouds: 24, rain: true, rainOpacity: 0.75 },
-      'heavy-rain': { maxClouds: 24, rain: true, rainOpacity: 0.92 }
+      sunny: { maxClouds: 6, rain: false, cloudOpacity: 0.62, sunFactor: 1, fog: 0.0014, exposure: 1.15 },
+      cloudy: { maxClouds: 14, rain: false, cloudOpacity: 0.78, sunFactor: 0.62, fog: 0.0018, exposure: 1.08 },
+      overcast: { maxClouds: 24, rain: false, cloudOpacity: 0.9, sunFactor: 0.08, fog: 0.0027, exposure: 0.94 },
+      'light-rain': { maxClouds: 20, rain: true, rainOpacity: 0.55, cloudOpacity: 0.9, sunFactor: 0, fog: 0.0032, exposure: 0.9 },
+      'moderate-rain': { maxClouds: 24, rain: true, rainOpacity: 0.75, cloudOpacity: 0.94, sunFactor: 0, fog: 0.0038, exposure: 0.86 },
+      'heavy-rain': { maxClouds: 24, rain: true, rainOpacity: 0.92, cloudOpacity: 0.98, sunFactor: 0, fog: 0.0046, exposure: 0.8 }
     }[this.weather];
+    this.weatherVisual = settings;
 
     this.clouds.forEach((cloud, index) => {
       const isVisible = index < settings.maxClouds;
       cloud.visible = isVisible;
-      const targetOpacity = isVisible ? (this.weather === 'sunny' ? 0.65 : 0.88) : 0;
+      const targetOpacity = isVisible ? settings.cloudOpacity : 0;
       cloud.userData.targetOpacity = targetOpacity;
       cloud.children.forEach(mesh => {
         mesh.material.opacity = targetOpacity;
-        mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xecf0f2 : 0xcbd2d6);
+        mesh.material.color.set(this.weather === 'sunny' ? 0xffffff : this.weather === 'cloudy' ? 0xe7eceb : 0xaab5b8);
       });
     });
 
     this.rain.visible = settings.rain;
     this.rain.material.opacity = settings.rainOpacity || 0;
-    this.scene.fog.density = 0.0022;
-    this.renderer.toneMappingExposure = 1.15;
+    this.scene.fog.density = settings.fog;
+    this.renderer.toneMappingExposure = settings.exposure;
+    this.host.dataset.weather = this.weather;
+    this.host.dataset.sunFactor = String(settings.sunFactor);
+    this.host.dataset.rainActive = String(settings.rain);
+    if (this.sunDisc && settings.sunFactor === 0) this.sunDisc.visible = false;
+    if (Number.isFinite(this.lastDaylightHour)) this.updateDaylight(this.lastDaylightHour);
   }
 
   setPlotCrop(plotId, cropCode) {
@@ -2315,6 +2343,7 @@ class FarmWorld3D {
   }
 
   updateDaylight(hour) {
+    this.lastDaylightHour = hour;
     const day = getDayPhase(hour);
     const daylight = day.daylight;
     const warm = day.warm;
@@ -2325,10 +2354,14 @@ class FarmWorld3D {
     const sunsetTop = new THREE.Color(0x7699c2);
     const sunsetHorizon = new THREE.Color(0xffad5f);
 
-    this.skyUniforms.uTop.value.copy(nightTop).lerp(dayTop, daylight).lerp(sunsetTop, warm * 0.44);
-    this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78);
+    const sunFactor = this.weatherVisual?.sunFactor ?? 1;
+    const weatherCover = 1 - sunFactor;
+    this.skyUniforms.uTop.value.copy(nightTop).lerp(dayTop, daylight).lerp(sunsetTop, warm * 0.44)
+      .lerp(new THREE.Color(0x627783), weatherCover * daylight * 0.76);
+    this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78)
+      .lerp(new THREE.Color(0xaab7b2), weatherCover * daylight * 0.68);
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
-    this.skyUniforms.uSunStrength.value = 0.18 + daylight * 0.94 + warm * 0.42;
+    this.skyUniforms.uSunStrength.value = (0.12 + daylight * 0.94 + warm * 0.42) * sunFactor;
 
     const sunProgress = clamp((hour - 5.7) / 13.6, 0, 1);
     const sunAngle = sunProgress * Math.PI;
@@ -2340,11 +2373,11 @@ class FarmWorld3D {
     this.sunLight.position.set(sunX, sunY + 8, sunZ + 25);
     this.skyUniforms.uSunDirection.value.copy(this.sunDisc.position).normalize();
     this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
-    this.sunLight.intensity = 0.2 + daylight * 4.4;
+    this.sunLight.intensity = 0.06 + daylight * 4.4 * sunFactor;
     this.hemiLight.color.set(daylight > 0.2 ? 0xeaf5ff : 0x7fa2d8);
     this.hemiLight.groundColor.set(daylight > 0.2 ? 0x4f753c : 0x223624);
-    this.hemiLight.intensity = 0.85 + daylight * 1.8;
-    this.sunDisc.visible = hour >= 5.6 && hour <= 19.3;
+    this.hemiLight.intensity = 0.85 + daylight * (1.18 + sunFactor * 0.62);
+    this.sunDisc.visible = hour >= 5.6 && hour <= 19.3 && sunFactor > 0.35;
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
     const isNight = daylight < 0.42;
@@ -2496,6 +2529,17 @@ class FarmWorld3D {
       this.pointerMoved = false;
     }
 
+    // Keep the camera permanently inside the sky dome during long-distance roaming.
+    if (this.sky) this.sky.position.copy(this.camera.position);
+    if (this.frameCount % 6 === 0) {
+      this.host.dataset.cameraDistance = this.camera.position.distanceTo(this.cameraTarget).toFixed(2);
+      this.host.dataset.cameraX = this.camera.position.x.toFixed(2);
+      this.host.dataset.cameraY = this.camera.position.y.toFixed(2);
+      this.host.dataset.cameraZ = this.camera.position.z.toFixed(2);
+      this.host.dataset.targetX = this.cameraTarget.x.toFixed(2);
+      this.host.dataset.targetZ = this.cameraTarget.z.toFixed(2);
+      this.host.dataset.skyCameraOffset = this.sky ? this.sky.position.distanceTo(this.camera.position).toFixed(2) : '0.00';
+    }
     this.renderer.render(this.scene, this.camera);
     if (this.frameCount % 3 === 0) this.projectPlotMarkers();
   };
@@ -2523,11 +2567,12 @@ class FarmWorld3D {
 }
 
 export class FarmMonitor {
-  constructor({ plots = DEFAULT_PLOTS, onExit, onSandbox, onPlotReclaimed } = {}) {
+  constructor({ plots = DEFAULT_PLOTS, onExit, onSandbox, onPlotReclaimed, onPlotUpdated } = {}) {
     this.plots = plots?.length ? plots : DEFAULT_PLOTS;
     this.onExit = onExit || (() => {});
     this.onSandbox = onSandbox || (() => {});
     this.onPlotReclaimed = onPlotReclaimed || (() => {});
+    this.onPlotUpdated = onPlotUpdated || (() => {});
     this.selectedPlotId = this.plots[0]?.plotId || 'plot-a01';
     this.weather = 'sunny';
     this.temperature = 28.4;
@@ -2540,6 +2585,7 @@ export class FarmMonitor {
 
   setPlots(plots) {
     this.plots = plots?.length ? plots : DEFAULT_PLOTS;
+    if (this.world) this.world.plots = this.plots;
   }
 
   open(plotId) {
@@ -2988,8 +3034,11 @@ export class FarmMonitor {
         if (plot) {
           plot.cropCode = cropCode;
           const cropInfo = CROP_PROFILES[cropCode] || CROP_PROFILES.tomato;
+          plot.cropName = cropInfo.label;
+          plot.cropVariety = `${cropInfo.label}示范品种`;
           const subtitle = this.dom.panel.querySelector('.farm-panel-head p');
           if (subtitle) subtitle.textContent = `当前作物：${cropInfo.label} (${cropInfo.icon}) · 生长阶段：${STAGE_PROFILES[plot.stageCode || 'fruiting']?.label || '果实成熟期'}`;
+          this.onPlotUpdated(plot);
         }
         this.createMarkers();
         this.showToast(`已将【${plot?.name || this.selectedPlotId}】独立定制为【${CROP_PROFILES[cropCode]?.label || cropCode}】`);
@@ -3005,9 +3054,11 @@ export class FarmMonitor {
         if (plot) {
           plot.stageCode = stage;
           const stageInfo = STAGE_PROFILES[stage] || STAGE_PROFILES.fruiting;
+          plot.stageLabel = stageInfo.label;
           const cropInfo = CROP_PROFILES[plot.cropCode || 'tomato'] || CROP_PROFILES.tomato;
           const subtitle = this.dom.panel.querySelector('.farm-panel-head p');
           if (subtitle) subtitle.textContent = `当前作物：${cropInfo.label} (${cropInfo.icon}) · 生长阶段：${stageInfo.label}`;
+          this.onPlotUpdated(plot);
         }
         this.showToast(`已将该地块阶段调控为【${STAGE_PROFILES[stage]?.label || stage}】`);
       }

@@ -996,43 +996,6 @@ body.crop-sandbox-open {
   color: var(--sandbox-text);
 }
 
-.crop-sandbox-container::before {
-  content: "";
-  position: absolute;
-  left: 31.5%;
-  top: 14%;
-  z-index: 2;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  pointer-events: none;
-  background: radial-gradient(circle at 40% 38%, #fffde5 0 13%, #ffe79a 34%, #ffd16e 62%, rgba(255, 205, 105, 0) 72%);
-  box-shadow: 0 0 30px 10px rgba(255, 231, 154, 0.34), 0 0 100px 38px rgba(255, 240, 184, 0.18);
-  opacity: 0.94;
-  animation: sandbox-sun-breathe 5.6s ease-in-out infinite;
-  transition: opacity 900ms ease, filter 900ms ease, background 900ms ease;
-}
-
-.crop-sandbox-container[data-weather="drought"]::before,
-.crop-sandbox-container[data-weather="heatwave"]::before {
-  filter: saturate(1.18) sepia(0.12);
-  background: radial-gradient(circle at 40% 38%, #fff8d7 0 12%, #ffd676 34%, #ffad50 62%, rgba(255, 171, 77, 0) 72%);
-}
-
-.crop-sandbox-container[data-weather="flood"]::before {
-  opacity: 0.04;
-}
-
-.crop-sandbox-container[data-weather="stuck"]::before {
-  opacity: 0.32;
-  filter: grayscale(0.28);
-}
-
-@keyframes sandbox-sun-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.045); }
-}
-
 body.crop-sandbox-open {
   background: #dcebdc;
 }
@@ -1066,7 +1029,7 @@ body.crop-sandbox-open {
 }
 
 .sandbox-title-badge {
-  min-width: 420px;
+  min-width: 360px;
   padding: 7px 13px 8px;
   border-radius: 15px;
 }
@@ -1124,7 +1087,8 @@ body.crop-sandbox-open {
 }
 
 .sandbox-telemetry-strip {
-  min-width: 336px;
+  min-width: 184px;
+  grid-template-columns: repeat(2, minmax(88px, 1fr));
   border-radius: 16px;
 }
 
@@ -1134,6 +1098,7 @@ body.crop-sandbox-open {
 
 .sandbox-telemetry-strip b {
   color: #173429;
+  font-size: 12px;
 }
 
 .sandbox-telemetry-strip i {
@@ -1143,13 +1108,13 @@ body.crop-sandbox-open {
 .sandbox-left-dock {
   left: 20px;
   top: 88px;
-  width: 228px;
+  width: 196px;
 }
 
 .sandbox-left-dock .sandbox-card,
 .sandbox-left-dock:hover .sandbox-card,
 .sandbox-left-dock:focus-within .sandbox-card {
-  width: 228px;
+  width: 196px;
   padding: 10px;
   overflow: visible;
   border-radius: 20px;
@@ -1163,7 +1128,7 @@ body.crop-sandbox-open {
 .sandbox-left-dock:focus-within,
 .sandbox-left-dock:hover .sandbox-card,
 .sandbox-left-dock:focus-within .sandbox-card {
-  width: 228px;
+  width: 196px;
 }
 
 .sandbox-left-dock .sandbox-card-title,
@@ -1188,7 +1153,7 @@ body.crop-sandbox-open {
 .sandbox-scenario-btn,
 .sandbox-left-dock:hover .sandbox-scenario-btn,
 .sandbox-left-dock:focus-within .sandbox-scenario-btn {
-  width: 208px;
+  width: 176px;
   height: 51px;
   padding: 7px 10px;
   justify-content: flex-start;
@@ -1232,12 +1197,13 @@ body.crop-sandbox-open {
 
 .sandbox-scenario-desc {
   color: #75877d;
+  font-size: 10px;
 }
 
 .sandbox-right-hud {
   right: 20px;
   top: 88px;
-  width: 316px;
+  width: 292px;
   gap: 9px;
   padding: 10px;
   border-radius: 21px;
@@ -1269,6 +1235,24 @@ body.crop-sandbox-open {
   background: rgba(234, 242, 233, 0.66);
 }
 
+.sandbox-diag-simple {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 39px;
+  padding: 8px 9px;
+}
+
+.sandbox-diag-simple > i {
+  font-size: 17px;
+}
+
+.sandbox-diag-simple > strong {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .sandbox-diag-bar-bg {
   background: rgba(38, 72, 54, 0.11);
 }
@@ -1292,9 +1276,17 @@ body.crop-sandbox-open {
   box-shadow: 0 11px 26px rgba(39, 121, 77, 0.28);
 }
 
+.sandbox-btn-prescribe:disabled {
+  cursor: default;
+  opacity: 0.58;
+  background: #789486;
+  box-shadow: none;
+  transform: none;
+}
+
 .sandbox-bottom-scrubber {
-  left: 270px;
-  right: 356px;
+  left: 232px;
+  right: 332px;
   bottom: 16px;
   padding: 8px 13px;
   border-radius: 20px;
@@ -1393,10 +1385,6 @@ body.crop-sandbox-open {
   .sandbox-title-badge {
     min-width: 0;
   }
-  .sandbox-title-meta .sandbox-meta-item:nth-child(2),
-  .sandbox-title-meta .sandbox-meta-item:nth-child(3) {
-    display: none;
-  }
   .sandbox-sequence-chip {
     display: none;
   }
@@ -1406,19 +1394,19 @@ body.crop-sandbox-open {
   .sandbox-left-dock:focus-within,
   .sandbox-left-dock:hover .sandbox-card,
   .sandbox-left-dock:focus-within .sandbox-card {
-    width: 214px;
+    width: 184px;
   }
   .sandbox-scenario-btn,
   .sandbox-left-dock:hover .sandbox-scenario-btn,
   .sandbox-left-dock:focus-within .sandbox-scenario-btn {
-    width: 194px;
+    width: 164px;
   }
   .sandbox-right-hud {
-    width: 294px;
+    width: 282px;
   }
   .sandbox-bottom-scrubber {
-    left: 250px;
-    right: 334px;
+    left: 220px;
+    right: 314px;
   }
 }
 

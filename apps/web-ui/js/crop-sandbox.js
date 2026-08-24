@@ -92,8 +92,8 @@ const SCENARIO_PRESETS = {
     temp: 26.4,
     humidity: 58,
     rootCauses: [
-      { name: '生理代谢平衡', prob: 98, color: '#3fb950' },
-      { name: '土壤供水充足', prob: 96, color: '#3fb950' }
+      { name: '作物长势正常', prob: 98, color: '#3fb950' },
+      { name: '土壤水分合适', prob: 96, color: '#3fb950' }
     ],
     forecastCurve: [
       { t: 0, val: 28.5, lower: 28.0, upper: 29.0 },
@@ -101,9 +101,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 25.8, lower: 24.8, upper: 26.8 },
       { t: 4, val: 23.4, lower: 22.0, upper: 24.8 }
     ],
-    trackA_loss: '0 元 (健康无损)',
-    trackB_benefit: '节水 0L / 处方待命中',
-    desc: '环境温湿度光照处于最佳舒适区，气孔开度正常，水分代谢健康。'
+    trackA_loss: '无损失',
+    trackB_benefit: '暂时不用操作',
+    desc: '现在不用处理，按计划巡田即可。'
   },
   drought: {
     id: 'drought',
@@ -115,9 +115,8 @@ const SCENARIO_PRESETS = {
     temp: 31.2,
     humidity: 32,
     rootCauses: [
-      { name: '真实土壤缺水 (WATER_DEFICIT)', prob: 94, color: '#f85149' },
-      { name: '蒸腾拉力激增', prob: 88, color: '#d29922' },
-      { name: '排除传感器漂移', prob: 6, color: '#8b949e' }
+      { name: '土壤确实缺水', prob: 94, color: '#f85149' },
+      { name: '天气导致水分蒸发快', prob: 88, color: '#d29922' }
     ],
     forecastCurve: [
       { t: 0, val: 16.8, lower: 16.2, upper: 17.4 },
@@ -125,9 +124,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 12.1, lower: 10.8, upper: 13.2 },
       { t: 4, val: 9.2, lower: 7.5, upper: 10.8 }
     ],
-    trackA_loss: '¥1,850 (减产 38%)',
-    trackB_benefit: '挽回损失 ¥1,850 / 补水 153L',
-    desc: '若不采取补水措施，72分钟内将击穿凋萎临界点(14.0%)，导致细胞膨压丧失与永久落花落果。'
+    trackA_loss: '约 ¥1,850，可能减产',
+    trackB_benefit: '浇水约 153 升，可避免减产',
+    desc: '如果不浇水，约 72 分钟后叶片会明显下垂，并可能落花落果。'
   },
   heatwave: {
     id: 'heatwave',
@@ -139,9 +138,8 @@ const SCENARIO_PRESETS = {
     temp: 38.6,
     humidity: 24,
     rootCauses: [
-      { name: '高温强光灼伤 (HEAT_VPD)', prob: 92, color: '#f85149' },
-      { name: '水分剧烈耗竭', prob: 90, color: '#f85149' },
-      { name: '根系吸水滞后', prob: 82, color: '#d29922' }
+      { name: '气温过高', prob: 92, color: '#f85149' },
+      { name: '土壤水分下降太快', prob: 90, color: '#f85149' }
     ],
     forecastCurve: [
       { t: 0, val: 18.2, lower: 17.5, upper: 18.9 },
@@ -149,9 +147,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 9.5, lower: 7.8, upper: 11.0 },
       { t: 4, val: 6.8, lower: 5.0, upper: 8.5 }
     ],
-    trackA_loss: '¥2,400 (严重灼伤)',
-    trackB_benefit: '微喷降温挽回 ¥2,400 / 节水 280L',
-    desc: '饱和水汽压差(VPD)超标3.8kPa，气孔被迫关闭，叶温超限，急需微喷雾化降温与脉冲微灌。'
+    trackA_loss: '约 ¥2,400，叶片可能晒伤',
+    trackB_benefit: '开启喷雾降温，并少量多次补水',
+    desc: '高温会让作物迅速失水。建议先喷雾降温，再少量多次浇水。'
   },
   flood: {
     id: 'flood',
@@ -163,9 +161,8 @@ const SCENARIO_PRESETS = {
     temp: 22.1,
     humidity: 98,
     rootCauses: [
-      { name: '土壤过饱和积水 (WATERLOGGING)', prob: 96, color: '#58a6ff' },
-      { name: '根系低氧窒息', prob: 89, color: '#d29922' },
-      { name: '沤根腐烂风险', prob: 78, color: '#f85149' }
+      { name: '土里积水过多', prob: 96, color: '#58a6ff' },
+      { name: '根部缺少空气', prob: 89, color: '#d29922' }
     ],
     forecastCurve: [
       { t: 0, val: 92.0, lower: 90.0, upper: 94.0 },
@@ -173,9 +170,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 87.2, lower: 84.0, upper: 90.0 },
       { t: 4, val: 82.0, lower: 77.0, upper: 86.0 }
     ],
-    trackA_loss: '¥1,200 (沤根减产)',
-    trackB_benefit: '自动强排减损 ¥1,200 / 避免盲目灌水',
-    desc: '田间含水率超90%，根际氧分压急剧下降，系统禁止任何灌溉动作并自动生成排涝工单。'
+    trackA_loss: '约 ¥1,200，可能烂根减产',
+    trackB_benefit: '立即停止浇水，并打开排水',
+    desc: '积水会让根部缺少空气。现在应停止浇水，并尽快排出积水。'
   },
   drift: {
     id: 'drift',
@@ -187,9 +184,8 @@ const SCENARIO_PRESETS = {
     temp: 26.5,
     humidity: 56,
     rootCauses: [
-      { name: '传感器零点漂移 (SENSOR_DRIFT)', prob: 93, color: '#bc8cff' },
-      { name: '作物真实生理健康', prob: 95, color: '#3fb950' },
-      { name: '排除真实缺水 (置信度 < 5%)', prob: 95, color: '#3fb950' }
+      { name: '传感器可能读错', prob: 93, color: '#bc8cff' },
+      { name: '作物实际长势正常', prob: 95, color: '#3fb950' }
     ],
     forecastCurve: [
       { t: 0, val: 11.2, lower: 11.0, upper: 11.4 },
@@ -197,9 +193,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 11.0, lower: 10.8, upper: 11.2 },
       { t: 4, val: 10.8, lower: 10.5, upper: 11.1 }
     ],
-    trackA_loss: '¥0 (作物健康)',
-    trackB_benefit: '避免错误过量灌溉 180L / 派发校准工单',
-    desc: '【关键可信决策亮点】：传感器读数突降至11%告警，但AI通过气象/蒸散模型与多源遥测比对，准确识别为传感器漂移假象，拒绝错误下发灌溉处方！'
+    trackA_loss: '作物暂时没有损失',
+    trackB_benefit: '先检查探头，避免多浇约 180 升水',
+    desc: '读数显示缺水，但作物看起来正常。先现场检查探头，不要马上浇水。'
   },
   stuck: {
     id: 'stuck',
@@ -211,8 +207,8 @@ const SCENARIO_PRESETS = {
     temp: 29.8,
     humidity: 38,
     rootCauses: [
-      { name: '电磁阀机械卡滞 (VALVE_STUCK)', prob: 95, color: '#f85149' },
-      { name: '命令已下发但无ACK回执', prob: 91, color: '#d29922' }
+      { name: '水阀没有动作', prob: 95, color: '#f85149' },
+      { name: '控制信号没有收到回复', prob: 91, color: '#d29922' }
     ],
     forecastCurve: [
       { t: 0, val: 15.5, lower: 15.0, upper: 16.0 },
@@ -220,9 +216,9 @@ const SCENARIO_PRESETS = {
       { t: 2, val: 11.9, lower: 10.5, upper: 13.0 },
       { t: 4, val: 8.8, lower: 7.0, upper: 10.5 }
     ],
-    trackA_loss: '¥1,600 (缺水干枯)',
-    trackB_benefit: '转备用支管/人工复核挽回 ¥1,600',
-    desc: '虚拟执行器反馈非成功超时回执，决策护照标记执行中断，自动降级并派发人工应急工单。'
+    trackA_loss: '约 ¥1,600，可能缺水干枯',
+    trackB_benefit: '切换备用水阀，并通知维修人员',
+    desc: '系统已经发出浇水命令，但水阀没有动作。应切换备用水阀并通知维修。'
   }
 };
 
@@ -304,28 +300,25 @@ export class CropSandbox {
           </button>
           <div class="sandbox-title-badge">
             <h2 data-crop-title>
-              <i class="ph ph-microscope"></i>
-              <span data-plot-name>A01 番茄示范田</span> · 微观数字孪生沙盘
+              <i class="ph ph-plant"></i>
+              <span data-plot-name>A01 番茄示范田</span> · 作物风险预演
             </h2>
             <div class="sandbox-title-meta">
-              <span class="sandbox-meta-item"><i class="ph ph-dna"></i> 品种：<strong data-crop-variety>千禧水果番茄</strong></span>
-              <span class="sandbox-meta-item sandbox-scientific"><i class="ph ph-flask"></i> <em data-crop-scientific>Solanum lycopersicum</em></span>
+              <span class="sandbox-meta-item"><i class="ph ph-leaf"></i> 品种：<strong data-crop-variety>千禧水果番茄</strong></span>
               <span class="sandbox-meta-item"><i class="ph ph-calendar"></i> 阶段：<strong data-crop-stage>果实成熟期</strong></span>
-              <span class="sandbox-meta-item"><i class="ph ph-heartbeat"></i> 生理健康分：<strong data-crop-health>98%</strong></span>
+              <span class="sandbox-meta-item"><i class="ph ph-heart"></i> 长势：<strong data-crop-health>98%</strong></span>
             </div>
           </div>
         </div>
 
         <div class="sandbox-header-right">
           <div class="sandbox-sequence-chip">
-            <span>OUTDOOR TWIN · <em data-weather-label>晴朗微风</em></span>
-            <strong data-sequence-time>T+0.0h / 4.0h</strong>
+            <span>天气 · <em data-weather-label>晴朗微风</em></span>
+            <strong data-sequence-time>当前状态</strong>
           </div>
-          <div class="sandbox-telemetry-strip" aria-label="推演环境遥测">
-            <span data-telemetry="temperature"><i class="ph ph-thermometer"></i><b>26.4°C</b><small>温度</small></span>
+          <div class="sandbox-telemetry-strip" aria-label="作物环境数据">
+            <span data-telemetry="temperature"><i class="ph ph-thermometer"></i><b>26.4°C</b><small>空气温度</small></span>
             <span data-telemetry="moisture"><i class="ph ph-drop"></i><b>28.5%</b><small>土壤水分</small></span>
-            <span data-telemetry="light"><i class="ph ph-sun"></i><b>48 klux</b><small>光照</small></span>
-            <span data-telemetry="vpd"><i class="ph ph-wind"></i><b>1.4 kPa</b><small>VPD</small></span>
           </div>
         </div>
       </header>
@@ -334,50 +327,50 @@ export class CropSandbox {
       <aside class="sandbox-left-dock">
         <div class="sandbox-card">
           <h3 class="sandbox-card-title">
-            <span>风险情景发生器</span>
-            <i class="ph ph-lightning"></i>
+            <span>模拟一种情况</span>
+            <i class="ph ph-hand-tap"></i>
           </h3>
           <div class="sandbox-scenario-grid">
-            <button class="sandbox-scenario-btn active" type="button" data-scenario="normal" aria-label="健康基准稳态" title="健康基准稳态">
+            <button class="sandbox-scenario-btn active" type="button" data-scenario="normal" aria-label="现在正常" title="现在正常">
               <i class="ph ph-plant" style="color: #3fb950;"></i>
               <div>
-                <strong>健康基准态</strong>
-                <span class="sandbox-scenario-desc">水温光适宜 · 稳态代谢</span>
+                <strong>现在正常</strong>
+                <span class="sandbox-scenario-desc">作物长势良好</span>
               </div>
             </button>
-            <button class="sandbox-scenario-btn risk-drought" type="button" data-scenario="drought" aria-label="持续干旱失水" title="持续干旱失水">
+            <button class="sandbox-scenario-btn risk-drought" type="button" data-scenario="drought" aria-label="长时间缺水" title="长时间缺水">
               <i class="ph ph-sun-dim" style="color: #d29922;"></i>
               <div>
-                <strong>持续干旱失水</strong>
-                <span class="sandbox-scenario-desc">72min 击穿极限凋萎边界</span>
+                <strong>长时间缺水</strong>
+                <span class="sandbox-scenario-desc">很久没有浇水</span>
               </div>
             </button>
-            <button class="sandbox-scenario-btn risk-heat" type="button" data-scenario="heatwave" aria-label="极端热浪强蒸散" title="极端热浪强蒸散">
+            <button class="sandbox-scenario-btn risk-heat" type="button" data-scenario="heatwave" aria-label="连续高温" title="连续高温">
               <i class="ph ph-flame" style="color: #ff7b72;"></i>
               <div>
-                <strong>极端热浪强蒸散</strong>
-                <span class="sandbox-scenario-desc">气温 38.6°C · VPD 剧增</span>
+                <strong>连续高温</strong>
+                <span class="sandbox-scenario-desc">气温升到 38.6°C</span>
               </div>
             </button>
-            <button class="sandbox-scenario-btn risk-rain" type="button" data-scenario="flood" aria-label="特大暴雨积水" title="特大暴雨积水">
+            <button class="sandbox-scenario-btn risk-rain" type="button" data-scenario="flood" aria-label="暴雨积水" title="暴雨积水">
               <i class="ph ph-cloud-rain" style="color: #79c0ff;"></i>
               <div>
-                <strong>特大暴雨积水</strong>
-                <span class="sandbox-scenario-desc">田面过饱和 · 根系缺氧</span>
+                <strong>暴雨积水</strong>
+                <span class="sandbox-scenario-desc">土里积水排不出去</span>
               </div>
             </button>
-            <button class="sandbox-scenario-btn risk-drift" type="button" data-scenario="drift" aria-label="传感器零点漂移" title="传感器零点漂移">
+            <button class="sandbox-scenario-btn risk-drift" type="button" data-scenario="drift" aria-label="数据可能不准" title="数据可能不准">
               <i class="ph ph-warning" style="color: #d2a8ff;"></i>
               <div>
-                <strong>传感器零点漂移</strong>
-                <span class="sandbox-scenario-desc">误报 11% · 作物实测健康</span>
+                <strong>数据可能不准</strong>
+                <span class="sandbox-scenario-desc">读数低，但作物正常</span>
               </div>
             </button>
-            <button class="sandbox-scenario-btn" type="button" data-scenario="stuck" aria-label="执行器卡阀断网" title="执行器卡阀断网">
+            <button class="sandbox-scenario-btn" type="button" data-scenario="stuck" aria-label="水阀没有反应" title="水阀没有反应">
               <i class="ph ph-plugs" style="color: #f85149;"></i>
               <div>
-                <strong>执行器卡阀断网</strong>
-                <span class="sandbox-scenario-desc">下发超时 · 触发应急降级</span>
+                <strong>水阀没有反应</strong>
+                <span class="sandbox-scenario-desc">已经开阀，但没有出水</span>
               </div>
             </button>
           </div>
@@ -395,19 +388,19 @@ export class CropSandbox {
             </svg>
             <div class="sandbox-gauge-val">
               <span data-time-val>72</span>
-              <span>MINUTES</span>
+              <span data-time-unit>分钟</span>
             </div>
           </div>
           <div class="sandbox-gauge-info">
-            <h4 data-gauge-title>Time-to-Risk 越界倒计时</h4>
-            <p data-gauge-desc>预计在 72 分钟内触达极限水分胁迫边界 (14.0%)</p>
+            <h4 data-gauge-title>目前作物安全</h4>
+            <p data-gauge-desc>现在不用处理，按计划巡田即可。</p>
           </div>
         </div>
 
         <!-- 1h/2h/4h Forecast Envelope Chart -->
         <div class="sandbox-chart-card">
           <h3 class="sandbox-card-title">
-            <span>未来 1~4h 水分衰减预测带</span>
+            <span>未来 4 小时土壤水分</span>
             <i class="ph ph-chart-line-up"></i>
           </h3>
           <div class="sandbox-chart-wrap" data-chart-container>
@@ -420,10 +413,10 @@ export class CropSandbox {
               </defs>
               <!-- Safe Target Band -->
               <rect data-safe-band x="0" y="24" width="320" height="42" fill="rgba(63, 185, 80, 0.12)" rx="4"/>
-              <text data-safe-label x="6" y="38" fill="#3fb950" font-size="9" font-weight="bold">适宜带 20%~40%</text>
+              <text data-safe-label x="6" y="38" fill="#3fb950" font-size="9" font-weight="bold">水分合适 20%~40%</text>
               <!-- Wilt Critical Line -->
               <line data-wilt-line x1="0" y1="88" x2="320" y2="88" stroke="#f85149" stroke-dasharray="4,3" stroke-width="1.2"/>
-              <text data-wilt-label x="230" y="84" fill="#f85149" font-size="9">凋萎线 14%</text>
+              <text data-wilt-label x="242" y="84" fill="#f85149" font-size="9">危险线 14%</text>
               <!-- Prediction Envelope Polygon -->
               <polygon data-chart-polygon points="20,40 100,56 180,72 300,98 300,112 180,90 100,68 20,48" fill="url(#envelopeGrad)"/>
               <!-- Median Trend Curve -->
@@ -434,10 +427,10 @@ export class CropSandbox {
               <circle data-point-2 cx="180" cy="81" r="3.5" fill="#fff" stroke="#58a6ff" stroke-width="2"/>
               <circle data-point-4 cx="300" cy="105" r="3.5" fill="#fff" stroke="#f85149" stroke-width="2"/>
               <!-- Horizon Ticks -->
-              <text x="14" y="116" fill="#8b949e" font-size="9">Now</text>
-              <text x="94" y="116" fill="#8b949e" font-size="9">+1h</text>
-              <text x="174" y="116" fill="#8b949e" font-size="9">+2h</text>
-              <text x="290" y="116" fill="#8b949e" font-size="9">+4h</text>
+              <text x="14" y="116" fill="#8b949e" font-size="9">现在</text>
+              <text x="90" y="116" fill="#8b949e" font-size="9">1小时后</text>
+              <text x="170" y="116" fill="#8b949e" font-size="9">2小时后</text>
+              <text x="282" y="116" fill="#8b949e" font-size="9">4小时后</text>
             </svg>
           </div>
         </div>
@@ -445,15 +438,15 @@ export class CropSandbox {
         <!-- Root Cause Probability & Diagnostic Confidence -->
         <div class="sandbox-card">
           <h3 class="sandbox-card-title">
-            <span>根因推断与置信排查</span>
-            <i class="ph ph-tree-structure"></i>
+            <span>系统判断</span>
+            <i class="ph ph-check-circle"></i>
           </h3>
           <div class="sandbox-diagnostic-list" data-diag-list>
             <!-- Injected dynamically -->
           </div>
           <button class="sandbox-btn-prescribe" type="button" data-btn-prescribe style="margin-top: 12px;">
             <i class="ph ph-lightning"></i>
-            <span>一键生成智能灌溉处方</span>
+            <span>生成处理方案</span>
           </button>
         </div>
       </aside>
@@ -462,20 +455,20 @@ export class CropSandbox {
       <footer class="sandbox-bottom-scrubber">
         <div class="sandbox-scrubber-top">
           <div class="sandbox-track-tabs">
-            <span style="font-size: 11px; font-weight: 700; color: var(--sandbox-text-muted); text-transform: uppercase;">推演分支：</span>
+            <span style="font-size: 11px; font-weight: 700; color: var(--sandbox-text-muted);">对比：</span>
             <button class="sandbox-track-tab active" type="button" data-track="trackA">
               <i class="ph ph-x-circle" style="color: #f85149;"></i>
-              <span>分支 A · 放任不管</span>
+              <span>不处理</span>
             </button>
             <button class="sandbox-track-tab tab-action" type="button" data-track="trackB">
               <i class="ph ph-check-circle" style="color: #3fb950;"></i>
-              <span>分支 B · 智能处方介入</span>
+              <span>按建议处理</span>
             </button>
           </div>
 
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 11px; color: var(--sandbox-text-muted);">回放进度：</span>
-            <strong style="font-family: var(--font-mono); color: #fff; font-size: 13px;" data-time-display>+0.0 小时 (当前时点)</strong>
+            <span style="font-size: 11px; color: var(--sandbox-text-muted);">查看时间：</span>
+            <strong style="font-family: var(--font-mono); color: #fff; font-size: 13px;" data-time-display>现在</strong>
           </div>
         </div>
 
@@ -488,11 +481,11 @@ export class CropSandbox {
           <div class="sandbox-slider-rail">
             <input class="sandbox-slider" type="range" min="0" max="4.0" step="0.05" value="0" data-timeline-slider>
             <div class="sandbox-time-ticks">
-              <span>0h (Now)</span>
-              <span>+1.0h</span>
-              <span>+2.0h</span>
-              <span>+3.0h</span>
-              <span>+4.0h (极限推演)</span>
+              <span>现在</span>
+              <span>1小时后</span>
+              <span>2小时后</span>
+              <span>3小时后</span>
+              <span>4小时后</span>
             </div>
           </div>
         </div>
@@ -501,18 +494,13 @@ export class CropSandbox {
         <div class="sandbox-value-ticker">
           <div class="sandbox-ticker-item">
             <i class="ph ph-coins" style="color: #d29922;"></i>
-            <span>经济影响预估：</span>
-            <strong data-ticker-loss style="color: #f85149;">-¥1,850 (减产 38%)</strong>
+            <span>不处理可能损失：</span>
+            <strong data-ticker-loss style="color: #f85149;">约 ¥1,850</strong>
           </div>
           <div class="sandbox-ticker-item">
             <i class="ph ph-drop" style="color: #58a6ff;"></i>
-            <span>处方节水效能：</span>
-            <strong data-ticker-benefit style="color: #3fb950;">智能补水 153L (挽回率 100%)</strong>
-          </div>
-          <div class="sandbox-ticker-item">
-            <i class="ph ph-clock" style="color: #bc8cff;"></i>
-            <span>工时节约：</span>
-            <strong>避免无效巡检 2.5h</strong>
+            <span>按建议处理：</span>
+            <strong data-ticker-benefit style="color: #3fb950;">预计可避免损失</strong>
           </div>
         </div>
       </footer>
@@ -682,6 +670,9 @@ export class CropSandbox {
       new THREE.MeshBasicMaterial({ color: 0xffe39a, transparent: true, opacity: 0.96, fog: false })
     );
     this.sunMesh.position.set(-2.7, 4.0, -10.5);
+    // The scene uses diffuse skylight and volumetric rays instead of a solid
+    // yellow disc, which looked like a floating "egg yolk" behind the plant.
+    this.sunMesh.visible = false;
     this.outdoorGroup.add(this.sunMesh);
 
     const glowCanvas = document.createElement('canvas');
@@ -880,16 +871,18 @@ export class CropSandbox {
     if (!this.skyMaterial || !this.lawnMaterial) return;
 
     const weatherPresets = {
-      normal: { label: '晴朗微风', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, rain: 0, fog: 0xc9e1d0 },
-      drought: { label: '干燥晴热', top: 0x72b8df, bottom: 0xf4deb0, lawn: 0x9da65a, hill: 0x7d8f50, grass: 0x7f943f, cloud: 0xfff6de, cloudOpacity: 0.34, sun: 0xffca70, sunPower: 3.15, rain: 0, fog: 0xe2d6ae },
-      heatwave: { label: '高温热浪', top: 0x73a9c8, bottom: 0xf2c285, lawn: 0x9b9850, hill: 0x7d7f47, grass: 0x8b8739, cloud: 0xf6ddba, cloudOpacity: 0.26, sun: 0xffae58, sunPower: 3.6, rain: 0, fog: 0xddbb87 },
-      flood: { label: '强降雨', top: 0x65798c, bottom: 0xb6c6c8, lawn: 0x477a50, hill: 0x496d53, grass: 0x397343, cloud: 0x87949d, cloudOpacity: 0.96, sun: 0xb8d0d8, sunPower: 0.48, rain: 0.92, fog: 0x93a9ae },
-      drift: { label: '晴朗 · 传感器复核', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, rain: 0, fog: 0xc9e1d0 },
-      stuck: { label: '多云 · 执行异常', top: 0x799eb5, bottom: 0xd5dfce, lawn: 0x668f53, hill: 0x587a51, grass: 0x467b46, cloud: 0xcbd3d1, cloudOpacity: 0.9, sun: 0xe8dbb4, sunPower: 1.18, rain: 0, fog: 0xb8c9bf }
+      normal: { label: '晴朗微风', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, sunVisibility: 1, rain: 0, fog: 0xc9e1d0 },
+      drought: { label: '干燥晴热', top: 0x72b8df, bottom: 0xf4deb0, lawn: 0x9da65a, hill: 0x7d8f50, grass: 0x7f943f, cloud: 0xfff6de, cloudOpacity: 0.34, sun: 0xffca70, sunPower: 3.15, sunVisibility: 1, rain: 0, fog: 0xe2d6ae },
+      heatwave: { label: '高温热浪', top: 0x73a9c8, bottom: 0xf2c285, lawn: 0x9b9850, hill: 0x7d7f47, grass: 0x8b8739, cloud: 0xf6ddba, cloudOpacity: 0.26, sun: 0xffae58, sunPower: 3.6, sunVisibility: 0.92, rain: 0, fog: 0xddbb87 },
+      flood: { label: '强降雨 · 无直射阳光', top: 0x526778, bottom: 0x9dafb3, lawn: 0x3e7049, hill: 0x415f4a, grass: 0x31683d, cloud: 0x6f7b84, cloudOpacity: 1, sun: 0x9fb0b7, sunPower: 0.18, sunVisibility: 0, rain: 1, fog: 0x81979e },
+      drift: { label: '晴朗 · 传感器复核', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, sunVisibility: 1, rain: 0, fog: 0xc9e1d0 },
+      stuck: { label: '多云 · 执行异常', top: 0x799eb5, bottom: 0xd5dfce, lawn: 0x668f53, hill: 0x587a51, grass: 0x467b46, cloud: 0xcbd3d1, cloudOpacity: 0.9, sun: 0xe8dbb4, sunPower: 1.18, sunVisibility: 0.24, rain: 0, fog: 0xb8c9bf }
     };
     const normal = weatherPresets.normal;
     const target = weatherPresets[scenarioKey] || normal;
-    let intensity = scenarioKey === 'normal' || scenarioKey === 'drift' ? 1 : 0.62 + Math.min(1, timeHours / 4) * 0.38;
+    let intensity = scenarioKey === 'normal' || scenarioKey === 'drift'
+      ? 1
+      : (scenarioKey === 'flood' ? 1 : 0.82 + Math.min(1, timeHours / 4) * 0.18);
     if (this.replayTrack === 'trackB' && timeHours > 0.55 && scenarioKey !== 'drift') {
       intensity *= Math.max(0.12, 1 - (timeHours - 0.55) / 2.4);
     }
@@ -907,17 +900,15 @@ export class CropSandbox {
       material.opacity = cloudOpacity;
     });
 
-    if (this.sunMesh?.material) {
-      this.sunMesh.material.color.copy(mixColor(normal.sun, target.sun));
-      this.sunMesh.material.opacity = THREE.MathUtils.clamp(1.02 - cloudOpacity * 0.55, 0.24, 0.92);
-    }
+    const sunVisibility = THREE.MathUtils.lerp(normal.sunVisibility, target.sunVisibility, intensity);
+    if (this.sunMesh?.material) this.sunMesh.material.opacity = 0;
     if (this.sunGlow?.material) {
-      const glowOpacity = THREE.MathUtils.clamp(1.08 - cloudOpacity * 0.82, 0.08, 0.82);
+      const glowOpacity = THREE.MathUtils.clamp((1.08 - cloudOpacity * 0.82) * sunVisibility, 0, 0.82);
       this.sunGlow.userData.baseOpacity = glowOpacity;
       this.sunGlow.material.opacity = glowOpacity;
     }
     if (this.sunRays?.material) {
-      const rayOpacity = THREE.MathUtils.clamp(0.42 - cloudOpacity * 0.36, 0.015, 0.24);
+      const rayOpacity = THREE.MathUtils.clamp((0.42 - cloudOpacity * 0.36) * sunVisibility, 0, 0.24);
       this.sunRays.userData.baseOpacity = rayOpacity;
       this.sunRays.material.opacity = rayOpacity;
     }
@@ -1414,25 +1405,28 @@ export class CropSandbox {
     const gaugeProg = this.container.querySelector('[data-gauge-progress]');
     const gaugeTitle = this.container.querySelector('[data-gauge-title]');
     const gaugeDesc = this.container.querySelector('[data-gauge-desc]');
+    const timeUnit = this.container.querySelector('[data-time-unit]');
     const tickerLoss = this.container.querySelector('[data-ticker-loss]');
     const tickerBenefit = this.container.querySelector('[data-ticker-benefit]');
 
-    if (timeVal) timeVal.textContent = scenario.timeToRiskMinutes >= 999 ? '∞' : scenario.timeToRiskMinutes;
-    if (gaugeTitle) gaugeTitle.textContent = scenario.timeToRiskMinutes >= 999 ? '状态安全正常' : 'Time-to-Risk 倒计时';
+    if (timeVal) timeVal.textContent = scenario.timeToRiskMinutes >= 999 ? '安全' : scenario.timeToRiskMinutes;
+    if (timeUnit) timeUnit.textContent = scenario.timeToRiskMinutes >= 999 ? '' : '分钟';
+    if (gaugeTitle) gaugeTitle.textContent = scenario.timeToRiskMinutes >= 999 ? '目前作物安全' : '距离明显受损还有';
     if (gaugeDesc) gaugeDesc.textContent = scenario.desc;
     if (tickerLoss) tickerLoss.textContent = scenario.trackA_loss;
     if (tickerBenefit) tickerBenefit.textContent = scenario.trackB_benefit;
 
     const actionLabel = this.container.querySelector('[data-btn-prescribe] span');
-    if (actionLabel) {
-      actionLabel.textContent = scenarioKey === 'drift'
-        ? '生成复测与传感器校准工单'
-        : scenarioKey === 'flood'
-          ? '生成排涝与根际复氧工单'
-          : scenarioKey === 'stuck'
-            ? '切换备用支管并派发应急工单'
-            : '一键生成智能灌溉处方';
-    }
+    const actionButton = this.container.querySelector('[data-btn-prescribe]');
+    if (actionLabel) actionLabel.textContent = {
+      normal: '目前无需处理',
+      drought: '安排浇水约 153 升',
+      heatwave: '开启喷雾降温并补水',
+      flood: '停止浇水并打开排水',
+      drift: '安排人员检查传感器',
+      stuck: '切换备用水阀并报修'
+    }[scenarioKey] || '生成处理方案';
+    if (actionButton) actionButton.disabled = scenarioKey === 'normal';
 
     // Circle progress offset
     if (gaugeProg) {
@@ -1445,14 +1439,10 @@ export class CropSandbox {
     const diagContainer = this.container.querySelector('[data-diag-list]');
     if (diagContainer) {
       diagContainer.innerHTML = scenario.rootCauses.map(c => `
-        <div class="sandbox-diag-item">
+        <div class="sandbox-diag-item sandbox-diag-simple">
+          <i class="ph ${c.prob >= 94 ? 'ph-check-circle' : 'ph-warning-circle'}" style="color: ${c.color};"></i>
           <span class="sandbox-diag-name">${c.name}</span>
-          <div class="sandbox-diag-bar-wrap">
-            <div class="sandbox-diag-bar-bg">
-              <div class="sandbox-diag-bar-fill" style="width: ${c.prob}%; background: ${c.color};"></div>
-            </div>
-            <span class="sandbox-diag-val" style="color: ${c.color};">${c.prob}%</span>
-          </div>
+          <strong style="color: ${c.color};">${c.prob >= 94 ? '已确认' : '很可能'}</strong>
         </div>
       `).join('');
     }
@@ -1526,7 +1516,7 @@ export class CropSandbox {
       if (target) target.textContent = value;
     });
     const sequence = this.container.querySelector('[data-sequence-time]');
-    if (sequence) sequence.textContent = `T+${timeHours.toFixed(1)}h / 4.0h`;
+    if (sequence) sequence.textContent = timeHours === 0 ? '当前状态' : `已推演 ${timeHours.toFixed(1)} 小时`;
     const health = Math.max(35, Math.round((this.plotData?.healthScore || 0.98) * 100 - wilting * 38 - chlorosis * 24));
     const healthNode = this.container.querySelector('[data-crop-health]');
     if (healthNode) {
@@ -1538,7 +1528,7 @@ export class CropSandbox {
   updateTimelineMorphing(timeHours) {
     this.replayTime = timeHours;
     const timeDisplay = this.container.querySelector('[data-time-display]');
-    if (timeDisplay) timeDisplay.textContent = `+${timeHours.toFixed(1)} 小时 (${timeHours === 0 ? '当前时点' : '推演态'})`;
+    if (timeDisplay) timeDisplay.textContent = timeHours === 0 ? '现在' : `${timeHours.toFixed(1)} 小时后`;
 
     const isTrackA = this.replayTrack === 'trackA';
     const s = this.activeScenario;
@@ -1554,27 +1544,32 @@ export class CropSandbox {
 
     if (s === 'drought') {
       if (isTrackA) {
-        wilting = Math.min(1.0, (timeHours / 4.0) * 1.2);
-        chlorosis = Math.min(1.0, (timeHours / 4.0) * 0.85);
-        soilWetness = Math.max(0.05, 0.4 - timeHours * 0.09);
-        heatVaporOpacity = 0.08;
+        wilting = Math.min(1.0, 0.32 + (timeHours / 4.0) * 0.82);
+        chlorosis = Math.min(1.0, 0.14 + (timeHours / 4.0) * 0.72);
+        soilWetness = Math.max(0.04, 0.22 - timeHours * 0.045);
+        heatVaporOpacity = Math.min(0.36, 0.12 + timeHours * 0.06);
       } else {
-        wilting = timeHours < 0.8 ? 0.3 * (1 - timeHours / 0.8) : 0.0;
-        soilWetness = timeHours < 0.5 ? 0.4 : 0.75;
+        wilting = timeHours < 0.9 ? 0.32 * (1 - timeHours / 0.9) : 0.0;
+        chlorosis = Math.max(0, 0.12 - timeHours * 0.16);
+        soilWetness = timeHours < 0.5 ? 0.22 : 0.75;
       }
     } else if (s === 'heatwave') {
       if (isTrackA) {
-        wilting = Math.min(1.0, (timeHours / 3.0) * 1.3);
-        chlorosis = Math.min(1.0, (timeHours / 3.0) * 0.95);
-        heatVaporOpacity = Math.min(0.85, 0.4 + timeHours * 0.15);
+        wilting = Math.min(1.0, 0.4 + (timeHours / 3.0) * 0.68);
+        chlorosis = Math.min(1.0, 0.16 + (timeHours / 3.0) * 0.72);
+        soilWetness = Math.max(0.04, 0.2 - timeHours * 0.042);
+        heatVaporOpacity = Math.min(0.9, 0.52 + timeHours * 0.11);
       } else {
         wilting = timeHours < 0.6 ? 0.4 * (1 - timeHours / 0.6) : 0.0;
+        chlorosis = Math.max(0, 0.14 - timeHours * 0.2);
+        soilWetness = timeHours < 0.55 ? 0.22 : 0.72;
         heatVaporOpacity = 0.1;
       }
     } else if (s === 'flood') {
       floodVisible = isTrackA || timeHours < 1.15;
       soilWetness = isTrackA ? 0.95 : Math.max(0.62, 0.95 - timeHours * 0.22);
-      chlorosis = isTrackA ? Math.min(0.7, (timeHours / 4.0) * 0.8) : Math.max(0, 0.18 - timeHours * 0.18);
+      wilting = isTrackA ? Math.min(0.78, 0.26 + (timeHours / 4.0) * 0.54) : Math.max(0, 0.24 - timeHours * 0.2);
+      chlorosis = isTrackA ? Math.min(0.78, 0.2 + (timeHours / 4.0) * 0.58) : Math.max(0, 0.2 - timeHours * 0.18);
     } else if (s === 'drift') {
       sensorError = true;
       wilting = 0.0;
@@ -1583,9 +1578,9 @@ export class CropSandbox {
     } else if (s === 'stuck') {
       actuatorFault = true;
       if (isTrackA) {
-        wilting = Math.min(1, timeHours / 3.2);
-        chlorosis = Math.min(0.82, timeHours / 4.4);
-        soilWetness = Math.max(0.08, 0.36 - timeHours * 0.075);
+        wilting = Math.min(1, 0.2 + timeHours / 3.8);
+        chlorosis = Math.min(0.82, 0.08 + timeHours / 4.8);
+        soilWetness = Math.max(0.08, 0.3 - timeHours * 0.06);
       } else {
         wilting = Math.max(0, 0.26 - timeHours * 0.28);
         soilWetness = timeHours < 0.7 ? 0.36 : 0.7;
@@ -1599,8 +1594,8 @@ export class CropSandbox {
       }
       const baseRotation = leaf.userData.baseRotation;
       const baseScale = leaf.userData.baseScale;
-      if (baseRotation) leaf.rotation.set(baseRotation.x + wilting * 0.72, baseRotation.y, baseRotation.z + wilting * 0.08);
-      if (baseScale) leaf.scale.copy(baseScale).multiplyScalar(1 - wilting * 0.17);
+      if (baseRotation) leaf.rotation.set(baseRotation.x + wilting * 1.02, baseRotation.y, baseRotation.z + wilting * 0.14);
+      if (baseScale) leaf.scale.copy(baseScale).multiplyScalar(1 - wilting * 0.24);
     });
 
     if (this.soilMaterial) {
@@ -1644,14 +1639,17 @@ export class CropSandbox {
     this.updateWeatherEnvironment(s, timeHours);
 
     const timeValue = this.container.querySelector('[data-time-val]');
+    const timeUnit = this.container.querySelector('[data-time-unit]');
     const gaugeTitle = this.container.querySelector('[data-gauge-title]');
     if (timeValue && gaugeTitle) {
       if (scenario.timeToRiskMinutes >= 999 || (!isTrackA && timeHours >= 0.75)) {
-        timeValue.textContent = '∞';
-        gaugeTitle.textContent = !isTrackA && timeHours >= 0.75 ? '处方介入 · 风险解除' : '状态安全正常';
+        timeValue.textContent = '安全';
+        if (timeUnit) timeUnit.textContent = '';
+        gaugeTitle.textContent = !isTrackA && timeHours >= 0.75 ? '处理后，风险已解除' : '目前作物安全';
       } else {
         timeValue.textContent = String(Math.max(0, Math.round(scenario.timeToRiskMinutes - timeHours * 60)));
-        gaugeTitle.textContent = 'Time-to-Risk 倒计时';
+        if (timeUnit) timeUnit.textContent = '分钟';
+        gaugeTitle.textContent = '距离明显受损还有';
       }
     }
 
@@ -1869,8 +1867,8 @@ export class CropSandbox {
     }
     if (this.plantGroup) {
       const stress = this.currentMorph?.wilting || 0;
-      this.plantGroup.rotation.z = Math.sin(elapsed * 0.82) * 0.014 * (1 - stress * 0.55);
-      this.plantGroup.rotation.x = Math.cos(elapsed * 0.61) * 0.006;
+      this.plantGroup.rotation.z = Math.sin(elapsed * 0.82) * 0.014 * (1 - stress * 0.55) + stress * 0.035;
+      this.plantGroup.rotation.x = Math.cos(elapsed * 0.61) * 0.006 + stress * 0.028;
     }
 
     this.cloudGroup?.children.forEach(cluster => {
@@ -1881,11 +1879,13 @@ export class CropSandbox {
     if (this.sunGlow?.material) {
       const weatherBase = this.sunGlow.userData.baseOpacity ?? this.sunGlow.material.opacity;
       this.sunGlow.scale.setScalar(5.35 + Math.sin(elapsed * 0.38) * 0.14);
-      this.sunGlow.material.opacity = THREE.MathUtils.clamp(weatherBase + Math.sin(elapsed * 0.45) * 0.008, 0.05, 0.86);
+      const glowPulse = weatherBase > 0.02 ? Math.sin(elapsed * 0.45) * 0.008 : 0;
+      this.sunGlow.material.opacity = THREE.MathUtils.clamp(weatherBase + glowPulse, 0, 0.86);
     }
     if (this.sunRays?.material) {
       const rayBase = this.sunRays.userData.baseOpacity ?? 0.12;
-      this.sunRays.material.opacity = THREE.MathUtils.clamp(rayBase + Math.sin(elapsed * 0.31) * 0.009, 0.01, 0.27);
+      const rayPulse = rayBase > 0.01 ? Math.sin(elapsed * 0.31) * 0.009 : 0;
+      this.sunRays.material.opacity = THREE.MathUtils.clamp(rayBase + rayPulse, 0, 0.27);
       this.sunRays.material.rotation = -0.42 + Math.sin(elapsed * 0.16) * 0.012;
     }
 
