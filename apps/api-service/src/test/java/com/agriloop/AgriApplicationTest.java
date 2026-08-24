@@ -82,6 +82,24 @@ class AgriApplicationTest {
     }
 
     @Test
+    void normalLightVariationIsNotMistakenForSensorDegradation() {
+        engine.ingest(Map.of("eventId", "light-baseline-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 38_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> normal = engine.ingest(Map.of("eventId", "light-normal-variation-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 38_650.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().plusMillis(1).toString()));
+        Map<String, Object> normalEvent = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), normal.get("event"));
+        assertThat(Jsons.text(Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), normalEvent.get("quality")), "status", ""))
+                .isEqualTo("GOOD");
+
+        Map<String, Object> abrupt = engine.ingest(Map.of("eventId", "light-abrupt-change-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 52_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().plusMillis(2).toString()));
+        Map<String, Object> abruptEvent = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), abrupt.get("event"));
+        Map<String, Object> abruptQuality = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), abruptEvent.get("quality"));
+        assertThat(abruptQuality.get("status")).isEqualTo("DEGRADED");
+        assertThat(abruptQuality.get("changePoint")).isEqualTo(true);
+    }
+
+    @Test
     void strategyCannotSkipOfflineValidation() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
         Map<String, Object> draft = engine.strategyCandidate(Map.of("name", "safe-threshold"), admin);

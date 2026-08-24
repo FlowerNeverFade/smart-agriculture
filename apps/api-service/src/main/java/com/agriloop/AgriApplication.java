@@ -413,6 +413,35 @@ class AgriStore {
         } catch (Exception ignored) { return result; }
     }
 
+    Map<String, Object> latestTelemetry(String plotId, String metric, Instant from, Instant to) {
+        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
+                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
+                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
+        Map<String, Object> latest = telemetry.stream().filter(filter)
+                .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
+                .map(e -> Jsons.copy(mapper, e)).orElse(null);
+        if (latest != null || !databaseReady) return latest;
+        try {
+            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id FROM telemetry WHERE 1=1");
+            List<Object> args = new ArrayList<>();
+            if (plotId != null) { sql.append(" AND plot_id=?"); args.add(plotId); }
+            if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
+            sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
+            args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
+                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
+                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
+                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
+                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
+                e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                return e;
+            }, args.toArray());
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ignored) { return null; }
+    }
+
     void logEvent(String type, Map<String, Object> payload) {
         if (!databaseReady) return;
         try {
@@ -1047,10 +1076,10 @@ class AgriEngine {
         Map<String, Object> quality = Jsons.map(mapper, input.get("quality"));
         String qualityStatus = validateQuality(metric, value, ts, quality);
         if (ts.isAfter(Instant.now().plusSeconds(30))) qualityStatus = "BAD";
-        List<Map<String, Object>> recent = store.telemetry(plotId, metric, Instant.now().minus(1, ChronoUnit.HOURS), Instant.now().plusSeconds(1), 2);
-        if (!recent.isEmpty()) {
-            double previous = Jsons.number(recent.get(recent.size() - 1), "value", value);
-            double jumpLimit = "AIR_TEMPERATURE".equals(metric) ? 15 : "PH".equals(metric) ? 2 : 35;
+        Map<String, Object> previousEvent = store.latestTelemetry(plotId, metric, Instant.now().minus(1, ChronoUnit.HOURS), Instant.now().plusSeconds(1));
+        if (previousEvent != null) {
+            double previous = Jsons.number(previousEvent, "value", value);
+            double jumpLimit = jumpLimitFor(metric);
             if (Math.abs(value - previous) > jumpLimit) { quality.put("changePoint", true); if ("GOOD".equals(qualityStatus)) qualityStatus = "DEGRADED"; }
         }
         quality.put("status", qualityStatus); quality.putIfAbsent("freshnessMs", Math.max(0, Duration.between(ts, Instant.now()).toMillis()));
@@ -1060,6 +1089,17 @@ class AgriEngine {
         e.put("ts", ts.toString()); e.put("quality", quality); e.put("scenarioId", scenario); e.put("scenario", scenario); e.put("schemaVersion", "1.0");
         if (input.containsKey("branchId")) e.put("branchId", input.get("branchId"));
         return e;
+    }
+
+    private double jumpLimitFor(String metric) {
+        return switch (metric) {
+            case "AIR_TEMPERATURE" -> 15;
+            case "LIGHT" -> 12_000;
+            case "CO2" -> 500;
+            case "PH" -> 2;
+            case "WATER_LEVEL" -> 25;
+            default -> 35;
+        };
     }
 
     private String validateQuality(String metric, double value, Instant ts, Map<String, Object> quality) {

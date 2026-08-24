@@ -78,6 +78,32 @@ def main() -> int:
     if duplicate["data"].get("duplicate") is not True:
         raise AssertionError("duplicate telemetry was accepted twice")
 
+    # Keep the latest decision snapshot complete and deterministic. Two stable
+    # observations per metric make the probe independent of an older simulator
+    # sample while still exercising the real change-point quality checks.
+    context_values = {
+        "SOIL_MOISTURE": (17.0, "%"),
+        "AIR_TEMPERATURE": (26.0, "°C"),
+        "LIGHT": (38_000.0, "lux"),
+        "CO2": (650.0, "ppm"),
+        "PH": (6.3, "pH"),
+        "WATER_LEVEL": (75.0, "%"),
+    }
+    for metric, (value, unit) in context_values.items():
+        for repeat in range(2):
+            status, _ = call("POST", "/api/v1/telemetry", token, {
+                "eventId": f"acceptance-{run_id}-context-{metric.lower()}-{repeat}",
+                "farmId": "farm-demo",
+                "plotId": "plot-a02",
+                "deviceId": "mock-plot-a02",
+                "metric": metric,
+                "value": value,
+                "unit": unit,
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "scenarioId": "normal",
+            })
+            assert_status(f"context telemetry {metric}", status)
+
     status, diagnosis = call("POST", "/api/v1/diagnoses/evaluate", token, {"plotId": "plot-a02"})
     assert_status("diagnosis", status)
     if diagnosis["data"].get("primaryCause") not in {"WATER_DEFICIT", "SENSOR_DRIFT"}:
