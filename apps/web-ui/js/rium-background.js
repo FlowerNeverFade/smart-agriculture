@@ -2,12 +2,12 @@
  * Three.js wheat-field background — rolling hills, wind-swept stalks, theme-aware dusk/day.
  */
 import * as THREE from '../vendor/three/three.module.min.js';
-const getTheme = () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+import { getTheme } from './theme.js';
 
 let fieldInstance = null;
 
-const HOME_POS = { x: 0, y: 7.2, z: 16.5 };
-const HOME_LOOK = { x: 0, y: 2.6, z: -6 };
+const HOME_POS = { x: 0, y: 7.55, z: 18.2 };
+const HOME_LOOK = { x: 0, y: 2.55, z: -6 };
 
 const PALETTES = {
   dark: {
@@ -17,9 +17,9 @@ const PALETTES = {
     fog: 0x0c1220,
     fogNear: 22,
     fogFar: 68,
-    soil: 0x2a2418,
-    fieldLow: 0x1f2c14,
-    fieldHigh: 0x8a7a38,
+    soil: 0x5a4a30,
+    fieldLow: 0x3a4a22,
+    fieldHigh: 0xb8a050,
     wheatTip: 0xd8c47c,
     wheatStem: 0x32461c,
     wheatGrain: 0xe8cb72,
@@ -36,6 +36,8 @@ const PALETTES = {
     hemi: 0.38,
     exposure: 0.92,
     skyGlow: 0.0,
+    cloud: 0x6a7898,
+    cloudOpacity: 0,
   },
   light: {
     sky: 0xe8f1fa,
@@ -44,16 +46,17 @@ const PALETTES = {
     fog: 0xe8f0f6,
     fogNear: 38,
     fogFar: 92,
-    soil: 0x8a6a28,
-    fieldLow: 0x6a9a28,
-    fieldHigh: 0xe8c547,
+    soil: 0xd2b07a,
+    fieldLow: 0x8bb34a,
+    fieldHigh: 0xf0d060,
     wheatTip: 0xffe07a,
     wheatStem: 0x7aa832,
     wheatGrain: 0xffcc4a,
     particle: 0xffe9a0,
     sun: 0xfff1cc,
     moon: 0xffffff,
-    cloud: 0xffffff,
+    cloud: 0xf7f3ec,
+    cloudOpacity: 0.88,
     ambient: 0.58,
     sunIntensity: 1.48,
     fill: 0xb8d4f0,
@@ -69,6 +72,28 @@ const PALETTES = {
 
 function getPalette(theme) {
   return theme === 'light' ? PALETTES.light : PALETTES.dark;
+}
+
+function isSafariEngine() {
+  return document.documentElement.classList.contains('engine-safari');
+}
+
+function lockSrgbOutput(renderer) {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const gl = renderer.getContext();
+  if (!gl) return;
+  try {
+    if ('drawingBufferColorSpace' in gl) gl.drawingBufferColorSpace = 'srgb';
+    if ('unpackColorSpace' in gl) gl.unpackColorSpace = 'srgb';
+  } catch (_) {
+    /* older WebKit */
+  }
+}
+
+function exposureFor(palette) {
+  const base = palette.exposure;
+  // Safari's default P3 drawing buffer makes ACES output look washed; keep sRGB and a slightly denser exposure.
+  return isSafariEngine() ? base * 0.94 : base;
 }
 
 function lerpNum(a, b, t) {
@@ -179,6 +204,132 @@ const STAR_FRAG = /* glsl */ `
   }
 `;
 
+const CLOUD_VERT = /* glsl */ `
+  varying vec2 vUv;
+  varying float vFogDepth;
+  void main() {
+    vUv = uv;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vFogDepth = -mvPosition.z;
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+const CLOUD_FRAG = /* glsl */ `
+  uniform sampler2D uMap;
+  uniform vec3 uZenith;
+  uniform vec3 uHorizon;
+  uniform vec3 uHaze;
+  uniform vec3 uTint;
+  uniform vec3 uSunDir;
+  uniform float uOpacity;
+  uniform float uSunGlow;
+  uniform vec3 fogColor;
+  uniform float fogNear;
+  uniform float fogFar;
+  varying vec2 vUv;
+  varying float vFogDepth;
+
+  void main() {
+    float a = texture2D(uMap, vUv).a;
+    if (a < 0.02) discard;
+
+    vec3 sky = mix(uHorizon, uZenith, smoothstep(0.18, 0.88, vUv.y));
+    vec3 col = mix(sky, uTint, 0.72);
+    col = mix(col, vec3(1.0, 0.99, 0.96), 0.38);
+
+    float belly = smoothstep(0.72, 0.22, vUv.y);
+    col = mix(col, mix(uTint, uHaze, 0.28), belly * 0.16 * uSunGlow);
+    col += vec3(1.0, 0.96, 0.88) * smoothstep(0.35, 0.95, vUv.y) * uSunGlow * 0.06;
+
+    float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+    col = mix(col, fogColor, fogFactor * 0.35);
+    a *= uOpacity * (1.0 - fogFactor * 0.28);
+
+    gl_FragColor = vec4(col * a, a);
+  }
+`;
+
+function drawCloudLobe(ctx, x, y, rx, ry, alpha) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry));
+  g.addColorStop(0, `rgba(255,255,255,${alpha})`);
+  g.addColorStop(0.55, `rgba(255,255,255,${alpha * 0.96})`);
+  g.addColorStop(0.82, `rgba(255,255,255,${alpha * 0.42})`);
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function makeCloudTexture(variant = 0) {
+  const w = 512;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  const layouts = [
+    [
+      [0.50, 0.70, 0.40, 0.20, 0.95],
+      [0.28, 0.54, 0.16, 0.18, 0.9],
+      [0.42, 0.42, 0.18, 0.22, 0.95],
+      [0.58, 0.40, 0.20, 0.24, 1],
+      [0.73, 0.52, 0.15, 0.18, 0.88],
+      [0.50, 0.56, 0.17, 0.16, 0.82],
+    ],
+    [
+      [0.50, 0.72, 0.42, 0.18, 0.94],
+      [0.24, 0.58, 0.14, 0.16, 0.86],
+      [0.38, 0.44, 0.17, 0.20, 0.94],
+      [0.54, 0.38, 0.19, 0.23, 1],
+      [0.70, 0.46, 0.16, 0.19, 0.9],
+      [0.82, 0.60, 0.12, 0.14, 0.8],
+    ],
+    [
+      [0.50, 0.68, 0.36, 0.19, 0.92],
+      [0.32, 0.50, 0.18, 0.20, 0.93],
+      [0.50, 0.40, 0.20, 0.24, 1],
+      [0.68, 0.50, 0.17, 0.19, 0.9],
+      [0.44, 0.58, 0.14, 0.14, 0.8],
+    ],
+  ];
+
+  for (const [nx, ny, nrx, nry, a] of layouts[variant % layouts.length]) {
+    drawCloudLobe(ctx, nx * w, ny * h, nrx * w, nry * h, a);
+  }
+
+  ctx.globalCompositeOperation = 'destination-in';
+  const cut = ctx.createLinearGradient(0, h * 0.18, 0, h);
+  cut.addColorStop(0, 'rgba(0,0,0,0)');
+  cut.addColorStop(0.16, 'rgba(0,0,0,0.85)');
+  cut.addColorStop(0.34, 'rgba(0,0,0,1)');
+  cut.addColorStop(0.8, 'rgba(0,0,0,1)');
+  cut.addColorStop(0.93, 'rgba(0,0,0,0)');
+  ctx.fillStyle = cut;
+  ctx.fillRect(0, 0, w, h);
+
+  const image = ctx.getImageData(0, 0, w, h);
+  const px = image.data;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = 255;
+    px[i + 1] = 255;
+    px[i + 2] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.premultiplyAlpha = true;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function makeCelestialTexture(kind) {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -272,12 +423,91 @@ function createSkySprite(texture, scale) {
 }
 
 function terrainHeight(x, z) {
-  return (
+  const hills =
     Math.sin(x * 0.11) * 1.55 +
     Math.cos(z * 0.09) * 1.2 +
     Math.sin((x + z) * 0.065) * 0.7 +
-    Math.cos(x * 0.04 - z * 0.05) * 0.35
-  );
+    Math.cos(x * 0.04 - z * 0.05) * 0.35;
+  // Fine soil clods / plow ridges — visible up close, does not change the skyline.
+  const clods =
+    Math.sin(x * 1.35 + z * 0.62) * 0.045 +
+    Math.cos(x * 0.88 - z * 1.18) * 0.032 +
+    Math.sin(x * 2.4 + z * 1.9) * 0.018;
+  const furrows = Math.sin(x * 0.72 + z * 0.28) * 0.055;
+  return hills + clods + furrows;
+}
+
+function makeSoilTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Sunlit cultivated loam — straw-gold, not wet dark earth
+  ctx.fillStyle = '#c8a878';
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft dry / wet patches
+  for (let i = 0; i < 18; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 36 + Math.random() * 80;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const warm = Math.random() > 0.4;
+    g.addColorStop(0, warm ? 'rgba(232, 200, 130, 0.3)' : 'rgba(176, 150, 96, 0.2)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fine grain
+  const img = ctx.getImageData(0, 0, size, size);
+  const px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const n = (Math.random() - 0.5) * 22;
+    px[i] = Math.max(0, Math.min(255, px[i] + n + 6));
+    px[i + 1] = Math.max(0, Math.min(255, px[i + 1] + n * 0.9 + 4));
+    px[i + 2] = Math.max(0, Math.min(255, px[i + 2] + n * 0.45));
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Straw flecks and small clods
+  for (let i = 0; i < 260; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 0.7 + Math.random() * 2.1;
+    const straw = Math.random() > 0.45;
+    ctx.fillStyle = straw
+      ? `rgba(${215 + Math.floor(Math.random() * 35)}, ${175 + Math.floor(Math.random() * 30)}, ${95 + Math.floor(Math.random() * 30)}, 0.35)`
+      : `rgba(${150 + Math.floor(Math.random() * 40)}, ${120 + Math.floor(Math.random() * 28)}, ${70 + Math.floor(Math.random() * 20)}, 0.22)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.4 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Soft plow strokes
+  ctx.strokeStyle = 'rgba(196, 158, 86, 0.16)';
+  ctx.lineWidth = 1.1;
+  for (let i = 0; i < 16; i++) {
+    const y = (i / 16) * size + Math.random() * 8;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= size; x += 32) {
+      ctx.lineTo(x, y + Math.sin(x * 0.04 + i) * 3.5);
+    }
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 const WHEAT_VERT = /* glsl */ `
@@ -532,15 +762,12 @@ export function initRiumBackground(containerId = 'riumBackground') {
   const container = document.getElementById(containerId);
   if (!container) return null;
 
-  const reducedMotion = typeof window.matchMedia === 'function'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let palette = getPalette(getTheme());
   let mouseX = 0;
   let mouseY = 0;
   let rafId = 0;
   let visible = !document.hidden;
-  // The dashboard keeps the background behind the glass shell; callers can pause it while
-  // the full-screen farm monitor owns the GPU canvas.
   let externallyVisible = true;
 
   const scene = new THREE.Scene();
@@ -551,11 +778,11 @@ export function initRiumBackground(containerId = 'riumBackground') {
   camera.position.set(0, 2.25, 4.8);
   camera.lookAt(0, 1.45, -0.8);
 
-  let bootMode = false;
-  let bootP = 1;
-  let bootPTarget = 1;
-  let bootHUD = 1;
-  let bootLabel = '背景就绪';
+  let bootMode = true;
+  let bootP = 0.06;
+  let bootPTarget = 0.08;
+  let bootHUD = 0.06;
+  let bootLabel = '正在唤醒田野…';
   const bootStepEls = () => document.querySelectorAll('[data-boot-step]');
   const BOOT_STEP_THRESHOLDS = {
     scene: 0,
@@ -578,17 +805,19 @@ export function initRiumBackground(containerId = 'riumBackground') {
     camera.updateProjectionMatrix();
   }
 
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
   const renderer = new THREE.WebGLRenderer({
-    antialias: true,
+    antialias: pixelRatio < 1.5,
     alpha: false,
+    stencil: false,
     powerPreference: 'high-performance',
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setClearColor(palette.sky, 1);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = palette.exposure;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMappingExposure = exposureFor(palette);
+  lockSrgbOutput(renderer);
   container.appendChild(renderer.domElement);
 
   const hemi = new THREE.HemisphereLight(palette.zenith, palette.soil, palette.hemi);
@@ -681,36 +910,54 @@ export function initRiumBackground(containerId = 'riumBackground') {
   scene.add(stars);
 
   const clouds = new THREE.Group();
-  const cloudMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+  const cloudMaps = [makeCloudTexture(0), makeCloudTexture(1), makeCloudTexture(2)];
+  const cloudMat = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([
+      THREE.UniformsLib.fog,
+      {
+        uMap: { value: cloudMaps[0] },
+        uZenith: { value: new THREE.Color(palette.zenith) },
+        uHorizon: { value: new THREE.Color(palette.horizon) },
+        uHaze: { value: new THREE.Color(palette.haze) },
+        uTint: { value: new THREE.Color(palette.cloud ?? 0xf7f3ec) },
+        uSunDir: { value: new THREE.Vector3(0.55, 0.62, -0.55).normalize() },
+        uOpacity: { value: palette.cloudOpacity ?? 0.88 },
+        uSunGlow: { value: palette.skyGlow },
+      },
+    ]),
+    vertexShader: CLOUD_VERT,
+    fragmentShader: CLOUD_FRAG,
     transparent: true,
-    opacity: 0.94,
-    fog: false,
     depthWrite: false,
+    fog: true,
+    premultipliedAlpha: true,
   });
-  const cloudGeo = new THREE.SphereGeometry(1, 8, 6);
+  const cloudGeo = new THREE.PlaneGeometry(1, 1);
   const cloudLayouts = [
-    [18, 16, -28, 4.2, 1.4, 2.6],
-    [-12, 14, -34, 5.0, 1.6, 3.0],
-    [6, 18, -40, 3.4, 1.2, 2.2],
-    [-24, 15, -22, 3.8, 1.3, 2.4],
-    [30, 17, -18, 4.6, 1.5, 2.8],
-    [-4, 20, -46, 6.0, 1.8, 3.4],
-    [14, 13, -16, 2.8, 1.0, 1.8],
+    [-22, 13.4, -38, 16.5, 6.4, 0],
+    [6, 14.8, -44, 18.5, 7.0, 1],
+    [24, 13.0, -34, 13.5, 5.2, 2],
+    [-8, 16.2, -50, 20.0, 7.4, 1],
+    [16, 12.6, -26, 11.5, 4.6, 0],
   ];
-  for (const [x, y, z, sx, sy, sz] of cloudLayouts) {
-    const puff = new THREE.Group();
-    for (let i = 0; i < 4; i++) {
-      const m = new THREE.Mesh(cloudGeo, cloudMat);
-      m.position.set((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 1.4);
-      m.scale.set(0.7 + Math.random() * 0.8, 0.45 + Math.random() * 0.3, 0.7 + Math.random() * 0.6);
-      puff.add(m);
-    }
-    puff.position.set(x, y, z);
-    puff.scale.set(sx, sy, sz);
-    clouds.add(puff);
-  }
+  const cloudMaterials = cloudLayouts.map(([, , , , , variant]) => {
+    const mat = cloudMat.clone();
+    mat.uniforms.uMap.value = cloudMaps[variant];
+    return mat;
+  });
+  cloudLayouts.forEach(([x, y, z, sx, sy], i) => {
+    const mesh = new THREE.Mesh(cloudGeo, cloudMaterials[i]);
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, 1);
+    clouds.add(mesh);
+  });
   scene.add(clouds);
+
+  function faceCloudsToCamera() {
+    for (const mesh of clouds.children) {
+      mesh.lookAt(camera.position.x, mesh.position.y, camera.position.z);
+    }
+  }
 
   function syncSkyDirections() {
     sunSprite.getWorldPosition(sunDirWorld);
@@ -719,6 +966,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
     moonDirWorld.sub(camera.position).normalize();
     skyMat.uniforms.uSunDir.value.copy(sunDirWorld);
     skyMat.uniforms.uMoonDir.value.copy(moonDirWorld);
+    for (const mat of cloudMaterials) mat.uniforms.uSunDir.value.copy(sunDirWorld);
     const dayAmt = skyMat.uniforms.uSunGlow.value;
     wheatMat.uniforms.uSunDir.value.copy(dayAmt > 0.45 ? sunDirWorld : moonDirWorld);
   }
@@ -748,7 +996,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
   const world = new THREE.Group();
   scene.add(world);
 
-  const terrainGeo = new THREE.PlaneGeometry(72, 56, 72, 48);
+  const terrainGeo = new THREE.PlaneGeometry(72, 56, 96, 64);
   terrainGeo.rotateX(-Math.PI / 2);
   const terrainPos = terrainGeo.attributes.position;
   const terrainColors = new Float32Array(terrainPos.count * 3);
@@ -762,8 +1010,13 @@ export function initRiumBackground(containerId = 'riumBackground') {
     const z = terrainPos.getZ(i);
     const y = terrainHeight(x, z);
     terrainPos.setY(i, y);
-    tmpColor.copy(fieldLow).lerp(fieldHigh, THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1));
-    tmpColor.lerp(soil, 0.18);
+    const heightT = THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1);
+    const furrow = 0.5 + 0.5 * Math.sin(x * 0.72 + z * 0.28);
+    tmpColor.copy(fieldLow).lerp(fieldHigh, 0.42 + heightT * 0.5);
+    // Only furrow bottoms show a touch of bare soil; ridges stay green.
+    tmpColor.lerp(soil, 0.06 * (1 - furrow));
+    const grit = 0.97 + ((Math.sin(x * 7.1 + z * 5.3) * 0.5 + 0.5) * 0.06);
+    tmpColor.multiplyScalar(grit);
     terrainColors[i * 3] = tmpColor.r;
     terrainColors[i * 3 + 1] = tmpColor.g;
     terrainColors[i * 3 + 2] = tmpColor.b;
@@ -771,11 +1024,14 @@ export function initRiumBackground(containerId = 'riumBackground') {
   terrainGeo.setAttribute('color', new THREE.BufferAttribute(terrainColors, 3));
   terrainGeo.computeVertexNormals();
 
-  const terrainMat = new THREE.MeshPhongMaterial({
+  const soilMap = makeSoilTexture();
+  soilMap.wrapS = THREE.RepeatWrapping;
+  soilMap.wrapT = THREE.RepeatWrapping;
+  soilMap.repeat.set(18, 14);
+  const terrainMat = new THREE.MeshLambertMaterial({
+    map: soilMap,
     vertexColors: true,
-    shininess: 8,
-    specular: 0x1a1810,
-    flatShading: false,
+    color: 0xffffff,
   });
   const terrain = new THREE.Mesh(terrainGeo, terrainMat);
   world.add(terrain);
@@ -831,16 +1087,16 @@ export function initRiumBackground(containerId = 'riumBackground') {
   underMat.uniforms.uRimColor = wheatMat.uniforms.uRimColor;
   underMat.uniforms.uDay = wheatMat.uniforms.uDay;
 
-  const wheatCols = 100;
-  const wheatRows = 70;
+  const wheatCols = 120;
+  const wheatRows = 84;
   const wheat = new THREE.InstancedMesh(wheatGeo, wheatMat, wheatCols * wheatRows);
-  scatterInstances(wheat, wheatCols, wheatRows, 60, 44, 0.22, 0.94, 0.36, 1.08);
+  scatterInstances(wheat, wheatCols, wheatRows, 68, 52, 0.2, 0.94, 0.36, 1.08);
   world.add(wheat);
 
-  const underCols = 96;
-  const underRows = 66;
+  const underCols = 112;
+  const underRows = 78;
   const undergrowth = new THREE.InstancedMesh(underGeo, underMat, underCols * underRows);
-  scatterInstances(undergrowth, underCols, underRows, 58, 42, 0.18, 0.7, 0.35, 0.72);
+  scatterInstances(undergrowth, underCols, underRows, 66, 50, 0.16, 0.7, 0.35, 0.72);
   world.add(undergrowth);
 
   const pollenCount = 140;
@@ -876,7 +1132,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
     scene.fog.near = palette.fogNear;
     scene.fog.far = palette.fogFar;
     renderer.setClearColor(palette.sky, 1);
-    renderer.toneMappingExposure = palette.exposure;
+    renderer.toneMappingExposure = exposureFor(palette);
     hemi.color.setHex(palette.zenith);
     hemi.groundColor.setHex(palette.soil);
     hemi.intensity = palette.hemi;
@@ -892,6 +1148,13 @@ export function initRiumBackground(containerId = 'riumBackground') {
     skyMat.uniforms.uHaze.value.setHex(palette.haze);
     skyMat.uniforms.uSunGlow.value = sunGlow;
     skyMat.uniforms.uMoonGlow.value = moonGlow;
+    for (const mat of cloudMaterials) {
+      mat.uniforms.uZenith.value.setHex(palette.zenith);
+      mat.uniforms.uHorizon.value.setHex(palette.horizon);
+      mat.uniforms.uHaze.value.setHex(palette.haze);
+      mat.uniforms.uTint.value.setHex(palette.cloud ?? palette.horizon);
+      mat.uniforms.uSunGlow.value = sunGlow;
+    }
     wheatMat.uniforms.uColorA.value.setHex(palette.wheatTip);
     wheatMat.uniforms.uColorB.value.setHex(palette.wheatStem);
     wheatMat.uniforms.uColorHead.value.setHex(palette.wheatGrain);
@@ -923,7 +1186,9 @@ export function initRiumBackground(containerId = 'riumBackground') {
       sunSprite.material.opacity = Math.pow(sg, 0.85);
       moonSprite.material.opacity = Math.pow(mg, 0.85);
       clouds.visible = sg > 0.06;
-      cloudMat.opacity = 0.94 * sg;
+      for (const mat of cloudMaterials) {
+        mat.uniforms.uOpacity.value = (palette.cloudOpacity ?? 0.88) * sg;
+      }
       stars.visible = mg > 0.06;
       pollen.visible = sg > 0.45;
       syncSkyDirections();
@@ -935,18 +1200,25 @@ export function initRiumBackground(containerId = 'riumBackground') {
       setDayNight(isDay);
     }
 
-    if (palette.cloud !== undefined && !transition) {
-      cloudMat.color.setHex(palette.cloud);
-      cloudMat.opacity = isDay ? 0.94 : 0;
+    if (!transition) {
+      for (const mat of cloudMaterials) {
+        mat.uniforms.uOpacity.value = isDay ? (palette.cloudOpacity ?? 0.88) : 0;
+      }
     }
 
     soil.setHex(palette.soil);
     fieldHigh.setHex(palette.fieldHigh);
     fieldLow.setHex(palette.fieldLow);
     for (let i = 0; i < terrainPos.count; i++) {
+      const x = terrainPos.getX(i);
+      const z = terrainPos.getZ(i);
       const y = terrainPos.getY(i);
-      tmpColor.copy(fieldLow).lerp(fieldHigh, THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1));
-      tmpColor.lerp(soil, 0.18);
+      const heightT = THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1);
+      const furrow = 0.5 + 0.5 * Math.sin(x * 0.72 + z * 0.28);
+      tmpColor.copy(fieldLow).lerp(fieldHigh, 0.42 + heightT * 0.5);
+      tmpColor.lerp(soil, 0.06 * (1 - furrow));
+      const grit = 0.97 + ((Math.sin(x * 7.1 + z * 5.3) * 0.5 + 0.5) * 0.06);
+      tmpColor.multiplyScalar(grit);
       terrainColors[i * 3] = tmpColor.r;
       terrainColors[i * 3 + 1] = tmpColor.g;
       terrainColors[i * 3 + 2] = tmpColor.b;
@@ -967,16 +1239,19 @@ export function initRiumBackground(containerId = 'riumBackground') {
       wheatMat.uniforms.uTime.value = time * (bootMode ? 0.72 : 1);
       starMat.uniforms.uTime.value = time;
       syncSkyDirections();
-      pollen.rotation.y = time * 0.02;
-      const pp = pollenGeo.attributes.position;
-      for (let i = 0; i < pollenCount; i++) {
-        const y = pp.getY(i) + Math.sin(time * 0.6 + i) * 0.004;
-        pp.setY(i, y > 8 ? 1.2 : y);
+      if (pollen.visible) {
+        pollen.rotation.y = time * 0.02;
+        const pp = pollenGeo.attributes.position;
+        for (let i = 0; i < pollenCount; i++) {
+          const y = pp.getY(i) + Math.sin(time * 0.6 + i) * 0.004;
+          pp.setY(i, y > 8 ? 1.2 : y);
+        }
+        pp.needsUpdate = true;
       }
-      pp.needsUpdate = true;
-      stars.rotation.y = time * 0.008;
-      clouds.position.x = Math.sin(time * 0.03) * 2.4;
+      if (stars.visible) stars.rotation.y = time * 0.008;
+      if (clouds.visible) clouds.position.x = Math.sin(time * 0.03) * 2.4;
     }
+    if (clouds.visible) faceCloudsToCamera();
 
     const bootDelta = bootPTarget - bootP;
     bootP += bootDelta * Math.min(0.09, 0.042 + Math.abs(bootDelta) * 0.14);
@@ -1030,8 +1305,12 @@ export function initRiumBackground(containerId = 'riumBackground') {
   function animate(t) {
     rafId = requestAnimationFrame(animate);
     const revealing = !bootMode && revealT < 1;
-    if (!visible || !externallyVisible) return;
-    renderFrame(t);
+    if ((!visible || !externallyVisible) && !bootMode && !revealing) return;
+    try {
+      renderFrame(t);
+    } catch (err) {
+      console.warn('[AgriLoop] scene render skipped', err);
+    }
   }
 
   function onResize() {
@@ -1051,7 +1330,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
 
   function onVisibilityChange() {
     visible = !document.hidden;
-    if (visible && externallyVisible && !reducedMotion) {
+    if (visible && !reducedMotion) {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(animate);
     }
@@ -1063,9 +1342,13 @@ export function initRiumBackground(containerId = 'riumBackground') {
   document.addEventListener('agriloop-theme-change', onThemeChange);
   document.addEventListener('visibilitychange', onVisibilityChange);
 
-  renderFrame(0);
+  try {
+    renderFrame(0);
+  } catch (err) {
+    console.warn('[AgriLoop] initial scene render failed', err);
+  }
   updateBootHud(bootHUD);
-  if (!reducedMotion) rafId = requestAnimationFrame(animate);
+  rafId = requestAnimationFrame(animate);
 
   function updateBootHud(progress) {
     const pct = Math.round(progress * 100);
@@ -1105,9 +1388,20 @@ export function initRiumBackground(containerId = 'riumBackground') {
     const target = Math.min(1, Math.max(0, min));
     if (bootHUD >= target && bootP >= target) return Promise.resolve();
     return new Promise((resolve) => {
+      const started = performance.now();
       const tick = () => {
-        if (bootHUD >= target && bootP >= target) resolve();
-        else requestAnimationFrame(tick);
+        if (bootHUD >= target && bootP >= target) {
+          resolve();
+          return;
+        }
+        if (performance.now() - started > 6000) {
+          bootP = Math.max(bootP, target);
+          bootHUD = Math.max(bootHUD, target);
+          updateBootHud(bootHUD);
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
       };
       tick();
     });
@@ -1127,7 +1421,12 @@ export function initRiumBackground(containerId = 'riumBackground') {
   fieldInstance = {
     setVisible(value) {
       externallyVisible = value !== false;
-      if (externallyVisible && visible && !reducedMotion && !rafId) rafId = requestAnimationFrame(animate);
+      if (!externallyVisible) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+        return;
+      }
+      if (visible && !reducedMotion && !rafId) rafId = requestAnimationFrame(animate);
     },
     setBootProgress,
     getBootProgress,
@@ -1152,8 +1451,11 @@ export function initRiumBackground(containerId = 'riumBackground') {
       starMat.dispose();
       cloudGeo.dispose();
       cloudMat.dispose();
+      for (const mat of cloudMaterials) mat.dispose();
+      for (const map of cloudMaps) map.dispose();
       terrainGeo.dispose();
       terrainMat.dispose();
+      soilMap.dispose();
       wheatGeo.dispose();
       wheatMat.dispose();
       underGeo.dispose();

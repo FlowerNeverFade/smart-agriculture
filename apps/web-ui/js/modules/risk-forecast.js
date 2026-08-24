@@ -5,8 +5,8 @@
  * 图表优先使用本地 vendored ECharts（vendor/echarts.min.js，离线可用）；
  * 若 window.echarts 缺失，自动回退到纯 SVG 渲染（charts.js）。
  */
-import { api } from '../api.js';
-import { MOCK_DATA } from '../mock-data.js';
+import { api } from '../api.js?v=20260824-module-v5';
+import { MOCK_DATA } from '../mock-data.js?v=20260824-module-v5';
 import { svgGauge, svgLineChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
 
 const BOUNDARY_COLOR = '#f85149';
@@ -43,6 +43,24 @@ function darkTooltip() {
  * 视图 1：未来风险预测推演 (renderRiskForecast)
  * ================================================================ */
 export async function renderRiskForecast(container, plotId) {
+  try {
+    return await paintRiskForecast(container, plotId);
+  } catch (error) {
+    console.error('[AgriLoop] risk-forecast render failed:', error);
+    container.innerHTML = `
+      <div class="agri-alert agri-alert-danger">
+        <div class="agri-alert-icon">⚠️</div>
+        <div>
+          <strong>预测视图渲染中断，已降级</strong>
+          <p>${escapeHtml(error?.message || error)}</p>
+          <p class="agri-meta-line">后端无足够遥测样本时会回退本地演示算法；若仍失败请强制刷新后再打开本模块。</p>
+        </div>
+      </div>`;
+    return () => {};
+  }
+}
+
+async function paintRiskForecast(container, plotId) {
   const loadingId = `rf-loading-${Date.now()}`;
   container.innerHTML = `
     <div class="agri-skeleton-wrap" id="${loadingId}">
@@ -54,33 +72,40 @@ export async function renderRiskForecast(container, plotId) {
 
   const data = await api.getRiskForecast(plotId, 'SOIL_MOISTURE');
   const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
-  if (!data || data.status !== 'AVAILABLE') {
+  const horizons = Array.isArray(data?.horizons) ? data.horizons : [];
+  const assumptions = Array.isArray(data?.assumptions) ? data.assumptions : [];
+  const curve = Array.isArray(data?.curve) ? data.curve : [];
+  const timeToRisk = Number.isFinite(Number(data?.timeToRiskMinutes)) ? Number(data.timeToRiskMinutes) : 240;
+  if (!data || data.status !== 'AVAILABLE' || !horizons.length || !curve.length) {
     container.innerHTML = `
       <div class="agri-alert agri-alert-danger">
         <div class="agri-alert-icon">🚫</div>
         <div>
           <strong>预测状态：UNAVAILABLE</strong>
           <p>${escapeHtml((data && data.reason) || '样本或阶段上下文不足，拒绝生成伪预测')}</p>
-          <p class="agri-meta-line">算法版本：${escapeHtml((data && data.algorithmVersion) || MOCK_DATA.riskForecastConfig.algorithmVersion)} · 按确定性策略弃权，不提供未来值</p>
+          <p class="agri-meta-line">算法版本：${escapeHtml((data && data.algorithmVersion) || MOCK_DATA.riskForecastConfig?.algorithmVersion || 'robust-trend-v1.2')} · 按确定性策略弃权，不提供未来值</p>
         </div>
       </div>`;
     return () => {};
   }
 
-  const fmtTime = new Date(data.generatedAt).toLocaleTimeString('zh-CN', { hour12: false });
-  const zone = data.timeToRiskMinutes < 60
+  const fmtTime = new Date(data.generatedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false });
+  const zone = timeToRisk < 60
     ? { label: '高危 · 立即处置', cls: 'agri-pill-danger' }
-    : data.timeToRiskMinutes < 150
+    : timeToRisk < 150
       ? { label: '警示 · 计划补水', cls: 'agri-pill-warn' }
       : { label: '安全 · 维持观察', cls: 'agri-pill-ok' };
+  const plotName = plot?.name || plotId || '示范地块';
+  const plotCrop = plot?.cropName || plot?.cropCode || '作物';
+  const plotStage = plot?.stageLabel || plot?.stageCode || '当前阶段';
 
   container.innerHTML = `
     <div class="agri-module rf-root">
 
       <div class="rf-header">
         <div>
-          <div class="agri-module-title">🔮 未来风险预测 · ${escapeHtml(plot.name)}</div>
-          <div class="agri-module-sub">${escapeHtml(plot.cropName)} · ${escapeHtml(plot.stageLabel)} · 指标 SOIL_MOISTURE · 输入窗口 ${data.inputWindowMinutes}min · 预测范围 ${data.forecastRangeMinutes}min</div>
+          <div class="agri-module-title">🔮 未来风险预测 · ${escapeHtml(plotName)}</div>
+          <div class="agri-module-sub">${escapeHtml(plotCrop)} · ${escapeHtml(plotStage)} · 指标 SOIL_MOISTURE · 输入窗口 ${data.inputWindowMinutes}min · 预测范围 ${data.forecastRangeMinutes}min</div>
         </div>
         <div class="rf-header-right">
           <button class="cmd-nav-btn" data-nav="scenario-replay">⚡ 情景模拟</button>
@@ -98,7 +123,7 @@ export async function renderRiskForecast(container, plotId) {
         </div>
 
         <div class="rf-horizons">
-          ${data.horizons.map(h => `
+          ${horizons.map(h => `
             <div class="agri-card rf-horizon-card">
               <div class="rf-horizon-head">
                 <span class="rf-horizon-label">+${h.minute} 分钟</span>
@@ -114,7 +139,7 @@ export async function renderRiskForecast(container, plotId) {
           <div class="agri-card rf-assumption-card">
             <div class="agri-card-title">🧾 推演假设与失效条件</div>
             <ul class="agri-kv-list">
-              ${data.assumptions.map(a => `<li><span class="agri-kv-key">假设</span><span>${escapeHtml(a)}</span></li>`).join('')}
+              ${assumptions.map(a => `<li><span class="agri-kv-key">假设</span><span>${escapeHtml(a)}</span></li>`).join('')}
               <li><span class="agri-kv-key">不确定性</span><span>${escapeHtml(data.uncertaintyNote)}</span></li>
             </ul>
           </div>
@@ -163,6 +188,7 @@ export async function renderRiskForecast(container, plotId) {
     return () => {};
   }
   if (gauge) {
+    try {
     gauge.setOption({
       series: [{
         type: 'gauge',
@@ -191,13 +217,29 @@ export async function renderRiskForecast(container, plotId) {
           offsetCenter: [0, '-48%']
         },
         title: { offsetCenter: [0, '-14%'], color: AXIS_COLOR, fontSize: 12 },
-        data: [{ value: data.timeToRiskMinutes, name: '分钟 · 触达极限胁迫边界' }]
+        data: [{ value: timeToRisk, name: '分钟 · 触达极限胁迫边界' }]
       }]
     });
     charts.push(gauge);
-  } else {
+    } catch (error) {
+      console.warn('Risk forecast gauge setOption failed:', error);
+      try { gauge.dispose(); } catch (e) { /* noop */ }
+      if (gaugeEl) {
+        gaugeEl.innerHTML = svgGauge({
+          width: 320, height: 190, value: timeToRisk, min: 0, max: 240,
+          unit: '分钟 · 触达极限胁迫边界',
+          format: v => v >= 240 ? '>240' : v,
+          zones: [
+            { from: 0, to: 60, color: BOUNDARY_COLOR },
+            { from: 60, to: 150, color: BASELINE_COLOR, opacity: 0.75 },
+            { from: 150, to: 240, color: '#3fb950', opacity: 0.6 }
+          ]
+        });
+      }
+    }
+  } else if (gaugeEl) {
     gaugeEl.innerHTML = svgGauge({
-      width: 320, height: 190, value: data.timeToRiskMinutes, min: 0, max: 240,
+      width: 320, height: 190, value: timeToRisk, min: 0, max: 240,
       unit: '分钟 · 触达极限胁迫边界',
       format: v => v >= 240 ? '>240' : v,
       zones: [
@@ -211,10 +253,11 @@ export async function renderRiskForecast(container, plotId) {
   const renderChart = async (horizon) => {
     // 视图已切换时放弃（异步 echarts 加载期间容器可能被清空）
     if (!container.isConnected || !container.querySelector('[data-role="horizon-toggles"]')) return;
-    const curve = data.curve.filter(p => p.minute <= horizon);
+    const seriesCurve = curve.filter(p => p.minute <= horizon);
+    if (!seriesCurve.length || !chartEl) return;
     const xMax = horizon;
-    const yMin = Math.max(Math.floor(Math.min(...curve.map(p => p.lower)) - 2), 0);
-    const yMax = Math.ceil(Math.max(...curve.map(p => p.upper)) + 2);
+    const yMin = Math.max(Math.floor(Math.min(...seriesCurve.map(p => p.lower)) - 2), 0);
+    const yMax = Math.ceil(Math.max(...seriesCurve.map(p => p.upper)) + 2);
 
     let chart = chartEl._agriEChart || await initEChart(chartEl);
     if (!container.isConnected || !container.querySelector('[data-role="horizon-toggles"]')) return;
@@ -224,7 +267,7 @@ export async function renderRiskForecast(container, plotId) {
       if (!chart._agriCustomTipAttached) {
         chart._agriCustomTipAttached = true;
         customTipCleanups.push(attachCustomTip(chart, (params) => {
-          const p = data.curve[params.dataIndex];
+          const p = curve[params.dataIndex];
           if (!p) return null;
           const tLabel = p.minute === 0 ? '现在' : `+${p.minute}min`;
           return `<div style="color:#8b949e">${tLabel}</div>
@@ -240,7 +283,7 @@ export async function renderRiskForecast(container, plotId) {
         xAxis: {
           type: 'category',
           boundaryGap: false,
-          data: curve.map(p => p.minute),
+          data: seriesCurve.map(p => p.minute),
           axisLine: { lineStyle: { color: '#30363d' } },
           axisLabel: { color: AXIS_COLOR, fontSize: 11, formatter: v => v === 0 ? '现在' : `+${v}min` },
           splitLine: { show: false }
@@ -253,20 +296,20 @@ export async function renderRiskForecast(container, plotId) {
         series: [
           {
             name: '置信带上界', type: 'line', stack: 'band',
-            data: curve.map(p => p.upper - p.lower),
+            data: seriesCurve.map(p => p.upper - p.lower),
             symbol: 'none', lineStyle: { opacity: 0 },
             areaStyle: { color: 'rgba(88, 166, 255, 0.14)' },
             tooltip: { show: false }
           },
           {
             name: '置信带下界', type: 'line', stack: 'band',
-            data: curve.map(p => p.lower),
+            data: seriesCurve.map(p => p.lower),
             symbol: 'none', lineStyle: { opacity: 0 },
             tooltip: { show: false }
           },
           {
             name: '期望值', type: 'line',
-            data: curve.map(p => p.expected),
+            data: seriesCurve.map(p => p.expected),
             symbol: 'circle', symbolSize: 4, showSymbol: false,
             lineStyle: { color: MEAN_COLOR, width: 2.4 },
             itemStyle: { color: MEAN_COLOR },
@@ -284,7 +327,7 @@ export async function renderRiskForecast(container, plotId) {
           {
             // 隐形宽线命中区：扩大鼠标靠近曲线的浮窗判定范围（±8px），不参与渲染
             name: '期望值命中区', type: 'line',
-            data: curve.map(p => p.expected),
+            data: seriesCurve.map(p => p.expected),
             symbol: 'none',
             lineStyle: { width: 16, opacity: 0 },
             tooltip: { show: false },
@@ -292,9 +335,16 @@ export async function renderRiskForecast(container, plotId) {
           }
         ]
       };
-      chart.setOption(option, true);
-      if (!charts.includes(chart)) charts.push(chart);
-    } else {
+      try {
+        chart.setOption(option, true);
+        if (!charts.includes(chart)) charts.push(chart);
+      } catch (error) {
+        console.warn('Risk forecast chart setOption failed:', error);
+        try { chart.dispose(); } catch (e) { /* noop */ }
+        chartEl._agriEChart = null;
+        chart = null;
+      }
+    } else if (chartEl) {
       chartEl.innerHTML = svgLineChart({
         width: 760, height: 330,
         xMin: 0, xMax, yMin, yMax,
@@ -303,11 +353,11 @@ export async function renderRiskForecast(container, plotId) {
         yTickCount: 5,
         series: [{
           name: '期望值', color: MEAN_COLOR, width: 2.4,
-          points: curve.map(p => [p.minute, p.expected])
+          points: seriesCurve.map(p => [p.minute, p.expected])
         }],
         bands: [{
-          upper: curve.map(p => [p.minute, p.upper]),
-          lower: curve.map(p => [p.minute, p.lower]),
+          upper: seriesCurve.map(p => [p.minute, p.upper]),
+          lower: seriesCurve.map(p => [p.minute, p.lower]),
           color: MEAN_COLOR, opacity: 0.14
         }],
         hMarkers: [
@@ -324,7 +374,7 @@ export async function renderRiskForecast(container, plotId) {
       window.location.hash = `view=${btn.dataset.nav}&plotId=${plotId}`;
     });
   });
-  toggles.addEventListener('click', (e) => {
+  toggles?.addEventListener('click', (e) => {
     const btn = e.target.closest('.rf-toggle-chip');
     if (!btn) return;
     toggles.querySelectorAll('.rf-toggle-chip').forEach(b => b.classList.remove('active'));
@@ -347,7 +397,9 @@ export async function renderRiskForecast(container, plotId) {
  * 视图 2：情景模拟器与双轨回放 (renderScenarioReplay)
  * ================================================================ */
 export async function renderScenarioReplay(container, plotId) {
-  const catalog = MOCK_DATA.riskForecastConfig.scenarioCatalog;
+  const catalog = Array.isArray(MOCK_DATA.riskForecastConfig?.scenarioCatalog)
+    ? MOCK_DATA.riskForecastConfig.scenarioCatalog
+    : [];
   let playTimer = null;
 
   container.innerHTML = `
@@ -425,7 +477,7 @@ export async function renderScenarioReplay(container, plotId) {
     disposeCharts();
   };
 
-  runBtn.addEventListener('click', async () => {
+  runBtn?.addEventListener('click', async () => {
     const seedRaw = String(seedInput.value).trim();
     if (seedRaw === '') {
       // 空种子必须拦截：缺失随机种子时推演不可复现，禁止运行

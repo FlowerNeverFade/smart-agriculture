@@ -2,9 +2,10 @@
  * AgriLoop Frontend - Main Application Controller
  * High-density operational dashboard with modular router & interactive closed-loop
  */
-import { MOCK_DATA } from './mock-data.js';
-import { api } from './api.js';
+import { MOCK_DATA } from './mock-data.js?v=20260824-module-v5';
+import { api } from './api.js?v=20260824-telemetry-fix';
 import { FarmMonitor } from './farm-monitor.js';
+import { PlotTelemetryView } from './plot-telemetry-view.js';
 import { initParticles } from './particles.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
@@ -20,13 +21,14 @@ function redirectToLogin() {
 
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
+const SUBVIEW_ASSET = '20260824-module-v5';
 const SUBVIEW_RENDERERS = {
-  'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
-  'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
-  'value-ledger': async (container) => (await import('./modules/value-ledger.js')).renderValueLedger(container),
-  'crop-packs': async (container) => (await import('./modules/crop-packs.js')).renderCropPacks(container),
+  'risk-forecast': async (container, plotId) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderRiskForecast(container, plotId),
+  'scenario-replay': async (container, plotId) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderScenarioReplay(container, plotId),
+  'value-ledger': async (container) => (await import(`./modules/value-ledger.js?v=${SUBVIEW_ASSET}`)).renderValueLedger(container),
+  'crop-packs': async (container) => (await import(`./modules/crop-packs.js?v=${SUBVIEW_ASSET}`)).renderCropPacks(container),
   'work-orders': async (container, plotId, app) => {
-    const { renderWorkOrders } = await import('./modules/work-orders.js');
+    const { renderWorkOrders } = await import(`./modules/work-orders.js?v=${SUBVIEW_ASSET}`);
     return renderWorkOrders(container, {
       api,
       plots: app.state.plots,
@@ -36,7 +38,7 @@ const SUBVIEW_RENDERERS = {
     });
   },
   'resource-coordination': async (container, plotId, app) => {
-    const { renderResourceCoordination } = await import('./modules/work-orders.js');
+    const { renderResourceCoordination } = await import(`./modules/work-orders.js?v=${SUBVIEW_ASSET}`);
     return renderResourceCoordination(container, {
       api,
       plots: app.state.plots,
@@ -56,16 +58,19 @@ class AgriApp {
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
+      activeMainView: 'home',
       isLive: false,
       authenticated: api.isAuthenticated(),
       user: api.getUser(),
       backendAiMode: null,
-      simulator: { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' }
+      simulator: { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' },
+      rightRailCollapsed: false
     };
 
     this.dom = {};
     this.farmMonitor = null;
     this.riumBackground = null;
+    this.plotTelemetryView = new PlotTelemetryView(this);
     this._themeCleanup = null;
     this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
     this._lastHandledHash = null;  // hash 路由幂等去重
@@ -78,6 +83,7 @@ class AgriApp {
     }
 
     this.cacheDom();
+    this.initRightRailCollapse();
     this.bindEvents();
 
     // rium_dev 的主题事件与液态玻璃背景是可选增强；WebGL 不可用时不阻断主应用。
@@ -87,6 +93,7 @@ class AgriApp {
     if (webglAvailable) {
       try {
         this.riumBackground = initRiumBackground();
+        this.riumBackground?.setBootProgress?.(0.18, '渲染麦田场景…');
       } catch (error) {
         console.warn('Rium background unavailable; continuing with CSS glass shell:', error);
       }
@@ -97,6 +104,7 @@ class AgriApp {
     this._paletteCleanup = initCommandPalette(this);
 
     // Check backend connection
+    this.riumBackground?.setBootProgress?.(0.36, '连接后端服务…');
     this.state.isLive = await api.checkHealth();
     if (this.state.isLive) {
       if (!api.isAuthenticated() || !await api.restoreSession()) {
@@ -108,6 +116,7 @@ class AgriApp {
     this.updateSystemStatusPill();
 
     // Load initial data
+    this.riumBackground?.setBootProgress?.(0.54, '加载地块数据…');
     await this.loadOverview();
     await this.refreshSimulatorStatus(true);
     this.farmMonitor = new FarmMonitor({
@@ -117,15 +126,31 @@ class AgriApp {
         this.state.currentPlotId = plotId;
       }
     });
-    this.renderPlots();
-    this.renderFeed();
-    this.renderChangelog();
-    this.renderHomeSummary();
-    syncWaterVisuals(document);
-    this.handleRoute();
+    this.riumBackground?.setBootProgress?.(0.72, '初始化仪表盘…');
+    // 仪表盘渲染为非关键路径：任一子步骤抛错也不能让加载动画永久卡住。
+    try {
+      this.renderPlots();
+      this.renderFeed();
+      this.renderChangelog();
+      this.renderHomeSummary();
+      syncWaterVisuals(document);
+      this.handleRoute();
+      window.addEventListener('hashchange', () => this.handleRoute());
+    } catch (renderErr) {
+      console.error('[AgriLoop] dashboard render failed; continuing with loading teardown', renderErr);
+    }
 
-    window.addEventListener('hashchange', () => this.handleRoute());
-
+    this.riumBackground?.setBootProgress?.(1, '就绪');
+    try {
+      await this.riumBackground?.waitUntilBootProgress?.(0.94);
+      this.riumBackground?.revealFromBoot?.();
+    } catch (_) { /* ignore */ }
+    const appLoading = document.getElementById('appLoading');
+    if (appLoading) {
+      appLoading.classList.add('hidden');
+      setTimeout(() => appLoading.remove(), 900);
+    }
+    document.documentElement.classList.remove('is-booting');
   }
 
   cacheDom() {
@@ -169,6 +194,50 @@ class AgriApp {
     this.dom.simulatorStatusHint = document.getElementById('simulatorStatusHint');
     this.dom.btnToggleSimulator = document.getElementById('btnToggleSimulator');
     this.dom.btnRefreshSimulator = document.getElementById('btnRefreshSimulator');
+    this.dom.plotTelemetryPanel = document.getElementById('plotTelemetryPanel');
+    this.dom.homeFeedContent = document.getElementById('homeFeedContent');
+    this.dom.moduleContentPanel = document.getElementById('moduleContentPanel');
+    this.dom.moduleContentBody = document.getElementById('moduleContentBody');
+    this.dom.moduleContentIcon = document.getElementById('moduleContentIcon');
+    this.dom.moduleContentTitle = document.getElementById('moduleContentTitle');
+    this.dom.moduleContentDescription = document.getElementById('moduleContentDescription');
+    this.dom.moduleContentTag = document.getElementById('moduleContentTag');
+    this.dom.btnModuleBackHome = document.getElementById('btnModuleBackHome');
+    this.dom.appContainer = document.querySelector('.app-container');
+    this.dom.btnToggleRightRail = document.getElementById('btnToggleRightRail');
+    if (this.dom.plotTelemetryPanel) this.plotTelemetryView?.bind(this.dom.plotTelemetryPanel);
+  }
+
+  initRightRailCollapse() {
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem('agriloop-right-rail-collapsed') === '1';
+    } catch {
+      collapsed = false;
+    }
+    this.state.rightRailCollapsed = collapsed;
+    this.applyRightRailCollapsed(collapsed);
+  }
+
+  setRightRailCollapsed(collapsed) {
+    this.state.rightRailCollapsed = collapsed;
+    this.applyRightRailCollapsed(collapsed);
+    try {
+      localStorage.setItem('agriloop-right-rail-collapsed', collapsed ? '1' : '0');
+    } catch {
+      /* ignore storage failures */
+    }
+  }
+
+  applyRightRailCollapsed(collapsed) {
+    this.dom.appContainer?.classList.toggle('right-rail-collapsed', collapsed);
+    const btn = this.dom.btnToggleRightRail;
+    if (!btn) return;
+    btn.style.cssText = '';
+    btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    btn.title = collapsed ? '展开系统状态面板' : '收起系统状态面板';
+    const label = btn.querySelector('.right-rail-toggle-text');
+    if (label) label.textContent = collapsed ? '展开状态' : '收回';
   }
 
   bindEvents() {
@@ -182,6 +251,10 @@ class AgriApp {
 
     this.dom.btnToggleSimulator?.addEventListener('click', () => this.toggleSimulator());
     this.dom.btnRefreshSimulator?.addEventListener('click', () => this.refreshSimulatorStatus());
+    this.dom.btnModuleBackHome?.addEventListener('click', () => this.navigate('home'));
+    this.dom.btnToggleRightRail?.addEventListener('click', () => {
+      this.setRightRailCollapsed(!this.state.rightRailCollapsed);
+    });
 
     // Resource schedule click
     this.dom.btnViewResourceDetail?.addEventListener('click', () => {
@@ -242,6 +315,8 @@ class AgriApp {
       const view = item.dataset.view;
       if (view === 'home') {
         this.navigate('home');
+      } else if (view === 'plot-telemetry') {
+        this.showPlotTelemetryView(this.state.currentPlotId);
       } else {
         this.openSubview(view, { plotId: this.state.currentPlotId });
       }
@@ -486,14 +561,16 @@ class AgriApp {
     this.renderPlots(keyword);
   }
 
-  selectPlot(plotId) {
+  selectPlot(plotId, options = {}) {
     this.state.currentPlotId = plotId;
     const plot = this.state.plots.find(p => p.plotId === plotId);
     if (plot && this.dom.currentPlotContextBadge) {
       this.dom.currentPlotContextBadge.textContent = `/ 当前选中：${plot.name} (${plot.cropName} · ${plot.stageLabel})`;
     }
     this.renderPlots(this.dom.plotSearchInput?.value || '');
-    this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    if (!options.silent) {
+      this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    }
   }
 
   renderFeed() {
@@ -854,13 +931,14 @@ class AgriApp {
     if (!grid) return;
     const plots = this.state.plots || MOCK_DATA.plots;
     const plot = plots.find(item => item.plotId === 'plot-a01') || plots[0];
-    const cfg = MOCK_DATA.riskForecastConfig;
+    const cfg = MOCK_DATA.riskForecastConfig || {};
     const ledger = MOCK_DATA.valueLedger?.summary || {};
     const packs = MOCK_DATA.cropPackDetails || [];
     const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 20);
-    const boundary = Number(cfg?.stressBoundary ?? 14);
+    const boundary = Number(cfg.stressBoundary ?? 14);
+    const maxHorizon = Number(cfg.maxHorizonMinutes ?? 240);
     const k = Math.log(16.8 / boundary) / 72;
-    const ttr = moisture > boundary ? Math.min(Math.max(Math.round(Math.log(moisture / boundary) / k), 0), cfg.maxHorizonMinutes) : 0;
+    const ttr = moisture > boundary ? Math.min(Math.max(Math.round(Math.log(moisture / boundary) / k), 0), maxHorizon) : 0;
     const zone = ttr < 60 ? 'danger' : ttr < 150 ? 'warn' : 'ok';
     const farmLabel = plot?.name || '温室 1 号棚';
     const totalSaved = Number(ledger.totalSavedRmb ?? 0);
@@ -870,7 +948,7 @@ class AgriApp {
       <div class="home-summary-card" data-view="risk-forecast" title="打开未来风险预测推演">
         <div class="hs-icon">🔮</div><div class="hs-body">
           <div class="hs-title">未来风险 · ${this.escapeHtml(farmLabel)}</div>
-          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= cfg.maxHorizonMinutes ? '&gt;240' : ttr} 分钟</div>
+          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= maxHorizon ? '&gt;240' : ttr} 分钟</div>
           <div class="hs-sub">当前湿度 ${moisture}% · 极限边界 ${boundary}%</div>
         </div><span class="hs-go">→</span>
       </div>
@@ -905,10 +983,13 @@ class AgriApp {
     const view = params.get('view');
     const plotId = params.get('plotId') || this.state.currentPlotId;
 
-    if (view && view !== 'home') {
+    if (view === 'plot-telemetry') {
+      this.showPlotTelemetryView(plotId, { updateHash: false });
+    } else if (view && view !== 'home') {
       this.openSubview(view, { plotId, updateHash: false });
     } else {
       this.closeModal(false);
+      this.showHomeView({ updateHash: false });
     }
   }
 
@@ -939,6 +1020,7 @@ class AgriApp {
     if (viewName === 'home') {
       this._setHash('', true);
       this.closeModal(false);
+      this.showHomeView({ updateHash: false });
     } else {
       this._setHash(new URLSearchParams({ view: viewName, ...params }).toString());
     }
@@ -964,6 +1046,7 @@ class AgriApp {
 
     this.farmMonitor?.close(false);
     this.riumBackground?.setVisible(true);
+    this.plotTelemetryView?.close();
     this.cleanupActiveSubview();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
@@ -973,19 +1056,28 @@ class AgriApp {
     };
 
     const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
-
-    this.dom.modalIcon.textContent = this.getViewIcon(viewName);
-    this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
-    this.dom.modalTag.textContent = meta.status;
+    this.dom.subviewModal.classList.remove('active');
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = false;
+    if (this.dom.moduleContentIcon) this.dom.moduleContentIcon.textContent = this.getViewIcon(viewName);
+    if (this.dom.moduleContentTitle) this.dom.moduleContentTitle.textContent = `${meta.title} · 【${plot?.name || '示范农场'}】`;
+    if (this.dom.moduleContentDescription) this.dom.moduleContentDescription.textContent = meta.desc || '功能模块';
+    if (this.dom.moduleContentTag) this.dom.moduleContentTag.textContent = meta.status || '模块已就绪';
+    this.state.activeMainView = viewName;
 
     // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图。
     const renderer = SUBVIEW_RENDERERS[viewName];
     this._subviewGen = (this._subviewGen || 0) + 1;
     const viewGen = this._subviewGen;
+    const body = this.dom.moduleContentBody;
+    if (!body) {
+      console.error('[AgriLoop] moduleContentBody missing; cannot render', viewName);
+      return;
+    }
     if (renderer) {
-      this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
-      this.dom.subviewModal.classList.add('active');
-      Promise.resolve(renderer(this.dom.modalDynamicContent, plotId, this)).then(cleanup => {
+      body.innerHTML = '<div class="agri-module-loading">正在加载功能模块…</div>';
+      Promise.resolve(renderer(body, plotId, this)).then(cleanup => {
         if (viewGen !== this._subviewGen) {
           if (typeof cleanup === 'function') cleanup();
           return;
@@ -993,14 +1085,13 @@ class AgriApp {
         if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
       }).catch(error => {
         if (viewGen !== this._subviewGen) return;
-        this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
+        console.error(`[AgriLoop] module ${viewName} failed:`, error);
+        body.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
       });
     } else {
-      // Render Contextual Data Preview
-      this.renderSubviewContextualContent(viewName, plot);
+      this.renderSubviewContextualContent(viewName, plot, body);
     }
 
-    this.dom.subviewModal.classList.add('active');
     this.dom.headerCurrentView.textContent = meta.title.split(' ')[0];
 
     // Highlight left nav item
@@ -1012,6 +1103,7 @@ class AgriApp {
     if (this._savedScrollPos === null) {
       this._savedScrollPos = { x: window.scrollX || 0, y: window.scrollY || 0 };
     }
+    document.getElementById('mainFeedArea')?.scrollTo?.({ top: 0, behavior: 'smooth' });
 
     if (options.updateHash !== false) {
       this._setHash(new URLSearchParams({ view: viewName, plotId }).toString());
@@ -1030,6 +1122,12 @@ class AgriApp {
     this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
+    this.plotTelemetryView?.close();
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
+    this.state.activeMainView = 'home';
     this.riumBackground?.setVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1050,6 +1148,41 @@ class AgriApp {
     }
   }
 
+  showPlotTelemetryView(plotId, options = {}) {
+    this.closeModal(false);
+    this.farmMonitor?.close(false);
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = false;
+    this.state.activeMainView = 'plot-telemetry';
+    if (plotId) this.state.currentPlotId = plotId;
+    this.dom.headerCurrentView.textContent = '地块监测数据时序可视化';
+    document.querySelectorAll('.module-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.view === 'plot-telemetry');
+    });
+    void this.plotTelemetryView?.open(plotId || this.state.currentPlotId);
+    if (options.updateHash !== false) {
+      this._setHash(new URLSearchParams({ view: 'plot-telemetry', plotId: plotId || this.state.currentPlotId }).toString());
+    }
+  }
+
+  showHomeView(options = {}) {
+    this.cleanupActiveSubview();
+    this.plotTelemetryView?.close();
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
+    this.state.activeMainView = 'home';
+    this.dom.headerCurrentView.textContent = 'Home (农智总览)';
+    document.querySelectorAll('.module-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.view === 'home');
+    });
+    if (options.updateHash !== false && window.location.hash) {
+      this._setHash('', true);
+    }
+  }
+
   getViewIcon(viewName) {
     const map = {
       'plot-detail': '📊',
@@ -1065,7 +1198,7 @@ class AgriApp {
     return map[viewName] || '🧩';
   }
 
-  renderSubviewContextualContent(viewName, plot) {
+  renderSubviewContextualContent(viewName, plot, container = this.dom.modalDynamicContent) {
     let contentHtml = '';
 
     if (viewName === 'plot-detail') {
@@ -1099,7 +1232,7 @@ class AgriApp {
       `;
     } else if (viewName === 'decision-passport') {
       contentHtml = `
-        <div style="background: var(--bg-canvas); border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; font-size: 12px;">
+        <div class="module-context-card">
           <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">🛡️ 决策审计护照链 (Audit Provenance)</div>
           <div style="display: flex; flex-direction: column; gap: 6px; color: var(--text-secondary);">
             <div>• 遥测输入 (OBSERVED): SOIL_MOISTURE 16.8% (200ms 新鲜度 / GOOD 质量)</div>
@@ -1112,7 +1245,17 @@ class AgriApp {
       `;
     }
 
-    this.dom.modalDynamicContent.innerHTML = contentHtml;
+    if (!contentHtml) {
+      contentHtml = `
+        <div class="module-placeholder-card">
+          <div class="module-placeholder-icon">${this.getViewIcon(viewName)}</div>
+          <h3>${this.escapeHtml(MOCK_DATA.subviewsMeta[viewName]?.title || viewName)}</h3>
+          <p>本模块的中心页面路由已接入，当前演示版本保留现有占位状态。</p>
+          <span class="module-badge">待验收</span>
+        </div>
+      `;
+    }
+    if (container) container.innerHTML = contentHtml;
   }
 
   escapeHtml(value) {
@@ -1142,5 +1285,16 @@ class AgriApp {
 // Instantiate and start app
 document.addEventListener('DOMContentLoaded', () => {
   const app = new AgriApp();
-  app.init();
+  // 兜底：无论 init() 成功还是抛错，加载动画都不能永久卡住。
+  const forceHideLoading = () => {
+    const el = document.getElementById('appLoading');
+    if (el) { el.classList.add('hidden'); setTimeout(() => el.remove(), 900); }
+    document.documentElement.classList.remove('is-booting');
+  };
+  // 12s 硬超时：即使 WebGL/网络完全卡死，也强制进入界面。
+  const bootTimeout = setTimeout(forceHideLoading, 12000);
+  app.init().catch((err) => {
+    console.error('[AgriLoop] app init failed', err);
+    forceHideLoading();
+  }).finally(() => clearTimeout(bootTimeout));
 });

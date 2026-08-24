@@ -38,22 +38,31 @@ function ensureEcharts() {
   if (typeof window !== 'undefined' && window.echarts) return Promise.resolve(window.echarts);
   if (!echartsLoading) {
     echartsLoading = new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = new URL('../vendor/echarts.min.js', import.meta.url).href;
-      const timer = setTimeout(() => {
-        console.warn('ECharts load timeout, using SVG fallback');
+      try {
+        if (typeof document === 'undefined' || !document.head) {
+          resolve(null);
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = new URL('../vendor/echarts.min.js', import.meta.url).href;
+        const timer = setTimeout(() => {
+          console.warn('ECharts load timeout, using SVG fallback');
+          resolve(null);
+        }, 1500);
+        script.onload = () => {
+          clearTimeout(timer);
+          resolve(window.echarts || null);
+        };
+        script.onerror = () => {
+          clearTimeout(timer);
+          console.warn('ECharts load failed, using SVG fallback');
+          resolve(null);
+        };
+        document.head.appendChild(script);
+      } catch (error) {
+        console.warn('ECharts inject failed, using SVG fallback:', error);
         resolve(null);
-      }, 1500);
-      script.onload = () => {
-        clearTimeout(timer);
-        resolve(window.echarts || null);
-      };
-      script.onerror = () => {
-        clearTimeout(timer);
-        console.warn('ECharts load failed, using SVG fallback');
-        resolve(null);
-      };
-      document.head.appendChild(script);
+      }
     });
   }
   return echartsLoading;
@@ -75,9 +84,10 @@ function isCanvasSupported() {
 }
 
 export async function initEChart(el) {
-  const echarts = await ensureEcharts();
-  if (!echarts) return null;
+  if (!el || (typeof el.isConnected === 'boolean' && !el.isConnected)) return null;
   try {
+    const echarts = await ensureEcharts();
+    if (!echarts || !el.isConnected) return null;
     return echarts.init(el, null, isCanvasSupported() ? undefined : { renderer: 'svg' });
   } catch (e) {
     console.warn('ECharts init failed, falling back to SVG renderer:', e);

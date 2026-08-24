@@ -1,6 +1,14 @@
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=20260824-module-v5';
 
-const profile = MOCK_DATA.resourceProfile;
+const profile = MOCK_DATA?.resourceProfile || {
+  dailyLimitLitres: 5000,
+  usedTodayLitres: 1240,
+  remainingLitres: 3760,
+  capacityLitres: 900,
+  flowRateLitresPerMinute: 18,
+  activeConflicts: 0,
+  status: 'FEASIBLE'
+};
 const resourceState = {
   dailyLimitLitres: Number(profile.dailyLimitLitres || 0),
   usedTodayLitres: Number(profile.usedTodayLitres || 0),

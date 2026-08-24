@@ -4,11 +4,16 @@
  * depth, translucent surfaces, and day/night background hand-off.
  */
 :root {
-  --rium-glass-blur: 18px;
-  --rium-glass-saturation: 145%;
-  --rium-glass-border: rgba(255, 255, 255, .16);
-  --rium-glass-highlight: rgba(255, 255, 255, .24);
-  --rium-glass-shadow: 0 18px 58px rgba(0, 0, 0, .22);
+  /* Transparent glass: sheen + tint only — no backdrop blur. */
+  --rium-glass-blur: 0px;
+  --rium-glass-saturation: 100%;
+  --rium-glass-border: rgba(255, 255, 255, .18);
+  --rium-glass-highlight: rgba(255, 255, 255, .28);
+  --rium-glass-shadow: 0 14px 40px rgba(0, 0, 0, .18);
+  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 42%, transparent);
+  --rium-glass-sheen:
+    linear-gradient(125deg, rgba(255, 255, 255, .16), transparent 24% 72%, rgba(126, 211, 252, .07)),
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .12), transparent 34%);
 }
 
 [data-theme="light"] {
@@ -27,7 +32,8 @@
   --text-link: #0969da;
   --rium-glass-border: rgba(255, 255, 255, .68);
   --rium-glass-highlight: rgba(255, 255, 255, .82);
-  --rium-glass-shadow: 0 18px 58px rgba(60, 88, 116, .16);
+  --rium-glass-shadow: 0 14px 40px rgba(60, 88, 116, .14);
+  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 52%, transparent);
 }
 
 html,
@@ -92,11 +98,71 @@ body > .app-container {
   position: relative;
   overflow: hidden;
   border-color: var(--rium-glass-border);
-  background-color: color-mix(in srgb, var(--bg-surface) 72%, transparent);
-  -webkit-backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
-  backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
+  background-color: var(--rium-glass-fill);
+  background-image: var(--rium-glass-sheen);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
   transition: background-color .65s ease, border-color .65s ease, box-shadow .65s ease, color .65s ease;
+}
+
+.right-rail-panel,
+.right-rail-toggle {
+  border-color: var(--rium-glass-border);
+  background-color: color-mix(in srgb, var(--bg-surface) 38%, transparent);
+  background-image: var(--rium-glass-sheen);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
+}
+
+.right-rail-panel {
+  overflow: visible;
+}
+
+.right-rail-panel .system-status-card {
+  background-color: color-mix(in srgb, var(--bg-surface) 34%, transparent);
+  background-image: var(--rium-glass-sheen);
+  box-shadow: inset 0 1px 0 var(--rium-glass-highlight);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  overflow: visible;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+/* Center module shell: transparent glass fill, no blur. */
+.main-feed-module-header {
+  overflow: hidden;
+  border-color: var(--rium-glass-border);
+  background-color: color-mix(in srgb, var(--bg-surface) 44%, transparent);
+  background-image: var(--rium-glass-sheen);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
+}
+
+.main-feed-module-panel :is(
+  .agri-card,
+  .work-card,
+  .ops-role-card,
+  .resource-balance-panel,
+  .demand-panel,
+  .allocation-panel,
+  .execution-status-panel,
+  .module-context-card,
+  .module-placeholder-card
+) {
+  border-color: var(--rium-glass-border);
+  background-color: color-mix(in srgb, var(--bg-surface) 64%, transparent);
+  background-image:
+    linear-gradient(125deg, rgba(255, 255, 255, .12), transparent 25% 72%, rgba(126, 211, 252, .07)),
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .1), transparent 34%);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .14), inset 0 1px 0 var(--rium-glass-highlight);
+}
+
+.main-feed-module-panel :is(.agri-card, .work-card, .module-placeholder-card) > * {
+  position: relative;
+  z-index: 1;
 }
 
 .app-header::before,
@@ -130,9 +196,10 @@ body > .app-container {
 }
 
 .app-header {
-  background-color: color-mix(in srgb, var(--bg-surface) 62%, transparent);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
+  background-color: color-mix(in srgb, var(--bg-surface) 46%, transparent);
+  background-image: var(--rium-glass-sheen);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .app-container {
@@ -158,10 +225,11 @@ body > .app-container {
   border: 1px solid var(--rium-glass-border);
   border-radius: var(--radius-pill);
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 48%, transparent);
+  background-image: var(--rium-glass-sheen);
   cursor: pointer;
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .theme-toggle-btn:hover {

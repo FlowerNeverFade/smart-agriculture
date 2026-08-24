@@ -454,6 +454,15 @@ const DEFAULT_PLOTS = [
   }
 ];
 
+const TELEMETRY_METRICS = [
+  { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', color: '#3fb950', targetLow: 20, targetHigh: 45, amp: 3.2 },
+  { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', color: '#f85149', targetLow: 18, targetHigh: 32, amp: 2.4 },
+  { code: 'LIGHT', label: '光照强度', unit: 'lux', color: '#d29922', targetLow: null, targetHigh: null, amp: 1200 },
+  { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', color: '#58a6ff', targetLow: 350, targetHigh: 1200, amp: 80 },
+  { code: 'SOIL_EC', label: '土壤 EC', unit: 'mS/cm', color: '#a371f7', targetLow: 1.2, targetHigh: 2.8, amp: 0.3 },
+  { code: 'NPK_RATIO', label: 'NPK 比率', unit: '', color: '#39c5cf', targetLow: null, targetHigh: null, amp: 2 },
+];
+
 const clamp = (val, min, max) => Math.min(max, Math.max(min, val));
 const lerp = (a, b, t) => a + (b - a) * t;
 const smoothstep = (min, max, val) => {
@@ -709,6 +718,7 @@ class FarmWorld3D {
     this.onDoubleSelect = options.onDoubleSelect || (() => {});
     this.onSelectSlot = options.onSelectSlot || (() => {});
     this.onFrame = options.onFrame || (() => {});
+    this.onFatal = options.onFatal || (() => {});
 
     this.plotMeshes = new Map();
     this.plotGlows = new Map();
@@ -733,6 +743,10 @@ class FarmWorld3D {
     this.pointerMoved = false;
     this.frameCount = 0;
     this.isDestroyed = false;
+    this.isConstrainedDevice =
+      (navigator.deviceMemory && navigator.deviceMemory <= 4)
+      || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+    this.markerFrameInterval = this.isConstrainedDevice ? 8 : 4;
     this.clickTimer = null;
     this.performanceMode = 'smooth'; // 'smooth' (60FPS priority) vs 'ultra' (4K quality)
     this.fpsHistory = [];
@@ -748,7 +762,12 @@ class FarmWorld3D {
   }
 
   init() {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !this.isConstrainedDevice && (window.devicePixelRatio || 1) <= 1.5,
+      alpha: false,
+      stencil: false,
+      powerPreference: 'high-performance'
+    });
     // Default 1.0x native pixel ratio for 60+ FPS on all devices
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.0));
     this.renderer.setSize(this.host.clientWidth, this.host.clientHeight, false);
@@ -758,6 +777,12 @@ class FarmWorld3D {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
     this.renderer.domElement.className = 'farm-webgl-canvas';
+    this.handleContextLost = event => {
+      event.preventDefault();
+      cancelAnimationFrame(this.animationFrame);
+      this.onFatal(new Error('WebGL 上下文已丢失，请返回后重新进入 3D 场景'));
+    };
+    this.renderer.domElement.addEventListener('webglcontextlost', this.handleContextLost, false);
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -2432,7 +2457,7 @@ class FarmWorld3D {
     }
 
     // Event-driven / Throttled Raycasting
-    if (this.pointerMoved || this.frameCount % 4 === 0) {
+    if (this.pointerMoved) {
       this.raycaster.setFromCamera(this.pointer, this.camera);
       const hoverHits = this.raycaster.intersectObjects([...this.plotMeshes.values()], false);
       this.setHoveredPlot(hoverHits[0]?.object?.userData?.plotId || null);
@@ -2451,7 +2476,7 @@ class FarmWorld3D {
     }
 
     this.renderer.render(this.scene, this.camera);
-    if (this.frameCount % 3 === 0) this.projectPlotMarkers();
+    if (this.frameCount % this.markerFrameInterval === 0) this.projectPlotMarkers();
   };
 
   destroy() {
@@ -2463,6 +2488,7 @@ class FarmWorld3D {
     this.renderer?.domElement.removeEventListener('pointerleave', this.handlePointerLeave);
     this.renderer?.domElement.removeEventListener('click', this.handleClick);
     this.renderer?.domElement.removeEventListener('dblclick', this.handleDoubleClick);
+    this.renderer?.domElement.removeEventListener('webglcontextlost', this.handleContextLost);
     this.cropFields.forEach(field => field.destroy());
     this.scene?.traverse(object => {
       if (object.isMesh || object.isPoints || object.isInstancedMesh) {
@@ -2489,6 +2515,20 @@ export class FarmMonitor {
     this.locationLabel = '重庆 · 现代智慧农业生态示范园';
     this.isOpen = false;
     this.simulatedHour = null;
+    this.drumIndex = 0;
+    this.drumOffset = 0;
+    this._drumRadius = 0;
+    this._drumCardH = 0;
+    this._drumLaidOut = false;
+    this._drumAnim = null;
+    this._drumSnapTimer = null;
+    this._gestureAcc = 0;
+    this._gestureOrigin = 0;
+    this._suppressCardClick = false;
+    this.expandedMetric = null;
+    this._currentPanelPlot = null;
+    this._openToken = 0;
+    this._worldInitFrame = 0;
   }
 
   setPlots(plots) {
@@ -2502,6 +2542,7 @@ export class FarmMonitor {
       return;
     }
     this.isOpen = true;
+    const openToken = ++this._openToken;
     this.selectedPlotId = plotId || this.plots[0]?.plotId || 'plot-a01';
     document.body.classList.add('farm-monitor-open');
 
@@ -2514,29 +2555,55 @@ export class FarmMonitor {
     this.bindUi();
     this.createMarkers();
 
-    try {
-      this.world = new FarmWorld3D(this.dom.world, {
-        plots: this.plots,
-        onSelect: (id, origin) => this.selectPlot(id, origin),
-        onDoubleSelect: id => this.openSandbox(id),
-        onSelectSlot: (slotId, origin) => this.openReclamationWizard(slotId),
-        onFrame: data => this.updateProjectedUi(data)
-      });
-      this.world.init();
-      this.world.setSelectedPlot(this.selectedPlotId);
-      this.world.setWeather(this.weather);
-    } catch (error) {
-      console.error('[FarmMonitor] WebGL 启动异常:', error);
-    }
-
     this.startClock();
     this.resolveWeather();
-    requestAnimationFrame(() => this.shell?.classList.add('active'));
+    // Let the full-screen shell and loading state paint before the expensive
+    // geometry/shader setup blocks the main thread.
+    this._worldInitFrame = requestAnimationFrame(() => {
+      this.shell?.classList.add('active');
+      this._worldInitFrame = requestAnimationFrame(() => {
+        if (!this.isOpen || openToken !== this._openToken || !this.dom.world) return;
+        try {
+          this.world = new FarmWorld3D(this.dom.world, {
+            plots: this.plots,
+            onSelect: (id, origin) => this.selectPlot(id, origin),
+            onDoubleSelect: id => this.openSandbox(id),
+            onSelectSlot: (slotId, origin) => this.openReclamationWizard(slotId),
+            onFrame: data => this.updateProjectedUi(data),
+            onFatal: error => this.showWorldError(error)
+          });
+          this.world.init();
+          this.world.setSelectedPlot(this.selectedPlotId);
+          this.world.setWeather(this.weather);
+          this.shell?.classList.remove('is-world-loading');
+          this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+        } catch (error) {
+          console.error('[FarmMonitor] WebGL 启动异常:', error);
+          this.showWorldError(error);
+        }
+      });
+    });
+  }
+
+  showWorldError(error) {
+    const loading = this.shell?.querySelector('[data-world-loading]');
+    if (!loading) return;
+    loading.classList.remove('is-ready');
+    loading.classList.add('is-error');
+    const title = loading.querySelector('strong');
+    const detail = loading.querySelector('span');
+    if (title) title.textContent = '3D 场景启动失败';
+    if (detail) detail.textContent = error?.message || '浏览器图形资源不足，请返回后重试';
   }
 
   renderShell() {
     return `
       <div class="farm-world-host" data-farm-world></div>
+      <div class="farm-world-loading" data-world-loading role="status" aria-live="polite">
+        <i class="ph ph-spinner-gap" aria-hidden="true"></i>
+        <strong>正在加载农田数字孪生场景</strong>
+        <span>准备地形、作物与环境光照…</span>
+      </div>
 
       <!-- Left Tool Rail -->
       <aside class="farm-tool-rail" aria-label="环境与视角工具">
@@ -3207,17 +3274,30 @@ export class FarmMonitor {
         </div>
       </section>
 
-      <!-- 24h Trend Chart -->
-      <section class="farm-panel-section">
+      <!-- 24h Multi-Metric Drum Chart -->
+      <section class="farm-panel-section farm-telemetry-section">
         <div class="farm-section-title">
-          <span>24小时环境时序曲线</span>
-          <small>土壤/田面湿度趋势</small>
+          <span>24小时指标时序曲线</span>
+          <small data-telemetry-hint>滚轮/↑↓ 切换 · 点击放大</small>
         </div>
-        <canvas class="farm-chart" data-farm-chart aria-label="环境曲线"></canvas>
-        <div class="farm-chart-legend">
-          <span><i></i>湿度变化趋势</span>
-          <strong>适宜区间 20~40%</strong>
+        <div class="farm-telemetry-drum-wrap">
+          <div class="farm-telemetry-drum" data-telemetry-drum>
+            <div class="farm-telemetry-drum-grid" data-telemetry-grid>
+              ${TELEMETRY_METRICS.map((m, i) => `
+                <div class="farm-telemetry-card" data-metric-idx="${i}" style="--metric-color: ${m.color}">
+                  <div class="farm-telemetry-card-head">
+                    <span>${m.label}</span>
+                    <small>${m.unit}</small>
+                  </div>
+                  <canvas class="farm-telemetry-chart" data-metric-chart="${i}"></canvas>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          <button class="farm-drum-nav prev" data-drum-prev type="button" aria-label="上一个指标"><i class="ph ph-caret-up"></i></button>
+          <button class="farm-drum-nav next" data-drum-next type="button" aria-label="下一个指标"><i class="ph ph-caret-down"></i></button>
         </div>
+        <div class="farm-telemetry-zoom-panel" data-telemetry-zoom hidden></div>
       </section>
 
       ${plot.riskLevel === 'HIGH' ? `
@@ -3238,7 +3318,18 @@ export class FarmMonitor {
     `;
 
     this.dom.panel.classList.add('open');
-    requestAnimationFrame(() => this.drawChart(plot));
+    this._currentPanelPlot = plot;
+    this.drumIndex = 0;
+    this.drumOffset = 0;
+    this._drumLaidOut = false;
+    this._drumBound = false;
+    this.expandedMetric = null;
+    requestAnimationFrame(() => {
+      this.drawAllMetricCharts(plot);
+      this.layoutCylinder();
+      this.applyCylinder();
+      this.bindDrumEvents();
+    });
   }
 
   drawChart(plot) {
@@ -3298,6 +3389,403 @@ export class FarmMonitor {
     context.lineCap = 'round';
     context.lineJoin = 'round';
     context.stroke();
+  }
+
+  drawAllMetricCharts(plot) {
+    for (let i = 0; i < TELEMETRY_METRICS.length; i++) {
+      this.drawMetricChart(plot, i);
+    }
+  }
+
+  drawMetricChart(plot, metricIndex) {
+    const meta = TELEMETRY_METRICS[metricIndex];
+    if (!meta) return;
+    const canvas = this.dom.panel.querySelector(`[data-metric-chart="${metricIndex}"]`);
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 2) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(rect.width * ratio));
+    canvas.height = Math.max(1, Math.round(rect.height * ratio));
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    const w = rect.width;
+    const h = rect.height;
+    const metricData = plot.metrics?.[meta.code];
+    const base = Number(metricData?.value || 28);
+    const amp = meta.amp || 3;
+    const values = Array.from({ length: 24 }, (_, i) =>
+      base + Math.sin(i * 0.48) * amp + Math.cos(i * 0.22) * amp * 0.5 + (i - 23) * amp * 0.06
+    );
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.1)';
+    ctx.lineWidth = 1;
+    for (let row = 1; row < 4; row++) {
+      ctx.beginPath();
+      ctx.moveTo(0, (h / 4) * row);
+      ctx.lineTo(w, (h / 4) * row);
+      ctx.stroke();
+    }
+    const min = Math.min(...values) - amp * 0.5;
+    const max = Math.max(...values) + amp * 0.5;
+    if (meta.targetLow != null && meta.targetHigh != null) {
+      const yLow = h - ((meta.targetLow - min) / (max - min)) * (h - 16) - 8;
+      const yHigh = h - ((meta.targetHigh - min) / (max - min)) * (h - 16) - 8;
+      ctx.fillStyle = meta.color + '1a';
+      ctx.fillRect(0, yHigh, w, Math.max(0, yLow - yHigh));
+    }
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, meta.color + '52');
+    grad.addColorStop(1, meta.color + '00');
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / (max - min)) * (h - 16) - 8;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / (max - min)) * (h - 16) - 8;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = meta.color;
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  bindDrumEvents() {
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    const grid = this.dom.panel.querySelector('[data-telemetry-grid]');
+    if (!drum || !grid || this._drumBound) return;
+    this._drumBound = true;
+    drum.addEventListener('wheel', (e) => {
+      if (this.expandedMetric) return;
+      e.preventDefault();
+      this.nudgeDrumByWheel(e);
+    }, { passive: false });
+    drum.addEventListener('pointerdown', (e) => this.beginDrumDrag(e));
+    drum.addEventListener('keydown', (e) => {
+      if (this.expandedMetric) return;
+      if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); this.nudgeDrum(1); }
+      else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); this.nudgeDrum(-1); }
+      else if (e.key === 'Enter') { this.openMetricZoom(this.drumIndex); }
+    });
+    this.dom.panel.querySelector('[data-drum-prev]')?.addEventListener('click', () => this.nudgeDrum(-1));
+    this.dom.panel.querySelector('[data-drum-next]')?.addEventListener('click', () => this.nudgeDrum(1));
+    grid.querySelectorAll('.farm-telemetry-card').forEach(card => {
+      card.addEventListener('click', () => {
+        if (this._suppressCardClick || !card.classList.contains('is-focus')) return;
+        this.openMetricZoom(Number(card.dataset.metricIdx));
+      });
+    });
+    this.dom.panel.querySelector('[data-telemetry-zoom]')?.addEventListener('click', (e) => {
+      if (e.target.closest('[data-zoom-back]')) this.closeMetricZoom();
+    });
+  }
+
+  wrapOffset(value) {
+    const n = TELEMETRY_METRICS.length;
+    if (!n) return 0;
+    return ((value % n) + n) % n;
+  }
+
+  shortestDelta(index, offset, n) {
+    let delta = index - this.wrapOffset(offset);
+    if (delta > n / 2) delta -= n;
+    if (delta < -n / 2) delta += n;
+    return delta;
+  }
+
+  stopDrumAnim() {
+    if (this._drumAnim) { cancelAnimationFrame(this._drumAnim); this._drumAnim = null; }
+    if (this._drumSnapTimer) { clearTimeout(this._drumSnapTimer); this._drumSnapTimer = null; }
+  }
+
+  nudgeDrum(dir) {
+    const n = TELEMETRY_METRICS.length;
+    if (!n) return;
+    this.animateDrumTo(Math.round(this.drumOffset) + dir);
+  }
+
+  nudgeDrumByWheel(e) {
+    const pixels = e.deltaMode === 1 ? e.deltaY * 100 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+    if (!pixels) return;
+    this.stopDrumAnim();
+    if (this._gestureAcc === 0) this._gestureOrigin = this.drumOffset;
+    this._gestureAcc -= pixels;
+    const travel = Math.max(-2.4, Math.min(2.4, this._gestureAcc / 100));
+    this.drumOffset = this._gestureOrigin + travel;
+    this.applyCylinder();
+    if (this._drumSnapTimer) clearTimeout(this._drumSnapTimer);
+    this._drumSnapTimer = setTimeout(() => { this._gestureAcc = 0; this.snapDrum(); }, 90);
+  }
+
+  animateDrumTo(target) {
+    this.stopDrumAnim();
+    const from = this.drumOffset;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / 200);
+      const eased = 1 - (1 - t) ** 3;
+      this.drumOffset = from + (target - from) * eased;
+      this.applyCylinder();
+      if (t < 1) { this._drumAnim = requestAnimationFrame(tick); return; }
+      this._drumAnim = null;
+      this.drumOffset = target;
+      this.applyCylinder();
+    };
+    this._drumAnim = requestAnimationFrame(tick);
+  }
+
+  snapDrum() {
+    this._gestureAcc = 0;
+    this.animateDrumTo(Math.round(this.drumOffset));
+  }
+
+  beginDrumDrag(e) {
+    if (this.expandedMetric || e.button !== 0) return;
+    if (e.target.closest('.farm-drum-nav')) return;
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    if (!drum) return;
+    this.stopDrumAnim();
+    const startY = e.clientY;
+    const origin = this.drumOffset;
+    let moved = false;
+    this._suppressCardClick = false;
+    const onMove = (ev) => {
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dy) < 6) return;
+      moved = true;
+      this._suppressCardClick = true;
+      const travel = Math.max(-6, Math.min(6, -dy / Math.max(160, this._drumCardH || 220)));
+      this.drumOffset = origin + travel;
+      this.applyCylinder();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (moved) this.snapDrum();
+      setTimeout(() => { this._suppressCardClick = false; }, 0);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+
+  layoutCylinder() {
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    const grid = this.dom.panel.querySelector('[data-telemetry-grid]');
+    if (!drum || !grid) return;
+    const cards = [...grid.querySelectorAll('.farm-telemetry-card')];
+    const n = cards.length;
+    if (!n) return;
+    const cardH = cards[0].offsetHeight || 228;
+    const radius = (cardH / 2) / Math.tan(Math.PI / n);
+    this._drumRadius = radius;
+    this._drumCardH = cardH;
+    this._drumLaidOut = true;
+    const stepDeg = 360 / n;
+    cards.forEach((card, i) => {
+      card.style.marginTop = `${-cardH / 2}px`;
+      card.style.transform = `rotateX(${(i * stepDeg).toFixed(3)}deg) translateZ(${radius.toFixed(2)}px)`;
+    });
+  }
+
+  applyCylinder() {
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    const grid = this.dom.panel.querySelector('[data-telemetry-grid]');
+    if (!drum || !grid) return;
+    const cards = [...grid.querySelectorAll('.farm-telemetry-card')];
+    const n = cards.length;
+    if (!n) return;
+    if (!this._drumLaidOut || !this._drumRadius) this.layoutCylinder();
+    const radius = this._drumRadius;
+    const stepDeg = 360 / n;
+    grid.style.transform = `translateZ(${(-radius).toFixed(2)}px) rotateX(${(-this.drumOffset * stepDeg).toFixed(3)}deg)`;
+    const nearest = Math.round(this.drumOffset);
+    this.drumIndex = this.wrapOffset(nearest);
+    cards.forEach((card, i) => {
+      const delta = this.shortestDelta(i, this.drumOffset, n);
+      const abs = Math.abs(delta);
+      const focused = abs < 0.5;
+      card.classList.toggle('is-focus', focused);
+      card.style.opacity = abs < 0.35 ? '1' : abs < 1.2 ? String(0.92 - abs * 0.12) : String(Math.max(0.28, 0.85 - abs * 0.22));
+      card.style.pointerEvents = focused ? 'auto' : 'none';
+      card.setAttribute('aria-hidden', focused ? 'false' : 'true');
+    });
+    const hint = this.dom.panel.querySelector('[data-telemetry-hint]');
+    if (hint) {
+      const meta = TELEMETRY_METRICS[this.drumIndex];
+      if (meta) {
+        const range = (meta.targetLow != null && meta.targetHigh != null) ? ` · 适宜 ${meta.targetLow}~${meta.targetHigh}${meta.unit}` : '';
+        hint.textContent = `${meta.label}${range} · 滚轮/↑↓ 切换 · 点击放大`;
+      }
+    }
+  }
+
+  openMetricZoom(metricIndex) {
+    const meta = TELEMETRY_METRICS[metricIndex];
+    if (!meta || !this._currentPanelPlot) return;
+    this.expandedMetric = meta.code;
+    this.drumIndex = metricIndex;
+    this.drumOffset = metricIndex;
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    const panel = this.dom.panel.querySelector('[data-telemetry-zoom]');
+    const grid = this.dom.panel.querySelector('[data-telemetry-grid]');
+    if (!drum || !panel || !grid) return;
+    const card = grid.querySelector('.farm-telemetry-card.is-focus');
+    const cardRect = card?.getBoundingClientRect();
+    const plot = this._currentPanelPlot;
+    panel.innerHTML = `
+      <header class="farm-telemetry-zoom-head">
+        <div>
+          <h3>${meta.label}</h3>
+          <span>${meta.code} · ${plot?.name || ''} · 当天全时段</span>
+        </div>
+        <button type="button" class="farm-telemetry-zoom-back" data-zoom-back>返回多指标</button>
+      </header>
+      <canvas class="farm-telemetry-zoom-canvas" data-zoom-canvas></canvas>
+    `;
+    panel.hidden = false;
+    requestAnimationFrame(() => {
+      const canvas = panel.querySelector('[data-zoom-canvas]');
+      if (canvas) this.drawZoomChart(canvas, plot, meta);
+    });
+    panel.style.transition = 'none';
+    panel.style.transformOrigin = '0 0';
+    panel.style.opacity = '1';
+    const panelRect = panel.getBoundingClientRect();
+    if (cardRect && panelRect.width && panelRect.height) {
+      const sx = cardRect.width / panelRect.width;
+      const sy = cardRect.height / panelRect.height;
+      const dx = cardRect.left - panelRect.left;
+      const dy = cardRect.top - panelRect.top;
+      panel.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    } else {
+      panel.style.transform = 'scale(0.7)';
+      panel.style.opacity = '0';
+    }
+    drum.style.transition = 'opacity 0.24s ease';
+    drum.style.opacity = '0';
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        panel.style.transition = 'transform 0.36s cubic-bezier(0.22,1,0.36,1), opacity 0.36s ease';
+        panel.style.transform = '';
+        panel.style.opacity = '1';
+      });
+    });
+    setTimeout(() => {
+      drum.hidden = true;
+      drum.style.opacity = '';
+      drum.style.transition = '';
+      panel.style.transformOrigin = '';
+    }, 380);
+  }
+
+  drawZoomChart(canvas, plot, meta) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 2) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(rect.width * ratio));
+    canvas.height = Math.max(1, Math.round(rect.height * ratio));
+    const ctx = canvas.getContext('2d');
+    ctx.scale(ratio, ratio);
+    const w = rect.width;
+    const h = rect.height;
+    const metricData = plot.metrics?.[meta.code];
+    const base = Number(metricData?.value || 28);
+    const amp = meta.amp || 3;
+    const values = Array.from({ length: 48 }, (_, i) =>
+      base + Math.sin(i * 0.32) * amp + Math.cos(i * 0.17) * amp * 0.5 + (i - 47) * amp * 0.04
+    );
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.1)';
+    ctx.lineWidth = 1;
+    for (let row = 1; row < 5; row++) {
+      ctx.beginPath();
+      ctx.moveTo(0, (h / 5) * row);
+      ctx.lineTo(w, (h / 5) * row);
+      ctx.stroke();
+    }
+    const min = Math.min(...values) - amp * 0.5;
+    const max = Math.max(...values) + amp * 0.5;
+    if (meta.targetLow != null && meta.targetHigh != null) {
+      const yLow = h - ((meta.targetLow - min) / (max - min)) * (h - 20) - 10;
+      const yHigh = h - ((meta.targetHigh - min) / (max - min)) * (h - 20) - 10;
+      ctx.fillStyle = meta.color + '1a';
+      ctx.fillRect(0, yHigh, w, Math.max(0, yLow - yHigh));
+    }
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, meta.color + '52');
+    grad.addColorStop(1, meta.color + '00');
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / (max - min)) * (h - 20) - 10;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / (max - min)) * (h - 20) - 10;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = meta.color;
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  closeMetricZoom() {
+    if (!this.expandedMetric) return;
+    const drum = this.dom.panel.querySelector('[data-telemetry-drum]');
+    const panel = this.dom.panel.querySelector('[data-telemetry-zoom]');
+    if (!drum || !panel) return;
+    const grid = this.dom.panel.querySelector('[data-telemetry-grid]');
+    const card = grid?.querySelector('.farm-telemetry-card.is-focus');
+    const cardRect = card?.getBoundingClientRect();
+    drum.hidden = false;
+    drum.style.transition = 'opacity 0.36s ease';
+    drum.style.opacity = '1';
+    panel.style.transition = 'transform 0.36s cubic-bezier(0.22,1,0.36,1), opacity 0.36s ease';
+    panel.style.transformOrigin = '0 0';
+    const panelRect = panel.getBoundingClientRect();
+    if (cardRect && panelRect.width && panelRect.height) {
+      const sx = cardRect.width / panelRect.width;
+      const sy = cardRect.height / panelRect.height;
+      const dx = cardRect.left - panelRect.left;
+      const dy = cardRect.top - panelRect.top;
+      panel.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    }
+    panel.style.opacity = '0';
+    setTimeout(() => {
+      panel.hidden = true;
+      panel.innerHTML = '';
+      panel.style.transform = '';
+      panel.style.opacity = '';
+      panel.style.transition = '';
+      panel.style.transformOrigin = '';
+      drum.style.opacity = '';
+      drum.style.transition = '';
+      this.expandedMetric = null;
+    }, 380);
   }
 
   closePanel() {
@@ -3395,6 +3883,9 @@ export class FarmMonitor {
   close(notify = true) {
     if (!this.isOpen) return;
     this.isOpen = false;
+    this._openToken += 1;
+    cancelAnimationFrame(this._worldInitFrame);
+    this._worldInitFrame = 0;
     clearInterval(this.clockTimer);
     clearTimeout(this.toastTimer);
     window.removeEventListener('keydown', this.handleKeydown);

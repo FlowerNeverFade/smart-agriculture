@@ -1,4 +1,16 @@
-import { MOCK_DATA } from '../mock-data.js';
+import { MOCK_DATA } from '../mock-data.js?v=20260824-module-v5';
+
+const DEFAULT_RESOURCE_PROFILE = {
+  capacityLitres: 900,
+  dailyLimitLitres: 5000,
+  usedTodayLitres: 1240,
+  remainingLitres: 3760,
+  flowRateLitresPerMinute: 18
+};
+
+function demoWorkOrders() {
+  return Array.isArray(MOCK_DATA?.workOrders) ? MOCK_DATA.workOrders : [];
+}
 import { setResourcePlanPreview, syncWaterVisuals } from '../water-visual.js';
 import { initFieldSandbox } from '../field-visual.js';
 
@@ -502,7 +514,7 @@ export async function renderWorkOrders(container, context, forceRefresh = false)
 function ensureDemands(plots) {
   if (farmOpsState.demands) return;
   const defaults = [420, 320, 260];
-  farmOpsState.demands = plots.map((plot, index) => ({
+  farmOpsState.demands = (Array.isArray(plots) ? plots : []).map((plot, index) => ({
     plotId: plot.plotId,
     requestedLitres: defaults[index] || 180,
     priority: plot.riskLevel === 'HIGH' ? 'HIGH' : plot.riskLevel === 'MEDIUM' ? 'MEDIUM' : 'LOW'
@@ -511,7 +523,7 @@ function ensureDemands(plots) {
 
 function resourceTemplate(context) {
   ensureDemands(context.plots);
-  const profile = MOCK_DATA.resourceProfile;
+  const profile = MOCK_DATA?.resourceProfile || DEFAULT_RESOURCE_PROFILE;
   const result = farmOpsState.resourceResult;
   const totalRequested = farmOpsState.demands.reduce((sum, demand) => sum + Number(demand.requestedLitres || 0), 0);
   const planCapacity = result?.constraints?.waterCapacityLitres || profile.capacityLitres;
@@ -599,18 +611,18 @@ function resourceTemplate(context) {
           <div class="network-source"><span>💧</span><strong>集中蓄水池</strong><small>${planCapacity} L / 18 L·min⁻¹</small></div>
           <div class="network-trunk"></div>
           <div class="allocation-lanes">
-            ${context.plots.map((plot) => {
+            ${(context.plots || []).map((plot) => {
               const demand = farmOpsState.demands.find((item) => item.plotId === plot.plotId);
               const allocation = allocations.find((item) => item.plotId === plot.plotId);
               const allocated = allocation ? allocation.allocatedLitres : 0;
-              const requested = allocation ? allocation.requestedLitres : demand.requestedLitres;
+              const requested = allocation ? allocation.requestedLitres : (demand?.requestedLitres ?? 0);
               const ratio = result ? Math.round((requested ? allocated / requested : 0) * 100) : 0;
               return `
                 <article class="allocation-lane ${allocation?.status === 'PARTIAL' ? 'partial' : ''}">
                   <div class="pipe-line"><i style="--allocation:${ratio}%"></i></div>
                   <header><span>${escapeHtml(plot.name)}</span><b>${result ? `${allocated}/${requested} L` : `${requested} L 待分配`}</b></header>
                   <div class="allocation-heat"><span style="width:${ratio}%"></span></div>
-                  <footer><span>优先级 ${demand.priority}</span><strong>${result ? (allocation?.status || 'UNMET') : '待计算'}</strong></footer>
+                  <footer><span>优先级 ${demand?.priority || 'LOW'}</span><strong>${result ? (allocation?.status || 'UNMET') : '待计算'}</strong></footer>
                 </article>
               `;
             }).join('')}
@@ -622,10 +634,11 @@ function resourceTemplate(context) {
       <section class="execution-status-panel">
         <div class="section-title-row"><div><span class="ops-kicker">EXECUTION STATUS</span><h3>关联农务执行状态</h3></div><a href="#view=work-orders">返回工单看板 →</a></div>
         <div class="execution-status-list">
-          ${(farmOpsState.workItems.length ? farmOpsState.workItems : MOCK_DATA.workOrders).slice(0, 5).map((item) => {
+          ${(farmOpsState.workItems.length ? farmOpsState.workItems : demoWorkOrders()).slice(0, 5).map((item) => {
             const normalized = normalizeWorkItem(item);
-            return `<div><span class="status-dot status-${normalized.status.toLowerCase()}"></span><strong>${escapeHtml(normalized.title)}</strong><small>${escapeHtml(plotLabel(context.plots, normalized.plotId))}</small><b>${STATUS_META[normalized.status].label}</b></div>`;
-          }).join('')}
+            const status = STATUS_META[normalized.status] || STATUS_META.OPEN;
+            return `<div><span class="status-dot status-${String(normalized.status || 'OPEN').toLowerCase()}"></span><strong>${escapeHtml(normalized.title)}</strong><small>${escapeHtml(plotLabel(context.plots, normalized.plotId))}</small><b>${status.label}</b></div>`;
+          }).join('') || '<div class="agri-meta-line">暂无关联农务工单</div>'}
         </div>
       </section>
     </section>
@@ -692,10 +705,15 @@ export async function renderResourceCoordination(container, context) {
   try {
     if (!farmOpsState.workItems.length) {
       const items = await context.api.getTodayWorkItems();
-      farmOpsState.workItems = items.map(normalizeWorkItem);
+      farmOpsState.workItems = (Array.isArray(items) ? items : []).map(normalizeWorkItem);
     }
   } catch (_error) {
-    farmOpsState.workItems = MOCK_DATA.workOrders.map(normalizeWorkItem);
+    farmOpsState.workItems = demoWorkOrders().map(normalizeWorkItem);
   }
-  paintResourceView(container, context);
+  try {
+    paintResourceView(container, context);
+  } catch (error) {
+    console.error('[AgriLoop] resource coordination render failed:', error);
+    container.innerHTML = `<div class="ops-error"><strong>水资源排程渲染中断</strong><p>${escapeHtml(error?.message || error)}</p></div>`;
+  }
 }

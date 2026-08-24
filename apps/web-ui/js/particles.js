@@ -5,7 +5,8 @@
 export function initParticles() {
   const canvas = document.createElement('canvas');
   canvas.className = 'agri-particles';
-  document.body.appendChild(canvas);
+  const host = document.getElementById('riumBackground') || document.body;
+  host.appendChild(canvas);
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     canvas.remove();
