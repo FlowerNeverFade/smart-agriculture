@@ -7,9 +7,9 @@
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
-> 2026-08-24 main 部署记录：最新前端收口提交 `7d33092` 已发布到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
+> 2026-08-24 main 部署记录：右栏功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已同步到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
 
-> 2026-08-24 `rium_dev-v2` 增量整合与右栏收口：合并提交 `9066edb`（父提交 `7b9db81` + `e2d0b69`）完成能力整合，最终修复提交 `7d33092` 已发布公网。地块监测六指标时序视图、右侧栏真实折叠、卡片按内容展开且不互相覆盖、中心内嵌子模块、背景天体动画兼容和无三角尺占位均已验证；液态高光已按最新要求回退为毛玻璃（半透明填充、背景模糊、轻边框，无 sheen/反光伪元素）。`verify-webui real` 为 `82/82`，真实 Chromium 为 `27/27`，公网真实 JWT Chromium 同样为 `27/27`。
+> 2026-08-24 `rium_dev-v2` 增量整合与右栏收口：合并提交 `9066edb`（父提交 `7b9db81` + `e2d0b69`）完成能力整合，功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已发布公网。地块监测六指标时序视图、右侧栏真实折叠、卡片按内容展开且不互相覆盖、中心内嵌子模块、背景天体动画兼容和无三角尺占位均已验证；液态高光已按最新要求回退为毛玻璃（半透明填充、背景模糊、轻边框，无 sheen/反光伪元素）。`verify-webui real` 为 `82/82`，真实 Chromium 为 `27/27`，公网真实 JWT Chromium 同样为 `27/27`。
 
 > 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
 

@@ -35,7 +35,7 @@
 | SSE | PASS | 首帧 `event:connected` 可读 |
 | 回放隔离 | PASS | `NO_ACTION/EXECUTE` 写入 `scenario-event`，不改变主遥测/设备/告警 |
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
-| main 公网 Web/API | PASS | 当前运行代码提交 `7d33092`；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
+| main 公网 Web/API | PASS | 当前运行发布提交 `3cdf4b7`（包含右栏功能修复 `7d33092`）；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
 | 智能诊断与决策中枢 | PASS | 公网主页及模块资源 HTTP 200；新鲜六指标数据 `WATER_DEFICIT -> READY`，命令幂等和决策护照通过；`SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false` |
 | OpenAI-compatible Qwen | PASS | 非快捷诊断请求返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`、`latencyMs=5130`；vLLM 仅监听 `127.0.0.1:8000` |
 | Web Copilot 真实对话 | PASS | 独立 `/agriloop/login.html` 登录页保存 JWT；登录后网页显示 Qwen 实时回答、模型延迟和可读知识引用；思维标签、提示词、工具字段和 traceId 不进入对话正文；未登录/失败不会伪装成真实回答 |
@@ -58,7 +58,7 @@ BUILD SUCCESSFUL
 
 当前 Spring 用例 14/14，通过 Spring Context、种子登录、Crop Pack、遥测幂等、按指标跳变阈值、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 real 82/82（本轮加入毛玻璃合同检查），真实 Chromium `scripts/branch-integration-smoke.mjs` 为 27/27；通过诊断中枢、历史入口、右栏折叠、卡片内容高度/间距、中心内嵌模块、六指标时序和无三角尺回归。
 
-远端最新收口通过公网域名复跑了 `scripts/acceptance_smoke.py`。脚本为六类指标各写入两条稳定且可审计的 `GOOD` 上下文数据，不清库、不改规则、不绕过安全门；正常模拟器保持运行。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，决策护照可按同一 `traceId` 查询。另行复测漂移硬门及 Qwen：漂移不可执行；模型返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`。当前 `main` 运行提交为 `7d33092`，可由 `/srv/agriloop/DEPLOYED_COMMIT` 与公网健康接口复核。
+远端最新收口通过公网域名复跑了 `scripts/acceptance_smoke.py`。脚本为六类指标各写入两条稳定且可审计的 `GOOD` 上下文数据，不清库、不改规则、不绕过安全门；正常模拟器保持运行。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，决策护照可按同一 `traceId` 查询。另行复测漂移硬门及 Qwen：漂移不可执行；模型返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`。当前 `main` 运行发布提交为 `3cdf4b7`（功能修复 `7d33092`），可由 `/srv/agriloop/DEPLOYED_COMMIT` 与公网健康接口复核。
 
 ## 已知边界
 
