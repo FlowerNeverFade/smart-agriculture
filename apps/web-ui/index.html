@@ -6,6 +6,8 @@
   <meta name="color-scheme" content="dark light">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
   <link rel="stylesheet" href="css/style.css?v=20260824-wheat-fallback">
+  <link rel="stylesheet" href="css/google-material.css">
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/rium-glass.css?v=20260824-wheat-fallback">
   <!-- Favicon Icon -->
@@ -16,7 +18,8 @@
       var ua = navigator.userAgent;
       var isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Android/i.test(ua);
       try {
-        var theme = localStorage.getItem('agriloop-theme') === 'light' ? 'light' : 'dark';
+        var savedTheme = localStorage.getItem('agriloop-theme');
+        var theme = savedTheme ? savedTheme : 'light';
         root.setAttribute('data-theme', theme);
         root.style.colorScheme = theme;
       } catch (_) { /* localStorage may be unavailable */ }
@@ -35,7 +38,7 @@
   <header class="app-header">
     <div class="header-left">
       <div class="brand-logo" id="btnLogoHome" title="返回 Home 仪表盘">
-        <div class="brand-logo-icon">🌱</div>
+        <img src="assets/brand/logo.png" height="28" alt="AgriLoop" style="border-radius: 4px;">
         <span>AgriLoop</span>
       </div>
       <div class="header-nav-title">

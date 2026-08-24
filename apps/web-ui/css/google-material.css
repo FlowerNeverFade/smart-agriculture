@@ -1,0 +1,209 @@
+/* ============================================================
+   Google Material Design 3 (Material You) Core Tokens
+   ============================================================ */
+
+:root {
+  /* Typography */
+  --g-font-family: 'Google Sans', 'Roboto', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  
+  /* Color Palette - Light Theme */
+  --g-bg: #f8f9fa;
+  --g-surface: #ffffff;
+  --g-surface-variant: #f1f3f4;
+  --g-on-surface: #202124;
+  --g-on-surface-variant: #5f6368;
+  --g-outline: #dadce0;
+  --g-outline-variant: #e8eaed;
+
+  /* Brand Colors */
+  --g-primary: #1a73e8; /* Google Blue */
+  --g-primary-hover: #174ea6;
+  --g-primary-container: #e8f0fe;
+  --g-on-primary-container: #1967d2;
+  --g-on-primary: #ffffff;
+
+  --g-success: #1e8e3e; /* Google Green */
+  --g-success-hover: #188038;
+  --g-success-container: #e6f4ea;
+  --g-on-success-container: #137333;
+
+  --g-warning: #f9ab00; /* Google Yellow */
+  --g-warning-container: #fef7e0;
+  --g-on-warning-container: #ea8600;
+
+  --g-error: #d93025; /* Google Red */
+  --g-error-container: #fce8e6;
+  --g-on-error-container: #c5221f;
+
+  /* Elevation (Shadows) */
+  --g-elevation-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --g-elevation-2: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 2px 6px 2px rgba(60, 64, 67, 0.15);
+  --g-elevation-3: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+  --g-elevation-4: 0 2px 3px 0 rgba(60, 64, 67, 0.3), 0 6px 10px 4px rgba(60, 64, 67, 0.15);
+
+  /* Radii */
+  --g-radius-sm: 8px;
+  --g-radius-md: 12px;
+  --g-radius-lg: 16px;
+  --g-radius-pill: 9999px;
+
+  /* Layout */
+  --g-rail-width: 256px;
+  --g-topbar-height: 64px;
+}
+
+[data-theme="dark"] {
+  --g-bg: #202124;
+  --g-surface: #292a2d;
+  --g-surface-variant: #35363a;
+  --g-on-surface: #e8eaed;
+  --g-on-surface-variant: #9aa0a6;
+  --g-outline: #5f6368;
+  --g-outline-variant: #3c4043;
+
+  --g-primary: #8ab4f8;
+  --g-primary-hover: #aecbfa;
+  --g-primary-container: #394457;
+  --g-on-primary-container: #d2e3fc;
+  
+  --g-success: #81c995;
+  --g-success-container: #334e3d;
+  --g-on-success-container: #ceead6;
+
+  --g-warning: #fdd663;
+  --g-warning-container: #5c4f24;
+  --g-on-warning-container: #feefc3;
+
+  --g-error: #f28b82;
+  --g-error-container: #5c3532;
+  --g-on-error-container: #fad2cf;
+  
+  --g-elevation-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --g-elevation-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Material Utilities */
+.g-card {
+  background-color: var(--g-surface);
+  border: 1px solid var(--g-outline-variant);
+  border-radius: var(--g-radius-md);
+  box-shadow: var(--g-elevation-1);
+  padding: 24px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.g-card:hover {
+  box-shadow: var(--g-elevation-2);
+}
+
+.g-btn {
+  align-items: center;
+  border-radius: var(--g-radius-pill);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--g-font-family);
+  font-size: 14px;
+  font-weight: 500;
+  gap: 8px;
+  justify-content: center;
+  padding: 10px 24px;
+  text-decoration: none;
+  transition: background-color 0.2s, box-shadow 0.2s, color 0.2s;
+}
+
+.g-btn-primary {
+  background-color: var(--g-primary);
+  color: var(--g-on-primary);
+}
+
+.g-btn-primary:hover {
+  background-color: var(--g-primary-hover);
+  box-shadow: var(--g-elevation-1);
+}
+
+.g-btn-tonal {
+  background-color: var(--g-primary-container);
+  color: var(--g-on-primary-container);
+}
+
+.g-btn-tonal:hover {
+  background-color: var(--g-outline-variant);
+}
+
+.g-btn-outline {
+  background-color: transparent;
+  border: 1px solid var(--g-outline);
+  color: var(--g-primary);
+}
+
+.g-btn-outline:hover {
+  background-color: var(--g-surface-variant);
+}
+
+.g-btn-ghost {
+  background-color: transparent;
+  color: var(--g-on-surface-variant);
+}
+
+.g-btn-ghost:hover {
+  background-color: var(--g-surface-variant);
+  color: var(--g-on-surface);
+}
+
+.g-chip {
+  align-items: center;
+  background-color: var(--g-surface);
+  border-radius: var(--g-radius-sm);
+  border: 1px solid var(--g-outline);
+  color: var(--g-on-surface-variant);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 6px;
+  padding: 6px 12px;
+  transition: all 0.2s ease;
+}
+
+.g-chip:hover {
+  background-color: var(--g-surface-variant);
+}
+
+.g-chip.active {
+  background-color: var(--g-primary-container);
+  border-color: transparent;
+  color: var(--g-on-primary-container);
+  font-weight: 600;
+}
+
+/* Material Badges */
+.g-badge {
+  align-items: center;
+  border-radius: var(--g-radius-pill);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+
+.g-badge-success {
+  background-color: var(--g-success-container);
+  color: var(--g-on-success-container);
+}
+
+.g-badge-warning {
+  background-color: var(--g-warning-container);
+  color: var(--g-on-warning-container);
+}
+
+.g-badge-error {
+  background-color: var(--g-error-container);
+  color: var(--g-on-error-container);
+}
+
+/* Typography Helpers */
+.g-title-lg { font-size: 22px; font-weight: 400; color: var(--g-on-surface); }
+.g-title-md { font-size: 16px; font-weight: 500; color: var(--g-on-surface); }
+.g-body-md { font-size: 14px; font-weight: 400; color: var(--g-on-surface); }
+.g-body-sm { font-size: 12px; font-weight: 400; color: var(--g-on-surface-variant); }
