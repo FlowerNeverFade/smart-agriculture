@@ -16,12 +16,55 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AgriApplicationTest {
     @Autowired AgriEngine engine;
     @Autowired AgriStore store;
+    @Autowired JwtService jwtService;
 
     @Test
     void seededLoginAndCropPacksWork() {
         Map<String, Object> login = engine.login("farmer", "demo123");
         assertThat(login).containsKey("accessToken");
         assertThat(engine.cropPacks()).hasSize(2);
+    }
+
+    @Test
+    void accountRegistrationAndRecoveryRotateCredentials() {
+        String username = "grower" + System.nanoTime();
+        String firstPassword = "FieldPass2026";
+        Map<String, Object> registration = engine.register(username, firstPassword);
+        assertThat(registration).containsKeys("accessToken", "recoveryCode", "user");
+        assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FARMER");
+
+        UserPrincipal original = jwtService.parse(String.valueOf(registration.get("accessToken")));
+        assertThat(store.credentialVersionMatches(original.userId, original.credentialVersion)).isTrue();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(username.toUpperCase(), firstPassword))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_EXISTS"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.resetPassword(username, "WRONG-CODE", "NextPass2027"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_RECOVERY_INVALID"));
+
+        Map<String, Object> reset = engine.resetPassword(username, String.valueOf(registration.get("recoveryCode")), "NextPass2027");
+        assertThat(reset.get("recoveryCode")).isNotEqualTo(registration.get("recoveryCode"));
+        assertThat(store.credentialVersionMatches(original.userId, original.credentialVersion)).isFalse();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login(username, firstPassword))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AUTH_INVALID"));
+        assertThat(engine.login(username, "NextPass2027")).containsKey("accessToken");
+    }
+
+    @Test
+    void accountValidationAndRecoveryThrottleAreEnforced() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("bad", "weak"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_USERNAME_INVALID"));
+
+        String username = "limited" + System.nanoTime();
+        engine.register(username, "StrongPass2026");
+        for (int attempt = 0; attempt < 5; attempt++) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.resetPassword(username, "WRONG-CODE", "NextPass2027"))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_RECOVERY_INVALID"));
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.resetPassword(username, "WRONG-CODE", "NextPass2027"))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.code).isEqualTo("ACCOUNT_RECOVERY_LOCKED");
+                    assertThat(error.details).containsKey("retryAfterSeconds");
+                });
     }
 
     @Test

@@ -1,7 +1,7 @@
 # 智慧农业任务看板
 
 > 项目周期：15 天
-> 任务版本：v1.3（2026-08-24）
+> 任务版本：v1.4（2026-08-24）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
 > 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。
@@ -62,6 +62,7 @@
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
+| T-043 | P0 | 完成账号注册、恢复码重置、凭据轮换与登录页账户流程 | 前后端 | — | D15+ | 已完成（本地验证） | Flyway v2、Gradle 全量测试、Vite 构建、本地 API 黑盒与内置浏览器核心流程通过；`docs/account-management.md` |
 
 ### 2.1 核心八项能力任务映射
 
