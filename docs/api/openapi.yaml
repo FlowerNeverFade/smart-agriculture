@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and approval.
@@ -54,6 +54,45 @@ paths:
         '400': {description: 请求字段或新密码不符合要求}
         '401': {description: 账号或恢复码无效}
         '429': {description: 15 分钟内失败次数过多}
+  /api/v1/auth/social/providers:
+    get:
+      tags: [auth]
+      security: []
+      description: 返回微信与 QQ 登录入口是否已配置；不会返回 AppSecret。
+      responses:
+        '200': {description: 第三方登录提供方状态, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
+  /api/v1/auth/social/{provider}/authorize:
+    get:
+      tags: [auth]
+      security: []
+      description: 生成一次性 state，写入 HttpOnly/SameSite=Lax Cookie，并重定向至微信开放平台或 QQ 互联授权页。
+      parameters:
+        - {name: provider, in: path, required: true, schema: {type: string, enum: [wechat, qq]}}
+      responses:
+        '302': {description: 重定向至第三方授权页}
+        '503': {description: 对应开放平台 AppID/AppSecret 或回调地址尚未配置}
+  /api/v1/auth/social/{provider}/callback:
+    get:
+      tags: [auth]
+      security: []
+      description: 校验 state、服务端换取平台身份并重定向回登录页；JWT 不进入 URL。
+      parameters:
+        - {name: provider, in: path, required: true, schema: {type: string, enum: [wechat, qq]}}
+        - {name: code, in: query, required: false, schema: {type: string}}
+        - {name: state, in: query, required: false, schema: {type: string}}
+      responses:
+        '302': {description: 携带一次性 socialTicket 或错误码重定向回登录页}
+  /api/v1/auth/social/session:
+    post:
+      tags: [auth]
+      security: []
+      description: 消费两分钟有效且只能使用一次的 socialTicket，返回正常 JWT 会话。
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/SocialTicketRequest'}}}
+      responses:
+        '200': {description: 第三方注册或登录成功, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
+        '401': {description: 票据无效、过期或已被消费}
   /api/v1/auth/me:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
@@ -237,6 +276,11 @@ components:
         username: {type: string, minLength: 4, maxLength: 32}
         recoveryCode: {type: string, example: ABCD-EFGH-JKLM-NPQR}
         newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
+    SocialTicketRequest:
+      type: object
+      required: [ticket]
+      properties:
+        ticket: {type: string, minLength: 32, description: 第三方回调签发的一次性短期票据}
     TelemetryEvent:
       type: object
       required: [eventId, plotId, deviceId, metric, value, ts]

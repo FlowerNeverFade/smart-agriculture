@@ -40,6 +40,8 @@ const copyRecoveryCode = document.getElementById('copyRecoveryCode');
 const demoToggle = document.getElementById('demoToggle');
 const demoPanel = document.getElementById('demoPanel');
 const toast = document.getElementById('toast');
+const socialAuthStatus = document.getElementById('socialAuthStatus');
+const socialButtons = [...document.querySelectorAll('[data-social-provider]')];
 const liquidCanvas = document.getElementById('ambientLiquidCanvas');
 const liquidFallback = document.getElementById('liquidFieldFallback');
 
@@ -48,6 +50,18 @@ let leaving = false;
 let backgroundController = null;
 let pendingRegistration = null;
 let recoveryCodeContext = 'register';
+let socialProviderState = { wechat: null, qq: null };
+
+const SOCIAL_ERROR_MESSAGES = {
+  SOCIAL_AUTH_CANCELLED: '第三方授权未完成，请重新尝试',
+  SOCIAL_STATE_INVALID: '授权状态已过期，请重新发起登录',
+  SOCIAL_PROVIDER_NOT_CONFIGURED: '开放平台尚未配置，暂时无法使用',
+  SOCIAL_PROVIDER_REJECTED: '第三方平台拒绝了本次授权',
+  SOCIAL_PROVIDER_UNAVAILABLE: '第三方登录服务暂不可用',
+  SOCIAL_ACCOUNT_LINK_FAILED: '第三方账号绑定失败，请稍后重试',
+  SOCIAL_TICKET_INVALID: '登录凭据已过期，请重新授权',
+  SOCIAL_AUTH_FAILED: '第三方登录失败，请重新尝试'
+};
 
 function syncTaskMode() {
   const tasking = document.activeElement?.matches('.auth input') ?? false;
@@ -109,6 +123,88 @@ function beginExit(user, mode) {
   document.body.classList.add('is-leaving');
   showToast(mode === 'demo' ? `已进入${user.roleLabel}演示模式` : `欢迎进入${user.roleLabel}工作台`);
   window.setTimeout(() => window.location.replace('index.html'), 420);
+}
+
+function socialProviderLabel(provider) {
+  return provider === 'wechat' ? '微信' : 'QQ';
+}
+
+async function loadSocialProviders() {
+  try {
+    const result = await api.getSocialProviders();
+    result.providers.forEach((provider) => {
+      if (provider?.code in socialProviderState) socialProviderState[provider.code] = Boolean(provider.configured);
+    });
+    socialButtons.forEach((button) => {
+      const configured = socialProviderState[button.dataset.socialProvider] === true;
+      button.setAttribute('aria-disabled', String(!configured));
+      button.title = configured ? `${socialProviderLabel(button.dataset.socialProvider)}授权后自动创建或登录账户`
+        : `${socialProviderLabel(button.dataset.socialProvider)}开放平台尚未配置`;
+    });
+    const enabledCount = Object.values(socialProviderState).filter(Boolean).length;
+    socialAuthStatus.textContent = enabledCount > 0
+      ? '首次授权即创建普通种植账户'
+      : '入口已接入，配置开放平台密钥后即可授权';
+  } catch {
+    socialProviderState = { wechat: false, qq: false };
+    socialButtons.forEach((button) => button.setAttribute('aria-disabled', 'true'));
+    socialAuthStatus.textContent = '第三方注册服务暂时无法连接';
+  }
+  return socialProviderState;
+}
+
+async function beginSocialAuth(provider, button) {
+  if (socialProviderState[provider] === null) await loadSocialProviders();
+  if (!socialProviderState[provider]) {
+    showToast(`${socialProviderLabel(provider)}开放平台尚未配置 AppID`);
+    return;
+  }
+  socialButtons.forEach((item) => { item.disabled = true; });
+  button.removeAttribute('aria-disabled');
+  socialAuthStatus.textContent = `正在前往${socialProviderLabel(provider)}安全授权…`;
+  window.location.assign(api.socialAuthorizeUrl(provider));
+}
+
+function socialCallbackValues() {
+  const url = new URL(window.location.href);
+  return {
+    provider: url.searchParams.get('socialProvider') || '',
+    ticket: url.searchParams.get('socialTicket') || '',
+    error: url.searchParams.get('socialError') || '',
+    active: url.searchParams.has('social') || url.searchParams.has('socialTicket') || url.searchParams.has('socialError')
+  };
+}
+
+function removeSocialCallbackValues() {
+  const url = new URL(window.location.href);
+  ['social', 'socialProvider', 'socialTicket', 'socialError'].forEach((key) => url.searchParams.delete(key));
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
+async function handleSocialCallback(callback) {
+  if (!callback.active) return false;
+  removeSocialCallbackValues();
+  if (callback.error || !callback.ticket) {
+    const message = SOCIAL_ERROR_MESSAGES[callback.error] || '第三方登录未完成，请重新尝试';
+    setFormError(loginForm, loginError, message);
+    showToast(message);
+    return false;
+  }
+  socialButtons.forEach((button) => { button.disabled = true; });
+  socialAuthStatus.textContent = `正在完成${socialProviderLabel(callback.provider)}注册…`;
+  try {
+    const result = await api.exchangeSocialTicket(callback.ticket);
+    const user = presentUser(result.user);
+    api.saveSession({ mode: 'live', token: result.accessToken, user });
+    beginExit(user, 'live');
+    return true;
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : '第三方登录失败，请重新尝试';
+    setFormError(loginForm, loginError, message);
+    showToast(message);
+    socialButtons.forEach((button) => { button.disabled = false; });
+    return false;
+  }
 }
 
 function validateUsername(value) {
@@ -328,6 +424,10 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
   });
 });
 
+socialButtons.forEach((button) => {
+  button.addEventListener('click', () => beginSocialAuth(button.dataset.socialProvider, button));
+});
+
 loginForm.addEventListener('submit', submitLogin);
 registerForm.addEventListener('submit', submitRegistration);
 recoveryForm.addEventListener('submit', submitRecovery);
@@ -346,10 +446,13 @@ recoveryCodeContinue.addEventListener('click', continueAfterRecoveryCode);
   form.addEventListener('focusout', handleTaskModeFocusOut);
 });
 
-const storedSession = api.readSession();
-if (storedSession?.mode === 'live' && storedSession.token) {
-  window.location.replace('index.html');
-} else {
+async function initializePage() {
+  const callback = socialCallbackValues();
+  const storedSession = api.readSession();
+  if (!callback.active && storedSession?.mode === 'live' && storedSession.token) {
+    window.location.replace('index.html');
+    return;
+  }
   if (storedSession?.mode === 'demo') api.clearSession();
   backgroundController = createAmbientLiquidField({
     canvas: liquidCanvas,
@@ -358,4 +461,8 @@ if (storedSession?.mode === 'live' && storedSession.token) {
   });
   syncTaskMode();
   requestAnimationFrame(() => document.body.classList.add('is-mounted'));
+  const completed = await handleSocialCallback(callback);
+  if (!completed) await loadSocialProviders();
 }
+
+initializePage();

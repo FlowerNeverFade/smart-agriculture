@@ -77,6 +77,34 @@ export class ApiService {
     return session;
   }
 
+  async getSocialProviders() {
+    const resp = await this._fetch('/api/v1/auth/social/providers', {}, { auth: false });
+    const result = resp?.data || resp;
+    if (!Array.isArray(result?.providers)) {
+      throw new ApiError('第三方登录配置响应无效', { code: 'SOCIAL_PROVIDER_RESPONSE_INVALID', payload: resp });
+    }
+    return result;
+  }
+
+  socialAuthorizeUrl(provider) {
+    if (!['wechat', 'qq'].includes(provider)) {
+      throw new ApiError('不支持的第三方登录平台', { code: 'SOCIAL_PROVIDER_UNSUPPORTED' });
+    }
+    return `${this.baseUrl}/api/v1/auth/social/${provider}/authorize`;
+  }
+
+  async exchangeSocialTicket(ticket) {
+    const resp = await this._fetch('/api/v1/auth/social/session', {
+      method: 'POST',
+      body: JSON.stringify({ ticket })
+    }, { auth: false });
+    const session = resp?.data || resp;
+    if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
+      throw new ApiError('第三方登录响应不完整', { code: 'SOCIAL_SESSION_RESPONSE_INVALID', payload: resp });
+    }
+    return session;
+  }
+
   async resetPassword({ username, recoveryCode, newPassword }) {
     const resp = await this._fetch('/api/v1/auth/password/reset', {
       method: 'POST',
