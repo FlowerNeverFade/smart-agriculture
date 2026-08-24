@@ -526,13 +526,6 @@ function resourceTemplate(context) {
     <section class="farm-ops resource-ops" data-water-surface aria-label="水资源协同排程">
       <div class="resource-water-backdrop" aria-hidden="true">
         <canvas class="resource-water-shader" data-water-shader></canvas>
-        <div class="backdrop-water-sphere">
-          <div class="backdrop-water-volume"><span></span><i></i></div>
-          <div class="backdrop-water-rim"></div>
-          <div class="backdrop-water-spray">
-            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          </div>
-        </div>
       </div>
       <canvas class="resource-window-effects-canvas" data-water-surface-canvas aria-hidden="true"></canvas>
       <header class="farm-ops-hero resource-hero">
@@ -555,11 +548,25 @@ function resourceTemplate(context) {
             <small>WATER BALANCE</small>
             <h3>集中蓄水池余量</h3>
           </div>
+          <div class="resource-balance-visual" aria-label="集中蓄水池实时水位">
+            <div class="backdrop-water-sphere">
+              <div class="backdrop-water-volume"><span></span><i></i></div>
+              <div class="backdrop-water-rim"></div>
+              <div class="backdrop-water-spray">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <div class="resource-balance-visual-copy">
+              <span>实时水位</span>
+              <strong data-water-percent>${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 1000) / 10}%</strong>
+              <small>动态资源位 · SIMULATED</small>
+            </div>
+          </div>
           <div class="resource-balance-reading">
             <strong data-water-remaining>${profile.remainingLitres.toLocaleString()} L</strong>
             <span><b data-water-percent>${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 1000) / 10}%</b> / 总配额 <b data-water-limit>${profile.dailyLimitLitres.toLocaleString()} L</b></span>
           </div>
-          <div class="resource-balance-level"><i></i><span>水球背景水位约 ${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 100)}%</span></div>
+          <div class="resource-balance-level"><i></i><span>当前水位约 ${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 100)}%</span></div>
           <div class="resource-preview-reading ${result ? 'active' : ''}">
             <span>排程试算后</span>
             <strong data-water-preview>试算后 ${projectedRemaining.toLocaleString()} L</strong>
@@ -577,11 +584,13 @@ function resourceTemplate(context) {
           <div class="demand-list">
             ${farmOpsState.demands.map((demand) => {
               const plot = context.plots.find((item) => item.plotId === demand.plotId);
+              const priorityClass = String(demand.priority || 'MEDIUM').toLowerCase();
+              const riskClass = String(plot?.riskLevel || 'LOW').toLowerCase();
               return `
-                <div class="demand-row" data-demand-plot="${escapeHtml(demand.plotId)}">
-                  <div><strong>${escapeHtml(plot?.name || demand.plotId)}</strong><span>${escapeHtml(plot?.cropName || '')} · 风险 ${escapeHtml(plot?.riskLevel || 'LOW')}</span></div>
+                <div class="demand-row priority-${priorityClass}" data-demand-plot="${escapeHtml(demand.plotId)}">
+                  <div><strong>${escapeHtml(plot?.name || demand.plotId)}</strong><span>${escapeHtml(plot?.cropName || '')} · <b class="risk-label risk-${riskClass}">风险 ${escapeHtml(plot?.riskLevel || 'LOW')}</b></span></div>
                   <label><input type="number" min="0" max="2000" step="10" value="${demand.requestedLitres}" data-demand-value="${escapeHtml(demand.plotId)}"><span>L</span></label>
-                  <select data-demand-priority="${escapeHtml(demand.plotId)}"><option value="HIGH" ${demand.priority === 'HIGH' ? 'selected' : ''}>紧急</option><option value="MEDIUM" ${demand.priority === 'MEDIUM' ? 'selected' : ''}>中</option><option value="LOW" ${demand.priority === 'LOW' ? 'selected' : ''}>普通</option></select>
+                  <select class="priority-select priority-${priorityClass}" data-demand-priority="${escapeHtml(demand.plotId)}"><option value="HIGH" ${demand.priority === 'HIGH' ? 'selected' : ''}>紧急</option><option value="MEDIUM" ${demand.priority === 'MEDIUM' ? 'selected' : ''}>中</option><option value="LOW" ${demand.priority === 'LOW' ? 'selected' : ''}>普通</option></select>
                 </div>
               `;
             }).join('')}
@@ -607,11 +616,11 @@ function resourceTemplate(context) {
               const requested = allocation ? allocation.requestedLitres : demand.requestedLitres;
               const ratio = result ? Math.round((requested ? allocated / requested : 0) * 100) : 0;
               return `
-                <article class="allocation-lane ${allocation?.status === 'PARTIAL' ? 'partial' : ''}">
+                <article class="allocation-lane priority-${String(demand.priority || 'MEDIUM').toLowerCase()} ${allocation?.status === 'PARTIAL' ? 'partial' : ''}">
                   <div class="pipe-line"><i style="--allocation:${ratio}%"></i></div>
                   <header><span>${escapeHtml(plot.name)}</span><b>${result ? `${allocated}/${requested} L` : `${requested} L 待分配`}</b></header>
                   <div class="allocation-heat"><span style="width:${ratio}%"></span></div>
-                  <footer><span>优先级 ${demand.priority}</span><strong>${result ? (allocation?.status || 'UNMET') : '待计算'}</strong></footer>
+                  <footer><span class="allocation-priority priority-${String(demand.priority || 'MEDIUM').toLowerCase()}">优先级 ${demand.priority}</span><strong>${result ? (allocation?.status || 'UNMET') : '待计算'}</strong></footer>
                 </article>
               `;
             }).join('')}

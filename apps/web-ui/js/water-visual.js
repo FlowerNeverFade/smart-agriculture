@@ -292,7 +292,6 @@ function createSurfaceController(target, initialState) {
   const splashes = [];
   const droplets = [];
   const trailPoints = [];
-  const pointerRipples = [];
   const rootState = { ...initialState };
   let rootRect = target.getBoundingClientRect();
   let cssWidth = 1;
@@ -305,10 +304,6 @@ function createSurfaceController(target, initialState) {
   let reduced = reducedMotion.matches;
   let lastTrailX = 0;
   let lastTrailY = 0;
-  let lastRippleX = 0;
-  let lastRippleY = 0;
-  let lastRippleAt = 0;
-  let rippleInitialized = false;
 
   const shader = shaderCanvas ? createWaterShaderRenderer(shaderCanvas, {
     root: target,
@@ -446,79 +441,9 @@ function createSurfaceController(target, initialState) {
     return true;
   };
 
-  const emitPointerRipple = (timestamp) => {
-    if (reduced || !pointer.active) return false;
-    const distance = Math.hypot(pointer.x - lastRippleX, pointer.y - lastRippleY);
-    const shouldEmit = !rippleInitialized || (distance >= 18 && timestamp - lastRippleAt >= 36);
-    if (!shouldEmit) return false;
-
-    const speed = Math.hypot(pointer.velocityX, pointer.velocityY);
-    pointerRipples.push({
-      x: pointer.x,
-      y: pointer.y,
-      startedAt: timestamp,
-      duration: 820 + speed * 280,
-      startRadius: 4,
-      maxRadius: 54 + speed * 84,
-      strength: 0.08 + speed * 0.08
-    });
-    if (pointerRipples.length > 36) pointerRipples.splice(0, pointerRipples.length - 36);
-    lastRippleX = pointer.x;
-    lastRippleY = pointer.y;
-    lastRippleAt = timestamp;
-    rippleInitialized = true;
-    shader?.addImpulse({
-      x: pointer.x,
-      y: pointer.y,
-      radius: 22 + speed * 24,
-      strength: 0.07 + speed * 0.08
-    });
-    return true;
-  };
-
-  const drawPointerRipples = (context, timestamp) => {
-    if (!pointerRipples.length) return false;
-    let hasEffects = false;
-    context.save();
-    context.globalCompositeOperation = 'screen';
-    context.lineCap = 'round';
-    for (let index = pointerRipples.length - 1; index >= 0; index -= 1) {
-      const ripple = pointerRipples[index];
-      const progress = clamp((timestamp - ripple.startedAt) / ripple.duration, 0, 1);
-      if (progress >= 1) {
-        pointerRipples.splice(index, 1);
-        continue;
-      }
-      hasEffects = true;
-      const fade = 1 - progress;
-      const eased = 1 - (1 - progress) * (1 - progress);
-      const radius = ripple.startRadius + (ripple.maxRadius - ripple.startRadius) * eased;
-      const verticalScale = 0.42 + progress * 0.12;
-      context.beginPath();
-      context.ellipse(ripple.x, ripple.y, radius, radius * verticalScale, 0, 0, Math.PI * 2);
-      context.strokeStyle = `rgba(143, 239, 255, ${0.72 * fade})`;
-      context.lineWidth = 1.35 + fade * 1.15;
-      context.shadowColor = `rgba(52, 204, 242, ${0.64 * fade})`;
-      context.shadowBlur = 11 + fade * 7;
-      context.stroke();
-
-      if (progress < 0.46) {
-        context.beginPath();
-        context.ellipse(ripple.x, ripple.y, radius * 0.62, radius * verticalScale * 0.62, 0, 0, Math.PI * 2);
-        context.strokeStyle = `rgba(224, 255, 255, ${0.28 * fade})`;
-        context.lineWidth = 0.8 + fade * 0.45;
-        context.shadowBlur = 5;
-        context.stroke();
-      }
-    }
-    context.restore();
-    return hasEffects;
-  };
-
   const drawEffects = (time, delta) => {
     context.clearRect(0, 0, cssWidth, cssHeight);
-    let hasEffects = drawPointerRipples(context, time);
-    hasEffects = drawTrail(context, time) || hasEffects;
+    let hasEffects = drawTrail(context, time);
     for (let index = splashes.length - 1; index >= 0; index -= 1) {
       const splash = splashes[index];
       if (time - splash.startedAt > splash.duration) {
@@ -605,7 +530,6 @@ function createSurfaceController(target, initialState) {
     const delta = lastFrameAt ? Math.min(0.04, Math.max(0.001, (timestamp - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = timestamp;
     const pointerDistance = reduced ? 0 : smoothPointer(delta);
-    emitPointerRipple(timestamp);
     recordTrailPoint(timestamp);
     injectTrail(pointerDistance);
     shader?.setPointer({
@@ -640,7 +564,6 @@ function createSurfaceController(target, initialState) {
       lastTrailX = point.x;
       lastTrailY = point.y;
       trailPoints.length = 0;
-      rippleInitialized = false;
       pointer.initialized = true;
     }
     pointer.targetX = point.x;
@@ -657,7 +580,6 @@ function createSurfaceController(target, initialState) {
 
   const onPointerLeave = () => {
     pointer.active = false;
-    rippleInitialized = false;
     startAnimation();
   };
 
@@ -696,8 +618,6 @@ function createSurfaceController(target, initialState) {
       splashes.length = 0;
       droplets.length = 0;
       trailPoints.length = 0;
-      pointerRipples.length = 0;
-      rippleInitialized = false;
       pointer.active = false;
       shader?.setPointer({ active: false });
       shader?.render(now());
