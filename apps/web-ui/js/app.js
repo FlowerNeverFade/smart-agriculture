@@ -186,64 +186,9 @@ class AgriApp {
 
   }
 
-  scheduleVisualEnhancements() {
-    if (this._visualEnhancementTask) return this._visualEnhancementTask;
-
-    // 两帧后再等待一次短空闲窗口：保证文字、卡片先完成首绘，随后仍加载原画质场景。
-    const afterFirstPaint = new Promise(resolve => {
-      const nextFrame = window.requestAnimationFrame || (callback => window.setTimeout(callback, 0));
-      nextFrame(() => nextFrame(() => {
-        if (typeof window.requestIdleCallback === 'function') {
-          window.requestIdleCallback(resolve, { timeout: 350 });
-        } else {
-          window.setTimeout(resolve, 0);
-        }
-      }));
-    });
-
-    this._visualEnhancementTask = afterFirstPaint
-      .then(async () => {
-        this.ensureWheatFallback();
-        if (!this._waterVisualsReady) {
-          try {
-            const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-water-rail-fix');
-            syncWaterVisuals(document);
-            this._waterVisualsReady = true;
-          } catch (error) {
-            // 水球是增强视觉，不能阻止麦田回退和其他背景层启动。
-            console.warn('Water visual enhancement unavailable:', error);
-          }
-        }
-        await this.ensureAmbientVisuals();
-      })
-      .catch(error => {
-        console.warn('Deferred visual enhancement unavailable; continuing with CSS shell:', error);
-      })
-      .finally(() => {
-        this._visualEnhancementTask = null;
-      });
-    return this._visualEnhancementTask;
-  }
-
-  async ensureAmbientVisuals() {
-    if (!this._backgroundDesiredVisible) return;
-
-    this.ensureWheatFallback();
-
-    const jobs = [];
-    if (!this._particlesCleanup) {
-      jobs.push(import('./particles.js?v=20260824-perf-1').then(({ initParticles }) => {
-        if (!this._backgroundDesiredVisible || this._particlesCleanup) return;
-        this._particlesCleanup = initParticles();
-        this._particlesCleanup?.setVisible?.(true);
-      }));
-    }
-
-    const webglAvailable = typeof window.WebGLRenderingContext === 'function'
-      || typeof window.WebGL2RenderingContext === 'function';
-    if (webglAvailable && !this.riumBackground && !this._webglBackgroundUnavailable) {
-      jobs.push(import('./rium-background.js?v=20260824-wheat-fallback')
-        .then(({ initRiumBackground }) => {
+  scheduleVisualEnhancements() { return Promise.resolve(); }
+  ensureAmbientVisuals() { return Promise.resolve(); }
+  /* initRiumBackground }) => {
           if (!this._backgroundDesiredVisible || this.riumBackground) return;
           try {
             const background = initRiumBackground();
@@ -272,12 +217,7 @@ class AgriApp {
     await Promise.allSettled(jobs);
   }
 
-  ensureWheatFallback() {
-    if (this._wheatFallbackCleanup || !this._backgroundDesiredVisible) return this._wheatFallbackCleanup;
-    this._wheatFallbackCleanup = initWheatFallback();
-    this._wheatFallbackCleanup?.setVisible?.(true);
-    return this._wheatFallbackCleanup;
-  }
+  ensureWheatFallback() { /* Disabled for solid Material UI */ }
 
   setAmbientVisualsVisible(value) {
     const visible = value !== false;

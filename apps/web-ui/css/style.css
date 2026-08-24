@@ -6,8 +6,8 @@
 :root {
   --glass-blur: 16px;
   --glass-saturate: 1.5;
-  --glass-header-fill: rgba(255, 255, 255, 0.85);
-  --glass-rail-fill: rgba(255, 255, 255, 0.8);
+  --glass-header-fill: var(--bg-surface);
+  --glass-rail-fill: var(--bg-surface);
   --glass-sheen: none;
   --glass-edge: rgba(218, 220, 224, 0.5);
   --glass-inset: none;
@@ -73,8 +73,8 @@
 
 /* Dark theme overrides */
 [data-theme="dark"] {
-  --glass-header-fill: rgba(32, 33, 36, 0.85);
-  --glass-rail-fill: rgba(32, 33, 36, 0.8);
+  --glass-header-fill: var(--bg-surface);
+  --glass-rail-fill: var(--bg-surface);
   --glass-edge: rgba(95, 99, 104, 0.5);
 
   --bg-base: #202124;
@@ -150,41 +150,41 @@ html[data-theme="light"] {
 /* Frosted glass does not sample the WebGL canvas. Keep Safari fills slightly
    denser so text stays readable over the field. */
 html.engine-safari:not([data-theme="light"]) {
-  --bg-canvas: rgba(13, 17, 23, 0.36);
-  --bg-surface: rgba(22, 27, 34, 0.5);
-  --bg-subtle: rgba(28, 33, 40, 0.44);
-  --bg-card: rgba(33, 38, 45, 0.48);
+  --bg-canvas: #f8f9fa;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f3f4;
+  --bg-card: #ffffff;
   --bg-card-hover: rgba(41, 46, 54, 0.58);
-  --bg-input: rgba(13, 17, 23, 0.48);
+  --bg-input: #f1f3f4;
 }
 
 html.engine-safari[data-theme="light"] {
-  --bg-canvas: rgba(255, 255, 255, 0.4);
-  --bg-surface: rgba(246, 248, 250, 0.5);
-  --bg-subtle: rgba(238, 241, 244, 0.44);
-  --bg-card: rgba(255, 255, 255, 0.54);
+  --bg-canvas: #f8f9fa;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f3f4;
+  --bg-card: #ffffff;
   --bg-card-hover: rgba(243, 244, 246, 0.64);
-  --bg-input: rgba(255, 255, 255, 0.54);
+  --bg-input: #f1f3f4;
 }
 
 @media (prefers-reduced-transparency: reduce) {
   :root {
     --glass-blur: 0px;
-    --bg-canvas: rgba(13, 17, 23, 0.92);
-    --bg-surface: rgba(22, 27, 34, 0.94);
-    --bg-subtle: rgba(28, 33, 40, 0.94);
-    --bg-card: rgba(33, 38, 45, 0.96);
-    --bg-input: rgba(13, 17, 23, 0.94);
+    --bg-canvas: #f8f9fa;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f1f3f4;
+    --bg-card: #ffffff;
+    --bg-input: #f1f3f4;
     --glass-header-fill: var(--bg-surface);
     --glass-rail-fill: var(--bg-surface);
   }
 
   [data-theme="light"] {
-    --bg-canvas: rgba(255, 255, 255, 0.94);
-    --bg-surface: rgba(246, 248, 250, 0.96);
-    --bg-subtle: rgba(238, 241, 244, 0.96);
-    --bg-card: rgba(255, 255, 255, 0.98);
-    --bg-input: rgba(255, 255, 255, 0.96);
+    --bg-canvas: #f8f9fa;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f1f3f4;
+    --bg-card: #ffffff;
+    --bg-input: #f1f3f4;
   }
 
   .app-header,
@@ -333,8 +333,8 @@ body {
 .app-loading-hud,
 .subview-modal-card {
   background-color: var(--glass-header-fill);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* ==========================================================================
@@ -579,8 +579,8 @@ body {
   border: 1px solid color-mix(in srgb, var(--border-default) 55%, var(--glass-edge));
   background-color: var(--glass-rail-fill);
   background-image: var(--glass-sheen);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow:
     0 14px 44px rgba(0, 0, 0, 0.2),
     var(--glass-inset);
@@ -626,8 +626,8 @@ body {
   border-radius: 10px 0 0 10px;
   background-color: var(--glass-rail-fill);
   background-image: var(--glass-sheen);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   color: var(--text-primary);
   font-size: 11px;
   font-weight: 600;
@@ -1986,7 +1986,7 @@ body {
   justify-content: center;
   padding: 14vh 20px 20px;
   background: rgba(13, 17, 23, .55);
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
 }
 .cmd-palette-backdrop.active { display: flex; animation: fadeIn .15s ease; }
 .cmd-palette {
@@ -2008,8 +2008,8 @@ body {
   background:
     var(--glass-sheen),
     color-mix(in srgb, var(--bg-surface) 58%, transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow:
     0 18px 56px rgba(0, 0, 0, 0.28),
     var(--glass-inset);
@@ -2301,3 +2301,17 @@ body {
   .main-feed-module-panel, .telemetry-view--enter *, #plotTelemetryPanel.telemetry-panel--enter { animation:none !important; }
   .telemetry-status-line.is-loading::after { animation:none; opacity:.7; }
 }
+
+
+#riumBackground, .rium-fallback { display: none !important; }
+
+
+/* Override to Google Material Design 3 */
+.app-header { background-color: var(--bg-surface) !important; border-bottom: 1px solid var(--border-default) !important; box-shadow: var(--shadow-sm) !important; }
+.left-rail { background-color: var(--bg-surface) !important; border-right: 1px solid var(--border-default) !important; }
+.right-rail-panel { background-color: var(--bg-surface) !important; border-left: 1px solid var(--border-default) !important; }
+.app-container { background-color: var(--bg-base) !important; }
+.glass-panel, .glass-card { background-color: var(--bg-card) !important; border: 1px solid var(--border-default) !important; box-shadow: var(--shadow-sm) !important; border-radius: 12px !important; backdrop-filter: none !important; }
+.glass-panel:hover, .glass-card:hover { box-shadow: var(--shadow-md) !important; }
+.module-nav-item { border-radius: 9999px !important; margin: 4px 12px !important; }
+.module-nav-item.active { background-color: var(--blue-subtle) !important; color: var(--blue-hover) !important; font-weight: 600; }
