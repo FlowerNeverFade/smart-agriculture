@@ -1,8 +1,8 @@
-# Web 本地性能优化验收
+# Web 等画质性能优化验收
 
 > 日期：2026-08-24
 >
-> 范围：`apps/web-ui` 本地静态工作台首页及其 WebGL 背景
+> 范围：`apps/web-ui` 静态工作台首页、WebGL 背景及公网发布验证
 >
 > 原则：不降低像素比、抗锯齿、植株数量、植株几何细节或着色器质量
 
@@ -53,3 +53,13 @@ node scripts/profile-webui.mjs
 - `/js/app.js`：`Cache-Control: no-cache, must-revalidate`，本地修改刷新后仍会立即校验。
 
 `/actuator/health` 在纯静态服务器上返回 404 是演示模式探测后端的预期降级路径，不计为页面运行时错误。
+
+## 5. GitHub 与公网部署验收
+
+- 性能实现提交：`e9dc042390e4d37fa556014291161dcdab0f58a7`，已推送到 GitHub `main`。
+- 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查返回 HTTP 200、`status=UP`。
+- 公网首页加载 `js/app.js?v=20260824-perf-1`；脚本中已包含 FarmMonitor、CropSandbox 和 Rium 背景的按需加载路径。
+- 真实 Chrome 管理员登录后可见 3 个地块及 Rium WebGL 画布；首次进入风险预测时，对应 JavaScript/CSS 均按需加载，浏览器控制台与网络请求无运行时错误。
+- 当前风险预测返回 `UNAVAILABLE / INSUFFICIENT_SAMPLES`，这是后端样本量硬门的确定性弃权结果，不是视图加载失败；页面已正确渲染该状态。
+- 本轮只改静态前端、文档和本地开发服务器，采用静态热发布；Spring API、Qwen/vLLM、PostgreSQL、Redis、MQTT 未重启且 Supervisor 状态保持 `RUNNING`。
+- 远端发布目录：`/srv/agriloop/app`；发布前快照：`/srv/agriloop/releases/pre-e9dc042-backup`；源码发布包与展开目录保存在 `/srv/agriloop/releases/`，可用于校验和回滚。
