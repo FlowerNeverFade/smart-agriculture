@@ -44,6 +44,7 @@ const demoPanel = document.getElementById('demoPanel');
 const toast = document.getElementById('toast');
 const liquidCanvas = document.getElementById('ambientLiquidCanvas');
 const liquidFallback = document.getElementById('liquidFieldFallback');
+const customSelectControllers = new Map();
 
 let toastTimer;
 let leaving = false;
@@ -52,7 +53,7 @@ let pendingRegistration = null;
 let recoveryCodeContext = 'register';
 
 function syncTaskMode() {
-  const tasking = document.activeElement?.matches('.auth input, .auth select') ?? false;
+  const tasking = document.activeElement?.matches('.auth input, .auth select, .auth [role="combobox"]') ?? false;
   document.body.classList.toggle('is-tasking', tasking);
   backgroundController?.setTaskMode(tasking);
 }
@@ -78,7 +79,176 @@ function setLoading(button, loading) {
   button.classList.toggle('is-loading', loading);
 }
 
+function closeCustomSelects(except = null) {
+  customSelectControllers.forEach((controller, select) => {
+    if (select !== except) controller.close();
+  });
+}
+
+function createSelectCheck() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('field__select-check');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'm3.5 8.3 2.8 2.8 6.2-6.2');
+  svg.append(path);
+  return svg;
+}
+
+function enhanceRoleSelect(select) {
+  const field = select.closest('.field--select');
+  const label = field?.querySelector(':scope > span');
+  const arrow = field?.querySelector(':scope > .field__select-arrow');
+  if (!field || !label || !arrow) return null;
+
+  const trigger = document.createElement('button');
+  const value = document.createElement('span');
+  const menu = document.createElement('div');
+  const selectableOptions = [...select.options].filter((option) => option.value && !option.disabled);
+  const optionButtons = selectableOptions.map((option, index) => {
+    const button = document.createElement('button');
+    const text = document.createElement('span');
+    button.type = 'button';
+    button.id = `${select.id}Option${index}`;
+    button.className = 'field__select-option';
+    button.dataset.value = option.value;
+    button.setAttribute('role', 'option');
+    button.setAttribute('tabindex', '-1');
+    button.setAttribute('aria-selected', 'false');
+    text.textContent = option.textContent;
+    button.append(text, createSelectCheck());
+    menu.append(button);
+    return button;
+  });
+
+  value.id = `${select.id}Value`;
+  value.className = 'field__select-value';
+  trigger.type = 'button';
+  trigger.className = 'field__select-trigger';
+  trigger.setAttribute('role', 'combobox');
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-controls', `${select.id}Menu`);
+  trigger.setAttribute('aria-labelledby', `${label.id} ${value.id}`);
+  trigger.append(value, arrow);
+
+  menu.id = `${select.id}Menu`;
+  menu.className = 'field__select-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-labelledby', label.id);
+  menu.hidden = true;
+
+  let activeIndex = -1;
+
+  function setActive(index) {
+    if (!optionButtons.length) return;
+    activeIndex = (index + optionButtons.length) % optionButtons.length;
+    optionButtons.forEach((button, buttonIndex) => button.classList.toggle('is-active', buttonIndex === activeIndex));
+    trigger.setAttribute('aria-activedescendant', optionButtons[activeIndex].id);
+    optionButtons[activeIndex].scrollIntoView({ block: 'nearest' });
+  }
+
+  function sync() {
+    const selectedOption = [...select.options].find((option) => option.value === select.value);
+    value.textContent = selectedOption?.textContent || select.options[0]?.textContent || '';
+    value.classList.toggle('is-placeholder', !select.value);
+    optionButtons.forEach((button) => {
+      button.setAttribute('aria-selected', String(button.dataset.value === select.value));
+    });
+  }
+
+  function close() {
+    menu.hidden = true;
+    field.classList.remove('is-open');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.removeAttribute('aria-activedescendant');
+    optionButtons.forEach((button) => button.classList.remove('is-active'));
+    activeIndex = -1;
+  }
+
+  function open(direction = 1) {
+    closeCustomSelects(select);
+    menu.hidden = false;
+    field.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    const selectedIndex = optionButtons.findIndex((button) => button.dataset.value === select.value);
+    setActive(selectedIndex >= 0 ? selectedIndex : (direction < 0 ? optionButtons.length - 1 : 0));
+  }
+
+  function choose(index) {
+    const optionButton = optionButtons[index];
+    if (!optionButton) return;
+    select.value = optionButton.dataset.value;
+    select.dispatchEvent(new Event('input', { bubbles: true }));
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    sync();
+    close();
+    trigger.focus();
+  }
+
+  trigger.addEventListener('click', () => {
+    if (menu.hidden) open();
+    else close();
+  });
+
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !menu.hidden) {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key === 'Tab' && !menu.hidden) {
+      close();
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (menu.hidden) open(event.key === 'ArrowUp' ? -1 : 1);
+      else setActive(activeIndex + (event.key === 'ArrowUp' ? -1 : 1));
+      return;
+    }
+    if (event.key === 'Home' && !menu.hidden) {
+      event.preventDefault();
+      setActive(0);
+      return;
+    }
+    if (event.key === 'End' && !menu.hidden) {
+      event.preventDefault();
+      setActive(optionButtons.length - 1);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (menu.hidden) open();
+      else choose(activeIndex);
+    }
+  });
+
+  optionButtons.forEach((button, index) => {
+    button.addEventListener('pointerdown', (event) => event.preventDefault());
+    button.addEventListener('pointerenter', () => setActive(index));
+    button.addEventListener('click', () => choose(index));
+  });
+
+  select.addEventListener('change', sync);
+  select.form?.addEventListener('reset', () => requestAnimationFrame(sync));
+  select.hidden = true;
+  field.append(trigger, menu);
+  field.classList.add('is-enhanced');
+  sync();
+
+  return { close, focus: () => trigger.focus(), sync };
+}
+
+function focusRoleSelect(select) {
+  const controller = customSelectControllers.get(select);
+  if (controller) controller.focus();
+  else select.focus();
+}
+
 function switchView(name, focusTarget = null) {
+  closeCustomSelects();
   authViews.forEach((view) => { view.hidden = view.dataset.authView !== name; });
   glassPanel.dataset.view = name;
   demoPanel.hidden = true;
@@ -136,7 +306,7 @@ async function submitLogin(event) {
   }
   if (!selectedRole) {
     setFormError(loginForm, loginError, '请选择登录身份');
-    loginRole.focus();
+    focusRoleSelect(loginRole);
     return;
   }
   if (!secret) {
@@ -188,7 +358,7 @@ async function submitRegistration(event) {
   }
   if (!selectedRole) {
     setFormError(registerForm, registerError, '请选择注册身份');
-    registerRole.focus();
+    focusRoleSelect(registerRole);
     return;
   }
   if (!validatePassword(account, secret)) {
@@ -342,11 +512,23 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
     username.value = account;
     password.value = 'demo123';
     loginRole.value = user.role;
+    loginRole.dispatchEvent(new Event('change', { bubbles: true }));
     demoPanel.hidden = true;
     demoToggle.setAttribute('aria-expanded', 'false');
     setFormError(loginForm, loginError, '');
     showToast(`已选择${user.roleLabel}`);
     username.focus();
+  });
+});
+
+[loginRole, registerRole].forEach((select) => {
+  const controller = enhanceRoleSelect(select);
+  if (controller) customSelectControllers.set(select, controller);
+});
+
+document.addEventListener('pointerdown', (event) => {
+  customSelectControllers.forEach((controller, select) => {
+    if (!select.closest('.field--select')?.contains(event.target)) controller.close();
   });
 });
 
