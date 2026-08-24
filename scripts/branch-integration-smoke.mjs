@@ -128,6 +128,22 @@ try {
   check('rium_dev 背景容器与 WebGL 画布已接入', dashboardState.backgroundVisible && dashboardState.hasWebglCanvas);
   check('微观作物沙盘使用独立导航入口', dashboardState.sandboxNav);
   check('主面板使用毛玻璃而非液态高光', dashboardState.frostedBlur && dashboardState.frostedNoSheen);
+  const railLayout = await page.evaluate(() => {
+    const rail = document.querySelector('#rightRail')?.getBoundingClientRect();
+    const panel = document.querySelector('#rightRailPanel')?.getBoundingClientRect();
+    const toggle = document.querySelector('#btnToggleRightRail');
+    return {
+      buttonPosition: toggle ? getComputedStyle(toggle).position : '',
+      railTop: rail?.top || 0,
+      panelTop: panel?.top || 0,
+      panelRight: panel?.right || 0,
+      appRight: document.querySelector('.app-container')?.getBoundingClientRect().right || 0
+    };
+  });
+  check('右栏按钮悬浮且展开面板不推挤/覆盖中心',
+    railLayout.buttonPosition === 'absolute'
+      && Math.abs(railLayout.panelTop - railLayout.railTop) <= 1
+      && railLayout.panelRight <= railLayout.appRight + 1);
   const readWaterRailLayout = () => page.evaluate(() => {
     const card = document.querySelector('.water-rail-card');
     const orb = document.querySelector('.water-orb-mini');
@@ -162,10 +178,16 @@ try {
   await railToggle.click();
   const railCollapsed = await page.evaluate(() => ({
     collapsed: document.querySelector('.app-container')?.classList.contains('right-rail-collapsed') || false,
-    expanded: document.querySelector('#btnToggleRightRail')?.getAttribute('aria-expanded') || ''
+    expanded: document.querySelector('#btnToggleRightRail')?.getAttribute('aria-expanded') || '',
+    panelHidden: getComputedStyle(document.querySelector('#rightRailPanel')).display === 'none'
   }));
-  check('右侧栏支持拉出/收回折叠', railCollapsed.collapsed && railCollapsed.expanded === 'false');
+  check('右侧栏支持拉出/收回折叠', railCollapsed.collapsed && railCollapsed.expanded === 'false' && railCollapsed.panelHidden);
   await railToggle.click();
+  const railExpanded = await page.evaluate(() => ({
+    expanded: document.querySelector('#btnToggleRightRail')?.getAttribute('aria-expanded') || '',
+    panelVisible: getComputedStyle(document.querySelector('#rightRailPanel')).display !== 'none'
+  }));
+  check('右侧栏再次展开恢复面板', railExpanded.expanded === 'true' && railExpanded.panelVisible);
 
   await page.click('[data-view="risk-forecast"]');
   await page.waitForSelector('#moduleContentPanel:not([hidden]) .rf-root', { timeout: 10_000 });

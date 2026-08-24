@@ -656,12 +656,9 @@ body {
 }
 
 .app-container.right-rail-collapsed .right-rail-panel {
-  margin-left: 34px;
-}
-
-.app-container.right-rail-collapsed .right-rail-cards {
-  visibility: hidden;
-  pointer-events: none;
+  /* The rail keeps only the 34px tab.  Hiding the cards alone left the
+     330px frosted surface in the grid and made "收回" look ineffective. */
+  display: none !important;
 }
 
 .app-container.right-rail-collapsed .right-rail-toggle-chevron {
