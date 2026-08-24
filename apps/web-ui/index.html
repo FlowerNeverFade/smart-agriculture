@@ -3,16 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/modules/work-orders.css">
+  <link rel="stylesheet" href="css/style.css?v=20260824-water-rail-fix">
+  <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <link rel="stylesheet" href="css/rium-glass.css?v=20260824-branch-refresh">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var ua = navigator.userAgent;
+      var isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|Edg|OPR|Android/i.test(ua);
+      try {
+        var theme = localStorage.getItem('agriloop-theme') === 'light' ? 'light' : 'dark';
+        root.setAttribute('data-theme', theme);
+        root.style.colorScheme = theme;
+      } catch (_) { /* localStorage may be unavailable */ }
+      if (isSafari) root.classList.add('engine-safari');
+    })();
+  </script>
 </head>
 <body>
 
+  <!-- rium_dev wheat-field scene: additive background behind the existing shell -->
+  <div id="riumBackground" aria-hidden="true"></div>
+
   <!-- =========================================================================
-       Top Header Navigation (GitHub Inspired)
+       Top Header Navigation
        ========================================================================= -->
   <header class="app-header">
     <div class="header-left">
@@ -37,6 +55,9 @@
     </div>
 
     <div class="header-right">
+      <button class="theme-toggle-btn" id="btnThemeToggle" type="button" aria-label="切换至浅色主题" title="切换至浅色主题">
+        <span class="theme-toggle-icon">☀️</span><span class="theme-toggle-label">浅色</span>
+      </button>
       <div class="status-pill" id="systemStatusPill" title="当前数据与后端运行模式">
         <span class="dot"></span>
         <span id="systemStatusText">后端仿真态 (POSTGRESQL)</span>
@@ -80,7 +101,7 @@
       <section class="rail-section">
         <div class="rail-section-header">
           <span class="rail-section-title">功能子模块导航</span>
-          <span class="module-badge highlight">可单独定制</span>
+          <span class="module-badge highlight">全景闭环</span>
         </div>
 
         <ul class="module-nav-list" id="moduleNavList">
@@ -92,8 +113,14 @@
           </li>
           <li>
             <a class="module-nav-item" data-view="plot-detail">
-              <span><span class="icon">📊</span>地块时序遥测</span>
-              <span class="module-badge">B-01~03</span>
+              <span><span class="icon">🌾</span>农田动态监测 (3D)</span>
+              <span class="module-badge highlight">重点</span>
+            </a>
+          </li>
+          <li>
+            <a class="module-nav-item" data-view="plot-telemetry">
+              <span><span class="icon">📈</span>地块监测数据时序</span>
+              <span class="module-badge">数据</span>
             </a>
           </li>
           <li>
@@ -112,6 +139,12 @@
             <a class="module-nav-item" data-view="risk-forecast">
               <span><span class="icon">🔮</span>未来风险预测推演</span>
               <span class="module-badge">CAP-09</span>
+            </a>
+          </li>
+          <li>
+            <a class="module-nav-item" data-view="crop-sandbox">
+              <span><span class="icon">🧬</span>微观作物双轨沙盘</span>
+              <span class="module-badge highlight">3D</span>
             </a>
           </li>
           <li>
@@ -150,6 +183,7 @@
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
+      <div class="main-feed-home-content" id="homeFeedContent">
       <div class="main-feed-header">
         <h1 class="main-feed-title">
           <span>Home</span>
@@ -158,7 +192,10 @@
         <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
       </div>
 
-      <!-- Copilot Agent Prompt Box (GitHub Home Prompt Box Style) -->
+      <!-- 预测、经营、Crop Pack 快速摘要（yyx 增强能力；点击进入独立模块） -->
+      <div class="home-summary-grid" id="homeSummaryGrid"></div>
+
+      <!-- Copilot Agent Prompt Box -->
       <div class="copilot-prompt-card">
         <div class="copilot-connection-row">
           <span class="copilot-connection-status" id="copilotConnectionStatus">登录后连接服务器上的 Qwen3.8-27B</span>
@@ -190,6 +227,16 @@
           </div>
           <div class="copilot-output-text" id="copilotOutputText">正在分析...</div>
         </div>
+
+        <section class="copilot-history" aria-label="我的农智对话记录">
+          <button class="copilot-history-toggle" id="btnToggleCopilotHistory" type="button" aria-expanded="false" aria-controls="copilotHistoryList">
+            <span>🕘 我的对话记录</span>
+            <span class="copilot-history-count" id="copilotHistoryCount">0 轮</span>
+          </button>
+          <div class="copilot-history-list" id="copilotHistoryList" hidden>
+            <p class="copilot-history-empty">首次提问后，对话会按当前登录账号保存。</p>
+          </div>
+        </section>
       </div>
 
       <!-- Feed Filter Bar -->
@@ -208,10 +255,54 @@
       <div class="feed-stream" id="feedStreamContainer">
         <!-- Dynamically rendered feed items from JS -->
       </div>
+      </div>
+
+      <!-- Navigation modules render in the center feed instead of opening a modal. -->
+      <section class="main-feed-module-panel" id="moduleContentPanel" hidden>
+        <div class="main-feed-module-header">
+          <div class="main-feed-module-title">
+            <span id="moduleContentIcon">🧩</span>
+            <div>
+              <h2 id="moduleContentTitle">功能子模块</h2>
+              <p id="moduleContentDescription">模块已就绪</p>
+            </div>
+            <span class="module-badge highlight" id="moduleContentTag">模块已就绪</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnModuleBackHome" type="button">返回主面板</button>
+        </div>
+        <div class="main-feed-module-body" id="moduleContentBody"></div>
+      </section>
+
+      <div id="plotTelemetryPanel" class="plot-telemetry-panel" hidden></div>
     </section>
 
     <!-- ======================== Right Rail (330px) ======================== -->
-    <aside class="right-rail">
+    <aside class="right-rail" id="rightRail">
+      <button class="right-rail-toggle" id="btnToggleRightRail" type="button" aria-expanded="true" aria-controls="rightRailPanel" title="收起系统状态面板">
+        <span class="right-rail-toggle-chevron" aria-hidden="true"></span>
+        <span class="right-rail-toggle-text">收回</span>
+      </button>
+      <div class="right-rail-panel" id="rightRailPanel">
+      <div class="right-rail-cards">
+      <!-- 0. Server-side simulator control (admin only) -->
+      <div class="system-status-card simulator-control-card" id="simulatorControlCard">
+        <div class="system-status-header">
+          <span>数据模拟器</span>
+          <span class="simulator-status-tag" id="simulatorStatusTag">需登录</span>
+        </div>
+        <div class="simulator-control-row">
+          <div>
+            <strong id="simulatorStatusText">登录后查看状态</strong>
+            <p id="simulatorStatusHint">启动后会通过 MQTT 为 3 个演示地块发送遥测。</p>
+          </div>
+          <button class="btn btn-success simulator-toggle-btn" id="btnToggleSimulator" type="button" disabled>启动</button>
+        </div>
+        <div class="simulator-meta-row">
+          <span>默认情景：normal</span>
+          <button class="btn-ghost simulator-refresh-btn" id="btnRefreshSimulator" type="button">刷新</button>
+        </div>
+      </div>
+
       <!-- 1. System Health Status Card -->
       <div class="system-status-card">
         <div class="system-status-header">
@@ -239,28 +330,46 @@
       </div>
 
       <!-- 2. Water Quota & Resource Coordination -->
-      <div class="system-status-card water-rail-card">
+      <div class="system-status-card">
         <div class="system-status-header">
           <span>今日水资源调度配额</span>
           <a class="btn-ghost" style="font-size: 11px; cursor: pointer;" id="btnViewResourceDetail">协同排程 →</a>
         </div>
-        <div class="water-rail-content">
-          <div class="water-orb water-orb-mini" data-water-orb data-water-size="mini" role="img" aria-label="集中蓄水池剩余水量">
-            <div class="orb-shell" aria-hidden="true"><i></i><i></i></div>
-            <div class="reservoir-water" aria-hidden="true"><span></span></div>
-            <canvas class="water-effects-canvas" data-water-canvas aria-hidden="true"></canvas>
-            <div class="mini-water-reading"><strong data-water-percent>75.2%</strong><span>剩余</span></div>
+        <div class="quota-progress-container">
+          <div class="quota-header">
+            <span>蓄水池消耗：1,240L / 5,000L</span>
+            <span style="font-weight: 600; color: var(--green-bright);">24.8%</span>
           </div>
-          <div class="quota-progress-container">
-            <div class="quota-header">
-              <span>剩余 <b data-water-remaining-global>3,760 L</b></span>
-              <span data-water-percent-global>75.2%</span>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: 24.8%;"></div>
+          </div>
+          <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+            当前流速：18 L/min · 无管道争用冲突 · 状态：FEASIBLE
+          </p>
+        </div>
+      </div>
+
+      <!-- farm-operations 水资源微型液态玻璃球：与协同排程视图共享同一状态 -->
+      <div class="system-status-card water-rail-card">
+        <div class="system-status-header">
+          <span>水源实时余量</span>
+          <span class="water-source-tag" data-water-source>SIMULATED</span>
+        </div>
+        <div class="water-rail-content">
+          <div class="water-orb water-orb-mini" data-water-orb aria-label="集中蓄水池余量">
+            <div class="orb-shell"><i></i><i></i><i></i></div>
+            <div class="reservoir-water"><span></span></div>
+            <div class="mini-water-reading">
+              <strong data-water-percent>75.2%</strong>
+              <span>剩余配额</span>
             </div>
-            <div class="progress-bar-bg water-progress-bg">
-              <div class="progress-bar-fill water-progress-fill" data-water-progress style="width: 75.2%;"></div>
-            </div>
-            <div class="water-rail-plan"><span>排程状态</span><strong data-water-plan-status>NOT_EVALUATED</strong></div>
-            <p>流速 18 L/min · 试算分配 <span data-water-planned>0 L</span></p>
+            <canvas class="water-effects-canvas" data-water-canvas aria-hidden="true"></canvas>
+          </div>
+          <div>
+            <div class="quota-header"><b data-water-remaining>3,760 L</b><span data-water-planned>0 L 已排程</span></div>
+            <div class="progress-bar-bg water-progress-bg"><div class="progress-bar-fill water-progress-fill" data-water-progress style="width:75.2%"></div></div>
+            <p class="water-rail-plan"><span>今日用量</span><strong data-water-used>1,240 L</strong></p>
+            <p>容量约束与试算结果在协同排程中可追溯。</p>
           </div>
         </div>
       </div>
@@ -301,11 +410,13 @@
           <!-- Populated by JS -->
         </ul>
       </div>
+      </div>
+      </div>
     </aside>
   </main>
 
   <!-- =========================================================================
-       Sub-view Modal & Drawer (Reserved Interface Placeholder)
+       Sub-view Modal & Drawer
        ========================================================================= -->
   <div class="subview-modal-backdrop" id="subviewModal">
     <div class="subview-modal-card">
@@ -319,53 +430,29 @@
       </div>
 
       <div class="subview-modal-body" id="subviewModalBody">
-        <div class="subview-placeholder-banner">
-          <div class="subview-placeholder-icon" id="placeholderIcon">📐</div>
-          <h3 class="subview-placeholder-title" id="placeholderTitle">功能界面已就绪 · 预留独立定制接口</h3>
-          <p class="subview-placeholder-desc" id="placeholderDesc">
-            本子界面路由与上下文数据已完整打通。你可以随时在此独立扩充更深入的专业级交互图表与定制逻辑。
-          </p>
-          <button class="btn btn-secondary" id="btnBackToHome">返回主面板 (Home)</button>
-        </div>
-
         <div id="modalDynamicContent">
           <!-- Contextual data will be rendered here -->
         </div>
-
-        <div class="code-contract-box" id="modalCodeContract">
-          // 预留的后端数据契约与接口已绑定
-        </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Authentication Modal -->
-  <div class="auth-modal-backdrop" id="authModal" aria-hidden="true">
-    <div class="auth-modal-card" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
-      <div class="auth-modal-header">
-        <div>
-          <div class="auth-kicker">AGRILOOP ACCESS</div>
-          <h2 id="authModalTitle">登录农智闭环</h2>
-          <p>登录后，网页会把 Copilot 请求发送到服务器上的 Qwen3.8-27B。</p>
-        </div>
-        <button class="close-modal-btn" id="btnCloseAuthModal" type="button" title="关闭">✕</button>
-      </div>
-      <form class="auth-form" id="authForm">
-        <label for="authUsername">账号</label>
-        <input id="authUsername" name="username" type="text" autocomplete="username" placeholder="例如：farmer" required>
-        <label for="authPassword">密码</label>
-        <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="输入登录密码" required>
-        <p class="auth-error" id="authError" role="alert"></p>
-        <button class="auth-submit-btn" id="btnAuthSubmit" type="submit">登录并连接 AI</button>
-      </form>
-      <div class="auth-hint">可用角色：农户、执行员、农场管理员、系统管理员。权限仍由后端 JWT/RBAC 校验。</div>
     </div>
   </div>
 
   <!-- Toast Alerts Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- 全局 ⌘K 命令面板：地块 / 视图 / 作物包 / 规则 / 关键动态 -->
+  <div class="cmd-palette-backdrop" id="cmdPaletteBackdrop">
+    <div class="cmd-palette" role="dialog" aria-modal="true" aria-label="全局命令面板">
+      <div class="cmd-input-wrap">
+        <span class="cmd-icon">🔍</span>
+        <input type="text" class="cmd-input" id="cmdInput" placeholder="搜索地块、功能视图、作物包、规则、关键动态…（↑↓ 选择 · Enter 跳转）" autocomplete="off">
+        <span class="cmd-kbd">ESC</span>
+      </div>
+      <div class="cmd-results" id="cmdResults"></div>
+    </div>
+  </div>
+
   <!-- Load ES Module Scripts -->
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=20260824-rium-v2-integration"></script>
 </body>
 </html>

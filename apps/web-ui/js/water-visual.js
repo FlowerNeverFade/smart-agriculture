@@ -110,10 +110,15 @@ function bindMiniWaterInteraction(target) {
     cssWidth = Math.max(1, rect.width);
     cssHeight = Math.max(1, rect.height);
     const ratio = Math.min(window.devicePixelRatio || 1, 1.25);
-    canvas.width = Math.round(cssWidth * ratio);
-    canvas.height = Math.round(cssHeight * ratio);
-    canvas.style.width = `${cssWidth}px`;
-    canvas.style.height = `${cssHeight}px`;
+    const pixelWidth = Math.round(cssWidth * ratio);
+    const pixelHeight = Math.round(cssHeight * ratio);
+    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+    // Percentage sizing is layout-neutral. Pixel inline sizing can make an
+    // unstyled canvas enlarge its auto-height parent, triggering an endless
+    // ResizeObserver -> canvas -> parent feedback loop.
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
   };
 

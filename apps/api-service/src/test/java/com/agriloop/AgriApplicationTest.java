@@ -22,6 +22,7 @@ class AgriApplicationTest {
         Map<String, Object> login = engine.login("farmer", "demo123");
         assertThat(login).containsKey("accessToken");
         assertThat(engine.cropPacks()).hasSize(2);
+        assertThat(new AgriProperties().getLlmMaxTokens()).isEqualTo(512);
     }
 
     @Test
@@ -37,6 +38,59 @@ class AgriApplicationTest {
     }
 
     @Test
+    void telemetryLimitReturnsTheNewestWindowInChronologicalOrder() {
+        Instant base = Instant.parse("2026-08-24T00:00:00Z");
+        for (int index = 0; index < 4; index++) {
+            assertThat(store.saveTelemetry(Map.of(
+                    "eventId", "telemetry-window-" + index,
+                    "farmId", "farm-demo",
+                    "plotId", "plot-b01",
+                    "deviceId", "window-test-device",
+                    "metric", "WINDOW_TEST",
+                    "value", index,
+                    "unit", "unit",
+                    "ts", base.plusSeconds(index).toString(),
+                    "quality", Map.of("status", "GOOD"))))
+                    .isTrue();
+        }
+
+        List<Map<String, Object>> newest = store.telemetry(
+                "plot-b01", "WINDOW_TEST", base.minusSeconds(1), base.plusSeconds(10), 2);
+
+        assertThat(newest).extracting(event -> event.get("eventId"))
+                .containsExactly("telemetry-window-2", "telemetry-window-3");
+    }
+
+    @Test
+    void diagnosisSafetyAndRolePermissionArePartOfDecisionReadiness() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
+        engine.ingest(Map.of("eventId", "decision-drift-event", "plotId", "plot-b01", "deviceId", "mock-plot-b01",
+                "metric", "SOIL_MOISTURE", "value", 11.0, "unit", "%", "scenarioId", "sensor-drift", "ts", Instant.now().toString()));
+        Map<String, Object> diagnosis = engine.diagnose("plot-b01", Map.of("scenarioId", "sensor-drift", "traceId", "trace-drift-gate"));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of("plotId", "plot-b01", "diagnosisId", diagnosis.get("diagnosisId"), "traceId", "trace-drift-gate"), admin);
+        Map<String, Object> readiness = engine.readiness("IRRIGATION_PLAN", String.valueOf(plan.get("planId")), admin);
+
+        assertThat(plan.get("executable")).isEqualTo(false);
+        assertThat(plan.get("readinessStatus")).isEqualTo("NEEDS_EVIDENCE");
+        assertThat(plan).containsKey("readinessId");
+        assertThat(readiness.get("status")).isEqualTo("NEEDS_EVIDENCE");
+        assertThat(String.valueOf(readiness.get("hardGates"))).contains("diagnosisSafety=FAIL");
+        assertThat(String.valueOf(readiness.get("missingEvidence"))).contains("FLOW_RATE_CALIBRATION", "DIAGNOSIS_CONFIRMATION");
+        assertThat(engine.passport("trace-drift-gate", admin).get("traceId")).isEqualTo("trace-drift-gate");
+        UserPrincipal unrelatedFarmer = new UserPrincipal("user-farmer-a02", "farmer-a02", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.passport("trace-drift-gate", unrelatedFarmer))
+                .isInstanceOf(ApiException.class);
+
+        engine.ingest(Map.of("eventId", "decision-role-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "SOIL_MOISTURE", "value", 17.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString()));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
+        Map<String, Object> farmerReadiness = engine.readiness("PLOT", "plot-a02", farmer);
+        assertThat(farmerReadiness.get("status")).isEqualTo("HUMAN_REVIEW");
+        assertThat(String.valueOf(farmerReadiness.get("hardGates"))).contains("permission=REVIEW");
+        assertThat(String.valueOf(farmerReadiness.get("missingEvidence"))).contains("CONTROL_PERMISSION");
+    }
+
+    @Test
     void healthyTelemetryProducesReadyPlanAndResourceLimitIsHard() {
         Map<String, Object> event = Map.of("eventId", "ready-event-1", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
                 "metric", "SOIL_MOISTURE", "value", 15.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString());
@@ -49,6 +103,24 @@ class AgriApplicationTest {
                 Map.of("plotId", "plot-a01", "waterLitre", 800, "priority", "HIGH"),
                 Map.of("plotId", "plot-a02", "waterLitre", 800, "priority", "MEDIUM"))), admin);
         assertThat(resource.get("status")).isEqualTo("INFEASIBLE");
+    }
+
+    @Test
+    void normalLightVariationIsNotMistakenForSensorDegradation() {
+        engine.ingest(Map.of("eventId", "light-baseline-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 38_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> normal = engine.ingest(Map.of("eventId", "light-normal-variation-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 38_650.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().plusMillis(1).toString()));
+        Map<String, Object> normalEvent = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), normal.get("event"));
+        assertThat(Jsons.text(Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), normalEvent.get("quality")), "status", ""))
+                .isEqualTo("GOOD");
+
+        Map<String, Object> abrupt = engine.ingest(Map.of("eventId", "light-abrupt-change-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "LIGHT", "value", 52_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().plusMillis(2).toString()));
+        Map<String, Object> abruptEvent = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), abrupt.get("event"));
+        Map<String, Object> abruptQuality = Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), abruptEvent.get("quality"));
+        assertThat(abruptQuality.get("status")).isEqualTo("DEGRADED");
+        assertThat(abruptQuality.get("changePoint")).isEqualTo(true);
     }
 
     @Test
@@ -87,7 +159,7 @@ class AgriApplicationTest {
 
     @Test
     void qwenThinkingAndInternalMetadataAreNeverShownAsNarrative() {
-        String raw = "<think>内部推理 traceId: run-secret</think>\n\n你好！\n\ntraceId: run-secret\nsourceLabels: OBSERVED";
+        String raw = "<think>内部推理 traceId: run-secret</think>\n\n你好！\n\n当前问题：不应泄漏\ntraceId: run-secret\nsourceLabels: OBSERVED";
         assertThat(AgriEngine.sanitizeNarrative(raw)).isEqualTo("你好！");
     }
 
@@ -116,11 +188,64 @@ class AgriApplicationTest {
                 .contains("不能", "控制命令");
         Map<String, Object> offline = Map.of("intent", "PLOT_STATUS", "result", Map.of(
                 "device", Map.of("status", "OFFLINE"), "latest", Map.of()));
-        assertThat(engine.safetyNarrativeOverride("查看地块状态", offline))
-                .contains("设备离线", "暂不生成");
+        assertThat(engine.safetyNarrativeOverride("查看地块状态", offline)).isNull();
         Map<String, Object> blockedPlan = Map.of("intent", "IRRIGATION_RECOMMENDATION", "plan", Map.of(
                 "executable", false, "readinessStatus", "NEEDS_EVIDENCE"));
         assertThat(engine.safetyNarrativeOverride("给我灌溉建议", blockedPlan))
                 .contains("证据不足", "人工复核");
+    }
+
+    @Test
+    void chineseQuickIntentsReachTheMatchingDeterministicTool() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+
+        Map<String, Object> irrigation = engine.agentChat(Map.of(
+                "message", "为温室1生成阶段精准补水处方与就绪度检查", "plotId", "plot-a01"), farmer);
+        assertThat(irrigation.get("intent")).isEqualTo("IRRIGATION_RECOMMENDATION");
+        assertThat(irrigation).containsKey("plan");
+
+        Map<String, Object> diagnosis = engine.agentChat(Map.of(
+                "message", "分析温室1的缺水与传感器漂移风险", "plotId", "plot-a01"), farmer);
+        assertThat(diagnosis.get("intent")).isEqualTo("DIAGNOSIS");
+        assertThat(diagnosis).containsKey("diagnosis");
+    }
+
+    @Test
+    void retestChecklistIsARealFollowUpInsteadOfTheRepeatedSafetyTemplate() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String conversationId = "conversation-retest-checklist";
+        Map<String, Object> first = engine.agentChat(Map.of(
+                "message", "读取温室1实时遥测与设备健康度", "plotId", "plot-a01", "conversationId", conversationId), farmer);
+        Map<String, Object> checklist = engine.agentChat(Map.of(
+                "message", "复测清单", "plotId", "plot-a01", "conversationId", conversationId), farmer);
+
+        assertThat(checklist.get("intent")).isEqualTo("RETEST_CHECKLIST");
+        assertThat(String.valueOf(checklist.get("narrative"))).contains("复测", "1.");
+        assertThat(checklist.get("narrative")).isNotEqualTo(first.get("narrative"));
+        assertThat(((List<?>) engine.agentHistory(conversationId, 20, farmer).get("messages"))).hasSize(4);
+    }
+
+    @Test
+    void agentHistoryIsPersistedAndStrictlyIsolatedByUser() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal operator = new UserPrincipal("user-operator", "operator", "FIELD_OPERATOR", List.of("farm-demo"), List.of("plot-a01"));
+        String farmerConversation = "conversation-farmer-private";
+        String operatorConversation = "conversation-operator-private";
+
+        Map<String, Object> farmerAnswer = engine.agentChat(Map.of(
+                "message", "番茄现在需要关注什么", "plotId", "plot-a01", "conversationId", farmerConversation), farmer);
+        engine.agentChat(Map.of(
+                "message", "今天有哪些农务", "plotId", "plot-a01", "conversationId", operatorConversation), operator);
+
+        List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
+        assertThat(farmerMessages).hasSize(2);
+        assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
+        assertThat(engine.agentConversations(20, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, operator)).allMatch(item -> "user-operator".equals(item.get("userId")));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, operator))
+                .isInstanceOf(ApiException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentRun(String.valueOf(farmerAnswer.get("traceId")), operator))
+                .isInstanceOf(ApiException.class);
     }
 }

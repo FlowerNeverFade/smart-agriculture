@@ -119,7 +119,7 @@ export function initFieldSandbox(root) {
 
   root.dataset.fieldFxBound = 'true';
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const scrollContainer = root.closest('.subview-modal-body');
+  const scrollContainer = root.closest('.main-feed-module-body, .subview-modal-body, .main-feed');
   const plotResponses = [...root.querySelectorAll('.field-plot')].map((element) => ({
     element,
     intensity: 0,
@@ -317,8 +317,8 @@ export function initFieldSandbox(root) {
   root.addEventListener('pointerleave', onPointerLeave, { passive: true });
   root.addEventListener('click', onClick);
   scrollContainer?.addEventListener('scroll', onScroll, { passive: true });
-  const observer = new ResizeObserver(measure);
-  observer.observe(root);
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+  observer?.observe(root);
   measure();
   cleanupActiveFieldSandbox = () => {
     root.removeEventListener('pointerenter', onPointerEnter);
@@ -326,7 +326,7 @@ export function initFieldSandbox(root) {
     root.removeEventListener('pointerleave', onPointerLeave);
     root.removeEventListener('click', onClick);
     scrollContainer?.removeEventListener('scroll', onScroll);
-    observer.disconnect();
+    observer?.disconnect();
     if (frameId) cancelAnimationFrame(frameId);
     cleanupActiveFieldSandbox = null;
   };

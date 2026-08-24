@@ -3,11 +3,23 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；指定前端分支与 `rium_dev-v2` 的监测、折叠栏、中心模块和背景修补已合并验证；最终视觉采用毛玻璃；真实硬件和生产级视觉/语音仍按范围不实现**
 
-> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个 Crop Pack、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)。
+> 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
-> 2026-08-23 main 部署记录：GitHub `main` 当前为 `6183803`（不包含 `task5`）。远端已启用 OpenAI-compatible Qwen3.8-27B，并加载保守的 LoRA 表达适配器 `agriloop-qwen38-agri`；规则、数据库和 RAG 仍是事实与安全边界的唯一来源，模型只生成解释文本。思维输出已关闭，后端/浏览器均过滤内部字段，并对离线、降级质量和控制命令执行二次安全拦截。公网 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
+> 2026-08-24 main 部署记录：代码整合提交 `08a7b90` 已发布到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
+
+> 2026-08-24 `rium_dev-v2` 增量整合：合并提交 `9066edb`（父提交 `7b9db81` + `e2d0b69`）已完成本地合并。地块监测六指标时序视图、右侧栏折叠、中心内嵌子模块、背景天体动画兼容和无三角尺占位均已验证；液态高光已按最新要求回退为毛玻璃（半透明填充、背景模糊、轻边框，无 sheen/反光伪元素）。`verify-webui real` 为 `82/82`，真实 Chromium 为 `23/23`；部署完成后将把公网运行提交同步更新到本段记录。
+
+> 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
+
+> 2026-08-24 智能诊断与决策中枢：页面与闭环实现提交 `b0aefa9`、遥测跳变校准提交 `405930d` 已发布到公网。页面接入诊断、三类证据、四态就绪度、八道安全门、结构化处方、补证工单、人工审批、幂等虚拟命令、ACK/效果和决策护照；后端同时修复诊断安全门/角色权限一致性，以及正常光照波动被通用阈值误判为 `DEGRADED` 的问题。验收：Spring Boot 14/14，Web real 79/79、stub/svg 78/78；公网 smoke 返回 `WATER_DEFICIT -> READY`、重复事件幂等、失败命令效果 `INCONCLUSIVE`，专项反例返回 `SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false`。Qwen 返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`；详见 [`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`](docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md)。
+
+> 2026-08-24 Web 等画质性能优化：提交 `e9dc042` 已推送 GitHub `main` 并发布到公网。重型 Three.js/子页样式改为首绘后或按视图加载，数据请求并行，隐藏动画真实停帧，静态资源采用分级缓存；麦田仍保留 18,816 株植被实例、原像素比、抗锯齿、几何和着色器。Chromium 探针中 Dashboard 可用时间 635 ms -> 355 ms（-44.1%），首屏传输 1,504 KiB -> 1,158 KiB（-23.0%），最长任务 424 ms -> 275 ms（-35.1%）；等画质空间分块相对单网格的软件 GPU 帧率中位数提升约 33.9%。真实浏览器 15/15、Web real 79/79、stub/svg 78/78；公网管理员登录、3 个地块、3D 背景、按需模块及健康检查复核通过且无浏览器运行时错误。证据见 [`docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`](docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md)。
+
+> 2026-08-24 模拟器与实时窗口收口：Supervisor 管理的实时模拟器改为持续生成当前时间戳遥测，直到管理员在页面关闭开关；有限样本 CLI 回放语义保持不变。由此避免固定 1,080 条场景结束后被 Supervisor 反复拉起并进入 `FATAL`，同时保持事件 ID 唯一和数据新鲜度。遥测分页同步修正为“选取最新 N 条、按时间正序返回”，避免历史积累后图表和预测误读当天最早的旧样本。
+
+> 2026-08-24 首页水资源卡片稳定性修复：提交 `b08c664` 已推送 GitHub `main` 并热发布公网。根因是首页水球先于按需加载的协同排程 CSS 初始化，Canvas 像素尺寸与 `ResizeObserver` 形成布局反馈，点击“水资源协同排程”加载样式后才暂时恢复。现已将首页必需约束移入首屏 CSS、统一水动画模块版本并使用不参与布局计算的 Canvas 百分比尺寸。真实 Chromium 在未加载协同排程 CSS 时卡片高度连续保持 `147.5px`、页面高度保持不变，打开协同排程后仍为 `147.5px`；本地及公网真实 JWT 登录回归均为 18/18，且无未处理运行时错误。
 
 ## 1. 进度总览
 
@@ -24,8 +36,9 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 已完成（最小 Web 入口） | 100%（入口） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；完整专业图表页面仍不在本期 |
-| 农务执行前端（独立功能分支） | 待验收 | 本地演示可运行 | 今日农务透明沙盘已补充逐帧平滑轨迹与三地块局部响应；水资源排程已补充 WebGL2 Shader 水球、低分辨率水波、秒级平滑高亮尾流、昼夜弹窗配色、约 58 KB WebP 移动网格背景、增强液面/内部流动和 Canvas 飞溅降级；水球已从全屏背景缩小为余量卡片资源位，全窗口拖尾/点击层保持；工单、右侧巡田抽屉与执行状态已在 `feat/farm-operations` 实现；资源数据明确标记 SIMULATED，尚未完成服务器联调，不计入后端完成声明 |
+| 可视化主线实现 | 已完成（核心演示切片） | 100%（已实现切片） | JWT 登录、Copilot、3D 农田监测及完整智能诊断决策中枢；诊断台覆盖证据、就绪度、处方、补证、审批、虚拟执行和护照，其他未实现业务页面仍不计完成 |
+| 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；水球已收纳到余量卡片资源位，约 58 KB WebP 网格背景按昼夜主题移动，鼠标拖尾/点击水花保留全窗口响应；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
+| Web 等画质性能 | 已完成（公网验收） | 100%（本轮范围） | 等画质按需加载、空间分块剔除、隐藏停帧与分级缓存；Dashboard 可用时间中位数约 355 ms；首页水资源卡片的首屏样式/Canvas 尺寸反馈回路已修复，提交 `e9dc042`、`b08c664` 均已发布，见 `WEB_PERFORMANCE_ACCEPTANCE.md` |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -34,13 +47,13 @@
 
 ## 2. 当前阶段判断
 
-### 2.1 2026-08-23 main 远端验收
+### 2.1 2026-08-24 main 远端验收
 
 - `/actuator/health`、品牌入口 `/agriloop/`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
 - 网页登录后输入自然语言即可对话；UI 只有在响应包含 `adapter=openai-compatible`、`degraded=false`、`narrative` 时才标为 `Qwen3.8-27B 实时回答`，否则明确显示规则降级。
 - Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；问候/能力/短输入走规则快捷路径，模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。traceId 只保留在审计/决策护照接口，不在对话正文展示。
 - vLLM 监听 `127.0.0.1:8000`，数据库/消息服务不通过公网服务暴露；`SERVER_ADDRESS=127.0.0.1` 保护 Spring API，公网入口为 Nginx 的 6006 映射。
-- 远端磁盘约 185GB 可用，Qwen 权重约 52GB，LoRA 适配器约 40MB；数据目录、备份和应用日志位于服务器本地持久盘。
+- 远端磁盘约 183GB 可用，Qwen 权重约 52GB，LoRA 适配器约 40MB；数据目录、备份和应用日志位于服务器本地持久盘。
 
 ### 已完成的设计工作
 
@@ -61,7 +74,10 @@
 - 后端代码、数据库迁移、两个 Crop Pack、模拟器、OpenAPI/Schema、自动化测试和远端 Supervisor 部署已落盘。
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
-- 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
+- `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
+- `feat/login-interface` 的独立登录页、`rium_dev` 的麦田/地形背景、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现、`lxh-frontend` 的农田监测/独立作物沙盘以及 `rium_dev-v2` 的时序、折叠栏和中心模块已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`；主界面最终采用毛玻璃，不启用液态高光层。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
+- “智能诊断与决策中枢”已从通用占位预览升级为真实接口驱动页面：相反证据与缺失证据不会被隐藏，安全门只阻断执行而不阻断解释和参考试算，漂移可直接生成补证工单，READY 处方经人工确认后显示 ACK 与效果状态。
+- 可选后续工作：补充其余业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
 
@@ -89,7 +105,7 @@
 
 ### Gate 3：D14 可答辩
 
-状态：**后端已完成；最小 Web 入口已验收，完整前端和答辩物料按范围不在本次后端交付**
+状态：**后端已完成；最小 Web 入口与农田动态监测切片已验收，完整前端和答辩物料按范围不在本次后端交付**
 
 验收条件：
 

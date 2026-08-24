@@ -1,0 +1,89 @@
+# 农田动态监测前端验收说明
+
+> 分支：`lxh-frontend` + `yyx` + `feat/farm-operations` + `rium_dev` 兼容增量
+> 状态：已验收（Three.js 场景静态检查 + 工单/资源沙盘 + rium 液态玻璃 + svg/stub/real 回归）
+> 日期：2026-08-23
+
+## 1. 实现范围
+
+- 入口：`apps/web-ui/index.html#view=plot-detail&plotId=plot-a01`。
+- 输入：浏览器当前时间、浏览器定位、Open-Meteo 当前天气、地块 Mock/后端数据、Crop Pack 作物与阶段上下文。
+- 处理：Three.js WebGL 场景、InstancedMesh 作物实例、顶点着色器风场、动态水面、云层/雨粒子、昼夜光照、阴影、射线拾取和地块面板状态机。
+- 输出：全屏三维农场、三块可交互地块、作物/阶段图层、预警、4 项传感器指标、环境曲线和阶段时间线。
+- 当前边界：双击地块只显示未来风险推演与情景模拟沙盘的预留入口，本阶段不实现沙盘页面。
+- 数据边界：页面当前使用模拟地块和传感器数据；定位/天气可读取实时公共数据，但不代表已接入真实农业传感器或执行器。
+
+## 2. 场景与降级路径
+
+| 能力 | 正常路径 | 失败/降级路径 |
+|---|---|---|
+| 时间场景 | 06:00 开始日出，18:00 开始日落，光源、天空、雾和阴影连续过渡 | 可用 `demoTime` 固定演示；没有参数时使用浏览器时间 |
+| 实时天气 | 定位后请求 Open-Meteo，映射晴/多云/阴/小雨/中雨/大雨 | 定位拒绝时回退重庆坐标；天气请求失败时使用重庆演示天气 |
+| 三维场景 | 山地、树冠、地块、作物、水面、云和雨均在 WebGL 中持续更新 | WebGL 初始化失败时显示硬件加速提示，不伪装成已运行的动态场景 |
+| 作物风场 | 空闲微风持续改变植株顶点；鼠标方向和速度叠加到植株与树冠形变 | `prefers-reduced-motion` 下缩短界面过渡；场景数据仍保持可读 |
+| 作物/阶段 | 选择作物后全地块实例重建；阶段改变密度、高度和果实比例 | `auto` 跟随每块地 Crop Pack；未知值回退番茄/营养生长期 |
+| 地块详情 | 单击地块打开平滑放大的详情面板，显示状态、传感器、曲线和阶段 | 无匹配地块时不打开；Escape/关闭按钮返回场景 |
+| 风险沙盘 | 双击地块识别目标并触发入口 | 当前明确提示“下一阶段接入”，不虚构已完成沙盘 |
+
+## 3. 自动化验收结果
+
+使用本地 HTTP 服务与 Playwright + Microsoft Edge，主视口为 `1440×1024`，设备像素比为 1。
+
+| 检查项 | 结果 |
+|---|---|
+| WebGL 初始化 | 通过，`renderer=webgl` |
+| 场景规模 | 约 433 次 draw call、1,171,454 个三角面（晴天自动作物状态） |
+| 地块/预警 | 3 个可拾取地块；1 个预警图标，仅 A01 风险地块展示 |
+| 地块详情 | 单击 A01 后面板可见，宽 418px，状态/4 项指标/曲线/4 阶段完整 |
+| 作物全场切换 | 番茄、黄瓜、水稻、玉米及 `auto` 均可驱动三块地的真实三维实例 |
+| 鼠标风场 | 指针移动后着色器风场强度可达 `1.38`；无操作时保留自然微风 |
+| 双击地块 | 正确显示“未来风险推演与情景沙盘将在下一阶段接入” |
+| 昼夜/天气 | `day`、`sunset`、`night` 及 `heavy-rain` 状态均通过浏览器运行态核对 |
+| 响应式 | `1440×1024`、`820×1180`、`390×844` 均无横向页面溢出；移动端工具栏和作物切换器保持可用 |
+| 浏览器控制台 | 固定演示参数下错误 0、警告 0；固定演示模式不发起无意义的后端健康请求 |
+| JavaScript 与差异检查 | `node --check` 和 `git diff --check` 通过后方可提交 |
+
+## 4. 精确时间边界
+
+| 演示时间 | 场景状态 |
+|---|---|
+| `05:59:59` | 夜间 |
+| `06:00:00` | 日出开始 |
+| `06:30:00` | 日出过渡中 |
+| `06:45:00` | 白昼 |
+| `17:59:59` | 白昼 |
+| `18:00:00` | 日落开始 |
+| `18:20:00` | 日落过渡中 |
+| `18:45:00` | 暮色 |
+| `19:15:00` | 夜间 |
+
+## 5. 可复现演示参数
+
+```text
+?demoTime=14:20:00&demoWeather=sunny#view=plot-detail&plotId=plot-a01
+?demoTime=18:10:00&demoWeather=sunny#view=plot-detail&plotId=plot-a01
+?demoTime=14:20:00&demoWeather=heavy-rain#view=plot-detail&plotId=plot-a01
+?demoTime=22:00:00&demoWeather=cloudy#view=plot-detail&plotId=plot-a01
+```
+
+`demoWeather` 允许值：`sunny`、`cloudy`、`overcast`、`light-rain`、`moderate-rain`、`heavy-rain`。
+
+## 6. 视觉验收
+
+- 视觉目标：广角、明亮、阳光充足的山谷农场；窄工具轨、右上作物切换器和地块内标签保持低干扰。
+- 实现原则：不使用整幅静态农场图作为背景；草地、土壤和林冠图片只作为三维网格表面材质。
+- 对照报告：项目根目录 `design-qa.md`，最终结果为 `passed`。
+- 当前可继续增强但不阻塞验收的 P3 项：在性能预算允许时替换为更高精度的外部植物/建筑模型，并增加 GPU 级后处理光晕。
+
+## 7. yyx 增强模块回归
+
+- `scripts/verify-webui.mjs` 已在 `svg`、`stub`、`real` 三种模式通过，覆盖预测仪表盘、情景双轨回放、OFFLINE/漂移降级、价值账本、四个 Crop Pack（番茄/黄瓜/草莓/辣椒）、工单四态看板、巡田 `USER_PROVIDED` 证据、水资源超容量 `INFEASIBLE`、首页摘要和命令面板。
+- 结果：`svg 55/55`、`stub 55/55`、`real 56/56`（real 模式本地加载 vendored ECharts 5.5.1）。
+- 不合并名为 `task5` 的独立分支；上述 yyx 功能来自 `yyx` 分支本身，已适配并与主线认证、模拟器和 3D 监测共存。
+
+## 8. farm-operations 与 rium_dev 增量验收
+
+- `#view=work-orders`：透明农田沙盘、四态工单、角色按钮边界、拖拽状态流转、巡田抽屉和 `USER_PROVIDED` 来源标记可渲染；在线模式调用 `/api/v1/work-items/today`、`/api/v1/work-orders`、`/api/v1/inspections`。
+- `#view=resource-coordination`：水球背景、液面/试算分离、有限容量排序和未满足需求可见；模拟需求超过 900 L 时返回 `INFEASIBLE`，不会伪造可行结果。
+- rium 背景使用仓库 vendor Three，固定在 `#riumBackground`；玻璃层由 `css/rium-glass.css` 提供。全屏 lxh 监测打开时暂停背景，无 WebGL 时保留 CSS 玻璃降级。
+- 分支文件与取舍清单见 [`docs/branch-integration-review.md`](../branch-integration-review.md)。

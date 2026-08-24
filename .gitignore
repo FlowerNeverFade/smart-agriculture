@@ -17,6 +17,7 @@ venv/
 # Frontend/build artifacts
 node_modules/
 dist/
+.tools/
 
 # Generated project data
 data/
@@ -34,6 +35,7 @@ training/checkpoints/
 
 # Generated visual assets and Office temporary lock files
 output/
+artifacts/
 ~$*.doc
 ~$*.docx
 ~$*.xls
