@@ -1,26 +1,26 @@
 /* =========================================================================
    AgriLoop - Microscopic Crop Digital Twin & Scenario Sandbox
-   OceanX 科考级深色数字驾驶舱风格 & 3D 微观推演工作室
+   Warm outdoor garden laboratory & 3D crop scenario studio
    ========================================================================= */
 
 :root {
-  --sandbox-bg: #0a0e14;
-  --sandbox-surface: rgba(18, 26, 36, 0.88);
-  --sandbox-surface-strong: rgba(22, 32, 45, 0.96);
-  --sandbox-border: rgba(56, 139, 253, 0.2);
-  --sandbox-border-highlight: rgba(88, 166, 255, 0.45);
-  --sandbox-green: #3fb950;
-  --sandbox-green-glow: rgba(63, 185, 80, 0.4);
-  --sandbox-blue: #58a6ff;
-  --sandbox-blue-glow: rgba(88, 166, 255, 0.4);
+  --sandbox-bg: #dcebdc;
+  --sandbox-surface: rgba(253, 253, 247, 0.78);
+  --sandbox-surface-strong: rgba(254, 253, 247, 0.92);
+  --sandbox-border: rgba(255, 255, 255, 0.78);
+  --sandbox-border-highlight: rgba(41, 119, 76, 0.32);
+  --sandbox-green: #24794d;
+  --sandbox-green-glow: rgba(36, 121, 77, 0.22);
+  --sandbox-blue: #307ca5;
+  --sandbox-blue-glow: rgba(48, 124, 165, 0.2);
   --sandbox-amber: #d29922;
   --sandbox-amber-glow: rgba(210, 153, 34, 0.4);
   --sandbox-red: #f85149;
   --sandbox-red-glow: rgba(248, 81, 73, 0.4);
   --sandbox-purple: #bc8cff;
-  --sandbox-text: #f0f6fc;
-  --sandbox-text-muted: #8b949e;
-  --sandbox-text-dim: #484f58;
+  --sandbox-text: #173429;
+  --sandbox-text-muted: #61766c;
+  --sandbox-text-dim: #8b9e93;
   --sandbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -984,5 +984,467 @@ body.crop-sandbox-open {
   .sandbox-value-ticker {
     margin-top: 7px;
     padding-top: 7px;
+  }
+}
+
+/* =========================================================================
+   2026 Outdoor Garden Edition
+   Bright frosted UI with a calm hierarchy around the living 3D specimen.
+   ========================================================================= */
+.crop-sandbox-container {
+  background: linear-gradient(180deg, #a9d8ef 0%, #dfeccc 62%, #8db36a 100%);
+  color: var(--sandbox-text);
+}
+
+.crop-sandbox-container::before {
+  content: "";
+  position: absolute;
+  left: 31.5%;
+  top: 14%;
+  z-index: 2;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle at 40% 38%, #fffde5 0 13%, #ffe79a 34%, #ffd16e 62%, rgba(255, 205, 105, 0) 72%);
+  box-shadow: 0 0 30px 10px rgba(255, 231, 154, 0.34), 0 0 100px 38px rgba(255, 240, 184, 0.18);
+  opacity: 0.94;
+  animation: sandbox-sun-breathe 5.6s ease-in-out infinite;
+  transition: opacity 900ms ease, filter 900ms ease, background 900ms ease;
+}
+
+.crop-sandbox-container[data-weather="drought"]::before,
+.crop-sandbox-container[data-weather="heatwave"]::before {
+  filter: saturate(1.18) sepia(0.12);
+  background: radial-gradient(circle at 40% 38%, #fff8d7 0 12%, #ffd676 34%, #ffad50 62%, rgba(255, 171, 77, 0) 72%);
+}
+
+.crop-sandbox-container[data-weather="flood"]::before {
+  opacity: 0.04;
+}
+
+.crop-sandbox-container[data-weather="stuck"]::before {
+  opacity: 0.32;
+  filter: grayscale(0.28);
+}
+
+@keyframes sandbox-sun-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+
+body.crop-sandbox-open {
+  background: #dcebdc;
+}
+
+.sandbox-header {
+  height: 72px;
+  padding: 0 20px;
+  background: linear-gradient(180deg, rgba(243, 249, 240, 0.76) 0%, rgba(243, 249, 240, 0.28) 72%, rgba(243, 249, 240, 0) 100%);
+}
+
+.sandbox-btn-back,
+.sandbox-title-badge,
+.sandbox-telemetry-strip {
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  background: rgba(253, 253, 247, 0.78);
+  box-shadow: 0 10px 32px rgba(49, 86, 65, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(1.1);
+}
+
+.sandbox-btn-back {
+  height: 40px;
+  border-radius: 13px;
+  color: var(--sandbox-text);
+}
+
+.sandbox-btn-back:hover {
+  color: #155f3b;
+  background: rgba(255, 255, 250, 0.96);
+  border-color: rgba(36, 121, 77, 0.35);
+  box-shadow: 0 12px 34px rgba(36, 121, 77, 0.18);
+}
+
+.sandbox-title-badge {
+  min-width: 420px;
+  padding: 7px 13px 8px;
+  border-radius: 15px;
+}
+
+.sandbox-title-badge h2,
+.sandbox-card-title,
+.sandbox-gauge-info h4,
+.sandbox-gauge-val,
+.sandbox-diag-name,
+.sandbox-diag-val {
+  color: var(--sandbox-text);
+}
+
+.sandbox-title-badge h2 {
+  font-size: 15px;
+}
+
+.sandbox-title-badge h2 > i,
+.sandbox-card-title i {
+  color: var(--sandbox-green);
+}
+
+.sandbox-title-meta {
+  color: var(--sandbox-text-muted);
+}
+
+.sandbox-scientific em {
+  color: #597369;
+}
+
+.sandbox-sequence-chip {
+  align-items: flex-start;
+  min-width: 112px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 13px;
+  background: rgba(252, 251, 241, 0.72);
+  box-shadow: 0 8px 26px rgba(49, 86, 65, 0.11);
+  backdrop-filter: blur(18px);
+}
+
+.sandbox-sequence-chip span {
+  color: #71857a;
+  letter-spacing: 0.08em;
+}
+
+.sandbox-sequence-chip span em {
+  color: #25744b;
+  font-style: normal;
+  letter-spacing: 0;
+}
+
+.sandbox-sequence-chip strong {
+  color: #244438;
+}
+
+.sandbox-telemetry-strip {
+  min-width: 336px;
+  border-radius: 16px;
+}
+
+.sandbox-telemetry-strip > span + span {
+  border-left-color: rgba(35, 83, 60, 0.1);
+}
+
+.sandbox-telemetry-strip b {
+  color: #173429;
+}
+
+.sandbox-telemetry-strip i {
+  color: #2e8060;
+}
+
+.sandbox-left-dock {
+  left: 20px;
+  top: 88px;
+  width: 228px;
+}
+
+.sandbox-left-dock .sandbox-card,
+.sandbox-left-dock:hover .sandbox-card,
+.sandbox-left-dock:focus-within .sandbox-card {
+  width: 228px;
+  padding: 10px;
+  overflow: visible;
+  border-radius: 20px;
+  background: rgba(252, 252, 245, 0.76);
+  border-color: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 18px 46px rgba(44, 77, 57, 0.17), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(24px) saturate(1.08);
+}
+
+.sandbox-left-dock:hover,
+.sandbox-left-dock:focus-within,
+.sandbox-left-dock:hover .sandbox-card,
+.sandbox-left-dock:focus-within .sandbox-card {
+  width: 228px;
+}
+
+.sandbox-left-dock .sandbox-card-title,
+.sandbox-left-dock:hover .sandbox-card-title,
+.sandbox-left-dock:focus-within .sandbox-card-title {
+  height: 36px;
+  margin: 0 2px 7px;
+  padding: 0 5px;
+  justify-content: space-between;
+}
+
+.sandbox-left-dock .sandbox-card-title span,
+.sandbox-left-dock:hover .sandbox-card-title span,
+.sandbox-left-dock:focus-within .sandbox-card-title span {
+  display: inline;
+}
+
+.sandbox-scenario-grid {
+  gap: 6px;
+}
+
+.sandbox-scenario-btn,
+.sandbox-left-dock:hover .sandbox-scenario-btn,
+.sandbox-left-dock:focus-within .sandbox-scenario-btn {
+  width: 208px;
+  height: 51px;
+  padding: 7px 10px;
+  justify-content: flex-start;
+  border-radius: 13px;
+  border-color: rgba(51, 92, 69, 0.1);
+  background: rgba(255, 255, 250, 0.58);
+  color: #29483a;
+}
+
+.sandbox-scenario-btn > div,
+.sandbox-left-dock:hover .sandbox-scenario-btn > div,
+.sandbox-left-dock:focus-within .sandbox-scenario-btn > div {
+  width: auto;
+  opacity: 1;
+}
+
+.sandbox-scenario-btn:hover {
+  background: rgba(255, 255, 251, 0.94);
+  border-color: rgba(48, 124, 165, 0.35);
+  box-shadow: 0 9px 20px rgba(46, 83, 61, 0.12);
+  transform: translateX(3px);
+}
+
+.sandbox-scenario-btn.active {
+  color: #173c2b;
+  background: linear-gradient(135deg, rgba(226, 246, 225, 0.96), rgba(239, 248, 228, 0.92));
+  border-color: rgba(36, 121, 77, 0.5);
+  box-shadow: 0 8px 22px rgba(36, 121, 77, 0.16), inset 3px 0 0 #2f8b5a;
+}
+
+.sandbox-scenario-btn.risk-drought:hover,
+.sandbox-scenario-btn.risk-drought.active,
+.sandbox-scenario-btn.risk-heat:hover,
+.sandbox-scenario-btn.risk-heat.active,
+.sandbox-scenario-btn.risk-rain:hover,
+.sandbox-scenario-btn.risk-rain.active,
+.sandbox-scenario-btn.risk-drift:hover,
+.sandbox-scenario-btn.risk-drift.active {
+  box-shadow: 0 8px 22px rgba(55, 75, 61, 0.14), inset 3px 0 0 currentColor;
+}
+
+.sandbox-scenario-desc {
+  color: #75877d;
+}
+
+.sandbox-right-hud {
+  right: 20px;
+  top: 88px;
+  width: 316px;
+  gap: 9px;
+  padding: 10px;
+  border-radius: 21px;
+  border-color: rgba(255, 255, 255, 0.82);
+  background: rgba(250, 252, 246, 0.72);
+  box-shadow: 0 22px 56px rgba(43, 75, 56, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px) saturate(1.08);
+}
+
+.sandbox-gauge-card,
+.sandbox-chart-card,
+.sandbox-right-hud > .sandbox-card {
+  border-color: rgba(47, 101, 73, 0.1);
+  background: rgba(255, 255, 251, 0.66);
+  border-radius: 15px;
+  box-shadow: 0 7px 18px rgba(42, 73, 55, 0.07);
+}
+
+.sandbox-gauge-bg {
+  stroke: rgba(41, 81, 60, 0.11);
+}
+
+.sandbox-gauge-info p,
+.sandbox-diag-name {
+  color: #536c60;
+}
+
+.sandbox-diag-item {
+  background: rgba(234, 242, 233, 0.66);
+}
+
+.sandbox-diag-bar-bg {
+  background: rgba(38, 72, 54, 0.11);
+}
+
+.sandbox-chart-card svg text {
+  fill: #62786d;
+}
+
+[data-chart-line] {
+  stroke: #307ca5;
+}
+
+.sandbox-btn-prescribe {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2b8055, #4a9b64);
+  box-shadow: 0 8px 20px rgba(39, 121, 77, 0.23);
+}
+
+.sandbox-btn-prescribe:hover {
+  background: linear-gradient(135deg, #24744b, #4da66b);
+  box-shadow: 0 11px 26px rgba(39, 121, 77, 0.28);
+}
+
+.sandbox-bottom-scrubber {
+  left: 270px;
+  right: 356px;
+  bottom: 16px;
+  padding: 8px 13px;
+  border-radius: 20px;
+  border-color: rgba(255, 255, 255, 0.84);
+  background: rgba(253, 252, 245, 0.88);
+  box-shadow: 0 20px 52px rgba(42, 73, 55, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(26px) saturate(1.08);
+}
+
+.sandbox-bottom-scrubber .sandbox-scrubber-top {
+  margin-bottom: 5px;
+}
+
+.sandbox-bottom-scrubber .sandbox-track-tabs > span:first-child {
+  display: none;
+}
+
+.sandbox-track-tab {
+  padding: 4px 9px;
+  border-color: rgba(42, 81, 59, 0.12);
+  background: rgba(239, 244, 237, 0.7);
+  color: #62766b;
+}
+
+.sandbox-track-tab.active {
+  color: #22587a;
+  border-color: rgba(48, 124, 165, 0.38);
+  background: rgba(221, 239, 248, 0.9);
+}
+
+.sandbox-track-tab.tab-action.active {
+  color: #226643;
+  border-color: rgba(36, 121, 77, 0.38);
+  background: rgba(224, 243, 226, 0.92);
+}
+
+[data-time-display] {
+  color: #214638 !important;
+}
+
+.sandbox-play-btn {
+  width: 30px;
+  height: 30px;
+  border-color: rgba(36, 121, 77, 0.24);
+  background: #2d8056;
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(36, 121, 77, 0.22);
+}
+
+.sandbox-bottom-scrubber .sandbox-timeline-wrap {
+  gap: 10px;
+}
+
+.sandbox-bottom-scrubber .sandbox-value-ticker {
+  margin-top: 5px;
+  padding-top: 5px;
+}
+
+.sandbox-play-btn:hover {
+  background: #236b47;
+  box-shadow: 0 9px 22px rgba(36, 121, 77, 0.27);
+}
+
+.sandbox-speed-btn {
+  color: #2a617e;
+  border-color: rgba(48, 124, 165, 0.22);
+  background: rgba(221, 239, 248, 0.72);
+}
+
+.sandbox-speed-btn:hover {
+  color: #21526c;
+  background: rgba(209, 233, 245, 0.94);
+}
+
+.sandbox-slider {
+  background: linear-gradient(90deg, rgba(42, 128, 87, 0.75), rgba(88, 142, 113, 0.2));
+}
+
+.sandbox-slider::-webkit-slider-thumb {
+  background: #fffdf5;
+  border: 3px solid #2d8056;
+  box-shadow: 0 4px 12px rgba(36, 121, 77, 0.3);
+}
+
+.sandbox-value-ticker {
+  color: #5c7166;
+  border-top-color: rgba(41, 81, 60, 0.1);
+}
+
+.sandbox-depth-ruler,
+.sandbox-3d-annotation {
+  display: none !important;
+}
+
+@media (max-width: 1280px) {
+  .sandbox-title-badge {
+    min-width: 0;
+  }
+  .sandbox-title-meta .sandbox-meta-item:nth-child(2),
+  .sandbox-title-meta .sandbox-meta-item:nth-child(3) {
+    display: none;
+  }
+  .sandbox-sequence-chip {
+    display: none;
+  }
+  .sandbox-left-dock,
+  .sandbox-left-dock .sandbox-card,
+  .sandbox-left-dock:hover,
+  .sandbox-left-dock:focus-within,
+  .sandbox-left-dock:hover .sandbox-card,
+  .sandbox-left-dock:focus-within .sandbox-card {
+    width: 214px;
+  }
+  .sandbox-scenario-btn,
+  .sandbox-left-dock:hover .sandbox-scenario-btn,
+  .sandbox-left-dock:focus-within .sandbox-scenario-btn {
+    width: 194px;
+  }
+  .sandbox-right-hud {
+    width: 294px;
+  }
+  .sandbox-bottom-scrubber {
+    left: 250px;
+    right: 334px;
+  }
+}
+
+@media (max-height: 820px) {
+  .sandbox-left-dock,
+  .sandbox-right-hud {
+    top: 80px;
+  }
+  .sandbox-left-dock .sandbox-card {
+    padding-block: 8px;
+  }
+  .sandbox-scenario-btn,
+  .sandbox-left-dock:hover .sandbox-scenario-btn,
+  .sandbox-left-dock:focus-within .sandbox-scenario-btn {
+    height: 46px;
+  }
+  .sandbox-chart-wrap {
+    height: 104px;
+  }
+  .sandbox-gauge-card,
+  .sandbox-chart-card,
+  .sandbox-right-hud > .sandbox-card {
+    padding: 10px;
+  }
+  .sandbox-bottom-scrubber {
+    bottom: 12px;
+    padding-block: 9px;
   }
 }

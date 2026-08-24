@@ -248,22 +248,29 @@ export class CropSandbox {
     this.leafMeshes = [];
     this.fruitMeshes = [];
     this.flowerMeshes = [];
-    this.rootLines = null;
     this.heatParticles = null;
     this.floodWater = null;
     this.sensorMesh = null;
     this.sensorBadge = null;
-    this.rootMaterials = [];
     this.windMaterials = [];
     this.droughtCracks = null;
+    this.outdoorGroup = null;
+    this.cloudGroup = null;
+    this.cloudMaterials = [];
+    this.rainParticles = null;
+    this.grassField = null;
+    this.skyMaterial = null;
+    this.lawnMaterial = null;
+    this.sunLight = null;
+    this.sunMesh = null;
 
     this.animationFrame = null;
     this.frameCount = 0;
     this.lastFrameTime = 0;
     this.isActive = false;
     this.isDestroyed = false;
-    this.cameraTarget = new THREE.Vector3(0.38, 0.13, 0);
-    this.orbitRadius = 5.7;
+    this.cameraTarget = new THREE.Vector3(0.34, 0.08, 0);
+    this.orbitRadius = 6.4;
     this.orbitAzimuth = 0;
     this.orbitElevation = 0.16;
 
@@ -311,7 +318,7 @@ export class CropSandbox {
 
         <div class="sandbox-header-right">
           <div class="sandbox-sequence-chip">
-            <span>SIMULATION WINDOW</span>
+            <span>OUTDOOR TWIN · <em data-weather-label>晴朗微风</em></span>
             <strong data-sequence-time>T+0.0h / 4.0h</strong>
           </div>
           <div class="sandbox-telemetry-strip" aria-label="推演环境遥测">
@@ -322,13 +329,6 @@ export class CropSandbox {
           </div>
         </div>
       </header>
-
-      <div class="sandbox-depth-ruler" aria-hidden="true">
-        <span style="--depth-y: 0%">0 cm</span>
-        <span style="--depth-y: 33%">−15 cm</span>
-        <span style="--depth-y: 66%">−30 cm</span>
-        <span style="--depth-y: 100%">−45 cm</span>
-      </div>
 
       <!-- Left Scenario Injection Dock -->
       <aside class="sandbox-left-dock">
@@ -465,11 +465,11 @@ export class CropSandbox {
             <span style="font-size: 11px; font-weight: 700; color: var(--sandbox-text-muted); text-transform: uppercase;">推演分支：</span>
             <button class="sandbox-track-tab active" type="button" data-track="trackA">
               <i class="ph ph-x-circle" style="color: #f85149;"></i>
-              <span>分支 A: 放任不管 (No Intervention)</span>
+              <span>分支 A · 放任不管</span>
             </button>
             <button class="sandbox-track-tab tab-action" type="button" data-track="trackB">
               <i class="ph ph-check-circle" style="color: #3fb950;"></i>
-              <span>分支 B: 执行智能处方 (AI Prescription)</span>
+              <span>分支 B · 智能处方介入</span>
             </button>
           </div>
 
@@ -533,76 +533,40 @@ export class CropSandbox {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     viewport.appendChild(this.renderer.domElement);
 
     // Scene & Camera
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0e14);
-    this.scene.fog = new THREE.FogExp2(0x0a0e14, 0.04);
+    this.scene.background = new THREE.Color(0x9ed2ef);
+    this.scene.fog = new THREE.Fog(0xc9e1d0, 8, 28);
 
     this.camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 100);
     this.syncOrbitCamera();
 
-    // Lighting (OceanX Sci-fi Lab Aesthetics)
-    const ambientLight = new THREE.AmbientLight(0xd0e4ff, 1.2);
+    // Warm outdoor light rig. Weather scenarios continuously retune these lights.
+    const ambientLight = new THREE.HemisphereLight(0xe8f6ff, 0x6d8b52, 2.35);
     this.scene.add(ambientLight);
+    this.hemisphereLight = ambientLight;
 
-    const sunLight = new THREE.DirectionalLight(0xfffaed, 2.2);
-    sunLight.position.set(4, 8, 5);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 1024;
-    sunLight.shadow.mapSize.height = 1024;
-    sunLight.shadow.camera.near = 0.5;
-    sunLight.shadow.camera.far = 20;
-    sunLight.shadow.bias = -0.001;
-    this.scene.add(sunLight);
+    this.sunLight = new THREE.DirectionalLight(0xfff1c7, 2.8);
+    this.sunLight.position.set(-5, 7, 5);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.width = 1024;
+    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.shadow.camera.near = 0.5;
+    this.sunLight.shadow.camera.far = 24;
+    this.sunLight.shadow.bias = -0.001;
+    this.scene.add(this.sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0x58a6ff, 1.5);
-    rimLight.position.set(-5, 3, -4);
-    this.scene.add(rimLight);
+    const softFill = new THREE.DirectionalLight(0xc8e8ff, 1.25);
+    softFill.position.set(4, 3, 4);
+    this.scene.add(softFill);
 
-    const specimenLight = new THREE.PointLight(0xaed6ff, 1.15, 6, 1.8);
-    specimenLight.position.set(0.6, 1.25, 3.2);
-    this.scene.add(specimenLight);
-
-    const groundGrid = new THREE.GridHelper(18, 36, 0x315f8f, 0x18283a);
-    groundGrid.position.y = -1.42;
-    groundGrid.material.transparent = true;
-    groundGrid.material.opacity = 0.16;
-    groundGrid.material.depthWrite = false;
-    this.scene.add(groundGrid);
-
-    const underLight = new THREE.PointLight(0x2ea8a8, 0.9, 5.5, 2);
-    underLight.position.set(0, -0.75, 1.2);
-    this.scene.add(underLight);
-
-    const haloGroup = new THREE.Group();
-    haloGroup.position.set(0, 0.32, -0.86);
-    [1.06, 1.31, 1.56].forEach((radius, index) => {
-      const halo = new THREE.Mesh(
-        new THREE.TorusGeometry(radius, index === 0 ? 0.006 : 0.003, 6, 128),
-        new THREE.MeshBasicMaterial({
-          color: index === 0 ? 0x4ea1e8 : 0x315e89,
-          transparent: true,
-          opacity: index === 0 ? 0.12 : 0.065,
-          depthWrite: false
-        })
-      );
-      haloGroup.add(halo);
-    });
-    this.scene.add(haloGroup);
-    this.specimenHalo = haloGroup;
-
-    this.scanLine = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.35, 0.006),
-      new THREE.MeshBasicMaterial({ color: 0x79c0ff, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending })
-    );
-    this.scanLine.position.set(0, -0.34, -0.72);
-    this.scene.add(this.scanLine);
-
-    // Build Scene Geometry
-    this.buildSoilCrossSection();
+    // Build the outdoor garden before the foreground specimen.
+    this.buildOutdoorEnvironment();
+    this.buildSmartPlanter();
     this.rebuildPlantModel();
     this.buildHeatVaporParticles();
 
@@ -635,218 +599,348 @@ export class CropSandbox {
     }
   }
 
-  buildSoilCrossSection() {
-    this.soilGroup = new THREE.Group();
-    this.soilGroup.position.set(0, -0.4, 0);
+  buildOutdoorEnvironment() {
+    this.outdoorGroup = new THREE.Group();
 
-    // 1. Soil Cube Dimensions (Width: 2.2m, Height: 1.1m, Depth: 1.8m)
-    const soilWidth = 2.2;
-    const soilHeight = 1.0;
-    const soilDepth = 1.8;
-
-    // Soil Top Material & Body Material
-    this.soilMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.95,
-      metalness: 0.02,
-      transparent: true,
-      opacity: 0.7,
+    // Procedural sky dome: no static backdrop is used.
+    this.skyMaterial = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
       depthWrite: false,
-      vertexColors: true
+      uniforms: {
+        uTop: { value: new THREE.Color(0x6fbbe8) },
+        uBottom: { value: new THREE.Color(0xeaf5d6) },
+        uHorizon: { value: 0.22 }
+      },
+      vertexShader: `varying vec3 vWorld; void main(){ vec4 worldPosition = modelMatrix * vec4(position, 1.0); vWorld = worldPosition.xyz; gl_Position = projectionMatrix * viewMatrix * worldPosition; }`,
+      fragmentShader: `varying vec3 vWorld; uniform vec3 uTop; uniform vec3 uBottom; uniform float uHorizon; void main(){ float h = normalize(vWorld).y; float t = smoothstep(-0.08, 0.72 + uHorizon, h); vec3 sky = mix(uBottom, uTop, pow(t, 0.72)); gl_FragColor = vec4(sky, 1.0); }`
+    });
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(32, 48, 24), this.skyMaterial);
+    this.outdoorGroup.add(sky);
+
+    // Soft rolling lawn and distant hills make the pot feel grounded outdoors.
+    this.lawnMaterial = new THREE.MeshStandardMaterial({ color: 0x79aa56, roughness: 0.97, metalness: 0 });
+    const lawn = new THREE.Mesh(new THREE.CircleGeometry(18, 96), this.lawnMaterial);
+    lawn.rotation.x = -Math.PI / 2;
+    lawn.position.y = -1.24;
+    lawn.receiveShadow = true;
+    this.outdoorGroup.add(lawn);
+
+    this.hillMaterials = [];
+    [[-7, -1.9, -11, 7.5, 2.1], [2, -2.1, -13, 9.5, 2.55], [9, -2.2, -10, 6.8, 2.1]].forEach((hill, index) => {
+      const material = new THREE.MeshStandardMaterial({ color: index === 1 ? 0x648d4c : 0x719b52, roughness: 1 });
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 18), material);
+      mesh.position.set(hill[0], hill[1], hill[2]);
+      mesh.scale.set(hill[3], hill[4], 2.8);
+      mesh.receiveShadow = true;
+      this.hillMaterials.push(material);
+      this.outdoorGroup.add(mesh);
     });
 
-    const soilGeo = new THREE.BoxGeometry(soilWidth, soilHeight, soilDepth, 16, 8, 12);
-    const soilPositions = soilGeo.attributes.position;
-    const soilColors = [];
-    const soilColor = new THREE.Color();
-    for (let index = 0; index < soilPositions.count; index += 1) {
-      const x = soilPositions.getX(index);
-      const y = soilPositions.getY(index);
-      const z = soilPositions.getZ(index);
-      const layer = THREE.MathUtils.clamp((y + soilHeight * 0.5) / soilHeight, 0, 1);
-      const grain = (Math.sin(x * 17.3 + z * 11.8 + index * 1.37) + 1) * 0.5;
-      soilColor.setRGB(0.16 + layer * 0.085 + grain * 0.035, 0.085 + layer * 0.055 + grain * 0.024, 0.045 + layer * 0.026 + grain * 0.014);
-      soilColors.push(soilColor.r, soilColor.g, soilColor.b);
+    // One instanced grass field keeps the meadow alive without hundreds of draw calls.
+    const bladeGeometry = new THREE.BufferGeometry();
+    bladeGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.03, 0, 0, 0.03, 0, 0, 0, 0.14, 0,
+      0, 0, -0.03, 0, 0, 0.03, 0, 0.14, 0
+    ], 3));
+    bladeGeometry.computeVertexNormals();
+    const bladeMaterial = new THREE.MeshStandardMaterial({ color: 0x4e8d43, roughness: 0.9, side: THREE.DoubleSide });
+    bladeMaterial.onBeforeCompile = shader => {
+      shader.uniforms.uMeadowTime = { value: 0 };
+      shader.uniforms.uMeadowWind = { value: 1 };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uMeadowTime;\nuniform float uMeadowWind;')
+        .replace('#include <begin_vertex>', `
+          vec3 transformed = vec3(position);
+          float meadowPhase = uMeadowTime * 1.18 + instanceMatrix[3].x * 0.42 + instanceMatrix[3].z * 0.28;
+          transformed.x += sin(meadowPhase) * position.y * 0.16 * uMeadowWind;
+          transformed.z += cos(meadowPhase * 0.73) * position.y * 0.07 * uMeadowWind;
+        `);
+      this.grassWindUniforms = shader.uniforms;
+    };
+    bladeMaterial.customProgramCacheKey = () => 'agriloop-outdoor-meadow-v1';
+    const bladeCount = 860;
+    this.grassField = new THREE.InstancedMesh(bladeGeometry, bladeMaterial, bladeCount);
+    this.grassField.position.y = -1.235;
+    const dummy = new THREE.Object3D();
+    for (let index = 0; index < bladeCount; index += 1) {
+      const angle = index * 2.399963 + Math.sin(index * 4.17) * 0.18;
+      const radius = 1.45 + Math.sqrt(index / bladeCount) * 10.5;
+      dummy.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius - 1.6);
+      dummy.rotation.set(0, angle + Math.sin(index * 0.91), Math.sin(index * 1.77) * 0.08);
+      const height = 0.58 + ((index * 29) % 41) / 104;
+      dummy.scale.set(0.68 + (index % 5) * 0.06, height, 0.68 + (index % 3) * 0.07);
+      dummy.updateMatrix();
+      this.grassField.setMatrixAt(index, dummy.matrix);
     }
-    soilGeo.setAttribute('color', new THREE.Float32BufferAttribute(soilColors, 3));
-    const soilMesh = new THREE.Mesh(soilGeo, this.soilMaterial);
-    soilMesh.position.set(0, -soilHeight / 2, 0);
-    soilMesh.receiveShadow = true;
-    soilMesh.renderOrder = 1;
-    this.soilGroup.add(soilMesh);
+    this.grassField.instanceMatrix.needsUpdate = true;
+    this.grassField.receiveShadow = true;
+    this.outdoorGroup.add(this.grassField);
 
-    const grainGeometry = new THREE.IcosahedronGeometry(0.018, 1);
-    const grainMaterial = new THREE.MeshStandardMaterial({ color: 0x886848, roughness: 1, transparent: true, opacity: 0.72 });
-    const grains = new THREE.InstancedMesh(grainGeometry, grainMaterial, 96);
-    const grainMatrix = new THREE.Matrix4();
-    const grainQuaternion = new THREE.Quaternion();
-    const grainScale = new THREE.Vector3();
-    for (let index = 0; index < 96; index += 1) {
-      const px = Math.sin(index * 17.17) * (soilWidth * 0.46);
-      const py = -0.05 - ((index * 37) % 91) / 91 * (soilHeight * 0.88);
-      const pz = 0.25 + ((index * 53) % 67) / 67 * (soilDepth * 0.38);
-      const size = 0.5 + ((index * 19) % 13) / 13;
-      grainScale.set(size, size * 0.72, size);
-      grainMatrix.compose(new THREE.Vector3(px, py, pz), grainQuaternion, grainScale);
-      grains.setMatrixAt(index, grainMatrix);
-    }
-    grains.renderOrder = 3;
-    this.soilGroup.add(grains);
+    // Sun and drifting volumetric-style cloud clusters.
+    this.sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.62, 32, 20),
+      new THREE.MeshBasicMaterial({ color: 0xffe39a, transparent: true, opacity: 0.96, fog: false })
+    );
+    this.sunMesh.position.set(-2.7, 4.0, -10.5);
+    this.outdoorGroup.add(this.sunMesh);
 
-    const horizonColors = [0x332115, 0x4b3020, 0x62452e];
-    horizonColors.forEach((color, index) => {
-      const horizon = new THREE.Mesh(
-        new THREE.BoxGeometry(soilWidth - 0.04, 0.012, soilDepth - 0.04),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.62, depthWrite: false })
-      );
-      horizon.position.set(0, -0.2 - index * 0.27, 0);
-      horizon.renderOrder = 2;
-      this.soilGroup.add(horizon);
-    });
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = 256;
+    glowCanvas.height = 256;
+    const glowContext = glowCanvas.getContext('2d');
+    const glowGradient = glowContext.createRadialGradient(128, 128, 8, 128, 128, 126);
+    glowGradient.addColorStop(0, 'rgba(255,249,211,0.98)');
+    glowGradient.addColorStop(0.22, 'rgba(255,223,139,0.58)');
+    glowGradient.addColorStop(1, 'rgba(255,214,120,0)');
+    glowContext.fillStyle = glowGradient;
+    glowContext.fillRect(0, 0, 256, 256);
+    this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(glowCanvas), transparent: true, opacity: 0.82, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    this.sunGlow.position.copy(this.sunMesh.position);
+    this.sunGlow.scale.set(6.2, 6.2, 1);
+    this.outdoorGroup.add(this.sunGlow);
 
-    // 2. Transparent Front Glass Cutaway (剖面观察窗)
-    const glassMaterial = new THREE.MeshPhysicalMaterial({
-      color: 0x58a6ff,
+    const rayCanvas = document.createElement('canvas');
+    rayCanvas.width = 128;
+    rayCanvas.height = 512;
+    const rayContext = rayCanvas.getContext('2d');
+    const rayGradient = rayContext.createLinearGradient(0, 0, 0, 512);
+    rayGradient.addColorStop(0, 'rgba(255,245,190,0)');
+    rayGradient.addColorStop(0.16, 'rgba(255,240,172,0.52)');
+    rayGradient.addColorStop(0.72, 'rgba(255,226,138,0.12)');
+    rayGradient.addColorStop(1, 'rgba(255,226,138,0)');
+    rayContext.fillStyle = rayGradient;
+    rayContext.fillRect(18, 0, 92, 512);
+    this.sunRays = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: new THREE.CanvasTexture(rayCanvas),
       transparent: true,
-      opacity: 0.18,
-      roughness: 0.1,
-      metalness: 0.1,
-      transmission: 0.7,
-      ior: 1.4,
-      depthWrite: false
-    });
-    const glassGeo = new THREE.PlaneGeometry(soilWidth + 0.02, soilHeight + 0.02);
-    const glassMesh = new THREE.Mesh(glassGeo, glassMaterial);
-    glassMesh.position.set(0, -soilHeight / 2, soilDepth / 2 + 0.01);
-    glassMesh.renderOrder = 5;
-    this.soilGroup.add(glassMesh);
+      opacity: 0.22,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      rotation: -0.42,
+      fog: false
+    }));
+    this.sunRays.position.set(-1.8, 1.55, -6.8);
+    this.sunRays.scale.set(3.5, 8.8, 1);
+    this.outdoorGroup.add(this.sunRays);
 
-    const frame = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(soilWidth + 0.025, soilHeight + 0.025, soilDepth + 0.025)),
-      new THREE.LineBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.34, depthWrite: false })
+    this.cloudGroup = new THREE.Group();
+    this.cloudMaterials = [];
+    const cloudSeeds = [[-5.6, 2.8, -11.5, 0.82], [0.8, 3.25, -13, 0.72], [6.3, 2.65, -11.8, 0.9]];
+    cloudSeeds.forEach((seed, clusterIndex) => {
+      const cluster = new THREE.Group();
+      const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.72, depthWrite: false });
+      this.cloudMaterials.push(material);
+      for (let puff = 0; puff < 7; puff += 1) {
+        const cloudPuff = new THREE.Mesh(new THREE.SphereGeometry(0.58 + (puff % 3) * 0.16, 20, 12), material);
+        cloudPuff.position.set((puff - 3) * 0.48, Math.sin(puff * 1.7) * 0.22, Math.cos(puff * 1.31) * 0.24);
+        cloudPuff.scale.y = 0.58;
+        cluster.add(cloudPuff);
+      }
+      cluster.position.set(seed[0], seed[1], seed[2]);
+      cluster.scale.setScalar(seed[3]);
+      cluster.userData.speed = 0.08 + clusterIndex * 0.025;
+      this.cloudGroup.add(cluster);
+    });
+    this.outdoorGroup.add(this.cloudGroup);
+
+    // Dynamic rain field used by the waterlogging scenario.
+    const rainCount = 440;
+    const rainPositions = new Float32Array(rainCount * 6);
+    for (let index = 0; index < rainCount; index += 1) {
+      const offset = index * 6;
+      const x = (Math.sin(index * 12.41) * 0.5 + 0.5) * 12 - 6;
+      const y = ((index * 37) % rainCount) / rainCount * 8 - 1.2;
+      const z = (Math.sin(index * 7.73 + 1.4) * 0.5 + 0.5) * 11 - 6;
+      rainPositions[offset] = x;
+      rainPositions[offset + 1] = y;
+      rainPositions[offset + 2] = z;
+      rainPositions[offset + 3] = x + 0.035;
+      rainPositions[offset + 4] = y - 0.24;
+      rainPositions[offset + 5] = z;
+    }
+    const rainGeometry = new THREE.BufferGeometry();
+    rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+    this.rainParticles = new THREE.LineSegments(
+      rainGeometry,
+      new THREE.LineBasicMaterial({ color: 0xc7e5f4, transparent: true, opacity: 0, depthWrite: false })
     );
-    frame.position.y = -soilHeight / 2;
-    frame.renderOrder = 7;
-    this.soilGroup.add(frame);
+    this.rainParticles.visible = false;
+    this.outdoorGroup.add(this.rainParticles);
 
-    // 3. Glowing Depth Ruler Ticks (0cm, -15cm, -30cm, -45cm)
-    const rulerMaterial = new THREE.LineBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.6 });
-    [-0.05, -0.25, -0.5, -0.75].forEach(y => {
-      const pts = [
-        new THREE.Vector3(-soilWidth / 2, y, soilDepth / 2 + 0.015),
-        new THREE.Vector3(-soilWidth / 2 + 0.15, y, soilDepth / 2 + 0.015)
-      ];
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
-      this.soilGroup.add(new THREE.Line(lineGeo, rulerMaterial));
+    this.scene.add(this.outdoorGroup);
+  }
+
+  buildSmartPlanter() {
+    // The crop now lives in an opaque ceramic smart planter. No roots or soil profile are exposed.
+    this.soilGroup = new THREE.Group();
+    this.soilGroup.position.set(0, -0.35, 0);
+
+    this.planterMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0xd9855d,
+      roughness: 0.48,
+      metalness: 0.02,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.58
     });
+    const planterBody = new THREE.Mesh(new THREE.CylinderGeometry(0.76, 0.52, 0.78, 64, 8, true), this.planterMaterial);
+    planterBody.position.y = -0.43;
+    planterBody.castShadow = true;
+    planterBody.receiveShadow = true;
+    this.soilGroup.add(planterBody);
 
-    // 4. Underground Root System (地下主根与毛细根系网络)
-    this.buildRootNetwork(this.soilGroup);
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.735, 0.068, 18, 72),
+      new THREE.MeshPhysicalMaterial({ color: 0xe7a27b, roughness: 0.4, clearcoat: 0.28 })
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = -0.035;
+    rim.castShadow = true;
+    this.soilGroup.add(rim);
 
-    // 5. Three-prong in-situ IoT probe inserted to the -30cm horizon.
+    const planterFoot = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.56, 0.62, 0.09, 64),
+      new THREE.MeshPhysicalMaterial({ color: 0xc66f4e, roughness: 0.56, clearcoat: 0.12 })
+    );
+    planterFoot.position.y = -0.86;
+    planterFoot.castShadow = true;
+    planterFoot.receiveShadow = true;
+    this.soilGroup.add(planterFoot);
+
+    this.soilMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2e1e, roughness: 1, metalness: 0, transparent: false });
+    const soilTop = new THREE.Mesh(new THREE.CylinderGeometry(0.665, 0.665, 0.08, 64), this.soilMaterial);
+    soilTop.position.y = -0.02;
+    soilTop.receiveShadow = true;
+    this.soilGroup.add(soilTop);
+
+    // A discreet smart sensor replaces the visually heavy stake.
     const probeGroup = new THREE.Group();
-    probeGroup.position.set(0.48, 0, 0.22);
-    const probeMetal = new THREE.MeshStandardMaterial({ color: 0xb9c3cc, metalness: 0.86, roughness: 0.24 });
-    [-0.055, 0, 0.055].forEach(offset => {
-      const prong = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.58, 12), probeMetal);
-      prong.position.set(offset, -0.25, 0);
-      probeGroup.add(prong);
-    });
+    probeGroup.position.set(0.46, 0.02, 0.19);
+    const probeMetal = new THREE.MeshStandardMaterial({ color: 0xb9c5c8, metalness: 0.72, roughness: 0.24 });
+    const probeStem = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.25, 14), probeMetal);
+    probeStem.position.y = 0.095;
+    probeGroup.add(probeStem);
     const probeHead = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.11, 0.16, 2, 2, 2),
-      new THREE.MeshStandardMaterial({ color: 0x202a35, metalness: 0.52, roughness: 0.36 })
+      new THREE.CapsuleGeometry(0.07, 0.08, 5, 14),
+      new THREE.MeshStandardMaterial({ color: 0xf2f5ef, metalness: 0.14, roughness: 0.3 })
     );
-    probeHead.position.y = 0.055;
+    probeHead.position.y = 0.25;
+    probeHead.rotation.z = Math.PI / 2;
     probeGroup.add(probeHead);
+    this.sensorLed = new THREE.Mesh(
+      new THREE.SphereGeometry(0.025, 16, 10),
+      new THREE.MeshStandardMaterial({ color: 0x3fb950, emissive: 0x3fb950, emissiveIntensity: 2 })
+    );
+    this.sensorLed.position.set(0.072, 0.25, 0);
+    probeGroup.add(this.sensorLed);
     this.soilGroup.add(probeGroup);
 
-    // Sensor Head LED
-    this.sensorLed = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.035, 0.035, 0.08, 16),
-      new THREE.MeshStandardMaterial({ color: 0x3fb950, emissive: 0x3fb950, emissiveIntensity: 2.0 })
+    const badge = new THREE.Mesh(
+      new THREE.CircleGeometry(0.14, 36),
+      new THREE.MeshPhysicalMaterial({ color: 0xf9f1df, roughness: 0.34, metalness: 0.06, clearcoat: 0.3 })
     );
-    this.sensorLed.position.set(0, 0.12, 0.085);
-    probeGroup.add(this.sensorLed);
+    badge.position.set(0, -0.48, 0.66);
+    this.soilGroup.add(badge);
+    const badgeLeaf = new THREE.Mesh(
+      new THREE.SphereGeometry(0.053, 18, 12),
+      new THREE.MeshStandardMaterial({ color: 0x3f8a59, roughness: 0.7 })
+    );
+    badgeLeaf.position.set(0, -0.47, 0.676);
+    badgeLeaf.scale.set(0.68, 1, 0.18);
+    this.soilGroup.add(badgeLeaf);
 
     const crackPositions = [];
     for (let branch = 0; branch < 14; branch += 1) {
       const angle = branch * 2.399;
-      const startRadius = 0.08 + (branch % 3) * 0.04;
-      const endRadius = 0.35 + (branch % 5) * 0.09;
+      const startRadius = 0.07 + (branch % 3) * 0.03;
+      const endRadius = 0.27 + (branch % 4) * 0.07;
       crackPositions.push(
-        Math.cos(angle) * startRadius, 0.016, Math.sin(angle) * startRadius,
-        Math.cos(angle + Math.sin(branch) * 0.22) * endRadius, 0.016, Math.sin(angle + Math.sin(branch) * 0.22) * endRadius
+        Math.cos(angle) * startRadius, 0.026, Math.sin(angle) * startRadius,
+        Math.cos(angle + Math.sin(branch) * 0.22) * endRadius, 0.026, Math.sin(angle + Math.sin(branch) * 0.22) * endRadius
       );
     }
     const crackGeometry = new THREE.BufferGeometry();
     crackGeometry.setAttribute('position', new THREE.Float32BufferAttribute(crackPositions, 3));
-    this.droughtCracks = new THREE.LineSegments(
-      crackGeometry,
-      new THREE.LineBasicMaterial({ color: 0x21150d, transparent: true, opacity: 0.76 })
-    );
+    this.droughtCracks = new THREE.LineSegments(crackGeometry, new THREE.LineBasicMaterial({ color: 0x21150d, transparent: true, opacity: 0.76 }));
     this.droughtCracks.visible = false;
     this.soilGroup.add(this.droughtCracks);
 
-    // 6. Surface Water Plane for Flood Scenario
-    const waterGeo = new THREE.PlaneGeometry(soilWidth + 0.05, soilDepth + 0.05);
-    const waterMat = new THREE.MeshPhysicalMaterial({
-      color: 0x388bfd,
-      roughness: 0.14,
-      metalness: 0.18,
-      transmission: 0.2,
-      clearcoat: 0.75,
-      clearcoatRoughness: 0.18,
-      transparent: true,
-      opacity: 0.38,
-      depthWrite: false
-    });
-    this.floodWater = new THREE.Mesh(waterGeo, waterMat);
+    this.floodWater = new THREE.Mesh(
+      new THREE.CircleGeometry(0.665, 64),
+      new THREE.MeshPhysicalMaterial({ color: 0x69aeda, roughness: 0.08, clearcoat: 0.9, transparent: true, opacity: 0.42, depthWrite: false })
+    );
     this.floodWater.rotation.x = -Math.PI / 2;
-    this.floodWater.position.set(0, 0.02, 0);
+    this.floodWater.position.y = 0.035;
     this.floodWater.visible = false;
     this.soilGroup.add(this.floodWater);
 
     this.scene.add(this.soilGroup);
   }
 
-  buildRootNetwork(parentGroup) {
-    const rootMat = new THREE.MeshStandardMaterial({
-      color: 0xeadbb8,
-      roughness: 0.82,
-      emissive: 0x2c6f72,
-      emissiveIntensity: 0.34
-    });
-    this.rootMaterials.push(rootMat);
-    const rootPoints = [
-      // Primary taproots
-      [new THREE.Vector3(0, 0, 0), new THREE.Vector3(-0.1, -0.2, 0.05), new THREE.Vector3(-0.25, -0.45, 0.1), new THREE.Vector3(-0.4, -0.75, 0.15)],
-      [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.08, -0.22, -0.05), new THREE.Vector3(0.2, -0.5, 0.02), new THREE.Vector3(0.35, -0.8, -0.1)],
-      [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.02, -0.25, 0.12), new THREE.Vector3(0.05, -0.55, 0.18), new THREE.Vector3(-0.02, -0.85, 0.22)],
-      // Lateral fibrous roots
-      [new THREE.Vector3(-0.1, -0.2, 0.05), new THREE.Vector3(-0.35, -0.3, 0.12), new THREE.Vector3(-0.55, -0.38, 0.2)],
-      [new THREE.Vector3(0.08, -0.22, -0.05), new THREE.Vector3(0.38, -0.32, 0.08), new THREE.Vector3(0.62, -0.42, 0.15)],
-      [new THREE.Vector3(-0.25, -0.45, 0.1), new THREE.Vector3(-0.5, -0.58, 0.18)],
-      [new THREE.Vector3(0.2, -0.5, 0.02), new THREE.Vector3(0.48, -0.65, 0.12)]
-    ];
+  updateWeatherEnvironment(scenarioKey, timeHours = 0) {
+    if (!this.skyMaterial || !this.lawnMaterial) return;
 
-    for (let index = 0; index < 14; index += 1) {
-      const side = index % 2 === 0 ? -1 : 1;
-      const depth = 0.18 + (index % 5) * 0.14;
-      const angle = index * 1.73;
-      rootPoints.push([
-        new THREE.Vector3(side * 0.05, -depth, Math.sin(angle) * 0.04),
-        new THREE.Vector3(side * (0.24 + (index % 3) * 0.08), -depth - 0.08, Math.cos(angle) * 0.18),
-        new THREE.Vector3(side * (0.48 + (index % 4) * 0.07), -depth - 0.16, Math.sin(angle * 1.4) * 0.28)
-      ]);
+    const weatherPresets = {
+      normal: { label: '晴朗微风', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, rain: 0, fog: 0xc9e1d0 },
+      drought: { label: '干燥晴热', top: 0x72b8df, bottom: 0xf4deb0, lawn: 0x9da65a, hill: 0x7d8f50, grass: 0x7f943f, cloud: 0xfff6de, cloudOpacity: 0.34, sun: 0xffca70, sunPower: 3.15, rain: 0, fog: 0xe2d6ae },
+      heatwave: { label: '高温热浪', top: 0x73a9c8, bottom: 0xf2c285, lawn: 0x9b9850, hill: 0x7d7f47, grass: 0x8b8739, cloud: 0xf6ddba, cloudOpacity: 0.26, sun: 0xffae58, sunPower: 3.6, rain: 0, fog: 0xddbb87 },
+      flood: { label: '强降雨', top: 0x65798c, bottom: 0xb6c6c8, lawn: 0x477a50, hill: 0x496d53, grass: 0x397343, cloud: 0x87949d, cloudOpacity: 0.96, sun: 0xb8d0d8, sunPower: 0.48, rain: 0.92, fog: 0x93a9ae },
+      drift: { label: '晴朗 · 传感器复核', top: 0x68b9e9, bottom: 0xeef4d1, lawn: 0x79aa56, hill: 0x668f4d, grass: 0x4f8e43, cloud: 0xffffff, cloudOpacity: 0.7, sun: 0xffe39a, sunPower: 2.8, rain: 0, fog: 0xc9e1d0 },
+      stuck: { label: '多云 · 执行异常', top: 0x799eb5, bottom: 0xd5dfce, lawn: 0x668f53, hill: 0x587a51, grass: 0x467b46, cloud: 0xcbd3d1, cloudOpacity: 0.9, sun: 0xe8dbb4, sunPower: 1.18, rain: 0, fog: 0xb8c9bf }
+    };
+    const normal = weatherPresets.normal;
+    const target = weatherPresets[scenarioKey] || normal;
+    let intensity = scenarioKey === 'normal' || scenarioKey === 'drift' ? 1 : 0.62 + Math.min(1, timeHours / 4) * 0.38;
+    if (this.replayTrack === 'trackB' && timeHours > 0.55 && scenarioKey !== 'drift') {
+      intensity *= Math.max(0.12, 1 - (timeHours - 0.55) / 2.4);
     }
 
-    rootPoints.forEach((curvePts, i) => {
-      const curve = new THREE.CatmullRomCurve3(curvePts);
-      const radius = i < 3 ? 0.016 : i < 7 ? 0.009 : 0.0045;
-      const rootGeo = new THREE.TubeGeometry(curve, 20, radius, 8, false);
-      const rootMesh = new THREE.Mesh(rootGeo, rootMat);
-      parentGroup.add(rootMesh);
+    const mixColor = (baseHex, targetHex) => new THREE.Color(baseHex).lerp(new THREE.Color(targetHex), intensity);
+    this.skyMaterial.uniforms.uTop.value.copy(mixColor(normal.top, target.top));
+    this.skyMaterial.uniforms.uBottom.value.copy(mixColor(normal.bottom, target.bottom));
+    this.lawnMaterial.color.copy(mixColor(normal.lawn, target.lawn));
+    this.hillMaterials?.forEach((material, index) => material.color.copy(mixColor(index === 1 ? 0x648d4c : normal.hill, target.hill)));
+    if (this.grassField?.material?.color) this.grassField.material.color.copy(mixColor(normal.grass, target.grass));
+
+    const cloudOpacity = THREE.MathUtils.lerp(normal.cloudOpacity, target.cloudOpacity, intensity);
+    this.cloudMaterials?.forEach(material => {
+      material.color.copy(mixColor(normal.cloud, target.cloud));
+      material.opacity = cloudOpacity;
     });
+
+    if (this.sunMesh?.material) {
+      this.sunMesh.material.color.copy(mixColor(normal.sun, target.sun));
+      this.sunMesh.material.opacity = THREE.MathUtils.clamp(1.02 - cloudOpacity * 0.55, 0.24, 0.92);
+    }
+    if (this.sunGlow?.material) {
+      const glowOpacity = THREE.MathUtils.clamp(1.08 - cloudOpacity * 0.82, 0.08, 0.82);
+      this.sunGlow.userData.baseOpacity = glowOpacity;
+      this.sunGlow.material.opacity = glowOpacity;
+    }
+    if (this.sunRays?.material) {
+      const rayOpacity = THREE.MathUtils.clamp(0.42 - cloudOpacity * 0.36, 0.015, 0.24);
+      this.sunRays.userData.baseOpacity = rayOpacity;
+      this.sunRays.material.opacity = rayOpacity;
+    }
+    if (this.sunLight) {
+      this.sunLight.color.copy(mixColor(normal.sun, target.sun));
+      this.sunLight.intensity = THREE.MathUtils.lerp(normal.sunPower, target.sunPower, intensity);
+    }
+    if (this.hemisphereLight) this.hemisphereLight.intensity = THREE.MathUtils.lerp(2.35, scenarioKey === 'flood' ? 1.7 : 2.15, intensity);
+
+    const rainStrength = target.rain * intensity;
+    if (this.rainParticles) {
+      this.rainParticles.visible = rainStrength > 0.05;
+      this.rainParticles.material.opacity = rainStrength;
+    }
+    const fogColor = mixColor(normal.fog, target.fog);
+    if (this.scene.fog?.color) this.scene.fog.color.copy(fogColor);
+    this.scene.background.copy(this.skyMaterial.uniforms.uTop.value);
+
+    const weatherLabel = this.container.querySelector('[data-weather-label]');
+    const recovering = this.replayTrack === 'trackB' && timeHours > 1 && !['normal', 'drift'].includes(scenarioKey);
+    if (weatherLabel) weatherLabel.textContent = recovering ? `${target.label} · 处置恢复中` : target.label;
+    this.container.dataset.weather = scenarioKey;
+    this.container.dataset.weatherIntensity = intensity.toFixed(2);
   }
 
   rebuildPlantModel() {
@@ -861,7 +955,7 @@ export class CropSandbox {
 
     this.windMaterials = [];
     this.plantGroup = new THREE.Group();
-    this.plantGroup.position.set(0, -0.4, 0); // Sits on top of soil surface
+    this.plantGroup.position.set(0, -0.33, 0); // Sits on the opaque planter soil surface
     this.leafMeshes = [];
     this.fruitMeshes = [];
     this.flowerMeshes = [];
@@ -1010,16 +1104,6 @@ export class CropSandbox {
       new THREE.Vector3(-0.025, 0.72, 0.035), new THREE.Vector3(0.045, 1.08, -0.015),
       new THREE.Vector3(-0.02, 1.42, 0.02), new THREE.Vector3(0.03, 1.78, 0)
     ], 0.027, stemMat, 42, 12);
-
-    // Trellis stays behind the specimen instead of splitting the visual axis.
-    const stake = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.013, 0.016, 1.92, 12),
-      new THREE.MeshStandardMaterial({ color: 0x9b7b4e, roughness: 0.92 })
-    );
-    stake.position.set(-0.32, 0.94, -0.24);
-    stake.rotation.z = -0.025;
-    stake.castShadow = true;
-    group.add(stake);
 
     const leafGeometry = this.createBotanicalLeafGeometry(0.22, 0.082, { segments: 18, lobes: 4, curve: 0.03 });
     const terminalGeometry = this.createBotanicalLeafGeometry(0.28, 0.102, { segments: 20, lobes: 4, curve: 0.04 });
@@ -1520,13 +1604,10 @@ export class CropSandbox {
     });
 
     if (this.soilMaterial) {
-      const floodTint = floodVisible;
-      this.soilMaterial.color.setRGB(
-        floodTint ? 0.64 : 0.8 + (1 - soilWetness) * 0.34,
-        floodTint ? 0.76 : 0.72 + (1 - soilWetness) * 0.24,
-        floodTint ? 0.9 : 0.64 + (1 - soilWetness) * 0.16
-      );
-      this.soilMaterial.opacity = 0.64 + soilWetness * 0.12;
+      const moistSoil = new THREE.Color(floodVisible ? 0x29352e : 0x3d291c);
+      const drySoil = new THREE.Color(0x93683f);
+      this.soilMaterial.color.copy(moistSoil).lerp(drySoil, Math.max(0, 1 - soilWetness) * 0.9);
+      this.soilMaterial.opacity = 1;
     }
 
     if (this.floodWater) this.floodWater.visible = floodVisible;
@@ -1553,11 +1634,6 @@ export class CropSandbox {
       }
     }
 
-    this.rootMaterials.forEach(material => {
-      material.emissive.setHex(floodVisible ? 0x2478a8 : sensorError ? 0xd29922 : wilting > 0.35 ? 0xb66a2a : 0x2c6f72);
-      material.emissiveIntensity = 0.32 + (1 - wilting) * 0.18;
-    });
-
     let soilMoisture = this.forecastValueAt(scenario, timeHours);
     if (!isTrackA && ['drought', 'heatwave', 'stuck'].includes(s) && timeHours > 0.45) {
       soilMoisture += (30 - soilMoisture) * Math.min(1, (timeHours - 0.45) / 0.9);
@@ -1565,6 +1641,7 @@ export class CropSandbox {
       soilMoisture = Math.max(48, soilMoisture - timeHours * 11);
     }
     this.updateTelemetry(scenario, timeHours, soilMoisture, wilting, chlorosis);
+    this.updateWeatherEnvironment(s, timeHours);
 
     const timeValue = this.container.querySelector('[data-time-val]');
     const gaugeTitle = this.container.querySelector('[data-gauge-title]');
@@ -1719,8 +1796,8 @@ export class CropSandbox {
     this.updateCropInfo();
     this.rebuildPlantModel();
     this.runScenario('normal');
-    this.cameraTarget.set(0.38, 0.13, 0);
-    this.orbitRadius = 5.7;
+    this.cameraTarget.set(0.34, 0.08, 0);
+    this.orbitRadius = 6.4;
     this.orbitAzimuth = 0;
     this.orbitElevation = 0.16;
     this.syncOrbitCamera();
@@ -1786,21 +1863,47 @@ export class CropSandbox {
       uniforms.uSandboxTime.value = elapsed;
       uniforms.uSandboxWind.value = 0.82 + Math.sin(elapsed * 0.41) * 0.18;
     });
+    if (this.grassWindUniforms) {
+      this.grassWindUniforms.uMeadowTime.value = elapsed;
+      this.grassWindUniforms.uMeadowWind.value = 0.82 + Math.sin(elapsed * 0.29) * 0.2;
+    }
     if (this.plantGroup) {
       const stress = this.currentMorph?.wilting || 0;
       this.plantGroup.rotation.z = Math.sin(elapsed * 0.82) * 0.014 * (1 - stress * 0.55);
       this.plantGroup.rotation.x = Math.cos(elapsed * 0.61) * 0.006;
     }
-    if (this.specimenHalo) this.specimenHalo.rotation.z = elapsed * 0.018;
-    if (this.scanLine) {
-      const scanProgress = (elapsed * 0.075) % 1;
-      this.scanLine.position.y = -0.35 + scanProgress * 2.15;
-      this.scanLine.material.opacity = 0.08 + Math.sin(scanProgress * Math.PI) * 0.16;
+
+    this.cloudGroup?.children.forEach(cluster => {
+      cluster.position.x += delta * (cluster.userData.speed || 0.08);
+      cluster.position.y += Math.sin(elapsed * 0.22 + cluster.position.z) * delta * 0.012;
+      if (cluster.position.x > 11.5) cluster.position.x = -11.5;
+    });
+    if (this.sunGlow?.material) {
+      const weatherBase = this.sunGlow.userData.baseOpacity ?? this.sunGlow.material.opacity;
+      this.sunGlow.scale.setScalar(5.35 + Math.sin(elapsed * 0.38) * 0.14);
+      this.sunGlow.material.opacity = THREE.MathUtils.clamp(weatherBase + Math.sin(elapsed * 0.45) * 0.008, 0.05, 0.86);
+    }
+    if (this.sunRays?.material) {
+      const rayBase = this.sunRays.userData.baseOpacity ?? 0.12;
+      this.sunRays.material.opacity = THREE.MathUtils.clamp(rayBase + Math.sin(elapsed * 0.31) * 0.009, 0.01, 0.27);
+      this.sunRays.material.rotation = -0.42 + Math.sin(elapsed * 0.16) * 0.012;
     }
 
-    this.rootMaterials.forEach((material, index) => {
-      material.emissiveIntensity = 0.34 + Math.sin(elapsed * 1.7 + index) * 0.12;
-    });
+    if (this.rainParticles?.visible) {
+      const rainPosition = this.rainParticles.geometry.attributes.position.array;
+      for (let offset = 0; offset < rainPosition.length; offset += 6) {
+        rainPosition[offset] += delta * 0.42;
+        rainPosition[offset + 1] -= delta * 7.8;
+        rainPosition[offset + 3] += delta * 0.42;
+        rainPosition[offset + 4] -= delta * 7.8;
+        if (rainPosition[offset + 1] < -1.2) {
+          const resetY = 6.8 + ((offset * 13) % 17) * 0.08;
+          rainPosition[offset + 1] = resetY;
+          rainPosition[offset + 4] = resetY - 0.24;
+        }
+      }
+      this.rainParticles.geometry.attributes.position.needsUpdate = true;
+    }
 
     if (this.heatParticles && this.heatParticles.visible) {
       const pos = this.heatParticles.geometry.attributes.position.array;
@@ -1813,7 +1916,7 @@ export class CropSandbox {
 
     if (this.floodWater?.visible) {
       this.floodWater.material.opacity = 0.34 + Math.sin(elapsed * 1.8) * 0.045;
-      this.floodWater.position.y = 0.025 + Math.sin(elapsed * 1.35) * 0.008;
+      this.floodWater.position.y = 0.035 + Math.sin(elapsed * 1.35) * 0.006;
     }
     if (this.sensorLed?.material && (this.currentMorph?.sensorError || this.currentMorph?.actuatorFault)) {
       this.sensorLed.material.emissiveIntensity = 1.25 + (Math.sin(elapsed * 5.2) + 1) * 1.2;
