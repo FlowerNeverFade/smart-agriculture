@@ -346,8 +346,231 @@ export async function renderRiskForecast(container, plotId) {
 /* ================================================================
  * 视图 2：情景模拟器与双轨回放 (renderScenarioReplay)
  * ================================================================ */
+
+/** 盆栽可视化（大尺寸）：温室棚顶 + 分层环境 + 精细盆栽，情景通过 CSS 类切换，土壤色由 --soil-color 驱动 */
+function buildPotSceneSvg(cropCode) {
+  const fruit = {
+    tomato: `<g class="pot-fruit">
+        <circle cx="212" cy="182" r="9" fill="#f85149"/><circle cx="210" cy="182" r="3" fill="#ff9a8b"/>
+        <circle cx="226" cy="200" r="8" fill="#f85149"/><circle cx="224" cy="200" r="2.8" fill="#ff9a8b"/>
+        <circle cx="200" cy="204" r="7" fill="#f85149"/><circle cx="198" cy="204" r="2.5" fill="#ff9a8b"/>
+      </g>`,
+    cucumber: `<g class="pot-fruit">
+        <rect x="216" y="168" width="11" height="34" rx="5.5" fill="#3fb950"/>
+        <rect x="219" y="172" width="3" height="26" rx="1.5" fill="#7ee2a8"/>
+        <rect x="198" y="192" width="10" height="28" rx="5" fill="#2ea043"/>
+      </g>`,
+    strawberry: `<g class="pot-fruit">
+        <path d="M204 178 q-9 -12 -2 -19 q7 -7 2 19 M204 178 q9 -12 2 -19 q-7 -7 -2 19 Z" fill="#f85149"/>
+        <circle cx="198" cy="170" r="2" fill="#ffd9a0"/><circle cx="206" cy="173" r="1.7" fill="#ffd9a0"/><circle cx="202" cy="167" r="1.5" fill="#ffd9a0"/>
+        <path d="M222 192 q-8 -10 -2 -16 q6 -6 2 16 M222 192 q8 -10 2 -16 q-6 -6 -2 16 Z" fill="#e5433a"/>
+      </g>`,
+    pepper: `<g class="pot-fruit">
+        <path d="M226 172 q13 -8 18 12 q4 15 -13 23 q-18 -5 -18 -20 q0 -12 13 -15 Z" fill="#d29922"/>
+        <path d="M196 186 q-10 -5 -15 10 q-4 12 10 17 q14 4 14 -12 q0 -10 -9 -15 Z" fill="#2ea043"/>
+        <path d="M204 196 q-7 -4 -10 7 q-3 8 7 11 q9 3 9 -8 q0 -7 -6 -10 Z" fill="#f85149"/>
+      </g>`
+  }[cropCode] || '<g class="pot-fruit"><circle cx="210" cy="190" r="8" fill="#f85149"/></g>';
+
+  return `
+  <svg viewBox="0 0 380 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="温室盆栽情景可视化">
+    <defs>
+      <linearGradient id="potSky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#0d1219"/>
+        <stop offset="0.6" stop-color="#141c28"/>
+        <stop offset="1" stop-color="#1c2634"/>
+      </linearGradient>
+      <radialGradient id="potGlow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="rgba(210,153,34,0.35)"/>
+        <stop offset="1" stop-color="rgba(210,153,34,0)"/>
+      </radialGradient>
+      <!-- 圆台花盆侧壁：左暗右亮，立体感 -->
+      <linearGradient id="potBody" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#5f3a20"/>
+        <stop offset="0.28" stop-color="#8a5a33"/>
+        <stop offset="0.55" stop-color="#a06a3e"/>
+        <stop offset="0.8" stop-color="#7a4f2e"/>
+        <stop offset="1" stop-color="#4a2d18"/>
+      </linearGradient>
+      <linearGradient id="potRim" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#b57c4c"/>
+        <stop offset="1" stop-color="#7a4f2e"/>
+      </linearGradient>
+      <!-- 叶片立体渐变：顶部受光亮、基部暗 -->
+      <linearGradient id="leafGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#4cc760"/>
+        <stop offset="1" stop-color="#227a3a"/>
+      </linearGradient>
+      <linearGradient id="leafGradDark" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2f9c4a"/>
+        <stop offset="1" stop-color="#195f2c"/>
+      </linearGradient>
+    </defs>
+
+    <!-- 天空 -->
+    <rect width="380" height="340" fill="url(#potSky)"/>
+
+    <!-- 温室棚顶 -->
+    <path d="M14 0 Q190 62 366 0 L366 0 L14 0 Z" fill="rgba(88,166,255,0.05)" stroke="rgba(139,148,158,0.35)" stroke-width="2"/>
+    <line x1="34" y1="16" x2="346" y2="16" stroke="rgba(139,148,158,0.18)" stroke-width="1.5" stroke-dasharray="14 10"/>
+    <line x1="58" y1="32" x2="322" y2="32" stroke="rgba(139,148,158,0.12)" stroke-width="1" stroke-dasharray="10 12"/>
+
+    <!-- 太阳光晕 + 太阳 -->
+    <circle class="pot-glow" cx="318" cy="66" r="52" fill="url(#potGlow)"/>
+    <g class="pot-sun" transform="translate(318,66)">
+      <circle r="16" fill="#d29922"/>
+      <circle r="16" fill="none" stroke="rgba(210,153,34,0.5)" stroke-width="2"/>
+      <g stroke="#d29922" stroke-width="2.5" stroke-linecap="round" opacity="0.75">
+        <line x1="0" y1="-25" x2="0" y2="-18"/>
+        <line x1="0" y1="18" x2="0" y2="25"/>
+        <line x1="-25" y1="0" x2="-18" y2="0"/>
+        <line x1="18" y1="0" x2="25" y2="0"/>
+        <line x1="-17" y1="-17" x2="-12" y2="-12"/>
+        <line x1="12" y1="12" x2="17" y2="17"/>
+        <line x1="17" y1="-17" x2="12" y2="-12"/>
+        <line x1="-12" y1="12" x2="-17" y2="17"/>
+      </g>
+    </g>
+
+    <!-- 远云（常驻，淡） -->
+    <g class="pot-cloud-far" opacity="0.35" transform="translate(120,64)">
+      <ellipse cx="0" cy="0" rx="30" ry="10" fill="#3a4658"/>
+      <ellipse cx="22" cy="3" rx="20" ry="8" fill="#3a4658"/>
+      <ellipse cx="-20" cy="4" rx="18" ry="7" fill="#3a4658"/>
+    </g>
+
+    <!-- 近云（暴雨） -->
+    <g class="pot-cloud" transform="translate(86,92)">
+      <ellipse cx="0" cy="0" rx="38" ry="16" fill="#33415a"/>
+      <ellipse cx="28" cy="6" rx="26" ry="12" fill="#3a4a66"/>
+      <ellipse cx="-26" cy="6" rx="22" ry="11" fill="#2c3950"/>
+      <ellipse cx="6" cy="-10" rx="20" ry="11" fill="#3f5070"/>
+    </g>
+
+    <!-- 雨幕（三层，暴雨） -->
+    <g class="pot-rain" stroke="#58a6ff" stroke-width="2" stroke-linecap="round">
+      <g opacity="0.5">
+        <line class="drop r-bg" x1="52" y1="128" x2="46" y2="144"/>
+        <line class="drop r-bg d2" x1="96" y1="140" x2="90" y2="156"/>
+        <line class="drop r-bg d3" x1="140" y1="132" x2="134" y2="148"/>
+        <line class="drop r-bg d4" x1="76" y1="160" x2="70" y2="176"/>
+      </g>
+      <g opacity="0.8">
+        <line class="drop" x1="38" y1="176" x2="30" y2="196"/>
+        <line class="drop d2" x1="70" y1="188" x2="62" y2="208"/>
+        <line class="drop d3" x1="106" y1="180" x2="98" y2="200"/>
+        <line class="drop d4" x1="132" y1="196" x2="124" y2="216"/>
+        <line class="drop d5" x1="60" y1="216" x2="52" y2="236"/>
+        <line class="drop d6" x1="94" y1="226" x2="86" y2="246"/>
+      </g>
+      <g opacity="0.9">
+        <line class="drop d7" x1="46" y1="250" x2="36" y2="274"/>
+        <line class="drop d8" x1="84" y1="258" x2="74" y2="282"/>
+        <line class="drop d9" x1="120" y1="246" x2="110" y2="270"/>
+      </g>
+    </g>
+
+    <!-- 热浪气流（极端热浪） -->
+    <g class="pot-heat" stroke="#f85149" stroke-width="2" stroke-linecap="round" fill="none">
+      <path d="M180 92 q7 -7 0 -14 q-7 -7 0 -14"/>
+      <path class="h2" d="M214 104 q7 -7 0 -14 q-7 -7 0 -14"/>
+      <path class="h3" d="M252 92 q7 -7 0 -14 q-7 -7 0 -14"/>
+      <path class="h4" d="M146 108 q7 -7 0 -14 q-7 -7 0 -14"/>
+    </g>
+
+    <!-- 桌面平台 + 盆影 -->
+    <rect x="0" y="340" width="380" height="100" fill="#121820"/>
+    <rect x="0" y="340" width="380" height="3" fill="#1f2937"/>
+    <ellipse cx="190" cy="402" rx="74" ry="12" fill="rgba(0,0,0,0.4)"/>
+
+    <!-- 花盆（圆台透视 3D：椭圆盆口 + 侧壁明暗 + 高光） -->
+    <!-- 盆口内部（深度阴影） -->
+    <ellipse cx="190" cy="290" rx="54" ry="13" fill="#241608"/>
+    <!-- 圆台侧壁 -->
+    <path d="M136 290 L244 290 L256 398 Q190 412 124 398 Z" fill="url(#potBody)" stroke="#3f2715" stroke-width="2"/>
+    <!-- 侧壁高光 -->
+    <path d="M152 300 Q190 290 228 300 L236 390 Q190 402 144 390 Z" fill="rgba(255,255,255,0.06)"/>
+    <!-- 盆口边沿（椭圆环：上缘亮、下缘暗，俯视立体） -->
+    <ellipse cx="190" cy="290" rx="54" ry="13" fill="none" stroke="url(#potRim)" stroke-width="6"/>
+    <path d="M138 289 Q190 276 242 289" stroke="rgba(255,255,255,0.3)" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <!-- 侧壁装饰线（贴合圆台弧度） -->
+    <path d="M143 330 Q190 324 237 330" stroke="rgba(0,0,0,0.22)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M139 358 Q190 352 241 358" stroke="rgba(0,0,0,0.16)" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M134 384 Q190 378 246 384" stroke="rgba(0,0,0,0.12)" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+    <!-- 土壤（椭圆盘俯视 3D + 湿度联动色 + 颗粒 + 干旱裂纹） -->
+    <ellipse class="pot-soil" cx="190" cy="290" rx="44" ry="10" fill="var(--soil-color, #4a3624)"/>
+    <ellipse cx="190" cy="290" rx="44" ry="10" fill="rgba(0,0,0,0.18)"/>
+    <ellipse cx="190" cy="287" rx="36" ry="7.5" fill="rgba(255,255,255,0.07)"/>
+    <g class="pot-soil-grain" fill="rgba(255,255,255,0.09)">
+      <circle cx="170" cy="289" r="1.4"/><circle cx="184" cy="292" r="1.2"/><circle cx="198" cy="288" r="1.5"/>
+      <circle cx="210" cy="291" r="1.2"/><circle cx="220" cy="289" r="1.4"/><circle cx="176" cy="295" r="1.1"/>
+      <circle cx="204" cy="295" r="1.3"/><circle cx="190" cy="291" r="1"/>
+    </g>
+    <g class="pot-soil-cracks" stroke="#c9a06a" stroke-width="1.4" fill="none">
+      <path d="M174 287 q5 4 0 8"/>
+      <path d="M192 286 q-4 3 0 8 q4 3 0 8"/>
+      <path d="M208 287 q5 3 0 8"/>
+      <path d="M220 288 q-3 3 3 7"/>
+    </g>
+
+    <!-- 主茎 + 侧枝（双线立体：暗底 + 亮面） -->
+    <path class="pot-stem pot-stem-dark" d="M190 288 Q184 240 192 176" stroke="#1c6b33" stroke-width="6.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem" d="M190 288 Q184 240 192 176" stroke="#36ab52" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-stem-dark pot-branch" d="M188 246 Q214 232 226 240" stroke="#1c6b33" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-branch" d="M188 246 Q214 232 226 240" stroke="#36ab52" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-stem-dark pot-branch2" d="M191 210 Q166 196 154 204" stroke="#1c6b33" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path class="pot-stem pot-branch2" d="M191 210 Q166 196 154 204" stroke="#36ab52" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+
+    <!-- 后层叶片（暗色渐变，视觉在后） -->
+    <path class="pot-leaf pot-leaf-back l2b" d="M192 192 Q230 174 244 188 Q228 198 192 192 Z" fill="url(#leafGradDark)"/>
+    <path class="pot-leaf pot-leaf-back l4b" d="M190 232 Q226 218 236 232 Q222 242 190 232 Z" fill="url(#leafGradDark)"/>
+    <path class="pot-leaf pot-leaf-back l6b" d="M191 258 Q162 248 156 262 Q168 270 191 258 Z" fill="url(#leafGradDark)"/>
+
+    <!-- 前层叶片（亮色渐变 + 叶脉） -->
+    <path class="pot-leaf l1" d="M192 206 Q156 190 142 204 Q158 214 192 206 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l3" d="M190 238 Q156 226 148 240 Q162 248 190 238 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l5" d="M192 172 Q168 158 156 170 Q170 180 192 172 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l2" d="M192 192 Q224 178 238 190 Q224 200 192 192 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l4" d="M190 232 Q220 220 230 232 Q218 242 190 232 Z" fill="url(#leafGrad)"/>
+    <path class="pot-leaf l6" d="M191 258 Q162 250 156 262 Q168 270 191 258 Z" fill="url(#leafGrad)"/>
+
+    ${fruit}
+
+    <!-- 传感器漂移仪表（漂移情景） -->
+    <g class="pot-drift" transform="translate(56,248)">
+      <circle r="17" fill="none" stroke="#a371f7" stroke-width="2" stroke-dasharray="4 3"/>
+      <g class="pot-gauge-arc" fill="none" stroke="#a371f7" stroke-width="3" stroke-linecap="round">
+        <path d="M -11 8 A 13 13 0 0 1 11 8"/>
+      </g>
+      <line class="pot-gauge-needle" x1="0" y1="6" x2="0" y2="-8" stroke="#a371f7" stroke-width="2" stroke-linecap="round"/>
+      <text x="0" y="20" text-anchor="middle" font-size="11" fill="#a371f7" font-weight="bold">漂移</text>
+    </g>
+
+    <!-- 设备离线信号（离线情景） -->
+    <g class="pot-offline" transform="translate(56,248)">
+      <path d="M-12 4 a 12 12 0 0 1 24 0" stroke="#f85149" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <path d="M-7 11 a 6 6 0 0 1 14 0" stroke="#f85149" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      <circle cx="0" cy="18" r="2.2" fill="#f85149"/>
+      <line x1="-12" y1="-2" x2="12" y2="24" stroke="#f85149" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
+      <text x="0" y="38" text-anchor="middle" font-size="11" fill="#f85149" font-weight="bold">离线</text>
+    </g>
+  </svg>`;
+}
+
+/** 情景 -> 盆栽视觉类 / 状态文案 / 环境指标 */
+const SCENE_VISUAL = {
+  DROUGHT: { cls: 'drought', label: '持续干旱 · 蒸散加快，土壤水分流失', temp: '30.2°C', light: '58.0k lux', badge: '☀️ 持续干旱' },
+  HEAT_WAVE: { cls: 'heat', label: '极端热浪 · 棚温骤升，蒸散加剧', temp: '38.0°C', light: '71.0k lux', badge: '🔥 极端热浪' },
+  STORM: { cls: 'storm', label: '暴雨积水 · 土壤过湿风险', temp: '24.1°C', light: '12.0k lux', badge: '🌧️ 暴雨积水' },
+  SENSOR_DRIFT: { cls: 'drift', label: '传感器漂移 · 读数缓慢偏移', temp: '26.4°C', light: '42.5k lux', badge: '⚠️ 传感器漂移' },
+  OFFLINE: { cls: 'offline', label: '设备断网离线 · 遥测中断', temp: '--', light: '--', badge: '🔌 设备离线' },
+  NORMAL: { cls: 'normal', label: '正常生长 · 环境适宜', temp: '26.4°C', light: '42.5k lux', badge: '🌤️ 正常生长' }
+};
+
 export async function renderScenarioReplay(container, plotId) {
   const catalog = MOCK_DATA.riskForecastConfig.scenarioCatalog;
+  const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   let playTimer = null;
 
   container.innerHTML = `
@@ -361,34 +584,137 @@ export async function renderScenarioReplay(container, plotId) {
         </span>
       </div>
 
-      <div class="agri-card sr-inject-card">
-        <div class="agri-card-title">🎛️ 一键情景注入与故障发生器</div>
-        <div class="sr-scenario-grid" data-role="scenario-grid">
-          ${catalog.map(s => `
-            <button class="sr-scenario-btn" data-scenario="${s.code}" style="--scenario-color: ${s.color}" title="${escapeHtml(s.desc)}">
-              <span class="sr-scenario-emoji">${s.emoji}</span>
-              <span class="sr-scenario-name">${escapeHtml(s.label)}</span>
-              <span class="sr-scenario-desc">${escapeHtml(s.desc)}</span>
-            </button>
-          `).join('')}
+      <div class="sr-layout">
+        <!-- 左栏：盆栽可视化（固定，不随右栏滚动） -->
+        <div class="sr-left">
+          <div class="agri-card sr-pot-card">
+            <div class="sr-pot-head">
+              <span class="sr-pot-title">🌾 作物田块环境模拟</span>
+              <span class="agri-pill agri-pill-ok" data-role="pot-badge">🌤️ 正常生长</span>
+            </div>
+            <div class="sr-pot-stage" data-role="pot-stage">
+              <canvas class="sr-pot-canvas" data-role="pot-canvas"></canvas>
+              <div class="sr-pot-scene normal" data-role="pot-scene">${buildPotSceneSvg(plot.cropCode)}</div>
+            </div>
+            <div class="sr-pot-metrics">
+              <div class="sr-pot-metric" title="土壤湿度（随回放滑块联动）">
+                <span>💧 土壤湿度</span>
+                <b class="agri-mono" data-role="pot-moisture">${plot.metrics.SOIL_MOISTURE.value}%</b>
+              </div>
+              <div class="sr-pot-metric">
+                <span>🌡️ 棚内温度</span>
+                <b class="agri-mono" data-role="pot-temp">26.4°C</b>
+              </div>
+              <div class="sr-pot-metric">
+                <span>☀️ 光照</span>
+                <b class="agri-mono" data-role="pot-light">42.5k lux</b>
+              </div>
+            </div>
+            <div class="sr-pot-desc" data-role="pot-desc">${escapeHtml(plot.cropName)} · ${escapeHtml(plot.cropVariety)} · 当前湿度 ${plot.metrics.SOIL_MOISTURE.value}%</div>
+            <div class="agri-meta-line">多株作物田块 + 大气天空 + 天气粒子；运行推演后拖动回放滑块，整片作物随分支 A（执行）湿度联动变化。</div>
+          </div>
         </div>
-        <div class="sr-inject-bar">
-          <label class="sr-seed-label" for="srSeedInput">随机种子 Seed</label>
-          <input type="number" class="sr-seed-input" id="srSeedInput" value="42" min="1" max="99999">
-          <span class="sr-seed-hint">同一种子可重复复现双轨推演</span>
-          <button class="btn btn-primary" data-role="run-btn" disabled>▶ 运行双轨推演</button>
+
+        <!-- 右栏：情景注入 + 双轨回放（可滚动） -->
+        <div class="sr-right">
+          <div class="agri-card sr-inject-card">
+            <div class="agri-card-title">🎛️ 一键情景注入与故障发生器</div>
+            <div class="sr-scenario-grid" data-role="scenario-grid">
+              ${catalog.map(s => `
+                <button class="sr-scenario-btn" data-scenario="${s.code}" style="--scenario-color: ${s.color}" title="${escapeHtml(s.desc)}">
+                  <span class="sr-scenario-emoji">${s.emoji}</span>
+                  <span class="sr-scenario-name">${escapeHtml(s.label)}</span>
+                  <span class="sr-scenario-desc">${escapeHtml(s.desc)}</span>
+                </button>
+              `).join('')}
+            </div>
+            <div class="sr-inject-bar">
+              <label class="sr-seed-label" for="srSeedInput">随机种子 Seed</label>
+              <input type="number" class="sr-seed-input" id="srSeedInput" value="42" min="1" max="99999">
+              <span class="sr-seed-hint">同一种子可重复复现双轨推演</span>
+              <button class="btn btn-primary" data-role="run-btn" disabled>▶ 运行双轨推演</button>
+            </div>
+          </div>
+
+          <div data-role="run-output"></div>
         </div>
       </div>
-
-      <div data-role="run-output"></div>
     </div>`;
 
   const runBtn = container.querySelector('[data-role="run-btn"]');
   const runOutput = container.querySelector('[data-role="run-output"]');
   const seedInput = container.querySelector('#srSeedInput');
+  const potScene = container.querySelector('[data-role="pot-scene"]');
+  const potCanvas = container.querySelector('[data-role="pot-canvas"]');
+  const potStage = container.querySelector('[data-role="pot-stage"]');
+  const potBadge = container.querySelector('[data-role="pot-badge"]');
+  const potDesc = container.querySelector('[data-role="pot-desc"]');
+  const potMoisture = container.querySelector('[data-role="pot-moisture"]');
+  const potTemp = container.querySelector('[data-role="pot-temp"]');
+  const potLight = container.querySelector('[data-role="pot-light"]');
+  let pot3d = null; // Three.js 3D 盆栽（WebGL 不可用时保持 SVG 降级）
   let selectedScenario = 'DROUGHT';
   let chartInstances = [];
   let activeChart = null; // 当前双轨图的 ECharts 实例（跨 renderRunOutput 生命周期）
+
+  // 动态加载 Three.js 3D 盆栽（失败/无 WebGL 时保留 SVG 场景）
+  (async () => {
+    try {
+      const { createPotScene } = await import('../three-pot.js');
+      pot3d = await createPotScene(potCanvas, { cropCode: plot.cropCode });
+      if (pot3d) {
+        potScene.style.display = 'none';
+        potCanvas.style.display = 'block';
+        pot3d.setMoisture(plot.metrics.SOIL_MOISTURE.value);
+        pot3d.setScenario((SCENE_VISUAL[selectedScenario] || SCENE_VISUAL.NORMAL).cls);
+      } else {
+        potCanvas.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('3D pot unavailable, using SVG fallback:', e);
+      potCanvas.style.display = 'none';
+    }
+  })();
+
+  // 3D 视差：鼠标在盆栽区域移动时场景跟随轻微旋转（perspective + rotate）
+  if (potStage) {
+    potStage.addEventListener('mousemove', (e) => {
+      const rect = potStage.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const px = (e.clientX - rect.left) / rect.width - 0.5;
+      const py = (e.clientY - rect.top) / rect.height - 0.5;
+      potStage.style.transform = `rotateY(${(px * 10).toFixed(2)}deg) rotateX(${(-py * 8).toFixed(2)}deg)`;
+    });
+    potStage.addEventListener('mouseleave', () => {
+      potStage.style.transform = '';
+    });
+  }
+
+  /** 应用情景到盆栽可视化（CSS 类切换环境动画 + 环境指标；3D 场景同步） */
+  const applySceneVisual = (scenario) => {
+    const v = SCENE_VISUAL[scenario] || SCENE_VISUAL.NORMAL;
+    potScene.classList.remove('drought', 'heat', 'storm', 'drift', 'offline', 'normal');
+    potScene.classList.add(v.cls);
+    if (pot3d) pot3d.setScenario(v.cls);
+    potBadge.textContent = v.badge;
+    potBadge.className = `agri-pill ${v.cls === 'drought' || v.cls === 'heat' ? 'agri-pill-danger' : v.cls === 'storm' || v.cls === 'drift' ? 'agri-pill-warn' : v.cls === 'offline' ? 'agri-pill-danger' : 'agri-pill-ok'}`;
+    potTemp.textContent = v.temp;
+    potLight.textContent = v.light;
+    potDesc.textContent = v.label;
+  };
+
+  /** 土壤湿度联动：颜色插值 + 植物健康状态（运行推演后随回放滑块更新） */
+  const updatePot = (moisture) => {
+    potMoisture.textContent = `${Number(moisture).toFixed(1)}%`;
+    if (pot3d) pot3d.setMoisture(moisture);
+    const ratio = Math.min(1, Math.max(0, (moisture - 10) / 30)); // 10%~40% 映射到 干→湿
+    const r = Math.round(138 - 80 * ratio);
+    const g = Math.round(106 - 64 * ratio);
+    const b = Math.round(63 - 35 * ratio);
+    potScene.style.setProperty('--soil-color', `rgb(${r}, ${g}, ${b})`);
+    potScene.classList.toggle('pot-wilt', moisture < 20);
+    potScene.classList.toggle('pot-crit', moisture < 14);
+  };
 
   container.querySelectorAll('.sr-scenario-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -396,6 +722,7 @@ export async function renderScenarioReplay(container, plotId) {
       btn.classList.add('active');
       selectedScenario = btn.dataset.scenario;
       runBtn.disabled = false;
+      applySceneVisual(selectedScenario); // 选中情景即预览盆栽环境
     });
   });
   container.querySelectorAll('.cmd-nav-btn').forEach(btn => {
@@ -423,6 +750,10 @@ export async function renderScenarioReplay(container, plotId) {
   const cleanup = () => {
     stopPlayback();
     disposeCharts();
+    if (pot3d) {
+      try { pot3d.dispose(); } catch (e) { /* noop */ }
+      pot3d = null;
+    }
   };
 
   runBtn.addEventListener('click', async () => {
@@ -709,6 +1040,8 @@ export async function renderScenarioReplay(container, plotId) {
       valExec.textContent = `${pExec.value}%`;
       valNoop.textContent = `${pNoop.value}%`;
       valDiff.textContent = `${(pExec.value - pNoop.value) >= 0 ? '+' : ''}${(pExec.value - pNoop.value).toFixed(1)}%`;
+      // 盆栽联动：土壤湿度/植物状态跟随分支 A（执行）走势
+      updatePot(pExec.value);
       renderChartAt(t).catch(e => console.warn('renderChartAt failed:', e));
     };
 
@@ -736,6 +1069,9 @@ export async function renderScenarioReplay(container, plotId) {
 
     updateReadouts(0);
   };
+
+  // 初始土壤湿度联动（设置盆栽初始土壤色与植物状态）
+  updatePot(plot.metrics.SOIL_MOISTURE.value);
 
   return cleanup;
 }

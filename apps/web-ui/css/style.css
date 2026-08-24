@@ -1191,7 +1191,7 @@ body {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   width: 100%;
-  max-width: 900px;
+  max-width: 1280px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
