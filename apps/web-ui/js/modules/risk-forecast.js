@@ -173,7 +173,7 @@ export async function renderRiskForecast(container, plotId) {
       type: 'gauge',
       startAngle: 180, endAngle: 0,
       min: 0, max: 240,
-      radius: '92%',
+      radius: '88%',
       center: ['50%', '72%'],
       axisLine: {
         lineStyle: {
@@ -187,10 +187,10 @@ export async function renderRiskForecast(container, plotId) {
         animationDuration: 1400, animationEasing: 'cubicOut'
       },
       anchor: { show: true, size: 9, itemStyle: { color: themeTextColor() } },
-      // 刻度/分隔线：紧贴弧线、留在弧正下方，不再向内侵入碗区
-      axisTick: { distance: -14, length: 4, lineStyle: { color: themeTickColor() } },
-      splitLine: { distance: -16, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
-      axisLabel: { show: false }, // 弧上的 0/40/…/240 刻度标签遮挡数字，直接隐藏
+      // 刻度/分隔线：刻度线落在弧内侧，标签落在弧外侧，两者各自拉开互不重叠
+      axisTick: { distance: -10, length: 4, lineStyle: { color: themeTickColor() } },
+      splitLine: { distance: -12, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
+      axisLabel: { distance: 8, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
       detail: {
         valueAnimation: true,
         formatter: v => v >= 240 ? '>240' : v,
