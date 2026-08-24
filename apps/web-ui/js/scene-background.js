@@ -17,9 +17,9 @@ const PALETTES = {
     fog: 0x0c1220,
     fogNear: 22,
     fogFar: 68,
-    soil: 0x2a2418,
-    fieldLow: 0x1f2c14,
-    fieldHigh: 0x8a7a38,
+    soil: 0x5a4a30,
+    fieldLow: 0x3a4a22,
+    fieldHigh: 0xb8a050,
     wheatTip: 0xd8c47c,
     wheatStem: 0x32461c,
     wheatGrain: 0xe8cb72,
@@ -46,9 +46,9 @@ const PALETTES = {
     fog: 0xe8f0f6,
     fogNear: 38,
     fogFar: 92,
-    soil: 0x8a6a28,
-    fieldLow: 0x6a9a28,
-    fieldHigh: 0xe8c547,
+    soil: 0xd2b07a,
+    fieldLow: 0x8bb34a,
+    fieldHigh: 0xf0d060,
     wheatTip: 0xffe07a,
     wheatStem: 0x7aa832,
     wheatGrain: 0xffcc4a,
@@ -423,12 +423,91 @@ function createSkySprite(texture, scale) {
 }
 
 function terrainHeight(x, z) {
-  return (
+  const hills =
     Math.sin(x * 0.11) * 1.55 +
     Math.cos(z * 0.09) * 1.2 +
     Math.sin((x + z) * 0.065) * 0.7 +
-    Math.cos(x * 0.04 - z * 0.05) * 0.35
-  );
+    Math.cos(x * 0.04 - z * 0.05) * 0.35;
+  // Fine soil clods / plow ridges — visible up close, does not change the skyline.
+  const clods =
+    Math.sin(x * 1.35 + z * 0.62) * 0.045 +
+    Math.cos(x * 0.88 - z * 1.18) * 0.032 +
+    Math.sin(x * 2.4 + z * 1.9) * 0.018;
+  const furrows = Math.sin(x * 0.72 + z * 0.28) * 0.055;
+  return hills + clods + furrows;
+}
+
+function makeSoilTexture() {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Sunlit cultivated loam — straw-gold, not wet dark earth
+  ctx.fillStyle = '#c8a878';
+  ctx.fillRect(0, 0, size, size);
+
+  // Soft dry / wet patches
+  for (let i = 0; i < 18; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 36 + Math.random() * 80;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const warm = Math.random() > 0.4;
+    g.addColorStop(0, warm ? 'rgba(232, 200, 130, 0.3)' : 'rgba(176, 150, 96, 0.2)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fine grain
+  const img = ctx.getImageData(0, 0, size, size);
+  const px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const n = (Math.random() - 0.5) * 22;
+    px[i] = Math.max(0, Math.min(255, px[i] + n + 6));
+    px[i + 1] = Math.max(0, Math.min(255, px[i + 1] + n * 0.9 + 4));
+    px[i + 2] = Math.max(0, Math.min(255, px[i + 2] + n * 0.45));
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Straw flecks and small clods
+  for (let i = 0; i < 260; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 0.7 + Math.random() * 2.1;
+    const straw = Math.random() > 0.45;
+    ctx.fillStyle = straw
+      ? `rgba(${215 + Math.floor(Math.random() * 35)}, ${175 + Math.floor(Math.random() * 30)}, ${95 + Math.floor(Math.random() * 30)}, 0.35)`
+      : `rgba(${150 + Math.floor(Math.random() * 40)}, ${120 + Math.floor(Math.random() * 28)}, ${70 + Math.floor(Math.random() * 20)}, 0.22)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.4 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Soft plow strokes
+  ctx.strokeStyle = 'rgba(196, 158, 86, 0.16)';
+  ctx.lineWidth = 1.1;
+  for (let i = 0; i < 16; i++) {
+    const y = (i / 16) * size + Math.random() * 8;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= size; x += 32) {
+      ctx.lineTo(x, y + Math.sin(x * 0.04 + i) * 3.5);
+    }
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 const WHEAT_VERT = /* glsl */ `
@@ -916,7 +995,7 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   const world = new THREE.Group();
   scene.add(world);
 
-  const terrainGeo = new THREE.PlaneGeometry(72, 56, 72, 48);
+  const terrainGeo = new THREE.PlaneGeometry(72, 56, 96, 64);
   terrainGeo.rotateX(-Math.PI / 2);
   const terrainPos = terrainGeo.attributes.position;
   const terrainColors = new Float32Array(terrainPos.count * 3);
@@ -930,8 +1009,13 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     const z = terrainPos.getZ(i);
     const y = terrainHeight(x, z);
     terrainPos.setY(i, y);
-    tmpColor.copy(fieldLow).lerp(fieldHigh, THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1));
-    tmpColor.lerp(soil, 0.18);
+    const heightT = THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1);
+    const furrow = 0.5 + 0.5 * Math.sin(x * 0.72 + z * 0.28);
+    tmpColor.copy(fieldLow).lerp(fieldHigh, 0.42 + heightT * 0.5);
+    // Only furrow bottoms show a touch of bare soil; ridges stay green.
+    tmpColor.lerp(soil, 0.06 * (1 - furrow));
+    const grit = 0.97 + ((Math.sin(x * 7.1 + z * 5.3) * 0.5 + 0.5) * 0.06);
+    tmpColor.multiplyScalar(grit);
     terrainColors[i * 3] = tmpColor.r;
     terrainColors[i * 3 + 1] = tmpColor.g;
     terrainColors[i * 3 + 2] = tmpColor.b;
@@ -939,11 +1023,14 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   terrainGeo.setAttribute('color', new THREE.BufferAttribute(terrainColors, 3));
   terrainGeo.computeVertexNormals();
 
-  const terrainMat = new THREE.MeshPhongMaterial({
+  const soilMap = makeSoilTexture();
+  soilMap.wrapS = THREE.RepeatWrapping;
+  soilMap.wrapT = THREE.RepeatWrapping;
+  soilMap.repeat.set(18, 14);
+  const terrainMat = new THREE.MeshLambertMaterial({
+    map: soilMap,
     vertexColors: true,
-    shininess: 8,
-    specular: 0x1a1810,
-    flatShading: false,
+    color: 0xffffff,
   });
   const terrain = new THREE.Mesh(terrainGeo, terrainMat);
   world.add(terrain);
@@ -999,16 +1086,16 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   underMat.uniforms.uRimColor = wheatMat.uniforms.uRimColor;
   underMat.uniforms.uDay = wheatMat.uniforms.uDay;
 
-  const wheatCols = 100;
-  const wheatRows = 70;
+  const wheatCols = 120;
+  const wheatRows = 84;
   const wheat = new THREE.InstancedMesh(wheatGeo, wheatMat, wheatCols * wheatRows);
-  scatterInstances(wheat, wheatCols, wheatRows, 60, 44, 0.22, 0.94, 0.36, 1.08);
+  scatterInstances(wheat, wheatCols, wheatRows, 68, 52, 0.2, 0.94, 0.36, 1.08);
   world.add(wheat);
 
-  const underCols = 96;
-  const underRows = 66;
+  const underCols = 112;
+  const underRows = 78;
   const undergrowth = new THREE.InstancedMesh(underGeo, underMat, underCols * underRows);
-  scatterInstances(undergrowth, underCols, underRows, 58, 42, 0.18, 0.7, 0.35, 0.72);
+  scatterInstances(undergrowth, underCols, underRows, 66, 50, 0.16, 0.7, 0.35, 0.72);
   world.add(undergrowth);
 
   const pollenCount = 140;
@@ -1122,9 +1209,15 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     fieldHigh.setHex(palette.fieldHigh);
     fieldLow.setHex(palette.fieldLow);
     for (let i = 0; i < terrainPos.count; i++) {
+      const x = terrainPos.getX(i);
+      const z = terrainPos.getZ(i);
       const y = terrainPos.getY(i);
-      tmpColor.copy(fieldLow).lerp(fieldHigh, THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1));
-      tmpColor.lerp(soil, 0.18);
+      const heightT = THREE.MathUtils.clamp((y + 2.2) / 5.2, 0, 1);
+      const furrow = 0.5 + 0.5 * Math.sin(x * 0.72 + z * 0.28);
+      tmpColor.copy(fieldLow).lerp(fieldHigh, 0.42 + heightT * 0.5);
+      tmpColor.lerp(soil, 0.06 * (1 - furrow));
+      const grit = 0.97 + ((Math.sin(x * 7.1 + z * 5.3) * 0.5 + 0.5) * 0.06);
+      tmpColor.multiplyScalar(grit);
       terrainColors[i * 3] = tmpColor.r;
       terrainColors[i * 3 + 1] = tmpColor.g;
       terrainColors[i * 3 + 2] = tmpColor.b;
@@ -1212,7 +1305,11 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     rafId = requestAnimationFrame(animate);
     const revealing = !bootMode && revealT < 1;
     if (!visible && !bootMode && !revealing) return;
-    renderFrame(t);
+    try {
+      renderFrame(t);
+    } catch (err) {
+      console.warn('[AgriLoop] scene render skipped', err);
+    }
   }
 
   function onResize() {
@@ -1244,9 +1341,13 @@ export function initSceneBackground(containerId = 'sceneBackground') {
   document.addEventListener('agriloop-theme-change', onThemeChange);
   document.addEventListener('visibilitychange', onVisibilityChange);
 
-  renderFrame(0);
+  try {
+    renderFrame(0);
+  } catch (err) {
+    console.warn('[AgriLoop] initial scene render failed', err);
+  }
   updateBootHud(bootHUD);
-  if (!reducedMotion) rafId = requestAnimationFrame(animate);
+  rafId = requestAnimationFrame(animate);
 
   function updateBootHud(progress) {
     const pct = Math.round(progress * 100);
@@ -1286,9 +1387,20 @@ export function initSceneBackground(containerId = 'sceneBackground') {
     const target = Math.min(1, Math.max(0, min));
     if (bootHUD >= target && bootP >= target) return Promise.resolve();
     return new Promise((resolve) => {
+      const started = performance.now();
       const tick = () => {
-        if (bootHUD >= target && bootP >= target) resolve();
-        else requestAnimationFrame(tick);
+        if (bootHUD >= target && bootP >= target) {
+          resolve();
+          return;
+        }
+        if (performance.now() - started > 6000) {
+          bootP = Math.max(bootP, target);
+          bootHUD = Math.max(bootHUD, target);
+          updateBootHud(bootHUD);
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
       };
       tick();
     });
@@ -1333,6 +1445,7 @@ export function initSceneBackground(containerId = 'sceneBackground') {
       for (const map of cloudMaps) map.dispose();
       terrainGeo.dispose();
       terrainMat.dispose();
+      soilMap.dispose();
       wheatGeo.dispose();
       wheatMat.dispose();
       underGeo.dispose();

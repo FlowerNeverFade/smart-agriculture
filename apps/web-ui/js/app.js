@@ -6,7 +6,7 @@ import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js?v=5';
 import { PlotTelemetryView } from './plot-telemetry-view.js?v=47';
 import { initTheme } from './theme.js?v=21';
-import { initSceneBackground } from './scene-background.js?v=51';
+import { initSceneBackground } from './scene-background.js?v=55';
 
 class AgriApp {
   constructor() {
