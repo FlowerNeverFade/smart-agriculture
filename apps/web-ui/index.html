@@ -34,12 +34,13 @@
   <div id="app" v-cloak>
     <header class="g-header">
       <div class="g-header-left">
-        <button class="g-btn icon-only"><span class="material-symbols-outlined">menu</span></button>
+        <button class="g-btn icon-only" @click="toggleSidebar"><span class="material-symbols-outlined">menu</span></button>
         <img src="assets/brand/logo.png" height="32" alt="AgriLoop" style="border-radius:4px">
         <span class="g-header-title">AgriLoop Console</span>
       </div>
       <div class="g-header-right">
-        <button class="g-btn icon-only" @click="toggleTheme"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
+        <button class="g-btn icon-only" @click="toggleTheme" title="切换主题"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
+        <button class="g-btn icon-only" @click="logout" title="退出登录"><span class="material-symbols-outlined">logout</span></button>
         <span class="g-badge" :class="isLive ? 'success' : 'warning'">
           {{ isLive ? '系统在线 (UP)' : '仿真态 (MOCK)' }}
         </span>
@@ -51,15 +52,12 @@
     </header>
 
     <div class="g-body">
-      <nav class="g-sidebar">
+      <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
         <div v-for="nav in navItems" :key="nav.id" 
              class="g-nav-item" :class="{active: currentView === nav.id}"
              @click="currentView = nav.id">
           <span class="material-symbols-outlined">{{ nav.icon }}</span>
           {{ nav.label }}
-        </div>
-        <div style="margin-top:auto; padding:16px; border-top:1px solid var(--g-border); font-size:12px; color:var(--g-text-secondary)">
-          v1.2-alpha | 引擎: Vue3
         </div>
       </nav>
 

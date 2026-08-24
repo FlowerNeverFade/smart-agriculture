@@ -313,6 +313,7 @@ const app = createApp({
   setup() {
     const isLive = ref(false);
     const isDark = ref(false);
+    const isSidebarOpen = ref(true);
     const currentView = ref('dashboard');
     const toasts = ref([]);
     
@@ -357,6 +358,15 @@ const app = createApp({
       localStorage.setItem('agriloop-theme', theme);
     };
 
+    const toggleSidebar = () => {
+      isSidebarOpen.value = !isSidebarOpen.value;
+    };
+
+    const logout = () => {
+      api.clearSession();
+      window.location.replace('login.html');
+    };
+
     const navigate = (viewId) => {
       currentView.value = viewId;
     };
@@ -387,6 +397,7 @@ const app = createApp({
     return {
       isLive,
       isDark,
+      isSidebarOpen,
       navItems,
       currentView,
       currentViewComponent,
@@ -394,6 +405,8 @@ const app = createApp({
       toasts,
       showToast,
       toggleTheme,
+      toggleSidebar,
+      logout,
       navigate
     };
   }
