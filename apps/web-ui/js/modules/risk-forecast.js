@@ -173,7 +173,7 @@ export async function renderRiskForecast(container, plotId) {
       type: 'gauge',
       startAngle: 180, endAngle: 0,
       min: 0, max: 240,
-      radius: '80%',
+      radius: '88%',
       center: ['50%', '74%'],
       axisLine: {
         lineStyle: {
@@ -182,22 +182,22 @@ export async function renderRiskForecast(container, plotId) {
         }
       },
       pointer: {
-        length: '48%', width: 5,
+        length: '50%', width: 5,
         itemStyle: { color: themeTextColor() },
         animationDuration: 1400, animationEasing: 'cubicOut'
       },
       anchor: { show: true, size: 9, itemStyle: { color: themeTextColor() } },
-      // 三层结构：色环 -> 紧挨环外的刻度线 -> 最外圈的数字标签
-      axisTick: { distance: 5, length: 4, lineStyle: { color: themeTickColor() } },
-      splitLine: { distance: 5, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
-      axisLabel: { distance: 12, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
+      // 从外到内三层：色环（最外）-> 刻度线（紧贴环内）-> 数字标签（最内圈）
+      axisTick: { distance: -8, length: 4, lineStyle: { color: themeTickColor() } },
+      splitLine: { distance: -8, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
+      axisLabel: { distance: -22, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
       detail: {
         valueAnimation: true,
         formatter: v => v >= 240 ? '>240' : v,
         color: themeTextColor(), fontSize: 32, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-        offsetCenter: [0, '34%'] // 数字移到刻度环外（弧下方开阔区），绝不与刻度线重叠
+        offsetCenter: [0, '-24%'] // 大数字回到表中部（碗区内），环/刻度/标签都在外圈
       },
-      title: { offsetCenter: [0, '48%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
+      title: { offsetCenter: [0, '-4%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
       data: [{ value: 0, name: '分钟 · 触达极限胁迫边界' }],
       animationDuration: 1400,
       animationEasing: 'cubicOut'
