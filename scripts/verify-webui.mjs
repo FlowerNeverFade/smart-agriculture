@@ -46,8 +46,9 @@ const loginSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'login.js'),
 ok('入口脚本已版本化避免旧缓存', /js\/app\.js\?v=[^"']+/.test(html));
 ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));
 ok('工作台已移除登录弹窗', !html.includes('authModal') && !html.includes('auth-modal-backdrop'));
-ok('quhl 独立登录页已接入', loginHtml.includes('environment__field--cursor') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=quhl-04485ed/.test(loginHtml));
-ok('未登录直接跳转 quhl 登录页', appSource.includes("const LOGIN_ENTRY = 'login.html'") && appSource.includes('if (!api.readSession())') && loginSource.includes("storedSession?.mode === 'live'"));
+ok('feat/login-interface 液态登录页已接入', loginHtml.includes('ambientLiquidCanvas') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=ambient-liquid-1/.test(loginHtml) && loginSource.includes('createAmbientLiquidField'));
+ok('未登录直接跳转独立登录页', appSource.includes("const LOGIN_ENTRY = 'login.html'") && appSource.includes('if (!api.readSession())') && loginSource.includes("storedSession?.mode === 'live'"));
+ok('微观作物沙盘拥有独立路由', html.includes('data-view="crop-sandbox"') && appSource.includes("viewName === 'crop-sandbox'") && appSource.includes('ensureCropSandbox'));
 const dom = new JSDOM(html, {
   url: 'http://localhost:3000/#view=risk-forecast',
   runScripts: 'outside-only',

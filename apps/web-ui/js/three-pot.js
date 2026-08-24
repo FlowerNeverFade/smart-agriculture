@@ -12,8 +12,8 @@
 
 function ensureThree() {
   if (typeof window !== 'undefined' && window.THREE) return Promise.resolve(window.THREE);
-  // three.module.min.js 仅命名导出（无 default），必须回退到命名空间对象
-  return import('../vendor/three.module.min.js').then(m => (m && (m.default || m)) || null).catch(e => { console.warn('three load fail', e); return null; });
+  // 复用全站同一份 Three.js，避免场景切换时加载两个渲染运行时。
+  return import('../vendor/three/three.module.min.js').then(m => (m && (m.default || m)) || null).catch(e => { console.warn('three load fail', e); return null; });
 }
 
 /* ------------------------------------------------------------------ 天空 */

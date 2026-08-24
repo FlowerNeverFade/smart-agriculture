@@ -16,6 +16,10 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'],
 });
 const page = await browser.newPage({ viewport: { width: 900, height: 720 } });
+await page.addInitScript(() => {
+  localStorage.setItem('agriloop_session_mode', 'demo');
+  localStorage.setItem('agriloop_user', JSON.stringify({ username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', avatar: '👑' }));
+});
 page.on('console', (m) => consoleMsgs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 page.on('response', (r) => { if (r.status() >= 400) errors.push(`HTTP ${r.status()}: ${r.url()}`); });
@@ -27,7 +31,7 @@ const glProbe = await page.evaluate(async () => {
   const out = {};
   // direct probe of createPotScene
   try {
-    const THREE = await import('/vendor/three.module.min.js');
+    const THREE = await import('/vendor/three/three.module.min.js');
     const T = THREE.default || THREE;
     const cv = document.createElement('canvas');
     let renderer = null, err = null;

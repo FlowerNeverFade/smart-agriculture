@@ -113,14 +113,6 @@ class AgriApp {
     await this.loadOverview();
     await this.refreshSimulatorStatus(true);
 
-    this.cropSandbox = new CropSandbox({
-      onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
-      onPrescribe: (plotId, scenario) => {
-        this.openSubview('decision-console', { plotId });
-        this.showToast(`已根据【${scenario}】模拟情景打开处方决策台`);
-      }
-    });
-
     this.farmMonitor = new FarmMonitor({
       plots: this.state.plots,
       onExit: () => this.navigate('home'),
@@ -963,13 +955,31 @@ class AgriApp {
     }
   }
 
+  ensureCropSandbox() {
+    if (!this.cropSandbox) {
+      this.cropSandbox = new CropSandbox({
+        onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
+        onPrescribe: (plotId, scenario) => {
+          this.openSubview('decision-console', { plotId });
+          this.showToast(`已根据【${scenario}】模拟情景打开处方决策台`);
+        }
+      });
+    }
+    return this.cropSandbox;
+  }
+
+  releaseCropSandbox() {
+    this.cropSandbox?.destroy();
+    this.cropSandbox = null;
+  }
+
   openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
     if (viewName === 'plot-detail') {
       this.cleanupActiveSubview();
       this.riumBackground?.setVisible(false);
       this.dom.subviewModal.classList.remove('active');
-      this.cropSandbox?.close();
+      this.releaseCropSandbox();
       this.farmMonitor?.setPlots(this.state.plots);
       this.farmMonitor?.open(plotId);
       this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
@@ -988,7 +998,14 @@ class AgriApp {
       this.dom.subviewModal.classList.remove('active');
       this.farmMonitor?.close(false);
       const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
-      this.cropSandbox?.open(plotId, plot);
+      try {
+        this.ensureCropSandbox().open(plotId, plot);
+      } catch (error) {
+        this.releaseCropSandbox();
+        this.riumBackground?.setVisible(true);
+        this.showToast(`微观沙盘启动失败：${error?.message || '浏览器不支持 WebGL'}`, 'error');
+        return;
+      }
       this.dom.headerCurrentView.textContent = '微观作物双轨沙盘';
       document.querySelectorAll('.module-nav-item').forEach(item => {
         item.classList.toggle('active', item.dataset.view === viewName);
@@ -1000,7 +1017,7 @@ class AgriApp {
     }
 
     this.farmMonitor?.close(false);
-    this.cropSandbox?.close();
+    this.releaseCropSandbox();
     this.riumBackground?.setVisible(true);
     this.cleanupActiveSubview();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
@@ -1068,7 +1085,7 @@ class AgriApp {
     this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
-    this.cropSandbox?.close();
+    this.releaseCropSandbox();
     this.riumBackground?.setVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {

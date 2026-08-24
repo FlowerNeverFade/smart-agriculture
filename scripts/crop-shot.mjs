@@ -10,6 +10,10 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'],
 });
 const page = await browser.newPage({ viewport: { width: 900, height: 760 } });
+await page.addInitScript(() => {
+  localStorage.setItem('agriloop_session_mode', 'demo');
+  localStorage.setItem('agriloop_user', JSON.stringify({ username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', avatar: '👑' }));
+});
 page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 page.on('response', (r) => { if (r.status() >= 400 && !r.url().includes('actuator')) errors.push(`HTTP ${r.status()}: ${r.url()}`); });
 

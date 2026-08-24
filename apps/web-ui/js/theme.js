@@ -8,6 +8,22 @@ const TRANSITION_MS = 2000;
 let transitionRaf = 0;
 let overlayEl = null;
 
+function cancelTransitionFrame(handle) {
+  if (!handle) return;
+  if (typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(handle);
+  } else {
+    window.clearTimeout(handle);
+  }
+}
+
+function requestTransitionFrame(callback) {
+  if (typeof window.requestAnimationFrame === 'function') {
+    return window.requestAnimationFrame(callback);
+  }
+  return window.setTimeout(() => callback(window.performance?.now?.() ?? Date.now()), 16);
+}
+
 export function getTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
 }
@@ -46,7 +62,7 @@ function updateThemeToggle(theme) {
 }
 
 function dispatchTransition(from, to, progress) {
-  document.dispatchEvent(new CustomEvent('agriloop-theme-transition', {
+  document.dispatchEvent(new window.CustomEvent('agriloop-theme-transition', {
     detail: { from, to, progress }
   }));
 }
@@ -66,13 +82,13 @@ function finishTheme(theme, previous) {
     overlayEl.classList.remove('active');
     overlayEl.style.background = 'transparent';
   }
-  document.dispatchEvent(new CustomEvent('agriloop-theme-change', {
+  document.dispatchEvent(new window.CustomEvent('agriloop-theme-change', {
     detail: { theme, previous }
   }));
 }
 
 function animateTheme(from, to) {
-  cancelAnimationFrame(transitionRaf);
+  cancelTransitionFrame(transitionRaf);
   const root = document.documentElement;
   const button = document.getElementById('btnThemeToggle');
   const overlay = ensureOverlay();
@@ -81,7 +97,7 @@ function animateTheme(from, to) {
   updateThemeToggle(to);
   if (button) button.disabled = true;
 
-  const start = performance.now();
+  const start = window.performance?.now?.() ?? Date.now();
   const step = now => {
     const raw = Math.min((now - start) / TRANSITION_MS, 1);
     const progress = easeInOutSine(raw);
@@ -92,12 +108,12 @@ function animateTheme(from, to) {
     overlay.classList.add('active');
     dispatchTransition(from, to, progress);
     if (raw < 1) {
-      transitionRaf = requestAnimationFrame(step);
+      transitionRaf = requestTransitionFrame(step);
     } else {
       finishTheme(to, from);
     }
   };
-  transitionRaf = requestAnimationFrame(step);
+  transitionRaf = requestTransitionFrame(step);
 }
 
 export function applyTheme(theme, { animated = false } = {}) {
@@ -109,7 +125,7 @@ export function applyTheme(theme, { animated = false } = {}) {
     return next;
   }
 
-  cancelAnimationFrame(transitionRaf);
+  cancelTransitionFrame(transitionRaf);
   setThemeAttribute(next);
   finishTheme(next, previous);
   return next;
@@ -130,7 +146,7 @@ export function initTheme() {
   const button = document.getElementById('btnThemeToggle');
   button?.addEventListener('click', toggleTheme);
   return () => {
-    cancelAnimationFrame(transitionRaf);
+    cancelTransitionFrame(transitionRaf);
     button?.removeEventListener('click', toggleTheme);
     overlayEl?.remove();
     overlayEl = null;
