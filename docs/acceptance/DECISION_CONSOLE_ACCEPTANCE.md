@@ -46,7 +46,7 @@
 
 | 验收项 | 命令 | 结果 |
 |---|---|---|
-| Java 编译与单元测试 | `gradlew :apps:api-service:test --rerun-tasks --no-daemon` | 13/13，通过 |
+| Java 编译与单元测试 | `gradlew :apps:api-service:test --rerun-tasks --no-daemon` | 14/14，通过 |
 | Web 真实 ECharts 回归 | `node scripts/verify-webui.mjs real` | 79/79，通过 |
 | Web ECharts stub 回归 | `node scripts/verify-webui.mjs stub` | 78/78，通过 |
 | Web SVG 降级回归 | `node scripts/verify-webui.mjs svg` | 78/78，通过 |
@@ -65,7 +65,16 @@
 
 黑盒关键结果：`SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false`；新鲜合格数据则为 `WATER_DEFICIT -> READY / executable=true -> ACK SUCCEEDED -> evaluation COMPLETED`。
 
-## 5. 代码位置
+## 5. 公网部署验收
+
+- 运行代码：`b0aefa9`（中枢页面）+ `405930d`（按指标校准跳变检测与稳定 smoke）。
+- 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`，主页和 `decision-console.js` 均返回 HTTP 200。
+- `scripts/acceptance_smoke.py` 经公网域名调用返回 `status=PASS`：12 条遥测全部接收、重复事件 `duplicate=true`、诊断 `WATER_DEFICIT`、处方 `READY`、失败命令效果 `INCONCLUSIVE`、决策护照可查询。
+- 漂移专项返回 `SENSOR_DRIFT -> NEEDS_EVIDENCE`，`diagnosisSafety=FAIL` 且 `executable=false`；规则硬门没有因降低误报而被绕过。
+- Qwen 专项返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`；同一账号会话随后可读取 2 条持久化消息。
+- Supervisor 中 API、模拟器、Nginx、Cron 和 Qwen/vLLM 均为 `Running`，`GET /actuator/health` 返回 `UP`。
+
+## 6. 代码位置
 
 - 页面模块：`apps/web-ui/js/modules/decision-console.js`
 - 页面样式：`apps/web-ui/css/modules/decision-console.css`

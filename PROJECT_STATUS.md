@@ -11,7 +11,7 @@
 
 > 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
 
-> 2026-08-24 智能诊断与决策中枢：完整页面已在本地 `main` 工作区实现，接入诊断、三类证据、四态就绪度、八道安全门、结构化处方、补证工单、人工审批、幂等虚拟命令、ACK/效果和决策护照。后端同步修复诊断安全门与角色权限未纳入再次就绪度评估的不一致，并使 standalone 在 Redis/MQTT 可选降级时保持健康入口 `UP`。验收：Spring Boot 13/13，Web real 79/79、stub/svg 78/78，本地 JAR 两条相反闭环黑盒通过；详见 [`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`](docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md)。本条仅代表本地代码验收，尚未据此声明公网已更新。
+> 2026-08-24 智能诊断与决策中枢：页面与闭环实现提交 `b0aefa9`、遥测跳变校准提交 `405930d` 已发布到公网。页面接入诊断、三类证据、四态就绪度、八道安全门、结构化处方、补证工单、人工审批、幂等虚拟命令、ACK/效果和决策护照；后端同时修复诊断安全门/角色权限一致性，以及正常光照波动被通用阈值误判为 `DEGRADED` 的问题。验收：Spring Boot 14/14，Web real 79/79、stub/svg 78/78；公网 smoke 返回 `WATER_DEFICIT -> READY`、重复事件幂等、失败命令效果 `INCONCLUSIVE`，专项反例返回 `SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false`。Qwen 返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`；详见 [`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`](docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md)。
 
 ## 1. 进度总览
 

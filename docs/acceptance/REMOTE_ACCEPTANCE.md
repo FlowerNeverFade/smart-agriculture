@@ -35,7 +35,8 @@
 | SSE | PASS | 首帧 `event:connected` 可读 |
 | 回放隔离 | PASS | `NO_ACTION/EXECUTE` 写入 `scenario-event`，不改变主遥测/设备/告警 |
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
-| main 公网 Web/API | PASS | 当前部署提交 `191dc6b`（包含代码整合提交 `08a7b90`）；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
+| main 公网 Web/API | PASS | 当前运行代码提交 `405930d`（包含智能诊断中枢 `b0aefa9`）；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
+| 智能诊断与决策中枢 | PASS | 公网主页及模块资源 HTTP 200；新鲜六指标数据 `WATER_DEFICIT -> READY`，命令幂等和决策护照通过；`SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false` |
 | OpenAI-compatible Qwen | PASS | 非快捷诊断请求返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`、`latencyMs=5130`；vLLM 仅监听 `127.0.0.1:8000` |
 | Web Copilot 真实对话 | PASS | 独立 `/agriloop/login.html` 登录页保存 JWT；登录后网页显示 Qwen 实时回答、模型延迟和可读知识引用；思维标签、提示词、工具字段和 traceId 不进入对话正文；未登录/失败不会伪装成真实回答 |
 | Agent 连续问答 | PASS | 同一会话依次查询状态、追问“复测清单”、询问离线含义，意图分别为 `PLOT_STATUS/RETEST_CHECKLIST/PLOT_STATUS`；三次均为 `adapter=openai-compatible`、`degraded=false`，回答内容互不相同且 512-token 配置下无截断 |
@@ -54,9 +55,9 @@
 BUILD SUCCESSFUL
 ```
 
-当前 Spring 用例 12/12，通过 Spring Context、种子登录、Crop Pack、遥测幂等、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 68/68，通过历史入口、展开空态和既有前端模块回归。
+当前 Spring 用例 14/14，通过 Spring Context、种子登录、Crop Pack、遥测幂等、按指标跳变阈值、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 real 79/79、stub/svg 78/78，通过诊断中枢、历史入口、展开空态和既有前端模块回归。
 
-远端最新收口复跑了 `scripts/acceptance_smoke.py`。为避免正在运行的模拟器恰好生成 `DEGRADED` 指标而触发预期的 `HUMAN_REVIEW`，验收时短暂停止模拟器，并用同一窗口已有值写入六类 `GOOD` 遥测；没有清库、改规则或绕过安全门。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，随后模拟器恢复运行。运行代码对应 `main` 代码整合提交 `08a7b90`。
+远端最新收口通过公网域名复跑了 `scripts/acceptance_smoke.py`。脚本为六类指标各写入两条稳定且可审计的 `GOOD` 上下文数据，不清库、不改规则、不绕过安全门；正常模拟器保持运行。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，决策护照可按同一 `traceId` 查询。另行复测漂移硬门及 Qwen：漂移不可执行；模型返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`。运行代码对应 `main` 提交 `405930d`。
 
 ## 已知边界
 

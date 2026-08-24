@@ -104,12 +104,17 @@ def main() -> int:
             })
             assert_status(f"context telemetry {metric}", status)
 
-    status, diagnosis = call("POST", "/api/v1/diagnoses/evaluate", token, {"plotId": "plot-a02"})
+    trace_id = f"acceptance-trace-{run_id}"
+    status, diagnosis = call("POST", "/api/v1/diagnoses/evaluate", token, {"plotId": "plot-a02", "traceId": trace_id})
     assert_status("diagnosis", status)
     if diagnosis["data"].get("primaryCause") not in {"WATER_DEFICIT", "SENSOR_DRIFT"}:
         raise AssertionError("unexpected diagnosis cause")
 
-    status, plan = call("POST", "/api/v1/irrigation/estimate", token, {"plotId": "plot-a02"})
+    status, plan = call("POST", "/api/v1/irrigation/estimate", token, {
+        "plotId": "plot-a02",
+        "diagnosisId": diagnosis["data"]["diagnosisId"],
+        "traceId": trace_id,
+    })
     assert_status("irrigation plan", status)
     plan_data = plan["data"]
     if plan_data.get("readinessStatus") != "READY" or plan_data.get("executable") is not True:
@@ -145,7 +150,7 @@ def main() -> int:
     if evaluation["data"].get("status") not in {"INCONCLUSIVE", "PENDING"}:
         raise AssertionError("failed execution was incorrectly marked successful")
 
-    status, passport = call("GET", f"/api/v1/decision-passports/{command_data_trace(command)}", token)
+    status, passport = call("GET", f"/api/v1/decision-passports/{trace_id}", token)
     assert_status("decision passport", status)
 
     status, scenario = call("POST", "/api/v1/scenarios/runs", token, {"scenario": "drought", "scenarioId": "acceptance-drought", "seed": 42, "branchId": "NO_ACTION", "generateSample": True})
@@ -162,12 +167,6 @@ def main() -> int:
         "scenarioRunId": scenario["data"].get("runId"),
     }, ensure_ascii=False))
     return 0
-
-
-def command_data_trace(command: dict) -> str:
-    # The command API intentionally keeps trace linkage optional; use the stable
-    # generated command id as a passport lookup key for the acceptance probe.
-    return command["data"].get("traceId", command["data"].get("commandId", "missing"))
 
 
 if __name__ == "__main__":
