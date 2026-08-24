@@ -2,10 +2,10 @@
   color-scheme: light;
   --background: #f2f8ee;
   --ink: #173327;
-  --ink-soft: #3f584b;
-  --ink-faint: rgba(23, 51, 39, .70);
-  --line: rgba(35, 80, 55, .2);
-  --line-soft: rgba(35, 80, 55, .1);
+  --ink-soft: #2f4e3f;
+  --ink-faint: #3d5b4d;
+  --line: rgba(35, 80, 55, .26);
+  --line-soft: rgba(35, 80, 55, .15);
   --green: #246849;
   --green-deep: #17563a;
   --danger: #9a4038;
@@ -356,7 +356,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   margin: 8px 0 26px;
   color: var(--ink-soft);
   font-size: 14px;
-  font-weight: 520;
+  font-weight: 580;
   letter-spacing: .01em;
 }
 
@@ -369,9 +369,9 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   padding: 0;
   border: 0;
   background: transparent;
-  color: rgba(23, 51, 39, .84);
+  color: var(--ink-soft);
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 620;
   cursor: pointer;
 }
 
@@ -403,13 +403,13 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   margin-bottom: 14px;
   padding: 9px 13px 3px;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, .34);
+  border: 1px solid rgba(255, 255, 255, .46);
   border-radius: 12px;
-  background: rgba(248, 255, 250, .14);
+  background: rgba(248, 255, 250, .20);
   box-shadow:
-    0 0 0 1px rgba(35, 80, 55, .105),
-    inset 0 1px 0 rgba(255, 255, 255, .56),
-    inset 0 -1px 0 rgba(26, 74, 49, .075);
+    0 0 0 1px rgba(29, 74, 50, .20),
+    inset 0 1px 0 rgba(255, 255, 255, .68),
+    inset 0 -1px 0 rgba(26, 74, 49, .12);
   transition: border-color 190ms ease, background-color 190ms ease, box-shadow 190ms ease;
 }
 
@@ -430,9 +430,9 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 .field > span {
   display: block;
   margin-bottom: 1px;
-  color: rgba(23, 51, 39, .94);
+  color: var(--ink);
   font-size: 12px;
-  font-weight: 620;
+  font-weight: 680;
   letter-spacing: .05em;
 }
 
@@ -453,7 +453,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .field input::placeholder {
   color: var(--ink-faint);
-  font-weight: 480;
+  font-weight: 540;
   opacity: 1;
 }
 
@@ -464,7 +464,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   cursor: pointer;
 }
 
-.field select:invalid { color: var(--ink-faint); font-weight: 480; }
+.field select:invalid { color: var(--ink-faint); font-weight: 540; }
 
 .field select option {
   background: #f4f9f1;
@@ -472,7 +472,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   font-weight: 500;
 }
 
-.field select option:disabled { color: var(--ink-soft); }
+.field select option:disabled { color: #3f594d; }
 
 .field__select-arrow {
   position: absolute;
@@ -481,7 +481,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   width: 15px;
   height: 15px;
   fill: none;
-  stroke: rgba(23, 51, 39, .72);
+  stroke: var(--ink-soft);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -490,13 +490,13 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 }
 
 .field:focus-within {
-  border-color: rgba(255, 255, 255, .58);
-  background: rgba(250, 255, 252, .24);
+  border-color: rgba(255, 255, 255, .72);
+  background: rgba(250, 255, 252, .30);
   box-shadow:
-    0 0 0 1px rgba(36, 104, 73, .18),
-    inset 0 1px 0 rgba(255, 255, 255, .70),
-    inset 0 -1px 0 rgba(26, 74, 49, .08),
-    0 7px 18px rgba(25, 67, 45, .045);
+    0 0 0 1px rgba(30, 91, 62, .32),
+    inset 0 1px 0 rgba(255, 255, 255, .78),
+    inset 0 -1px 0 rgba(26, 74, 49, .13),
+    0 7px 18px rgba(25, 67, 45, .065);
 }
 
 .field:focus-within::after { transform: scaleX(1); }
@@ -513,9 +513,9 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   padding: 0;
   border: 0;
   background: transparent;
-  color: rgba(23, 51, 39, .90);
+  color: var(--ink-soft);
   font-size: 12px;
-  font-weight: 560;
+  font-weight: 640;
   cursor: pointer;
 }
 
@@ -612,24 +612,24 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   padding: 8px 0;
   border: 0;
   background: transparent;
-  color: rgba(23, 51, 39, .90);
+  color: var(--ink-soft);
   font-size: 13px;
-  font-weight: 560;
+  font-weight: 640;
   cursor: pointer;
 }
 
 .auth__note {
   margin: 13px 4px 0;
-  color: rgba(23, 51, 39, .80);
+  color: #3d5b4d;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 560;
   line-height: 1.55;
   text-align: center;
 }
 
 .auth__note--warning {
   margin: 18px 2px 22px;
-  color: rgba(23, 51, 39, .74);
+  color: #3d5b4d;
   text-align: left;
 }
 
@@ -707,6 +707,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   margin: 0 0 12px;
   color: var(--ink-soft);
   font-size: 12px;
+  font-weight: 600;
   letter-spacing: .06em;
 }
 
