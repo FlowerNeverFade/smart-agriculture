@@ -1,13 +1,13 @@
 # 智慧农业项目进度
 
 > 项目：农智闭环（AgriLoop）
-> 更新时间：2026-08-23
+> 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口与农田动态监测切片已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；指定五个前端分支的登录、背景、监测、预测、回放、农务和作物沙盘切片已合并发布；真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
-> 2026-08-23 main 部署记录：公网环境继续使用 GitHub `main` 的后端与 AI 配置；本次合并不引入名为 `task5` 的分支，但完整吸收 `yyx` 分支的预测/情景回放/价值账本/Crop Pack/命令面板与首页摘要更新。远端已启用 OpenAI-compatible Qwen3.8-27B，并加载保守的 LoRA 表达适配器 `agriloop-qwen38-agri`；规则、数据库和 RAG 仍是事实与安全边界的唯一来源，模型只生成解释文本。思维输出已关闭，后端/浏览器均过滤内部字段，并对离线、降级质量和控制命令执行二次安全拦截。公网 Web/API：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问；API 仅由 Nginx 代理。
+> 2026-08-24 main 部署记录：代码整合提交 `08a7b90` 已发布到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
 
 ## 1. 进度总览
 
@@ -25,7 +25,7 @@
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
 | 可视化主线实现 | 已完成（最小入口 + 3D 农田监测切片） | 100%（已交付切片） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；Three.js 全景数字孪生支持昼夜/天气、作物阶段、预警、风场和地块详情；完整业务页面仍不在本期 |
-| 农务执行前端（独立功能分支） | 待验收 | 本地演示可运行 | 今日农务透明沙盘已补充逐帧平滑轨迹与三地块局部响应；水资源排程已补充 WebGL2 Shader 水球、低分辨率水波、秒级平滑高亮尾流、移动路径环状涟漪、增强液面/内部流动和 Canvas 飞溅降级，工单、右侧巡田抽屉与执行状态已在 `feat/farm-operations` 实现；资源数据明确标记 SIMULATED，尚未完成服务器联调，不计入后端完成声明 |
+| 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
@@ -34,13 +34,13 @@
 
 ## 2. 当前阶段判断
 
-### 2.1 2026-08-23 main 远端验收
+### 2.1 2026-08-24 main 远端验收
 
 - `/actuator/health`、品牌入口 `/agriloop/`、静态 Web、JWT 登录和 `/api/v1/agent/chat` 已通过公网自定义服务验证。
 - 网页登录后输入自然语言即可对话；UI 只有在响应包含 `adapter=openai-compatible`、`degraded=false`、`narrative` 时才标为 `Qwen3.8-27B 实时回答`，否则明确显示规则降级。
 - Agent 返回 `adapter=openai-compatible`、`degraded=false` 和可展示 `narrative`；问候/能力/短输入走规则快捷路径，模型不可用时仍保留规则结果并写入 `AI_DEGRADED`。traceId 只保留在审计/决策护照接口，不在对话正文展示。
 - vLLM 监听 `127.0.0.1:8000`，数据库/消息服务不通过公网服务暴露；`SERVER_ADDRESS=127.0.0.1` 保护 Spring API，公网入口为 Nginx 的 6006 映射。
-- 远端磁盘约 185GB 可用，Qwen 权重约 52GB，LoRA 适配器约 40MB；数据目录、备份和应用日志位于服务器本地持久盘。
+- 远端磁盘约 183GB 可用，Qwen 权重约 52GB，LoRA 适配器约 40MB；数据目录、备份和应用日志位于服务器本地持久盘。
 
 ### 已完成的设计工作
 
@@ -62,7 +62,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
-- `quhl` 最新登录改版已评审：采用其更真实的番茄/根系背景资产和会话错误处理，但保留当前更有层次的 WebGL 视差/动效，并把真实 JWT、离线演示会话和 API 错误合同接入同一登录脚本；`rium_dev` 的麦田 Three.js 背景与液态玻璃层已作为兼容叠加加入 main（全屏 3D 监测时暂停、无 WebGL 时 CSS 降级），没有替换默认认证/监测路由；`feat/farm-operations` 的工单、巡田、资源约束和水/田交互沙盘已选择性移植，保留 main 的 AI/预测/模拟器；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、番茄/黄瓜/草莓/辣椒 Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
+- `feat/login-interface` 的独立 WebGL 液态登录页、`rium_dev` 的麦田/地形背景与液态玻璃、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现以及 `lxh-frontend` 的农田监测/独立作物沙盘已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
