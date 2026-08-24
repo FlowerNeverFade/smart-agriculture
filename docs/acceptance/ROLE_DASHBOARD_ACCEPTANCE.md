@@ -20,6 +20,14 @@
 
 ## 验收证据
 
+本地只启动前端时使用：
+
+```text
+python scripts/serve-webui.py 3001
+```
+
+该开发服务器对 `/api/` 的写请求返回结构化 `503 BACKEND_OFFLINE`，登录页因此可以按设计切换到离线演示账号，而不会落到 Python 静态服务器的 `501 Unsupported method` 页面。演示账号密码统一为 `demo123`。
+
 ```text
 node scripts/verify-webui.mjs svg                         # 82/82
 node scripts/verify-role-dashboard.mjs                   # 4/4
