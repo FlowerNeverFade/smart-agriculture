@@ -19,12 +19,12 @@
   --glass-y: 18%;
   --glass-shift-x: -2px;
   --glass-shift-y: -8px;
-  --glass-specular-opacity: .5;
-  --glass-tint-alpha: .025;
-  --edge-top-a: .22;
-  --edge-left-a: .15;
-  --edge-right-a: .08;
-  --edge-bottom-a: .06;
+  --glass-specular-opacity: .34;
+  --glass-tint-alpha: .018;
+  --edge-top-a: .34;
+  --edge-left-a: .22;
+  --edge-right-a: .07;
+  --edge-bottom-a: .08;
   --ease: cubic-bezier(.22, .8, .3, 1);
 }
 
@@ -245,16 +245,17 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   padding: 36px 34px 32px;
   overflow: hidden;
   overflow: clip;
-  border: 1px solid rgba(255, 255, 255, .09);
+  border: 1px solid rgba(255, 255, 255, .48);
   border-radius: 28px;
-  background-color: rgba(241, 247, 238, .88);
+  background-color: rgba(249, 252, 247, .84);
   background-image:
-    radial-gradient(110% 90% at 0% 100%, rgb(178 216 169 / var(--glass-tint-alpha)), transparent 58%),
-    linear-gradient(142deg, rgba(255, 255, 255, .14), rgba(220, 239, 215, .07) 56%, rgba(210, 238, 218, .04));
+    radial-gradient(115% 84% at 105% 104%, rgb(181 216 189 / var(--glass-tint-alpha)), transparent 64%),
+    linear-gradient(142deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .08) 48%, rgba(233, 244, 232, .12));
   box-shadow:
-    0 22px 58px rgba(29, 66, 46, .05),
-    0 6px 18px rgba(29, 66, 46, .022),
-    inset 0 -1px 0 rgba(25, 67, 45, .045);
+    0 30px 68px rgba(24, 62, 41, .085),
+    0 8px 24px rgba(24, 62, 41, .04),
+    inset 0 1px 0 rgba(255, 255, 255, .56),
+    inset 0 -1px 0 rgba(25, 67, 45, .055);
   opacity: 0;
   pointer-events: none;
   transform: translateY(13px);
@@ -267,9 +268,9 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .auth {
-    background-color: rgba(239, 248, 237, .018);
-    -webkit-backdrop-filter: blur(16px) saturate(118%) brightness(102%);
-    backdrop-filter: blur(16px) saturate(118%) brightness(102%);
+    background-color: rgba(249, 252, 247, .64);
+    -webkit-backdrop-filter: blur(22px) saturate(108%) brightness(103%);
+    backdrop-filter: blur(22px) saturate(108%) brightness(103%);
   }
 }
 
@@ -277,14 +278,14 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   content: "";
   position: absolute;
   z-index: 0;
-  inset: -36%;
+  inset: -24%;
   border-radius: 50%;
   background: radial-gradient(
-    ellipse 48% 42% at 50% 46%,
-    rgba(255, 255, 255, .25) 0%,
-    rgba(255, 255, 255, .075) 35%,
-    rgba(224, 239, 215, .035) 54%,
-    transparent 74%
+    ellipse 66% 44% at 36% 13%,
+    rgba(255, 255, 255, .58) 0%,
+    rgba(255, 255, 255, .16) 39%,
+    rgba(255, 255, 255, .04) 57%,
+    transparent 76%
   );
   opacity: var(--glass-specular-opacity);
   pointer-events: none;
@@ -301,10 +302,10 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   border-radius: inherit;
   pointer-events: none;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .22),
-    inset 1px 0 0 rgba(255, 255, 255, .14),
-    inset -1px 0 0 rgba(225, 242, 226, .06),
-    inset 0 -1px 0 rgba(25, 67, 45, .04);
+    inset 0 1px 0 rgba(255, 255, 255, .54),
+    inset 1px 0 0 rgba(255, 255, 255, .30),
+    inset -1px 0 0 rgba(225, 242, 226, .07),
+    inset 0 -1px 0 rgba(25, 67, 45, .06);
   transition: opacity 240ms ease;
 }
 
@@ -348,17 +349,34 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 .field {
   position: relative;
   display: block;
-  margin-bottom: 20px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  transition: border-color 190ms ease;
+  margin-bottom: 14px;
+  padding: 9px 13px 3px;
+  overflow: hidden;
+  border: 1px solid rgba(35, 80, 55, .085);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .19);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .28);
+  transition: border-color 190ms ease, background-color 190ms ease, box-shadow 190ms ease;
+}
+
+.field::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(36, 104, 73, .72);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 210ms var(--ease);
 }
 
 .field > span {
   display: block;
-  margin-bottom: 2px;
-  color: rgba(23, 51, 39, .8);
+  margin-bottom: 1px;
+  color: rgba(23, 51, 39, .72);
   font-size: 12px;
   font-weight: 540;
   letter-spacing: .05em;
@@ -366,8 +384,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .field input {
   width: 100%;
-  height: 46px;
-  padding: 0 0 8px;
+  height: 38px;
+  padding: 0 0 3px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -379,14 +397,22 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .field input::placeholder { color: var(--ink-faint); }
 
-.field:focus-within { border-bottom-color: rgba(36, 104, 73, .72); }
+.field:focus-within {
+  border-color: rgba(36, 104, 73, .18);
+  background: rgba(255, 255, 255, .28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .42),
+    0 5px 14px rgba(25, 67, 45, .025);
+}
+
+.field:focus-within::after { transform: scaleX(1); }
 
 .field--password input { padding-right: 56px; }
 
 .field__reveal {
   position: absolute;
-  right: -4px;
-  bottom: 5px;
+  right: 8px;
+  bottom: 4px;
   min-width: 48px;
   min-height: 38px;
   padding: 0;
@@ -428,28 +454,27 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   width: 100%;
   min-height: 54px;
   overflow: hidden;
-  border: 1px solid rgba(220, 247, 229, .17);
+  border: 1px solid rgba(235, 255, 241, .24);
   border-radius: 14px;
-  background-color: rgba(27, 94, 63, .9);
+  background-color: rgba(26, 92, 61, .94);
   background-image:
-    radial-gradient(110% 160% at 18% 0%, rgba(133, 194, 151, .15), transparent 48%),
-    linear-gradient(180deg, rgba(255, 255, 255, .075), transparent 42%);
+    radial-gradient(105% 145% at 18% 0%, rgba(151, 207, 165, .11), transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, .055), transparent 44%);
   color: #f7fff8;
   font-weight: 680;
   letter-spacing: .11em;
   cursor: pointer;
   box-shadow:
-    0 12px 26px rgba(18, 68, 46, .13),
-    inset 0 1px 0 rgba(255, 255, 255, .17),
-    inset 0 -1px 0 rgba(7, 45, 30, .13);
+    0 10px 24px rgba(18, 68, 46, .12),
+    inset 0 1px 0 rgba(255, 255, 255, .19),
+    inset 0 -1px 0 rgba(7, 45, 30, .15);
   transition: background-color 220ms ease, transform 140ms ease, box-shadow 220ms ease, opacity 180ms ease;
 }
 
 .submit:hover {
-  background-color: rgba(23, 84, 57, .94);
-  transform: scale(1.006);
+  background-color: rgba(22, 82, 54, .97);
   box-shadow:
-    0 14px 30px rgba(18, 68, 46, .15),
+    0 12px 28px rgba(18, 68, 46, .15),
     inset 0 1px 0 rgba(255, 255, 255, .2),
     inset 0 -1px 0 rgba(7, 45, 30, .14);
 }
@@ -458,6 +483,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 .submit:disabled { cursor: wait; opacity: .7; }
 
 .submit__arrow {
+  position: absolute;
+  right: 22px;
   width: 22px;
   height: 22px;
   fill: none;
@@ -573,7 +600,7 @@ body.is-tasking {
   --ambient-opacity: .7;
 }
 
-body.is-tasking .auth { background-color: rgba(244, 250, 242, .065); }
+body.is-tasking .auth { background-color: rgba(250, 252, 248, .72); }
 body.is-tasking .auth::after { opacity: .8; }
 
 body.is-leaving .topbar,
