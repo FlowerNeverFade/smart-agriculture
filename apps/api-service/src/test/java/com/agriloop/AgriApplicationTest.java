@@ -38,6 +38,30 @@ class AgriApplicationTest {
     }
 
     @Test
+    void telemetryLimitReturnsTheNewestWindowInChronologicalOrder() {
+        Instant base = Instant.parse("2026-08-24T00:00:00Z");
+        for (int index = 0; index < 4; index++) {
+            assertThat(store.saveTelemetry(Map.of(
+                    "eventId", "telemetry-window-" + index,
+                    "farmId", "farm-demo",
+                    "plotId", "plot-b01",
+                    "deviceId", "window-test-device",
+                    "metric", "WINDOW_TEST",
+                    "value", index,
+                    "unit", "unit",
+                    "ts", base.plusSeconds(index).toString(),
+                    "quality", Map.of("status", "GOOD"))))
+                    .isTrue();
+        }
+
+        List<Map<String, Object>> newest = store.telemetry(
+                "plot-b01", "WINDOW_TEST", base.minusSeconds(1), base.plusSeconds(10), 2);
+
+        assertThat(newest).extracting(event -> event.get("eventId"))
+                .containsExactly("telemetry-window-2", "telemetry-window-3");
+    }
+
+    @Test
     void diagnosisSafetyAndRolePermissionArePartOfDecisionReadiness() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
         engine.ingest(Map.of("eventId", "decision-drift-event", "plotId", "plot-b01", "deviceId", "mock-plot-b01",

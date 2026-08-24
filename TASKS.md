@@ -28,7 +28,7 @@
 | T-006 | P0 | 模拟数据生成器与 `normal` 情景 | 项目组 | — | D4 | 已完成（后端） | `simulator/runner.py`，seed 可重复；CLI 有限回放与 Supervisor 持续实时流分离，页面开关可稳定启停 |
 | T-007 | P0 | MQTT 接入、主题、校验、去重 | 项目组 | — | D5 | 已完成（后端） | Paho/Mosquitto、eventId 幂等证据 |
 | T-008 | P0 | Redis Streams、PostgreSQL 时序落库 | 项目组 | — | D5 | 已完成（后端） | `agri.telemetry`、Flyway v1、1,080 条回放 |
-| T-009 | P0 | 心跳、在线/离线、数据质量评分与质量门控 | 项目组 | — | D6 | 已完成（后端） | 质量/新鲜度/设备门、漂移处方阻断 |
+| T-009 | P0 | 心跳、在线/离线、数据质量评分与质量门控 | 项目组 | — | D6 | 已完成（后端） | 质量/新鲜度/设备门、漂移处方阻断；遥测窗口取最新 N 条并保持时间正序的回归覆盖 |
 | T-010 | P0 | Crop Pack 驱动的规则、迟滞、冷却、多风险检测和候选根因评分 | 项目组 | — | D6 | 已完成（后端） | WATER_DEFICIT/SENSOR_DRIFT/DEVICE_FAULT/HEAT_STRESS |
 | T-011 | P0 | 告警状态机、统一农务工单和今日农务聚合 | 项目组 | — | D8/D13 | 已完成（后端） | alerts/work-orders/today-work 接口 |
 | T-012 | P0 | 今日农务、总览、指标卡、风险排序、决策就绪度入口、实时推送 | 项目组 | — | D7 | 已完成（后端） | overview/today-work/SSE |

@@ -389,8 +389,16 @@ class AgriStore {
         Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
                 (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
                 !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
+        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+        Comparator<Map<String, Object>> byTimestamp = Comparator
+                .comparing((Map<String, Object> e) -> Jsons.instant(e.get("ts"), Instant.EPOCH))
+                .thenComparing(e -> Jsons.text(e, "eventId", ""));
+        // Select the newest window first, then return that window in
+        // chronological order for charts and deterministic algorithms.
+        // Limiting an ascending stream returned the oldest data of the day and
+        // could make live telemetry/forecasts look stale once history grew.
         List<Map<String, Object>> result = telemetry.stream().filter(filter)
-                .sorted(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH))).limit(limit)
+                .sorted(byTimestamp.reversed()).limit(cappedLimit).sorted(byTimestamp)
                 .map(e -> Jsons.copy(mapper, e)).collect(Collectors.toCollection(ArrayList::new));
         if (!result.isEmpty() || !databaseReady) return result;
         try {
@@ -398,9 +406,9 @@ class AgriStore {
             List<Object> args = new ArrayList<>();
             if (plotId != null) { sql.append(" AND plot_id=?"); args.add(plotId); }
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
-            sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts ASC LIMIT ").append(Math.max(1, Math.min(limit, 10000)));
+            sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC, event_id DESC LIMIT ").append(cappedLimit);
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            return jdbc.query(sql.toString(), (rs, rowNum) -> {
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
                 Map<String, Object> e = new LinkedHashMap<>();
                 e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
                 e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
@@ -410,6 +418,8 @@ class AgriStore {
                 e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
                 return e;
             }, args.toArray());
+            Collections.reverse(rows);
+            return rows;
         } catch (Exception ignored) { return result; }
     }
 
