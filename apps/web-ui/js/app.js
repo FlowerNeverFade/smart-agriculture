@@ -688,6 +688,7 @@ class AgriApp {
   applyRoleShell(active) {
     const role = this.getCurrentRole();
     const meta = roleMeta(role);
+    document.body.classList.toggle('role-slim-shell', Boolean(this.state.user));
     document.body.classList.toggle('role-dashboard-active', Boolean(active));
     document.body.dataset.role = role;
     if (this.dom.btnQuickAction) this.dom.btnQuickAction.hidden = Boolean(active);

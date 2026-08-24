@@ -28,22 +28,24 @@
   line-height: 1.5;
 }
 
-/* A role home is intentionally quieter: the right status rail and legacy
-   all-in-one home are detail surfaces, not competing entry points. */
-body.role-dashboard-active .right-rail {
+/* Role workspaces are intentionally quieter: the legacy global status rail is
+   not another task list. Its useful signals now live in each role's own
+   dashboard or module, so the center surface can use the available width. */
+body.role-slim-shell .right-rail {
   display: none;
 }
 
-body.role-dashboard-active .app-container {
+body.role-slim-shell .app-container {
   grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
 }
 
-body.role-dashboard-active .main-feed-area {
+body.role-slim-shell .main-feed-area {
   grid-column: 2;
   max-width: none;
   padding: 28px clamp(22px, 4vw, 60px) 56px;
 }
 
+/* Home-specific rules: hide the old all-in-one feed behind the role home. */
 body.role-dashboard-active .main-feed-area > .main-feed-header,
 body.role-dashboard-active .main-feed-area > .feed-tabs,
 body.role-dashboard-active .main-feed-area > .feed-stream,
@@ -431,15 +433,15 @@ body.role-dashboard-active .header-action-btn.primary {
 .role-empty-state p { margin: 0; font-size: 12px; }
 
 @media (max-width: 1100px) {
-  body.role-dashboard-active .app-container { grid-template-columns: 200px minmax(0, 1fr); }
+  body.role-slim-shell .app-container { grid-template-columns: 200px minmax(0, 1fr); }
   .role-dashboard-hero { padding: 23px; }
   .role-plot-grid-admin { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 820px) {
-  body.role-dashboard-active .app-container { display: block; }
-  body.role-dashboard-active .module-nav { display: none; }
-  body.role-dashboard-active .main-feed-area { padding: 20px 14px 36px; }
+  body.role-slim-shell .app-container { display: block; }
+  body.role-slim-shell .module-nav { display: none; }
+  body.role-slim-shell .main-feed-area { padding: 20px 14px 36px; }
   .role-dashboard-hero { align-items: flex-start; flex-direction: column; gap: 16px; }
   .role-dashboard-hero-side { width: 100%; justify-content: space-between; }
   .role-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
