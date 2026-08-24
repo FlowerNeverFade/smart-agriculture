@@ -118,6 +118,12 @@
             </a>
           </li>
           <li>
+            <a class="module-nav-item" data-view="plot-telemetry">
+              <span><span class="icon">📈</span>地块监测数据时序</span>
+              <span class="module-badge">数据</span>
+            </a>
+          </li>
+          <li>
             <a class="module-nav-item" data-view="decision-console">
               <span><span class="icon">🧠</span>智能诊断与决策台</span>
               <span class="module-badge">CAP-04/05</span>
@@ -177,6 +183,7 @@
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
+      <div class="main-feed-home-content" id="homeFeedContent">
       <div class="main-feed-header">
         <h1 class="main-feed-title">
           <span>Home</span>
@@ -248,10 +255,35 @@
       <div class="feed-stream" id="feedStreamContainer">
         <!-- Dynamically rendered feed items from JS -->
       </div>
+      </div>
+
+      <!-- Navigation modules render in the center feed instead of opening a modal. -->
+      <section class="main-feed-module-panel" id="moduleContentPanel" hidden>
+        <div class="main-feed-module-header">
+          <div class="main-feed-module-title">
+            <span id="moduleContentIcon">🧩</span>
+            <div>
+              <h2 id="moduleContentTitle">功能子模块</h2>
+              <p id="moduleContentDescription">模块已就绪</p>
+            </div>
+            <span class="module-badge highlight" id="moduleContentTag">模块已就绪</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btnModuleBackHome" type="button">返回主面板</button>
+        </div>
+        <div class="main-feed-module-body" id="moduleContentBody"></div>
+      </section>
+
+      <div id="plotTelemetryPanel" class="plot-telemetry-panel" hidden></div>
     </section>
 
     <!-- ======================== Right Rail (330px) ======================== -->
-    <aside class="right-rail">
+    <aside class="right-rail" id="rightRail">
+      <button class="right-rail-toggle" id="btnToggleRightRail" type="button" aria-expanded="true" aria-controls="rightRailPanel" title="收起系统状态面板">
+        <span class="right-rail-toggle-chevron" aria-hidden="true"></span>
+        <span class="right-rail-toggle-text">收回</span>
+      </button>
+      <div class="right-rail-panel" id="rightRailPanel">
+      <div class="right-rail-cards">
       <!-- 0. Server-side simulator control (admin only) -->
       <div class="system-status-card simulator-control-card" id="simulatorControlCard">
         <div class="system-status-header">
@@ -378,6 +410,8 @@
           <!-- Populated by JS -->
         </ul>
       </div>
+      </div>
+      </div>
     </aside>
   </main>
 
@@ -419,6 +453,6 @@
   </div>
 
   <!-- Load ES Module Scripts -->
-  <script type="module" src="js/app.js?v=20260824-water-rail-fix"></script>
+  <script type="module" src="js/app.js?v=20260824-rium-v2-integration"></script>
 </body>
 </html>

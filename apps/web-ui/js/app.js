@@ -6,6 +6,7 @@ import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
+import { PlotTelemetryView } from './plot-telemetry-view.js';
 
 const LOGIN_ENTRY = 'login.html';
 
@@ -105,6 +106,7 @@ class AgriApp {
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
       activeSubview: null,
+      activeMainView: 'home',
       isLive: false,
       authenticated: api.isAuthenticated(),
       user: api.getUser(),
@@ -113,12 +115,14 @@ class AgriApp {
       conversationId: '',
       agentHistory: [],
       agentHistoryTurns: [],
-      agentHistoryOpen: false
+      agentHistoryOpen: false,
+      rightRailCollapsed: false
     };
 
     this.dom = {};
     this.farmMonitor = null;
     this.cropSandbox = null;
+    this.plotTelemetryView = new PlotTelemetryView(this);
     this.riumBackground = null;
     this._farmMonitorPromise = null;
     this._cropSandboxPromise = null;
@@ -139,6 +143,7 @@ class AgriApp {
     }
 
     this.cacheDom();
+    this.initRightRailCollapse();
     this.bindEvents();
 
     // 主题和命令面板很轻，先初始化；Three.js 场景延后到首屏已经绘制之后。
@@ -286,6 +291,51 @@ class AgriApp {
     this.dom.simulatorStatusHint = document.getElementById('simulatorStatusHint');
     this.dom.btnToggleSimulator = document.getElementById('btnToggleSimulator');
     this.dom.btnRefreshSimulator = document.getElementById('btnRefreshSimulator');
+    this.dom.plotTelemetryPanel = document.getElementById('plotTelemetryPanel');
+    this.dom.homeFeedContent = document.getElementById('homeFeedContent');
+    this.dom.moduleContentPanel = document.getElementById('moduleContentPanel');
+    this.dom.moduleContentBody = document.getElementById('moduleContentBody');
+    this.dom.moduleContentIcon = document.getElementById('moduleContentIcon');
+    this.dom.moduleContentTitle = document.getElementById('moduleContentTitle');
+    this.dom.moduleContentDescription = document.getElementById('moduleContentDescription');
+    this.dom.moduleContentTag = document.getElementById('moduleContentTag');
+    this.dom.btnModuleBackHome = document.getElementById('btnModuleBackHome');
+    this.dom.appContainer = document.querySelector('.app-container');
+    this.dom.mainFeedArea = document.getElementById('mainFeedArea');
+    this.dom.btnToggleRightRail = document.getElementById('btnToggleRightRail');
+    if (this.dom.plotTelemetryPanel) this.plotTelemetryView.bind(this.dom.plotTelemetryPanel);
+  }
+
+  initRightRailCollapse() {
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem('agriloop-right-rail-collapsed') === '1';
+    } catch (_) {
+      collapsed = false;
+    }
+    this.state.rightRailCollapsed = collapsed;
+    this.applyRightRailCollapsed(collapsed);
+  }
+
+  setRightRailCollapsed(collapsed) {
+    const next = Boolean(collapsed);
+    this.state.rightRailCollapsed = next;
+    this.applyRightRailCollapsed(next);
+    try {
+      localStorage.setItem('agriloop-right-rail-collapsed', next ? '1' : '0');
+    } catch (_) {
+      /* storage can be unavailable in private/demo contexts */
+    }
+  }
+
+  applyRightRailCollapsed(collapsed) {
+    this.dom.appContainer?.classList.toggle('right-rail-collapsed', collapsed);
+    const button = this.dom.btnToggleRightRail;
+    if (!button) return;
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    button.setAttribute('title', collapsed ? '展开系统状态面板' : '收起系统状态面板');
+    const label = button.querySelector('.right-rail-toggle-text');
+    if (label) label.textContent = collapsed ? '展开状态' : '收回';
   }
 
   bindEvents() {
@@ -299,6 +349,10 @@ class AgriApp {
 
     this.dom.btnToggleSimulator?.addEventListener('click', () => this.toggleSimulator());
     this.dom.btnRefreshSimulator?.addEventListener('click', () => this.refreshSimulatorStatus());
+    this.dom.btnModuleBackHome?.addEventListener('click', () => this.navigate('home'));
+    this.dom.btnToggleRightRail?.addEventListener('click', () => {
+      this.setRightRailCollapsed(!this.state.rightRailCollapsed);
+    });
 
     // Resource schedule click
     this.dom.btnViewResourceDetail?.addEventListener('click', () => {
@@ -368,8 +422,12 @@ class AgriApp {
       const view = item.dataset.view;
       if (view === 'home') {
         this.navigate('home');
+      } else if (view === 'plot-telemetry') {
+        this.showPlotTelemetryView(this.state.currentPlotId);
       } else {
-        this.openSubview(view, { plotId: this.state.currentPlotId });
+        // Functional modules from the navigation rail are inline center-feed
+        // views. Cards and command-palette links keep the modal route for now.
+        this.openSubview(view, { plotId: this.state.currentPlotId, inline: true });
       }
     });
 
@@ -612,14 +670,17 @@ class AgriApp {
     this.renderPlots(keyword);
   }
 
-  selectPlot(plotId) {
+  selectPlot(plotId, options = {}) {
     this.state.currentPlotId = plotId;
     const plot = this.state.plots.find(p => p.plotId === plotId);
     if (plot && this.dom.currentPlotContextBadge) {
       this.dom.currentPlotContextBadge.textContent = `/ 当前选中：${plot.name} (${plot.cropName} · ${plot.stageLabel})`;
     }
     this.renderPlots(this.dom.plotSearchInput?.value || '');
-    this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    if (this.state.activeMainView === 'plot-telemetry') {
+      void this.plotTelemetryView.open(plotId);
+    }
+    if (!options.silent) this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
   }
 
   renderFeed() {
@@ -1108,11 +1169,14 @@ class AgriApp {
     const params = new URLSearchParams(hash.replace(/^#/, ''));
     const view = params.get('view');
     const plotId = params.get('plotId') || this.state.currentPlotId;
+    const inline = params.get('inline') === '1';
 
-    if (view && view !== 'home') {
-      this.openSubview(view, { plotId, updateHash: false });
+    if (view === 'plot-telemetry') {
+      this.showPlotTelemetryView(plotId, { updateHash: false });
+    } else if (view && view !== 'home') {
+      this.openSubview(view, { plotId, inline, updateHash: false });
     } else {
-      this.closeModal(false);
+      this.showHomeView({ updateHash: false });
     }
   }
 
@@ -1146,7 +1210,7 @@ class AgriApp {
   navigate(viewName, params = {}) {
     if (viewName === 'home') {
       this._setHash('', true, false);
-      this.closeModal(false);
+      this.showHomeView({ updateHash: false });
     } else {
       this._setHash(new URLSearchParams({ view: viewName, ...params }).toString());
     }
@@ -1220,9 +1284,14 @@ class AgriApp {
 
   async openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
+    const inline = options.inline === true;
     this.cleanupActiveSubview();
     const viewGen = this._subviewGen;
     if (viewName === 'plot-detail') {
+      this.state.activeMainView = 'plot-detail';
+      this.dom.homeFeedContent.hidden = true;
+      this.dom.moduleContentPanel.hidden = true;
+      this.dom.plotTelemetryPanel.hidden = true;
       this.setAmbientVisualsVisible(false);
       this.dom.subviewModal.classList.remove('active');
       this.releaseCropSandbox();
@@ -1248,6 +1317,10 @@ class AgriApp {
     }
 
     if (viewName === 'crop-sandbox') {
+      this.state.activeMainView = 'crop-sandbox';
+      this.dom.homeFeedContent.hidden = true;
+      this.dom.moduleContentPanel.hidden = true;
+      this.dom.plotTelemetryPanel.hidden = true;
       this.setAmbientVisualsVisible(false);
       this.dom.subviewModal.classList.remove('active');
       this.farmMonitor?.close(false);
@@ -1277,6 +1350,7 @@ class AgriApp {
 
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
+    this.plotTelemetryView.close();
     this.setAmbientVisualsVisible(true);
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
@@ -1287,17 +1361,30 @@ class AgriApp {
 
     const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
 
-    this.dom.modalIcon.textContent = this.getViewIcon(viewName);
-    this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
-    this.dom.modalTag.textContent = meta.status;
+    this.state.activeMainView = viewName;
+    const target = inline ? this.dom.moduleContentBody : this.dom.modalDynamicContent;
+    if (inline) {
+      this.dom.homeFeedContent.hidden = true;
+      this.dom.plotTelemetryPanel.hidden = true;
+      this.dom.moduleContentPanel.hidden = false;
+      this.dom.subviewModal.classList.remove('active');
+      this.dom.moduleContentIcon.textContent = this.getViewIcon(viewName);
+      this.dom.moduleContentTitle.textContent = `${meta.title} · 【${plot.name}】`;
+      this.dom.moduleContentDescription.textContent = meta.desc || '功能模块';
+      this.dom.moduleContentTag.textContent = meta.status || '模块已就绪';
+    } else {
+      this.dom.modalIcon.textContent = this.getViewIcon(viewName);
+      this.dom.modalTitle.textContent = `${meta.title} · 【${plot.name}】`;
+      this.dom.modalTag.textContent = meta.status;
+      this.dom.subviewModal.classList.add('active');
+    }
 
     // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图。
     const renderer = SUBVIEW_RENDERERS[viewName];
     if (renderer) {
-      this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
-      this.dom.subviewModal.classList.add('active');
+      target.innerHTML = `<div class="agri-module-loading">正在加载${inline ? '功能模块' : '独立模块'}…</div>`;
       Promise.resolve(ensureViewStyles(viewName))
-        .then(() => renderer(this.dom.modalDynamicContent, plotId, this))
+        .then(() => renderer(target, plotId, this))
         .then(cleanup => {
           if (viewGen !== this._subviewGen) {
             if (typeof cleanup === 'function') cleanup();
@@ -1307,14 +1394,13 @@ class AgriApp {
         })
         .catch(error => {
           if (viewGen !== this._subviewGen) return;
-          this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
+          target.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
         });
     } else {
       // Render Contextual Data Preview
-      this.renderSubviewContextualContent(viewName, plot);
+      this.renderSubviewContextualContent(viewName, plot, target);
     }
 
-    this.dom.subviewModal.classList.add('active');
     this.dom.headerCurrentView.textContent = meta.title.split(' ')[0];
 
     // Highlight left nav item
@@ -1322,13 +1408,16 @@ class AgriApp {
       item.classList.toggle('active', item.dataset.view === viewName);
     });
 
-    // 打开弹窗前保存主页滚动位置（关闭时恢复，避免回到初始位置）
-    if (this._savedScrollPos === null) {
+    // 仅弹窗路由需要保存主页滚动位置；导航区 inline 模块直接回到中心栏顶部。
+    if (!inline && this._savedScrollPos === null) {
       this._savedScrollPos = { x: window.scrollX || 0, y: window.scrollY || 0 };
     }
+    if (inline) this.dom.mainFeedArea?.scrollTo?.({ top: 0, behavior: 'smooth' });
 
     if (options.updateHash !== false) {
-      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString(), false, false);
+      const hash = new URLSearchParams({ view: viewName, plotId });
+      if (inline) hash.set('inline', '1');
+      this._setHash(hash.toString(), false, false);
     }
   }
 
@@ -1345,6 +1434,12 @@ class AgriApp {
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
+    this.plotTelemetryView.close();
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
+    this.state.activeMainView = 'home';
     this.setAmbientVisualsVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1365,9 +1460,36 @@ class AgriApp {
     }
   }
 
+  showHomeView(options = {}) {
+    this.closeModal(options.updateHash !== false ? true : false);
+    if (options.updateHash === false) this._lastHandledHash = window.location.hash;
+  }
+
+  showPlotTelemetryView(plotId, options = {}) {
+    this.cleanupActiveSubview();
+    this.farmMonitor?.close(false);
+    this.releaseCropSandbox();
+    this.dom.subviewModal.classList.remove('active');
+    this.dom.homeFeedContent.hidden = true;
+    this.dom.moduleContentPanel.hidden = true;
+    this.dom.plotTelemetryPanel.hidden = false;
+    this.setAmbientVisualsVisible(true);
+    this.state.activeMainView = 'plot-telemetry';
+    this.state.currentPlotId = plotId || this.state.currentPlotId;
+    this.dom.headerCurrentView.textContent = '地块监测数据时序可视化';
+    document.querySelectorAll('.module-nav-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === 'plot-telemetry');
+    });
+    void this.plotTelemetryView.open(this.state.currentPlotId);
+    if (options.updateHash !== false) {
+      this._setHash(new URLSearchParams({ view: 'plot-telemetry', plotId: this.state.currentPlotId }).toString(), false, false);
+    }
+  }
+
   getViewIcon(viewName) {
     const map = {
       'plot-detail': '📊',
+      'plot-telemetry': '📈',
       'decision-console': '🧠',
       'work-orders': '📋',
       'risk-forecast': '🔮',
@@ -1381,7 +1503,7 @@ class AgriApp {
     return map[viewName] || '🧩';
   }
 
-  renderSubviewContextualContent(viewName, plot) {
+  renderSubviewContextualContent(viewName, plot, container = this.dom.modalDynamicContent) {
     let contentHtml = '';
 
     if (viewName === 'plot-detail') {
@@ -1428,7 +1550,7 @@ class AgriApp {
       `;
     }
 
-    this.dom.modalDynamicContent.innerHTML = contentHtml;
+    container.innerHTML = contentHtml;
   }
 
   escapeHtml(value) {

@@ -71,6 +71,10 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+  health:
+    # Standalone demos often run without Redis; do not mark the whole app DOWN.
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:false}
 
 logging:
   level:

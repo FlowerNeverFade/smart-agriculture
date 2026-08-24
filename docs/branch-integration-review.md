@@ -40,7 +40,21 @@
 
 ### rium_dev
 
-保留最新地形、土壤、麦田、云层、星空、日月、主题过渡和液态玻璃效果，并适配当前 `#riumBackground` 容器及仓库内 Three.js。未采用会覆盖现有 JWT、路由、农田监测和 Agent 的整页壳。全局定位规则已收窄，避免固定弹窗被排到页面底部；主题动画增加 requestAnimationFrame/CustomEvent 的测试环境兼容降级。
+保留最新地形、土壤、麦田、云层、星空、日月和主题过渡，并适配当前 `#riumBackground` 容器及仓库内 Three.js。未采用会覆盖现有 JWT、路由、农田监测和 Agent 的整页壳。全局定位规则已收窄，避免固定弹窗被排到页面底部；主题动画增加 requestAnimationFrame/CustomEvent 的测试环境兼容降级。原分支的液态高光皮肤不作为最终视觉规范，已按最新要求回退为毛玻璃。
+
+## rium_dev-v2 增量复核（2026-08-24）
+
+远端头：`e2d0b69`（`reporting`），上一功能提交：`447c495`；与当前 `main` 合并基点：`432c672`。本次在 `main`（合并前 `7b9db81`）上完成一次非快进合并，先保留主线中更新的认证、Agent、农务和水资源实现，再逐项移植分支新增能力：
+
+| 用户指定能力 | 最终实现 | 冲突取舍 |
+|---|---|---|
+| 地块监测数据时序可视化修补 | 新增 `plot-telemetry-view.js`、`telemetry-charts.js`，接入六类指标、地块滑块、时间窗口和实时/模拟 API | 保留分支的 telemetry drum 与图表安全修补；复用主线 ApiService 会话，避免实时 JWT 丢失 |
+| 右侧栏拉出/收回 | `#btnToggleRightRail` + `right-rail-collapsed` 网格状态，含 `aria-expanded` 和本地持久化 | 保留主线右栏卡片内容，避免分支旧壳覆盖水资源与系统状态卡 |
+| 背景天体切换移动动画 | 沿用主线已有 `CELESTIAL_*` 峰值/进出场插值修补 | 分支版本未提供更完整的动画逻辑，直接替换会回退边界保护，故保留主线 |
+| 导航区子模块去弹窗 | 已实现中心内容区内嵌路由；直接 hash 仍兼容居中弹窗 | 保留主线 modal 合同，同时为点击导航增加 `inline=1`，避免模块落到页面底部 |
+| 毛玻璃视觉 | 半透明填充 + `backdrop-filter` 模糊 + 轻边框/阴影 | 分支的液态 sheen/反光伪元素按最新用户要求移除；`prefers-reduced-transparency` 下使用不透明回退 |
+
+本轮新增回归证据：`node scripts/verify-webui.mjs real` 为 `82/82`，真实 Chromium `node scripts/branch-integration-smoke.mjs` 为 `23/23`；覆盖右栏折叠、中心内嵌模块、六指标时序图、毛玻璃无高光和无三角尺占位。
 
 ## 验收证据
 

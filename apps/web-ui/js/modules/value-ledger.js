@@ -3,7 +3,7 @@
  * 经营效益与节水账本：计划 vs 实际偏差率、累计节水/节电折合人民币、反事实推演
  * 图表优先使用本地 vendored ECharts；缺失时回退纯 SVG（charts.js）。
  */
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260824-module-v5';
 import { svgGroupedBarChart, svgAreaChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
 
 const AXIS_COLOR = '#8b949e';
@@ -32,6 +32,23 @@ function darkTooltip() {
 }
 
 export async function renderValueLedger(container) {
+  try {
+    return await paintValueLedger(container);
+  } catch (error) {
+    console.error('[AgriLoop] value-ledger render failed:', error);
+    container.innerHTML = `
+      <div class="agri-alert agri-alert-danger">
+        <div class="agri-alert-icon">⚠️</div>
+        <div>
+          <strong>价值账本渲染中断，已降级</strong>
+          <p>${escapeHtml(error?.message || error)}</p>
+        </div>
+      </div>`;
+    return () => {};
+  }
+}
+
+async function paintValueLedger(container) {
   const loadingId = `vl-loading-${Date.now()}`;
   container.innerHTML = `
     <div class="agri-skeleton-wrap" id="${loadingId}">
@@ -42,7 +59,18 @@ export async function renderValueLedger(container) {
     </div>`;
 
   const data = await api.getValueLedgers();
-  const s = data.summary;
+  const s = data?.summary;
+  if (!s || !Array.isArray(data.daily) || !data.period || !data.prices) {
+    container.innerHTML = `
+      <div class="agri-alert agri-alert-danger">
+        <div class="agri-alert-icon">💰</div>
+        <div>
+          <strong>价值账本数据不完整</strong>
+          <p>缺少 summary / daily / period，已拒绝用残缺记录冒充经营结果。</p>
+        </div>
+      </div>`;
+    return () => {};
+  }
 
   container.innerHTML = `
     <div class="agri-module vl-root">

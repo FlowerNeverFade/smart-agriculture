@@ -71,6 +71,62 @@ body.farm-monitor-open > .app-container {
   cursor: default;
 }
 
+.farm-world-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: rgba(245, 255, 248, 0.94);
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(53, 117, 80, 0.34), transparent 38%),
+    #153326;
+  transition: opacity 280ms ease, visibility 280ms ease;
+}
+
+.farm-world-loading i {
+  font-size: 34px;
+  color: var(--farm-green-glow);
+  animation: farmWorldLoadingSpin 1s linear infinite;
+}
+
+.farm-world-loading strong {
+  font-size: 16px;
+  letter-spacing: 0.04em;
+}
+
+.farm-world-loading span {
+  max-width: 440px;
+  color: rgba(224, 242, 230, 0.7);
+  font-size: 12px;
+}
+
+.farm-world-loading.is-ready {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.farm-world-loading.is-error i {
+  animation: none;
+  color: var(--farm-alert);
+}
+
+.farm-world-loading.is-error i::before {
+  content: "\e4e9";
+}
+
+@keyframes farmWorldLoadingSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .farm-world-loading i { animation: none; }
+}
+
 /* =========================================================================
    Left Tool Rail (Glassmorphism Luxury Rail)
    ========================================================================= */
@@ -860,6 +916,136 @@ body.farm-monitor-open > .app-container {
   border-radius: 50%;
   background: var(--farm-green-bright);
   margin-right: 6px;
+}
+
+/* Telemetry Drum */
+.farm-telemetry-section { position: relative; }
+
+.farm-telemetry-drum-wrap {
+  position: relative;
+  height: 240px;
+  margin-top: 8px;
+}
+
+.farm-telemetry-drum {
+  position: absolute;
+  inset: 0;
+  perspective: 900px;
+  perspective-origin: 50% 50%;
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid var(--farm-line);
+  cursor: grab;
+}
+
+.farm-telemetry-drum:active { cursor: grabbing; }
+
+.farm-telemetry-drum-grid {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.farm-telemetry-card {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 200px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--metric-color, var(--farm-line));
+  border-radius: 12px;
+  backface-visibility: hidden;
+  transition: border-color 0.2s ease;
+  overflow: hidden;
+}
+
+.farm-telemetry-card.is-focus {
+  border-color: var(--metric-color);
+  border-width: 2px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.farm-telemetry-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--farm-ink-soft);
+}
+
+.farm-telemetry-card-head span { font-weight: 600; color: var(--metric-color); }
+
+.farm-telemetry-chart {
+  width: 100%;
+  height: 140px;
+  display: block;
+}
+
+.farm-drum-nav {
+  position: absolute;
+  right: 6px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--farm-line);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--farm-ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.farm-drum-nav:hover { transform: scale(1.1); background: rgba(255, 255, 255, 1); }
+.farm-drum-nav.prev { top: 6px; }
+.farm-drum-nav.next { bottom: 6px; }
+
+.farm-telemetry-zoom-panel {
+  position: relative;
+  margin-top: 8px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--farm-line);
+  border-radius: 14px;
+  will-change: transform, opacity;
+}
+
+.farm-telemetry-zoom-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.farm-telemetry-zoom-head h3 { margin: 0; font-size: 16px; color: var(--farm-ink); }
+.farm-telemetry-zoom-head span { font-size: 11px; color: var(--farm-ink-soft); }
+
+.farm-telemetry-zoom-back {
+  padding: 6px 14px;
+  border: 1px solid var(--farm-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--farm-ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s ease;
+}
+
+.farm-telemetry-zoom-back:hover { background: rgba(255, 255, 255, 1); }
+
+.farm-telemetry-zoom-canvas {
+  width: 100%;
+  height: 320px;
+  display: block;
+  border-radius: 10px;
 }
 
 .farm-ai-prescription {

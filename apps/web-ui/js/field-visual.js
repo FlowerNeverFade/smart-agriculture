@@ -119,7 +119,7 @@ export function initFieldSandbox(root) {
 
   root.dataset.fieldFxBound = 'true';
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const scrollContainer = root.closest('.subview-modal-body');
+  const scrollContainer = root.closest('.main-feed-module-body, .subview-modal-body, .main-feed');
   const plotResponses = [...root.querySelectorAll('.field-plot')].map((element) => ({
     element,
     intensity: 0,

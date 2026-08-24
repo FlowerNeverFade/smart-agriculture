@@ -196,10 +196,13 @@ export class ApiService {
     return MOCK_DATA.plots;
   }
 
-  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
     if (this.isLive) {
-      const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?metric=${metric}&limit=50`);
-      if (resp && resp.data) return resp.data;
+      const query = new URLSearchParams({ metric, limit: String(Math.max(1, Math.min(Number(limit) || 50, 5000))) });
+      if (options.from) query.set('from', options.from);
+      if (options.to) query.set('to', options.to);
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/telemetry?${query.toString()}`);
+      if (resp && Array.isArray(resp.data)) return resp.data;
       throw new ApiError('后端返回了无效的遥测数据', { code: 'TELEMETRY_INVALID', payload: resp });
     }
     // Generate 20 realistic telemetry series points
@@ -207,18 +210,53 @@ export class ApiService {
     const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const baseValue = targetPlot.metrics[metric]?.value || 25.0;
     
-    return Array.from({ length: 24 }, (_, i) => {
-      const offset = (24 - i) * 10 * 60 * 1000;
+    const count = Math.max(1, Math.min(Number(limit) || 24, 5000));
+    const endMs = options.to ? new Date(options.to).getTime() : now;
+    const startMs = options.from ? new Date(options.from).getTime() : endMs - (count - 1) * 10 * 60 * 1000;
+    const stepMs = count > 1 ? Math.max(1, Math.floor((endMs - startMs) / (count - 1))) : 0;
+    return Array.from({ length: count }, (_, i) => {
       const noise = (Math.sin(i / 3) * 1.5) + (Math.random() * 0.4 - 0.2);
       return {
         eventId: `mock-evt-${i}`,
         plotId,
         metric,
-        value: Number((baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? (24 - i) * 0.25 : 0)).toFixed(2)),
+        value: Number((baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? (count - 1 - i) * 0.25 : 0)).toFixed(2)),
         unit: targetPlot.metrics[metric]?.unit || '%',
-        ts: new Date(now - offset).toISOString(),
+        ts: new Date(startMs + i * stepMs).toISOString(),
         quality: { status: "GOOD", freshnessMs: 200, confidence: 0.98 }
       };
+    });
+  }
+
+  /**
+   * 返回指定地块的多指标遥测窗口。后端支持不带 metric 的混合序列；
+   * 若当前环境只提供单指标接口，则按 Crop Pack 的六类指标并行回退。
+   */
+  async getPlotTelemetryAll(plotId = 'plot-a01', limit = 120) {
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 120, 5000));
+    if (this.isLive) {
+      try {
+        const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/telemetry?limit=${boundedLimit}`);
+        if (Array.isArray(resp?.data) && resp.data.length) {
+          return resp.data
+            .filter(point => point && point.metric)
+            .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+        }
+      } catch (error) {
+        console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
+      }
+    }
+    const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'];
+    const batches = await Promise.all(metrics.map(metric => this.getTelemetry(plotId, metric, boundedLimit)));
+    return batches.flat().sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+  }
+
+  async getTelemetryDay(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 5000) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return this.getTelemetry(plotId, metric, Math.max(1, Math.min(Number(limit) || 5000, 5000)), {
+      from: start.toISOString(),
+      to: new Date().toISOString()
     });
   }
 

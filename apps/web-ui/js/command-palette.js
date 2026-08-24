@@ -5,7 +5,7 @@
  *   - ↑↓ 选择、Enter 跳转、ESC 关闭
  * 通过 app 实例的公开方法执行跳转（selectPlot / openSubview）
  */
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=20260824-module-v5';
 
 /** 作物图标映射（与 crop-packs 视图一致） */
 const CROP_EMOJI = { tomato: '🍅', cucumber: '🥒', strawberry: '🍓', pepper: '🌶️' };

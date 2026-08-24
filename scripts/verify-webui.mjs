@@ -44,9 +44,15 @@ const loginHtml = readFileSync(join(ROOT, 'apps', 'web-ui', 'login.html'), 'utf8
 const appSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'app.js'), 'utf8');
 const loginSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'login.js'), 'utf8');
 const coreStyleSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'css', 'style.css'), 'utf8');
+const frostedGlassSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'css', 'rium-glass.css'), 'utf8');
 const workOrdersSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'modules', 'work-orders.js'), 'utf8');
 ok('入口脚本已版本化避免旧缓存', /js\/app\.js\?v=[^"']+/.test(html));
 ok('首页水资源卡片的约束样式随首屏加载', coreStyleSource.includes('.water-orb-mini') && coreStyleSource.includes('.water-effects-canvas'));
+ok('主界面恢复为毛玻璃（模糊背景、无液态高光）',
+  frostedGlassSource.includes('FINAL FROSTED-GLASS OVERRIDE')
+  && /--rium-glass-blur:\s*14px/.test(frostedGlassSource)
+  && frostedGlassSource.includes('background-image: none !important')
+  && coreStyleSource.includes('--glass-sheen: none'));
 const waterModuleVersion = appSource.match(/\.\/water-visual\.js\?v=([^'"\)]+)/)?.[1];
 ok('水资源视图只加载同一版本的可视化模块', Boolean(waterModuleVersion) && workOrdersSource.includes(`../water-visual.js?v=${waterModuleVersion}`));
 ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));

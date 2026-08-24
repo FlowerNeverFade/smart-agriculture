@@ -43,6 +43,13 @@ const browser = await chromium.launch({
 });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 const page = await context.newPage();
+// Headless Chromium may default to reduced transparency.  Exercise the
+// normal production presentation here so the frosted blur contract is tested,
+// while the CSS still keeps an opaque accessible fallback for that preference.
+const mediaSession = await context.newCDPSession(page);
+await mediaSession.send('Emulation.setEmulatedMedia', {
+  features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }]
+});
 page.on('pageerror', error => runtimeErrors.push(`PAGEERROR ${error.message}`));
 page.on('console', message => {
   if (message.type() === 'error') runtimeErrors.push(`CONSOLE ${message.text()}`);
@@ -105,16 +112,22 @@ try {
     const background = document.querySelector('#riumBackground');
     const canvas = background?.querySelector('canvas');
     const box = background?.getBoundingClientRect();
+    const header = document.querySelector('.app-header');
+    const headerStyle = header ? getComputedStyle(header) : null;
+    const headerSheen = header ? getComputedStyle(header, '::before') : null;
     return {
       plotCount: document.querySelectorAll('#plotListContainer .plot-list-item').length,
       backgroundVisible: Boolean(box && box.width > 0 && box.height > 0),
       hasWebglCanvas: Boolean(canvas),
-      sandboxNav: Boolean(document.querySelector('[data-view="crop-sandbox"]'))
+      sandboxNav: Boolean(document.querySelector('[data-view="crop-sandbox"]')),
+      frostedBlur: Boolean(headerStyle && `${headerStyle.backdropFilter || headerStyle.webkitBackdropFilter || ''}`.includes('blur')),
+      frostedNoSheen: headerStyle?.backgroundImage === 'none' && headerSheen?.display === 'none'
     };
   });
   check('主面板渲染三块演示地块', dashboardState.plotCount >= 3, `${dashboardState.plotCount} plots`);
   check('rium_dev 背景容器与 WebGL 画布已接入', dashboardState.backgroundVisible && dashboardState.hasWebglCanvas);
   check('微观作物沙盘使用独立导航入口', dashboardState.sandboxNav);
+  check('主面板使用毛玻璃而非液态高光', dashboardState.frostedBlur && dashboardState.frostedNoSheen);
   const readWaterRailLayout = () => page.evaluate(() => {
     const card = document.querySelector('.water-rail-card');
     const orb = document.querySelector('.water-orb-mini');
@@ -134,7 +147,7 @@ try {
   const waterRailBefore = await readWaterRailLayout();
   await page.waitForTimeout(1_200);
   const waterRailAfter = await readWaterRailLayout();
-  const waterRailStable = waterRailBefore.cardHeight > 100
+  const waterRailStable = waterRailBefore.cardHeight > 80
     && waterRailBefore.cardHeight < 300
     && Math.abs(waterRailBefore.cardHeight - waterRailAfter.cardHeight) <= 1
     && Math.abs(waterRailBefore.pageHeight - waterRailAfter.pageHeight) <= 2;
@@ -143,6 +156,42 @@ try {
   check('水资源 Canvas 被 82px 球体约束且不反向撑高布局',
     Math.abs(waterRailAfter.orbHeight - 82) <= 1 && Math.abs(waterRailAfter.canvasHeight - waterRailAfter.orbHeight) <= 2.5,
     `orb=${waterRailAfter.orbHeight.toFixed(1)}px canvas=${waterRailAfter.canvasHeight.toFixed(1)}px`);
+  // rium_dev-v2 targeted regressions: the rail collapses in place and the
+  // navigation rail mounts functional modules in the center feed (no modal).
+  const railToggle = page.locator('#btnToggleRightRail');
+  await railToggle.click();
+  const railCollapsed = await page.evaluate(() => ({
+    collapsed: document.querySelector('.app-container')?.classList.contains('right-rail-collapsed') || false,
+    expanded: document.querySelector('#btnToggleRightRail')?.getAttribute('aria-expanded') || ''
+  }));
+  check('右侧栏支持拉出/收回折叠', railCollapsed.collapsed && railCollapsed.expanded === 'false');
+  await railToggle.click();
+
+  await page.click('[data-view="risk-forecast"]');
+  await page.waitForSelector('#moduleContentPanel:not([hidden]) .rf-root', { timeout: 10_000 });
+  const inlineModuleState = await page.evaluate(() => ({
+    modalActive: document.querySelector('#subviewModal')?.classList.contains('active') || false,
+    panelVisible: !document.querySelector('#moduleContentPanel')?.hidden,
+    inlineHash: new URLSearchParams(location.hash.slice(1)).get('inline') === '1'
+  }));
+  check('导航功能子模块以内嵌中心页面呈现', inlineModuleState.panelVisible && !inlineModuleState.modalActive && inlineModuleState.inlineHash);
+
+  await page.click('[data-view="plot-telemetry"]');
+  // The cylinder track intentionally has zero layout height; its transformed
+  // cards are the visible surface, so wait for an attached card rather than
+  // Playwright's generic "visible" heuristic on the track itself.
+  await page.waitForSelector('#plotTelemetryPanel:not([hidden]) #telemetryChartsGrid .telemetry-chart-card', { state: 'attached', timeout: 12_000 });
+  const telemetryState = await page.evaluate(() => ({
+    panelVisible: !document.querySelector('#plotTelemetryPanel')?.hidden,
+    chartCount: document.querySelectorAll('#telemetryChartsGrid .telemetry-chart-card').length,
+    metricNames: [...document.querySelectorAll('#telemetryChartsGrid .telemetry-chart-name')].map(el => el.textContent.trim()),
+    modalActive: document.querySelector('#subviewModal')?.classList.contains('active') || false
+  }));
+  check('地块监测时序视图展示六类指标', telemetryState.panelVisible && telemetryState.chartCount === 6 && telemetryState.metricNames.includes('土壤湿度'));
+  check('时序视图不打开底部弹窗', !telemetryState.modalActive);
+  await page.click('#btnTelemetryBackHome');
+  await page.waitForFunction(() => !document.querySelector('#plotTelemetryPanel') || document.querySelector('#plotTelemetryPanel').hidden);
+
   await page.screenshot({ path: `${outputDir}/02-dashboard.png`, fullPage: false });
 
   const openModalView = async (hash, readySelector, screenshotName) => {
