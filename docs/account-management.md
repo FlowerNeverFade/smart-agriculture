@@ -26,8 +26,15 @@
 ## 验收证据
 
 - `./gradlew.bat :apps:api-service:test`：身份匹配、操作员注册、管理员自助注册阻断、重复账号、错误恢复码、密码轮换和旧凭据失效回归通过。
-- `npx vite build`：登录页生产构建通过。
+- `node scripts/verify-webui.mjs real`、`stub`、`svg`：登录页账户表单、资源引用和降级路径探针通过。
 - 本地 API 黑盒：注册、`/auth/me`、密码重设、旧 JWT 返回 401、新密码登录均通过。
 - 内置浏览器：四级登录身份、演示身份同步、两种安全注册身份及管理员选项隔离均通过；原有创建账号、恢复码和密码重设流程保持可用，控制台无错误。
+
+## 公网验收（2026-08-24）
+
+- 合并提交 `0151405935815d8300613434f82e7ac8a9a3c36d` 已部署到 `/srv/agriloop`，API 由 Supervisor 管理，应用环境文件仍保持 `600` 权限。
+- Flyway 日志确认 `V2__account_management.sql` 与 `V3__social_identity.sql` 均已成功应用，数据库版本为 v3。
+- 公网黑盒：管理员登录和 `/auth/me` 为 HTTP 200；选择错误身份为 HTTP 401 `AUTH_INVALID`；`FIELD_OPERATOR` 自助注册为 HTTP 201 且恢复码仅返回一次；登录页三类账户表单从公网入口加载。
+- 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。
 
 生产部署若要求邮件找回，应在现有恢复码哈希与凭据版本机制之上接入受信任的邮件发送、分布式限流和管理员审核，不应由前端伪造“已发送邮件”。
