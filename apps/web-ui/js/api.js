@@ -127,19 +127,22 @@ export class ApiService {
   }
 
   async checkHealth() {
+    // 以认证端点探测后端存活性：200/401/403 均表示后端在线（不依赖 Redis 等组件健康度）；
+    // 404/501 为纯静态服务器，502/503/504 为反代不可达，网络异常为离线。
     try {
-      const resp = await fetch(`${this.baseUrl}/actuator/health`, {
+      const resp = await fetch(`${this.baseUrl}/api/v1/auth/me`, {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(1800)
       });
-      if (resp.ok) {
+      if (resp.ok || resp.status === 401 || resp.status === 403) {
         this.isLive = true;
         return true;
       }
     } catch (e) {
-      // Backend not running locally, seamlessly fall back to local mock state
+      // 后端不在线，回落本地模拟数据（显式 SIMULATED 口径）
       this.isLive = false;
     }
+    this.isLive = false;
     return false;
   }
 
@@ -189,28 +192,36 @@ export class ApiService {
     return MOCK_DATA.plots;
   }
 
-  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', { fromIso = null, limit = 400 } = {}) {
     if (this.isLive) {
-      const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?metric=${metric}&limit=50`);
+      const params = new URLSearchParams({ metric, limit: String(limit) });
+      if (fromIso) params.set('from', fromIso);
+      const resp = await this._fetch(`/api/v1/plots/${plotId}/telemetry?${params}`);
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的遥测数据', { code: 'TELEMETRY_INVALID', payload: resp });
     }
-    // Generate 20 realistic telemetry series points
+    // 离线：按请求时间窗生成确定性时序（合同与后端一致，口径 SIMULATED）
     const now = Date.now();
+    const hours = fromIso ? Math.max(1, Math.round((now - new Date(fromIso).getTime()) / 3600000)) : 24;
+    const daily = hours > 48;
+    const n = daily ? Math.min(30, Math.max(7, Math.round(hours / 24))) : 24;
+    const stepMs = daily ? 86400000 : 3600000;
     const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const baseValue = targetPlot.metrics[metric]?.value || 25.0;
-    
-    return Array.from({ length: 24 }, (_, i) => {
-      const offset = (24 - i) * 10 * 60 * 1000;
-      const noise = (Math.sin(i / 3) * 1.5) + (Math.random() * 0.4 - 0.2);
+    const rnd = mulberry32(hashCode(plotId + metric + hours));
+    const declining = plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' && !daily;
+    return Array.from({ length: n }, (_, i) => {
+      const back = (n - 1 - i) * stepMs;
+      const wave = Math.sin(i / 3.1) * (metric === 'SOIL_MOISTURE' ? 1.6 : 1.2);
+      const drift = declining ? (n - 1 - i) * 0.25 : 0;
       return {
-        eventId: `mock-evt-${i}`,
+        eventId: `mock-evt-${plotId}-${metric}-${i}`,
         plotId,
         metric,
-        value: Number((baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? (24 - i) * 0.25 : 0)).toFixed(2)),
-        unit: targetPlot.metrics[metric]?.unit || '%',
-        ts: new Date(now - offset).toISOString(),
-        quality: { status: "GOOD", freshnessMs: 200, confidence: 0.98 }
+        value: Number((baseValue + wave + drift + (rnd() - 0.5) * 0.8).toFixed(2)),
+        unit: targetPlot.metrics[metric]?.unit || (metric === 'AIR_TEMPERATURE' ? '°C' : '%'),
+        ts: new Date(now - back).toISOString(),
+        quality: { status: 'GOOD', freshnessMs: 200, confidence: 0.98 }
       };
     });
   }
@@ -501,6 +512,96 @@ export class ApiService {
     };
   }
 
+  /* -------- Vue 工作台增量合同：在线后端优先，离线回落 main 模拟数据（SIMULATED 口径） -------- */
+  async getFarms() {
+    if (this.isLive) { const r = await this._fetch('/api/v1/farms'); return r?.data || []; }
+    return JSON.parse(JSON.stringify(MOCK_DATA.farms));
+  }
+
+  async getCropBatches() {
+    if (this.isLive) { const r = await this._fetch('/api/v1/crop-batches'); return r?.data || []; }
+    return MOCK_DATA.plots.map(p => ({
+      batchId: `batch-${p.plotId}`, plotId: p.plotId, cropCode: p.cropCode,
+      stageCode: p.stageCode || 'fruiting', cropPackVersion: '1.0.0', plantedAt: '2026-06-15T00:00:00Z',
+    }));
+  }
+
+  async getDevices() {
+    if (this.isLive) { const r = await this._fetch('/api/v1/devices'); return r?.data || []; }
+    return MOCK_DATA.plots.map(p => ({
+      deviceId: p.deviceId || `mock-${p.plotId}`, plotId: p.plotId, type: 'ENVIRONMENTAL_SENSOR',
+      status: p.deviceStatus || 'ONLINE', healthScore: p.healthScore ?? 0.98, lastSeen: new Date().toISOString(),
+    }));
+  }
+
+  async getAlerts() {
+    if (this.isLive) { const r = await this._fetch('/api/v1/alerts'); return r?.data || []; }
+    return MOCK_DATA.plots
+      .filter(p => Object.values(p.metrics || {}).some(m => m.status && m.status !== 'NORMAL'))
+      .map(p => {
+        const [code, m] = Object.entries(p.metrics).find(([, x]) => x.status !== 'NORMAL');
+        return {
+          alertId: `alert-${p.plotId}`, plotId: p.plotId, status: 'OPEN',
+          level: p.riskLevel === 'HIGH' ? 'HIGH' : 'MEDIUM', metric: code,
+          source: `${m.label} ${m.value}${m.unit} 低于适宜下限`,
+          createdAt: new Date(Date.now() - 30 * 60000).toISOString(), provenance: 'SIMULATED',
+        };
+      });
+  }
+
+  async getSystemStatus() {
+    if (this.isLive) { const r = await this._fetch('/api/v1/system/status'); return r?.data || null; }
+    return { ...MOCK_DATA.system, ai: MOCK_DATA.system.aiMode };
+  }
+
+  async getResourcePlan(id = 'resource-default') {
+    if (this.isLive) { const r = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(id)}`); return r?.data || null; }
+    return { ...MOCK_DATA.resourceProfile };
+  }
+
+  /** 结构化灌溉处方：在线走后端 /irrigation/estimate，离线为确定性演示估算 */
+  async estimateIrrigation(body = {}) {
+    if (this.isLive) {
+      const r = await this._fetch('/api/v1/irrigation/estimate', { method: 'POST', body: JSON.stringify(body) });
+      return r?.data || null;
+    }
+    const plot = this.mockPlot(body.plotId);
+    const m = plot.metrics?.SOIL_MOISTURE;
+    const mm = String(m?.target || '').match(/([\d.]+)\s*~\s*([\d.]+)/);
+    const lo = mm ? Number(mm[1]) : 20;
+    const mid = mm ? (Number(mm[1]) + Number(mm[2])) / 2 : 30;
+    const current = Number(m?.value ?? 25);
+    const need = mid - current;
+    if (m?.status !== 'WARN' || need <= 0) {
+      return {
+        planId: `plan-${plot.plotId}-na`, plotId: plot.plotId, status: 'NO_ACTION', executable: false,
+        advisoryOnly: true, readinessStatus: 'READY', why: '当前湿度已达到阶段目标，暂时不需要灌溉',
+        waterLitre: 0, durationSeconds: 0, provenance: 'SIMULATED',
+      };
+    }
+    const waterLitre = Math.max(30, Math.round((plot.areaM2 || 100) * need * 0.1));
+    const durationSeconds = Math.min(900, Math.round((waterLitre / 18) * 60));
+    return {
+      planId: `plan-${plot.plotId}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`,
+      plotId: plot.plotId, diagnosisId: `diag-${plot.plotId}`, waterLitre, durationSeconds,
+      recommendedWindow: { start: new Date(Date.now() + 5 * 60000).toISOString(), end: new Date(Date.now() + 35 * 60000).toISOString() },
+      expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: mid },
+      why: '土壤湿度低于当前阶段目标', requiresApproval: true, advisoryOnly: false, executable: true,
+      readinessStatus: 'READY', status: 'PROPOSED',
+      cropPackVersion: '1.0.0', ruleVersion: 'rule-1.0.0', knowledgeVersion: 'kb-1.0.0', agentVersion: 'rules-agent-1.0',
+      provenance: 'SIMULATED',
+    };
+  }
+
+  /** 虚拟命令下发：在线走后端 /commands/virtual（幂等/审批/冷却），离线返回模拟 ACK 序列 */
+  async executeCommand(body = {}) {
+    if (this.isLive) {
+      const r = await this._fetch('/api/v1/commands/virtual', { method: 'POST', body: JSON.stringify(body) });
+      return r?.data || null;
+    }
+    return this.executeIrrigation(body.planId, body.plotId);
+  }
+
   /**
    * yyx P1/P2 视图所需的确定性能力。在线优先读取后端合同，离线使用
    * 同一套可重复的演示算法；所有返回值都标记为模拟/推导口径，不伪装成现场实测。
@@ -755,7 +856,7 @@ export class ApiService {
         code: error.code || `HTTP_${response.status}`,
         payload,
         details: error.details || {},
-        isNetworkError: [502, 503, 504].includes(response.status)
+        isNetworkError: [501, 502, 503, 504].includes(response.status)
       });
     }
     if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
@@ -775,4 +876,10 @@ function mulberry32(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function hashCode(s) {
+  let h = 0;
+  for (let i = 0; i < String(s).length; i++) h = (Math.imul(31, h) + String(s).charCodeAt(i)) | 0;
+  return h;
 }

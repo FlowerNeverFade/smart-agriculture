@@ -4,39 +4,338 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AgriLoop · 农智闭环工作台</title>
-  <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="css/app.css?v=3" />
   <link rel="icon" type="image/png" href="assets/brand/logo.png" />
 </head>
 <body>
+<div id="app" v-cloak>
   <div class="app">
     <!-- 左侧导航 -->
     <nav class="rail" aria-label="主导航">
-      <div class="rail-logo" id="railLogo"></div>
-      <div class="rail-nav" id="railNav"></div>
-      <div class="rail-bottom" id="railBottom"></div>
+      <div class="rail-logo"><img class="rail-logo-img" src="assets/brand/logo.png" alt="AgriLoop" /></div>
+      <div class="rail-nav">
+        <button v-for="n in NAV" :key="n.id" :class="['nav-item', { active: view === n.id }]" @click="setView(n.id)">
+          <v-icon :name="n.icon"></v-icon><span>{{ n.label }}</span>
+        </button>
+      </div>
+      <div class="rail-bottom">
+        <button class="nav-item" @click="openSettings"><v-icon name="settings"></v-icon><span>设置</span></button>
+        <button class="nav-item" @click="openHelp"><v-icon name="help"></v-icon><span>帮助</span></button>
+      </div>
     </nav>
 
     <div class="main-col">
       <!-- 顶栏 -->
       <header class="topbar">
-        <h1 id="viewTitle">地块选择</h1>
+        <h1>{{ viewTitle }}</h1>
         <div class="spacer"></div>
-        <label class="search-box" id="searchBox"></label>
-        <button class="icon-btn" id="bellBtn" aria-label="告警通知"></button>
-        <button class="user-chip" id="userChip" aria-label="用户菜单"></button>
+        <label class="search-box"><v-icon name="search" :size="18"></v-icon><input v-model="search" placeholder="搜索地块名称..." /></label>
+        <button class="icon-btn" aria-label="告警" @click="showAlertsDialog"><v-icon name="bell"></v-icon><i class="dot"></i></button>
+        <button class="user-chip" @click="openAccount">
+          <span class="avatar">{{ userName.slice(0, 1) }}</span><span class="name">{{ userName }}</span><v-icon name="chevDown" :size="16"></v-icon>
+        </button>
       </header>
 
-      <!-- 地块选择条（仅地块视图） -->
-      <div class="plot-bar" id="plotBar"></div>
+      <!-- 地块选择条 -->
+      <div class="plot-bar" v-if="view === 'plots'">
+        <button class="farm-select" @click="farmDetail">
+          <v-icon name="home" :size="18" class="lead"></v-icon><span>{{ farm ? farm.name : '农场' }}</span><v-icon name="chevDown" :size="16"></v-icon>
+        </button>
+        <div class="plot-chips">
+          <button v-for="p in filteredPlots" :key="p.plotId" :class="['chip', { active: p.plotId === plotId }]" @click="selectPlot(p.plotId)">{{ p.name }}</button>
+          <button class="chip ghost" @click="addPlotInfo"><v-icon name="plus" :size="15"></v-icon> 添加地块</button>
+        </div>
+      </div>
 
       <div class="content-wrap">
-        <main class="content" id="view"></main>
-        <aside class="sys-rail" id="sysRail" aria-label="系统信息"></aside>
+        <main class="content">
+          <div v-if="booted && !live" class="offline-bar">后端离线：当前展示与 main 后端合同一致的本地模拟数据（SIMULATED 口径）；后端在线时自动改用 /api/v1 实时数据。</div>
+          <div v-if="booted && shellErr && !plots.length" class="empty">{{ shellErr }}</div>
+
+          <!-- ========== 地块工作台 ========== -->
+          <template v-if="view === 'plots' && currentPlot">
+            <section class="card">
+              <div class="plot-head">
+                <img class="plot-photo" :src="cropImg" :alt="cropName" />
+                <div class="plot-head-main">
+                  <div class="plot-title-row"><h2>{{ currentPlot.name }} 工作台</h2><span class="badge b-green">{{ stageLabel }}</span></div>
+                  <div class="plot-meta">
+                    <span><v-icon name="pin" :size="15"></v-icon>{{ cropName }}</span>
+                    <span><v-icon name="area" :size="15"></v-icon>种植面积 {{ num(currentPlot.areaM2, 0) }} m²</span>
+                    <span><v-icon name="calendar" :size="15"></v-icon>定植日期 {{ batch && batch.plantedAt ? batch.plantedAt.slice(0, 10) : '--' }}</span>
+                  </div>
+                  <div class="plot-head-lower">
+                    <div class="health-box" v-if="healthMeta">
+                      <div class="row">健康状态 <span :class="'badge b-' + healthMeta.tone">{{ healthMeta.label }}</span></div>
+                      <div class="progress"><i :style="{ width: healthMeta.score + '%' }"></i></div>
+                      <div class="score">设备健康分 {{ healthMeta.score }} / 100</div>
+                    </div>
+                    <div class="risk-banner" v-if="plotAlerts.length">
+                      <div class="t"><v-icon name="alertCircle" :size="18"></v-icon>{{ plotAlerts[0].source || '风险告警' }}</div>
+                      <div class="d">该地块存在 {{ plotAlerts.length }} 条活跃告警，请结合诊断与建议及时处理。</div>
+                      <button class="link" @click="showAlertsDialog">查看详情 <v-icon name="chevRight" :size="14"></v-icon></button>
+                    </div>
+                    <div class="risk-banner ok" v-else>
+                      <div class="t"><v-icon name="check" :size="18"></v-icon>运行正常</div>
+                      <div class="d">后端暂无该地块的活跃告警。</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div class="metric-grid">
+              <section class="card metric-card" v-for="m in metricCards" :key="m.code">
+                <div class="head"><span :class="'metric-ic ' + m.tone"><v-icon :name="m.icon"></v-icon></span>{{ m.label }}</div>
+                <div class="value-row"><span class="value">{{ num(m.value, m.value >= 1000 ? 0 : 1) }}</span><span class="unit">{{ m.unit }}</span><span v-if="m.badge" :class="'badge b-' + m.badge.tone">{{ m.badge.text }}</span></div>
+                <div class="foot">适宜范围 {{ m.rangeText }} <span class="prov-tag" v-if="m.quality">质量 {{ m.quality }}</span></div>
+              </section>
+              <section class="card metric-card">
+                <div class="head"><span class="metric-ic mi-purple"><v-icon name="device"></v-icon></span>设备状态</div>
+                <div class="value-row"><span class="value">{{ deviceStats.online }}</span><span class="unit">/ {{ deviceStats.total }} 在线</span><span :class="['badge', deviceStats.offline ? 'b-amber' : 'b-green']">{{ deviceStats.offline ? deviceStats.offline + ' 离线' : '正常' }}</span></div>
+                <div class="foot">在线率 {{ deviceStats.pct }}%</div>
+              </section>
+            </div>
+
+            <div class="tri-grid">
+              <section class="card">
+                <div class="card-title">近{{ range === '24h' ? '24小时' : range === '7d' ? '7天' : '30天' }}趋势 <v-icon name="info" :size="15" class="muted-ic"></v-icon></div>
+                <div class="chart-box" ref="trendEl"></div>
+                <div v-if="trendErr" class="empty">{{ trendErr }}</div>
+                <div class="range-switch">
+                  <button v-for="r in ['24h', '7d', '30d']" :key="r" :class="['range-btn', { active: range === r }]" @click="setRange(r)">{{ r === '24h' ? '24小时' : r === '7d' ? '7天' : '30天' }}</button>
+                </div>
+              </section>
+
+              <section class="card">
+                <div class="card-title">待处理事项 <span class="badge b-green">{{ workItems.length }} 项</span></div>
+                <div class="task-list" v-if="!workErr">
+                  <div v-if="!workItems.length" class="empty"><v-icon name="check" :size="26"></v-icon>暂无待处理事项</div>
+                  <div class="task-item" v-for="w in workItems" :key="w.workItemId || w.workOrderId">
+                    <span :class="'t-ic ' + (w.sourceType === 'ALERT' ? 'mi-red' : (w.sourceType === 'DIAGNOSIS' ? 'mi-purple' : 'mi-green'))">
+                      <v-icon :name="w.sourceType === 'ALERT' ? 'alertCircle' : w.sourceType === 'DIAGNOSIS' ? 'risk' : 'work'" :size="18"></v-icon>
+                    </span>
+                    <div class="t-main">
+                      <div class="t-title"><span :class="'badge b-' + pmeta(w.priority).tone">{{ pmeta(w.priority).label }}</span>{{ w.title || w.reason || w.workItemId }}</div>
+                      <div class="t-sub">{{ pname(w.plotId) }} · {{ w.sourceType }}</div>
+                    </div>
+                    <div class="t-due">{{ fmtDue(w.dueAt) }}</div>
+                  </div>
+                </div>
+                <div v-else class="empty">{{ workErr }}</div>
+                <div class="center-link"><button class="link" @click="setView('work')">查看全部任务 <v-icon name="chevRight" :size="14"></v-icon></button></div>
+              </section>
+
+              <section class="card">
+                <div class="card-title">风险诊断与建议</div>
+                <div v-if="diagErr && !forecast && !plan" class="empty">{{ diagErr }}</div>
+                <template v-else>
+                  <div class="diag-alert" v-if="forecast && forecast.status === 'AVAILABLE' && forecast.timeToRiskMinutes != null">
+                    <div style="color:var(--red);padding-top:2px"><v-icon name="drop" :size="20"></v-icon></div>
+                    <div>
+                      <div class="t">检测到缺水风险</div>
+                      <div class="d">后端推演预计 {{ num(forecast.timeToRiskMinutes, 0) }} 分钟后触达风险边界（{{ num(forecast.riskBoundary && forecast.riskBoundary.value) }}{{ forecast.riskBoundary && forecast.riskBoundary.unit }}）。</div>
+                    </div>
+                  </div>
+                  <div class="advice-box" v-else style="margin-top:14px">
+                    <div class="t"><v-icon name="check" :size="16"></v-icon> {{ forecast && forecast.status === 'AVAILABLE' ? '预测窗口内无缺水风险' : '后端弃权预测（样本/质量不足）' }}</div>
+                    <div class="meta" style="margin-top:8px">{{ forecast && forecast.reason ? forecast.reason : '保持当前管理节奏' }}</div>
+                  </div>
+                  <div class="advice-box" v-if="plan && plan.status !== 'NO_ACTION'">
+                    <div class="t">灌溉建议 <span :class="'badge ' + (plan.executable ? 'b-green' : 'b-amber')">{{ plan.readinessStatus }}</span></div>
+                    <div class="big">{{ num(plan.waterLitre, 0) }} <small>L · {{ num(plan.durationSeconds, 0) }} s</small></div>
+                    <div class="meta">{{ plan.why }}</div>
+                    <div class="btns">
+                      <button class="btn btn-filled" :disabled="!plan.executable" @click="dispatch">一键下发灌溉</button>
+                      <button class="btn btn-outline" @click="planDetail">方案详情</button>
+                    </div>
+                    <div class="meta" v-if="!plan.executable" style="margin-top:8px">后端判定当前不可执行（advisoryOnly），下发需就绪度 READY。</div>
+                  </div>
+                  <div class="center-link"><button class="link" @click="diagDetail">查看诊断详情 <v-icon name="chevRight" :size="14"></v-icon></button></div>
+                </template>
+              </section>
+            </div>
+          </template>
+          <div v-if="view === 'plots' && !currentPlot" class="empty">后端未返回地块数据</div>
+
+          <!-- ========== 今日 ========== -->
+          <template v-if="view === 'today'">
+            <div class="stat-grid">
+              <section class="card stat-card"><div class="label"><v-icon name="work" :size="16"></v-icon>待办工单</div><div class="v">{{ overview ? overview.pendingWorkOrderCount : '--' }} <small>项</small></div><div class="foot">后端聚合</div></section>
+              <section class="card stat-card"><div class="label"><v-icon name="risk" :size="16"></v-icon>活跃告警</div><div class="v">{{ overview ? overview.activeAlertCount : '--' }}</div><div class="foot">后端聚合</div></section>
+              <section class="card stat-card"><div class="label"><v-icon name="device" :size="16"></v-icon>设备在线率</div><div class="v">{{ deviceStats.pct }}<small>%</small></div><div class="foot">{{ deviceStats.online }} / {{ deviceStats.total }} 在线</div></section>
+              <section class="card stat-card"><div class="label"><v-icon name="chip" :size="16"></v-icon>AI 模式</div><div class="v" style="font-size:16px;padding-top:6px">{{ overview && overview.aiMode || sysStatus && sysStatus.ai || '--' }}</div><div class="foot">dataMode {{ overview && overview.dataMode || '--' }}</div></section>
+            </div>
+            <section class="card" style="margin-top:16px">
+              <div class="card-title">全场今日待办</div>
+              <div v-if="workErr" class="empty">{{ workErr }}</div>
+              <div v-else-if="!workItems.length" class="empty"><v-icon name="check" :size="26"></v-icon>今天没有待办</div>
+              <div class="list-row" v-for="w in workItems" :key="w.workItemId || w.workOrderId">
+                <span :class="'metric-ic ' + (w.sourceType === 'ALERT' ? 'mi-red' : 'mi-green')"><v-icon :name="w.sourceType === 'ALERT' ? 'alertCircle' : 'work'" :size="18"></v-icon></span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap">{{ w.title || w.reason || w.workItemId }} <span :class="'badge b-' + pmeta(w.priority).tone">{{ pmeta(w.priority).label }}</span> <span :class="'badge b-' + wstatus(w.status).tone">{{ wstatus(w.status).label }}</span></div>
+                  <div style="color:var(--on-faint);font-size:12.5px;margin-top:5px">{{ pname(w.plotId) }} · {{ w.sourceType }}</div>
+                </div>
+                <div style="color:var(--on-variant);font-size:12.5px">{{ fmtDue(w.dueAt) }}</div>
+              </div>
+            </section>
+          </template>
+
+          <!-- ========== 农务 ========== -->
+          <template v-if="view === 'work'">
+            <div class="view-head">
+              <h2>农事工单</h2><span class="prov-tag">来源：计划 / 告警 / 设备健康</span>
+              <div style="flex:1"></div>
+              <button class="btn btn-filled" @click="newInspection"><v-icon name="plus" :size="15"></v-icon> 录入巡田</button>
+            </div>
+            <section class="card">
+              <table class="table">
+                <thead><tr><th>事项</th><th>地块</th><th>优先级</th><th>状态</th><th>截止</th><th>来源</th></tr></thead>
+                <tbody>
+                  <tr v-for="w in workOrders" :key="w.workOrderId">
+                    <td><div class="t-main">{{ w.title || w.workOrderId }}</div><div class="t-sub">{{ w.reason }}</div></td>
+                    <td>{{ pname(w.plotId) }}</td>
+                    <td><span :class="'badge b-' + pmeta(w.priority).tone">{{ pmeta(w.priority).label }}</span></td>
+                    <td><span :class="'badge b-' + wstatus(w.status).tone">{{ wstatus(w.status).label }}</span></td>
+                    <td>{{ fmtDue(w.dueAt) }}</td>
+                    <td><span class="prov-tag">{{ w.sourceType }}</span></td>
+                  </tr>
+                  <tr v-if="!workOrders.length"><td colspan="6">后端暂无工单</td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="card">
+              <div class="card-title">人工巡田核验记录 <span class="prov-tag">USER_PROVIDED · 不覆盖遥测</span></div>
+              <div v-if="workPageErr" class="empty">{{ workPageErr }}</div>
+              <div v-else-if="!inspections.length" class="empty">暂无巡田记录</div>
+              <div class="list-row" v-for="i in inspections" :key="i.inspectionId">
+                <span class="metric-ic mi-green"><v-icon name="sprout" :size="18"></v-icon></span>
+                <div style="flex:1">
+                  <div style="font-weight:600">{{ pname(i.plotId) }} · 便携仪湿度 {{ num(i.portableSoilMoisture) }}%</div>
+                  <div style="color:var(--on-faint);font-size:12.5px;margin-top:5px">土表 {{ i.soilSurface }} · {{ i.notes }}</div>
+                </div>
+                <div style="color:var(--on-variant);font-size:12.5px">{{ fmtDue(i.observedAt) }}</div>
+              </div>
+            </section>
+          </template>
+
+          <!-- ========== 风险 ========== -->
+          <template v-if="view === 'risk'">
+            <div class="view-head"><h2>未来 4 小时风险预测</h2><span class="prov-tag">后端 robust-trend · 样本/质量不足时弃权</span></div>
+            <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+              <section class="card stat-card" v-for="p in plots" :key="p.plotId">
+                <div class="label"><v-icon name="gauge" :size="16"></v-icon>{{ p.name }}
+                  <span :class="['badge', forecasts[p.plotId] && forecasts[p.plotId].status === 'AVAILABLE' ? 'b-green' : 'b-gray']">{{ forecasts[p.plotId] ? forecasts[p.plotId].status : '--' }}</span>
+                </div>
+                <template v-if="forecasts[p.plotId] && forecasts[p.plotId].status === 'AVAILABLE'">
+                  <div class="v">{{ forecasts[p.plotId].timeToRiskMinutes == null ? '--' : num(forecasts[p.plotId].timeToRiskMinutes, 0) }} <small>分钟后触达风险</small></div>
+                  <div class="foot">{{ (forecasts[p.plotId].horizons || []).map(h => (h.minutes / 60) + 'h≈' + num(h.value) + '%').join(' ｜ ') }}</div>
+                </template>
+                <div class="foot" v-else style="margin-top:10px">{{ forecasts[p.plotId] && forecasts[p.plotId].reason || '暂无数据' }}</div>
+              </section>
+            </div>
+            <section class="card" style="margin-top:16px">
+              <div class="card-title">情景目录 <span class="prov-tag">同一冻结快照 + 随机种子 · 不写回主状态</span></div>
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+                <button class="chip" v-for="s in SCENARIOS" :key="s.code" @click="runScenario(s.code)">{{ s.emoji }} {{ s.label }}</button>
+              </div>
+            </section>
+          </template>
+
+          <!-- ========== 经营 ========== -->
+          <template v-if="view === 'biz'">
+            <div class="view-head"><h2>经营价值账本</h2><span class="prov-tag">后端 value-ledgers / plan-actual</span></div>
+            <section class="card">
+              <div class="card-title">批次计划 vs 实际用水（L）</div>
+              <div class="chart-box" ref="bizEl" style="min-height:260px"></div>
+              <div v-if="bizErr || !planActuals.length" class="empty">{{ bizErr || '后端暂无计划/实际偏差数据' }}</div>
+            </section>
+            <section class="card">
+              <div class="card-title">批次偏差明细</div>
+              <table class="table">
+                <thead><tr><th>批次</th><th>计划（L）</th><th>实际（L）</th><th>偏差率</th></tr></thead>
+                <tbody>
+                  <tr v-for="r in planActuals" :key="r.batchId">
+                    <td>{{ r.batchId }}</td><td>{{ num(r.plannedWaterLitres, 0) }}</td><td>{{ num(r.actualWaterLitres, 0) }}</td>
+                    <td><span :class="'badge ' + (Number(r.waterDeviationRate) <= 0 ? 'b-green' : 'b-amber')">{{ num(Number(r.waterDeviationRate) * 100, 1) }}%</span></td>
+                  </tr>
+                  <tr v-if="!planActuals.length"><td colspan="4">暂无数据</td></tr>
+                </tbody>
+              </table>
+            </section>
+            <section class="card">
+              <div class="card-title">价值账本记录</div>
+              <div v-if="bizErr" class="empty">{{ bizErr }}</div>
+              <div v-else-if="!ledger.length" class="empty">暂无价值账本记录（后端未计算）</div>
+              <div class="list-row" v-for="(r, idx) in ledger" :key="idx">
+                <span class="metric-ic mi-green"><v-icon name="biz" :size="18"></v-icon></span>
+                <div style="flex:1;font-size:12.5px;color:var(--on-variant);word-break:break-all">{{ JSON.stringify(r) }}</div>
+              </div>
+            </section>
+          </template>
+        </main>
+
+        <!-- 右侧系统栏 -->
+        <aside class="sys-rail" v-if="view === 'plots'" :class="{ collapsed: sysCollapsed }" aria-label="系统信息">
+          <div class="sys-head">
+            <button class="icon-btn" style="width:28px;height:28px" :aria-label="sysCollapsed ? '展开' : '收起'" @click="sysCollapsed = !sysCollapsed">
+              <v-icon name="collapse" :size="16" :class="{ flip: sysCollapsed }"></v-icon>
+            </button>
+            <span class="sys-title">系统信息</span> <span class="muted">（可收回）</span>
+          </div>
+          <div id="sysBody">
+            <div class="sys-card">
+              <div class="row"><span :class="'metric-ic ' + (live ? 'mi-green' : 'mi-amber')" style="width:34px;height:34px"><v-icon name="cloud" :size="18"></v-icon></span>{{ live ? '后端在线' : '后端离线' }}</div>
+              <div class="sub" :style="{ color: live ? 'var(--primary)' : 'var(--amber)' }">{{ live ? '运行正常' : '离线模拟模式' }}</div>
+              <div class="muted">DB {{ sysStatus && sysStatus.database || '--' }} · Redis {{ sysStatus && sysStatus.redis || '--' }} · MQTT {{ sysStatus && sysStatus.mqtt || '--' }}</div>
+            </div>
+            <div class="sys-card">
+              <div class="row">设备在线率</div>
+              <div class="center" style="margin-top:10px"><span v-html="donutSVG(deviceStats.pct)"></span>
+                <div style="font-weight:600">{{ deviceStats.online }} / {{ deviceStats.total }} 在线</div>
+                <div class="red" v-if="deviceStats.offline">{{ deviceStats.offline }} 离线设备</div>
+              </div>
+            </div>
+            <div class="sys-card">
+              <div class="row">今日水资源</div>
+              <div class="big" style="margin-top:10px"><span class="metric-ic mi-blue" style="width:30px;height:30px"><v-icon name="drop" :size="16"></v-icon></span>{{ num(resource && resource.capacityLitres, 0) }} <small>L 容量</small></div>
+              <div class="muted">流量 {{ num(resource && resource.flowRateLitresPerMinute, 0) }} L/min · 水价 {{ num(resource && resource.unitCost, 3) }} 元/L</div>
+            </div>
+            <div class="sys-card">
+              <div class="row"><span class="metric-ic mi-green" style="width:34px;height:34px"><v-icon name="chat" :size="18"></v-icon></span>消息 / 日志</div>
+              <div class="sub" style="color:var(--on-surface)">{{ alerts.length }} 告警 · {{ openWorkCount }} 未完成工单</div>
+              <button class="link" style="margin-top:6px" @click="messagesDialog">查看系统消息与操作日志 <v-icon name="chevRight" :size="14"></v-icon></button>
+            </div>
+            <div class="sys-card">
+              <div class="row"><span class="metric-ic mi-green" style="width:34px;height:34px"><v-icon name="chip" :size="18"></v-icon></span>AI 状态</div>
+              <div class="sub" style="color:var(--on-surface)">{{ overview && overview.aiMode || sysStatus && sysStatus.ai || '--' }}</div>
+              <div class="muted">algorithm {{ forecast && forecast.algorithmVersion || '--' }}</div>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   </div>
 
-  <script src="vendor/echarts.min.js"></script>
-  <script type="module" src="js/dashboard.js"></script>
+  <!-- 对话框 -->
+  <div class="dialog-scrim" :class="{ on: !!dialog }" v-if="dialog" @click.self="closeDialog">
+    <div class="dialog" role="dialog" aria-modal="true">
+      <div class="dialog-head"><h3>{{ dialog.title }}</h3><button class="icon-btn" aria-label="关闭" @click="closeDialog"><v-icon name="x" :size="18"></v-icon></button></div>
+      <div class="dialog-body" v-html="dialog.html"></div>
+      <div class="dialog-actions" v-if="dialog.actions && dialog.actions.length">
+        <button v-for="(a, i) in dialog.actions" :key="i" :class="['btn', 'btn-' + (a.tone || 'text')]" @click="runAction(a)">{{ a.label }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- snackbar -->
+  <div class="snack-host">
+    <div v-for="s in snacks" :key="s.id" :class="['snackbar', 'show', 'sn-' + s.tone]"><span>{{ s.text }}</span></div>
+  </div>
+</div>
+
+<script src="vendor/vue.global.prod.js"></script>
+<script src="vendor/echarts.min.js"></script>
+<script type="module" src="js/app.js?v=3"></script>
 </body>
 </html>
