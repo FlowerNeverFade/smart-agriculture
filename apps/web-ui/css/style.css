@@ -291,6 +291,25 @@ body {
   color-interpolation: sRGB;
 }
 
+/* Stable background stacking: the 2D wheat fallback sits below the optional
+ * Three.js scene, while particles remain visible above either background. */
+#riumBackground > canvas {
+  position: absolute;
+  inset: 0;
+}
+
+#riumBackground > .agri-wheat-fallback {
+  z-index: 0;
+}
+
+#riumBackground > .rium-webgl-canvas {
+  z-index: 1;
+}
+
+#riumBackground > .agri-particles {
+  z-index: 2;
+}
+
 /* Frosted glass — translucent fill + background blur. */
 .liquid-glass,
 .rail-section,

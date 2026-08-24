@@ -65,6 +65,15 @@ body {
   color-interpolation: sRGB;
 }
 
+#riumBackground > canvas {
+  position: absolute;
+  inset: 0;
+}
+
+#riumBackground > .agri-wheat-fallback { z-index: 0; }
+#riumBackground > .rium-webgl-canvas { z-index: 1; }
+#riumBackground > .agri-particles { z-index: 2; }
+
 body > .app-header,
 body > .app-container {
   position: relative;
