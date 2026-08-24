@@ -316,10 +316,10 @@
   <!-- Risk Forecast Template -->
   <template id="tmpl-risk-forecast">
     <div>
-      <div class="flex justify-between items-center mb-4">
+      <div class="flex justify-between items-center mb-6 relative">
         <h2>未来风险确定性推演 (Time-to-Risk)</h2>
-        <div class="flex items-center gap-2">
-          <span class="text-muted" style="font-size:14px">推演目标 (Target Plot):</span>
+        <div style="position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;">
+          <span class="text-muted" style="font-size:14px; font-weight:500">推演目标:</span>
           <select class="g-select" style="width:200px" v-model="selectedPlotId" @change="changePlot">
             <option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">
               {{ plot.name }} ({{ plot.cropVariety }})

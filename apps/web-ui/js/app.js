@@ -383,8 +383,7 @@ const app = createApp({
     const isLive = ref(false);
     const isDark = ref(false);
     const isSidebarOpen = ref(true);
-    const currentView = ref('dashboard');
-    const routeParams = ref({}); // [INTERCONNECTIVITY] Global route state
+    
     const toasts = ref([]);
     
     const showToast = (message, type = 'success') => {
@@ -394,7 +393,6 @@ const app = createApp({
         toasts.value = toasts.value.filter(t => t.id !== id);
       }, 3000);
     };
-    
     const navItems = [
       { id: 'dashboard', label: '农智总览', icon: 'dashboard' },
       { id: 'decision-console', label: '决策沙盘', icon: 'psychology' },
@@ -403,6 +401,10 @@ const app = createApp({
       { id: 'crop-packs', label: '作物模型', icon: 'library_books' },
       { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet' }
     ];
+
+    const initialView = window.location.hash ? window.location.hash.substring(1) : 'dashboard';
+    const currentView = ref(navItems.some(n => n.id === initialView) ? initialView : 'dashboard');
+    const routeParams = ref({}); // [INTERCONNECTIVITY] Global route state
 
     const currentViewComponent = computed(() => `${currentView.value}-view`);
 
@@ -440,7 +442,15 @@ const app = createApp({
     const navigate = (viewId, params = {}) => {
       currentView.value = viewId;
       routeParams.value = params;
+      window.location.hash = viewId;
     };
+
+    window.addEventListener('hashchange', () => {
+      const hash = window.location.hash.substring(1);
+      if (hash && navItems.some(n => n.id === hash)) {
+        currentView.value = hash;
+      }
+    });
 
     onMounted(async () => {
       const session = api.readSession();
