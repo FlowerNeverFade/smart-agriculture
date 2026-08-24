@@ -1,18 +1,19 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 
-const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
 
 // 1. Define Components
 const DashboardView = {
   template: '#tmpl-dashboard',
   props: ['state'],
   setup(props, { emit }) {
+    const toast = inject('toast');
     const handleAction = (action) => {
       if (action.action === 'open-subview') {
         emit('navigate', action.view);
       } else {
-        alert('Action Executed: ' + action.label);
+        toast('执行成功: ' + action.label);
       }
     };
     return { handleAction };
@@ -23,7 +24,7 @@ const DecisionConsoleView = {
   template: '#tmpl-decision-console',
   props: ['state'],
   setup(props) {
-    // Find the specific feed items
+    const toast = inject('toast');
     const diagnosis = computed(() => props.state.feedItems.find(f => f.type === 'DIAGNOSIS'));
     const prescription = computed(() => props.state.feedItems.find(f => f.type === 'PRESCRIPTION'));
     
@@ -67,11 +68,58 @@ const DecisionConsoleView = {
       });
     };
     
-    const executePrescription = () => {
-      alert('已成功触发下行控制指令 (Virtual Execution)。\nTrace ID: run-20260822-001\n请前往价值对账本查看仿真效益。');
+    // Modals
+    const showPassportModal = ref(false);
+    const showDualTrackModal = ref(false);
+    let dualChart = null;
+
+    watch(showDualTrackModal, async (newVal) => {
+      if (newVal) {
+        await nextTick();
+        const dom = document.getElementById('dualTrackChart');
+        if (!dom) return;
+        if (!dualChart) {
+          dualChart = echarts.init(dom);
+        }
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const textColor = isDark ? '#e8eaed' : '#202124';
+        
+        dualChart.setOption({
+          backgroundColor: 'transparent',
+          tooltip: { trigger: 'axis' },
+          legend: { data: ['执行处方 (With Action)', '不执行 (No Action)'], textStyle: { color: textColor } },
+          xAxis: { type: 'category', data: ['0h', '1h', '2h', '3h', '4h'], axisLabel: { color: textColor } },
+          yAxis: { type: 'value', min: 10, max: 35, axisLabel: { color: textColor } },
+          series: [
+            {
+              name: '执行处方 (With Action)',
+              type: 'line',
+              smooth: true,
+              itemStyle: { color: '#1e8e3e' },
+              data: [16.8, 30.0, 28.5, 27.0, 26.1]
+            },
+            {
+              name: '不执行 (No Action)',
+              type: 'line',
+              smooth: true,
+              itemStyle: { color: '#d93025' },
+              data: [16.8, 15.2, 13.8, 12.0, 11.5]
+            }
+          ]
+        });
+      }
+    });
+
+    const confirmExecution = () => {
+      showDualTrackModal.value = false;
+      toast('下行控制指令 (Trace: run-20260822-001) 已下发执行');
     };
 
-    return { diagnosis, prescription, chatInput, chatHistory, isTyping, chatBox, sendMessage, executePrescription };
+    return { 
+      diagnosis, prescription, 
+      chatInput, chatHistory, isTyping, chatBox, sendMessage, 
+      showPassportModal, showDualTrackModal, confirmExecution 
+    };
   }
 };
 
@@ -158,7 +206,42 @@ const RiskForecastView = {
 
 const WorkOrdersView = {
   template: '#tmpl-work-orders',
-  props: ['state']
+  props: ['state'],
+  setup(props) {
+    const toast = inject('toast');
+    const showFormModal = ref(false);
+    const form = ref({
+      plotId: 'plot-a01',
+      soilSurface: '',
+      cropCondition: '',
+      portableSoilMoisture: '',
+      notes: ''
+    });
+
+    const submitInspection = () => {
+      if (!form.value.soilSurface || !form.value.portableSoilMoisture) {
+        toast('请填写必填项', 'error');
+        return;
+      }
+      // Mutate state to show reactivity
+      props.state.inspections.unshift({
+        inspectionId: 'ins-new-' + Date.now(),
+        plotId: form.value.plotId,
+        observedAt: new Date().toISOString(),
+        soilSurface: form.value.soilSurface,
+        cropCondition: form.value.cropCondition,
+        portableSoilMoisture: form.value.portableSoilMoisture,
+        notes: form.value.notes || '现场无异常情况'
+      });
+      showFormModal.value = false;
+      toast('巡田记录已成功录入');
+      
+      // Reset form
+      form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
+    };
+
+    return { showFormModal, form, submitInspection };
+  }
 };
 
 const CropPacksView = {
@@ -231,6 +314,15 @@ const app = createApp({
     const isLive = ref(false);
     const isDark = ref(false);
     const currentView = ref('dashboard');
+    const toasts = ref([]);
+    
+    const showToast = (message, type = 'success') => {
+      const id = Date.now() + Math.random();
+      toasts.value.push({ id, message, type });
+      setTimeout(() => {
+        toasts.value = toasts.value.filter(t => t.id !== id);
+      }, 3000);
+    };
     
     const navItems = [
       { id: 'dashboard', label: '农智总览', icon: 'dashboard' },
@@ -289,6 +381,9 @@ const app = createApp({
       isLive.value = await api.checkHealth();
     });
 
+    // Provide toast globally
+    app.provide('toast', showToast);
+
     return {
       isLive,
       isDark,
@@ -296,6 +391,8 @@ const app = createApp({
       currentView,
       currentViewComponent,
       state,
+      toasts,
+      showToast,
       toggleTheme,
       navigate
     };

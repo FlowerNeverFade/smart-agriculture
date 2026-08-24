@@ -64,7 +64,18 @@
       </nav>
 
       <main class="g-main">
-        <component :is="currentViewComponent" :state="state" @navigate="navigate"></component>
+        <transition name="fade" mode="out-in">
+          <component :is="currentViewComponent" :state="state" @navigate="navigate"></component>
+        </transition>
+        
+        <div class="g-toast-container">
+          <transition-group name="toast">
+            <div v-for="toast in toasts" :key="toast.id" class="g-toast">
+              <span class="material-symbols-outlined" :style="{color: toast.type === 'error' ? 'var(--g-danger)' : 'var(--g-success)'}">{{ toast.type === 'error' ? 'error' : 'check_circle' }}</span>
+              {{ toast.message }}
+            </div>
+          </transition-group>
+        </div>
       </main>
     </div>
   </div>
@@ -202,9 +213,14 @@
               </li>
             </ul>
 
-            <button class="g-btn primary" style="width:100%" @click="executePrescription">
-              <span class="material-symbols-outlined">bolt</span> 虚拟下发执行 (Execute)
-            </button>
+            <div class="flex gap-2">
+              <button class="g-btn primary" style="flex:1" @click="showDualTrackModal = true">
+                <span class="material-symbols-outlined">bolt</span> 虚拟执行 (What-if)
+              </button>
+              <button class="g-btn secondary" @click="showPassportModal = true">
+                <span class="material-symbols-outlined">policy</span> 决策护照
+              </button>
+            </div>
           </div>
         </div>
 
@@ -237,8 +253,65 @@
             </button>
           </div>
         </div>
-
       </div>
+
+      <!-- Dual Track Modal -->
+      <transition name="fade">
+        <div class="g-modal-overlay" v-if="showDualTrackModal" @click.self="showDualTrackModal = false">
+          <div class="g-modal" style="max-width: 800px;">
+            <div class="g-modal-header">
+              <h3>双轨推演模拟 (Dual-Track What-if)</h3>
+              <button class="g-btn icon-only" @click="showDualTrackModal = false"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="g-modal-body">
+              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“下发处方 (执行)”与“不下发处方 (不执行)”的演化结果。</p>
+              <div id="dualTrackChart" style="width: 100%; height: 350px;"></div>
+            </div>
+            <div class="g-modal-footer">
+              <button class="g-btn secondary" @click="showDualTrackModal = false">取消</button>
+              <button class="g-btn primary" @click="confirmExecution">正式下发指令</button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <!-- Decision Passport Modal -->
+      <transition name="fade">
+        <div class="g-modal-overlay" v-if="showPassportModal" @click.self="showPassportModal = false">
+          <div class="g-modal">
+            <div class="g-modal-header">
+              <h3 class="flex items-center gap-2"><span class="material-symbols-outlined" style="color:var(--g-primary)">policy</span> 决策护照 (Passport)</h3>
+              <button class="g-btn icon-only" @click="showPassportModal = false"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="g-modal-body">
+              <ul class="gates-list">
+                <li style="flex-direction:column; align-items:flex-start">
+                  <div class="flex justify-between" style="width:100%"><span style="font-weight:500">Trace ID</span><span>run-20260822-001</span></div>
+                </li>
+                <li style="flex-direction:column; align-items:flex-start">
+                  <div class="flex justify-between" style="width:100%"><span style="font-weight:500">来源输入 (Observation)</span><span class="g-badge primary">SOIL_MOISTURE=16.8%</span></div>
+                  <div class="text-muted mt-1" style="font-size:12px">源自 mock-plot-a01，新鲜度 200ms</div>
+                </li>
+                <li style="flex-direction:column; align-items:flex-start">
+                  <div class="flex justify-between" style="width:100%"><span style="font-weight:500">推导诊断 (Derived)</span><span class="g-badge warning">WATER_DEFICIT</span></div>
+                  <div class="text-muted mt-1" style="font-size:12px">置信度 92%，排查了传感器漂移可能</div>
+                </li>
+                <li style="flex-direction:column; align-items:flex-start">
+                  <div class="flex justify-between" style="width:100%"><span style="font-weight:500">参考知识 (Knowledge)</span><span class="g-badge purple">kb-1.0.0</span></div>
+                  <div class="text-muted mt-1" style="font-size:12px">匹配番茄结果期，安全上限 900s</div>
+                </li>
+                <li style="flex-direction:column; align-items:flex-start">
+                  <div class="flex justify-between" style="width:100%"><span style="font-weight:500">输出处方 (Action)</span><span class="g-badge success">8m30s / 153L</span></div>
+                  <div class="text-muted mt-1" style="font-size:12px">待系统管理员下发指令</div>
+                </li>
+              </ul>
+            </div>
+            <div class="g-modal-footer">
+              <button class="g-btn primary" @click="showPassportModal = false">关闭</button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
   </template>
 
@@ -284,7 +357,10 @@
   <!-- Work Orders Template -->
   <template id="tmpl-work-orders">
     <div>
-      <h2 class="mb-4">工单流转与人机协同 (Work Orders & Inspections)</h2>
+      <div class="flex justify-between items-center mb-4">
+        <h2>工单流转与人机协同 (Work Orders & Inspections)</h2>
+        <button class="g-btn primary" @click="showFormModal = true">+ 录入巡田记录</button>
+      </div>
       
       <div class="g-grid g-grid-3 mb-4">
         <div class="g-card flex items-center gap-4">
@@ -339,10 +415,7 @@
         </div>
 
         <div class="g-card">
-          <div class="flex justify-between items-center mb-4">
-            <h3>人工核验记录 (Human Observations)</h3>
-            <button class="g-btn secondary">+ 录入</button>
-          </div>
+          <h3 class="mb-4">人工核验记录 (Human Observations)</h3>
           <div class="metric-box mb-4" v-for="ins in state.inspections" :key="ins.inspectionId">
             <div class="flex justify-between mb-2">
               <span style="font-weight:500">{{ ins.plotId }} · 巡田反馈</span>
@@ -359,6 +432,47 @@
           </div>
         </div>
       </div>
+
+      <!-- Add Inspection Modal -->
+      <transition name="fade">
+        <div class="g-modal-overlay" v-if="showFormModal" @click.self="showFormModal = false">
+          <div class="g-modal">
+            <div class="g-modal-header">
+              <h3>录入人工巡田数据</h3>
+              <button class="g-btn icon-only" @click="showFormModal = false"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="g-modal-body">
+              <div class="g-form-group">
+                <label class="g-form-label">地块选择</label>
+                <select class="g-select" v-model="form.plotId">
+                  <option value="plot-a01">plot-a01 温室 1 号棚</option>
+                  <option value="plot-b01">plot-b01 温室 3 号棚</option>
+                </select>
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label">表层状况 (Soil Surface)</label>
+                <input type="text" class="g-input" v-model="form.soilSurface" placeholder="例：DRY, MOIST">
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label">植被情况 (Crop Condition)</label>
+                <input type="text" class="g-input" v-model="form.cropCondition" placeholder="例：NORMAL, LEAF_SLIGHT_WILT">
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label">手持仪实测含水率 (%)</label>
+                <input type="number" class="g-input" v-model="form.portableSoilMoisture">
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label">备注说明</label>
+                <input type="text" class="g-input" v-model="form.notes">
+              </div>
+            </div>
+            <div class="g-modal-footer">
+              <button class="g-btn secondary" @click="showFormModal = false">取消</button>
+              <button class="g-btn primary" @click="submitInspection">提交核验</button>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
   </template>
 
