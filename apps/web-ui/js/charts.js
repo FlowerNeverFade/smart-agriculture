@@ -404,8 +404,9 @@ export function svgGauge(opts) {
   const span = opts.max - opts.min || 1;
   const ratio = (val - opts.min) / span;
   const angle = Math.PI * (1 - ratio); // 0..π
-  const px = cx + r * Math.cos(angle);
-  const py = cy - r * Math.sin(angle);
+  const needleR = r * 0.66;
+  const px = cx + needleR * Math.cos(angle);
+  const py = cy - needleR * Math.sin(angle);
 
   const polar = (aDeg, rr) => {
     const a = ((180 - aDeg) * Math.PI) / 180;
@@ -428,18 +429,18 @@ export function svgGauge(opts) {
   html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="var(--text-primary)" stroke-width="2.5" stroke-linecap="round"/>`;
   html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="var(--text-primary)"/>`;
 
-  // 刻度（长度收紧，颜色随主题）
+  // 刻度（贴近色环，颜色随主题）
   for (let v = opts.min; v <= opts.max; v += Math.ceil(span / 6)) {
     const a = 180 - ((v - opts.min) / span) * 180;
-    const [x1, y1] = polar(a, r + 8);
-    const [x2, y2] = polar(a, r + 14);
+    const [x1, y1] = polar(a, r - 8);
+    const [x2, y2] = polar(a, r - 2);
     html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="var(--text-secondary)" stroke-width="1"/>`;
   }
 
   // 数值
-  html += `<text class="chart-gauge-value" x="${cx.toFixed(2)}" y="${(cy - 34).toFixed(2)}" text-anchor="middle">${opts.format ? opts.format(val) : val}</text>`;
+  html += `<text class="chart-gauge-value" x="${cx.toFixed(2)}" y="${(cy - 24).toFixed(2)}" text-anchor="middle">${opts.format ? opts.format(val) : val}</text>`;
   if (opts.unit) {
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy - 16).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.unit)}</text>`;
+    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy - 6).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.unit)}</text>`;
   }
   if (opts.label) {
     html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy + 22).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.label)}</text>`;

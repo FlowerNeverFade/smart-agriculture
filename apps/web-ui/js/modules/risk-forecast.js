@@ -182,7 +182,7 @@ export async function renderRiskForecast(container, plotId) {
         }
       },
       pointer: {
-        length: '50%', width: 5,
+        length: '66%', width: 5,
         itemStyle: { color: themeTextColor() },
         animationDuration: 1400, animationEasing: 'cubicOut'
       },
@@ -190,14 +190,14 @@ export async function renderRiskForecast(container, plotId) {
       // 从外到内三层：色环（最外）-> 刻度线（紧贴环内）-> 数字标签（最内圈）
       axisTick: { distance: -8, length: 4, lineStyle: { color: themeTickColor() } },
       splitLine: { distance: -8, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
-      axisLabel: { distance: -22, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
+      axisLabel: { distance: -14, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
       detail: {
         valueAnimation: true,
         formatter: v => v >= 240 ? '>240' : v,
         color: themeTextColor(), fontSize: 32, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-        offsetCenter: [0, '16%'] // 大数字移到仪表盘正下方（弧底下），与表盘内的指针错开
+        offsetCenter: [0, '24%'] // 大数字下移到弧底下方，与加长后的指针错开
       },
-      title: { offsetCenter: [0, '40%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
+      title: { offsetCenter: [0, '48%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
       data: [{ value: 0, name: '分钟 · 触达极限胁迫边界' }],
       animationDuration: 1400,
       animationEasing: 'cubicOut'
