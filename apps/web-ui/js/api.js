@@ -1065,6 +1065,12 @@ export class ApiService {
       payload = null;
     }
     if (!response.ok) {
+      if ([404, 405, 501].includes(response.status)) {
+        throw new ApiError(`后端服务未运行: ${response.status}`, {
+          code: 'NETWORK_ERROR',
+          isNetworkError: true
+        });
+      }
       const error = payload?.error || {};
       throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
         status: response.status,
