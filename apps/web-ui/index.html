@@ -55,7 +55,7 @@
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
         <div v-for="nav in navItems" :key="nav.id" 
              class="g-nav-item" :class="{active: currentView === nav.id}"
-             @click="currentView = nav.id">
+             @click="navigate(nav.id)">
           <span class="material-symbols-outlined">{{ nav.icon }}</span>
           {{ nav.label }}
         </div>
