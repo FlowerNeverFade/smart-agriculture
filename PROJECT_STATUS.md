@@ -9,6 +9,8 @@
 
 > 2026-08-24 main 部署记录：代码整合提交 `08a7b90` 已发布到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
 
+> 2026-08-24 Agent 连续对话优化：已在本地实现复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的持久化历史和网页“我的对话记录”。本地证据为 Spring Boot 12/12、Web 回归 68/68；当前状态为待公网部署验收。
+
 ## 1. 进度总览
 
 | 工作流 | 状态 | 完成度判断 | 证据/说明 |

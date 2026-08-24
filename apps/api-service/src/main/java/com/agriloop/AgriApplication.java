@@ -106,6 +106,8 @@ class AgriProperties {
     private boolean llmEnableThinking = false;
     private boolean llmPreserveThinking = false;
     private String llmReasoningEffort = "low";
+    /** Maximum number of prior user/assistant messages supplied as dialogue context. */
+    private int llmHistoryMessages = 8;
     private String commandMode = "virtual";
     private String forecastMode = "deterministic";
     private String learningMode = "case-only";
@@ -147,6 +149,8 @@ class AgriProperties {
     public void setLlmPreserveThinking(boolean llmPreserveThinking) { this.llmPreserveThinking = llmPreserveThinking; }
     public String getLlmReasoningEffort() { return llmReasoningEffort; }
     public void setLlmReasoningEffort(String llmReasoningEffort) { this.llmReasoningEffort = llmReasoningEffort; }
+    public int getLlmHistoryMessages() { return llmHistoryMessages; }
+    public void setLlmHistoryMessages(int llmHistoryMessages) { this.llmHistoryMessages = llmHistoryMessages; }
     public String getCommandMode() { return commandMode; }
     public void setCommandMode(String commandMode) { this.commandMode = commandMode; }
     public String getForecastMode() { return forecastMode; }
@@ -1567,10 +1571,15 @@ class AgriEngine {
         String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
         String plotId = Jsons.text(input, "plotId", "plot-a01");
         ensurePlotAccess(principal, plotId);
+        String conversationId = resolveConversationId(input, principal);
+        List<Map<String, Object>> recentHistory = conversationMessages(principal, conversationId,
+                Math.max(0, Math.min(12, properties.getLlmHistoryMessages())));
+        String priorIntent = lastAssistantIntent(recentHistory);
         String traceId = Jsons.id("run");
         List<Map<String, Object>> tools = new ArrayList<>();
         Map<String, Object> answer = new LinkedHashMap<>();
         answer.put("traceId", traceId);
+        answer.put("conversationId", conversationId);
         answer.put("plotId", plotId);
         answer.put("mode", properties.getAiMode());
         answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
@@ -1612,6 +1621,19 @@ class AgriEngine {
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
+        } else if (isRetestChecklistQuestion(message)) {
+            Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
+            tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
+            answer.put("intent", "RETEST_CHECKLIST");
+            answer.put("summary", "已按当前异常项整理复测清单");
+            answer.put("result", status);
+        } else if (isContextualFollowUp(message) && !recentHistory.isEmpty()) {
+            Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
+            tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
+            answer.put("intent", "FOLLOW_UP");
+            answer.put("relatedIntent", priorIntent.isBlank() ? "PLOT_STATUS" : priorIntent);
+            answer.put("summary", "已结合上一轮对话继续说明");
+            answer.put("result", status);
         } else if (message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")) {
             tools.add(tool("get_risk_forecast", Map.of("plotId", plotId), forecast(plotId, "SOIL_MOISTURE")));
             answer.put("intent", "RISK_FORECAST");
@@ -1661,10 +1683,9 @@ class AgriEngine {
         } else if (openAiCompatible) {
             long started = System.nanoTime();
             try {
-                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId));
+                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId), recentHistory);
                 String narrative = sanitizeNarrative(rawNarrative);
-                String safetyOverride = safetyNarrativeOverride(message, answer);
-                if (safetyOverride != null) narrative = safetyOverride;
+                narrative = applySafetyGuidance(message, answer, narrative);
                 if (narrative.isBlank()) narrative = Jsons.text(answer, "summary", "已完成规则评估");
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
@@ -1683,14 +1704,21 @@ class AgriEngine {
         }
         answer.put("degraded", degraded);
         answer.put("degradationReason", degradationReason);
+        if (!answer.containsKey("narrative") || Jsons.text(answer, "narrative", "").isBlank()) {
+            answer.put("narrative", rulesNarrative(message, answer));
+            answer.put("narrativeProvenance", "DERIVED");
+        }
         if (degraded && !openAiCompatible) {
             store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "mode", aiMode, "reason", degradationReason, "provenance", "DERIVED"));
         }
         // Keep the public response clean while retaining the raw model output in the
         // server-side audit record for troubleshooting and reproducibility.
         Map<String, Object> auditAnswer = new LinkedHashMap<>(answer);
+        auditAnswer.put("userId", principal.userId);
+        auditAnswer.put("username", principal.username);
         if (rawNarrative != null && !rawNarrative.isBlank()) auditAnswer.put("narrativeRaw", rawNarrative);
         store.save("agent-run", traceId, auditAnswer);
+        saveAgentTurn(principal, conversationId, plotId, message, answer);
         store.logEvent("agent.run", answer);
         events.publish("agent.run.completed", answer);
         return answer;
@@ -1701,7 +1729,8 @@ class AgriEngine {
      * narrative generation.  Rules and tools above remain the source of
      * truth for measurements, plans, permissions, and commands.
      */
-    private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext) throws IOException {
+    private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
+                                        List<Map<String, Object>> recentHistory) throws IOException {
         String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
         if (baseUrl.isBlank()) throw new IOException("LLM_BASE_URL_NOT_CONFIGURED");
         while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
@@ -1718,16 +1747,26 @@ class AgriEngine {
         if (context.length() > 10000) context = context.substring(0, 10000) + "…";
         String prompt = (userMessage == null ? "" : userMessage);
         if (prompt.length() > 4000) prompt = prompt.substring(0, 4000) + "…";
-        String userContent = "用户问题：" + prompt + "\n\n公开事实（只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
+        String userContent = "当前问题：" + prompt + "\n\n当前公开事实（优先级高于历史对话，只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", configuredLlmModel());
-        request.put("messages", List.of(
-                Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。语气自然，像经验丰富的农技员：先说结论，再用一两句解释依据和下一步；可以使用‘目前看来’、‘更稳妥的是’等表达，避免机械重复同一句拒绝话术。问候只问候，信息不足先提出一个最小澄清问题；最多 3 个短段或 5 条要点。只能使用给定公开事实，不得编造观测值；不得生成 SQL、MQTT topic、HTTP 请求或控制命令。处方只是人工复核参考时要说清楚‘不会自动执行’，但仍可给出保守的建议和复测重点。"),
-                Map.of("role", "user", "content", userContent)));
-        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.7);
-        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.8);
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手，像一位耐心、务实的农技员与用户连续交谈。直接回答当前问题；如果用户是在追问清单、原因、步骤或‘然后呢’，要承接最近对话，不要重新复述上一轮结论，也不要把不同问题套进同一句风险模板。表达可以随问题变化：简单问题用一两句话，操作清单用编号，解释问题用‘结论—原因—下一步’；避免每次都以‘我看到’‘建议先’‘如果你愿意’开头。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。最多 3 个短段或 6 条要点。历史对话只用于理解指代和追问，当前公开事实才是实时依据；只能使用给定事实，不得编造观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，要自然说明不会自动执行，但仍应回答用户真正询问的内容。"));
+        for (Map<String, Object> historical : recentHistory == null ? List.<Map<String, Object>>of() : recentHistory) {
+            String roleCode = Jsons.text(historical, "role", "");
+            String role = "USER".equalsIgnoreCase(roleCode) ? "user" : "ASSISTANT".equalsIgnoreCase(roleCode) ? "assistant" : "";
+            String content = Jsons.text(historical, "content", "").trim();
+            if (role.isBlank() || content.isBlank()) continue;
+            if (content.length() > 800) content = content.substring(0, 800) + "…";
+            messages.add(Map.of("role", role, "content", content));
+        }
+        messages.add(Map.of("role", "user", "content", userContent));
+        request.put("messages", messages);
+        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.78);
+        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.9);
         request.put("top_k", 20);
-        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 1.5);
+        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.35);
+        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.25);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
         Map<String, Object> chatTemplate = new LinkedHashMap<>();
@@ -1814,6 +1853,23 @@ class AgriEngine {
                 || normalized.contains("具备") && (normalized.contains("知识") || normalized.contains("能力"));
     }
 
+    private boolean isRetestChecklistQuestion(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT).replaceAll("[\\s，。！？,.!?]", "");
+        return normalized.contains("复测清单") || normalized.contains("检查清单")
+                || normalized.contains("怎么复测") || normalized.contains("如何复测")
+                || normalized.contains("复测步骤") || normalized.contains("复查步骤");
+    }
+
+    private boolean isContextualFollowUp(String message) {
+        if (message == null) return false;
+        String normalized = message.toLowerCase(Locale.ROOT).replaceAll("[\\s，。！？,.!?]", "");
+        return Set.of("继续", "接着说", "然后呢", "为什么", "怎么办", "那怎么办", "怎么做", "详细一点", "说具体点", "列出来")
+                .contains(normalized)
+                || normalized.startsWith("那") && normalized.length() <= 8
+                || normalized.startsWith("再说") && normalized.length() <= 10;
+    }
+
     private boolean isIrrigationQuestion(String message) {
         if (message == null) return false;
         String normalized = message.toLowerCase(Locale.ROOT);
@@ -1836,11 +1892,7 @@ class AgriEngine {
      */
     @SuppressWarnings("unchecked")
     String safetyNarrativeOverride(String message, Map<String, Object> answer) {
-        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
-        if (normalized.contains("mqtt") || normalized.contains("topic") || normalized.contains("sql")
-                || normalized.contains("http 请求") || normalized.contains("http request")
-                || normalized.contains("发送命令") || normalized.contains("控制命令")
-                || normalized.contains("执行命令") || normalized.contains("开阀") || normalized.contains("关阀")) {
+        if (isDirectControlRequest(message)) {
             return "我不能在对话中直接发送或生成控制命令。请使用受控执行接口，并先完成权限、审批、幂等键和安全门校验。";
         }
 
@@ -1870,29 +1922,212 @@ class AgriEngine {
             }
         }
 
-        // Diagnosis and status queries may explain a degraded signal.  They do
-        // not issue a command, so do not replace the model's useful explanation
-        // with the old one-line refusal template.
-        if ("DIAGNOSIS".equals(intent)) return null;
+        // Status, diagnosis, explanation and checklist requests are read-only.
+        // Their useful model answer must not be replaced by a generic action
+        // refusal merely because one telemetry metric is degraded or a device
+        // is offline. The facts remain visible in the deterministic context.
+        return null;
+    }
+
+    private boolean isDirectControlRequest(String message) {
+        String normalized = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return normalized.contains("mqtt") || normalized.contains("topic") || normalized.contains("sql")
+                || normalized.contains("http 请求") || normalized.contains("http request")
+                || normalized.contains("发送命令") || normalized.contains("控制命令")
+                || normalized.contains("执行命令") || normalized.contains("开阀") || normalized.contains("关阀");
+    }
+
+    private String applySafetyGuidance(String message, Map<String, Object> answer, String narrative) {
+        String guidance = safetyNarrativeOverride(message, answer);
+        if (guidance == null || guidance.isBlank()) return narrative == null ? "" : narrative;
+        if (isDirectControlRequest(message) || narrative == null || narrative.isBlank()) return guidance;
+        String normalized = narrative.toLowerCase(Locale.ROOT);
+        if (normalized.contains("不会自动") || normalized.contains("不会直接下发")
+                || normalized.contains("人工复核") || normalized.contains("暂时不建议灌溉")) return narrative;
+        return narrative.trim() + "\n\n" + guidance;
+    }
+
+    private String rulesNarrative(String message, Map<String, Object> answer) {
+        String intent = Jsons.text(answer, "intent", "PLOT_STATUS");
+        if ("RETEST_CHECKLIST".equals(intent)) return retestChecklistNarrative(answer);
+        if ("IRRIGATION_RECOMMENDATION".equals(intent)) {
+            Map<String, Object> plan = Jsons.map(mapper, answer.get("plan"));
+            double water = Jsons.number(plan, "waterLitre", 0);
+            long duration = Jsons.whole(plan, "durationSeconds", 0);
+            if (Jsons.bool(plan, "executable", false)) {
+                return String.format(Locale.ROOT, "按当前数据，可提交一版约 %.1f L、持续 %d 秒的灌溉方案。它仍需经过页面上的确认流程，不会由对话直接执行。", water, duration);
+            }
+            String guidance = safetyNarrativeOverride(message, answer);
+            return guidance == null ? "当前数据更适合先观察和复测，暂不需要生成可执行灌溉动作。" : guidance;
+        }
+        if ("DIAGNOSIS".equals(intent)) {
+            Map<String, Object> diagnosis = Jsons.map(mapper, answer.get("diagnosis"));
+            String cause = Jsons.text(diagnosis, "primaryCause", "EVIDENCE_INSUFFICIENT");
+            double confidence = Jsons.number(diagnosis, "confidence", 0);
+            return String.format(Locale.ROOT, "这次诊断更偏向 %s（置信度约 %.0f%%）。先核对支持证据与反对证据，再结合现场复测决定是否处理。", cause, confidence * 100);
+        }
+        if ("TODAY_WORK".equals(intent)) {
+            List<Map<String, Object>> work = Jsons.maps(mapper, answer.get("workItems"));
+            return work.isEmpty() ? "今天暂时没有新的高优先级农务。你也可以指定地块，我再按地块检查。"
+                    : "今天共汇总到 " + work.size() + " 项待办，建议先处理高风险告警和有时限的巡田任务，再安排常规作业。";
+        }
+        if ("RISK_FORECAST".equals(intent)) {
+            Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+            String status = Jsons.text(result, "status", "AVAILABLE");
+            return "UNAVAILABLE".equalsIgnoreCase(status)
+                    ? "当前样本还不足以形成可靠预测。我可以先告诉你缺少哪些数据，补齐后再计算 1、2、4 小时风险。"
+                    : "短期水分趋势已经算出。请重点看预计越界时间和区间范围；如果新遥测持续进入，预测会随之更新。";
+        }
+        if ("FOLLOW_UP".equals(intent)) {
+            return "可以，我接着上一轮说明：当前数据只代表此刻的模拟观测，先确认异常项是否持续，再根据复测结果决定是处理设备还是调整农事。";
+        }
 
         Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
         Map<String, Object> device = Jsons.map(mapper, result.get("device"));
-        String deviceStatus = Jsons.text(device, "status", "");
-        if ("OFFLINE".equalsIgnoreCase(deviceStatus)) {
-            return "当前设备离线，无法把旧数据当作实时依据；请先恢复设备或人工复测，暂不生成可执行灌溉处方。";
-        }
         Map<String, Object> latest = Jsons.map(mapper, result.get("latest"));
-        boolean degraded = latest.values().stream().anyMatch(value -> {
-            if (!(value instanceof Map<?, ?>)) return false;
-            Map<String, Object> metric = Jsons.map(mapper, value);
-            Map<String, Object> quality = Jsons.map(mapper, metric.get("quality"));
-            String status = Jsons.text(quality, "status", "GOOD");
-            return "DEGRADED".equalsIgnoreCase(status) || "BAD".equalsIgnoreCase(status);
-        });
-        if (degraded) {
-            return "我看到一项遥测质量提醒，当前结论更适合作为风险参考。建议先复测对应传感器，再决定是否调整灌溉；如果你愿意，我也可以先帮你列一份复测清单。";
+        Map<String, Object> soil = Jsons.map(mapper, latest.get("SOIL_MOISTURE"));
+        String deviceStatus = Jsons.text(device, "status", "UNKNOWN");
+        if (!soil.isEmpty()) {
+            String quality = Jsons.text(Jsons.map(mapper, soil.get("quality")), "status", "GOOD");
+            return String.format(Locale.ROOT, "当前设备状态为 %s，最新土壤湿度约 %.1f%%（质量 %s）。这是只读状态说明；如果你想了解某个指标或异常原因，可以直接点名追问。",
+                    deviceStatus, Jsons.number(soil, "value", 0), quality);
         }
-        return null;
+        return Jsons.text(answer, "summary", "我已结合当前地块数据完成查询。你可以继续追问具体指标、原因或处理步骤。");
+    }
+
+    private String retestChecklistNarrative(Map<String, Object> answer) {
+        Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+        Map<String, Object> latest = Jsons.map(mapper, result.get("latest"));
+        Map<String, Object> device = Jsons.map(mapper, result.get("device"));
+        List<String> items = new ArrayList<>();
+        latest.forEach((metric, value) -> {
+            Map<String, Object> event = Jsons.map(mapper, value);
+            String quality = Jsons.text(Jsons.map(mapper, event.get("quality")), "status", "GOOD");
+            if ("DEGRADED".equalsIgnoreCase(quality) || "BAD".equalsIgnoreCase(quality)) {
+                items.add("在相同点位复测" + metricDisplayName(metric) + " 2～3 次，每次间隔约 5 分钟，并记录读数是否连续");
+            }
+        });
+        if (items.isEmpty()) items.add("在根区相同深度复测土壤湿度 2～3 次，确认读数是否稳定");
+        if ("OFFLINE".equalsIgnoreCase(Jsons.text(device, "status", ""))) {
+            items.add("检查传感器供电、网关连接和最后心跳时间，恢复在线后再取一组新数据");
+        } else {
+            items.add("检查探头是否松动、污染或位置改变，并与邻近点位做一次交叉对照");
+        }
+        items.add("若准备灌溉，再核对阀门状态和流量计；复测合格后重新生成处方");
+        StringBuilder text = new StringBuilder("可以，按这个顺序复测：");
+        for (int i = 0; i < items.size(); i++) text.append("\n").append(i + 1).append(". ").append(items.get(i));
+        return text.toString();
+    }
+
+    private String metricDisplayName(String metric) {
+        return switch (String.valueOf(metric).toUpperCase(Locale.ROOT)) {
+            case "SOIL_MOISTURE" -> "土壤湿度";
+            case "AIR_TEMPERATURE" -> "空气温度";
+            case "LIGHT" -> "光照";
+            case "CO2" -> "CO₂";
+            case "PH" -> "pH";
+            case "WATER_LEVEL" -> "水位";
+            default -> String.valueOf(metric);
+        };
+    }
+
+    private String resolveConversationId(Map<String, Object> input, UserPrincipal principal) {
+        String conversationId = Jsons.text(input, "conversationId", "").trim();
+        if (conversationId.isBlank()) conversationId = "conversation-" + principal.userId;
+        if (!conversationId.matches("[A-Za-z0-9_-]{1,120}")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_ID_INVALID", "conversationId 格式无效");
+        }
+        Map<String, Object> existing = store.find("agent-conversation", conversationId);
+        if (existing != null && !principal.userId.equals(Jsons.text(existing, "userId", ""))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权访问该对话");
+        }
+        return conversationId;
+    }
+
+    private List<Map<String, Object>> conversationMessages(UserPrincipal principal, String conversationId, int limit) {
+        if (limit <= 0) return List.of();
+        List<Map<String, Object>> messages = store.list("agent-message").stream()
+                .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
+                .filter(item -> conversationId.equals(Jsons.text(item, "conversationId", "")))
+                .sorted(Comparator.comparing(item -> Jsons.instant(item.get("createdAt"), Instant.EPOCH)))
+                .collect(Collectors.toCollection(ArrayList::new));
+        int from = Math.max(0, messages.size() - Math.max(1, Math.min(limit, 100)));
+        return new ArrayList<>(messages.subList(from, messages.size()));
+    }
+
+    private String lastAssistantIntent(List<Map<String, Object>> history) {
+        if (history == null) return "";
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Map<String, Object> item = history.get(i);
+            if ("ASSISTANT".equalsIgnoreCase(Jsons.text(item, "role", ""))) return Jsons.text(item, "intent", "");
+        }
+        return "";
+    }
+
+    private synchronized void saveAgentTurn(UserPrincipal principal, String conversationId, String plotId,
+                                            String userMessage, Map<String, Object> answer) {
+        Instant now = Instant.now();
+        String traceId = Jsons.text(answer, "traceId", Jsons.id("run"));
+        Map<String, Object> userEntry = new LinkedHashMap<>();
+        userEntry.put("messageId", Jsons.id("msg")); userEntry.put("conversationId", conversationId);
+        userEntry.put("userId", principal.userId); userEntry.put("username", principal.username); userEntry.put("role", "USER");
+        userEntry.put("content", userMessage.length() > 4000 ? userMessage.substring(0, 4000) + "…" : userMessage);
+        userEntry.put("plotId", plotId); userEntry.put("traceId", traceId); userEntry.put("createdAt", now.toString());
+        store.save("agent-message", Jsons.text(userEntry, "messageId", ""), userEntry);
+
+        Map<String, Object> assistantEntry = new LinkedHashMap<>();
+        assistantEntry.put("messageId", Jsons.id("msg")); assistantEntry.put("conversationId", conversationId);
+        assistantEntry.put("userId", principal.userId); assistantEntry.put("role", "ASSISTANT");
+        assistantEntry.put("content", Jsons.text(answer, "narrative", Jsons.text(answer, "summary", "")));
+        assistantEntry.put("intent", Jsons.text(answer, "intent", "")); assistantEntry.put("plotId", plotId);
+        assistantEntry.put("traceId", traceId); assistantEntry.put("adapter", Jsons.text(answer, "adapter", "rules"));
+        assistantEntry.put("degraded", Jsons.bool(answer, "degraded", false));
+        if (answer.containsKey("llm")) assistantEntry.put("llm", publicProjection(answer.get("llm")));
+        assistantEntry.put("knowledgeEvidence", answer.get("knowledgeEvidence"));
+        assistantEntry.put("createdAt", now.plusMillis(1).toString());
+        store.save("agent-message", Jsons.text(assistantEntry, "messageId", ""), assistantEntry);
+
+        Map<String, Object> conversation = store.find("agent-conversation", conversationId);
+        if (conversation == null) {
+            conversation = new LinkedHashMap<>(); conversation.put("conversationId", conversationId);
+            conversation.put("userId", principal.userId); conversation.put("username", principal.username);
+            String title = userMessage.replaceAll("\\s+", " ").trim();
+            conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
+            conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0);
+        }
+        conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
+        conversation.put("lastMessageAt", now.toString()); conversation.put("updatedAt", now.toString());
+        conversation.put("messageCount", Jsons.whole(conversation, "messageCount", 0) + 2);
+        store.save("agent-conversation", conversationId, conversation);
+    }
+
+    Map<String, Object> agentHistory(String conversationId, int limit, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) {
+            conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
+            conversation.put("userId", principal.userId); conversation.put("username", principal.username);
+            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0);
+        }
+        Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
+        result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
+        return result;
+    }
+
+    List<Map<String, Object>> agentConversations(int limit, UserPrincipal principal) {
+        return store.list("agent-conversation").stream()
+                .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
+                .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
+                .limit(Math.max(1, Math.min(limit, 50))).toList();
+    }
+
+    Map<String, Object> agentRun(String traceId, UserPrincipal principal) {
+        Map<String, Object> run = requireRecord("agent-run", traceId);
+        String owner = Jsons.text(run, "userId", "");
+        if (!owner.isBlank() && !principal.userId.equals(owner) && !"SYSTEM_ADMIN".equals(principal.role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "AGENT_RUN_FORBIDDEN", "无权访问该 Agent 记录");
+        }
+        return run;
     }
 
     /**
@@ -1966,7 +2201,7 @@ class AgriEngine {
         }
         List<String> kept = new ArrayList<>();
         Set<String> leakage = Set.of("traceid", "sourcelabels", "knowledgeevidence", "adapter:", "intent:",
-                "用户问题：", "系统提示：", "不得生成", "只根据给定事实", "工具入参", "工具出参", "result device", "<think>");
+                "用户问题：", "当前问题：", "当前公开事实", "系统提示：", "不得生成", "只根据给定事实", "工具入参", "工具出参", "result device", "<think>");
         for (String line : text.split("\\R")) {
             String trimmed = line.trim();
             if (trimmed.isBlank() || trimmed.equalsIgnoreCase("</think>")) {
@@ -2217,6 +2452,17 @@ class AgriController {
     @PostMapping("/agent/chat")
     ResponseEntity<?> chat(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.agentChat(body, principal(a))); }
 
+    @GetMapping("/agent/history")
+    ResponseEntity<?> agentHistory(@RequestParam(required = false) String conversationId,
+                                   @RequestParam(defaultValue = "40") int limit, Authentication a) {
+        return ok(engine.agentHistory(conversationId, limit, principal(a)));
+    }
+
+    @GetMapping("/agent/conversations")
+    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, Authentication a) {
+        return ok(engine.agentConversations(limit, principal(a)));
+    }
+
     @GetMapping("/agent/tools")
     ResponseEntity<?> agentTools(Authentication a) { return ok(List.of(
             Map.of("name", "get_risk_forecast", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
@@ -2226,7 +2472,7 @@ class AgriController {
             Map.of("name", "get_plot_status", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"))); }
 
     @GetMapping("/agent/runs/{traceId}")
-    ResponseEntity<?> agentRun(@PathVariable String traceId, Authentication a) { return ok(engine.record("agent-run", traceId)); }
+    ResponseEntity<?> agentRun(@PathVariable String traceId, Authentication a) { return ok(engine.agentRun(traceId, principal(a))); }
 
     @PostMapping("/commands/virtual")
     ResponseEntity<?> command(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createCommand(body, principal(a))); }

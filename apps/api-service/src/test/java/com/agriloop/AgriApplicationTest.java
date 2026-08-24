@@ -87,7 +87,7 @@ class AgriApplicationTest {
 
     @Test
     void qwenThinkingAndInternalMetadataAreNeverShownAsNarrative() {
-        String raw = "<think>内部推理 traceId: run-secret</think>\n\n你好！\n\ntraceId: run-secret\nsourceLabels: OBSERVED";
+        String raw = "<think>内部推理 traceId: run-secret</think>\n\n你好！\n\n当前问题：不应泄漏\ntraceId: run-secret\nsourceLabels: OBSERVED";
         assertThat(AgriEngine.sanitizeNarrative(raw)).isEqualTo("你好！");
     }
 
@@ -116,8 +116,7 @@ class AgriApplicationTest {
                 .contains("不能", "控制命令");
         Map<String, Object> offline = Map.of("intent", "PLOT_STATUS", "result", Map.of(
                 "device", Map.of("status", "OFFLINE"), "latest", Map.of()));
-        assertThat(engine.safetyNarrativeOverride("查看地块状态", offline))
-                .contains("设备离线", "暂不生成");
+        assertThat(engine.safetyNarrativeOverride("查看地块状态", offline)).isNull();
         Map<String, Object> blockedPlan = Map.of("intent", "IRRIGATION_RECOMMENDATION", "plan", Map.of(
                 "executable", false, "readinessStatus", "NEEDS_EVIDENCE"));
         assertThat(engine.safetyNarrativeOverride("给我灌溉建议", blockedPlan))
@@ -137,5 +136,44 @@ class AgriApplicationTest {
                 "message", "分析温室1的缺水与传感器漂移风险", "plotId", "plot-a01"), farmer);
         assertThat(diagnosis.get("intent")).isEqualTo("DIAGNOSIS");
         assertThat(diagnosis).containsKey("diagnosis");
+    }
+
+    @Test
+    void retestChecklistIsARealFollowUpInsteadOfTheRepeatedSafetyTemplate() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String conversationId = "conversation-retest-checklist";
+        Map<String, Object> first = engine.agentChat(Map.of(
+                "message", "读取温室1实时遥测与设备健康度", "plotId", "plot-a01", "conversationId", conversationId), farmer);
+        Map<String, Object> checklist = engine.agentChat(Map.of(
+                "message", "复测清单", "plotId", "plot-a01", "conversationId", conversationId), farmer);
+
+        assertThat(checklist.get("intent")).isEqualTo("RETEST_CHECKLIST");
+        assertThat(String.valueOf(checklist.get("narrative"))).contains("复测", "1.");
+        assertThat(checklist.get("narrative")).isNotEqualTo(first.get("narrative"));
+        assertThat(((List<?>) engine.agentHistory(conversationId, 20, farmer).get("messages"))).hasSize(4);
+    }
+
+    @Test
+    void agentHistoryIsPersistedAndStrictlyIsolatedByUser() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal operator = new UserPrincipal("user-operator", "operator", "FIELD_OPERATOR", List.of("farm-demo"), List.of("plot-a01"));
+        String farmerConversation = "conversation-farmer-private";
+        String operatorConversation = "conversation-operator-private";
+
+        Map<String, Object> farmerAnswer = engine.agentChat(Map.of(
+                "message", "番茄现在需要关注什么", "plotId", "plot-a01", "conversationId", farmerConversation), farmer);
+        engine.agentChat(Map.of(
+                "message", "今天有哪些农务", "plotId", "plot-a01", "conversationId", operatorConversation), operator);
+
+        List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
+        assertThat(farmerMessages).hasSize(2);
+        assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
+        assertThat(engine.agentConversations(20, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, operator)).allMatch(item -> "user-operator".equals(item.get("userId")));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, operator))
+                .isInstanceOf(ApiException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentRun(String.valueOf(farmerAnswer.get("traceId")), operator))
+                .isInstanceOf(ApiException.class);
     }
 }

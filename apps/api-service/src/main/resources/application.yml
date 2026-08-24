@@ -41,6 +41,7 @@ agriloop:
   llm-enable-thinking: ${LLM_ENABLE_THINKING:false}
   llm-preserve-thinking: ${LLM_PRESERVE_THINKING:false}
   llm-reasoning-effort: ${LLM_REASONING_EFFORT:low}
+  llm-history-messages: ${LLM_HISTORY_MESSAGES:8}
   command-mode: ${COMMAND_MODE:virtual}
   forecast-mode: ${FORECAST_MODE:deterministic}
   learning-mode: ${LEARNING_MODE:case-only}

@@ -318,11 +318,28 @@ export class ApiService {
     };
   }
 
-  async agentChat(message, plotId = 'plot-a01') {
+  async getAgentHistory(conversationId = '', limit = 40) {
+    if (!this.isLive) {
+      const userId = this.user?.userId || this.user?.username || 'demo';
+      return {
+        conversation: { conversationId: `conversation-${userId}`, title: '我的农智对话', messageCount: 0 },
+        messages: []
+      };
+    }
+    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
+    if (conversationId) params.set('conversationId', conversationId);
+    const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
+    if (resp?.data) return resp.data;
+    throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
+  }
+
+  async agentChat(message, plotId = 'plot-a01', conversationId = '') {
     if (this.isLive) {
+      const body = { message, plotId };
+      if (conversationId) body.conversationId = conversationId;
       const resp = await this._fetch('/api/v1/agent/chat', {
         method: 'POST',
-        body: JSON.stringify({ message, plotId })
+        body: JSON.stringify(body)
       });
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });

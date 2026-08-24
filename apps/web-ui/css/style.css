@@ -1070,6 +1070,103 @@ body {
   white-space: pre-wrap;
 }
 
+.copilot-history {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-muted);
+  padding-top: 10px;
+}
+
+.copilot-history-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-subtle) 62%, transparent);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font: 500 12px/1.4 var(--font-sans);
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.copilot-history-toggle:hover,
+.copilot-history-toggle[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--green-primary);
+  background: var(--bg-subtle);
+}
+
+.copilot-history-count {
+  color: var(--text-muted);
+  font: 11px var(--font-mono);
+}
+
+.copilot-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 310px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.copilot-history-list[hidden] {
+  display: none;
+}
+
+.copilot-history-item {
+  width: 100%;
+  padding: 10px 11px;
+  color: var(--text-primary);
+  text-align: left;
+  background: color-mix(in srgb, var(--bg-surface) 76%, transparent);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.copilot-history-item:hover {
+  border-color: var(--green-primary);
+  transform: translateY(-1px);
+}
+
+.copilot-history-question,
+.copilot-history-answer {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-history-question {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.copilot-history-answer {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.copilot-history-meta,
+.copilot-history-empty {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.copilot-history-meta {
+  display: block;
+  margin-top: 5px;
+}
+
+.copilot-history-empty {
+  margin: 4px 2px;
+}
+
 /* Feed Filter Tabs */
 .feed-filter-bar {
   display: flex;

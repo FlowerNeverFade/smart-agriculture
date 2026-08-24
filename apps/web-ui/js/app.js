@@ -61,7 +61,11 @@ class AgriApp {
       authenticated: api.isAuthenticated(),
       user: api.getUser(),
       backendAiMode: null,
-      simulator: { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' }
+      simulator: { available: false, status: 'UNAVAILABLE', reason: 'AUTH_REQUIRED' },
+      conversationId: '',
+      agentHistory: [],
+      agentHistoryTurns: [],
+      agentHistoryOpen: false
     };
 
     this.dom = {};
@@ -111,6 +115,7 @@ class AgriApp {
 
     // Load initial data
     await this.loadOverview();
+    await this.loadAgentHistory(true);
     await this.refreshSimulatorStatus(true);
 
     this.farmMonitor = new FarmMonitor({
@@ -160,6 +165,9 @@ class AgriApp {
     this.dom.copilotOutputTitle = document.getElementById('copilotOutputTitle');
     this.dom.copilotOutputText = document.getElementById('copilotOutputText');
     this.dom.copilotTraceId = document.getElementById('copilotTraceId');
+    this.dom.btnToggleCopilotHistory = document.getElementById('btnToggleCopilotHistory');
+    this.dom.copilotHistoryCount = document.getElementById('copilotHistoryCount');
+    this.dom.copilotHistoryList = document.getElementById('copilotHistoryList');
     this.dom.feedTabButtons = document.getElementById('feedTabButtons');
     this.dom.feedStreamContainer = document.getElementById('feedStreamContainer');
     this.dom.feedCountTag = document.getElementById('feedCountTag');
@@ -234,6 +242,15 @@ class AgriApp {
         e.preventDefault();
         this.handleCopilotSubmit();
       }
+    });
+
+    this.dom.btnToggleCopilotHistory?.addEventListener('click', () => {
+      this.state.agentHistoryOpen = !this.state.agentHistoryOpen;
+      this.renderAgentHistory();
+    });
+    this.dom.copilotHistoryList?.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-history-trace]');
+      if (item) this.showAgentHistoryTurn(item.dataset.historyTrace);
     });
 
     // Feed Tabs Filter
@@ -702,8 +719,10 @@ class AgriApp {
     }
     this.showToast(`正在基于【${plotId}】Crop Pack 模型生成精准处方...`, 'info');
     try {
-      const chatResult = await api.agentChat('生成灌溉处方', plotId);
+      const chatResult = await api.agentChat('生成灌溉处方', plotId, this.state.conversationId);
+      if (chatResult?.conversationId) this.state.conversationId = chatResult.conversationId;
       this.displayCopilotBanner(chatResult);
+      await this.loadAgentHistory(true);
     } catch (e) {
       if (e.status === 401) this.handleSessionExpired();
       else this.showToast('处方生成失败：' + e.message, 'error');
@@ -745,8 +764,10 @@ class AgriApp {
     if (this.dom.copilotTraceId) this.dom.copilotTraceId.textContent = '请求处理中';
 
     try {
-      const response = await api.agentChat(query, this.state.currentPlotId);
+      const response = await api.agentChat(query, this.state.currentPlotId, this.state.conversationId);
+      if (response?.conversationId) this.state.conversationId = response.conversationId;
       this.displayCopilotBanner(response);
+      await this.loadAgentHistory(true);
     } catch (e) {
       if (e.status === 401) {
         this.handleSessionExpired();
@@ -757,6 +778,80 @@ class AgriApp {
       this.dom.btnSendCopilot.disabled = false;
       this.dom.btnSendCopilot.innerHTML = `<span>✨ 智能分析</span>`;
     }
+  }
+
+  async loadAgentHistory(silent = false) {
+    if (!api.isAuthenticated()) {
+      this.state.agentHistory = [];
+      this.state.agentHistoryTurns = [];
+      this.renderAgentHistory();
+      return;
+    }
+    try {
+      const history = await api.getAgentHistory(this.state.conversationId, 60);
+      this.state.conversationId = history?.conversation?.conversationId || this.state.conversationId;
+      this.state.agentHistory = Array.isArray(history?.messages) ? history.messages : [];
+      this.state.agentHistoryTurns = this.groupAgentHistoryTurns(this.state.agentHistory);
+      this.renderAgentHistory();
+    } catch (error) {
+      if (error.status === 401) this.handleSessionExpired();
+      else if (!silent) this.showToast(`读取对话记录失败：${error.message || '后端未响应'}`, 'error');
+    }
+  }
+
+  groupAgentHistoryTurns(messages) {
+    const turns = [];
+    const byTrace = new Map();
+    for (const message of messages || []) {
+      const traceId = String(message?.traceId || message?.messageId || '');
+      if (!traceId) continue;
+      let turn = byTrace.get(traceId);
+      if (!turn) {
+        turn = { traceId, user: null, assistant: null };
+        byTrace.set(traceId, turn);
+        turns.push(turn);
+      }
+      if (String(message?.role || '').toUpperCase() === 'USER') turn.user = message;
+      if (String(message?.role || '').toUpperCase() === 'ASSISTANT') turn.assistant = message;
+    }
+    return turns.filter(turn => turn.user || turn.assistant).reverse();
+  }
+
+  renderAgentHistory() {
+    const list = this.dom.copilotHistoryList;
+    const toggle = this.dom.btnToggleCopilotHistory;
+    if (!list || !toggle) return;
+    const turns = this.state.agentHistoryTurns || [];
+    toggle.setAttribute('aria-expanded', String(Boolean(this.state.agentHistoryOpen)));
+    list.hidden = !this.state.agentHistoryOpen;
+    if (this.dom.copilotHistoryCount) this.dom.copilotHistoryCount.textContent = `${turns.length} 轮`;
+    if (!turns.length) {
+      list.innerHTML = '<p class="copilot-history-empty">首次提问后，对话会按当前登录账号保存。</p>';
+      return;
+    }
+    list.innerHTML = turns.map(turn => {
+      const question = turn.user?.content || '历史提问';
+      const answer = turn.assistant?.content || '回答生成中';
+      const createdAt = turn.assistant?.createdAt || turn.user?.createdAt;
+      const timestamp = createdAt ? new Date(createdAt).toLocaleString('zh-CN', { hour12: false }) : '';
+      return `
+        <button class="copilot-history-item" type="button" data-history-trace="${this.escapeHtml(turn.traceId)}">
+          <span class="copilot-history-question">你：${this.escapeHtml(question)}</span>
+          <span class="copilot-history-answer">农智助手：${this.escapeHtml(answer)}</span>
+          <span class="copilot-history-meta">${this.escapeHtml(timestamp)} · ${this.escapeHtml(turn.assistant?.intent || '对话')}</span>
+        </button>`;
+    }).join('');
+  }
+
+  showAgentHistoryTurn(traceId) {
+    const turn = (this.state.agentHistoryTurns || []).find(item => item.traceId === traceId);
+    if (!turn?.assistant || !this.dom.copilotOutputBanner) return;
+    this.dom.copilotOutputBanner.classList.add('active');
+    this.dom.copilotOutputTitle.textContent = '🕘 历史回答';
+    this.dom.copilotTraceId.textContent = '当前账号的持久化记录';
+    this.dom.copilotOutputText.textContent = this.sanitizeNarrative(turn.assistant.content || '');
+    if (turn.user?.content && this.dom.copilotInput) this.dom.copilotInput.value = turn.user.content;
+    this.dom.copilotOutputBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   /**
@@ -778,7 +873,7 @@ class AgriApp {
         text = `${text.slice(0, start)}${text.slice(end + close.length)}`.trim();
       }
     }
-    const leakage = /(traceid|sourcelabels|knowledgeevidence|adapter\s*:|intent\s*:|用户问题：|系统提示：|不得生成|工具入参|工具出参|<think>)/i;
+    const leakage = /(traceid|sourcelabels|knowledgeevidence|adapter\s*:|intent\s*:|用户问题：|当前问题：|当前公开事实|系统提示：|不得生成|工具入参|工具出参|<think>)/i;
     const lines = [];
     for (const line of text.split(/\n/)) {
       const trimmed = line.trim();

@@ -226,6 +226,16 @@
           </div>
           <div class="copilot-output-text" id="copilotOutputText">正在分析...</div>
         </div>
+
+        <section class="copilot-history" aria-label="我的农智对话记录">
+          <button class="copilot-history-toggle" id="btnToggleCopilotHistory" type="button" aria-expanded="false" aria-controls="copilotHistoryList">
+            <span>🕘 我的对话记录</span>
+            <span class="copilot-history-count" id="copilotHistoryCount">0 轮</span>
+          </button>
+          <div class="copilot-history-list" id="copilotHistoryList" hidden>
+            <p class="copilot-history-empty">首次提问后，对话会按当前登录账号保存。</p>
+          </div>
+        </section>
       </div>
 
       <!-- Feed Filter Bar -->

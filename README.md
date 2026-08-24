@@ -362,7 +362,7 @@ smart-agriculture/
 
 ## 本地启动约定
 
-后端代码已补齐，推荐以下方式启动软件仿真态（本仓库不包含前端页面）：
+后端与静态 Web 工作台均已补齐，推荐以下方式启动软件仿真态：
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
@@ -380,6 +380,14 @@ REDIS_URL=redis://localhost:6379
 AI_MODE=rules-only   # rules-only | mock | maxkb | openai-compatible（外部不可用自动降级）
 COMMAND_MODE=virtual
 ```
+
+### Agent 连续对话与账号历史
+
+- `POST /api/v1/agent/chat` 可携带 `conversationId`；未提供时自动使用当前账号的默认会话。
+- `GET /api/v1/agent/history` 返回当前 JWT 用户自己的最近消息，`GET /api/v1/agent/conversations` 返回该用户的会话列表。
+- 用户问题和最终回答以 `agent-message` / `agent-conversation` 实体持久化到 PostgreSQL；服务降级为 standalone 时仍保留内存读写能力，但不会冒充生产持久化。
+- 最近对话只用于识别“复测清单”“然后呢”等指代与追问；实时遥测、规则结果和 RAG 证据仍是当前事实，历史回答不能覆盖新数据。
+- 普通状态解释不会再因单项遥测降级而被统一替换成拒绝模板；灌溉执行、越权控制和直接命令仍受确定性安全门约束。
 
 ## 文档与边界
 

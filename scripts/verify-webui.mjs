@@ -118,6 +118,11 @@ await import(pathToFileURL(join(ROOT, 'apps', 'web-ui', 'js', 'app.js')).href);
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor(() => document.querySelector('#plotListContainer .plot-list-item'), 3000);
 ok('应用启动：地块列表渲染', document.querySelectorAll('#plotListContainer .plot-list-item').length >= 3);
+const historyToggle = document.getElementById('btnToggleCopilotHistory');
+const historyList = document.getElementById('copilotHistoryList');
+ok('账号级 Agent 历史记录入口已渲染', !!historyToggle && !!historyList && !!document.getElementById('copilotHistoryCount'));
+historyToggle?.click();
+ok('Agent 历史记录可展开且空态清晰', historyList?.hidden === false && historyList.textContent.includes('当前登录账号'));
 
 // ============ Home 驾驶舱摘要 ============
 const hsGrid = document.getElementById('homeSummaryGrid');
