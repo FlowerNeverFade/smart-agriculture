@@ -44,7 +44,7 @@ body {
   overflow: hidden;
   background: var(--background);
   color: var(--ink);
-  font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "Times New Roman", FangSong, STFangsong, "FangSong_GB2312", "仿宋", serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
