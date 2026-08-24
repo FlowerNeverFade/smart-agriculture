@@ -3,6 +3,8 @@ const FLOW_HEIGHT = 216;
 const MAX_SPLATS = 12;
 const SPLAT_QUEUE_CAPACITY = 40;
 const MAX_SPLATS_PER_EVENT = 12;
+const MAX_TRAIL_SPLATS = 16;
+const TRAIL_QUEUE_CAPACITY = 64;
 const MAX_PIXEL_RATIO = 1.25;
 const MAX_CANVAS_PIXELS = 2_200_000;
 const FRAME_INTERVAL = 1000 / 60;
@@ -115,6 +117,115 @@ const FLOW_FRAGMENT_SHADER = `#version 300 es
       );
     }
     outColor = encodeVelocity(velocity, activity);
+  }
+`;
+
+const TRAIL_FRAGMENT_SHADER = `#version 300 es
+  precision highp float;
+
+  #define MAX_TRAIL_SPLATS ${MAX_TRAIL_SPLATS}
+
+  in vec2 vUv;
+  out vec4 outColor;
+
+  uniform sampler2D uPreviousTrail;
+  uniform sampler2D uFlow;
+  uniform vec2 uTexel;
+  uniform vec2 uScreenScale;
+  uniform float uDelta;
+  uniform float uVelocityMax;
+  uniform int uSplatCount;
+  uniform vec2 uSplatPosition[MAX_TRAIL_SPLATS];
+  uniform vec2 uSplatDirection[MAX_TRAIL_SPLATS];
+  uniform vec3 uSplatShape[MAX_TRAIL_SPLATS];
+
+  vec2 decodeVelocity(vec4 sampleValue) {
+    vec2 signedByte = sampleValue.rg * 255.0 - 128.0;
+    return signedByte / 127.0 * uVelocityMax;
+  }
+
+  vec2 decodeDirection(vec4 sampleValue) {
+    vec2 signedByte = sampleValue.rg * 255.0 - 128.0;
+    return signedByte / 127.0;
+  }
+
+  vec4 encodeTrail(vec2 direction, float core, float tail) {
+    float directionLength = length(direction);
+    if (directionLength > 1.0) direction /= directionLength;
+    vec2 encoded = (direction * 127.0 + 128.0) / 255.0;
+    return vec4(encoded, clamp(core, 0.0, 1.0), clamp(tail, 0.0, 1.0));
+  }
+
+  vec4 sampleTrail(vec2 uv) {
+    return texture(uPreviousTrail, clamp(uv, uTexel * 0.5, 1.0 - uTexel * 0.5));
+  }
+
+  void main() {
+    vec2 flowVelocity = decodeVelocity(texture(uFlow, vUv));
+    vec2 backUv = vUv - flowVelocity / uScreenScale * uDelta * 0.18;
+    vec4 center = sampleTrail(backUv);
+    vec4 rightSample = sampleTrail(backUv + vec2(uTexel.x, 0.0));
+    vec4 leftSample = sampleTrail(backUv - vec2(uTexel.x, 0.0));
+    vec4 topSample = sampleTrail(backUv + vec2(0.0, uTexel.y));
+    vec4 bottomSample = sampleTrail(backUv - vec2(0.0, uTexel.y));
+
+    vec2 direction = decodeDirection(center);
+    float core = center.b;
+    float tail = center.a;
+    float coreBlur = 0.25 * (rightSample.b + leftSample.b + topSample.b + bottomSample.b);
+    float tailBlur = 0.25 * (rightSample.a + leftSample.a + topSample.a + bottomSample.a);
+    core = mix(core, coreBlur, 1.0 - exp(-0.85 * uDelta));
+    tail = mix(tail, tailBlur, 1.0 - exp(-0.42 * uDelta));
+    core *= exp(-5.4 * uDelta);
+    tail *= exp(-1.38 * uDelta);
+
+    vec2 neighborDirection =
+      decodeDirection(rightSample) * rightSample.a
+      + decodeDirection(leftSample) * leftSample.a
+      + decodeDirection(topSample) * topSample.a
+      + decodeDirection(bottomSample) * bottomSample.a;
+    float neighborWeight = rightSample.a + leftSample.a + topSample.a + bottomSample.a;
+    if (neighborWeight > 0.0001) {
+      vec2 blurredDirection = neighborDirection / neighborWeight;
+      direction = mix(direction, blurredDirection, 1.0 - exp(-0.65 * uDelta));
+    }
+
+    for (int index = 0; index < MAX_TRAIL_SPLATS; index++) {
+      if (index >= uSplatCount) break;
+
+      vec2 strokeDirection = normalize(uSplatDirection[index]);
+      vec2 local = (vUv - uSplatPosition[index]) * uScreenScale;
+      float halfLength = max(uSplatShape[index].y, 0.00001);
+      float projection = clamp(dot(local, strokeDirection), -halfLength, halfLength);
+      float distanceToSegment = length(local - strokeDirection * projection);
+      float radius = max(uSplatShape[index].x, 0.00001);
+      float coreStroke = 1.0 - smoothstep(radius * 0.22, radius, distanceToSegment);
+      float softStroke = 1.0 - smoothstep(radius * 0.70, radius * 1.82, distanceToSegment);
+      coreStroke *= coreStroke;
+      softStroke *= softStroke;
+
+      float strength = clamp(uSplatShape[index].z, 0.0, 1.0);
+      float injectedCore = coreStroke * smoothstep(0.025, 0.46, strength);
+      float injectedTail = max(coreStroke, softStroke * 0.42) * smoothstep(0.012, 0.58, strength);
+      float previousEnergy = max(core, tail) * 0.72;
+      float injectedEnergy = max(injectedCore, injectedTail);
+      if (injectedEnergy > 0.0001) {
+        direction = normalize(
+          direction * previousEnergy
+          + strokeDirection * injectedEnergy
+          + vec2(0.000001)
+        );
+      }
+      core = max(core, injectedCore);
+      tail = max(tail, injectedTail);
+    }
+
+    if (max(core, tail) < 1.5 / 255.0) {
+      core = 0.0;
+      tail = 0.0;
+      direction = vec2(0.0);
+    }
+    outColor = encodeTrail(direction, core, tail);
   }
 `;
 
@@ -307,8 +418,10 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
 
   uniform sampler2D uDye;
   uniform sampler2D uFlow;
+  uniform sampler2D uTrail;
   uniform vec2 uDyeTexel;
   uniform vec2 uScreenScale;
+  uniform float uCssMinDimension;
   uniform float uTime;
   uniform float uTaskStrength;
   uniform float uVelocityMax;
@@ -317,6 +430,11 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
   vec2 decodeVelocity(vec4 sampleValue) {
     vec2 signedByte = sampleValue.rg * 255.0 - 128.0;
     return signedByte / 127.0 * uVelocityMax;
+  }
+
+  vec2 decodeTrailDirection(vec4 sampleValue) {
+    vec2 signedByte = sampleValue.rg * 255.0 - 128.0;
+    return signedByte / 127.0;
   }
 
   const vec3 COLOR_MINT = vec3(0.620, 0.925, 0.720);
@@ -340,6 +458,10 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
       + COLOR_SAGE * weights.g
       + COLOR_AQUA * weights.b
       + COLOR_OLIVE * weights.a;
+  }
+
+  vec4 sampleDye(vec2 uv) {
+    return texture(uDye, clamp(uv, uDyeTexel * 0.5, 1.0 - uDyeTexel * 0.5));
   }
 
   float luminance(vec3 color) {
@@ -384,6 +506,60 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     color *= softLight;
 
     color *= 1.0 + flowMagnitude * 0.006;
+
+    vec4 trailSample = texture(uTrail, vUv);
+    float trailCore = trailSample.b;
+    float trailTail = trailSample.a;
+    float trailEnergy = clamp(trailCore * 0.94 + trailTail * 0.68, 0.0, 1.0);
+    vec2 trailDirection = decodeTrailDirection(trailSample);
+    float trailDirectionLength = length(trailDirection);
+
+    if (trailEnergy > 0.004 && trailDirectionLength > 0.05) {
+      trailDirection /= trailDirectionLength;
+      vec2 axisPerPixel = trailDirection
+        / uScreenScale
+        / max(uCssMinDimension, 1.0);
+      vec2 normalPerPixel = vec2(-trailDirection.y, trailDirection.x)
+        / uScreenScale
+        / max(uCssMinDimension, 1.0);
+      float dragPixels = mix(3.0, 16.0, smoothstep(0.04, 0.88, trailEnergy));
+      float samplePixels = mix(1.35, 3.25, smoothstep(0.08, 0.86, trailCore));
+      vec2 refractedUv = warpedUv - axisPerPixel * dragPixels;
+
+      vec4 refractedWeights =
+          sampleDye(refractedUv - axisPerPixel * samplePixels * 3.0) * 0.060
+        + sampleDye(refractedUv - axisPerPixel * samplePixels * 2.0) * 0.120
+        + sampleDye(refractedUv - axisPerPixel * samplePixels) * 0.200
+        + sampleDye(refractedUv) * 0.240
+        + sampleDye(refractedUv + axisPerPixel * samplePixels) * 0.200
+        + sampleDye(refractedUv + axisPerPixel * samplePixels * 2.0) * 0.120
+        + sampleDye(refractedUv + axisPerPixel * samplePixels * 3.0) * 0.060;
+      vec3 refractedColor = paletteColor(refractedWeights) * softLight;
+      float lumaCorrection = clamp(
+        luminance(color) / max(luminance(refractedColor), 0.001),
+        0.94,
+        1.06
+      );
+      refractedColor *= lumaCorrection;
+      float refractionMix = clamp(trailCore * 0.54 + trailTail * 0.31, 0.0, 0.58)
+        * uTaskStrength;
+      color = mix(color, refractedColor, refractionMix);
+
+      vec2 trailDerivative = vec2(dFdx(trailEnergy), dFdy(trailEnergy));
+      float trailEdge = smoothstep(0.002, 0.025, length(trailDerivative));
+      vec3 fringeMinus = paletteColor(sampleDye(refractedUv - normalPerPixel * 0.68));
+      vec3 fringePlus = paletteColor(sampleDye(refractedUv + normalPerPixel * 0.68));
+      vec3 chromaticEdge = vec3(
+        fringeMinus.r - refractedColor.r,
+        0.0,
+        fringePlus.b - refractedColor.b
+      );
+      color += chromaticEdge
+        * trailEdge
+        * (trailCore * 0.075 + trailTail * 0.028)
+        * uTaskStrength;
+    }
+
     color = clamp(color, vec3(0.50), vec3(0.985));
     outColor = vec4(color, 1.0);
   }
@@ -433,17 +609,39 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     shape: new Float32Array(MAX_SPLATS * 3)
   };
 
+  const trailQueue = {
+    positionX: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    positionY: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    directionX: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    directionY: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    radius: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    halfLength: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    strength: new Float32Array(TRAIL_QUEUE_CAPACITY),
+    head: 0,
+    count: 0
+  };
+
+  const trailSplatUniforms = {
+    position: new Float32Array(MAX_TRAIL_SPLATS * 2),
+    direction: new Float32Array(MAX_TRAIL_SPLATS * 2),
+    shape: new Float32Array(MAX_TRAIL_SPLATS * 3)
+  };
+
   let gl = null;
   let vao = null;
   let positionBuffer = null;
   let flowProgram = null;
+  let trailProgram = null;
   let dyeProgram = null;
   let backgroundProgram = null;
   let flowUniforms = null;
+  let trailUniforms = null;
   let dyeUniforms = null;
   let backgroundUniforms = null;
   let flowRead = null;
   let flowWrite = null;
+  let trailRead = null;
+  let trailWrite = null;
   let dyeRead = null;
   let dyeWrite = null;
   let glassRect = glassPanel.getBoundingClientRect();
@@ -605,6 +803,21 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     };
   }
 
+  function locateTrailUniforms() {
+    return {
+      previousTrail: gl.getUniformLocation(trailProgram, 'uPreviousTrail'),
+      flow: gl.getUniformLocation(trailProgram, 'uFlow'),
+      texel: gl.getUniformLocation(trailProgram, 'uTexel'),
+      screenScale: gl.getUniformLocation(trailProgram, 'uScreenScale'),
+      delta: gl.getUniformLocation(trailProgram, 'uDelta'),
+      velocityMax: gl.getUniformLocation(trailProgram, 'uVelocityMax'),
+      splatCount: gl.getUniformLocation(trailProgram, 'uSplatCount'),
+      splatPosition: gl.getUniformLocation(trailProgram, 'uSplatPosition[0]'),
+      splatDirection: gl.getUniformLocation(trailProgram, 'uSplatDirection[0]'),
+      splatShape: gl.getUniformLocation(trailProgram, 'uSplatShape[0]')
+    };
+  }
+
   function locateDyeUniforms() {
     return {
       previousDye: gl.getUniformLocation(dyeProgram, 'uPreviousDye'),
@@ -624,8 +837,10 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     return {
       dye: gl.getUniformLocation(backgroundProgram, 'uDye'),
       flow: gl.getUniformLocation(backgroundProgram, 'uFlow'),
+      trail: gl.getUniformLocation(backgroundProgram, 'uTrail'),
       dyeTexel: gl.getUniformLocation(backgroundProgram, 'uDyeTexel'),
       screenScale: gl.getUniformLocation(backgroundProgram, 'uScreenScale'),
+      cssMinDimension: gl.getUniformLocation(backgroundProgram, 'uCssMinDimension'),
       time: gl.getUniformLocation(backgroundProgram, 'uTime'),
       taskStrength: gl.getUniformLocation(backgroundProgram, 'uTaskStrength'),
       velocityMax: gl.getUniformLocation(backgroundProgram, 'uVelocityMax'),
@@ -635,6 +850,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
 
   function buildResources() {
     flowProgram = createProgram(FLOW_FRAGMENT_SHADER);
+    trailProgram = createProgram(TRAIL_FRAGMENT_SHADER);
     dyeProgram = createProgram(DYE_FRAGMENT_SHADER);
     backgroundProgram = createProgram(BACKGROUND_FRAGMENT_SHADER);
 
@@ -652,8 +868,11 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
 
     flowRead = createRenderTarget();
     flowWrite = createRenderTarget();
+    trailRead = createRenderTarget({ clearColor: [NEUTRAL_FLOW, NEUTRAL_FLOW, 0, 0] });
+    trailWrite = createRenderTarget({ clearColor: [NEUTRAL_FLOW, NEUTRAL_FLOW, 0, 0] });
     createDyeTargets();
     flowUniforms = locateFlowUniforms();
+    trailUniforms = locateTrailUniforms();
     dyeUniforms = locateDyeUniforms();
     backgroundUniforms = locateBackgroundUniforms();
 
@@ -669,24 +888,31 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     if (!contextLost) {
       deleteRenderTarget(flowRead);
       deleteRenderTarget(flowWrite);
+      deleteRenderTarget(trailRead);
+      deleteRenderTarget(trailWrite);
       deleteRenderTarget(dyeRead);
       deleteRenderTarget(dyeWrite);
       if (positionBuffer) gl.deleteBuffer(positionBuffer);
       if (vao) gl.deleteVertexArray(vao);
       if (flowProgram) gl.deleteProgram(flowProgram);
+      if (trailProgram) gl.deleteProgram(trailProgram);
       if (dyeProgram) gl.deleteProgram(dyeProgram);
       if (backgroundProgram) gl.deleteProgram(backgroundProgram);
     }
     flowRead = null;
     flowWrite = null;
+    trailRead = null;
+    trailWrite = null;
     dyeRead = null;
     dyeWrite = null;
     positionBuffer = null;
     vao = null;
     flowProgram = null;
+    trailProgram = null;
     dyeProgram = null;
     backgroundProgram = null;
     flowUniforms = null;
+    trailUniforms = null;
     dyeUniforms = null;
     backgroundUniforms = null;
   }
@@ -695,6 +921,17 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     if (!gl || contextLost || !flowRead || !flowWrite) return;
     gl.clearColor(NEUTRAL_FLOW, NEUTRAL_FLOW, 0, 1);
     for (const target of [flowRead, flowWrite]) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+      gl.viewport(0, 0, FLOW_WIDTH, FLOW_HEIGHT);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  function clearTrailTargets() {
+    if (!gl || contextLost || !trailRead || !trailWrite) return;
+    gl.clearColor(NEUTRAL_FLOW, NEUTRAL_FLOW, 0, 0);
+    for (const target of [trailRead, trailWrite]) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
       gl.viewport(0, 0, FLOW_WIDTH, FLOW_HEIGHT);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -715,6 +952,8 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
   function clearInteractionState(removeGlassStyles = false) {
     queue.head = 0;
     queue.count = 0;
+    trailQueue.head = 0;
+    trailQueue.count = 0;
     resetPointer();
     glass.currentX = 0.46;
     glass.currentY = 0.18;
@@ -781,6 +1020,45 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     return count;
   }
 
+  function enqueueTrailSplat(positionX, positionY, directionX, directionY, radius, halfLength, strength) {
+    if (trailQueue.count === TRAIL_QUEUE_CAPACITY) {
+      trailQueue.head = (trailQueue.head + 1) % TRAIL_QUEUE_CAPACITY;
+      trailQueue.count--;
+    }
+    const index = (trailQueue.head + trailQueue.count) % TRAIL_QUEUE_CAPACITY;
+    trailQueue.positionX[index] = positionX;
+    trailQueue.positionY[index] = positionY;
+    trailQueue.directionX[index] = directionX;
+    trailQueue.directionY[index] = directionY;
+    trailQueue.radius[index] = radius;
+    trailQueue.halfLength[index] = halfLength;
+    trailQueue.strength[index] = strength;
+    trailQueue.count++;
+  }
+
+  function drainTrailSplats() {
+    if (trailQueue.count > MAX_TRAIL_SPLATS) {
+      trailQueue.head = (trailQueue.head + trailQueue.count - MAX_TRAIL_SPLATS) % TRAIL_QUEUE_CAPACITY;
+      trailQueue.count = MAX_TRAIL_SPLATS;
+    }
+    const count = trailQueue.count;
+    for (let outputIndex = 0; outputIndex < count; outputIndex++) {
+      const queueIndex = (trailQueue.head + outputIndex) % TRAIL_QUEUE_CAPACITY;
+      const positionOffset = outputIndex * 2;
+      const shapeOffset = outputIndex * 3;
+      trailSplatUniforms.position[positionOffset] = trailQueue.positionX[queueIndex];
+      trailSplatUniforms.position[positionOffset + 1] = trailQueue.positionY[queueIndex];
+      trailSplatUniforms.direction[positionOffset] = trailQueue.directionX[queueIndex];
+      trailSplatUniforms.direction[positionOffset + 1] = trailQueue.directionY[queueIndex];
+      trailSplatUniforms.shape[shapeOffset] = trailQueue.radius[queueIndex];
+      trailSplatUniforms.shape[shapeOffset + 1] = trailQueue.halfLength[queueIndex];
+      trailSplatUniforms.shape[shapeOffset + 2] = trailQueue.strength[queueIndex];
+    }
+    trailQueue.head = 0;
+    trailQueue.count = 0;
+    return count;
+  }
+
   function updateFlow(delta) {
     const splatCount = drainSplats();
     const minDimension = Math.max(1, Math.min(canvasRect.width, canvasRect.height));
@@ -808,6 +1086,36 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     const previousRead = flowRead;
     flowRead = flowWrite;
     flowWrite = previousRead;
+  }
+
+  function updateTrail(delta) {
+    const splatCount = drainTrailSplats();
+    const minDimension = Math.max(1, Math.min(canvasRect.width, canvasRect.height));
+    gl.bindFramebuffer(gl.FRAMEBUFFER, trailWrite.framebuffer);
+    gl.viewport(0, 0, FLOW_WIDTH, FLOW_HEIGHT);
+    gl.useProgram(trailProgram);
+    gl.bindVertexArray(vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, trailRead.texture);
+    gl.uniform1i(trailUniforms.previousTrail, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, flowRead.texture);
+    gl.uniform1i(trailUniforms.flow, 1);
+    gl.uniform2f(trailUniforms.texel, 1 / FLOW_WIDTH, 1 / FLOW_HEIGHT);
+    gl.uniform2f(trailUniforms.screenScale, canvasRect.width / minDimension, canvasRect.height / minDimension);
+    gl.uniform1f(trailUniforms.delta, delta);
+    gl.uniform1f(trailUniforms.velocityMax, VELOCITY_MAX);
+    gl.uniform1i(trailUniforms.splatCount, splatCount);
+    if (splatCount) {
+      gl.uniform2fv(trailUniforms.splatPosition, trailSplatUniforms.position);
+      gl.uniform2fv(trailUniforms.splatDirection, trailSplatUniforms.direction);
+      gl.uniform3fv(trailUniforms.splatShape, trailSplatUniforms.shape);
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    const previousRead = trailRead;
+    trailRead = trailWrite;
+    trailWrite = previousRead;
   }
 
   function updateDye(delta, time, reset = false) {
@@ -855,8 +1163,12 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, flowRead.texture);
     gl.uniform1i(backgroundUniforms.flow, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, trailRead.texture);
+    gl.uniform1i(backgroundUniforms.trail, 2);
     gl.uniform2f(backgroundUniforms.dyeTexel, 1 / FLOW_WIDTH, 1 / FLOW_HEIGHT);
     gl.uniform2f(backgroundUniforms.screenScale, canvasRect.width / minDimension, canvasRect.height / minDimension);
+    gl.uniform1f(backgroundUniforms.cssMinDimension, minDimension);
     gl.uniform1f(backgroundUniforms.time, time);
     gl.uniform1f(backgroundUniforms.taskStrength, task.current);
     gl.uniform1f(backgroundUniforms.velocityMax, VELOCITY_MAX);
@@ -918,6 +1230,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     if (nextFrameTime < now - FRAME_INTERVAL) nextFrameTime = now + FRAME_INTERVAL;
     const simulationTime = (now - startTime) / 1000;
     updateFlow(delta);
+    updateTrail(delta);
     updateDye(delta, simulationTime);
     updateGlass(delta);
     renderBackground(simulationTime);
@@ -982,6 +1295,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       canvas.classList.add('is-ready');
       if (fallback) fallback.dataset.active = 'false';
       updateFlow(1 / 60);
+      updateTrail(1 / 60);
       resetDyeField(0);
       updateGlass(1 / 60);
       renderBackground(0);
@@ -1046,6 +1360,25 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     const force = smoothstep(0.05, 0.75, normalizedSpeed) * task.target;
 
     updateGlassTarget(event.clientX, event.clientY, force);
+    const segmentDistancePixels = Math.hypot(deltaX, deltaY);
+    const trailForce = smoothstep(0.015, 0.58, normalizedSpeed) * task.target;
+    if (segmentDistancePixels >= 1.5 && trailForce > 0.003) {
+      const directionX = uvX / Math.max(uvDistance, 0.00001);
+      const directionY = uvY / Math.max(uvDistance, 0.00001);
+      const midpointX = pointer.x + deltaX * 0.5;
+      const midpointY = pointer.y + deltaY * 0.5;
+      const trailRadiusPixels = clamp(13 + trailForce * 12, 14, 25);
+      enqueueTrailSplat(
+        clamp((midpointX - canvasRect.left) / Math.max(canvasRect.width, 1), 0, 1),
+        clamp(1 - (midpointY - canvasRect.top) / Math.max(canvasRect.height, 1), 0, 1),
+        directionX,
+        directionY,
+        trailRadiusPixels / minDimension,
+        segmentDistancePixels * 0.5 / minDimension,
+        trailForce
+      );
+    }
+
     const sampleDeltaX = event.clientX - pointer.sampleX;
     const sampleDeltaY = event.clientY - pointer.sampleY;
     const sampleDistancePixels = Math.hypot(sampleDeltaX, sampleDeltaY);
@@ -1094,6 +1427,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     measureElements();
     clearInteractionState(false);
     clearFlowTargets();
+    clearTrailTargets();
     if (ready) resetDyeField((performance.now() - startTime) / 1000);
   }
 
@@ -1102,6 +1436,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       stop();
       clearInteractionState(false);
       clearFlowTargets();
+      clearTrailTargets();
     } else start();
   }
 
