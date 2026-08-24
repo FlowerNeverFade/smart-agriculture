@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --background: #f3f7ef;
+  --background: #f2f8ee;
   --ink: #173327;
   --ink-soft: #68776e;
   --ink-faint: rgba(23, 51, 39, .38);
@@ -9,7 +9,6 @@
   --green: #246849;
   --green-deep: #17563a;
   --danger: #9a4038;
-  --grid-opacity: .78;
   --field-opacity: 1;
   --ambient-opacity: 1;
   --field-x: 24vw;
@@ -75,21 +74,46 @@ button { -webkit-tap-highlight-color: transparent; }
   transition: opacity 420ms var(--ease), transform 420ms var(--ease);
 }
 
+.environment__fallback,
+.environment__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.environment__fallback {
+  z-index: 0;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 420ms var(--ease);
+}
+
+.environment__canvas {
+  z-index: 1;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 520ms var(--ease);
+}
+
+body.has-liquid-field .environment__canvas { opacity: 1; }
+body.has-liquid-field .environment__fallback { opacity: 0; }
+
 .environment__field {
   position: absolute;
   top: 0;
   left: 0;
   border-radius: 48% 52% 56% 44% / 54% 43% 57% 46%;
   pointer-events: none;
-  will-change: transform;
 }
 
 .environment__field--cursor {
   width: clamp(760px, 56vw, 1080px);
   height: clamp(620px, 76vh, 860px);
   background:
-    radial-gradient(ellipse 62% 54% at 39% 51%, rgba(155, 205, 145, .18) 0%, rgba(155, 205, 145, .105) 38%, rgba(155, 205, 145, .035) 61%, transparent 78%),
-    radial-gradient(ellipse 44% 37% at 67% 64%, rgba(180, 216, 164, .09) 0%, rgba(180, 216, 164, .025) 58%, transparent 78%);
+    radial-gradient(ellipse 62% 54% at 39% 51%, rgba(111, 203, 133, .15) 0%, rgba(111, 203, 133, .08) 38%, rgba(111, 203, 133, .025) 61%, transparent 78%),
+    radial-gradient(ellipse 44% 37% at 67% 64%, rgba(145, 219, 174, .085) 0%, rgba(145, 219, 174, .02) 58%, transparent 78%);
   opacity: var(--field-opacity);
   transform: translate3d(calc(var(--field-x) - 50%), calc(var(--field-y) - 50%), 0);
 }
@@ -98,21 +122,10 @@ button { -webkit-tap-highlight-color: transparent; }
   width: clamp(860px, 64vw, 1240px);
   height: clamp(660px, 82vh, 940px);
   background:
-    radial-gradient(ellipse 58% 48% at 57% 43%, rgba(225, 218, 170, .105) 0%, rgba(225, 218, 170, .055) 40%, rgba(225, 218, 170, .018) 64%, transparent 80%),
-    radial-gradient(ellipse 40% 34% at 31% 69%, rgba(210, 226, 190, .055) 0%, transparent 72%);
+    radial-gradient(ellipse 58% 48% at 57% 43%, rgba(184, 222, 153, .09) 0%, rgba(184, 222, 153, .045) 40%, rgba(184, 222, 153, .014) 64%, transparent 80%),
+    radial-gradient(ellipse 40% 34% at 31% 69%, rgba(154, 220, 202, .06) 0%, transparent 72%);
   opacity: var(--ambient-opacity);
   transform: translate3d(calc(var(--ambient-x) - 50%), calc(var(--ambient-y) - 50%), 0);
-}
-
-.environment__grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(35, 80, 55, .04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(35, 80, 55, .04) 1px, transparent 1px);
-  background-size: 80px 80px;
-  opacity: var(--grid-opacity);
-  transition: opacity 240ms ease;
 }
 
 .topbar {
@@ -237,7 +250,7 @@ button { -webkit-tap-highlight-color: transparent; }
   background-color: rgba(241, 247, 238, .88);
   background-image:
     radial-gradient(110% 90% at 0% 100%, rgb(178 216 169 / var(--glass-tint-alpha)), transparent 58%),
-    linear-gradient(142deg, rgba(255, 255, 255, .14), rgba(220, 239, 215, .07) 56%, rgba(242, 234, 199, .035));
+    linear-gradient(142deg, rgba(255, 255, 255, .14), rgba(220, 239, 215, .07) 56%, rgba(210, 238, 218, .04));
   box-shadow:
     0 22px 58px rgba(29, 66, 46, .05),
     0 6px 18px rgba(29, 66, 46, .022),
@@ -556,7 +569,6 @@ body.is-mounted .auth {
 body.is-mounted .auth { pointer-events: auto; }
 
 body.is-tasking {
-  --grid-opacity: .54;
   --field-opacity: .64;
   --ambient-opacity: .7;
 }
@@ -658,8 +670,6 @@ body.is-leaving .environment {
   .brand-logo { width: 110px; }
   .topbar__meta { display: none; }
 
-  .environment__grid { background-size: 64px 64px; }
-
   .login-layout {
     gap: 26px;
     padding: 92px 16px 32px;
@@ -708,6 +718,8 @@ body.is-leaving .environment {
   }
 
   .auth { pointer-events: auto; }
+  .environment__canvas { display: none !important; }
+  .environment__fallback { opacity: 1 !important; }
   .auth::before { transform: translate3d(-2px, -8px, 0); will-change: auto; }
   .submit:hover,
   .submit:active,
