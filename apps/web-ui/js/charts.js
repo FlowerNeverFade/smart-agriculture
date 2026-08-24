@@ -1,451 +1,160 @@
 /**
- * AgriLoop Frontend - Pure SVG Chart Kit
- * 零外部依赖：离线演示模式下同样可渲染（无需 ECharts CDN）
- * 提供：折线+置信带 / 分组柱状+偏差线 / 双面积反事实 / 半圆仪表盘
+ * AgriLoop 新前端 · 图表辅助（ECharts，Google 风格配色）
+ * 所有图表只读展示，数据来自 ApiService（在线后端 / 离线模拟）。
  */
 
-export function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
+export const CHART_COLORS = {
+  blue: '#1a73e8',
+  green: '#1e8e3e',
+  red: '#d93025',
+  amber: '#f9ab00',
+  gray: '#9aa0a6',
+  purple: '#8430ce',
+};
+
+const BASE_TEXT = { color: '#5f6368', fontSize: 11 };
+
+function baseGrid() {
+  return { left: 40, right: 40, top: 30, bottom: 28 };
 }
 
-/** 确定性伪随机数生成器（mulberry32）：同一 Seed 结果完全可重复 */
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export function linearScale(domainMin, domainMax, rangeMin, rangeMax) {
-  const dSpan = domainMax - domainMin || 1;
-  return v => rangeMin + ((v - domainMin) / dSpan) * (rangeMax - rangeMin);
-}
-
-/**
- * 按需加载 ECharts（vendor/echarts.min.js，约 1MB）：
- * 首页不再同步下载 1MB 库，仅在首次渲染图表时才动态注入 <script>。
- * 已存在（页面预先加载/测试环境注入）时直接复用。
- * 注入 3 秒未完成则回退纯 SVG 渲染（离线/异常环境不至于卡死）。
- */
-let echartsLoading = null;
-function ensureEcharts() {
-  if (typeof window !== 'undefined' && window.echarts) return Promise.resolve(window.echarts);
-  if (!echartsLoading) {
-    echartsLoading = new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = new URL('../vendor/echarts.min.js', import.meta.url).href;
-      const timer = setTimeout(() => {
-        console.warn('ECharts load timeout, using SVG fallback');
-        resolve(null);
-      }, 1500);
-      script.onload = () => {
-        clearTimeout(timer);
-        resolve(window.echarts || null);
-      };
-      script.onerror = () => {
-        clearTimeout(timer);
-        console.warn('ECharts load failed, using SVG fallback');
-        resolve(null);
-      };
-      document.head.appendChild(script);
-    });
-  }
-  return echartsLoading;
-}
-
-/**
- * 安全初始化 ECharts（异步：首次调用会按需加载 vendor 库）：
- *  - echarts 不可用           -> 返回 null（调用方回退纯 SVG 渲染）
- *  - 当前环境不支持 canvas 2D -> 使用 ECharts 官方 SVG renderer（jsdom/低端环境）
- *  - 初始化异常               -> 返回 null（调用方回退纯 SVG 渲染）
- */
-function isCanvasSupported() {
-  try {
-    const c = document.createElement('canvas');
-    return !!(c.getContext && c.getContext('2d'));
-  } catch (e) {
-    return false;
-  }
-}
-
-export async function initEChart(el) {
-  const echarts = await ensureEcharts();
-  if (!echarts) return null;
-  let inst;
-  try {
-    inst = echarts.init(el, null, isCanvasSupported() ? undefined : { renderer: 'svg' });
-  } catch (e) {
-    console.warn('ECharts init failed, falling back to SVG renderer:', e);
-    return null;
-  }
-  // 弹窗刚打开/布局未稳定时 init 可能量到 0×0 或过渡尺寸，画布会空白或溢出；
-  // 用 ResizeObserver 在容器尺寸变化时自动 resize，dispose 时一并断开。
-  if (inst && typeof ResizeObserver !== 'undefined') {
-    const ro = new ResizeObserver(() => {
-      if (!el.isConnected) return;
-      try { inst.resize(); } catch (e) { /* noop */ }
-    });
-    ro.observe(el);
-    const origDispose = inst.dispose.bind(inst);
-    inst.dispose = () => { ro.disconnect(); origDispose(); };
-  }
-  return inst;
-}
-
-/**
- * 自定义 HTML Tooltip（替代 ECharts 原生 tooltip）
- * 原生 tooltip 容器样式由 ECharts 内部生成，部分浏览器中尺寸行为不可控；
- * 这里把浮窗挂到 body（position: fixed），尺寸/样式完全自控，内容按数据自适应。
- * @param chart       echarts 实例
- * @param getContent  (params) => html 字符串；返回 null 时不显示
- * @returns cleanup 函数（移除浮窗与监听）
- */
-export function attachCustomTip(chart, getContent) {
-  if (!chart || typeof chart.on !== 'function') return () => {}; // 无事件能力的环境（stub/SVG）直接跳过
-  let tipEl = null;
-
-  const ensureTip = () => {
-    if (!tipEl) {
-      tipEl = document.createElement('div');
-      tipEl.className = 'agri-custom-tip';
-      document.body.appendChild(tipEl);
-    }
-    return tipEl;
-  };
-
-  const hide = () => {
-    if (tipEl) tipEl.style.display = 'none';
-  };
-
-  const onMove = (params) => {
-    if (!params || !params.event) return hide();
-    const dataIndex = params.dataIndex;
-    const content = dataIndex == null ? null : getContent(params);
-    if (content == null) return hide();
-    const tip = ensureTip();
-    // 两阶段显示：先隐藏并完成定位，最后再可见，
-    // 避免"先出现空黑/错位帧"（未就绪状态被绘制出来）
-    tip.style.visibility = 'hidden';
-    tip.innerHTML = content;
-    tip.style.display = 'block';
-    // 定位：跟随鼠标，超出视口时翻转
-    const rect = chart.getDom().getBoundingClientRect();
-    const px = rect.left + (params.event.offsetX || 0);
-    const py = rect.top + (params.event.offsetY || 0);
-    const tw = tip.offsetWidth;
-    const th = tip.offsetHeight;
-    let left = px + 14;
-    let top = py + 14;
-    if (left + tw > window.innerWidth - 4) left = px - tw - 14;
-    if (top + th > window.innerHeight - 4) top = py - th - 14;
-    tip.style.left = Math.max(4, left) + 'px';
-    tip.style.top = Math.max(4, top) + 'px';
-    tip.style.visibility = 'visible';
-  };
-
-  chart.on('mousemove', onMove);
-  chart.on('mouseout', hide);
-  chart.on('mousedown', hide);
-
-  return () => {
-    chart.off('mousemove', onMove);
-    chart.off('mouseout', hide);
-    chart.off('mousedown', hide);
-    if (tipEl && tipEl.parentNode) tipEl.parentNode.removeChild(tipEl);
-    tipEl = null;
-  };
-}
-
-function niceTicks(min, max, count) {
-  const span = max - min || 1;
-  const step = Math.pow(10, Math.floor(Math.log10(span / count)));
-  const err = span / count / step;
-  const mag = err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 1.5 ? 2 : 1;
-  const s = step * mag;
-  const ticks = [];
-  for (let v = Math.ceil(min / s) * s; v <= max + s * 0.001; v += s) {
-    ticks.push(Math.round(v * 1000) / 1000);
-  }
-  return ticks;
-}
-
-function svgPolyline(points, scaleX, scaleY, attrs = '') {
-  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${scaleX(p[0]).toFixed(2)},${scaleY(p[1]).toFixed(2)}`).join(' ');
-  return `<path d="${d}" fill="none" ${attrs}/>`;
-}
-
-function svgArea(points, scaleX, scaleY, baselineY, attrs = '') {
-  if (!points.length) return '';
-  const d = `${svgPolyline(points, scaleX, scaleY)}L${scaleX(points[points.length - 1][0]).toFixed(2)},${baselineY.toFixed(2)}L${scaleX(points[0][0]).toFixed(2)},${baselineY.toFixed(2)}Z`;
-  return `<path d="${d}" ${attrs}/>`;
-}
-
-/**
- * 通用折线图（支持置信带、标记线、填充）
- * opts: {
- *   width, height, padding, xMin, xMax, yMin, yMax, yTickCount, xTickCount,
- *   xFmt(v), yFmt(v), yTicks(自定义),
- *   series: [{name, color, points:[[x,y]], dashed, width, fill(opacity), opacity}],
- *   bands: [{upper:[[x,y]], lower:[[x,y]], color, opacity}],
- *   markers: [{x, label, color, dashed}],
- *   yAxisLabel, rightAxis: {ticks, fmt, series: [{color, points}]}
- * }
- */
-export function svgLineChart(opts) {
-  const { width = 760, height = 320 } = opts;
-  const pad = opts.padding || { top: 18, right: 20, bottom: 30, left: 52 };
-  const xMin = opts.xMin, xMax = opts.xMax;
-  const yMin = opts.yMin, yMax = opts.yMax;
-  const sx = linearScale(xMin, xMax, pad.left, width - pad.right);
-  const sy = linearScale(yMin, yMax, height - pad.bottom, pad.top);
-  const baselineY = sy(yMin);
-
-  let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
-
-  // 网格 + Y 轴刻度
-  const yTicks = opts.yTicks || niceTicks(yMin, yMax, opts.yTickCount || 5);
-  yTicks.forEach(v => {
-    if (v < yMin - 1e-9 || v > yMax + 1e-9) return;
-    const y = sy(v);
-    html += `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}"/>`;
-    html += `<text class="chart-axis-label" x="${(pad.left - 6).toFixed(2)}" y="${(y + 3).toFixed(2)}" text-anchor="end">${opts.yFmt ? opts.yFmt(v) : v}</text>`;
+/** 双 Y 轴趋势折线图（土壤湿度 % / 空气温度 °C） */
+export function renderTrendChart(el, moisture, temperature) {
+  if (!window.echarts || !el) return null;
+  const chart = window.echarts.init(el);
+  const xData = moisture.map(p => p.label);
+  chart.setOption({
+    color: [CHART_COLORS.blue, CHART_COLORS.green],
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#ffffff',
+      borderColor: '#dadce0',
+      textStyle: { color: '#202124', fontSize: 12 },
+      extraCssText: 'box-shadow:0 2px 8px rgba(60,64,67,.18);border-radius:8px;',
+    },
+    legend: {
+      top: 0, left: 0, itemWidth: 14, itemHeight: 3, icon: 'roundRect',
+      textStyle: { ...BASE_TEXT, color: '#3c4043' },
+    },
+    grid: baseGrid(),
+    xAxis: {
+      type: 'category', data: xData, boundaryGap: false,
+      axisLine: { lineStyle: { color: '#dadce0' } },
+      axisTick: { show: false },
+      axisLabel: { ...BASE_TEXT, interval: Math.max(0, Math.ceil(xData.length / 6) - 1) },
+    },
+    yAxis: [
+      {
+        type: 'value', name: '%', nameTextStyle: BASE_TEXT,
+        axisLabel: BASE_TEXT, splitLine: { lineStyle: { color: '#f1f3f4' } },
+      },
+      {
+        type: 'value', name: '°C', nameTextStyle: BASE_TEXT,
+        axisLabel: BASE_TEXT, splitLine: { show: false },
+      },
+    ],
+    series: [
+      {
+        name: '土壤湿度（%）', type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 4,
+        lineStyle: { width: 2 }, data: moisture.map(p => p.value),
+      },
+      {
+        name: '空气温度（°C）', type: 'line', smooth: 0.25, symbol: 'circle', symbolSize: 4,
+        yAxisIndex: 1, lineStyle: { width: 2 }, data: temperature.map(p => p.value),
+      },
+    ],
   });
-  if (opts.yAxisLabel) {
-    html += `<text class="chart-axis-title" x="12" y="${(pad.top + 8).toFixed(2)}">${escapeHtml(opts.yAxisLabel)}</text>`;
-  }
-
-  // X 轴刻度
-  const xTicks = opts.xTicks || niceTicks(xMin, xMax, opts.xTickCount || 6);
-  xTicks.forEach(v => {
-    if (v < xMin - 1e-9 || v > xMax + 1e-9) return;
-    const x = sx(v);
-    html += `<line class="chart-grid-line-v" x1="${x.toFixed(2)}" y1="${pad.top}" x2="${x.toFixed(2)}" y2="${height - pad.bottom}"/>`;
-    html += `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${(height - pad.bottom + 16).toFixed(2)}" text-anchor="middle">${opts.xFmt ? opts.xFmt(v) : v}</text>`;
-  });
-
-  // 右轴（偏差率等）
-  if (opts.rightAxis) {
-    const ra = opts.rightAxis;
-    const ry = linearScale(ra.min, ra.max, height - pad.bottom, pad.top);
-    ra.ticks.forEach(v => {
-      const y = ry(v);
-      html += `<text class="chart-axis-label chart-axis-right" x="${(width - pad.right + 8).toFixed(2)}" y="${(y + 3).toFixed(2)}">${ra.fmt ? ra.fmt(v) : v}</text>`;
-    });
-    html += `<line class="chart-axis-right-line" x1="${width - pad.right}" y1="${pad.top}" x2="${width - pad.right}" y2="${height - pad.bottom}"/>`;
-    (ra.series || []).forEach(s => {
-      html += svgPolyline(s.points, sx, ry, `stroke="${s.color}" stroke-width="1.6" stroke-dasharray="5 4" opacity="0.9"`);
-    });
-  }
-
-  // 置信带（upper/lower 之间填充）
-  (opts.bands || []).forEach(b => {
-    if (!b.upper || !b.lower) return;
-    html += svgArea(
-      [...b.upper.map(p => [p[0], p[1]]).reverse(), ...b.lower.map(p => [p[0], p[1]])],
-      sx, sy, sy(b.lower[0][1]),
-      `fill="${b.color || '#58a6ff'}" opacity="${b.opacity ?? 0.12}"`
-    );
-  });
-
-  // 标记线（阈值 / 执行时刻）
-  (opts.markers || []).forEach(m => {
-    const x = sx(m.x);
-    html += `<line class="chart-marker-line" x1="${x.toFixed(2)}" y1="${pad.top}" x2="${x.toFixed(2)}" y2="${height - pad.bottom}" stroke="${m.color || '#d29922'}" stroke-dasharray="${m.dashed === false ? '0' : '6 5'}" opacity="0.9"/>`;
-    if (m.label) {
-      html += `<text class="chart-marker-label" x="${x.toFixed(2)}" y="${(pad.top + 4).toFixed(2)}" text-anchor="${m.x > (xMin + xMax) / 2 ? 'end' : 'start'}">${escapeHtml(m.label)}</text>`;
-    }
-  });
-
-  // 横向阈值线（基线 / 胁迫边界等）
-  (opts.hMarkers || []).forEach(m => {
-    const y = sy(m.y);
-    html += `<line class="chart-marker-line" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}" stroke="${m.color || '#f85149'}" stroke-dasharray="${m.dashed === false ? '0' : '6 5'}" opacity="0.85"/>`;
-    if (m.label) {
-      html += `<text class="chart-marker-label" x="${(width - pad.right - 4).toFixed(2)}" y="${(y - 4).toFixed(2)}" text-anchor="end">${escapeHtml(m.label)}</text>`;
-    }
-  });
-
-  // 数据序列
-  (opts.series || []).forEach(s => {
-    if (s.fill) {
-      html += svgArea(s.points, sx, sy, baselineY, `fill="${s.color}" opacity="${s.fill}"`);
-    }
-    const dash = s.dashed ? ' stroke-dasharray="7 5"' : '';
-    html += svgPolyline(s.points, sx, sy, `stroke="${s.color}" stroke-width="${s.width || 2}"${dash} opacity="${s.opacity ?? 1}"`);
-    // 数据点
-    (s.dots === false ? [] : s.points).forEach(p => {
-      html += `<circle class="chart-dot" cx="${sx(p[0]).toFixed(2)}" cy="${sy(p[1]).toFixed(2)}" r="2.4" fill="${s.color}"><title>${escapeHtml(s.name)} @ ${p[0]} : ${p[1]}</title></circle>`;
-    });
-  });
-
-  html += `</svg>`;
-  return html;
+  return chart;
 }
 
-/**
- * 分组柱状图（支持右侧偏差率折线）
- * opts: { width, height, padding, xLabels:[], yMin, yMax, yFmt,
- *   bars: [{name, color, values:[]}], line: {name, color, values:[]},
- *   lineMin, lineMax, lineFmt, barWidthRatio }
- */
-export function svgGroupedBarChart(opts) {
-  const { width = 760, height = 320 } = opts;
-  const pad = opts.padding || { top: 18, right: 52, bottom: 34, left: 52 };
-  const labels = opts.xLabels;
-  const n = labels.length;
-  const groupW = (width - pad.left - pad.right) / n;
-  const barW = Math.min(groupW * 0.28, 26);
-  const yMin = opts.yMin || 0, yMax = opts.yMax;
-  const sy = linearScale(yMin, yMax, height - pad.bottom, pad.top);
-  const baselineY = sy(0);
-
-  let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
-
-  const yTicks = opts.yTicks || niceTicks(yMin, yMax, opts.yTickCount || 5);
-  yTicks.forEach(v => {
-    const y = sy(v);
-    html += `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}"/>`;
-    html += `<text class="chart-axis-label" x="${(pad.left - 6).toFixed(2)}" y="${(y + 3).toFixed(2)}" text-anchor="end">${opts.yFmt ? opts.yFmt(v) : v}</text>`;
+/** 经营视图：计划 vs 实际 柱状图 */
+export function renderBizBarChart(el, daily) {
+  if (!window.echarts || !el) return null;
+  const chart = window.echarts.init(el);
+  chart.setOption({
+    color: [CHART_COLORS.gray, CHART_COLORS.green],
+    tooltip: {
+      trigger: 'axis', backgroundColor: '#ffffff', borderColor: '#dadce0',
+      textStyle: { color: '#202124', fontSize: 12 },
+      extraCssText: 'box-shadow:0 2px 8px rgba(60,64,67,.18);border-radius:8px;',
+    },
+    legend: { top: 0, left: 0, itemWidth: 12, itemHeight: 8, icon: 'roundRect', textStyle: { ...BASE_TEXT, color: '#3c4043' } },
+    grid: { left: 44, right: 12, top: 30, bottom: 28 },
+    xAxis: {
+      type: 'category', data: daily.map(d => d.date),
+      axisLine: { lineStyle: { color: '#dadce0' } }, axisTick: { show: false },
+      axisLabel: { ...BASE_TEXT, interval: 2 },
+    },
+    yAxis: { type: 'value', name: 'L', nameTextStyle: BASE_TEXT, axisLabel: BASE_TEXT, splitLine: { lineStyle: { color: '#f1f3f4' } } },
+    series: [
+      { name: '计划用水', type: 'bar', barWidth: 5, itemStyle: { borderRadius: 3 }, data: daily.map(d => d.planned) },
+      { name: '实际用水', type: 'bar', barWidth: 5, itemStyle: { borderRadius: 3 }, data: daily.map(d => d.actual) },
+    ],
   });
-
-  const barSeries = opts.bars || [];
-  const nBars = barSeries.length;
-  labels.forEach((label, i) => {
-    const cx = pad.left + groupW * (i + 0.5);
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(height - pad.bottom + 16).toFixed(2)}" text-anchor="middle">${escapeHtml(label)}</text>`;
-    barSeries.forEach((s, si) => {
-      const v = s.values[i];
-      const x = cx - (nBars * barW) / 2 + si * barW;
-      const y = sy(Math.max(v, 0));
-      const h = Math.max(baselineY - y, 0.5);
-      html += `<rect class="chart-bar" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barW.toFixed(2)}" height="${h.toFixed(2)}" rx="2" fill="${s.color}" opacity="0.9"><title>${escapeHtml(s.name)} ${escapeHtml(label)}: ${v}</title></rect>`;
-    });
-  });
-
-  if (opts.line) {
-    const l = opts.line;
-    const ry = linearScale(opts.lineMin, opts.lineMax, height - pad.bottom, pad.top);
-    const pts = l.values.map((v, i) => [pad.left + groupW * (i + 0.5), ry(v)]);
-    html += `<line class="chart-axis-right-line" x1="${width - pad.right}" y1="${pad.top}" x2="${width - pad.right}" y2="${height - pad.bottom}"/>`;
-    (opts.lineTicks || niceTicks(opts.lineMin, opts.lineMax, 5)).forEach(v => {
-      html += `<text class="chart-axis-label chart-axis-right" x="${(width - pad.right + 8).toFixed(2)}" y="${(ry(v) + 3).toFixed(2)}">${opts.lineFmt ? opts.lineFmt(v) : v}</text>`;
-    });
-    html += svgPolyline(pts, v => v, v => v, `stroke="${l.color}" stroke-width="1.8" stroke-dasharray="5 4"`);
-    pts.forEach(p => html += `<circle cx="${p[0].toFixed(2)}" cy="${p[1].toFixed(2)}" r="3" fill="${l.color}"><title>${escapeHtml(l.name)}: ${l.values[pts.indexOf(p)]}</title></circle>`);
-  }
-
-  html += `</svg>`;
-  return html;
+  return chart;
 }
 
-/**
- * 双面积反事实图（两条面积曲线，差值即节约）
- * opts: { width, height, padding, xLabels, series:[{name,color,values}], yMin, yMax, yFmt }
- */
-export function svgAreaChart(opts) {
-  const { width = 760, height = 320 } = opts;
-  const pad = opts.padding || { top: 18, right: 20, bottom: 34, left: 56 };
-  const labels = opts.xLabels;
-  const n = labels.length;
-  const yMin = opts.yMin || 0, yMax = opts.yMax;
-  const sy = linearScale(yMin, yMax, height - pad.bottom, pad.top);
-  const sx = linearScale(0, n - 1, pad.left, width - pad.right);
-  const baselineY = sy(yMin);
-  const toPts = values => values.map((v, i) => [i, v]);
-
-  let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
-
-  const yTicks = opts.yTicks || niceTicks(yMin, yMax, opts.yTickCount || 5);
-  yTicks.forEach(v => {
-    const y = sy(v);
-    html += `<line class="chart-grid-line" x1="${pad.left}" y1="${y.toFixed(2)}" x2="${width - pad.right}" y2="${y.toFixed(2)}"/>`;
-    html += `<text class="chart-axis-label" x="${(pad.left - 6).toFixed(2)}" y="${(y + 3).toFixed(2)}" text-anchor="end">${opts.yFmt ? opts.yFmt(v) : v}</text>`;
+/** 风险视图：情景双轨对比折线图 */
+export function renderCompareChart(el, compare) {
+  if (!window.echarts || !el || !compare?.branches) return null;
+  const chart = window.echarts.init(el);
+  const exec = compare.branches.EXECUTE?.points || [];
+  const noAct = compare.branches.NO_ACTION?.points || [];
+  chart.setOption({
+    tooltip: {
+      trigger: 'axis', backgroundColor: '#ffffff', borderColor: '#dadce0',
+      textStyle: { color: '#202124', fontSize: 12 },
+      extraCssText: 'box-shadow:0 2px 8px rgba(60,64,67,.18);border-radius:8px;',
+    },
+    legend: { top: 0, left: 0, itemWidth: 14, itemHeight: 3, icon: 'roundRect', textStyle: { ...BASE_TEXT, color: '#3c4043' } },
+    grid: baseGrid(),
+    xAxis: {
+      type: 'category', boundaryGap: false,
+      data: exec.map(p => `${p.minute}m`),
+      axisLine: { lineStyle: { color: '#dadce0' } }, axisTick: { show: false },
+      axisLabel: { ...BASE_TEXT, interval: 5 },
+    },
+    yAxis: { type: 'value', name: '%', nameTextStyle: BASE_TEXT, axisLabel: BASE_TEXT, splitLine: { lineStyle: { color: '#f1f3f4' } } },
+    series: [
+      {
+        name: compare.branches.EXECUTE?.label || '执行', type: 'line', showSymbol: false, smooth: 0.2,
+        lineStyle: { width: 2, color: '#1e8e3e' }, itemStyle: { color: '#1e8e3e' },
+        data: exec.map(p => p.value),
+        markLine: {
+          symbol: 'none', silent: true,
+          lineStyle: { color: '#d93025', type: 'dashed' },
+          label: { formatter: '胁迫边界', color: '#d93025', fontSize: 10 },
+          data: [{ yAxis: compare.stressBoundary }],
+        },
+      },
+      {
+        name: compare.branches.NO_ACTION?.label || '不处理', type: 'line', showSymbol: false, smooth: 0.2,
+        lineStyle: { width: 2, color: '#d93025' }, itemStyle: { color: '#d93025' },
+        data: noAct.map(p => p.value),
+      },
+    ],
   });
-  labels.forEach((label, i) => {
-    html += `<text class="chart-axis-label" x="${sx(i).toFixed(2)}" y="${(height - pad.bottom + 16).toFixed(2)}" text-anchor="middle">${escapeHtml(label)}</text>`;
-  });
-
-  (opts.series || []).forEach(s => {
-    const pts = toPts(s.values);
-    html += svgArea(pts, sx, sy, baselineY, `fill="${s.color}" opacity="${s.fill ?? 0.18}"`);
-    html += svgPolyline(pts, sx, sy, `stroke="${s.color}" stroke-width="2"`);
-    pts.forEach(p => {
-      html += `<circle cx="${sx(p[0]).toFixed(2)}" cy="${sy(p[1]).toFixed(2)}" r="3" fill="${s.color}"><title>${escapeHtml(s.name)} ${escapeHtml(labels[p[0]])}: ${p[1]}</title></circle>`;
-    });
-  });
-
-  // 差值标注（节约区间）
-  if (opts.gapSeries && opts.gapSeries.values.length) {
-    const g = opts.gapSeries;
-    const top = toPts(g.values.map(v => v.top));
-    const bottom = toPts(g.values.map(v => v.bottom));
-    html += svgArea([...top.map(p => [p[0], p[1]]).reverse(), ...bottom.map(p => [p[0], p[1]])], sx, sy, sy(bottom[0][1]), `fill="${g.color}" opacity="${g.opacity ?? 0.3}"`);
-  }
-
-  html += `</svg>`;
-  return html;
+  return chart;
 }
 
-/**
- * 半圆仪表盘（Time-to-Risk 倒计时）
- * opts: { width, height, value, min, max, unit, zones:[{from,to,color}], label, format }
- */
-export function svgGauge(opts) {
-  const { width = 320, height = 190 } = opts;
-  const cx = width / 2, cy = height - 26;
-  const r = Math.min(width / 2 - 18, height - 34);
-  const val = Math.max(opts.min, Math.min(opts.max, opts.value));
-  const span = opts.max - opts.min || 1;
-  const ratio = (val - opts.min) / span;
-  const angle = Math.PI * (1 - ratio); // 0..π
-  const needleR = r * 0.66;
-  const px = cx + needleR * Math.cos(angle);
-  const py = cy - needleR * Math.sin(angle);
+/** SVG 圆环（设备在线率等） */
+export function donutSVG(pct, { size = 96, stroke = 9, color = '#1e8e3e', track = '#e6e9e7', label = '' } = {}) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const filled = Math.max(0, Math.min(100, pct)) / 100;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${track}" stroke-width="${stroke}"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="${stroke}"
+      stroke-linecap="round" stroke-dasharray="${(c * filled).toFixed(1)} ${c.toFixed(1)}"
+      transform="rotate(-90 ${size / 2} ${size / 2})"/>
+    <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle"
+      style="font:600 ${Math.round(size / 5.6)}px inherit;fill:#202124">${label || `${Math.round(pct)}%`}</text>
+  </svg>`;
+}
 
-  const polar = (aDeg, rr) => {
-    const a = ((180 - aDeg) * Math.PI) / 180;
-    return [cx + rr * Math.cos(a), cy - rr * Math.sin(a)];
-  };
-
-  let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
-
-  // 刻度背景弧（背景槽颜色随主题）
-  html += `<path d="M ${polar(180, r)[0].toFixed(2)} ${polar(180, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(0, r)[0].toFixed(2)} ${polar(0, r)[1].toFixed(2)}" fill="none" stroke="var(--text-muted)" stroke-width="14" stroke-linecap="round" opacity="0.28"/>`;
-
-  // 分区色带（危险红 -> 警示橙 -> 安全绿）
-  (opts.zones || []).forEach(z => {
-    const a0 = 180 - ((z.from - opts.min) / span) * 180;
-    const a1 = 180 - ((z.to - opts.min) / span) * 180;
-    html += `<path d="M ${polar(a0, r)[0].toFixed(2)} ${polar(a0, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(a1, r)[0].toFixed(2)} ${polar(a1, r)[1].toFixed(2)}" fill="none" stroke="${z.color}" stroke-width="14" stroke-linecap="butt" opacity="${z.opacity ?? 0.85}"/>`;
-  });
-
-  // 指针（颜色随主题）
-  html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="var(--text-primary)" stroke-width="2.5" stroke-linecap="round"/>`;
-  html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="var(--text-primary)"/>`;
-
-  // 刻度（贴近色环，颜色随主题）
-  for (let v = opts.min; v <= opts.max; v += Math.ceil(span / 6)) {
-    const a = 180 - ((v - opts.min) / span) * 180;
-    const [x1, y1] = polar(a, r - 8);
-    const [x2, y2] = polar(a, r - 2);
-    html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="var(--text-secondary)" stroke-width="1"/>`;
-  }
-
-  // 数值
-  html += `<text class="chart-gauge-value" x="${cx.toFixed(2)}" y="${(cy - 24).toFixed(2)}" text-anchor="middle">${opts.format ? opts.format(val) : val}</text>`;
-  if (opts.unit) {
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy - 6).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.unit)}</text>`;
-  }
-  if (opts.label) {
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy + 22).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.label)}</text>`;
-  }
-
-  html += `</svg>`;
-  return html;
+/** 窗口尺寸变化时重绘 */
+export function autoResize(...charts) {
+  const fn = () => charts.forEach(c => c?.resize?.());
+  window.addEventListener('resize', fn);
+  return () => window.removeEventListener('resize', fn);
 }

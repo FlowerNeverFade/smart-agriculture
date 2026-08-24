@@ -63,6 +63,7 @@
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 | T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
+| T-044 | P1 | yyx1 分支 Google Material 风格前端重写（newUI 设计稿） | 前端 | — | D15+ | 已完成 | 旧 WebGL 登录/旧仪表盘移除；五视图单页工作台 + 可收回系统栏；沿用 `/api/v1` 合同与离线 SIMULATED 降级；浏览器实测回归（首开/切换/重复折叠/下发）通过，证据 `artifacts/newui-*.png`；仅 yyx1 分支 |
 
 ### 2.1 核心八项能力任务映射
 

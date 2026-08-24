@@ -340,6 +340,38 @@ export const MOCK_DATA = {
       provenance: "DERIVED"
     },
     {
+      workOrderId: "wo-mold-a01",
+      workItemId: "wo-mold-a01",
+      plotId: "plot-a01",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-tomato-mold",
+      actionType: "INSPECTION",
+      title: "灰霉病巡查",
+      reason: "重点检查下部叶片及花穗",
+      priority: "MEDIUM",
+      status: "OPEN",
+      assigneeId: null,
+      dueAt: new Date(Date.now() + 21 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    },
+    {
+      workOrderId: "wo-fert-a01",
+      workItemId: "wo-fert-a01",
+      plotId: "plot-a01",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-tomato-fert",
+      actionType: "FIELD_OPERATION",
+      title: "追肥计划",
+      reason: "平衡水溶肥 10kg/亩",
+      priority: "LOW",
+      status: "OPEN",
+      assigneeId: null,
+      dueAt: new Date(Date.now() + 45 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      provenance: "DERIVED"
+    },
+    {
       workOrderId: "wo-inspect-b01",
       workItemId: "wo-inspect-b01",
       plotId: "plot-b01",

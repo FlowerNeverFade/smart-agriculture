@@ -3,14 +3,12 @@ import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
   base: './',
-  assetsInclude: ['**/*.glb'],
   build: {
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       input: {
         dashboard: fileURLToPath(new URL('./index.html', import.meta.url)),
-        login: fileURLToPath(new URL('./login.html', import.meta.url)),
-        horizon: fileURLToPath(new URL('./login-concepts.html', import.meta.url))
+        login: fileURLToPath(new URL('./login.html', import.meta.url))
       }
     }
   },
