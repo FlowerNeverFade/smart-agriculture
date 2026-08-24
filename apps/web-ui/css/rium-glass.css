@@ -330,6 +330,33 @@ html.engine-safari[data-theme="light"] {
   background-image: none !important;
 }
 
+/* Keep the rail tab out of the card flow.  The skin's surface rule above
+   must not turn this absolute control into a normal-flow block. */
+.right-rail-toggle {
+  position: absolute !important;
+}
+
+.right-rail,
+.right-rail-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The rail is a scrollable stack.  Do not let the generic glass surface rule
+   clip a card's intrinsic content or let a flex item collapse into its next
+   sibling.  The water orb keeps its own clipping boundary for the animated
+   liquid surface. */
+.right-rail-panel .system-status-card {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: max-content;
+  overflow: visible !important;
+}
+
+.right-rail-panel .water-rail-card {
+  overflow: hidden !important;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   .app-header,
   .rail-section,
