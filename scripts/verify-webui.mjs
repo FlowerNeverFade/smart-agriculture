@@ -57,7 +57,8 @@ const waterModuleVersion = appSource.match(/\.\/water-visual\.js\?v=([^'"\)]+)/)
 ok('水资源视图只加载同一版本的可视化模块', Boolean(waterModuleVersion) && workOrdersSource.includes(`../water-visual.js?v=${waterModuleVersion}`));
 ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));
 ok('工作台已移除登录弹窗', !html.includes('authModal') && !html.includes('auth-modal-backdrop'));
-ok('feat/login-interface 液态登录页已接入', loginHtml.includes('ambientLiquidCanvas') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=ambient-liquid-1/.test(loginHtml) && loginSource.includes('createAmbientLiquidField'));
+ok('feat/login-interface 液态登录页已接入', loginHtml.includes('ambientLiquidCanvas') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=(?:ambient-liquid-1|account-role-1)/.test(loginHtml) && loginSource.includes('createAmbientLiquidField'));
+ok('账号生命周期表单已接入', ['loginRole', 'showRegister', 'showRecovery', 'registerForm', 'registerRole', 'recoveryForm', 'recoveryCodeContinue'].every(id => loginHtml.includes(`id=\"${id}\"`)) && loginSource.includes('submitRegistration') && loginSource.includes('submitRecovery'));
 ok('未登录直接跳转独立登录页', appSource.includes("const LOGIN_ENTRY = 'login.html'") && appSource.includes('if (!api.readSession())') && loginSource.includes("storedSession?.mode === 'live'"));
 ok('微观作物沙盘拥有独立路由', html.includes('data-view="crop-sandbox"') && appSource.includes("viewName === 'crop-sandbox'") && appSource.includes('ensureCropSandbox'));
 const dom = new JSDOM(html, {

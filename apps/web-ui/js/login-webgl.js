@@ -11,6 +11,7 @@ const FRAME_INTERVAL = 1000 / 60;
 const VELOCITY_MAX = 1.2;
 const SPEED_REFERENCE = 1.55;
 const NEUTRAL_FLOW = 128 / 255;
+const DYE_RECOVERY_RATE = 0.72;
 
 const VERTEX_SHADER = `#version 300 es
   layout(location = 0) in vec2 aPosition;
@@ -656,7 +657,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
   let paused = false;
   let contextLost = false;
   let destroyed = false;
-  let dyeRecoveryRate = 1.0;
+  let dyeRecoveryRate = DYE_RECOVERY_RATE;
 
   const resizeObserver = typeof ResizeObserver === 'function'
     ? new ResizeObserver(() => measureElements())
@@ -772,7 +773,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
       try {
         dyeRead = createRenderTarget({ clearColor, internalFormat: gl.RGBA16F, type: gl.HALF_FLOAT });
         dyeWrite = createRenderTarget({ clearColor, internalFormat: gl.RGBA16F, type: gl.HALF_FLOAT });
-        dyeRecoveryRate = 0.05;
+        dyeRecoveryRate = DYE_RECOVERY_RATE;
         canvas.dataset.dyeFormat = 'rgba16f';
         return;
       } catch {
@@ -785,7 +786,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
 
     dyeRead = createRenderTarget({ clearColor });
     dyeWrite = createRenderTarget({ clearColor });
-    dyeRecoveryRate = 1.0;
+    dyeRecoveryRate = DYE_RECOVERY_RATE;
     canvas.dataset.dyeFormat = 'rgba8';
   }
 
