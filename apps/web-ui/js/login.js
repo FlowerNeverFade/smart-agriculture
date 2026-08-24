@@ -16,11 +16,13 @@ const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
 const loginForm = document.getElementById('loginForm');
 const username = document.getElementById('username');
+const loginRole = document.getElementById('loginRole');
 const password = document.getElementById('password');
 const loginButton = document.getElementById('loginButton');
 const loginError = document.getElementById('loginError');
 const registerForm = document.getElementById('registerForm');
 const registerUsername = document.getElementById('registerUsername');
+const registerRole = document.getElementById('registerRole');
 const registerPassword = document.getElementById('registerPassword');
 const registerConfirm = document.getElementById('registerConfirm');
 const registerButton = document.getElementById('registerButton');
@@ -50,7 +52,7 @@ let pendingRegistration = null;
 let recoveryCodeContext = 'register';
 
 function syncTaskMode() {
-  const tasking = document.activeElement?.matches('.auth input') ?? false;
+  const tasking = document.activeElement?.matches('.auth input, .auth select') ?? false;
   document.body.classList.toggle('is-tasking', tasking);
   backgroundController?.setTaskMode(tasking);
 }
@@ -124,11 +126,22 @@ function validatePassword(account, secret) {
 async function submitLogin(event) {
   event.preventDefault();
   const account = username.value.trim();
+  const selectedRole = loginRole.value;
   const secret = password.value;
 
-  if (!account || !secret) {
-    setFormError(loginForm, loginError, '请输入账号和密码');
-    (!account ? username : password).focus();
+  if (!account) {
+    setFormError(loginForm, loginError, '请输入账号');
+    username.focus();
+    return;
+  }
+  if (!selectedRole) {
+    setFormError(loginForm, loginError, '请选择登录身份');
+    loginRole.focus();
+    return;
+  }
+  if (!secret) {
+    setFormError(loginForm, loginError, '请输入密码');
+    password.focus();
     return;
   }
 
@@ -136,19 +149,21 @@ async function submitLogin(event) {
   setLoading(loginButton, true);
 
   try {
-    const result = await api.login({ username: account, password: secret });
+    const result = await api.login({ username: account, password: secret, role: selectedRole });
     const user = presentUser(result.user);
     api.saveSession({ mode: 'live', token: result.accessToken, user });
     beginExit(user, 'live');
   } catch (error) {
     if (error instanceof ApiError && (error.status === 401 || error.code === 'AUTH_INVALID')) {
-      setFormError(loginForm, loginError, '账号或密码错误');
+      setFormError(loginForm, loginError, '账号、密码或身份不匹配');
       password.focus();
     } else if (error instanceof ApiError && error.isNetworkError) {
       const demoUser = secret === 'demo123' ? demoUserFor(account) : null;
-      if (demoUser) {
+      if (demoUser && demoUser.role === selectedRole) {
         api.saveSession({ mode: 'demo', user: demoUser });
         beginExit(demoUser, 'demo');
+      } else if (demoUser) {
+        setFormError(loginForm, loginError, '账号与所选身份不匹配');
       } else {
         setFormError(loginForm, loginError, '后端暂不可用；演示账号需使用 demo123');
       }
@@ -163,11 +178,17 @@ async function submitLogin(event) {
 async function submitRegistration(event) {
   event.preventDefault();
   const account = registerUsername.value.trim().toLowerCase();
+  const selectedRole = registerRole.value;
   const secret = registerPassword.value;
 
   if (!validateUsername(account)) {
     setFormError(registerForm, registerError, '账号需为 4–32 位字母、数字、点、下划线或短横线');
     registerUsername.focus();
+    return;
+  }
+  if (!selectedRole) {
+    setFormError(registerForm, registerError, '请选择注册身份');
+    registerRole.focus();
     return;
   }
   if (!validatePassword(account, secret)) {
@@ -184,7 +205,7 @@ async function submitRegistration(event) {
   setFormError(registerForm, registerError, '');
   setLoading(registerButton, true);
   try {
-    const result = await api.register({ username: account, password: secret });
+    const result = await api.register({ username: account, password: secret, role: selectedRole });
     pendingRegistration = { token: result.accessToken, user: presentUser(result.user) };
     showRecoveryCode(result.recoveryCode, 'register');
     registerForm.reset();
@@ -320,6 +341,7 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
     if (!user) return;
     username.value = account;
     password.value = 'demo123';
+    loginRole.value = user.role;
     demoPanel.hidden = true;
     demoToggle.setAttribute('aria-expanded', 'false');
     setFormError(loginForm, loginError, '');

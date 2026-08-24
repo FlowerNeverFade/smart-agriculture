@@ -62,7 +62,7 @@
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
-| T-043 | P0 | 完成账号注册、恢复码重置、凭据轮换与登录页账户流程 | 前后端 | — | D15+ | 已完成（本地验证） | Flyway v2、Gradle 全量测试、Vite 构建、本地 API 黑盒与内置浏览器核心流程通过；`docs/account-management.md` |
+| T-043 | P0 | 完成账号注册、身份选择与核验、恢复码重置、凭据轮换及登录页账户流程 | 前后端 | — | D15+ | 已完成（本地验证） | Flyway v2、身份匹配与安全注册 Gradle 回归、Vite 构建、本地 API 黑盒、登录/注册身份内置浏览器流程通过；`docs/account-management.md` |
 
 ### 2.1 核心八项能力任务映射
 

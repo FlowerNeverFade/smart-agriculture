@@ -923,6 +923,8 @@ class AgriEngine {
     private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private static final Set<String> ACCOUNT_ROLES = Set.of("FARMER", "FIELD_OPERATOR", "FARM_ADMIN", "SYSTEM_ADMIN");
+    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FIELD_OPERATOR");
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -961,26 +963,40 @@ class AgriEngine {
     }
 
     Map<String, Object> login(String username, String password) {
+        return login(username, password, "");
+    }
+
+    Map<String, Object> login(String username, String password, String expectedRole) {
         String normalized = normalizeUsername(username);
+        String normalizedRole = normalizeRole(expectedRole);
         Map<String, Object> user = store.userByUsername(normalized);
-        if (user == null || !Jsons.bool(user, "enabled", true) || !passwordEncoder.matches(password, Jsons.text(user, "passwordHash", ""))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_INVALID", "用户名或密码错误");
+        boolean credentialsMatch = user != null && Jsons.bool(user, "enabled", true)
+                && passwordEncoder.matches(password, Jsons.text(user, "passwordHash", ""));
+        boolean roleMatches = normalizedRole.isBlank() || (user != null && ACCOUNT_ROLES.contains(normalizedRole)
+                && normalizedRole.equals(Jsons.text(user, "role", "")));
+        if (!credentialsMatch || !roleMatches) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_INVALID", "账号、密码或身份错误");
         }
         return authenticatedSession(user);
     }
 
     Map<String, Object> register(String username, String password) {
+        return register(username, password, "FARMER");
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole) {
         String normalized = normalizeUsername(username);
+        String role = validateSelfRegistrationRole(requestedRole);
         validateUsername(normalized);
         validatePassword(normalized, password);
         String recoveryCode = generateRecoveryCode();
         Map<String, Object> user = new LinkedHashMap<>();
         user.put("userId", Jsons.id("user")); user.put("username", normalized);
         user.put("passwordHash", passwordEncoder.encode(password)); user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
-        user.put("role", "FARMER"); user.put("farmIds", List.of("farm-demo"));
+        user.put("role", role); user.put("farmIds", List.of("farm-demo"));
         user.put("plotIds", List.of("plot-a01", "plot-a02", "plot-b01")); user.put("enabled", true); user.put("credentialVersion", 1);
         if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
-        store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", "FARMER"));
+        store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role));
         Map<String, Object> result = authenticatedSession(user);
         result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
         return result;
@@ -1023,6 +1039,20 @@ class AgriEngine {
 
     private String normalizeUsername(String username) {
         return String.valueOf(username == null ? "" : username).trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeRole(String role) {
+        return String.valueOf(role == null ? "" : role).trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String validateSelfRegistrationRole(String requestedRole) {
+        String role = normalizeRole(requestedRole);
+        if (role.isBlank()) role = "FARMER";
+        if (SELF_REGISTRATION_ROLES.contains(role)) return role;
+        if (ACCOUNT_ROLES.contains(role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "管理员身份需要系统授权，不能自助注册");
+        }
+        throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的注册身份");
     }
 
     private void validateUsername(String username) {
@@ -2277,12 +2307,14 @@ class AgriController {
     }
 
     @PostMapping("/auth/login")
-    ResponseEntity<?> login(@RequestBody Map<String, Object> body) { return ok(engine.login(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""))); }
+    ResponseEntity<?> login(@RequestBody Map<String, Object> body) {
+        return ok(engine.login(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "")));
+    }
 
     @PostMapping("/auth/register")
     ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(
-                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""))));
+                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "FARMER"))));
     }
 
     @PostMapping("/auth/password/reset")

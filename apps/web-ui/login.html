@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f3f7ef">
   <title>AgriLoop · 智慧农业登录</title>
-  <link rel="stylesheet" href="css/login-motion.css?v=account-management-1">
+  <link rel="stylesheet" href="css/login-motion.css?v=account-role-1">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
@@ -40,6 +40,18 @@
             <label class="field">
               <span>账号</span>
               <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
+            </label>
+
+            <label class="field field--select">
+              <span>登录身份</span>
+              <select id="loginRole" name="role" required>
+                <option value="" selected disabled>请选择账户身份</option>
+                <option value="FARMER">种植农户</option>
+                <option value="FIELD_OPERATOR">田间操作员</option>
+                <option value="FARM_ADMIN">农场管理员</option>
+                <option value="SYSTEM_ADMIN">系统管理员</option>
+              </select>
+              <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
             </label>
 
             <label class="field field--password">
@@ -82,11 +94,20 @@
             返回登录
           </button>
           <h2 id="registerTitle">创建账号</h2>
-          <p class="auth__summary">注册普通种植用户，开始管理示范农场</p>
+          <p class="auth__summary">选择工作身份，开始管理示范农场</p>
           <form id="registerForm" novalidate>
             <label class="field">
               <span>账号</span>
               <input id="registerUsername" name="username" type="text" autocomplete="username" placeholder="4–32 位字母或数字" maxlength="32" required>
+            </label>
+            <label class="field field--select">
+              <span>注册身份</span>
+              <select id="registerRole" name="role" required aria-describedby="registerRoleNote">
+                <option value="" selected disabled>请选择账户身份</option>
+                <option value="FARMER">种植农户</option>
+                <option value="FIELD_OPERATOR">田间操作员</option>
+              </select>
+              <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
             </label>
             <label class="field field--password">
               <span>密码</span>
@@ -104,7 +125,7 @@
               <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
               <span class="submit__loading" aria-hidden="true">创建中</span>
             </button>
-            <p class="auth__note">注册成功后会生成一次性账户恢复码，请妥善保存。</p>
+            <p class="auth__note" id="registerRoleNote">管理员身份需由系统授权；注册成功后会生成一次性账户恢复码。</p>
           </form>
         </div>
 
@@ -163,6 +184,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=account-management-1"></script>
+  <script type="module" src="js/login.js?v=account-role-1"></script>
 </body>
 </html>

@@ -26,6 +26,23 @@ class AgriApplicationTest {
     }
 
     @Test
+    void accountRoleSelectionIsVerifiedAndAdminSelfRegistrationIsBlocked() {
+        assertThat(engine.login("operator", "demo123", "FIELD_OPERATOR")).containsKey("accessToken");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login("operator", "demo123", "FARM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AUTH_INVALID"));
+
+        String username = "field" + System.nanoTime();
+        Map<String, Object> registration = engine.register(username, "FieldPass2026", "FIELD_OPERATOR");
+        assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FIELD_OPERATOR");
+        assertThat(engine.login(username, "FieldPass2026", "FIELD_OPERATOR")).containsKey("accessToken");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("admin" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("other" + System.nanoTime(), "OtherPass2026", "UNKNOWN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_INVALID"));
+    }
+
+    @Test
     void accountRegistrationAndRecoveryRotateCredentials() {
         String username = "grower" + System.nanoTime();
         String firstPassword = "FieldPass2026";

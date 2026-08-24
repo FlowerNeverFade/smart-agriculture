@@ -50,12 +50,12 @@ export class ApiService {
   }
 
   async login(credentials, password) {
-    const { username, password: secret } = typeof credentials === 'object'
+    const { username, password: secret, role = '' } = typeof credentials === 'object'
       ? (credentials || {})
       : { username: credentials, password };
     const resp = await this._fetch('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password: secret })
+      body: JSON.stringify({ username, password: secret, role })
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
@@ -65,10 +65,10 @@ export class ApiService {
     return session;
   }
 
-  async register({ username, password }) {
+  async register({ username, password, role }) {
     const resp = await this._fetch('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password, role })
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {

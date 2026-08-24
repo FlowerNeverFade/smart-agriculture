@@ -3,7 +3,7 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；指定五个前端分支已合并发布；`feat/login-interface` 已在本地补齐注册、恢复码重置和凭据轮换，尚未推送或部署；真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；指定五个前端分支已合并发布；`feat/login-interface` 已补齐注册、恢复码重置、凭据轮换和登录/注册身份选择，最新身份选择改动仅在本地、尚未推送或部署；真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
@@ -25,7 +25,7 @@
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
 | 可视化主线实现 | 已完成（最小入口 + 3D 农田监测切片） | 100%（已交付切片） | JWT 登录、后端状态、Copilot 对话和 Qwen/降级标识；Three.js 全景数字孪生支持昼夜/天气、作物阶段、预警、风场和地块详情；完整业务页面仍不在本期 |
-| 账号管理 | 已完成（本地验证） | 100%（当前功能范围） | 登录页注册、恢复码重置、BCrypt 哈希、失败限流、恢复码轮换及旧 JWT 失效均通过；未推送/未部署，见 `docs/account-management.md` |
+| 账号管理 | 已完成（本地验证） | 100%（当前功能范围） | 登录/注册身份选择、服务端角色核验、普通身份安全注册、管理员自助注册阻断、恢复码重置、BCrypt 哈希、失败限流及旧 JWT 失效均通过；最新改动未推送/未部署，见 `docs/account-management.md` |
 | 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
@@ -64,7 +64,7 @@
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
 - `feat/login-interface` 的独立 WebGL 液态登录页、`rium_dev` 的麦田/地形背景与液态玻璃、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现以及 `lxh-frontend` 的农田监测/独立作物沙盘已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
-- 当前 `feat/login-interface` 本地分支已原位扩展账户生命周期：注册用户固定为普通 `FARMER`，注册时一次性展示恢复码；密码重设会轮换恢复码并使旧 JWT 失效。该改动已通过本地自动化、API 黑盒和浏览器验证，但尚未推送或部署，不能视为公网现状。
+- 当前 `feat/login-interface` 已原位扩展账户生命周期：登录强制选择并校验四级身份；自助注册可选择种植农户或田间操作员，管理员身份继续要求系统授权；注册时一次性展示恢复码，密码重设会轮换恢复码并使旧 JWT 失效。身份选择改动已通过本地自动化、Vite 构建和内置浏览器功能验证，尚未推送或部署，不能视为公网现状。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门
