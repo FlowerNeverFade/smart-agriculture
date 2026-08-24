@@ -173,8 +173,8 @@ export async function renderRiskForecast(container, plotId) {
       type: 'gauge',
       startAngle: 180, endAngle: 0,
       min: 0, max: 240,
-      radius: '82%',
-      center: ['50%', '80%'],
+      radius: '92%',
+      center: ['50%', '72%'],
       axisLine: {
         lineStyle: {
           width: 14,
@@ -182,21 +182,22 @@ export async function renderRiskForecast(container, plotId) {
         }
       },
       pointer: {
-        length: '55%', width: 5,
-        itemStyle: { color: themeTextColor() }
+        length: '48%', width: 5,
+        itemStyle: { color: themeTextColor() },
+        animationDuration: 1400, animationEasing: 'cubicOut'
       },
-      anchor: { show: true, size: 10, itemStyle: { color: themeTextColor() } },
-      // 刻度/分隔线：收紧并贴住弧、落在弧内侧，给中央数字留足空间
-      axisTick: { distance: -22, length: 4, lineStyle: { color: themeTickColor() } },
-      splitLine: { distance: -24, length: 8, lineStyle: { color: themeTickColor(), width: 1.5 } },
-      axisLabel: { distance: 4, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
+      anchor: { show: true, size: 9, itemStyle: { color: themeTextColor() } },
+      // 刻度/分隔线：紧贴弧线、留在弧正下方，不再向内侵入碗区
+      axisTick: { distance: -14, length: 4, lineStyle: { color: themeTickColor() } },
+      splitLine: { distance: -16, length: 7, lineStyle: { color: themeTickColor(), width: 1.5 } },
+      axisLabel: { show: false }, // 弧上的 0/40/…/240 刻度标签遮挡数字，直接隐藏
       detail: {
         valueAnimation: true,
         formatter: v => v >= 240 ? '>240' : v,
-        color: themeTextColor(), fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-        offsetCenter: [0, '-38%'] // 数字位于半圆碗内宽阔处，不被弧顶裁切
+        color: themeTextColor(), fontSize: 32, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
+        offsetCenter: [0, '32%'] // 数字移到刻度环外（弧下方开阔区），绝不与刻度线重叠
       },
-      title: { offsetCenter: [0, '-14%'], color: themeAxisColor(), fontSize: 12 },
+      title: { offsetCenter: [0, '46%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
       data: [{ value: 0, name: '分钟 · 触达极限胁迫边界' }],
       animationDuration: 1400,
       animationEasing: 'cubicOut'
