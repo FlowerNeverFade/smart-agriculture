@@ -195,9 +195,9 @@ export async function renderRiskForecast(container, plotId) {
         valueAnimation: true,
         formatter: v => v >= 240 ? '>240' : v,
         color: themeTextColor(), fontSize: 32, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-        offsetCenter: [0, '-24%'] // 大数字回到表中部（碗区内），环/刻度/标签都在外圈
+        offsetCenter: [0, '16%'] // 大数字移到仪表盘正下方（弧底下），与表盘内的指针错开
       },
-      title: { offsetCenter: [0, '-4%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
+      title: { offsetCenter: [0, '40%'], color: themeAxisColor(), fontSize: 11, lineHeight: 14 },
       data: [{ value: 0, name: '分钟 · 触达极限胁迫边界' }],
       animationDuration: 1400,
       animationEasing: 'cubicOut'
