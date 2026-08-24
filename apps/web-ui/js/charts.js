@@ -77,12 +77,25 @@ function isCanvasSupported() {
 export async function initEChart(el) {
   const echarts = await ensureEcharts();
   if (!echarts) return null;
+  let inst;
   try {
-    return echarts.init(el, null, isCanvasSupported() ? undefined : { renderer: 'svg' });
+    inst = echarts.init(el, null, isCanvasSupported() ? undefined : { renderer: 'svg' });
   } catch (e) {
     console.warn('ECharts init failed, falling back to SVG renderer:', e);
     return null;
   }
+  // 弹窗刚打开/布局未稳定时 init 可能量到 0×0 或过渡尺寸，画布会空白或溢出；
+  // 用 ResizeObserver 在容器尺寸变化时自动 resize，dispose 时一并断开。
+  if (inst && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      if (!el.isConnected) return;
+      try { inst.resize(); } catch (e) { /* noop */ }
+    });
+    ro.observe(el);
+    const origDispose = inst.dispose.bind(inst);
+    inst.dispose = () => { ro.disconnect(); origDispose(); };
+  }
+  return inst;
 }
 
 /**

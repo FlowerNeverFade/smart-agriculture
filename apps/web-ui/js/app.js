@@ -1024,7 +1024,7 @@ class AgriApp {
    * history.pushState/replaceState 只改 URL（不滚动），再手动派发 hashchange。
    * jsdom 等环境 pushState 不更新 location.hash 时兜底赋值（该环境无布局，无滚动副作用）。
    */
-  _setHash(hashStr, replace = false) {
+  _setHash(hashStr, replace = false, dispatch = true) {
     const base = window.location.href.split('#')[0];
     const url = hashStr ? `${base}#${hashStr}` : base;
     if (replace) {
@@ -1037,8 +1037,10 @@ class AgriApp {
       window.location.hash = expect;
     }
     // 手动派发，驱动 handleRoute（幂等去重防重复渲染）
-    const HashChange = window.HashChangeEvent || window.Event;
-    window.dispatchEvent(new HashChange('hashchange'));
+    if (dispatch) {
+      const HashChange = window.HashChangeEvent || window.Event;
+      window.dispatchEvent(new HashChange('hashchange'));
+    }
   }
 
   navigate(viewName, params = {}) {
@@ -1164,7 +1166,13 @@ class AgriApp {
     }
 
     if (options.updateHash !== false) {
-      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString());
+      // 只同步 URL、不派发 hashchange：openSubview 已完成渲染，若再派发会经
+      // handleRoute 触发第二次 openSubview，形成双重渲染竞态——首开时 echarts
+      // 尚未加载完，第一轮 DOM 被第二轮 innerHTML 清空，留下 0×0 空白画布；
+      // 3D 视图则会同时创建两个 WebGL 场景，极易打爆显存导致标签页崩溃。
+      const hashStr = new URLSearchParams({ view: viewName, plotId }).toString();
+      this._setHash(hashStr, false, false);
+      this._lastHandledHash = `#${hashStr}`;
     }
   }
 

@@ -235,7 +235,7 @@ export async function renderRiskForecast(container, plotId) {
       const option = {
         backgroundColor: 'transparent',
         animation: false, // 关闭入场动画：stack 置信带生长动画期间下半部分会短暂空黑
-        grid: { left: 46, right: 20, top: 36, bottom: 30 },
+        grid: { left: 46, right: 36, top: 36, bottom: 30 },
         tooltip: { ...darkTooltip(), formatter: () => null },
         xAxis: {
           type: 'category',
@@ -252,16 +252,19 @@ export async function renderRiskForecast(container, plotId) {
         },
         series: [
           {
+            // stack 置信带：基底序列必须先声明（下界从 0 起叠），
+            // 差值序列（上界-下界）叠在基底之上并填充面积，色带才落在 [lower, upper] 区间；
+            // 顺序颠倒会把色带画到 0~(upper-lower)，被 y 轴 min 裁掉而不可见。
+            name: '置信带下界', type: 'line', stack: 'band',
+            data: curve.map(p => p.lower),
+            symbol: 'none', lineStyle: { opacity: 0 },
+            tooltip: { show: false }
+          },
+          {
             name: '置信带上界', type: 'line', stack: 'band',
             data: curve.map(p => p.upper - p.lower),
             symbol: 'none', lineStyle: { opacity: 0 },
             areaStyle: { color: 'rgba(88, 166, 255, 0.14)' },
-            tooltip: { show: false }
-          },
-          {
-            name: '置信带下界', type: 'line', stack: 'band',
-            data: curve.map(p => p.lower),
-            symbol: 'none', lineStyle: { opacity: 0 },
             tooltip: { show: false }
           },
           {
@@ -927,10 +930,10 @@ export async function renderScenarioReplay(container, plotId) {
     const resetBtn = runOutput.querySelector('[data-role="reset-btn"]');
 
     const buildMarkLineData = (t) => [
-      { xAxis: t, lineStyle: { color: '#f0f6fc' }, label: { formatter: `◉ t=${t}min`, color: '#f0f6fc' } },
-      { xAxis: cmp.execMinute, lineStyle: { color: '#3fb950' }, label: { formatter: '⚡ 虚拟执行', color: '#3fb950' } },
-      { yAxis: cmp.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR } },
-      { yAxis: cmp.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR } }
+      { xAxis: t, lineStyle: { color: '#f0f6fc' }, label: { formatter: `◉ t=${t}min`, color: '#f0f6fc', position: 'insideEndTop' } },
+      { xAxis: cmp.execMinute, lineStyle: { color: '#3fb950' }, label: { formatter: '⚡ 虚拟执行', color: '#3fb950', position: 'insideEndTop' } },
+      { yAxis: cmp.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `基线 ${cmp.baselineMoisture}%`, color: BASELINE_COLOR, position: 'insideEndTop' } },
+      { yAxis: cmp.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `边界 ${cmp.stressBoundary}%`, color: BOUNDARY_COLOR, position: 'insideEndTop' } }
     ];
 
     const buildEChartsOption = (t) => {
@@ -963,7 +966,7 @@ export async function renderScenarioReplay(container, plotId) {
         backgroundColor: 'transparent',
         // 双轨图为普通折线（无 stack 置信带），保留入场生长动画；
         // 播放时增量更新仅移动 markLine，不受此动画影响
-        grid: { left: 46, right: 20, top: 36, bottom: 30 },
+        grid: { left: 46, right: 40, top: 36, bottom: 30 },
         // 原生 tooltip 仅保留 axisPointer，内容由自定义浮窗渲染（attachCustomTip）
         tooltip: { ...darkTooltip(), formatter: () => null },
         // value 轴：markLine 的 xAxis 直接按时间坐标定位，与曲线横轴严格对应

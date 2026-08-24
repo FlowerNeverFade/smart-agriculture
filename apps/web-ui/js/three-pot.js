@@ -861,6 +861,10 @@ export async function createPotScene(canvas, opts = {}) {
   };
   const animate = (t) => { rafId = requestAnimationFrame(animate); if (!visible) return; frame(t); };
   const onVis = () => { visible = !document.hidden; if (visible && !reducedMotion) { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(animate); } };
+  // WebGL 上下文丢失保护：GPU 资源紧张被浏览器回收上下文时停止渲染循环，
+  // 避免在已丢失的上下文上继续提交绘制导致异常甚至标签页崩溃
+  const onContextLost = (e) => { e.preventDefault(); visible = false; cancelAnimationFrame(rafId); };
+  canvas.addEventListener('webglcontextlost', onContextLost);
 
   resize(); applyPalette(PALETTES.normal);
   window.addEventListener('resize', resize);
@@ -874,6 +878,7 @@ export async function createPotScene(canvas, opts = {}) {
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', resize);
       document.removeEventListener('visibilitychange', onVis);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
       try { renderer.dispose(); } catch (e) {}
       try { canvas.remove(); } catch (e) {}
     },

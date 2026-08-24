@@ -97,7 +97,8 @@ async function submitLogin(event) {
     if (error instanceof ApiError && (error.status === 401 || error.code === 'AUTH_INVALID')) {
       setError('账号或密码错误');
       password.focus();
-    } else if (error instanceof ApiError && error.isNetworkError) {
+    } else if (error instanceof ApiError && (error.isNetworkError || error.status === 0 || error.status === 404 || error.status === 405 || error.status === 501 || error.status >= 500)) {
+      // 后端不可用（网络错误，或静态服务器对 POST 返回 404/405/501 等）→ 离线演示会话
       const demoUser = secret === 'demo123' ? demoUserFor(account) : null;
       if (demoUser) {
         api.saveSession({ mode: 'demo', user: demoUser });
