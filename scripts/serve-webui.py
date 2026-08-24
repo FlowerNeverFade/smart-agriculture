@@ -7,6 +7,7 @@ AgriLoop web-ui 本地静态服务器（开发资源智能缓存）
       图片、字体和 vendor 依赖短期复用，避免重复刷新时重新传输大资源。
 """
 import http.server
+import json
 import os
 import socketserver
 import sys
@@ -36,6 +37,31 @@ class DevelopmentCacheHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
         super().end_headers()
+
+    def do_POST(self):
+        """Return a machine-readable offline response for the static-only mode.
+
+        Without this handler SimpleHTTPRequestHandler emits an HTML 501 page.
+        The frontend cannot distinguish that page from a broken form submit,
+        so demo login never gets a chance to use its intentional offline path.
+        A 503 JSON response is treated as a backend-unavailable condition by
+        ApiService while ordinary static assets continue to be served locally.
+        """
+        if urlsplit(self.path).path.startswith("/api/"):
+            payload = json.dumps({
+                "error": {
+                    "code": "BACKEND_OFFLINE",
+                    "message": "本地只启动了 Web 界面，后端服务尚未启动"
+                }
+            }, ensure_ascii=False).encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        self.send_error(405, "POST 仅支持 /api/ 路径")
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[web-ui] %s %s\n" % (self.address_string(), fmt % args))
