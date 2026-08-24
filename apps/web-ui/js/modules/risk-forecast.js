@@ -168,38 +168,46 @@ export async function renderRiskForecast(container, plotId) {
     return () => {};
   }
   if (gauge) {
-    gauge.setOption({
-      series: [{
-        type: 'gauge',
-        startAngle: 180, endAngle: 0,
-        min: 0, max: 240,
-        radius: '100%',
-        center: ['50%', '78%'],
-        axisLine: {
-          lineStyle: {
-            width: 14,
-            color: [[0.25, BOUNDARY_COLOR], [0.625, BASELINE_COLOR], [1, '#3fb950']]
-          }
-        },
-        pointer: {
-          length: '58%', width: 5,
-          itemStyle: { color: themeTextColor() }
-        },
-        anchor: { show: true, size: 10, itemStyle: { color: themeTextColor() } },
-        // 刻度/分隔线向内收短，避免压住中央数字
-        axisTick: { distance: -24, length: 4, lineStyle: { color: themeTickColor() } },
-        splitLine: { distance: -26, length: 8, lineStyle: { color: themeTickColor(), width: 1.5 } },
-        axisLabel: { distance: 4, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
-        detail: {
-          valueAnimation: true,
-          formatter: v => v >= 240 ? '>240' : v,
-          color: themeTextColor(), fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-          offsetCenter: [0, '-48%']
-        },
-        title: { offsetCenter: [0, '-14%'], color: themeAxisColor(), fontSize: 12 },
-        data: [{ value: data.timeToRiskMinutes, name: '分钟 · 触达极限胁迫边界' }]
-      }]
+    // 初次以 min 渲染，再动画到目标值 → 指针可见地从 0° 扫到真实位置
+    const gaugeSeries = () => ({
+      type: 'gauge',
+      startAngle: 180, endAngle: 0,
+      min: 0, max: 240,
+      radius: '82%',
+      center: ['50%', '80%'],
+      axisLine: {
+        lineStyle: {
+          width: 14,
+          color: [[0.25, BOUNDARY_COLOR], [0.625, BASELINE_COLOR], [1, '#3fb950']]
+        }
+      },
+      pointer: {
+        length: '55%', width: 5,
+        itemStyle: { color: themeTextColor() }
+      },
+      anchor: { show: true, size: 10, itemStyle: { color: themeTextColor() } },
+      // 刻度/分隔线：收紧并贴住弧、落在弧内侧，给中央数字留足空间
+      axisTick: { distance: -22, length: 4, lineStyle: { color: themeTickColor() } },
+      splitLine: { distance: -24, length: 8, lineStyle: { color: themeTickColor(), width: 1.5 } },
+      axisLabel: { distance: 4, color: themeAxisColor(), fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
+      detail: {
+        valueAnimation: true,
+        formatter: v => v >= 240 ? '>240' : v,
+        color: themeTextColor(), fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
+        offsetCenter: [0, '-38%'] // 数字位于半圆碗内宽阔处，不被弧顶裁切
+      },
+      title: { offsetCenter: [0, '-14%'], color: themeAxisColor(), fontSize: 12 },
+      data: [{ value: 0, name: '分钟 · 触达极限胁迫边界' }],
+      animationDuration: 1400,
+      animationEasing: 'cubicOut'
     });
+    gauge.setOption({ series: [gaugeSeries()] });
+    // 下一事件循环再动画到真实值：指针从 0° 扫到目标位置（detail 数字同步递增）
+    setTimeout(() => {
+      try {
+        gauge.setOption({ series: [{ data: [{ value: data.timeToRiskMinutes, name: '分钟 · 触达极限胁迫边界' }] }] });
+      } catch (e) { /* noop */ }
+    }, 0);
     charts.push(gauge);
   } else {
     gaugeEl.innerHTML = svgGauge({
