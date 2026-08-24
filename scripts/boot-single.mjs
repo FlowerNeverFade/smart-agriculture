@@ -44,6 +44,10 @@ const block = await page.evaluate(() => new Promise((res) => {
 const diag = await page.evaluate(() => ({
   pathname: window.location.pathname,
   plotListChildren: document.querySelectorAll('#plotListContainer > *').length,
+  plotIds: [...document.querySelectorAll('#plotListContainer .plot-list-item')].map(li => li.getAttribute('data-plot-id')),
+  plotsCountTag: document.querySelector('#plotsCountTag')?.textContent,
+  /* reclamation slots visible in farm monitor? */
+  reclamationVisible: !!document.querySelector('.reclamation-slot, [data-slot], .plot-slot'),
   feedItems: document.querySelectorAll('.feed-item').length,
   webglBgs: document.querySelectorAll('#riumBackground canvas, [data-field-effects] canvas').length,
 }));
