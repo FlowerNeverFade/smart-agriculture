@@ -106,7 +106,8 @@ const PLANT_VERT = /* glsl */ `
     float w = uWilt * bend;
     pos.x += offset.x - windDir.x * w * 0.5;
     pos.z += offset.y - windDir.y * w * 0.5;
-    pos.y -= uWilt * bend*bend * 0.45;
+    // 干旱凋萎：整株明显下垂 + 沿y压缩，体型缩小（不会反而长高）
+    pos.y -= uWilt * bend * (0.55 + bend*bend * 0.4);
     vShade = 0.82 + 0.18*sin(along*0.35);
     vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
     vec4 worldPos = modelMatrix * instanceMatrix * vec4(pos, 1.0);
@@ -130,7 +131,8 @@ const PLANT_FRAG = /* glsl */ `
     float wrap = clamp(dot(N,L)*0.46 + 0.54, 0.0, 1.0);
     float rim = pow(1.0 - clamp(dot(N,V),0.0,1.0), 2.2);
     vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N,H),0.0), 40.0);
+    float spec = pow(max(dot(N,H),0.0), 24.0);
+    float specVeg = pow(max(dot(N,H),0.0), 14.0); // 蔬果更宽、更哑的光泽
     float back = pow(max(dot(-N,L),0.0), 1.35);
     float sss = pow(max(dot(V,-L),0.0), 1.8);
 
@@ -141,11 +143,12 @@ const PLANT_FRAG = /* glsl */ `
     col *= 0.93 + grain * 0.12;
     col *= vShade * mix(0.8, 1.2, wrap);
     float leafAmt = vPart.g;
-    float fruitAmt = vPart.b + vPart.a;
     col += leaf * sss * leafAmt * mix(0.12, 0.26, uDay);
     col += uRimColor * rim * mix(0.16, 0.4, leafAmt);
     col += vec3(1.0,0.9,0.5) * spec * leafAmt * (0.16 + 0.55*uDay);
-    col += vec3(1.0,0.96,0.86) * spec * fruitAmt * (0.4 + 0.6*uDay);
+    // 红果（番茄）保留较轻高光；蔬果（黄瓜）用更宽哑光，避免过亮
+    col += vec3(1.0,0.97,0.9) * spec * vPart.b * (0.2 + 0.24*uDay);
+    col += vec3(0.95,1.0,0.9) * specVeg * vPart.a * (0.14 + 0.14*uDay);
     col += vec3(1.0,0.76,0.36) * back * mix(0.06, 0.12, uDay);
     gl_FragColor = vec4(col, 1.0);
     #include <fog_fragment>
@@ -793,7 +796,7 @@ export async function createPotScene(canvas, opts = {}) {
     terrainMat.uniforms.uMoisture.value += (mr - terrainMat.uniforms.uMoisture.value) * Math.min(1, dt * 3);
     grassMat.uniforms.uMoisture.value = plantMat.uniforms.uMoisture.value;
 
-    const wilt = (state.scenario === 'drought' || state.moisture < 20) ? Math.min(1, (20 - state.moisture) / 6 + (state.scenario === 'drought' ? 0.35 : 0)) : 0;
+    const wilt = (state.scenario === 'drought' || state.moisture < 20) ? Math.min(1, (20 - state.moisture) / 5 + (state.scenario === 'drought' ? 0.9 : 0)) : 0;
     plantMat.uniforms.uWilt.value += (wilt - plantMat.uniforms.uWilt.value) * Math.min(1, dt * 3);
     plantMat.uniforms.uTime.value = time * (reducedMotion ? 0 : 1);
     grassMat.uniforms.uTime.value = plantMat.uniforms.uTime.value;
