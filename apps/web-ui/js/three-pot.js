@@ -82,9 +82,9 @@ const STAR_FRAG = /* glsl */ `
 
 /* ------------------------------------------------------------------ 作物 */
 const PLANT_VERT = /* glsl */ `
-  attribute vec3 aPart;
+  attribute vec4 aPart;
   uniform float uTime; uniform vec2 uWindDir; uniform float uWind; uniform float uWilt;
-  varying vec3 vPart; varying float vHeight; varying float vShade; varying vec3 vWorldPos; varying vec3 vNormal;
+  varying vec4 vPart; varying float vHeight; varying float vShade; varying vec3 vWorldPos; varying vec3 vNormal;
   #include <common>
   #include <fog_pars_vertex>
   void main(){
@@ -117,9 +117,9 @@ const PLANT_VERT = /* glsl */ `
   }
 `;
 const PLANT_FRAG = /* glsl */ `
-  uniform vec3 uStem; uniform vec3 uLeaf; uniform vec3 uLeafWilt; uniform vec3 uFruit;
+  uniform vec3 uStem; uniform vec3 uLeaf; uniform vec3 uLeafWilt; uniform vec3 uFruit; uniform vec3 uFruitVeg;
   uniform vec3 uSunDir; uniform vec3 uRimColor; uniform float uDay; uniform float uMoisture;
-  varying vec3 vPart; varying float vHeight; varying float vShade; varying vec3 vWorldPos; varying vec3 vNormal;
+  varying vec4 vPart; varying float vHeight; varying float vShade; varying vec3 vWorldPos; varying vec3 vNormal;
   #include <common>
   #include <fog_pars_fragment>
   void main(){
@@ -135,13 +135,13 @@ const PLANT_FRAG = /* glsl */ `
     float sss = pow(max(dot(V,-L),0.0), 1.8);
 
     vec3 leaf = mix(uLeaf, uLeafWilt, 1.0 - uMoisture);
-    vec3 col = vPart.r * uStem + vPart.g * leaf + vPart.b * uFruit;
+    vec3 col = vPart.r * uStem + vPart.g * leaf + vPart.b * uFruit + vPart.a * uFruitVeg;
     col = mix(uStem*0.85, col, smoothstep(0.0, 0.12, vHeight));
     float grain = fract(sin(dot(vWorldPos.xz, vec2(12.9898,78.233))) * 43758.5453);
     col *= 0.93 + grain * 0.12;
     col *= vShade * mix(0.8, 1.2, wrap);
     float leafAmt = vPart.g;
-    float fruitAmt = vPart.b;
+    float fruitAmt = vPart.b + vPart.a;
     col += leaf * sss * leafAmt * mix(0.12, 0.26, uDay);
     col += uRimColor * rim * mix(0.16, 0.4, leafAmt);
     col += vec3(1.0,0.9,0.5) * spec * leafAmt * (0.16 + 0.55*uDay);
@@ -199,15 +199,15 @@ const TERRAIN_FRAG = /* glsl */ `
 
 /* ------------------------------------------------------------------ 调色板 */
 const PALETTES = {
-  normal:  { sky:0x5f9fe8, zenith:0x3a78cc, horizon:0xfdf3dc, haze:0xcfe0ea, fog:0xccdce8, fogNear:7, fogFar:26, exposure:1.0, sunGlow:1.0, sun:0xfff6dc, sunI:1.15, ambient:0.55, hemi:0.62, fill:0xb8d4f0, fillI:0.3, rim:0xffd080, rimI:0.45, soilWet:0x4a3520, soilDry:0x9a7440, grassLow:0x3f7426, grassHigh:0x86c04c, leaf:0x3fc35e, leafWilt:0x9a9a4a, stem:0x2f7a42, fruit:0xe5483a, wind:0.5 },
-  drought: { sky:0xd8c090, zenith:0x6478a0, horizon:0xf2d8a4, haze:0xd8b078, fog:0xe2cfae, fogNear:5.5, fogFar:18, exposure:1.12, sunGlow:1.35, sun:0xffdf90, sunI:1.75, ambient:0.52, hemi:0.5, fill:0xf0c078, fillI:0.3, rim:0xffc060, rimI:0.5, soilWet:0x6a4c28, soilDry:0xbc9850, grassLow:0x6e7a30, grassHigh:0xb0aa58, leaf:0x8a9a42, leafWilt:0xc4a250, stem:0x6a7a38, fruit:0xd07038, wind:0.42 },
-  heat:    { sky:0xd09070, zenith:0x7a4438, horizon:0xf2ba88, haze:0xe09050, fog:0xe0ac88, fogNear:5, fogFar:16, exposure:1.2, sunGlow:1.65, sun:0xffc070, sunI:2.15, ambient:0.56, hemi:0.5, fill:0xf0a060, fillI:0.34, rim:0xff9040, rimI:0.55, soilWet:0x64422a, soilDry:0xcaa050, grassLow:0x807638, grassHigh:0xc8a850, leaf:0x74983c, leafWilt:0xc49040, stem:0x648040, fruit:0xe86030, wind:0.45 },
-  storm:   { sky:0x232c38, zenith:0x121820, horizon:0x36404e, haze:0x4e5e74, fog:0x262e38, fogNear:4, fogFar:13, exposure:0.8, sunGlow:0.08, sun:0x9ab4ff, sunI:0.4, ambient:0.3, hemi:0.34, fill:0x4a5c88, fillI:0.26, rim:0x88a0cc, rimI:0.3, soilWet:0x2c2418, soilDry:0x483a28, grassLow:0x28482a, grassHigh:0x46743a, leaf:0x2c8040, leafWilt:0x4a6a38, stem:0x2a6a38, fruit:0xc05040, wind:1.1 },
-  drift:   { sky:0x6a5a8a, zenith:0x2c2450, horizon:0xc8a8d0, haze:0xa08ac0, fog:0x6a5c82, fogNear:5.5, fogFar:20, exposure:0.95, sunGlow:0.6, sun:0xffd8e0, sunI:1.0, ambient:0.42, hemi:0.44, fill:0xc0a0e0, fillI:0.3, rim:0xe0a0ff, rimI:0.42, soilWet:0x3a2c3e, soilDry:0x6e5058, grassLow:0x385c3a, grassHigh:0x64965a, leaf:0x4a8a52, leafWilt:0x8a8a5a, stem:0x3a7248, fruit:0xc058a0, wind:0.55 },
-  offline: { sky:0x454b50, zenith:0x2a2e33, horizon:0x565c62, haze:0x666c72, fog:0x474d52, fogNear:5.5, fogFar:17, exposure:0.85, sunGlow:0.3, sun:0xc8ccd0, sunI:0.55, ambient:0.34, hemi:0.32, fill:0x808890, fillI:0.22, rim:0x9aa0a8, rimI:0.26, soilWet:0x37393b, soilDry:0x4a4c4e, grassLow:0x3a3e3a, grassHigh:0x545854, leaf:0x565a56, leafWilt:0x646864, stem:0x4a4e4a, fruit:0x707474, wind:0.15 }
+  normal:  { sky:0x5f9fe8, zenith:0x3a78cc, horizon:0xfdf3dc, haze:0xcfe0ea, fog:0xccdce8, fogNear:7, fogFar:26, exposure:1.0, sunGlow:1.0, sun:0xfff6dc, sunI:1.15, ambient:0.55, hemi:0.62, fill:0xb8d4f0, fillI:0.3, rim:0xffd080, rimI:0.45, soilWet:0x4a3520, soilDry:0x9a7440, grassLow:0x3f7426, grassHigh:0x86c04c, leaf:0x3fc35e, leafWilt:0x9a9a4a, stem:0x2f7a42, fruit:0xe5483a, fruitVeg:0x2f9a4a, wind:0.5 },
+  drought: { sky:0xd8c090, zenith:0x6478a0, horizon:0xf2d8a4, haze:0xd8b078, fog:0xe2cfae, fogNear:5.5, fogFar:18, exposure:1.12, sunGlow:1.35, sun:0xffdf90, sunI:1.75, ambient:0.52, hemi:0.5, fill:0xf0c078, fillI:0.3, rim:0xffc060, rimI:0.5, soilWet:0x6a4c28, soilDry:0xbc9850, grassLow:0x6e7a30, grassHigh:0xb0aa58, leaf:0x8a9a42, leafWilt:0xc4a250, stem:0x6a7a38, fruit:0xd07038, fruitVeg:0x9a9440, wind:0.42 },
+  heat:    { sky:0xd09070, zenith:0x7a4438, horizon:0xf2ba88, haze:0xe09050, fog:0xe0ac88, fogNear:5, fogFar:16, exposure:1.2, sunGlow:1.65, sun:0xffc070, sunI:2.15, ambient:0.56, hemi:0.5, fill:0xf0a060, fillI:0.34, rim:0xff9040, rimI:0.55, soilWet:0x64422a, soilDry:0xcaa050, grassLow:0x807638, grassHigh:0xc8a850, leaf:0x74983c, leafWilt:0xc49040, stem:0x648040, fruit:0xe86030, fruitVeg:0x8a9a3a, wind:0.45 },
+  storm:   { sky:0x232c38, zenith:0x121820, horizon:0x36404e, haze:0x4e5e74, fog:0x262e38, fogNear:4, fogFar:13, exposure:0.8, sunGlow:0.08, sun:0x9ab4ff, sunI:0.4, ambient:0.3, hemi:0.34, fill:0x4a5c88, fillI:0.26, rim:0x88a0cc, rimI:0.3, soilWet:0x2c2418, soilDry:0x483a28, grassLow:0x28482a, grassHigh:0x46743a, leaf:0x2c8040, leafWilt:0x4a6a38, stem:0x2a6a38, fruit:0xc05040, fruitVeg:0x2a6a3a, wind:1.1 },
+  drift:   { sky:0x6a5a8a, zenith:0x2c2450, horizon:0xc8a8d0, haze:0xa08ac0, fog:0x6a5c82, fogNear:5.5, fogFar:20, exposure:0.95, sunGlow:0.6, sun:0xffd8e0, sunI:1.0, ambient:0.42, hemi:0.44, fill:0xc0a0e0, fillI:0.3, rim:0xe0a0ff, rimI:0.42, soilWet:0x3a2c3e, soilDry:0x6e5058, grassLow:0x385c3a, grassHigh:0x64965a, leaf:0x4a8a52, leafWilt:0x8a8a5a, stem:0x3a7248, fruit:0xc058a0, fruitVeg:0x447a4a, wind:0.55 },
+  offline: { sky:0x454b50, zenith:0x2a2e33, horizon:0x565c62, haze:0x666c72, fog:0x474d52, fogNear:5.5, fogFar:17, exposure:0.85, sunGlow:0.3, sun:0xc8ccd0, sunI:0.55, ambient:0.34, hemi:0.32, fill:0x808890, fillI:0.22, rim:0x9aa0a8, rimI:0.26, soilWet:0x37393b, soilDry:0x4a4c4e, grassLow:0x3a3e3a, grassHigh:0x545854, leaf:0x565a56, leafWilt:0x646864, stem:0x4a4e4a, fruit:0x707474, fruitVeg:0x5a5e5a, wind:0.15 }
 };
 const NUM_KEYS = ['fogNear','fogFar','exposure','sunGlow','sunI','ambient','hemi','fillI','rimI','wind'];
-const COL_KEYS = ['sky','zenith','horizon','haze','fog','sun','fill','rim','soilWet','soilDry','grassLow','grassHigh','leaf','leafWilt','stem','fruit'];
+const COL_KEYS = ['sky','zenith','horizon','haze','fog','sun','fill','rim','soilWet','soilDry','grassLow','grassHigh','leaf','leafWilt','stem','fruit','fruitVeg'];
 function mixPalettes(a, b, t, THREE) {
   const o = {};
   NUM_KEYS.forEach(k => { o[k] = a[k] + (b[k] - a[k]) * t; });
@@ -216,13 +216,13 @@ function mixPalettes(a, b, t, THREE) {
 }
 
 /* ------------------------------------------------------------------ 几何构建 */
-const STEM = [1, 0, 0], LEAF = [0, 1, 0], FRUIT = [0, 0, 1];
+const STEM = [1, 0, 0, 0], LEAF = [0, 1, 0, 0], FRUIT = [0, 0, 1, 0], VEG_FRUIT = [0, 0, 0, 1];
 
 function mergeParts(THREE, parts) {
   const P = [], I = [], H = [], C = []; let off = 0;
   parts.forEach(([g, part]) => {
     const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) { P.push(p.getX(i), p.getY(i), p.getZ(i)); H.push(p.getY(i)); C.push(part[0], part[1], part[2]); }
+    for (let i = 0; i < p.count; i++) { P.push(p.getX(i), p.getY(i), p.getZ(i)); H.push(p.getY(i)); C.push(part[0], part[1], part[2], part[3]); }
     if (g.index) { for (let i = 0; i < g.index.count; i++) I.push(g.index.getX(i) + off); }
     else { for (let i = 0; i < p.count; i++) I.push(off + i); }
     off += p.count; g.dispose();
@@ -230,7 +230,7 @@ function mergeParts(THREE, parts) {
   const m = new THREE.BufferGeometry();
   m.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   m.setIndex(I);
-  m.setAttribute('aPart', new THREE.Float32BufferAttribute(C, 3));
+  m.setAttribute('aPart', new THREE.Float32BufferAttribute(C, 4));
   m.computeVertexNormals();
   return m;
 }
@@ -289,19 +289,40 @@ function buildCrop(THREE, cropCode) {
     for (let i = 1; i <= pairs; i++) {
       const t = i / (pairs + 1);
       const px = dir.x * len * t, py = y + dir.y * len * t, pz = dir.z * len * t;
-      const leafScale = size * (0.5 - t * 0.2);
-      const spread = 0.62 + phase * 0.12;
-      const droop = 0.10 + t * 0.06;
+      const leafScale = size * (0.46 - t * 0.16);
+      const spread = 0.58 + phase * 0.18;
+      const droop = 0.08 + t * 0.05;
       broadLeaf(px, py, pz, yaw + spread, droop, leafScale, LEAF);
       broadLeaf(px, py, pz, yaw - spread, droop, leafScale, LEAF);
     }
-    broadLeaf(dir.x * len, y + dir.y * len, dir.z * len, yaw, 0.06, size * 0.34, LEAF);
+    broadLeaf(dir.x * len, y + dir.y * len, dir.z * len, yaw, 0.05, size * 0.3, LEAF);
   };
-  // 一枚掌状叶（黄瓜）：5 裂自一点放射
+  // 一枚掌状叶（黄瓜）：宽大，5 浅裂 + 齿缘，自基点放射
   const palmateLeaf = (x, y, z, yaw, size) => {
-    for (let k = 0; k < 5; k++) {
-      const a = yaw + (k - 2) * 0.5;
-      broadLeaf(x, y, z, a, 0.12, size * (k === 2 ? 0.48 : 0.36), LEAF);
+    for (let k = 0; k < 6; k++) {
+      const a = yaw + (k - 2.5) * 0.44;
+      const mid = (k === 2 || k === 3);
+      broadLeaf(x, y, z, a, 0.12, size * (mid ? 0.52 : 0.34), LEAF);
+    }
+  };
+  // 一根黄瓜：长圆条微弯，两端收圆（悬挂）
+  const cucumberFruit = (x, y, z, len, r, bend, part) => {
+    const ROWS = 7, SEP = 0.16;
+    const pts = [];
+    for (let i = 0; i < ROWS; i++) {
+      const t = i / (ROWS - 1);
+      const yy = -t * len;
+      const xx = Math.sin(t * Math.PI) * bend;
+      pts.push(new THREE.Vector3(xx, yy, 0));
+    }
+    const tube = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 12, r, 8, false);
+    tube.translate(x, y, z);
+    push(tube, part);
+    // 两端圆头
+    for (const [tt, ss] of [[0, 1], [1, 1]]) {
+      const cap = new THREE.SphereGeometry(tt === 0 ? r : r * 0.9, 10, 8);
+      cap.translate(x + (tt === 0 ? 0 : bend), y - len * tt, z);
+      push(cap, part);
     }
   };
   // 果串：沿水平方向轻微铺展的簇（避免排成一串竖直糖葫芦）
@@ -334,24 +355,26 @@ function buildCrop(THREE, cropCode) {
       const cal = new THREE.SphereGeometry(0.022, 8, 6); cal.scale(1.4, 0.5, 1.4); cal.translate(fx, fy + 0.05, fz); push(cal, STEM);
     });
   } else if (cropCode === 'cucumber') {
-    const segs = [[0, 0.32], [0.32, 0.68], [0.68, 1.06], [1.06, 1.4]];
+    // 攀援主蔓：靠一根竹竿，逐节上爬
+    const segs = [[0, 0.32], [0.32, 0.7], [0.7, 1.06], [1.06, 1.4]];
     for (let i = 0; i < segs.length; i++) {
       const y0 = segs[i][0], y1 = segs[i][1];
-      const dir = new THREE.Vector3(Math.sin(i * 0.5) * 0.05, 1, 0).normalize();
-      tubeAt(0.012, 0.017, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.5) * 0.02, y0, 0), dir, STEM);
+      const dir = new THREE.Vector3(Math.sin(i * 0.6) * 0.06, 1, 0).normalize();
+      tubeAt(0.014, 0.02, (y1 - y0) * 1.04, new THREE.Vector3(Math.sin(i * 0.6) * 0.02, y0, 0), dir, STEM);
+      const node = new THREE.SphereGeometry(0.024, 8, 6); node.scale(1, 0.7, 1); node.translate(0, y0, 0); push(node, STEM);
+      // 每节出一片宽大掌状叶
+      palmateLeaf(Math.sin(i * 2.4) * 0.12, y0 + 0.12, Math.cos(i * 2.4) * 0.12, i * 2.4, 0.62);
+      // 每节一条螺旋卷须
+      const ta = i * 2.4 + 1.2;
+      const dirT = new THREE.Vector3(Math.sin(ta) * 0.9, 0.5, Math.cos(ta) * 0.9).normalize();
+      tubeAt(0.004, 0.004, 0.24, new THREE.Vector3(0, y0 + 0.14, 0), dirT, STEM);
     }
-    for (let i = 0; i < 7; i++) {
-      const y = 0.22 + i * 0.18;
-      palmateLeaf(Math.sin(i * 2.4) * 0.06, y, Math.cos(i * 2.4) * 0.06, i * 2.4, 0.34);
-    }
-    for (let i = 0; i < 4; i++) {
-      const y = 0.3 + i * 0.34;
-      const dir = new THREE.Vector3(Math.sin(i * 1.7 + 1) * 0.9, 0.5, Math.cos(i * 1.7 + 1) * 0.9).normalize();
-      tubeAt(0.004, 0.004, 0.24, new THREE.Vector3(0, y, 0), dir, STEM);
-    }
-    [[0.14, 0.55, 0.4], [-0.14, 1.0, 2.2], [0.16, 1.24, 0.8]].forEach(([fx, fy, fz]) => {
-      const c = new THREE.SphereGeometry(0.05, 11, 9); c.scale(0.72, 1.9, 0.72); c.translate(fx, fy, fz); push(c, FRUIT);
-    });
+    // 挂果：绿色长条黄瓜悬在蔓上
+    cucumberFruit(0.16, 0.6, 0.4, 0.56, 0.055, 0.05, VEG_FRUIT);
+    cucumberFruit(-0.17, 0.98, 2.2, 0.5, 0.05, -0.05, VEG_FRUIT);
+    cucumberFruit(0.18, 1.24, 0.8, 0.44, 0.05, 0.04, VEG_FRUIT);
+    // 顶花（小黄花）
+    const fl = new THREE.SphereGeometry(0.05, 8, 6); fl.scale(1, 0.5, 1); fl.translate(0.06, 1.34, 1.6); push(fl, FRUIT);
   } else if (cropCode === 'strawberry') {
     tubeAt(0.012, 0.017, 0.16, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), STEM);
     for (let i = 0; i < 7; i++) {
@@ -589,7 +612,7 @@ export async function createPotScene(canvas, opts = {}) {
     uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
       uTime: { value: 0 }, uWindDir: { value: windDir.clone() }, uWind: { value: palette.wind }, uWilt: { value: 0 },
       uStem: { value: new THREE.Color(palette.stem) }, uLeaf: { value: new THREE.Color(palette.leaf) },
-      uLeafWilt: { value: new THREE.Color(palette.leafWilt) }, uFruit: { value: new THREE.Color(palette.fruit) },
+      uLeafWilt: { value: new THREE.Color(palette.leafWilt) }, uFruit: { value: new THREE.Color(palette.fruit) }, uFruitVeg: { value: new THREE.Color(palette.fruitVeg) },
       uSunDir: { value: LIGHT_DIR.clone() }, uRimColor: { value: new THREE.Color(palette.rim) },
       uDay: { value: 1 }, uMoisture: { value: 0.3 },
     }]),
@@ -607,7 +630,7 @@ export async function createPotScene(canvas, opts = {}) {
     d.position.set(x, y, z);
     d.rotation.set((Math.random() - 0.5) * 0.05, Math.random() * 6.283, (Math.random() - 0.5) * 0.05);
     const near = Math.max(0, 1 - Math.abs(z - 3.35) / 2.8);
-    const s = 0.96 + Math.random() * 0.3 + near * 0.22;
+    const s = 0.94 + Math.random() * 0.28 + near * 0.16;
     d.scale.set(s, s * (0.96 + Math.random() * 0.18), s);
     d.updateMatrix(); crops.setMatrixAt(n, d.matrix); n++;
   }
@@ -735,6 +758,7 @@ export async function createPotScene(canvas, opts = {}) {
     plantMat.uniforms.uLeaf.value.setHex(p.leaf);
     plantMat.uniforms.uLeafWilt.value.setHex(p.leafWilt);
     plantMat.uniforms.uFruit.value.setHex(p.fruit);
+    plantMat.uniforms.uFruitVeg.value.setHex(p.fruitVeg);
     plantMat.uniforms.uRimColor.value.setHex(p.rim);
     plantMat.uniforms.uDay.value = dayAmt;
     plantMat.uniforms.uWind.value = p.wind;
