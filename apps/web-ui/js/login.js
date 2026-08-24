@@ -94,10 +94,14 @@ async function submitLogin(event) {
     api.saveSession({ mode: 'live', token: result.accessToken, user });
     beginExit(user, 'live');
   } catch (error) {
+    // 本地静态预览服务器会对 API POST 返回 404/405/501，而不是抛出网络错误。
+    // 这些状态同样表示后端未接入；仅允许固定演示密码进入，避免掩盖真实鉴权失败。
+    const backendUnavailable = error instanceof ApiError
+      && (error.isNetworkError || [404, 405, 501].includes(error.status));
     if (error instanceof ApiError && (error.status === 401 || error.code === 'AUTH_INVALID')) {
       setError('账号或密码错误');
       password.focus();
-    } else if (error instanceof ApiError && error.isNetworkError) {
+    } else if (backendUnavailable) {
       const demoUser = secret === 'demo123' ? demoUserFor(account) : null;
       if (demoUser) {
         api.saveSession({ mode: 'demo', user: demoUser });

@@ -727,6 +727,117 @@
 .inspection-drawer .ops-form-grid .span-2 { grid-column: span 1; }
 .inspection-drawer form > footer { background: rgba(4, 18, 12, .86); backdrop-filter: blur(15px); }
 
+/* Light theme keeps the field-sandbox geometry and motion, changing only its
+   visual surface to a soft agricultural green with readable pale panels. */
+html[data-theme="light"] .subview-modal-backdrop.field-ops-backdrop {
+  background: rgba(210, 235, 216, .46);
+}
+
+html[data-theme="light"] .subview-modal-card.farm-ops-mode.field-ops-mode {
+  border-color: rgba(52, 139, 82, .24);
+  background: rgba(239, 249, 241, .9);
+  box-shadow: 0 28px 86px rgba(55, 96, 66, .2), inset 0 0 0 1px rgba(255, 255, 255, .62);
+}
+
+html[data-theme="light"] .subview-modal-card.field-ops-mode .subview-modal-header {
+  border-bottom-color: rgba(59, 143, 87, .17);
+  color: #163d25;
+  background: rgba(236, 248, 239, .84);
+}
+
+html[data-theme="light"] .subview-modal-card.field-ops-mode .subview-modal-title,
+html[data-theme="light"] .subview-modal-card.field-ops-mode .subview-modal-title > span {
+  color: #163d25;
+}
+
+html[data-theme="light"] .subview-modal-card.field-ops-mode .close-modal-btn {
+  color: #52715c;
+}
+
+html[data-theme="light"] .field-ops {
+  background:
+    radial-gradient(circle at 16% 12%, rgba(111, 196, 132, .23), transparent 30%),
+    radial-gradient(circle at 76% 45%, rgba(135, 207, 153, .18), transparent 38%),
+    linear-gradient(142deg, #e4f4e7, #f4faf4 48%, #dcefe1);
+}
+
+html[data-theme="light"] .field-sandbox-backdrop::after {
+  background: radial-gradient(circle 230px at var(--field-pointer-x) var(--field-pointer-y), rgba(76, 174, 105, .18), rgba(90, 180, 116, .065) 42%, transparent 72%);
+}
+
+html[data-theme="light"] .field-map-grid {
+  opacity: .34;
+  background-image:
+    linear-gradient(rgba(53, 137, 80, .16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(53, 137, 80, .16) 1px, transparent 1px),
+    linear-gradient(rgba(81, 154, 103, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(81, 154, 103, .055) 1px, transparent 1px);
+}
+
+html[data-theme="light"] .field-plot {
+  border-color: rgba(52, 147, 82, .22);
+  background:
+    repeating-linear-gradient(108deg, rgba(70, 156, 96, .1) 0 2px, transparent 2px 18px),
+    radial-gradient(circle at 45% 42%, rgba(92, 183, 118, .16), transparent 67%);
+  box-shadow: inset 0 0 60px rgba(63, 148, 89, .08), 0 0 40px rgba(71, 151, 94, .06);
+}
+
+html[data-theme="light"] .field-plot span { color: rgba(37, 121, 65, .16); }
+html[data-theme="light"] .field-mist { opacity: .2; background: radial-gradient(ellipse, rgba(137, 205, 153, .28), transparent 68%); }
+html[data-theme="light"] .field-scanline { background: linear-gradient(to bottom, transparent, rgba(67, 166, 96, .13), transparent); }
+html[data-theme="light"] .field-dew { background: #f4fff6; box-shadow: 0 0 13px #74c88c, 0 0 28px rgba(72, 158, 98, .34); }
+
+html[data-theme="light"] .field-command-hero {
+  border-bottom-color: rgba(58, 145, 87, .16);
+  background:
+    linear-gradient(102deg, rgba(108, 187, 128, .2), transparent 48%),
+    rgba(245, 252, 246, .56);
+}
+
+html[data-theme="light"] .field-command-hero .ops-role-card,
+html[data-theme="light"] .field-ops .ops-metric-row article,
+html[data-theme="light"] .field-ops .ops-toolbar,
+html[data-theme="light"] .field-ops .kanban-column,
+html[data-theme="light"] .field-ops .inspection-strip,
+html[data-theme="light"] .field-vine-timeline {
+  border-color: rgba(56, 139, 82, .16);
+  background: rgba(250, 255, 250, .68);
+  box-shadow: 0 16px 36px rgba(71, 116, 82, .1);
+}
+
+html[data-theme="light"] .field-timeline-node,
+html[data-theme="light"] .field-ops .work-card,
+html[data-theme="light"] .field-ops .inspection-list article {
+  border-color: rgba(57, 139, 82, .14);
+  background: rgba(247, 253, 248, .76);
+  box-shadow: 0 10px 24px rgba(74, 119, 85, .08);
+}
+
+html[data-theme="light"] .field-timeline-node:hover,
+html[data-theme="light"] .field-ops .work-card:hover {
+  border-color: rgba(49, 143, 79, .34);
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 15px 32px rgba(67, 121, 81, .13), 0 0 20px rgba(75, 161, 100, .07);
+}
+
+html[data-theme="light"] .field-timeline-node > i { border-color: rgba(239, 249, 241, .96); }
+html[data-theme="light"] .field-timeline-node time,
+html[data-theme="light"] .work-inspect-btn { color: #277a46; }
+html[data-theme="light"] .work-inspect-btn { border-color: rgba(54, 145, 83, .24); background: rgba(92, 181, 116, .12); }
+
+html[data-theme="light"] .inspection-drawer[open] {
+  border-color: rgba(56, 141, 83, .22);
+  background:
+    radial-gradient(circle at 0 10%, rgba(112, 193, 132, .2), transparent 32%),
+    rgba(240, 250, 242, .94);
+  box-shadow: -24px 0 72px rgba(65, 103, 74, .22);
+}
+
+html[data-theme="light"] .inspection-drawer::backdrop { background: rgba(199, 224, 205, .34); }
+html[data-theme="light"] .inspection-drawer form > header,
+html[data-theme="light"] .inspection-drawer form > footer { background: rgba(238, 249, 241, .9); }
+html[data-theme="light"] .inspection-drawer form > header small { color: #3e8656; }
+
 @keyframes fieldGridBreathe { to { opacity: .52; transform: perspective(720px) rotateX(54deg) scale(1.38) translateY(-5%); } }
 @keyframes fieldPlotPulse { to { opacity: .72; filter: brightness(1.16); } }
 @keyframes fieldMistDrift { to { transform: translateX(48%) translateY(-22px) scale(1.16); } }

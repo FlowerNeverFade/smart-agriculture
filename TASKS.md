@@ -61,11 +61,12 @@
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 与 `rium_dev-v2` 已逐项比较并合入；旧分支冲突取舍、`quhl`/设计文档分支/`task5` 排除均有记录 |
-| T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；水球已移入余量卡片资源位，网格背景按昼夜主题移动，效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
+| T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；透明农田沙盘结构和动画保持不变，浅色主题使用浅绿色底面及浅色任务面板；水球已移入余量卡片资源位，网格背景按昼夜主题移动，效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 | T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
 | T-044 | P0 | 完成智能诊断与决策中枢前端闭环及就绪度一致性修复 | 项目组 | — | D15+ | 已完成（公网验收） | `b0aefa9`/`405930d`、`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`；Spring 14/14，Web real 79/79、stub/svg 78/78；公网 READY/漂移阻断/命令幂等/护照/Qwen 对话均通过 |
 | T-045 | P1 | Web 等画质首屏与运行时性能优化 | 项目组 | — | D15+ | 已完成（公网验收） | `e9dc042`、`b08c664`、`docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`；按需 JS/CSS、数据并行、18,816 株植被实例空间剔除、隐藏停帧、分级缓存及首页水资源卡片尺寸反馈修复；Web real 81/81、stub/svg 80/80，真实 Chromium 18/18；公网真实 JWT 登录/3D/按需模块/水卡稳定性/健康检查通过 |
 | T-046 | P0 | `rium_dev-v2` 增量能力与毛玻璃视觉收口 | 项目组 | — | D15+ | 已完成（本地验收，待公网发布） | 合并提交 `9066edb`；六指标时序、右栏折叠、中心内嵌模块、背景天体动画兼容、无三角尺；`verify-webui real` 82/82、Chromium 23/23；液态 sheen/反光伪元素已移除 |
+| T-047 | P0 | 修复静态预览服务器返回 404/405/501 时的离线演示登录降级 | 前端 | — | D15+ | 已完成 | 输入为静态服务器 API 错误；仅固定演示账号和 `demo123` 创建 DEMO 会话，401 及错误密码继续拒绝；真实浏览器验证登录、水资源入口和零控制台错误 |
 
 ### 2.1 核心八项能力任务映射
 
