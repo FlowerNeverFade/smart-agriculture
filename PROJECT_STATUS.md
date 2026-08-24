@@ -3,11 +3,13 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；指定五个前端分支的登录、背景、监测、预测、回放、农务和作物沙盘切片已合并发布；真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；指定前端分支与 `rium_dev-v2` 的监测、折叠栏、中心模块和背景修补已合并验证；最终视觉采用毛玻璃；真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
 > 2026-08-24 main 部署记录：代码整合提交 `08a7b90` 已发布到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
+
+> 2026-08-24 `rium_dev-v2` 增量整合：合并提交 `9066edb`（父提交 `7b9db81` + `e2d0b69`）已完成本地合并。地块监测六指标时序视图、右侧栏折叠、中心内嵌子模块、背景天体动画兼容和无三角尺占位均已验证；液态高光已按最新要求回退为毛玻璃（半透明填充、背景模糊、轻边框，无 sheen/反光伪元素）。`verify-webui real` 为 `82/82`，真实 Chromium 为 `23/23`；部署完成后将把公网运行提交同步更新到本段记录。
 
 > 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
 
@@ -73,7 +75,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
-- `feat/login-interface` 的独立 WebGL 液态登录页、`rium_dev` 的麦田/地形背景与液态玻璃、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现以及 `lxh-frontend` 的农田监测/独立作物沙盘已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
+- `feat/login-interface` 的独立登录页、`rium_dev` 的麦田/地形背景、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现、`lxh-frontend` 的农田监测/独立作物沙盘以及 `rium_dev-v2` 的时序、折叠栏和中心模块已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`；主界面最终采用毛玻璃，不启用液态高光层。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - “智能诊断与决策中枢”已从通用占位预览升级为真实接口驱动页面：相反证据与缺失证据不会被隐藏，安全门只阻断执行而不阻断解释和参考试算，漂移可直接生成补证工单，READY 处方经人工确认后显示 ACK 与效果状态。
 - 可选后续工作：补充其余业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 

@@ -42,6 +42,7 @@
 | Agent 连续问答 | PASS | 同一会话依次查询状态、追问“复测清单”、询问离线含义，意图分别为 `PLOT_STATUS/RETEST_CHECKLIST/PLOT_STATUS`；三次均为 `adapter=openai-compatible`、`degraded=false`，回答内容互不相同且 512-token 配置下无截断 |
 | 账号级对话历史 | PASS | `/agent/history` 保存同一会话 6 条 USER/ASSISTANT 消息；重启 API 后仍从 PostgreSQL 读取；消息归属仅为当前 `userId`，另一账号读取该 `conversationId` 返回 HTTP 403；公网 Web 已显示“我的对话记录” |
 | 五分支前端公网回归 | PASS | 真实 Chromium 通过 JWT 登录；返回 3 个后端地块；rium WebGL 背景、固定居中弹窗、无三角尺、独立作物沙盘 WebGL 均通过，未捕获 page error |
+| `rium_dev-v2` 增量前端回归 | PASS（本地合并后待公网刷新） | 合并提交 `9066edb`；六指标地块时序、右侧栏折叠、中心内嵌子模块、背景动画兼容和无三角尺均通过；主面板毛玻璃检查通过；真实 Chromium 23/23 |
 | Qwen LoRA 微调与安全回归 | PASS | 双 GPU BF16、LoRA q/k/v/o、rank=8、18 步保守训练；适配器只影响表达，离线/质量降级/控制命令仍由后端硬门拦截 |
 | 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
 
@@ -55,9 +56,9 @@
 BUILD SUCCESSFUL
 ```
 
-当前 Spring 用例 14/14，通过 Spring Context、种子登录、Crop Pack、遥测幂等、按指标跳变阈值、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 real 79/79、stub/svg 78/78，通过诊断中枢、历史入口、展开空态和既有前端模块回归。
+当前 Spring 用例 14/14，通过 Spring Context、种子登录、Crop Pack、遥测幂等、按指标跳变阈值、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 real 82/82（本轮加入毛玻璃合同检查），真实 Chromium `scripts/branch-integration-smoke.mjs` 为 23/23；通过诊断中枢、历史入口、右栏折叠、中心内嵌模块、六指标时序和无三角尺回归。
 
-远端最新收口通过公网域名复跑了 `scripts/acceptance_smoke.py`。脚本为六类指标各写入两条稳定且可审计的 `GOOD` 上下文数据，不清库、不改规则、不绕过安全门；正常模拟器保持运行。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，决策护照可按同一 `traceId` 查询。另行复测漂移硬门及 Qwen：漂移不可执行；模型返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`。运行代码对应 `main` 提交 `405930d`。
+远端最新收口通过公网域名复跑了 `scripts/acceptance_smoke.py`。脚本为六类指标各写入两条稳定且可审计的 `GOOD` 上下文数据，不清库、不改规则、不绕过安全门；正常模拟器保持运行。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，决策护照可按同一 `traceId` 查询。另行复测漂移硬门及 Qwen：漂移不可执行；模型返回 `adapter=openai-compatible`、`llm.model=agriloop-qwen38-agri`、`degraded=false`。本轮合并目标为 `main` 提交 `9066edb`；公网刷新完成后以 `/srv/agriloop/DEPLOYED_COMMIT` 复核实际运行 SHA。
 
 ## 已知边界
 
