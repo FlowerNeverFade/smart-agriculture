@@ -25,7 +25,7 @@
 | T-003 | P0 | 定义 Crop Pack Schema、任务模板、风险重点、处方/预测/协同约束与继承解析 | 项目组 | — | D3 | 已完成（后端） | `crop-packs/schema`、两个 pack、解析接口 |
 | T-004 | P0 | 完成作物包 A（如番茄） | 项目组 | — | D4 | 已完成（后端） | `crop-packs/tomato`、Schema/规则/知识 |
 | T-005 | P0 | 完成作物包 B（如黄瓜） | 项目组 | — | D12 | 已完成（后端） | `crop-packs/cucumber`、Schema/规则/知识 |
-| T-006 | P0 | 模拟数据生成器与 `normal` 情景 | 项目组 | — | D4 | 已完成（后端） | `simulator/runner.py`，seed 可重复 |
+| T-006 | P0 | 模拟数据生成器与 `normal` 情景 | 项目组 | — | D4 | 已完成（后端） | `simulator/runner.py`，seed 可重复；CLI 有限回放与 Supervisor 持续实时流分离，页面开关可稳定启停 |
 | T-007 | P0 | MQTT 接入、主题、校验、去重 | 项目组 | — | D5 | 已完成（后端） | Paho/Mosquitto、eventId 幂等证据 |
 | T-008 | P0 | Redis Streams、PostgreSQL 时序落库 | 项目组 | — | D5 | 已完成（后端） | `agri.telemetry`、Flyway v1、1,080 条回放 |
 | T-009 | P0 | 心跳、在线/离线、数据质量评分与质量门控 | 项目组 | — | D6 | 已完成（后端） | 质量/新鲜度/设备门、漂移处方阻断 |

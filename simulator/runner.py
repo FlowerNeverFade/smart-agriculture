@@ -97,12 +97,20 @@ def run(args: argparse.Namespace) -> int:
 
     start = datetime.now(UTC8) - timedelta(minutes=args.minutes)
     count = 0
+    index = 0
     try:
-        for index in range(args.samples):
-            ts = start + timedelta(seconds=index * args.interval)
+        while args.continuous or index < args.samples:
+            # The Supervisor-managed live stream must stay fresh instead of
+            # replaying an ever more distant/future synthetic clock.  Values
+            # repeat the deterministic sample window, while the event sequence
+            # and timestamp continue to advance.
+            value_index = index % max(args.samples, 1) if args.continuous else index
+            ts = datetime.now(UTC8) if args.continuous else start + timedelta(seconds=index * args.interval)
             for plot_id, _crop in PLOTS:
                 for metric, unit, _low, _high in METRICS:
-                    event = build_event(rng, args.scenario, scenario_id, branch, plot_id, metric, unit, index, ts)
+                    event = build_event(rng, args.scenario, scenario_id, branch, plot_id, metric, unit, value_index, ts)
+                    if args.continuous:
+                        event["eventId"] = f"{scenario_id}-{branch}-{plot_id}-{metric}-{index:09d}"
                     topic = f"agri/farm-demo/{plot_id}/telemetry"
                     if client is not None:
                         client.publish(topic, json.dumps(event, ensure_ascii=False), qos=1)
@@ -111,6 +119,7 @@ def run(args: argparse.Namespace) -> int:
                     count += 1
             if args.speed > 0:
                 time.sleep(max(0.0, args.interval / args.speed))
+            index += 1
     finally:
         if client is not None:
             client.loop_stop()
@@ -136,6 +145,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-username", default="")
     p.add_argument("--mqtt-password", default="")
+    p.add_argument("--continuous", action="store_true", help="持续生成使用当前时间戳的实时遥测，直到进程被停止")
     return p
 
 

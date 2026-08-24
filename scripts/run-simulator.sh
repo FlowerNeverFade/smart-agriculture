@@ -14,4 +14,5 @@ exec "$APP_ROOT/venv/bin/python" simulator/runner.py \
   --scenario-id "$SCENARIO_ID_VALUE" \
   --seed "${SCENARIO_SEED:-42}" \
   --mqtt --mqtt-host "${MQTT_HOST:-127.0.0.1}" \
-  --speed "${SCENARIO_SPEED:-20}"
+  --speed "${SCENARIO_SPEED:-20}" \
+  --continuous
