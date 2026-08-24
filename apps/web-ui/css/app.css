@@ -72,11 +72,10 @@ button { font-family: inherit; }
   background: var(--surface);
 }
 .rail-logo {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  color: var(--primary); font-weight: 700; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
   margin: 2px 0 26px;
 }
-.rail-logo .ic { width: 30px; height: 30px; }
+.rail-logo-img { width: 108px; height: auto; display: block; }
 .rail-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .nav-item {
   display: flex; align-items: center; gap: 12px;

@@ -89,7 +89,7 @@ function warnMetric(plot) {
 
 /* ---------------- 骨架渲染 ---------------- */
 function renderRail() {
-  document.getElementById('railLogo').innerHTML = `${icon('logo', 30)}<span>AgriLoop</span>`;
+  document.getElementById('railLogo').innerHTML = `<img class="rail-logo-img" src="assets/brand/logo.png" alt="AgriLoop" />`;
   document.getElementById('railNav').innerHTML = NAV.map(n =>
     `<button class="nav-item" data-view="${n.id}">${icon(n.icon, 20)}<span>${n.label}</span></button>`).join('');
   document.getElementById('railBottom').innerHTML =

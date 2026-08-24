@@ -11,7 +11,7 @@
 
 > 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
 
-> 2026-08-24 yyx1 分支前端重写：按 newUI 设计稿完成 Google Material 风格前端，旧 WebGL 登录与旧仪表盘 UI 全部移除。新单页工作台含今日/地块/农务/风险/经营五视图与可收回系统栏；数据层沿用 `js/api.js` 的 `/api/v1` 合同，在线优先后端、离线降级为显式 SIMULATED 演示；灌溉下发保留确认对话框、幂等与 ACK/效果反馈。浏览器实测回归通过，证据见 `artifacts/newui-*.png`。该重写仅在 yyx1 分支，未合入 main/yyx。
+> 2026-08-24 yyx1 分支前端重写：按 newUI 设计稿完成 Google Material 风格前端，旧仪表盘 UI 移除，登录页保留 main 版（WebGL 流体背景）不动。新单页工作台含今日/地块/农务/风险/经营五视图与可收回系统栏，登录后侧栏使用桌面新版透明底 logo；数据层沿用 `js/api.js` 的 `/api/v1` 合同，在线优先后端、离线降级为显式 SIMULATED 演示；灌溉下发保留确认对话框、幂等与 ACK/效果反馈。浏览器实测回归通过，证据见 `artifacts/newui-*.png`。该重写仅在 yyx1 分支，未合入 main/yyx。
 
 ## 1. 进度总览
 
