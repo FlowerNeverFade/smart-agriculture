@@ -193,7 +193,7 @@ class AgriApp {
     this._visualEnhancementTask = afterFirstPaint
       .then(async () => {
         if (!this._waterVisualsReady) {
-          const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-perf-1');
+          const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-water-rail-fix');
           syncWaterVisuals(document);
           this._waterVisualsReady = true;
         }

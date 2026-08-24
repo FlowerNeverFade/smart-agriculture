@@ -91,6 +91,34 @@ try {
   check('主面板渲染三块演示地块', dashboardState.plotCount >= 3, `${dashboardState.plotCount} plots`);
   check('rium_dev 背景容器与 WebGL 画布已接入', dashboardState.backgroundVisible && dashboardState.hasWebglCanvas);
   check('微观作物沙盘使用独立导航入口', dashboardState.sandboxNav);
+  const readWaterRailLayout = () => page.evaluate(() => {
+    const card = document.querySelector('.water-rail-card');
+    const orb = document.querySelector('.water-orb-mini');
+    const canvas = document.querySelector('.water-orb-mini [data-water-canvas]');
+    const cardBox = card?.getBoundingClientRect();
+    const orbBox = orb?.getBoundingClientRect();
+    const canvasBox = canvas?.getBoundingClientRect();
+    return {
+      cardHeight: cardBox?.height || 0,
+      orbHeight: orbBox?.height || 0,
+      canvasHeight: canvasBox?.height || 0,
+      pageHeight: document.documentElement.scrollHeight,
+      workOrdersCssLoaded: performance.getEntriesByType('resource')
+        .some(entry => entry.name.includes('/css/modules/work-orders.css'))
+    };
+  });
+  const waterRailBefore = await readWaterRailLayout();
+  await page.waitForTimeout(1_200);
+  const waterRailAfter = await readWaterRailLayout();
+  const waterRailStable = waterRailBefore.cardHeight > 100
+    && waterRailBefore.cardHeight < 300
+    && Math.abs(waterRailBefore.cardHeight - waterRailAfter.cardHeight) <= 1
+    && Math.abs(waterRailBefore.pageHeight - waterRailAfter.pageHeight) <= 2;
+  check('首页水资源卡片未加载协同排程 CSS 也保持固定高度', waterRailStable && !waterRailBefore.workOrdersCssLoaded,
+    `${waterRailBefore.cardHeight.toFixed(1)}→${waterRailAfter.cardHeight.toFixed(1)}px, page ${waterRailBefore.pageHeight}→${waterRailAfter.pageHeight}`);
+  check('水资源 Canvas 被 82px 球体约束且不反向撑高布局',
+    Math.abs(waterRailAfter.orbHeight - 82) <= 1 && Math.abs(waterRailAfter.canvasHeight - waterRailAfter.orbHeight) <= 2.5,
+    `orb=${waterRailAfter.orbHeight.toFixed(1)}px canvas=${waterRailAfter.canvasHeight.toFixed(1)}px`);
   await page.screenshot({ path: `${outputDir}/02-dashboard.png`, fullPage: false });
 
   const openModalView = async (hash, readySelector, screenshotName) => {
@@ -145,6 +173,15 @@ try {
   check('feat/farm-operations 四态工单完整', farmOpsState.columns === 4);
   check('农务模块保留农田动态画布与来源标签', farmOpsState.fieldCanvas && farmOpsState.sourceLabel);
   await page.screenshot({ path: `${outputDir}/06-farm-operations.png`, fullPage: false });
+
+  await page.evaluate(() => { window.location.hash = '#view=resource-coordination&plotId=plot-a01'; });
+  await page.waitForSelector('.resource-ops .demand-list', { timeout: 10_000 });
+  await page.waitForTimeout(900);
+  const waterRailAfterCoordination = await readWaterRailLayout();
+  check('打开水资源协同排程后首页水卡尺寸不发生跳变',
+    waterRailAfterCoordination.workOrdersCssLoaded
+      && Math.abs(waterRailAfterCoordination.cardHeight - waterRailAfter.cardHeight) <= 1,
+    `${waterRailAfter.cardHeight.toFixed(1)}→${waterRailAfterCoordination.cardHeight.toFixed(1)}px`);
 
   const unexpectedErrors = runtimeErrors.filter(message =>
     !message.includes('/actuator/health') &&

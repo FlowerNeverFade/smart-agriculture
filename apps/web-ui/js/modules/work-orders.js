@@ -1,5 +1,5 @@
 import { MOCK_DATA } from '../mock-data.js';
-import { setResourcePlanPreview, syncWaterVisuals } from '../water-visual.js';
+import { setResourcePlanPreview, syncWaterVisuals } from '../water-visual.js?v=20260824-water-rail-fix';
 import { initFieldSandbox } from '../field-visual.js';
 
 const STATUS_META = {
