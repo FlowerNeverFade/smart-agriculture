@@ -14,6 +14,7 @@
 - 18,816 株植被实例仍全部生成，按 8 × 6 空间块组织，使 Three.js 可以剔除镜头外实例；没有减少模型数量或几何细节。
 - 主页面被数字孪生/作物沙盘覆盖或浏览器页签隐藏时，Three.js 与粒子画布会取消动画帧；返回时恢复。
 - 本地静态服务器对 HTML/JS/CSS 使用可重新验证缓存，对图片、字体和 vendor 依赖缓存 24 小时。
+- 首页水资源球的布局约束随首屏 CSS 加载；Canvas 只更新实际像素缓冲区，CSS 尺寸固定为父容器百分比，不再与 `ResizeObserver` 形成高度反馈。协同排程模块复用同一版本的水动画模块，避免重复实例。
 
 ## 2. Chromium 性能证据
 
@@ -40,10 +41,10 @@ node scripts/profile-webui.mjs
 
 ## 3. 功能回归
 
-- `node scripts/verify-webui.mjs real`：79/79 通过。
-- `node scripts/verify-webui.mjs stub`：78/78 通过。
-- `node scripts/verify-webui.mjs svg`：78/78 通过。
-- `node scripts/branch-integration-smoke.mjs`：真实 Chromium 15/15 通过，无未处理运行时错误。
+- `node scripts/verify-webui.mjs real`：81/81 通过。
+- `node scripts/verify-webui.mjs stub`：80/80 通过。
+- `node scripts/verify-webui.mjs svg`：80/80 通过。
+- `node scripts/branch-integration-smoke.mjs`：真实 Chromium 18/18 通过，无未处理运行时错误。
 - `node --check`：`app.js`、`particles.js`、`rium-background.js`、`profile-webui.mjs` 均通过。
 - `python -m py_compile scripts/serve-webui.py`：通过。
 
@@ -60,6 +61,15 @@ node scripts/profile-webui.mjs
 - 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查返回 HTTP 200、`status=UP`。
 - 公网首页加载 `js/app.js?v=20260824-perf-1`；脚本中已包含 FarmMonitor、CropSandbox 和 Rium 背景的按需加载路径。
 - 真实 Chrome 管理员登录后可见 3 个地块及 Rium WebGL 画布；首次进入风险预测时，对应 JavaScript/CSS 均按需加载，浏览器控制台与网络请求无运行时错误。
-- 当前风险预测返回 `UNAVAILABLE / INSUFFICIENT_SAMPLES`，这是后端样本量硬门的确定性弃权结果，不是视图加载失败；页面已正确渲染该状态。
+- 性能提交首次验收时风险预测返回 `UNAVAILABLE / INSUFFICIENT_SAMPLES`，这是当时后端样本量硬门的确定性弃权结果，不是视图加载失败；后续实时窗口修复后的最新复验结果见第 6 节。
 - 本轮只改静态前端、文档和本地开发服务器，采用静态热发布；Spring API、Qwen/vLLM、PostgreSQL、Redis、MQTT 未重启且 Supervisor 状态保持 `RUNNING`。
 - 远端发布目录：`/srv/agriloop/app`；发布前快照：`/srv/agriloop/releases/pre-e9dc042-backup`；源码发布包与展开目录保存在 `/srv/agriloop/releases/`，可用于校验和回滚。
+
+## 6. 首页水资源卡片后续稳定性验收
+
+- 修复提交：`b08c664073c1526146fd82d3d60b6667c3799abc`，已推送 GitHub `main` 并热发布公网。
+- 根因：`.water-orb-mini` 等约束此前只存在于按需加载的 `work-orders.css`；首页在该样式加载前初始化 Canvas，像素尺寸反向撑高自适应父容器并反复触发 `ResizeObserver`。点击“水资源协同排程”后样式到位，所以页面看似恢复。
+- 修复：将共享水球与首页卡片约束移入核心样式、从按需样式删除重复定义、Canvas 使用 `100%` CSS 尺寸且仅在实际像素尺寸变化时重设缓冲区；首页和协同排程引用同一查询版本的 `water-visual.js`。
+- 本地 Chrome：未加载 `work-orders.css` 时，卡片高度 `147.5px -> 147.5px`、页面高度 `2918px -> 2918px`；加载协同排程后卡片仍为 `147.5px`。
+- 公网 Chrome（管理员 JWT）：卡片高度 `147.5px -> 147.5px`、页面高度 `2922px -> 2922px`；打开协同排程后仍为 `147.5px`，18/18 通过且无未处理运行时错误。
+- 公网 `/actuator/health` 返回 `UP`；Supervisor 中 API、模拟器、Nginx、Cron 与 Qwen/vLLM 均为 `Running`。实时遥测最新窗口为当前时间并保持正序，`SOIL_MOISTURE` 风险预测返回 `AVAILABLE / robust-trend-v1`。

@@ -24,6 +24,8 @@ if (!playwrightPath) {
 const { chromium } = await import(pathToFileURL(playwrightPath).href);
 
 const baseUrl = (process.env.AGRILOOP_WEB_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
+const liveUsername = process.env.AGRILOOP_TEST_USERNAME || '';
+const livePassword = process.env.AGRILOOP_TEST_PASSWORD || '';
 const outputDir = 'artifacts/branch-integration';
 mkdirSync(outputDir, { recursive: true });
 
@@ -65,17 +67,39 @@ try {
   check('登录页保留 feat/login-interface 文案', loginState.title.includes('数字生命'));
   await page.screenshot({ path: `${outputDir}/01-login.png`, fullPage: true });
 
-  await page.addInitScript(() => {
-    localStorage.setItem('agriloop_session_mode', 'demo');
-    localStorage.setItem('agriloop_user', JSON.stringify({
-      username: 'admin',
-      role: 'FARM_ADMIN',
-      roleLabel: '农场管理员',
-      avatar: '👑'
+  if (liveUsername && livePassword) {
+    await page.fill('#username', liveUsername);
+    await page.fill('#password', livePassword);
+    await Promise.all([
+      page.waitForURL(/\/index\.html(?:[?#].*)?$/, { timeout: 30_000 }),
+      page.click('#submitButton')
+    ]);
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+  } else {
+    await page.addInitScript(() => {
+      localStorage.setItem('agriloop_session_mode', 'demo');
+      localStorage.setItem('agriloop_user', JSON.stringify({
+        username: 'admin',
+        role: 'FARM_ADMIN',
+        roleLabel: '农场管理员',
+        avatar: '👑'
+      }));
+    });
+    await page.goto(`${baseUrl}/index.html`, { waitUntil: 'networkidle', timeout: 30_000 });
+  }
+  try {
+    await page.waitForSelector('#plotListContainer .plot-list-item');
+  } catch (error) {
+    const debugState = await page.evaluate(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      sessionMode: localStorage.getItem('agriloop_session_mode'),
+      bodyText: document.body?.innerText?.slice(0, 500) || '',
+      resources: performance.getEntriesByType('resource').map(entry => entry.name)
     }));
-  });
-  await page.goto(`${baseUrl}/index.html`, { waitUntil: 'networkidle', timeout: 30_000 });
-  await page.waitForSelector('#plotListContainer .plot-list-item');
+    console.error('DASHBOARD DEBUG', JSON.stringify({ debugState, runtimeErrors }, null, 2));
+    throw error;
+  }
   await page.waitForTimeout(1_500);
   const dashboardState = await page.evaluate(() => {
     const background = document.querySelector('#riumBackground');
