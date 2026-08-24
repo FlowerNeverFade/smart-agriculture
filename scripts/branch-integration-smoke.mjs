@@ -144,6 +144,32 @@ try {
     railLayout.buttonPosition === 'absolute'
       && Math.abs(railLayout.panelTop - railLayout.railTop) <= 1
       && railLayout.panelRight <= railLayout.appRight + 1);
+  const railCardLayout = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('#rightRailPanel .system-status-card')];
+    const rects = cards.map(card => {
+      const rect = card.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        clientHeight: card.clientHeight,
+        scrollHeight: card.scrollHeight,
+        overflow: getComputedStyle(card).overflow,
+        contentBottom: Math.max(...[...card.children].map(child => child.getBoundingClientRect().bottom), rect.top)
+      };
+    });
+    return {
+      cards: rects,
+      gaps: rects.slice(1).map((card, index) => card.top - rects[index].bottom)
+    };
+  });
+  check('右栏卡片按内容展开且不会被自身裁剪',
+    railCardLayout.cards.length >= 6
+      && railCardLayout.cards.every(card => card.contentBottom <= card.bottom + 1
+        && (card.overflow !== 'hidden' || card.scrollHeight - card.clientHeight < 60)),
+    railCardLayout.cards.map(card => `${card.clientHeight}/${card.scrollHeight}/${card.contentBottom.toFixed(1)}→${card.bottom.toFixed(1)}/${card.overflow}`).join(', '));
+  check('右栏卡片之间保留独立间距不互相覆盖',
+    railCardLayout.gaps.every(gap => gap >= 14),
+    railCardLayout.gaps.map(gap => `${gap.toFixed(1)}px`).join(', '));
   const readWaterRailLayout = () => page.evaluate(() => {
     const card = document.querySelector('.water-rail-card');
     const orb = document.querySelector('.water-orb-mini');
