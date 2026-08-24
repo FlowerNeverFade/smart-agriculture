@@ -151,7 +151,25 @@ const RiskForecastView = {
   setup(props) {
     let chart = null;
     const currentScenario = ref('DROUGHT');
-    
+    const selectedPlotId = ref(props.state.plots[0].plotId);
+    const highlightChart = ref(false);
+
+    watch(() => props.routeParams, (newParams) => {
+      if (newParams && newParams.targetPlot) {
+        selectedPlotId.value = newParams.targetPlot;
+        highlightChart.value = true;
+        setTimeout(() => { highlightChart.value = false; }, 4000);
+      }
+    }, { immediate: true });
+
+    const currentPlotBaseMoisture = computed(() => {
+      const plot = props.state.plots.find(p => p.plotId === selectedPlotId.value);
+      if (plot && plot.metrics && plot.metrics.SOIL_MOISTURE) {
+        return parseFloat(plot.metrics.SOIL_MOISTURE.value);
+      }
+      return props.state.riskForecastConfig.baselineMoisture; // Fallback
+    });
+
     const renderChart = async () => {
       await nextTick();
       const dom = document.getElementById('riskChart');
@@ -168,7 +186,7 @@ const RiskForecastView = {
       const decay = scenario ? scenario.decayFactor : 1.0;
       
       const times = ["0h (Now)", "1h", "2h", "3h", "4h"];
-      const baseMoisture = 20.0;
+      const baseMoisture = currentPlotBaseMoisture.value;
       const mockCurve = times.map((t, i) => {
         if (scenario && scenario.code === 'STORM') {
             return i === 0 ? baseMoisture : (i === 1 ? baseMoisture + 6 : baseMoisture + 4 - i);
@@ -183,7 +201,7 @@ const RiskForecastView = {
         yAxis: { 
           type: 'value', 
           name: '推演含水率 (%)', 
-          min: 5, max: 35,
+          min: 5, max: Math.max(35, baseMoisture + 10),
           axisLabel: { color: textColor },
           nameTextStyle: { color: textColor }
         },
@@ -213,6 +231,10 @@ const RiskForecastView = {
       renderChart();
     };
 
+    const changePlot = () => {
+      renderChart();
+    };
+
     onMounted(() => {
         currentScenario.value = props.state.riskForecastConfig.scenarioCatalog[0].code;
         renderChart();
@@ -221,7 +243,7 @@ const RiskForecastView = {
     const observer = new MutationObserver(() => renderChart());
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
     
-    return { currentScenario, changeScenario };
+    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, changeScenario, changePlot };
   }
 };
 
