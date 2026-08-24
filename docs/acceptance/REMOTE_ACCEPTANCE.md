@@ -35,9 +35,11 @@
 | SSE | PASS | 首帧 `event:connected` 可读 |
 | 回放隔离 | PASS | `NO_ACTION/EXECUTE` 写入 `scenario-event`，不改变主遥测/设备/告警 |
 | 策略候选 | PASS | DRAFT 不能跳过离线验证；验证后才可 APPROVED |
-| main 公网 Web/API | PASS | 代码整合提交 `08a7b90` 已部署；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
+| main 公网 Web/API | PASS | 当前部署提交 `191dc6b`（包含代码整合提交 `08a7b90`）；AutoDL 自定义服务 `https://u558871-7873be733236.westd.seetacloud.com:8443`；品牌入口 `/agriloop/`、根路径健康检查和 JWT API 可访问 |
 | OpenAI-compatible Qwen | PASS | 非快捷诊断请求返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`、`latencyMs=5130`；vLLM 仅监听 `127.0.0.1:8000` |
 | Web Copilot 真实对话 | PASS | 独立 `/agriloop/login.html` 登录页保存 JWT；登录后网页显示 Qwen 实时回答、模型延迟和可读知识引用；思维标签、提示词、工具字段和 traceId 不进入对话正文；未登录/失败不会伪装成真实回答 |
+| Agent 连续问答 | PASS | 同一会话依次查询状态、追问“复测清单”、询问离线含义，意图分别为 `PLOT_STATUS/RETEST_CHECKLIST/PLOT_STATUS`；三次均为 `adapter=openai-compatible`、`degraded=false`，回答内容互不相同且 512-token 配置下无截断 |
+| 账号级对话历史 | PASS | `/agent/history` 保存同一会话 6 条 USER/ASSISTANT 消息；重启 API 后仍从 PostgreSQL 读取；消息归属仅为当前 `userId`，另一账号读取该 `conversationId` 返回 HTTP 403；公网 Web 已显示“我的对话记录” |
 | 五分支前端公网回归 | PASS | 真实 Chromium 通过 JWT 登录；返回 3 个后端地块；rium WebGL 背景、固定居中弹窗、无三角尺、独立作物沙盘 WebGL 均通过，未捕获 page error |
 | Qwen LoRA 微调与安全回归 | PASS | 双 GPU BF16、LoRA q/k/v/o、rank=8、18 步保守训练；适配器只影响表达，离线/质量降级/控制命令仍由后端硬门拦截 |
 | 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
@@ -52,7 +54,7 @@
 BUILD SUCCESSFUL
 ```
 
-覆盖 Spring Context、种子登录、Crop Pack、遥测幂等、漂移分流、READY 处方、资源不可行、策略状态机和回放隔离。
+当前 Spring 用例 12/12，通过 Spring Context、种子登录、Crop Pack、遥测幂等、漂移分流、READY 处方、资源不可行、策略状态机、回放隔离、复测追问路由、历史持久化和跨用户隔离。Web `scripts/verify-webui.mjs` 为 68/68，通过历史入口、展开空态和既有前端模块回归。
 
 远端最新收口复跑了 `scripts/acceptance_smoke.py`。为避免正在运行的模拟器恰好生成 `DEGRADED` 指标而触发预期的 `HUMAN_REVIEW`，验收时短暂停止模拟器，并用同一窗口已有值写入六类 `GOOD` 遥测；没有清库、改规则或绕过安全门。最终输出 `status=PASS`、`duplicateTelemetry=true`、`diagnosis=WATER_DEFICIT`、`readiness=READY`、失败命令效果 `INCONCLUSIVE`，随后模拟器恢复运行。运行代码对应 `main` 代码整合提交 `08a7b90`。
 

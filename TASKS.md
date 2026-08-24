@@ -62,7 +62,7 @@
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
-| T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 待验收 | 复测清单/追问路由、Qwen 最近对话上下文、JWT 用户隔离、历史回看 UI；本地 Spring 12/12、Web 68/68，待公网验证 |
+| T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
 
 ### 2.1 核心八项能力任务映射
 
