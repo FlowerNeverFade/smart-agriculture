@@ -176,8 +176,8 @@ const TRAIL_FRAGMENT_SHADER = `#version 300 es
     float tailBlur = 0.25 * (rightSample.a + leftSample.a + topSample.a + bottomSample.a);
     core = mix(core, coreBlur, 1.0 - exp(-0.85 * uDelta));
     tail = mix(tail, tailBlur, 1.0 - exp(-0.42 * uDelta));
-    core *= exp(-5.4 * uDelta);
-    tail *= exp(-1.38 * uDelta);
+    core *= exp(-3.2 * uDelta);
+    tail *= exp(-0.72 * uDelta);
 
     vec2 neighborDirection =
       decodeDirection(rightSample) * rightSample.a
@@ -200,13 +200,13 @@ const TRAIL_FRAGMENT_SHADER = `#version 300 es
       float distanceToSegment = length(local - strokeDirection * projection);
       float radius = max(uSplatShape[index].x, 0.00001);
       float coreStroke = 1.0 - smoothstep(radius * 0.22, radius, distanceToSegment);
-      float softStroke = 1.0 - smoothstep(radius * 0.70, radius * 1.82, distanceToSegment);
+      float softStroke = 1.0 - smoothstep(radius * 0.68, radius * 2.10, distanceToSegment);
       coreStroke *= coreStroke;
       softStroke *= softStroke;
 
       float strength = clamp(uSplatShape[index].z, 0.0, 1.0);
-      float injectedCore = coreStroke * smoothstep(0.025, 0.46, strength);
-      float injectedTail = max(coreStroke, softStroke * 0.42) * smoothstep(0.012, 0.58, strength);
+      float injectedCore = coreStroke * smoothstep(0.008, 0.28, strength);
+      float injectedTail = max(coreStroke, softStroke * 0.52) * smoothstep(0.004, 0.34, strength);
       float previousEnergy = max(core, tail) * 0.72;
       float injectedEnergy = max(injectedCore, injectedTail);
       if (injectedEnergy > 0.0001) {
@@ -510,11 +510,11 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
     vec4 trailSample = texture(uTrail, vUv);
     float trailCore = trailSample.b;
     float trailTail = trailSample.a;
-    float trailEnergy = clamp(trailCore * 0.94 + trailTail * 0.68, 0.0, 1.0);
+    float trailEnergy = clamp(trailCore + trailTail * 0.82, 0.0, 1.0);
     vec2 trailDirection = decodeTrailDirection(trailSample);
     float trailDirectionLength = length(trailDirection);
 
-    if (trailEnergy > 0.004 && trailDirectionLength > 0.05) {
+    if (trailEnergy > 0.002 && trailDirectionLength > 0.04) {
       trailDirection /= trailDirectionLength;
       vec2 axisPerPixel = trailDirection
         / uScreenScale
@@ -522,8 +522,8 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
       vec2 normalPerPixel = vec2(-trailDirection.y, trailDirection.x)
         / uScreenScale
         / max(uCssMinDimension, 1.0);
-      float dragPixels = mix(3.0, 16.0, smoothstep(0.04, 0.88, trailEnergy));
-      float samplePixels = mix(1.35, 3.25, smoothstep(0.08, 0.86, trailCore));
+      float dragPixels = mix(8.0, 42.0, smoothstep(0.025, 0.82, trailEnergy));
+      float samplePixels = mix(2.2, 8.0, smoothstep(0.035, 0.80, trailCore));
       vec2 refractedUv = warpedUv - axisPerPixel * dragPixels;
 
       vec4 refractedWeights =
@@ -535,28 +535,30 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
         + sampleDye(refractedUv + axisPerPixel * samplePixels * 2.0) * 0.120
         + sampleDye(refractedUv + axisPerPixel * samplePixels * 3.0) * 0.060;
       vec3 refractedColor = paletteColor(refractedWeights) * softLight;
-      float lumaCorrection = clamp(
-        luminance(color) / max(luminance(refractedColor), 0.001),
-        0.94,
-        1.06
-      );
-      refractedColor *= lumaCorrection;
-      float refractionMix = clamp(trailCore * 0.54 + trailTail * 0.31, 0.0, 0.58)
+      float refractionMix = clamp(trailCore * 0.82 + trailTail * 0.55, 0.0, 0.86)
         * uTaskStrength;
       color = mix(color, refractedColor, refractionMix);
 
       vec2 trailDerivative = vec2(dFdx(trailEnergy), dFdy(trailEnergy));
-      float trailEdge = smoothstep(0.002, 0.025, length(trailDerivative));
-      vec3 fringeMinus = paletteColor(sampleDye(refractedUv - normalPerPixel * 0.68));
-      vec3 fringePlus = paletteColor(sampleDye(refractedUv + normalPerPixel * 0.68));
+      float trailEdge = smoothstep(0.001, 0.018, length(trailDerivative));
+      vec3 fringeMinus = paletteColor(sampleDye(refractedUv - normalPerPixel * 0.92));
+      vec3 fringePlus = paletteColor(sampleDye(refractedUv + normalPerPixel * 0.92));
       vec3 chromaticEdge = vec3(
-        fringeMinus.r - refractedColor.r,
-        0.0,
-        fringePlus.b - refractedColor.b
+        fringeMinus.r - fringePlus.r,
+        (fringeMinus.g - fringePlus.g) * 0.18,
+        fringePlus.b - fringeMinus.b
       );
       color += chromaticEdge
         * trailEdge
-        * (trailCore * 0.075 + trailTail * 0.028)
+        * (trailCore * 0.22 + trailTail * 0.10)
+        * uTaskStrength;
+
+      vec2 crossDirection = normalize(vec2(-trailDirection.y, trailDirection.x));
+      float directionalRidge = clamp(dot(trailDerivative, crossDirection) * 58.0, -1.0, 1.0);
+      color += vec3(0.030, 0.038, 0.026)
+        * directionalRidge
+        * trailEdge
+        * (trailCore * 0.86 + trailTail * 0.48)
         * uTaskStrength;
     }
 
@@ -1361,13 +1363,13 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
 
     updateGlassTarget(event.clientX, event.clientY, force);
     const segmentDistancePixels = Math.hypot(deltaX, deltaY);
-    const trailForce = smoothstep(0.015, 0.58, normalizedSpeed) * task.target;
-    if (segmentDistancePixels >= 1.5 && trailForce > 0.003) {
+    const trailForce = smoothstep(0.005, 0.40, normalizedSpeed) * task.target;
+    if (segmentDistancePixels >= 0.75 && trailForce > 0.001) {
       const directionX = uvX / Math.max(uvDistance, 0.00001);
       const directionY = uvY / Math.max(uvDistance, 0.00001);
       const midpointX = pointer.x + deltaX * 0.5;
       const midpointY = pointer.y + deltaY * 0.5;
-      const trailRadiusPixels = clamp(13 + trailForce * 12, 14, 25);
+      const trailRadiusPixels = clamp(20 + trailForce * 24, 22, 44);
       enqueueTrailSplat(
         clamp((midpointX - canvasRect.left) / Math.max(canvasRect.width, 1), 0, 1),
         clamp(1 - (midpointY - canvasRect.top) / Math.max(canvasRect.height, 1), 0, 1),
