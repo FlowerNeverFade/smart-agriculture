@@ -187,17 +187,17 @@
 .agri-native-tip-hidden {
   display: none !important;
 }
-.chart-grid-line { stroke: #21262d; stroke-width: 1; }
-.chart-grid-line-v { stroke: #161b22; stroke-width: 1; }
-.chart-axis-label { fill: #8b949e; font-size: 10px; font-family: var(--font-mono); }
-.chart-axis-title { fill: #6e7681; font-size: 10px; }
-.chart-axis-right { fill: #d29922; }
-.chart-axis-right-line { stroke: #21262d; stroke-width: 1; }
+.chart-grid-line { stroke: var(--text-muted); stroke-width: 1; }
+.chart-grid-line-v { stroke: var(--text-muted); stroke-width: 1; }
+.chart-axis-label { fill: var(--text-secondary); font-size: 12px; font-family: var(--font-mono); }
+.chart-axis-title { fill: var(--text-muted); font-size: 10px; }
+.chart-axis-right { fill: var(--amber-primary); }
+.chart-axis-right-line { stroke: var(--text-muted); stroke-width: 1; }
 .chart-marker-line { stroke-dasharray: 6 5; }
-.chart-marker-label { fill: #8b949e; font-size: 10px; }
+.chart-marker-label { fill: var(--text-secondary); font-size: 12px; }
 .chart-dot { opacity: 0.55; }
 .chart-gauge-value {
-  fill: #f0f6fc;
+  fill: var(--text-primary);
   font-size: 34px;
   font-weight: 700;
   font-family: var(--font-mono);
