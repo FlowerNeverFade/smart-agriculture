@@ -37,7 +37,7 @@ agriloop:
   llm-model: ${LLM_MODEL:Qwen3.8-27B}
   llm-api-key: ${LLM_API_KEY:}
   llm-timeout-ms: ${LLM_TIMEOUT_MS:60000}
-  llm-max-tokens: ${LLM_MAX_TOKENS:256}
+  llm-max-tokens: ${LLM_MAX_TOKENS:512}
   llm-enable-thinking: ${LLM_ENABLE_THINKING:false}
   llm-preserve-thinking: ${LLM_PRESERVE_THINKING:false}
   llm-reasoning-effort: ${LLM_REASONING_EFFORT:low}

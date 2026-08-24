@@ -101,7 +101,7 @@ class AgriProperties {
     private String llmModel = "Qwen3.8-27B";
     private String llmApiKey = "";
     private long llmTimeoutMs = 60000;
-    private int llmMaxTokens = 256;
+    private int llmMaxTokens = 512;
     /** Qwen3.8 enables thinking by default; the UI uses concise answer mode. */
     private boolean llmEnableThinking = false;
     private boolean llmPreserveThinking = false;

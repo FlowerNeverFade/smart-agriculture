@@ -22,6 +22,7 @@ class AgriApplicationTest {
         Map<String, Object> login = engine.login("farmer", "demo123");
         assertThat(login).containsKey("accessToken");
         assertThat(engine.cropPacks()).hasSize(2);
+        assertThat(new AgriProperties().getLlmMaxTokens()).isEqualTo(512);
     }
 
     @Test
