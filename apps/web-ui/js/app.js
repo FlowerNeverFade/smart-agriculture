@@ -601,9 +601,10 @@ class AgriApp {
     }
   }
 
-    closeModal(updateHash = true) {
+  closeModal(updateHash = true) {
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
+    this.cropSandbox?.close();
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');
