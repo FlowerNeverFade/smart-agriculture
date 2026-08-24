@@ -37,7 +37,7 @@
 | T-015 | P0 | RAG 知识目录和检索回退策略 | 项目组 | — | D9 | 已完成（规则知识后端） | Crop Pack knowledge 目录与 rules-only 回退 |
 | T-016 | P0 | 感知/诊断/处方/安全 Agent；冻结任务、核验、预测、就绪度、效果、执行申请 Tool，按 P0/P1 启用 | 项目组 | — | D10 | 已完成（规则优先后端） | 白名单工具输出、trace、不可直连 SQL/MQTT |
 | T-017 | P0 | AI 降级：`rules-only` 与 `mock` | 项目组 | — | D13 | 已完成（后端） | 默认 rules-only、依赖状态/降级字段 |
-| T-018 | P0 | 智能决策台：候选根因、决策就绪度、结构化处方、证据、风险、补证/审批/驳回 | 项目组 | — | D11 | 已完成（后端） | diagnoses/readiness/irrigation/strategy contracts |
+| T-018 | P0 | 智能决策台：候选根因、决策就绪度、结构化处方、证据、风险、补证/审批/驳回 | 项目组 | — | D11 | 已完成 | 后端 contracts + `decision-console.js`；三类证据、四态/八门、补证、审批与执行联动；Web real 79/79 |
 | T-019 | P0 | 决策账本、来源标签、执行效果评价、最小决策护照、回放时间轴与执行/不执行最小双轨 | 项目组 | — | D11/D13 | 已完成（后端） | passport、snapshot、compare、trace/来源 |
 | T-020 | P0 | `drought`、`heavy-rain`、`sensor-drift`、`device-offline`、`evidence-conflict` 情景 | 项目组 | — | D12 | 已完成（后端模拟） | simulator choices + fixed seed replay |
 | T-021 | P1 | What-if 完整对比报告（扩展 I-13 最小双轨） | 项目组 | — | D12 | 已完成（后端） | scenario snapshot/compare；同快照双轨只读且不污染主状态 |
@@ -63,6 +63,7 @@
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 | T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
+| T-044 | P0 | 完成智能诊断与决策中枢前端闭环及就绪度一致性修复 | 项目组 | — | D15+ | 已完成 | `docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`；Spring 13/13，Web real 79/79、stub/svg 78/78；当前为本地提交验收 |
 
 ### 2.1 核心八项能力任务映射
 

@@ -696,9 +696,9 @@ export const MOCK_DATA = {
     },
     "decision-console": {
       title: "智能诊断与决策中枢 (AI Diagnosis & Decision Console)",
-      desc: "根因推断树、多假设因果打分、规则优先与 RAG 知识支撑、处方试算与下发控制台",
+      desc: "根因推断、支持/反对/缺失证据、四态就绪度、结构化处方、补证工单、受控执行与决策护照闭环",
       tags: ["CAP-04", "CAP-05", "CAP-08", "B-07"],
-      status: "模块独立路由就绪 · 可单独定制"
+      status: "诊断 → 处方 → 执行闭环已接入"
     },
     "work-orders": {
       title: "今日农务与巡田核验中心 (Today's Work & Field Inspection)",

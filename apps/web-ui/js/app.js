@@ -22,6 +22,14 @@ function redirectToLogin() {
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
 const SUBVIEW_RENDERERS = {
+  'decision-console': async (container, plotId, app) => {
+    const { renderDecisionConsole } = await import('./modules/decision-console.js');
+    return renderDecisionConsole(container, plotId, {
+      api,
+      state: app.state,
+      showToast: (message, type) => app.showToast(message, type)
+    });
+  },
   'risk-forecast': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderRiskForecast(container, plotId),
   'scenario-replay': async (container, plotId) => (await import('./modules/risk-forecast.js')).renderScenarioReplay(container, plotId),
   'value-ledger': async (container) => (await import('./modules/value-ledger.js')).renderValueLedger(container),

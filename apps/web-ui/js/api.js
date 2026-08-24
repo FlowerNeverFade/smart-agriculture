@@ -28,6 +28,13 @@ export class ApiService {
     this.sessionMode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     this.isLive = false;
     this.sseSource = null;
+    this.decisionCache = {
+      diagnoses: new Map(),
+      plans: new Map(),
+      readiness: new Map(),
+      commands: new Map(),
+      evaluations: new Map()
+    };
   }
 
   readStoredUser() {
@@ -458,24 +465,248 @@ export class ApiService {
     }
   }
 
-  async executeIrrigation(planId, plotId) {
+  async evaluateDiagnosis(plotId = 'plot-a01', input = {}) {
+    const body = { ...input, plotId };
+    if (body.scenarioId === 'live') delete body.scenarioId;
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/diagnoses/evaluate', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      const diagnosis = resp?.data || resp;
+      if (!diagnosis?.diagnosisId) throw new ApiError('诊断响应缺少 diagnosisId', { code: 'DIAGNOSIS_INVALID', payload: resp });
+      this.decisionCache.diagnoses.set(diagnosis.diagnosisId, diagnosis);
+      return diagnosis;
+    }
+
+    const plot = this.mockPlot(plotId);
+    const scenario = String(input.scenarioId || 'normal').toLowerCase();
+    const sourceMode = scenario === 'normal' || scenario === 'live' ? 'OBSERVED' : 'SIMULATED';
+    const moisture = scenario === 'drought' ? 12.4 : Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
+    const deviceStatus = scenario === 'device-offline' ? 'OFFLINE' : (plot?.deviceStatus || 'ONLINE');
+    const drift = scenario === 'sensor-drift';
+    const waterScore = moisture < 20 ? Math.min(.96, .68 + (20 - moisture) * .035) : .18;
+    const candidates = [
+      { code: 'WATER_DEFICIT', confidence: Number(waterScore.toFixed(2)) },
+      { code: 'SENSOR_DRIFT', confidence: drift ? .92 : .08 },
+      { code: 'DEVICE_FAULT', confidence: deviceStatus === 'OFFLINE' ? .9 : .05 }
+    ].sort((a, b) => b.confidence - a.confidence);
+    const primary = candidates[0].confidence >= .55 ? candidates[0].code : 'INSUFFICIENT_EVIDENCE';
+    const supportingEvidence = [
+      { type: 'telemetry', metric: 'SOIL_MOISTURE', value: moisture, unit: '%', source: `demo-${plotId}-soil`, provenance: sourceMode },
+      { type: 'device', status: deviceStatus, source: plot?.deviceId || `mock-${plotId}`, provenance: sourceMode },
+      { type: 'quality', status: drift ? 'BAD' : 'GOOD', confidence: drift ? .42 : .98, provenance: 'DERIVED' }
+    ];
+    const opposingEvidence = [];
+    if (!drift) opposingEvidence.push({ type: 'quality', reason: '连续性与突变检测未发现明显漂移', provenance: 'DERIVED' });
+    if (deviceStatus !== 'OFFLINE') opposingEvidence.push({ type: 'device', reason: '设备心跳正常，设备故障可能性较低', provenance: sourceMode });
+    const missingInformation = drift
+      ? ['FLOW_RATE_CALIBRATION', 'PORTABLE_METER_COMPARISON']
+      : deviceStatus === 'OFFLINE'
+        ? ['FRESH_TELEMETRY', 'DEVICE_HEALTH']
+        : primary === 'INSUFFICIENT_EVIDENCE' ? ['MORE_TELEMETRY_HISTORY'] : [];
+    const diagnosis = {
+      diagnosisId: `diag-demo-${Date.now()}`,
+      plotId,
+      riskType: primary,
+      primaryCause: primary,
+      confidence: primary === 'INSUFFICIENT_EVIDENCE' ? .24 : candidates[0].confidence,
+      candidateCauses: candidates,
+      supportingEvidence,
+      opposingEvidence,
+      missingInformation,
+      scenarioId: scenario,
+      traceId: input.traceId,
+      ruleVersion: 'rule-1.0.0',
+      cropPackVersion: '1.0.0',
+      evaluatedAt: new Date().toISOString()
+    };
+    this.decisionCache.diagnoses.set(diagnosis.diagnosisId, diagnosis);
+    return diagnosis;
+  }
+
+  async estimateIrrigation(input = {}) {
+    if (this.isLive) {
+      const resp = await this._fetch('/api/v1/irrigation/estimate', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      const plan = resp?.data || resp;
+      if (!plan?.planId) throw new ApiError('处方响应缺少 planId', { code: 'IRRIGATION_PLAN_INVALID', payload: resp });
+      this.decisionCache.plans.set(plan.planId, plan);
+      return plan;
+    }
+
+    const plotId = input.plotId || 'plot-a01';
+    const plot = this.mockPlot(plotId);
+    const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
+      || await this.evaluateDiagnosis(plotId, input);
+    const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
+    const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
+    const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
+    const canControl = ['FARM_ADMIN', 'SYSTEM_ADMIN', 'FIELD_OPERATOR'].includes(this.user?.role);
+    const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
+    const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
+    const target = 30;
+    const area = Number(plot?.areaM2 || 80);
+    const flow = 18;
+    const rawWater = Math.max(0, (target - current) * area * .08);
+    const durationSeconds = Math.min(900, Math.max(0, Math.round(rawWater / flow * 60)));
+    const waterLitre = Number((durationSeconds / 60 * flow).toFixed(1));
+    const noAction = durationSeconds <= 0 && current >= target;
+    const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
+      : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
+    const executable = readinessStatus === 'READY' && durationSeconds > 0;
+    const now = Date.now();
+    const plan = {
+      planId: `plan-demo-${now}`,
+      plotId,
+      diagnosisId: diagnosis.diagnosisId,
+      traceId: input.traceId,
+      cropPackVersion: '1.0.0',
+      ruleVersion: 'rule-1.0.0',
+      knowledgeVersion: 'kb-1.0.0',
+      agentVersion: 'rules-agent-1.0',
+      what: 'IRRIGATION',
+      where: plotId,
+      when: { start: new Date(now + 5 * 60000).toISOString(), end: new Date(now + 35 * 60000).toISOString() },
+      recommendedWindow: { start: new Date(now + 5 * 60000).toISOString(), end: new Date(now + 35 * 60000).toISOString() },
+      howMuch: { durationSeconds, waterLitre },
+      durationSeconds,
+      waterLitre,
+      expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: target },
+      why: hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标',
+      alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
+      evidence: diagnosis.supportingEvidence,
+      readinessId: `ready-demo-${now}`,
+      readinessStatus,
+      requiresApproval: true,
+      advisoryOnly: !executable,
+      executable,
+      status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
+      createdAt: new Date(now).toISOString()
+    };
+    this.decisionCache.plans.set(plan.planId, plan);
+    return plan;
+  }
+
+  async getDecisionReadiness(subjectType, subjectId, context = {}) {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}/readiness`);
+      const readiness = resp?.data || resp;
+      if (!readiness?.readinessId) throw new ApiError('就绪度响应缺少 readinessId', { code: 'READINESS_INVALID', payload: resp });
+      this.decisionCache.readiness.set(readiness.readinessId, readiness);
+      return readiness;
+    }
+
+    const plan = context.plan || this.decisionCache.plans.get(subjectId) || {};
+    const diagnosis = context.diagnosis || this.decisionCache.diagnoses.get(plan.diagnosisId) || {};
+    const plot = this.mockPlot(context.plotId || plan.plotId || subjectId);
+    const status = plan.readinessStatus || 'HUMAN_REVIEW';
+    const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
+    const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
+    const canControl = ['FARM_ADMIN', 'SYSTEM_ADMIN', 'FIELD_OPERATOR'].includes(this.user?.role);
+    const hardGates = {
+      requiredMetrics: 'PASS',
+      freshness: deviceOffline ? 'FAIL' : 'PASS',
+      dataQuality: drift ? 'FAIL' : 'PASS',
+      deviceHealth: deviceOffline ? 'FAIL' : 'PASS',
+      diagnosisSafety: drift || deviceOffline ? 'FAIL' : diagnosis.primaryCause === 'INSUFFICIENT_EVIDENCE' ? 'REVIEW' : 'PASS',
+      resourceCapacity: 'PASS',
+      permission: canControl ? 'PASS' : 'REVIEW',
+      safetyLimit: Number(plan.durationSeconds || 0) <= 900 ? 'PASS' : 'FAIL'
+    };
+    const missingEvidence = [
+      ...(diagnosis.missingInformation || []),
+      ...(canControl ? [] : ['CONTROL_PERMISSION'])
+    ].filter((item, index, all) => all.indexOf(item) === index);
+    const readiness = {
+      readinessId: plan.readinessId || `ready-demo-${Date.now()}`,
+      subject: { type: subjectType, id: subjectId },
+      plotId: plan.plotId || context.plotId || subjectId,
+      status,
+      score: Number((Object.values(hardGates).reduce((sum, value) => sum + (value === 'PASS' ? 1 : value === 'REVIEW' ? .5 : 0), 0) / Object.keys(hardGates).length).toFixed(2)),
+      hardGates,
+      missingEvidence,
+      conflicts: drift ? ['QUALITY_VS_MOISTURE_CONFLICT'] : [],
+      requiredActions: missingEvidence.map(item => ({
+        type: item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'CREATE_INSPECTION',
+        action: item.includes('FLOW') ? 'CHECK_FLOW_METER' : item.includes('DEVICE') ? 'CHECK_DEVICE' : item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'REMEASURE',
+        priority: 'HIGH'
+      })),
+      policyVersion: 'readiness-v1',
+      evaluatedAt: new Date().toISOString()
+    };
+    this.decisionCache.readiness.set(readiness.readinessId, readiness);
+    return readiness;
+  }
+
+  async createDecisionEvidenceRequest(readinessId, input = {}) {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/decision-readiness/${encodeURIComponent(readinessId)}/evidence-requests`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return resp?.data || resp;
+    }
+    return {
+      ...input,
+      workOrderId: `wo-evidence-${Date.now()}`,
+      sourceType: 'READINESS',
+      sourceRef: readinessId,
+      actionType: input.actionType || 'INSPECTION',
+      status: 'OPEN',
+      priority: input.priority || 'HIGH',
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async getDecisionPassport(traceId) {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/decision-passports/${encodeURIComponent(traceId)}`);
+      return resp?.data || resp;
+    }
+    const diagnoses = [...this.decisionCache.diagnoses.values()].filter(item => item.traceId === traceId);
+    const plans = [...this.decisionCache.plans.values()].filter(item => item.traceId === traceId);
+    const planIds = new Set(plans.map(item => item.planId));
+    const commands = [...this.decisionCache.commands.values()].filter(item => planIds.has(item.planId));
+    const evaluations = [...this.decisionCache.evaluations.values()].filter(item => commands.some(command => command.commandId === item.commandId));
+    return {
+      traceId,
+      observations: diagnoses[0]?.supportingEvidence || [],
+      diagnoses,
+      readiness: [...this.decisionCache.readiness.values()].filter(item => item.plotId === plans[0]?.plotId),
+      plans,
+      commands,
+      evaluations,
+      provenance: ['OBSERVED', 'USER_PROVIDED', 'DERIVED', 'SIMULATED', 'ESTIMATED'],
+      generatedAt: new Date().toISOString()
+    };
+  }
+
+  async executeIrrigation(planId, plotId, options = {}) {
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/commands/virtual', {
         method: 'POST',
         body: JSON.stringify({
           planId,
           plotId,
-          idempotencyKey: 'cmd-key-' + Date.now(),
-          approved: true,
-          source: 'web-dashboard'
+          idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
+          approved: options.approved !== false,
+          source: options.source || 'web-decision-console',
+          ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });
-      if (resp && resp.data) return resp.data;
+      if (resp && resp.data) {
+        this.decisionCache.commands.set(resp.data.commandId, resp.data);
+        return resp.data;
+      }
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
     // Mock realistic virtual execution sequence
-    return {
+    const command = {
       commandId: "cmd-" + Math.random().toString(36).substring(2, 9),
       plotId,
       planId,
@@ -499,6 +730,29 @@ export class ApiService {
         actualMoisture: "29.8%"
       }
     };
+    this.decisionCache.commands.set(command.commandId, command);
+    this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId, planId });
+    return command;
+  }
+
+  async getCommand(commandId) {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/commands/${encodeURIComponent(commandId)}`);
+      const command = resp?.data || resp;
+      this.decisionCache.commands.set(commandId, command);
+      return command;
+    }
+    return this.decisionCache.commands.get(commandId) || null;
+  }
+
+  async getCommandEvaluation(commandId) {
+    if (this.isLive) {
+      const resp = await this._fetch(`/api/v1/commands/${encodeURIComponent(commandId)}/evaluation`);
+      const evaluation = resp?.data || resp;
+      this.decisionCache.evaluations.set(commandId, evaluation);
+      return evaluation;
+    }
+    return this.decisionCache.evaluations.get(commandId) || null;
   }
 
   /**

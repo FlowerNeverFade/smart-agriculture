@@ -8,7 +8,7 @@
  *   node scripts/verify-webui.mjs svg        # 无 ECharts，验证纯 SVG 兜底渲染
  *
  * 依赖：jsdom（本地安装：npm install jsdom --prefix .tools --ignore-scripts --no-audit --no-fund）
- * 覆盖视图：#view=risk-forecast / #view=scenario-replay / #view=value-ledger
+ * 覆盖视图：风险预测 / 情景回放 / 价值账本 / 作物包 / 智能诊断决策 / 农务资源
  * 前置：静态服务器 python -m http.server 3000 --directory apps/web-ui
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -239,7 +239,53 @@ if (cpReady) {
   ok('切换辣椒（🌶️ · 湿度 20~40 · 阈值 18）', pepper.includes('辣椒') && pepper.includes('20 ~ 40%') && /18/.test(pepper));
 }
 
-// ============ 视图 4.5：已有上下文内容的决策护照 ============
+// ============ 视图 4.5：智能诊断与决策中枢 ============
+gotoView('#view=decision-console&plotId=plot-a01');
+const dcReady = await waitFor(() => document.querySelector('.dc-root:not(.is-loading) .dc-primary-cause'), 6000);
+ok('智能诊断与决策中枢完整渲染', dcReady);
+if (dcReady) {
+  ok('实时指标上下文 6 卡', document.querySelectorAll('.dc-metric').length === 6);
+  ok('多假设根因与置信度条', document.querySelectorAll('.dc-candidate-list article').length === 3 && document.querySelectorAll('.dc-score-track').length === 3);
+  ok('支持/反对/缺失三类证据并列', document.querySelectorAll('.dc-evidence-column').length === 3);
+  ok('四态就绪度与八道安全门', document.querySelectorAll('.dc-state-rail > div').length === 4 && document.querySelectorAll('.dc-gate-grid article').length === 8);
+  ok('WHAT/WHERE/WHEN/HOW MUCH 结构化处方', document.querySelectorAll('.dc-prescription-grid article').length === 4);
+  ok('执行闭环与决策护照已接入', document.querySelectorAll('.dc-execution-track article').length === 4 && document.querySelectorAll('.dc-passport-flow article').length === 5);
+
+  const scenarioSelect = document.querySelector('[data-role="scenario-select"]');
+  scenarioSelect.value = 'sensor-drift';
+  scenarioSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const driftBlocked = await waitFor(() => {
+    const root = document.querySelector('.dc-root');
+    return root && !root.classList.contains('is-loading')
+      && root.querySelector('.dc-primary-cause')?.textContent.includes('传感器漂移')
+      && root.querySelector('.dc-readiness-badge')?.textContent.includes('需要补证');
+  }, 6000);
+  ok('漂移分流为 NEEDS_EVIDENCE 且不生成可执行动作', driftBlocked && document.querySelector('[data-action="prepare-execution"]')?.disabled === true);
+  document.querySelector('[data-action="create-evidence"]')?.click();
+  const workCreated = await waitFor(() => document.querySelector('.dc-work-created'), 3000);
+  ok('低就绪度可创建最小补证工单', workCreated);
+
+  scenarioSelect.value = 'live';
+  scenarioSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const readyAgain = await waitFor(() => {
+    const root = document.querySelector('.dc-root');
+    return root && !root.classList.contains('is-loading')
+      && root.querySelector('.dc-readiness-badge')?.textContent.includes('可进入审批')
+      && root.querySelector('[data-action="prepare-execution"]')?.disabled === false;
+  }, 6000);
+  ok('实时合格数据恢复 READY 并开放人工审批', readyAgain);
+  if (readyAgain) {
+    document.querySelector('[data-action="prepare-execution"]').click();
+    const approval = document.querySelector('[data-role="approval-check"]');
+    approval.checked = true;
+    approval.dispatchEvent(new window.Event('change', { bubbles: true }));
+    document.querySelector('[data-action="confirm-execution"]').click();
+    const executed = await waitFor(() => document.querySelector('.dc-execution-facts')?.textContent.includes('SUCCEEDED'), 5000);
+    ok('人工确认后命令/ACK/效果闭环可见', executed && document.querySelector('.dc-execution-card')?.textContent.includes('COMPLETED'));
+  }
+}
+
+// ============ 视图 4.6：已有上下文内容的决策护照 ============
 gotoView('#view=decision-passport');
 const passportReady = await waitFor(() => document.querySelector('.subview-modal-body')?.textContent.includes('决策审计护照链'), 3000);
 ok('决策护照内容渲染', passportReady);

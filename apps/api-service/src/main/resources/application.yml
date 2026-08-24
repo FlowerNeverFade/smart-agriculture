@@ -80,6 +80,19 @@ logging:
 spring:
   config:
     activate:
+      on-profile: standalone
+
+# Redis/MQTT are optional in standalone mode.  The API must remain discoverable
+# as UP so the Web UI can use the explicit in-memory degradation path.
+management:
+  health:
+    redis:
+      enabled: false
+
+---
+spring:
+  config:
+    activate:
       on-profile: simulation
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/agri}

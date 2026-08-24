@@ -38,6 +38,35 @@ class AgriApplicationTest {
     }
 
     @Test
+    void diagnosisSafetyAndRolePermissionArePartOfDecisionReadiness() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
+        engine.ingest(Map.of("eventId", "decision-drift-event", "plotId", "plot-b01", "deviceId", "mock-plot-b01",
+                "metric", "SOIL_MOISTURE", "value", 11.0, "unit", "%", "scenarioId", "sensor-drift", "ts", Instant.now().toString()));
+        Map<String, Object> diagnosis = engine.diagnose("plot-b01", Map.of("scenarioId", "sensor-drift", "traceId", "trace-drift-gate"));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of("plotId", "plot-b01", "diagnosisId", diagnosis.get("diagnosisId"), "traceId", "trace-drift-gate"), admin);
+        Map<String, Object> readiness = engine.readiness("IRRIGATION_PLAN", String.valueOf(plan.get("planId")), admin);
+
+        assertThat(plan.get("executable")).isEqualTo(false);
+        assertThat(plan.get("readinessStatus")).isEqualTo("NEEDS_EVIDENCE");
+        assertThat(plan).containsKey("readinessId");
+        assertThat(readiness.get("status")).isEqualTo("NEEDS_EVIDENCE");
+        assertThat(String.valueOf(readiness.get("hardGates"))).contains("diagnosisSafety=FAIL");
+        assertThat(String.valueOf(readiness.get("missingEvidence"))).contains("FLOW_RATE_CALIBRATION", "DIAGNOSIS_CONFIRMATION");
+        assertThat(engine.passport("trace-drift-gate", admin).get("traceId")).isEqualTo("trace-drift-gate");
+        UserPrincipal unrelatedFarmer = new UserPrincipal("user-farmer-a02", "farmer-a02", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.passport("trace-drift-gate", unrelatedFarmer))
+                .isInstanceOf(ApiException.class);
+
+        engine.ingest(Map.of("eventId", "decision-role-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
+                "metric", "SOIL_MOISTURE", "value", 17.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString()));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
+        Map<String, Object> farmerReadiness = engine.readiness("PLOT", "plot-a02", farmer);
+        assertThat(farmerReadiness.get("status")).isEqualTo("HUMAN_REVIEW");
+        assertThat(String.valueOf(farmerReadiness.get("hardGates"))).contains("permission=REVIEW");
+        assertThat(String.valueOf(farmerReadiness.get("missingEvidence"))).contains("CONTROL_PERMISSION");
+    }
+
+    @Test
     void healthyTelemetryProducesReadyPlanAndResourceLimitIsHard() {
         Map<String, Object> event = Map.of("eventId", "ready-event-1", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
                 "metric", "SOIL_MOISTURE", "value", 15.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString());
