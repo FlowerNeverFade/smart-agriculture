@@ -17,8 +17,6 @@ class AgriApplicationTest {
     @Autowired AgriEngine engine;
     @Autowired AgriStore store;
     @Autowired JwtService jwtService;
-    @Autowired SocialAuthService socialAuth;
-    @Autowired AgriProperties properties;
 
     @Test
     void seededLoginAndCropPacksWork() {
@@ -67,58 +65,6 @@ class AgriApplicationTest {
                     assertThat(error.code).isEqualTo("ACCOUNT_RECOVERY_LOCKED");
                     assertThat(error.details).containsKey("retryAfterSeconds");
                 });
-    }
-
-    @Test
-    void socialIdentityAutoRegistersOnceAndUsesOneTimeTicket() {
-        Map<String, Object> status = socialAuth.providerStatus();
-        assertThat((List<Map<String, Object>>) status.get("providers"))
-                .allMatch(provider -> Boolean.FALSE.equals(provider.get("configured")));
-
-        String subject = "test-openid-" + System.nanoTime();
-        String firstTicket = socialAuth.completeProviderIdentity("wechat", subject, "微信农友", "https://example.invalid/avatar.png");
-        Map<String, Object> firstSession = socialAuth.consumeTicket(firstTicket);
-        Map<String, Object> firstUser = (Map<String, Object>) firstSession.get("user");
-        assertThat(firstSession).containsKey("accessToken");
-        assertThat(firstUser.get("role")).isEqualTo("FARMER");
-        assertThat(String.valueOf(firstUser.get("username"))).startsWith("wx_");
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> socialAuth.consumeTicket(firstTicket))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SOCIAL_TICKET_INVALID"));
-
-        String secondTicket = socialAuth.completeProviderIdentity("wechat", subject, "更新昵称", "");
-        Map<String, Object> secondUser = (Map<String, Object>) socialAuth.consumeTicket(secondTicket).get("user");
-        assertThat(secondUser.get("userId")).isEqualTo(firstUser.get("userId"));
-
-        String qqTicket = socialAuth.completeProviderIdentity("qq", subject, "QQ农友", "");
-        Map<String, Object> qqUser = (Map<String, Object>) socialAuth.consumeTicket(qqTicket).get("user");
-        assertThat(qqUser.get("userId")).isNotEqualTo(firstUser.get("userId"));
-        assertThat(String.valueOf(qqUser.get("username"))).startsWith("qq_");
-    }
-
-    @Test
-    void socialAuthorizationBindsStateToHttpOnlyBrowserCookie() {
-        String previousId = properties.getWechatAppId();
-        String previousSecret = properties.getWechatAppSecret();
-        try {
-            properties.setWechatAppId("test-app-id");
-            properties.setWechatAppSecret("test-app-secret");
-            SocialAuthService.AuthorizationStart start = socialAuth.beginAuthorization("wechat");
-            assertThat(start.redirectUri().getHost()).isEqualTo("open.weixin.qq.com");
-            assertThat(start.redirectUri().toString()).contains("snsapi_login", "state=");
-            assertThat(socialAuth.stateCookie(start.state()).toString())
-                    .contains("HttpOnly", "SameSite=Lax", "Path=/api/v1/auth/social");
-
-            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                            socialAuth.completeCallback("wechat", "", start.state(), "wrong-browser-state"))
-                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SOCIAL_STATE_INVALID"));
-            org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                            socialAuth.completeCallback("wechat", "", start.state(), start.state()))
-                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SOCIAL_AUTH_CANCELLED"));
-        } finally {
-            properties.setWechatAppId(previousId);
-            properties.setWechatAppSecret(previousSecret);
-        }
     }
 
     @Test

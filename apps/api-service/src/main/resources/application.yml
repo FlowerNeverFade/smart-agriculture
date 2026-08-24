@@ -61,12 +61,6 @@ agriloop:
   simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
   supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
-  social-callback-base-url: ${SOCIAL_CALLBACK_BASE_URL:http://127.0.0.1:8080}
-  social-frontend-url: ${SOCIAL_FRONTEND_URL:http://127.0.0.1:3000/login.html}
-  wechat-app-id: ${WECHAT_APP_ID:}
-  wechat-app-secret: ${WECHAT_APP_SECRET:}
-  qq-app-id: ${QQ_APP_ID:}
-  qq-app-secret: ${QQ_APP_SECRET:}
 
 management:
   endpoints:

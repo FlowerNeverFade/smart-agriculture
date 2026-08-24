@@ -26,7 +26,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.ResponseCookie;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -62,14 +61,12 @@ import org.springframework.data.redis.connection.stream.StreamReadOptions;
 import javax.crypto.SecretKey;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.time.Duration;
@@ -130,12 +127,6 @@ class AgriProperties {
     private boolean simulatorControlEnabled = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
-    private String socialCallbackBaseUrl = "http://127.0.0.1:8080";
-    private String socialFrontendUrl = "http://127.0.0.1:3000/login.html";
-    private String wechatAppId = "";
-    private String wechatAppSecret = "";
-    private String qqAppId = "";
-    private String qqAppSecret = "";
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -197,18 +188,6 @@ class AgriProperties {
     public void setSupervisorConfig(String supervisorConfig) { this.supervisorConfig = supervisorConfig; }
     public String getSimulatorProgram() { return simulatorProgram; }
     public void setSimulatorProgram(String simulatorProgram) { this.simulatorProgram = simulatorProgram; }
-    public String getSocialCallbackBaseUrl() { return socialCallbackBaseUrl; }
-    public void setSocialCallbackBaseUrl(String socialCallbackBaseUrl) { this.socialCallbackBaseUrl = socialCallbackBaseUrl; }
-    public String getSocialFrontendUrl() { return socialFrontendUrl; }
-    public void setSocialFrontendUrl(String socialFrontendUrl) { this.socialFrontendUrl = socialFrontendUrl; }
-    public String getWechatAppId() { return wechatAppId; }
-    public void setWechatAppId(String wechatAppId) { this.wechatAppId = wechatAppId; }
-    public String getWechatAppSecret() { return wechatAppSecret; }
-    public void setWechatAppSecret(String wechatAppSecret) { this.wechatAppSecret = wechatAppSecret; }
-    public String getQqAppId() { return qqAppId; }
-    public void setQqAppId(String qqAppId) { this.qqAppId = qqAppId; }
-    public String getQqAppSecret() { return qqAppSecret; }
-    public void setQqAppSecret(String qqAppSecret) { this.qqAppSecret = qqAppSecret; }
 }
 
 @Configuration
@@ -288,7 +267,6 @@ class AgriStore {
     private final PasswordEncoder passwordEncoder;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> users = new ConcurrentHashMap<>();
-    private final Map<String, Map<String, Object>> externalIdentities = new ConcurrentHashMap<>();
     private final List<Map<String, Object>> telemetry = new CopyOnWriteArrayList<>();
     private final Set<String> eventIds = ConcurrentHashMap.newKeySet();
     private final AtomicLong eventCount = new AtomicLong();
@@ -538,73 +516,6 @@ class AgriStore {
         }
         users.put(id, Jsons.copy(mapper, user));
         return Jsons.copy(mapper, user);
-    }
-
-    Map<String, Object> externalIdentity(String provider, String subject) {
-        String key = externalIdentityKey(provider, subject);
-        Map<String, Object> cached = externalIdentities.get(key);
-        if (cached != null) return Jsons.copy(mapper, cached);
-        if (!databaseReady) return null;
-        try {
-            Map<String, Object> persisted = jdbc.queryForObject(
-                    "SELECT provider_code,provider_subject,user_id,display_name,avatar_url FROM external_identity WHERE provider_code=? AND provider_subject=?",
-                    (rs, rowNum) -> {
-                        Map<String, Object> identity = new LinkedHashMap<>();
-                        identity.put("provider", rs.getString("provider_code"));
-                        identity.put("subject", rs.getString("provider_subject"));
-                        identity.put("userId", rs.getString("user_id"));
-                        identity.put("displayName", rs.getString("display_name"));
-                        identity.put("avatarUrl", rs.getString("avatar_url"));
-                        return identity;
-                    }, provider, subject);
-            if (persisted != null) externalIdentities.put(key, Jsons.copy(mapper, persisted));
-            return persisted;
-        } catch (DataAccessException ignored) { return null; }
-    }
-
-    synchronized boolean createExternalIdentity(Map<String, Object> identity) {
-        String provider = Jsons.text(identity, "provider", "").trim().toLowerCase(Locale.ROOT);
-        String subject = Jsons.text(identity, "subject", "").trim();
-        String userId = Jsons.text(identity, "userId", "").trim();
-        if (provider.isBlank() || subject.isBlank() || userId.isBlank() || externalIdentity(provider, subject) != null) return false;
-        if (databaseReady) {
-            try {
-                jdbc.update("INSERT INTO external_identity(provider_code,provider_subject,user_id,display_name,avatar_url) VALUES (?,?,?,?,?)",
-                        provider, subject, userId, nullableText(identity, "displayName"), nullableText(identity, "avatarUrl"));
-            } catch (DataAccessException error) {
-                String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
-                if (message.contains("unique") || message.contains("duplicate") || message.contains("primary key")) return false;
-                databaseReady = false;
-            }
-        }
-        Map<String, Object> stored = Jsons.copy(mapper, identity);
-        stored.put("provider", provider); stored.put("subject", subject); stored.put("userId", userId);
-        externalIdentities.put(externalIdentityKey(provider, subject), stored);
-        return true;
-    }
-
-    void updateExternalIdentityProfile(String provider, String subject, String displayName, String avatarUrl) {
-        Map<String, Object> identity = externalIdentity(provider, subject);
-        if (identity == null) return;
-        identity.put("displayName", displayName); identity.put("avatarUrl", avatarUrl);
-        externalIdentities.put(externalIdentityKey(provider, subject), Jsons.copy(mapper, identity));
-        if (!databaseReady) return;
-        try {
-            jdbc.update("UPDATE external_identity SET display_name=?,avatar_url=?,updated_at=CURRENT_TIMESTAMP WHERE provider_code=? AND provider_subject=?",
-                    blankToNull(displayName), blankToNull(avatarUrl), provider, subject);
-        } catch (DataAccessException ignored) { databaseReady = false; }
-    }
-
-    private String externalIdentityKey(String provider, String subject) {
-        return String.valueOf(provider).trim().toLowerCase(Locale.ROOT) + "\u0000" + String.valueOf(subject).trim();
-    }
-
-    private String nullableText(Map<String, Object> value, String key) {
-        return blankToNull(Jsons.text(value, key, ""));
-    }
-
-    private String blankToNull(String value) {
-        return StringUtils.hasText(value) ? value : null;
     }
 
     private void seed() {
@@ -1100,7 +1011,7 @@ class AgriEngine {
         return result;
     }
 
-    Map<String, Object> authenticatedSession(Map<String, Object> user) {
+    private Map<String, Object> authenticatedSession(Map<String, Object> user) {
         UserPrincipal principal = new UserPrincipal(Jsons.text(user, "userId", ""), Jsons.text(user, "username", ""), Jsons.text(user, "role", "FARMER"),
                 Jsons.strings(user.get("farmIds")), Jsons.strings(user.get("plotIds")), (int) Jsons.whole(user, "credentialVersion", 1));
         Map<String, Object> result = new LinkedHashMap<>(); result.put("accessToken", jwtService.issue(principal));
@@ -2352,383 +2263,6 @@ class AgriEngine {
     private record StreamBuilder(List<Map<String, Object>> values) { StreamBuilder() { this(new ArrayList<>()); } void add(Map<String, Object> v) { values.add(v); } }
 }
 
-@Service
-class SocialAuthService {
-    private static final Duration STATE_TTL = Duration.ofMinutes(10);
-    private static final Duration TICKET_TTL = Duration.ofMinutes(2);
-    private static final Set<String> SUPPORTED_PROVIDERS = Set.of("wechat", "qq");
-    private final AgriProperties properties;
-    private final AgriStore store;
-    private final AgriEngine engine;
-    private final PasswordEncoder passwordEncoder;
-    private final ObjectMapper mapper;
-    private final HttpClient httpClient;
-    private final SecureRandom secureRandom = new SecureRandom();
-    private final Map<String, PendingState> pendingStates = new ConcurrentHashMap<>();
-    private final Map<String, PendingTicket> pendingTickets = new ConcurrentHashMap<>();
-
-    SocialAuthService(AgriProperties properties, AgriStore store, AgriEngine engine,
-                      PasswordEncoder passwordEncoder, ObjectMapper mapper) {
-        this.properties = properties;
-        this.store = store;
-        this.engine = engine;
-        this.passwordEncoder = passwordEncoder;
-        this.mapper = mapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(8))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
-    }
-
-    Map<String, Object> providerStatus() {
-        List<Map<String, Object>> providers = List.of(providerSummary("wechat"), providerSummary("qq"));
-        return Map.of("providers", providers, "autoRegister", true, "ticketExpiresInSeconds", TICKET_TTL.toSeconds());
-    }
-
-    AuthorizationStart beginAuthorization(String provider) {
-        String normalized = normalizeProvider(provider);
-        ProviderSettings settings = configuredSettings(normalized);
-        purgeExpired();
-        String state = randomToken();
-        pendingStates.put(state, new PendingState(normalized, Instant.now().plus(STATE_TTL)));
-        String callback = callbackUri(normalized);
-        if ("wechat".equals(normalized)) {
-            URI redirect = URI.create("https://open.weixin.qq.com/connect/qrconnect?" + query(Map.of(
-                    "appid", settings.appId(), "redirect_uri", callback, "response_type", "code",
-                    "scope", "snsapi_login", "state", state)) + "#wechat_redirect");
-            return new AuthorizationStart(redirect, state);
-        }
-        URI redirect = URI.create("https://graph.qq.com/oauth2.0/authorize?" + query(Map.of(
-                "response_type", "code", "client_id", settings.appId(), "redirect_uri", callback,
-                "state", state, "scope", "get_user_info")));
-        return new AuthorizationStart(redirect, state);
-    }
-
-    ResponseCookie stateCookie(String state) {
-        return ResponseCookie.from("agriloop_oauth_state", state)
-                .httpOnly(true).secure(callbackUsesHttps()).sameSite("Lax")
-                .path("/api/v1/auth/social").maxAge(STATE_TTL).build();
-    }
-
-    ResponseCookie clearStateCookie() {
-        return ResponseCookie.from("agriloop_oauth_state", "")
-                .httpOnly(true).secure(callbackUsesHttps()).sameSite("Lax")
-                .path("/api/v1/auth/social").maxAge(Duration.ZERO).build();
-    }
-
-    URI completeCallback(String provider, String code, String state, String browserState) {
-        String normalized = normalizeProvider(provider);
-        validateAndConsumeState(normalized, state, browserState);
-        if (!StringUtils.hasText(code)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "SOCIAL_AUTH_CANCELLED", "未完成第三方授权");
-        }
-        ProviderSettings settings = configuredSettings(normalized);
-        SocialIdentity identity = "wechat".equals(normalized)
-                ? exchangeWechatIdentity(settings, code) : exchangeQqIdentity(settings, code);
-        String ticket = completeProviderIdentity(normalized, identity.subject(), identity.displayName(), identity.avatarUrl());
-        return frontendUri(Map.of("social", "success", "socialProvider", normalized, "socialTicket", ticket));
-    }
-
-    URI frontendErrorUri(String provider, String errorCode) {
-        String normalized = SUPPORTED_PROVIDERS.contains(String.valueOf(provider).toLowerCase(Locale.ROOT))
-                ? String.valueOf(provider).toLowerCase(Locale.ROOT) : "unknown";
-        return frontendUri(Map.of("social", "error", "socialProvider", normalized,
-                "socialError", StringUtils.hasText(errorCode) ? errorCode : "SOCIAL_AUTH_FAILED"));
-    }
-
-    Map<String, Object> consumeTicket(String ticket) {
-        purgeExpired();
-        PendingTicket pending = pendingTickets.remove(String.valueOf(ticket == null ? "" : ticket).trim());
-        if (pending == null || pending.expiresAt().isBefore(Instant.now())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "SOCIAL_TICKET_INVALID", "第三方登录凭据已失效，请重新授权");
-        }
-        Map<String, Object> user = store.userById(pending.userId());
-        if (user == null || !Jsons.bool(user, "enabled", true)) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "SOCIAL_ACCOUNT_UNAVAILABLE", "第三方账号对应的本地账户不可用");
-        }
-        return engine.authenticatedSession(user);
-    }
-
-    synchronized String completeProviderIdentity(String provider, String subject, String displayName, String avatarUrl) {
-        String normalized = normalizeProvider(provider);
-        String normalizedSubject = String.valueOf(subject == null ? "" : subject).trim();
-        if (normalizedSubject.isBlank() || normalizedSubject.length() > 255) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_IDENTITY_INVALID", "第三方平台未返回有效用户身份");
-        }
-
-        Map<String, Object> identity = store.externalIdentity(normalized, normalizedSubject);
-        Map<String, Object> user = identity == null ? null : store.userById(Jsons.text(identity, "userId", ""));
-        boolean created = false;
-        if (identity == null) {
-            user = createSocialUser(normalized, normalizedSubject);
-            Map<String, Object> binding = new LinkedHashMap<>();
-            binding.put("provider", normalized); binding.put("subject", normalizedSubject);
-            binding.put("userId", Jsons.text(user, "userId", ""));
-            binding.put("displayName", safeProfileText(displayName, providerLabel(normalized) + "用户", 100));
-            binding.put("avatarUrl", safeProfileText(avatarUrl, "", 1000));
-            if (!store.createExternalIdentity(binding)) {
-                Map<String, Object> raced = store.externalIdentity(normalized, normalizedSubject);
-                user = raced == null ? null : store.userById(Jsons.text(raced, "userId", ""));
-            } else {
-                created = true;
-            }
-        } else {
-            store.updateExternalIdentityProfile(normalized, normalizedSubject,
-                    safeProfileText(displayName, Jsons.text(identity, "displayName", ""), 100),
-                    safeProfileText(avatarUrl, Jsons.text(identity, "avatarUrl", ""), 1000));
-        }
-        if (user == null || !Jsons.bool(user, "enabled", true)) {
-            throw new ApiException(HttpStatus.CONFLICT, "SOCIAL_ACCOUNT_LINK_FAILED", "无法绑定第三方账号，请稍后重试");
-        }
-
-        String ticket = randomToken();
-        pendingTickets.put(ticket, new PendingTicket(Jsons.text(user, "userId", ""), Instant.now().plus(TICKET_TTL)));
-        store.logEvent(created ? "SOCIAL_ACCOUNT_REGISTERED" : "SOCIAL_LOGIN_COMPLETED",
-                Map.of("userId", Jsons.text(user, "userId", ""), "provider", normalized));
-        return ticket;
-    }
-
-    private Map<String, Object> createSocialUser(String provider, String subject) {
-        for (int attempt = 0; attempt < 4; attempt++) {
-            String username = socialUsername(provider, subject, attempt);
-            if (store.userByUsername(username) != null) continue;
-            Map<String, Object> user = new LinkedHashMap<>();
-            user.put("userId", Jsons.id("user")); user.put("username", username);
-            user.put("passwordHash", passwordEncoder.encode(randomToken())); user.put("recoveryCodeHash", "");
-            user.put("role", "FARMER"); user.put("farmIds", List.of("farm-demo"));
-            user.put("plotIds", List.of("plot-a01", "plot-a02", "plot-b01"));
-            user.put("enabled", true); user.put("credentialVersion", 1);
-            if (store.createUser(user)) return user;
-        }
-        throw new ApiException(HttpStatus.CONFLICT, "SOCIAL_ACCOUNT_CREATE_FAILED", "无法创建第三方账号，请稍后重试");
-    }
-
-    private SocialIdentity exchangeWechatIdentity(ProviderSettings settings, String code) {
-        Map<String, Object> token = getProviderPayload("https://api.weixin.qq.com/sns/oauth2/access_token?" + query(Map.of(
-                "appid", settings.appId(), "secret", settings.appSecret(), "code", code,
-                "grant_type", "authorization_code")));
-        rejectWechatError(token);
-        String accessToken = requiredProviderText(token, "access_token");
-        String openId = requiredProviderText(token, "openid");
-        Map<String, Object> profile = new LinkedHashMap<>();
-        try {
-            profile.putAll(getProviderPayload("https://api.weixin.qq.com/sns/userinfo?" + query(Map.of(
-                    "access_token", accessToken, "openid", openId, "lang", "zh_CN"))));
-            rejectWechatError(profile);
-        } catch (ApiException ignored) {
-            // OpenID is sufficient for account binding; profile decoration is optional.
-        }
-        String unionId = Jsons.text(profile, "unionid", Jsons.text(token, "unionid", ""));
-        String subject = StringUtils.hasText(unionId) ? unionId : openId;
-        return new SocialIdentity(subject, Jsons.text(profile, "nickname", "微信用户"), Jsons.text(profile, "headimgurl", ""));
-    }
-
-    private SocialIdentity exchangeQqIdentity(ProviderSettings settings, String code) {
-        Map<String, Object> token = getProviderPayload("https://graph.qq.com/oauth2.0/token?" + query(Map.of(
-                "grant_type", "authorization_code", "client_id", settings.appId(), "client_secret", settings.appSecret(),
-                "code", code, "redirect_uri", callbackUri("qq"), "fmt", "json")));
-        rejectQqError(token);
-        String accessToken = requiredProviderText(token, "access_token");
-        Map<String, Object> identity = getProviderPayload("https://graph.qq.com/oauth2.0/me?" + query(Map.of(
-                "access_token", accessToken, "fmt", "json")));
-        rejectQqError(identity);
-        String openId = requiredProviderText(identity, "openid");
-        Map<String, Object> profile = new LinkedHashMap<>();
-        try {
-            profile.putAll(getProviderPayload("https://graph.qq.com/user/get_user_info?" + query(Map.of(
-                    "access_token", accessToken, "oauth_consumer_key", settings.appId(), "openid", openId, "fmt", "json"))));
-            rejectQqError(profile);
-        } catch (ApiException ignored) {
-            // OpenID is sufficient for account binding; profile decoration is optional.
-        }
-        String avatar = Jsons.text(profile, "figureurl_qq_2", Jsons.text(profile, "figureurl_qq_1", Jsons.text(profile, "figureurl", "")));
-        return new SocialIdentity(openId, Jsons.text(profile, "nickname", "QQ用户"), avatar);
-    }
-
-    private Map<String, Object> getProviderPayload(String url) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(10))
-                    .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE).GET().build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_UNAVAILABLE", "第三方登录服务暂不可用");
-            }
-            return parseProviderPayload(response.body());
-        } catch (ApiException error) {
-            throw error;
-        } catch (InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_UNAVAILABLE", "第三方登录服务暂不可用");
-        } catch (Exception error) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_UNAVAILABLE", "第三方登录服务暂不可用");
-        }
-    }
-
-    private Map<String, Object> parseProviderPayload(String body) {
-        String value = String.valueOf(body == null ? "" : body).trim();
-        if (value.startsWith("callback")) {
-            int start = value.indexOf('('); int end = value.lastIndexOf(')');
-            value = start >= 0 && end > start ? value.substring(start + 1, end).trim() : value;
-        }
-        if (value.startsWith("{")) {
-            try { return mapper.readValue(value, Map.class); }
-            catch (Exception ignored) {
-                throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_RESPONSE_INVALID", "第三方登录响应无效");
-            }
-        }
-        Map<String, Object> parsed = new LinkedHashMap<>();
-        for (String pair : value.split("&")) {
-            int separator = pair.indexOf('=');
-            if (separator <= 0) continue;
-            String key = java.net.URLDecoder.decode(pair.substring(0, separator), StandardCharsets.UTF_8);
-            String item = java.net.URLDecoder.decode(pair.substring(separator + 1), StandardCharsets.UTF_8);
-            parsed.put(key, item);
-        }
-        if (parsed.isEmpty()) throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_RESPONSE_INVALID", "第三方登录响应无效");
-        return parsed;
-    }
-
-    private void validateAndConsumeState(String provider, String state, String browserState) {
-        purgeExpired();
-        String presented = String.valueOf(state == null ? "" : state).trim();
-        String browser = String.valueOf(browserState == null ? "" : browserState).trim();
-        if (presented.isBlank() || browser.isBlank() || !MessageDigest.isEqual(
-                presented.getBytes(StandardCharsets.UTF_8), browser.getBytes(StandardCharsets.UTF_8))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "SOCIAL_STATE_INVALID", "第三方授权状态已失效，请重新发起授权");
-        }
-        PendingState pending = pendingStates.remove(presented);
-        if (pending == null || pending.expiresAt().isBefore(Instant.now()) || !provider.equals(pending.provider())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "SOCIAL_STATE_INVALID", "第三方授权状态已失效，请重新发起授权");
-        }
-    }
-
-    private void rejectWechatError(Map<String, Object> payload) {
-        if (Jsons.whole(payload, "errcode", 0) != 0) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_REJECTED", "微信授权失败，请重新尝试");
-        }
-    }
-
-    private void rejectQqError(Map<String, Object> payload) {
-        long ret = Jsons.whole(payload, "ret", 0);
-        if (ret != 0 || payload.containsKey("error")) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_REJECTED", "QQ授权失败，请重新尝试");
-        }
-    }
-
-    private String requiredProviderText(Map<String, Object> payload, String key) {
-        String value = Jsons.text(payload, key, "");
-        if (!StringUtils.hasText(value)) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SOCIAL_PROVIDER_RESPONSE_INVALID", "第三方登录响应缺少必要身份信息");
-        }
-        return value;
-    }
-
-    private Map<String, Object> providerSummary(String provider) {
-        return Map.of("code", provider, "label", providerLabel(provider), "configured", isConfigured(settings(provider)));
-    }
-
-    private ProviderSettings configuredSettings(String provider) {
-        ProviderSettings settings = settings(provider);
-        if (!isConfigured(settings)) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SOCIAL_PROVIDER_NOT_CONFIGURED",
-                    providerLabel(provider) + "开放平台尚未配置");
-        }
-        return settings;
-    }
-
-    private ProviderSettings settings(String provider) {
-        return switch (normalizeProvider(provider)) {
-            case "wechat" -> new ProviderSettings("wechat", "微信", properties.getWechatAppId(), properties.getWechatAppSecret());
-            case "qq" -> new ProviderSettings("qq", "QQ", properties.getQqAppId(), properties.getQqAppSecret());
-            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "SOCIAL_PROVIDER_UNSUPPORTED", "不支持的第三方登录平台");
-        };
-    }
-
-    private boolean isConfigured(ProviderSettings settings) {
-        return StringUtils.hasText(settings.appId()) && StringUtils.hasText(settings.appSecret())
-                && validHttpUrl(properties.getSocialCallbackBaseUrl()) && validHttpUrl(properties.getSocialFrontendUrl());
-    }
-
-    private String normalizeProvider(String provider) {
-        String normalized = String.valueOf(provider == null ? "" : provider).trim().toLowerCase(Locale.ROOT);
-        if (!SUPPORTED_PROVIDERS.contains(normalized)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "SOCIAL_PROVIDER_UNSUPPORTED", "仅支持微信或QQ授权");
-        }
-        return normalized;
-    }
-
-    private String providerLabel(String provider) { return "wechat".equals(provider) ? "微信" : "QQ"; }
-
-    private String callbackUri(String provider) {
-        return stripTrailingSlash(properties.getSocialCallbackBaseUrl()) + "/api/v1/auth/social/" + provider + "/callback";
-    }
-
-    private URI frontendUri(Map<String, String> parameters) {
-        String base = validHttpUrl(properties.getSocialFrontendUrl())
-                ? properties.getSocialFrontendUrl() : "http://127.0.0.1:3000/login.html";
-        return URI.create(base + (base.contains("?") ? "&" : "?") + query(parameters));
-    }
-
-    private boolean validHttpUrl(String value) {
-        try {
-            URI uri = URI.create(String.valueOf(value));
-            return Set.of("http", "https").contains(String.valueOf(uri.getScheme()).toLowerCase(Locale.ROOT)) && StringUtils.hasText(uri.getHost());
-        } catch (Exception ignored) { return false; }
-    }
-
-    private boolean callbackUsesHttps() {
-        try { return "https".equalsIgnoreCase(URI.create(properties.getSocialCallbackBaseUrl()).getScheme()); }
-        catch (Exception ignored) { return false; }
-    }
-
-    private String query(Map<String, String> parameters) {
-        return parameters.entrySet().stream()
-                .map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue()))
-                .collect(Collectors.joining("&"));
-    }
-
-    private String encode(String value) {
-        return URLEncoder.encode(String.valueOf(value), StandardCharsets.UTF_8).replace("+", "%20");
-    }
-
-    private String stripTrailingSlash(String value) {
-        return String.valueOf(value == null ? "" : value).replaceAll("/+$", "");
-    }
-
-    private String socialUsername(String provider, String subject, int attempt) {
-        String material = provider + ":" + subject + (attempt == 0 ? "" : ":" + attempt);
-        return ("wechat".equals(provider) ? "wx_" : "qq_") + sha256(material).substring(0, 28);
-    }
-
-    private String sha256(String value) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
-        catch (Exception error) { throw new IllegalStateException("SHA-256 unavailable", error); }
-    }
-
-    private String randomToken() {
-        byte[] bytes = new byte[32]; secureRandom.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
-    private String safeProfileText(String value, String fallback, int maxLength) {
-        String cleaned = String.valueOf(value == null ? "" : value).trim();
-        if (cleaned.isBlank()) cleaned = String.valueOf(fallback == null ? "" : fallback).trim();
-        return cleaned.length() > maxLength ? cleaned.substring(0, maxLength) : cleaned;
-    }
-
-    private void purgeExpired() {
-        Instant now = Instant.now();
-        pendingStates.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
-        pendingTickets.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
-    }
-
-    private record ProviderSettings(String code, String label, String appId, String appSecret) { }
-    record AuthorizationStart(URI redirectUri, String state) { }
-    private record PendingState(String provider, Instant expiresAt) { }
-    private record PendingTicket(String userId, Instant expiresAt) { }
-    private record SocialIdentity(String subject, String displayName, String avatarUrl) { }
-}
-
 @RestController
 @RequestMapping("/api/v1")
 class AgriController {
@@ -2737,12 +2271,9 @@ class AgriController {
     private final AgriEventBus events;
     private final MqttBridge mqtt;
     private final SimulatorControl simulator;
-    private final SocialAuthService socialAuth;
 
-    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt,
-                   SimulatorControl simulator, SocialAuthService socialAuth) {
-        this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt;
-        this.simulator = simulator; this.socialAuth = socialAuth;
+    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator) {
+        this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
     }
 
     @PostMapping("/auth/login")
@@ -2758,42 +2289,6 @@ class AgriController {
     ResponseEntity<?> resetPassword(@RequestBody Map<String, Object> body) {
         return ok(engine.resetPassword(Jsons.text(body, "username", ""), Jsons.text(body, "recoveryCode", ""),
                 Jsons.text(body, "newPassword", "")));
-    }
-
-    @GetMapping("/auth/social/providers")
-    ResponseEntity<?> socialProviders() { return ok(socialAuth.providerStatus()); }
-
-    @GetMapping("/auth/social/{provider}/authorize")
-    ResponseEntity<Void> socialAuthorize(@PathVariable String provider) {
-        SocialAuthService.AuthorizationStart authorization = socialAuth.beginAuthorization(provider);
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .header(HttpHeaders.SET_COOKIE, socialAuth.stateCookie(authorization.state()).toString())
-                .location(authorization.redirectUri()).build();
-    }
-
-    @GetMapping("/auth/social/{provider}/callback")
-    ResponseEntity<Void> socialCallback(@PathVariable String provider,
-                                        @RequestParam(required = false) String code,
-                                        @RequestParam(required = false) String state,
-                                        @CookieValue(name = "agriloop_oauth_state", required = false) String browserState) {
-        try {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header(HttpHeaders.SET_COOKIE, socialAuth.clearStateCookie().toString())
-                    .location(socialAuth.completeCallback(provider, code, state, browserState)).build();
-        } catch (ApiException error) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header(HttpHeaders.SET_COOKIE, socialAuth.clearStateCookie().toString())
-                    .location(socialAuth.frontendErrorUri(provider, error.code)).build();
-        } catch (Exception error) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header(HttpHeaders.SET_COOKIE, socialAuth.clearStateCookie().toString())
-                    .location(socialAuth.frontendErrorUri(provider, "SOCIAL_AUTH_FAILED")).build();
-        }
-    }
-
-    @PostMapping("/auth/social/session")
-    ResponseEntity<?> socialSession(@RequestBody Map<String, Object> body) {
-        return ok(socialAuth.consumeTicket(Jsons.text(body, "ticket", "")));
     }
 
     @GetMapping("/auth/me")
