@@ -525,6 +525,7 @@ function resourceTemplate(context) {
   return `
     <section class="farm-ops resource-ops" data-water-surface aria-label="水资源协同排程">
       <div class="resource-water-backdrop" aria-hidden="true">
+        <canvas class="resource-water-shader" data-water-shader></canvas>
         <div class="backdrop-water-sphere">
           <div class="backdrop-water-volume"><span></span><i></i></div>
           <div class="backdrop-water-rim"></div>

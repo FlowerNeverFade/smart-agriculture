@@ -61,6 +61,7 @@
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片（全图雨云/漫游/18 槽位）；`quhl` 最新真实作物背景 + 保留 WebGL 动效 + JWT/离线演示会话；`rium_dev` 麦田背景 + 液态玻璃兼容叠加；`feat/farm-operations` 工单/巡田/资源约束/交互沙盘选择性移植；`yyx` 预测/情景双轨/价值账本/四类 Crop Pack/命令面板/首页摘要均已适配并通过 svg/stub/real 回归；未合并名为 `task5` 的分支 |
+| T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 待本轮验收 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED，验收后再更新状态 |
 
 ### 2.1 核心八项能力任务映射
 
