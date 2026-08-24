@@ -12,7 +12,7 @@
 | `feat/farm-operations` | `55e4066` | 全量合并后兼容收口；保留工单、巡田、农田动态画布和 WebGL2 水务 Shader |
 | `yyx` | `1c1798f` | 全量合并；保留风险预测、情景回放及四作物 3D 表现 |
 | `lxh-frontend` | `53f6d82` | 全量合并；保留农田监测、地块复垦持久化和微观作物双轨沙盘 |
-| `rium_dev` | `9d37fc2` | 全量合并后适配现有壳；保留地形、麦田、云层、昼夜和液态玻璃 |
+| `rium_dev` | `9d37fc2` | 全量合并后适配现有壳；保留地形、麦田、云层、昼夜和背景动效，主界面最终按要求采用毛玻璃 |
 | `quhl` | `37b1c93` | **本轮不处理** |
 | `docs/multi-crop-agri-design` | `e0824bb` | **本轮不处理** |
 | `task5` | `d4b3508` | **不合并** |
@@ -54,7 +54,7 @@
 | 导航区子模块去弹窗 | 已实现中心内容区内嵌路由；直接 hash 仍兼容居中弹窗 | 保留主线 modal 合同，同时为点击导航增加 `inline=1`，避免模块落到页面底部 |
 | 毛玻璃视觉 | 半透明填充 + `backdrop-filter` 模糊 + 轻边框/阴影 | 分支的液态 sheen/反光伪元素按最新用户要求移除；`prefers-reduced-transparency` 下使用不透明回退 |
 
-本轮新增回归证据：`node scripts/verify-webui.mjs real` 为 `82/82`，真实 Chromium `node scripts/branch-integration-smoke.mjs` 为 `23/23`；覆盖右栏折叠、中心内嵌模块、六指标时序图、毛玻璃无高光和无三角尺占位。
+本轮新增回归证据：`node scripts/verify-webui.mjs real` 为 `82/82`，真实 Chromium `node scripts/branch-integration-smoke.mjs` 为 `27/27`；覆盖右栏折叠、卡片按内容展开且不互相覆盖、中心内嵌模块、六指标时序图、毛玻璃无高光和无三角尺占位。最终修复提交为 `7d33092`，已发布到公网并以真实 JWT Chromium 复跑通过。
 
 ## 验收证据
 
