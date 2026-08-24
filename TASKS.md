@@ -1,12 +1,12 @@
 # 智慧农业任务看板
 
 > 项目周期：15 天
-> 任务版本：v1.2（2026-08-22）
+> 任务版本：v1.3（2026-08-24）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
-> 2026-08-23 GitHub `main` 的后端、AI 和公网部署链路已完成验收；本次合并不引入名为 `task5` 的分支，但保留 `yyx` 分支中已实现的预测、双轨回放、价值账本、Crop Pack 注册表、命令面板和首页摘要。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；完整业务前端仍不在本期后端交付范围。
+> 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。
 >
-> 2026-08-23 已将远端最新 `lxh-frontend` 3D 数字孪生切片合入 `main`；`quhl` 采用最新真实作物背景资产并保留当前 WebGL 动效，同时接入真实 JWT/离线演示会话；`rium_dev` 的麦田背景与液态玻璃层已兼容叠加（全屏监测时暂停，WebGL 不可用时 CSS 降级）；`feat/farm-operations` 的工单、巡田、资源约束与交互沙盘已选择性移植；`yyx` 的相关增强模块和回归脚本已适配当前主线，仅不合并名为 `task5` 的分支。逐分支复核见 `docs/branch-integration-review.md`。
+> 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘拆成独立导航。逐分支复核见 `docs/branch-integration-review.md`。
 
 ## 1. 使用说明
 
@@ -59,8 +59,9 @@
 | T-037 | P1 | 实现 `value_ledger` 计算/存储及资源、工时、成本来源、公式和对账 | 项目组 | — | D13 | 已完成（后端） | COMPUTED/INCOMPLETE、来源标签与公式 |
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
-| T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
-| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片（全图雨云/漫游/18 槽位）；`quhl` 最新真实作物背景 + 保留 WebGL 动效 + JWT/离线演示会话；`rium_dev` 麦田背景 + 液态玻璃兼容叠加；`feat/farm-operations` 工单/巡田/资源约束/交互沙盘选择性移植；`yyx` 预测/情景双轨/价值账本/四类 Crop Pack/命令面板/首页摘要均已适配并通过 svg/stub/real 回归；未合并名为 `task5` 的分支 |
+| T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
+| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 均为 main 祖先；real 66/66、stub/svg 65/65、Chromium 15/15、公网 JWT 浏览器复核通过；`quhl`、设计文档分支和 `task5` 排除 |
+| T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 
 ### 2.1 核心八项能力任务映射
 
@@ -92,7 +93,7 @@
 | 启动与需求 | D1 | 需求冻结、风险和任务看板 | 已完成（后端） |
 | 合同与 Crop Pack 设计 | D2-D3 | API、事件、计划/核验/诊断/预测/就绪度/处方/评价/反馈/资源/价值 Tool、Pack Schema | 已完成（后端） |
 | 数据主线 | D4-D6 | 事件流、落库、心跳、告警、根因诊断、最小就绪度硬门 | 已完成（远端验收） |
-| 可视化主线 | D7-D8 | 今日农务、总览、曲线、核验、就绪度、设备、告警和控制 | 后端 REST/SSE 已完成；最小 Web 登录/Copilot 与农田动态监测切片已发布，完整专业页面不在范围 |
+| 可视化主线 | D7-D8 | 今日农务、总览、曲线、核验、就绪度、设备、告警和控制 | 后端 REST/SSE 已完成；登录、Copilot、农田监测、预测/回放、农务、水务和作物沙盘切片已发布，未实现部分仍不计完成 |
 | 智能体主线 | D9-D10 | RAG、诊断/预测/就绪度/处方/操作工具、trace | 已完成（规则优先后端） |
 | 首次闭环 | D11 | 根因、就绪度、补证/审批、处方、虚拟执行和效果评价 | 已完成（远端验收） |
 | 创新增强 | D12-D13 | 第二作物、生命周期、短期预测、完整护照；按顺序选择协同、价值、案例 | 已完成（后端 P1/P2 切片） |
@@ -104,7 +105,7 @@
 |---|---|---|
 | Gate 1 / D5 数据可流动 | 1,000 条事件、落库、推送、离线恢复 | 已完成（远端后端证据） |
 | Gate 2 / D11 闭环可解释 | 告警、根因、就绪度、主动补证/审批、处方、Agent、虚拟执行、ACK/效果；质量门控、非成功路径、最小双轨 | 已完成（远端后端证据） |
-| Gate 3 / D14 可答辩 | 基线、2 个 Crop Pack、测试、安全、固定演示；已启用 P1 切片有专属证据 | 后端已完成；农田监测切片已验收，完整前端/答辩物料不在范围 |
+| Gate 3 / D14 可答辩 | 基线、2 个 Crop Pack、测试、安全、固定演示；已启用 P1 切片有专属证据 | 后端已完成；指定前端演示切片已验收，答辩物料仍不在本次范围 |
 
 ## 5. 每日更新格式
 

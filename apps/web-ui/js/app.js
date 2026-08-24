@@ -5,6 +5,7 @@
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
 import { FarmMonitor } from './farm-monitor.js';
+import { CropSandbox } from './crop-sandbox.js';
 import { initParticles } from './particles.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
@@ -65,6 +66,7 @@ class AgriApp {
 
     this.dom = {};
     this.farmMonitor = null;
+    this.cropSandbox = null;
     this.riumBackground = null;
     this._themeCleanup = null;
     this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
@@ -110,13 +112,22 @@ class AgriApp {
     // Load initial data
     await this.loadOverview();
     await this.refreshSimulatorStatus(true);
+
     this.farmMonitor = new FarmMonitor({
       plots: this.state.plots,
       onExit: () => this.navigate('home'),
       onSandbox: (plotId) => {
         this.state.currentPlotId = plotId;
+        this.openSubview('crop-sandbox', { plotId });
+      },
+      onPlotReclaimed: (newPlot) => {
+        if (!this.state.plots.some(p => p.plotId === newPlot.plotId)) {
+          this.state.plots.push(newPlot);
+          this.renderPlots(this.dom.plotSearchInput?.value || '');
+        }
       }
     });
+
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
@@ -944,12 +955,31 @@ class AgriApp {
     }
   }
 
+  ensureCropSandbox() {
+    if (!this.cropSandbox) {
+      this.cropSandbox = new CropSandbox({
+        onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
+        onPrescribe: (plotId, scenario) => {
+          this.openSubview('decision-console', { plotId });
+          this.showToast(`已根据【${scenario}】模拟情景打开处方决策台`);
+        }
+      });
+    }
+    return this.cropSandbox;
+  }
+
+  releaseCropSandbox() {
+    this.cropSandbox?.destroy();
+    this.cropSandbox = null;
+  }
+
   openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
     if (viewName === 'plot-detail') {
       this.cleanupActiveSubview();
       this.riumBackground?.setVisible(false);
       this.dom.subviewModal.classList.remove('active');
+      this.releaseCropSandbox();
       this.farmMonitor?.setPlots(this.state.plots);
       this.farmMonitor?.open(plotId);
       this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
@@ -962,7 +992,32 @@ class AgriApp {
       return;
     }
 
+    if (viewName === 'crop-sandbox') {
+      this.cleanupActiveSubview();
+      this.riumBackground?.setVisible(false);
+      this.dom.subviewModal.classList.remove('active');
+      this.farmMonitor?.close(false);
+      const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
+      try {
+        this.ensureCropSandbox().open(plotId, plot);
+      } catch (error) {
+        this.releaseCropSandbox();
+        this.riumBackground?.setVisible(true);
+        this.showToast(`微观沙盘启动失败：${error?.message || '浏览器不支持 WebGL'}`, 'error');
+        return;
+      }
+      this.dom.headerCurrentView.textContent = '微观作物双轨沙盘';
+      document.querySelectorAll('.module-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === viewName);
+      });
+      if (options.updateHash !== false) {
+        this.navigate(viewName, { plotId });
+      }
+      return;
+    }
+
     this.farmMonitor?.close(false);
+    this.releaseCropSandbox();
     this.riumBackground?.setVisible(true);
     this.cleanupActiveSubview();
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
@@ -1030,6 +1085,7 @@ class AgriApp {
     this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
+    this.releaseCropSandbox();
     this.riumBackground?.setVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1056,6 +1112,7 @@ class AgriApp {
       'decision-console': '🧠',
       'work-orders': '📋',
       'risk-forecast': '🔮',
+      'crop-sandbox': '🧬',
       'resource-coordination': '💧',
       'value-ledger': '💰',
       'decision-passport': '🛡️',

@@ -4,21 +4,21 @@
  * depth, translucent surfaces, and day/night background hand-off.
  */
 :root {
-  --rium-glass-blur: 18px;
-  --rium-glass-saturation: 145%;
-  --rium-glass-border: rgba(255, 255, 255, .16);
-  --rium-glass-highlight: rgba(255, 255, 255, .24);
-  --rium-glass-shadow: 0 18px 58px rgba(0, 0, 0, .22);
+  --rium-glass-blur: 6px;
+  --rium-glass-saturation: 118%;
+  --rium-glass-border: color-mix(in srgb, var(--border-default) 62%, rgba(255, 255, 255, .3));
+  --rium-glass-highlight: rgba(255, 255, 255, .42);
+  --rium-glass-shadow: 0 14px 44px rgba(0, 0, 0, .2);
 }
 
 [data-theme="light"] {
-  --bg-canvas: rgba(246, 250, 255, .62);
-  --bg-surface: rgba(255, 255, 255, .58);
-  --bg-subtle: rgba(240, 246, 252, .56);
-  --bg-card: rgba(255, 255, 255, .66);
-  --bg-card-hover: rgba(255, 255, 255, .82);
-  --bg-input: rgba(255, 255, 255, .6);
-  --bg-overlay: rgba(236, 243, 251, .76);
+  --bg-canvas: rgba(255, 255, 255, .22);
+  --bg-surface: rgba(246, 248, 250, .34);
+  --bg-subtle: rgba(238, 241, 244, .28);
+  --bg-card: rgba(255, 255, 255, .32);
+  --bg-card-hover: rgba(243, 244, 246, .42);
+  --bg-input: rgba(255, 255, 255, .34);
+  --bg-overlay: rgba(255, 255, 255, .72);
   --border-default: rgba(98, 125, 151, .28);
   --border-muted: rgba(98, 125, 151, .16);
   --text-primary: #172231;
@@ -56,6 +56,7 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+  color-interpolation: sRGB;
 }
 
 body > .app-header,
@@ -93,8 +94,6 @@ body > .app-container {
   overflow: hidden;
   border-color: var(--rium-glass-border);
   background-color: color-mix(in srgb, var(--bg-surface) 72%, transparent);
-  -webkit-backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
-  backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
   box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
   transition: background-color .65s ease, border-color .65s ease, box-shadow .65s ease, color .65s ease;
 }
@@ -131,8 +130,13 @@ body > .app-container {
 
 .app-header {
   background-color: color-mix(in srgb, var(--bg-surface) 62%, transparent);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
+  backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
+}
+
+.subview-modal-card {
+  -webkit-backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
+  backdrop-filter: blur(var(--rium-glass-blur)) saturate(var(--rium-glass-saturation));
 }
 
 .app-container {
@@ -160,8 +164,6 @@ body > .app-container {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
   cursor: pointer;
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  backdrop-filter: blur(12px) saturate(140%);
 }
 
 .theme-toggle-btn:hover {
@@ -172,6 +174,52 @@ body > .app-container {
 
 .theme-toggle-icon { line-height: 1; }
 .theme-toggle-label { font-size: 11px; }
+
+#themeTransitionOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+
+#themeTransitionOverlay.active { opacity: 1; }
+
+html.engine-safari:not([data-theme="light"]) {
+  --bg-canvas: rgba(13, 17, 23, .36);
+  --bg-surface: rgba(22, 27, 34, .5);
+  --bg-subtle: rgba(28, 33, 40, .44);
+  --bg-card: rgba(33, 38, 45, .48);
+  --bg-input: rgba(13, 17, 23, .48);
+}
+
+html.engine-safari[data-theme="light"] {
+  --bg-canvas: rgba(255, 255, 255, .4);
+  --bg-surface: rgba(246, 248, 250, .5);
+  --bg-subtle: rgba(238, 241, 244, .44);
+  --bg-card: rgba(255, 255, 255, .54);
+  --bg-input: rgba(255, 255, 255, .54);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --rium-glass-blur: 0px;
+    --bg-canvas: rgba(13, 17, 23, .92);
+    --bg-surface: rgba(22, 27, 34, .94);
+    --bg-subtle: rgba(28, 33, 40, .94);
+    --bg-card: rgba(33, 38, 45, .96);
+    --bg-input: rgba(13, 17, 23, .94);
+  }
+
+  [data-theme="light"] {
+    --bg-canvas: rgba(255, 255, 255, .94);
+    --bg-surface: rgba(246, 248, 250, .96);
+    --bg-subtle: rgba(238, 241, 244, .96);
+    --bg-card: rgba(255, 255, 255, .98);
+    --bg-input: rgba(255, 255, 255, .96);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   #riumBackground { opacity: .78; }
