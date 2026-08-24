@@ -4,19 +4,59 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 import { api } from './api.js';
-import { FarmMonitor } from './farm-monitor.js';
-import { CropSandbox } from './crop-sandbox.js';
-import { initParticles } from './particles.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
-import { initRiumBackground } from './rium-background.js';
-import { syncWaterVisuals } from './water-visual.js';
 
 const LOGIN_ENTRY = 'login.html';
 
 function redirectToLogin() {
   api.logout();
   window.location.replace(LOGIN_ENTRY);
+}
+
+const VIEW_STYLES = {
+  'plot-detail': 'css/farm-monitor.css?v=20260824-branch-refresh',
+  'crop-sandbox': 'css/crop-sandbox.css?v=20260824-branch-refresh',
+  'decision-console': 'css/modules/decision-console.css?v=20260824-decision-core',
+  'risk-forecast': 'css/modules/forecast.css?v=20260824-branch-refresh',
+  'scenario-replay': 'css/modules/forecast.css?v=20260824-branch-refresh',
+  'value-ledger': 'css/modules/value-ledger.css?v=20260824-branch-refresh',
+  'crop-packs': 'css/modules/crop-packs.css?v=20260824-branch-refresh',
+  'work-orders': 'css/modules/work-orders.css?v=20260824-branch-refresh',
+  'resource-coordination': 'css/modules/work-orders.css?v=20260824-branch-refresh'
+};
+const stylesheetTasks = new Map();
+
+function ensureViewStyles(viewName) {
+  const href = VIEW_STYLES[viewName];
+  if (!href) return Promise.resolve();
+  if (stylesheetTasks.has(href)) return stylesheetTasks.get(href);
+
+  const absoluteHref = new URL(href, document.baseURI).href;
+  const existing = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+    .find(link => link.href === absoluteHref);
+  if (existing?.sheet) return Promise.resolve();
+
+  const task = new Promise((resolve, reject) => {
+    const link = existing || document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.dataset.agriLazyStyle = viewName;
+    link.addEventListener('load', resolve, { once: true });
+    link.addEventListener('error', () => {
+      link.remove();
+      reject(new Error(`样式加载失败：${href}`));
+    }, { once: true });
+    if (!existing) document.head.appendChild(link);
+
+    // jsdom 不抓取外链样式；真实浏览器仍严格等待 load，避免未着色内容闪现。
+    if (/jsdom/i.test(window.navigator?.userAgent || '')) resolve();
+  }).catch(error => {
+    stylesheetTasks.delete(href);
+    throw error;
+  });
+  stylesheetTasks.set(href, task);
+  return task;
 }
 
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
@@ -80,6 +120,13 @@ class AgriApp {
     this.farmMonitor = null;
     this.cropSandbox = null;
     this.riumBackground = null;
+    this._farmMonitorPromise = null;
+    this._cropSandboxPromise = null;
+    this._cropSandboxLoadGen = 0;
+    this._visualEnhancementTask = null;
+    this._backgroundDesiredVisible = true;
+    this._waterVisualsReady = false;
+    this._particlesCleanup = null;
     this._themeCleanup = null;
     this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
     this._lastHandledHash = null;  // hash 路由幂等去重
@@ -94,20 +141,8 @@ class AgriApp {
     this.cacheDom();
     this.bindEvents();
 
-    // rium_dev 的主题事件与液态玻璃背景是可选增强；WebGL 不可用时不阻断主应用。
+    // 主题和命令面板很轻，先初始化；Three.js 场景延后到首屏已经绘制之后。
     this._themeCleanup = initTheme();
-    const webglAvailable = typeof window.WebGLRenderingContext === 'function'
-      || typeof window.WebGL2RenderingContext === 'function';
-    if (webglAvailable) {
-      try {
-        this.riumBackground = initRiumBackground();
-      } catch (error) {
-        console.warn('Rium background unavailable; continuing with CSS glass shell:', error);
-      }
-    }
-
-    // 轻量背景动效与全局命令面板来自 yyx；二者均有无 Canvas/无 DOM 的安全降级。
-    this._particlesCleanup = initParticles();
     this._paletteCleanup = initCommandPalette(this);
 
     // Check backend connection
@@ -121,35 +156,90 @@ class AgriApp {
     this.syncAuthState();
     this.updateSystemStatusPill();
 
-    // Load initial data
+    // 历史记录与模拟器状态和总览互不依赖，并行请求，避免真实后端下串行等待。
+    const supportingDataTask = Promise.allSettled([
+      this.loadAgentHistory(true),
+      this.refreshSimulatorStatus(true)
+    ]);
     await this.loadOverview();
-    await this.loadAgentHistory(true);
-    await this.refreshSimulatorStatus(true);
-
-    this.farmMonitor = new FarmMonitor({
-      plots: this.state.plots,
-      onExit: () => this.navigate('home'),
-      onSandbox: (plotId) => {
-        this.state.currentPlotId = plotId;
-        this.openSubview('crop-sandbox', { plotId });
-      },
-      onPlotReclaimed: (newPlot) => {
-        if (!this.state.plots.some(p => p.plotId === newPlot.plotId)) {
-          this.state.plots.push(newPlot);
-          this.renderPlots(this.dom.plotSearchInput?.value || '');
-        }
-      }
-    });
 
     this.renderPlots();
     this.renderFeed();
     this.renderChangelog();
     this.renderHomeSummary();
-    syncWaterVisuals(document);
     this.handleRoute();
+    this.scheduleVisualEnhancements();
+    void supportingDataTask;
 
     window.addEventListener('hashchange', () => this.handleRoute());
 
+  }
+
+  scheduleVisualEnhancements() {
+    if (this._visualEnhancementTask) return this._visualEnhancementTask;
+
+    // 两帧后再等待一次短空闲窗口：保证文字、卡片先完成首绘，随后仍加载原画质场景。
+    const afterFirstPaint = new Promise(resolve => {
+      const nextFrame = window.requestAnimationFrame || (callback => window.setTimeout(callback, 0));
+      nextFrame(() => nextFrame(() => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(resolve, { timeout: 350 });
+        } else {
+          window.setTimeout(resolve, 0);
+        }
+      }));
+    });
+
+    this._visualEnhancementTask = afterFirstPaint
+      .then(async () => {
+        if (!this._waterVisualsReady) {
+          const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-perf-1');
+          syncWaterVisuals(document);
+          this._waterVisualsReady = true;
+        }
+        await this.ensureAmbientVisuals();
+      })
+      .catch(error => {
+        console.warn('Deferred visual enhancement unavailable; continuing with CSS shell:', error);
+      })
+      .finally(() => {
+        this._visualEnhancementTask = null;
+      });
+    return this._visualEnhancementTask;
+  }
+
+  async ensureAmbientVisuals() {
+    if (!this._backgroundDesiredVisible) return;
+
+    const jobs = [];
+    if (!this._particlesCleanup) {
+      jobs.push(import('./particles.js?v=20260824-perf-1').then(({ initParticles }) => {
+        if (!this._backgroundDesiredVisible || this._particlesCleanup) return;
+        this._particlesCleanup = initParticles();
+        this._particlesCleanup?.setVisible?.(true);
+      }));
+    }
+
+    const webglAvailable = typeof window.WebGLRenderingContext === 'function'
+      || typeof window.WebGL2RenderingContext === 'function';
+    if (webglAvailable && !this.riumBackground) {
+      jobs.push(import('./rium-background.js?v=20260824-perf-1').then(({ initRiumBackground }) => {
+        if (!this._backgroundDesiredVisible || this.riumBackground) return;
+        this.riumBackground = initRiumBackground();
+        this.riumBackground?.setVisible(true);
+      }));
+    }
+    await Promise.all(jobs);
+  }
+
+  setAmbientVisualsVisible(value) {
+    const visible = value !== false;
+    this._backgroundDesiredVisible = visible;
+    this.riumBackground?.setVisible(visible);
+    this._particlesCleanup?.setVisible?.(visible);
+    if (visible && (!this.riumBackground || !this._particlesCleanup)) {
+      this.scheduleVisualEnhancements();
+    }
   }
 
   cacheDom() {
@@ -1032,7 +1122,7 @@ class AgriApp {
    * history.pushState/replaceState 只改 URL（不滚动），再手动派发 hashchange。
    * jsdom 等环境 pushState 不更新 location.hash 时兜底赋值（该环境无布局，无滚动副作用）。
    */
-  _setHash(hashStr, replace = false) {
+  _setHash(hashStr, replace = false, notifyRoute = true) {
     const base = window.location.href.split('#')[0];
     const url = hashStr ? `${base}#${hashStr}` : base;
     if (replace) {
@@ -1044,6 +1134,10 @@ class AgriApp {
     if (window.location.hash !== expect) {
       window.location.hash = expect;
     }
+    if (!notifyRoute) {
+      this._lastHandledHash = expect;
+      return;
+    }
     // 手动派发，驱动 handleRoute（幂等去重防重复渲染）
     const HashChange = window.HashChangeEvent || window.Event;
     window.dispatchEvent(new HashChange('hashchange'));
@@ -1051,61 +1145,123 @@ class AgriApp {
 
   navigate(viewName, params = {}) {
     if (viewName === 'home') {
-      this._setHash('', true);
+      this._setHash('', true, false);
       this.closeModal(false);
     } else {
       this._setHash(new URLSearchParams({ view: viewName, ...params }).toString());
     }
   }
 
-  ensureCropSandbox() {
-    if (!this.cropSandbox) {
-      this.cropSandbox = new CropSandbox({
-        onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
-        onPrescribe: (plotId, scenario) => {
-          this.openSubview('decision-console', { plotId });
-          this.showToast(`已根据【${scenario}】模拟情景打开处方决策台`);
-        }
-      });
+  async ensureFarmMonitor() {
+    if (this.farmMonitor) return this.farmMonitor;
+    if (!this._farmMonitorPromise) {
+      this._farmMonitorPromise = Promise.all([
+        ensureViewStyles('plot-detail'),
+        import('./farm-monitor.js')
+      ])
+        .then(([, { FarmMonitor }]) => {
+          this.farmMonitor = new FarmMonitor({
+            plots: this.state.plots,
+            onExit: () => this.navigate('home'),
+            onSandbox: (plotId) => {
+              this.state.currentPlotId = plotId;
+              void this.openSubview('crop-sandbox', { plotId });
+            },
+            onPlotReclaimed: (newPlot) => {
+              if (!this.state.plots.some(p => p.plotId === newPlot.plotId)) {
+                this.state.plots.push(newPlot);
+                this.renderPlots(this.dom.plotSearchInput?.value || '');
+              }
+            }
+          });
+          return this.farmMonitor;
+        })
+        .catch(error => {
+          this._farmMonitorPromise = null;
+          throw error;
+        });
     }
-    return this.cropSandbox;
+    return this._farmMonitorPromise;
+  }
+
+  async ensureCropSandbox() {
+    if (this.cropSandbox) return this.cropSandbox;
+    if (!this._cropSandboxPromise) {
+      const loadGen = ++this._cropSandboxLoadGen;
+      this._cropSandboxPromise = Promise.all([
+        ensureViewStyles('crop-sandbox'),
+        import('./crop-sandbox.js')
+      ])
+        .then(([, { CropSandbox }]) => {
+          if (loadGen !== this._cropSandboxLoadGen) return null;
+          this.cropSandbox = new CropSandbox({
+            onExit: () => this.navigate('plot-detail', { plotId: this.state.currentPlotId }),
+            onPrescribe: (plotId, scenario) => {
+              void this.openSubview('decision-console', { plotId });
+              this.showToast(`已根据【${scenario}】模拟情景打开处方决策台`);
+            }
+          });
+          return this.cropSandbox;
+        })
+        .catch(error => {
+          if (loadGen === this._cropSandboxLoadGen) this._cropSandboxPromise = null;
+          throw error;
+        });
+    }
+    return this._cropSandboxPromise;
   }
 
   releaseCropSandbox() {
+    this._cropSandboxLoadGen += 1;
     this.cropSandbox?.destroy();
     this.cropSandbox = null;
+    this._cropSandboxPromise = null;
   }
 
-  openSubview(viewName, options = {}) {
+  async openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
+    this.cleanupActiveSubview();
+    const viewGen = this._subviewGen;
     if (viewName === 'plot-detail') {
-      this.cleanupActiveSubview();
-      this.riumBackground?.setVisible(false);
+      this.setAmbientVisualsVisible(false);
       this.dom.subviewModal.classList.remove('active');
       this.releaseCropSandbox();
-      this.farmMonitor?.setPlots(this.state.plots);
-      this.farmMonitor?.open(plotId);
+      try {
+        const farmMonitor = await this.ensureFarmMonitor();
+        if (viewGen !== this._subviewGen) return;
+        farmMonitor.setPlots(this.state.plots);
+        farmMonitor.open(plotId);
+      } catch (error) {
+        if (viewGen !== this._subviewGen) return;
+        this.setAmbientVisualsVisible(true);
+        this.showToast(`农田监测启动失败：${error?.message || '浏览器不支持 WebGL'}`, 'error');
+        return;
+      }
       this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
       document.querySelectorAll('.module-nav-item').forEach(item => {
         item.classList.toggle('active', item.dataset.view === viewName);
       });
       if (options.updateHash !== false) {
-        this.navigate(viewName, { plotId });
+        this._setHash(new URLSearchParams({ view: viewName, plotId }).toString(), false, false);
       }
       return;
     }
 
     if (viewName === 'crop-sandbox') {
-      this.cleanupActiveSubview();
-      this.riumBackground?.setVisible(false);
+      this.setAmbientVisualsVisible(false);
       this.dom.subviewModal.classList.remove('active');
       this.farmMonitor?.close(false);
       const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
       try {
-        this.ensureCropSandbox().open(plotId, plot);
+        const cropSandbox = await this.ensureCropSandbox();
+        if (!cropSandbox || viewGen !== this._subviewGen) {
+          if (this.cropSandbox === cropSandbox) this.releaseCropSandbox();
+          return;
+        }
+        cropSandbox.open(plotId, plot);
       } catch (error) {
         this.releaseCropSandbox();
-        this.riumBackground?.setVisible(true);
+        this.setAmbientVisualsVisible(true);
         this.showToast(`微观沙盘启动失败：${error?.message || '浏览器不支持 WebGL'}`, 'error');
         return;
       }
@@ -1114,15 +1270,14 @@ class AgriApp {
         item.classList.toggle('active', item.dataset.view === viewName);
       });
       if (options.updateHash !== false) {
-        this.navigate(viewName, { plotId });
+        this._setHash(new URLSearchParams({ view: viewName, plotId }).toString(), false, false);
       }
       return;
     }
 
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
-    this.riumBackground?.setVisible(true);
-    this.cleanupActiveSubview();
+    this.setAmbientVisualsVisible(true);
     const meta = MOCK_DATA.subviewsMeta[viewName] || {
       title: viewName,
       desc: '预留独立子模块界面',
@@ -1138,21 +1293,22 @@ class AgriApp {
 
     // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图。
     const renderer = SUBVIEW_RENDERERS[viewName];
-    this._subviewGen = (this._subviewGen || 0) + 1;
-    const viewGen = this._subviewGen;
     if (renderer) {
       this.dom.modalDynamicContent.innerHTML = '<div class="agri-module-loading">正在加载独立模块…</div>';
       this.dom.subviewModal.classList.add('active');
-      Promise.resolve(renderer(this.dom.modalDynamicContent, plotId, this)).then(cleanup => {
-        if (viewGen !== this._subviewGen) {
-          if (typeof cleanup === 'function') cleanup();
-          return;
-        }
-        if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
-      }).catch(error => {
-        if (viewGen !== this._subviewGen) return;
-        this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
-      });
+      Promise.resolve(ensureViewStyles(viewName))
+        .then(() => renderer(this.dom.modalDynamicContent, plotId, this))
+        .then(cleanup => {
+          if (viewGen !== this._subviewGen) {
+            if (typeof cleanup === 'function') cleanup();
+            return;
+          }
+          if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
+        })
+        .catch(error => {
+          if (viewGen !== this._subviewGen) return;
+          this.dom.modalDynamicContent.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
+        });
     } else {
       // Render Contextual Data Preview
       this.renderSubviewContextualContent(viewName, plot);
@@ -1172,7 +1328,7 @@ class AgriApp {
     }
 
     if (options.updateHash !== false) {
-      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString());
+      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString(), false, false);
     }
   }
 
@@ -1189,7 +1345,7 @@ class AgriApp {
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
-    this.riumBackground?.setVisible(true);
+    this.setAmbientVisualsVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');

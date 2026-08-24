@@ -735,25 +735,66 @@ function createUndergrowthGeometry() {
   return mergeGeometries(parts);
 }
 
-function scatterInstances(mesh, cols, rows, width, depth, stagger, scaleBase, scaleJitter, heightScale) {
+function createScatteredInstanceTiles(
+  geometry,
+  material,
+  cols,
+  rows,
+  width,
+  depth,
+  stagger,
+  scaleBase,
+  scaleJitter,
+  heightScale,
+  tileColumnCount = 8,
+  tileRowCount = 6,
+) {
+  const group = new THREE.Group();
   const dummy = new THREE.Object3D();
-  let n = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const u = c / Math.max(cols - 1, 1);
-      const v = r / Math.max(rows - 1, 1);
-      const x = (u - 0.5) * width + (Math.random() - 0.5) * 0.28 + (r % 2 ? stagger : 0);
-      const z = (v - 0.5) * depth + (Math.random() - 0.5) * 0.28;
-      dummy.position.set(x, terrainHeight(x, z), z);
-      dummy.rotation.set(0, Math.atan2(0.38, 0.92) + (Math.random() - 0.5) * 0.18, (Math.random() - 0.5) * 0.04);
-      const s = scaleBase + Math.random() * scaleJitter;
-      dummy.scale.set(s, s * heightScale * (0.88 + Math.random() * 0.28), s);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(n, dummy.matrix);
-      n += 1;
+  const columnsPerTile = Math.ceil(cols / tileColumnCount);
+  const rowsPerTile = Math.ceil(rows / tileRowCount);
+  const uDivisor = Math.max(cols - 1, 1);
+  const vDivisor = Math.max(rows - 1, 1);
+  const baseYaw = Math.atan2(0.38, 0.92);
+
+  for (let tileRow = 0; tileRow < tileRowCount; tileRow++) {
+    const rowStart = tileRow * rowsPerTile;
+    const rowEnd = Math.min(rows, rowStart + rowsPerTile);
+    if (rowStart >= rowEnd) continue;
+
+    for (let tileColumn = 0; tileColumn < tileColumnCount; tileColumn++) {
+      const columnStart = tileColumn * columnsPerTile;
+      const columnEnd = Math.min(cols, columnStart + columnsPerTile);
+      if (columnStart >= columnEnd) continue;
+
+      const count = (rowEnd - rowStart) * (columnEnd - columnStart);
+      const mesh = new THREE.InstancedMesh(geometry, material, count);
+      let instanceIndex = 0;
+      for (let r = rowStart; r < rowEnd; r++) {
+        for (let c = columnStart; c < columnEnd; c++) {
+          const u = c / uDivisor;
+          const v = r / vDivisor;
+          const x = (u - 0.5) * width + (Math.random() - 0.5) * 0.28 + (r % 2 ? stagger : 0);
+          const z = (v - 0.5) * depth + (Math.random() - 0.5) * 0.28;
+          dummy.position.set(x, terrainHeight(x, z), z);
+          dummy.rotation.set(0, baseYaw + (Math.random() - 0.5) * 0.18, (Math.random() - 0.5) * 0.04);
+          const s = scaleBase + Math.random() * scaleJitter;
+          dummy.scale.set(s, s * heightScale * (0.88 + Math.random() * 0.28), s);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(instanceIndex, dummy.matrix);
+          instanceIndex += 1;
+        }
+      }
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      // Shader wind bends tips outside the static CPU geometry; keep a safety margin so
+      // tile culling never clips a visible stalk at the frustum edge.
+      if (mesh.boundingSphere) mesh.boundingSphere.radius += 0.6;
+      group.add(mesh);
     }
   }
-  mesh.instanceMatrix.needsUpdate = true;
+  return group;
 }
 
 export function initRiumBackground(containerId = 'riumBackground') {
@@ -768,6 +809,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
   let mouseX = 0;
   let mouseY = 0;
   let rafId = 0;
+  let disposed = false;
   let visible = !document.hidden;
   // The dashboard keeps the background behind the glass shell; callers can pause it while
   // the full-screen farm monitor owns the GPU canvas.
@@ -799,6 +841,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
   const revealFromPos = new THREE.Vector3();
   const revealFromLook = new THREE.Vector3();
   const lookTarget = new THREE.Vector3(0, 1.45, -0.8);
+  const homePosition = new THREE.Vector3(HOME_POS.x, HOME_POS.y, HOME_POS.z);
+  const homeLookTarget = new THREE.Vector3(HOME_LOOK.x, HOME_LOOK.y, HOME_LOOK.z);
   let revealDone = null;
   if (reducedMotion) {
     bootMode = false;
@@ -1092,14 +1136,16 @@ export function initRiumBackground(containerId = 'riumBackground') {
 
   const wheatCols = 120;
   const wheatRows = 84;
-  const wheat = new THREE.InstancedMesh(wheatGeo, wheatMat, wheatCols * wheatRows);
-  scatterInstances(wheat, wheatCols, wheatRows, 68, 52, 0.2, 0.94, 0.36, 1.08);
+  const wheat = createScatteredInstanceTiles(
+    wheatGeo, wheatMat, wheatCols, wheatRows, 68, 52, 0.2, 0.94, 0.36, 1.08,
+  );
   world.add(wheat);
 
   const underCols = 112;
   const underRows = 78;
-  const undergrowth = new THREE.InstancedMesh(underGeo, underMat, underCols * underRows);
-  scatterInstances(undergrowth, underCols, underRows, 66, 50, 0.16, 0.7, 0.35, 0.72);
+  const undergrowth = createScatteredInstanceTiles(
+    underGeo, underMat, underCols, underRows, 66, 50, 0.16, 0.7, 0.35, 0.72,
+  );
   world.add(undergrowth);
 
   const pollenCount = 140;
@@ -1284,8 +1330,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
     } else if (revealT < 1) {
       revealT = Math.min(1, revealT + 0.012);
       const e = 1 - (1 - revealT) ** 3;
-      camera.position.lerpVectors(revealFromPos, new THREE.Vector3(HOME_POS.x, HOME_POS.y, HOME_POS.z), e);
-      lookTarget.lerpVectors(revealFromLook, new THREE.Vector3(HOME_LOOK.x, HOME_LOOK.y, HOME_LOOK.z), e);
+      camera.position.lerpVectors(revealFromPos, homePosition, e);
+      lookTarget.lerpVectors(revealFromLook, homeLookTarget, e);
       camera.lookAt(lookTarget);
       camera.fov = THREE.MathUtils.lerp(camera.fov, 48, 0.08);
       camera.updateProjectionMatrix();
@@ -1305,14 +1351,27 @@ export function initRiumBackground(containerId = 'riumBackground') {
     renderer.render(scene, camera);
   }
 
-  function animate(t) {
-    rafId = requestAnimationFrame(animate);
+  function shouldAnimate() {
     const revealing = !bootMode && revealT < 1;
-    if ((!visible || !externallyVisible) && !bootMode && !revealing) return;
+    return !disposed
+      && visible
+      && externallyVisible
+      && (!reducedMotion || bootMode || revealing);
+  }
+
+  function ensureAnimation() {
+    if (!rafId && shouldAnimate()) rafId = requestAnimationFrame(animate);
+  }
+
+  function animate(t) {
+    rafId = 0;
+    if (!shouldAnimate()) return;
     try {
       renderFrame(t);
     } catch (err) {
       console.warn('[AgriLoop] scene render skipped', err);
+    } finally {
+      ensureAnimation();
     }
   }
 
@@ -1320,6 +1379,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    if (reducedMotion && visible && externallyVisible) renderFrame(performance.now());
   }
 
   function onMouseMove(e) {
@@ -1329,14 +1389,15 @@ export function initRiumBackground(containerId = 'riumBackground') {
 
   function onThemeChange(e) {
     applyPalette(getPalette(e.detail?.theme || getTheme()));
+    if (reducedMotion && visible && externallyVisible) renderFrame(performance.now());
   }
 
   function onVisibilityChange() {
     visible = !document.hidden;
-    if (visible && externallyVisible && !reducedMotion) {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(animate);
-    }
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    if (reducedMotion && visible && externallyVisible) renderFrame(performance.now());
+    ensureAnimation();
   }
 
   window.addEventListener('resize', onResize);
@@ -1351,7 +1412,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
     console.warn('[AgriLoop] initial scene render failed', err);
   }
   updateBootHud(bootHUD);
-  rafId = requestAnimationFrame(animate);
+  ensureAnimation();
 
   function updateBootHud(progress) {
     const pct = Math.round(progress * 100);
@@ -1418,21 +1479,29 @@ export function initRiumBackground(containerId = 'riumBackground') {
     revealFromLook.copy(lookTarget);
     return new Promise((resolve) => {
       revealDone = resolve;
+      ensureAnimation();
     });
   }
 
   fieldInstance = {
     setVisible(value) {
       externallyVisible = value !== false;
-      if (externallyVisible && visible && !reducedMotion && !rafId) rafId = requestAnimationFrame(animate);
+      if (!externallyVisible && rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (reducedMotion && externallyVisible && visible) renderFrame(performance.now());
+      ensureAnimation();
     },
     setBootProgress,
     getBootProgress,
     waitUntilBootProgress,
     revealFromBoot,
     dispose() {
+      disposed = true;
       fieldInstance = null;
       cancelAnimationFrame(rafId);
+      rafId = 0;
       window.removeEventListener('resize', onResize);
       window.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('agriloop-theme-transition', onThemeTransition);

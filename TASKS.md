@@ -64,6 +64,7 @@
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 | T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
 | T-044 | P0 | 完成智能诊断与决策中枢前端闭环及就绪度一致性修复 | 项目组 | — | D15+ | 已完成（公网验收） | `b0aefa9`/`405930d`、`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`；Spring 14/14，Web real 79/79、stub/svg 78/78；公网 READY/漂移阻断/命令幂等/护照/Qwen 对话均通过 |
+| T-045 | P1 | 本地 Web 等画质首屏与运行时性能优化 | 项目组 | — | D15+ | 已完成（本地验收） | `docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`；按需 JS/CSS、数据并行、18,816 株植被实例空间剔除、隐藏停帧、开发缓存；Chromium 15/15，Web real 79/79、stub/svg 78/78 |
 
 ### 2.1 核心八项能力任务映射
 

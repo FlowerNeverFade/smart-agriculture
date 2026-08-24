@@ -17,7 +17,9 @@ export function initParticles() {
   let h = 0;
   let particles = [];
   let raf = 0;
-  let running = true;
+  let documentVisible = !document.hidden;
+  let externallyVisible = true;
+  let disposed = false;
   const COUNT = 26;
   const LINK_DIST = 130 * DPR;
 
@@ -37,7 +39,8 @@ export function initParticles() {
   }));
 
   const tick = () => {
-    if (!running) return;
+    raf = 0;
+    if (disposed || !documentVisible || !externallyVisible) return;
     ctx.clearRect(0, 0, w, h);
     // 粒子
     for (const p of particles) {
@@ -70,28 +73,42 @@ export function initParticles() {
     raf = requestAnimationFrame(tick);
   };
 
+  const syncAnimation = () => {
+    const shouldRun = !disposed && documentVisible && externallyVisible;
+    if (!shouldRun) {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      return;
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+
   const onResize = () => {
     resize();
     particles = spawn();
   };
   const onVis = () => {
-    running = !document.hidden;
-    if (running) {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(tick);
-    }
+    documentVisible = !document.hidden;
+    syncAnimation();
   };
 
   resize();
   particles = spawn();
   window.addEventListener('resize', onResize);
   document.addEventListener('visibilitychange', onVis);
-  raf = requestAnimationFrame(tick);
+  syncAnimation();
 
-  return () => {
+  const cleanup = () => {
+    disposed = true;
     cancelAnimationFrame(raf);
+    raf = 0;
     window.removeEventListener('resize', onResize);
     document.removeEventListener('visibilitychange', onVis);
     canvas.remove();
   };
+  cleanup.setVisible = value => {
+    externallyVisible = value !== false;
+    syncAnimation();
+  };
+  return cleanup;
 }

@@ -13,6 +13,8 @@
 
 > 2026-08-24 智能诊断与决策中枢：页面与闭环实现提交 `b0aefa9`、遥测跳变校准提交 `405930d` 已发布到公网。页面接入诊断、三类证据、四态就绪度、八道安全门、结构化处方、补证工单、人工审批、幂等虚拟命令、ACK/效果和决策护照；后端同时修复诊断安全门/角色权限一致性，以及正常光照波动被通用阈值误判为 `DEGRADED` 的问题。验收：Spring Boot 14/14，Web real 79/79、stub/svg 78/78；公网 smoke 返回 `WATER_DEFICIT -> READY`、重复事件幂等、失败命令效果 `INCONCLUSIVE`，专项反例返回 `SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false`。Qwen 返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`；详见 [`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`](docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md)。
 
+> 2026-08-24 本地 Web 等画质性能优化：重型 Three.js/子页样式改为首绘后或按视图加载，数据请求并行，隐藏动画真实停帧，本地静态资源采用开发友好的分级缓存；麦田仍保留 18,816 株植被实例、原像素比、抗锯齿、几何和着色器。Chromium 探针中 Dashboard 可用时间 635 ms -> 355 ms（-44.1%），首屏传输 1,504 KiB -> 1,158 KiB（-23.0%），最长任务 424 ms -> 275 ms（-35.1%）；等画质空间分块相对单网格的软件 GPU 帧率中位数提升约 33.9%。真实浏览器 15/15、Web real 79/79、stub/svg 78/78。当前仅完成本地代码与验收，未宣称公网发布；证据见 [`docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`](docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md)。
+
 ## 1. 进度总览
 
 | 工作流 | 状态 | 完成度判断 | 证据/说明 |
@@ -30,6 +32,7 @@
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
 | 可视化主线实现 | 已完成（核心演示切片） | 100%（已实现切片） | JWT 登录、Copilot、3D 农田监测及完整智能诊断决策中枢；诊断台覆盖证据、就绪度、处方、补证、审批、虚拟执行和护照，其他未实现业务页面仍不计完成 |
 | 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
+| Web 本地性能 | 已完成（本地验收） | 100%（本轮范围） | 等画质按需加载、空间分块剔除、隐藏停帧与开发缓存；Dashboard 可用时间中位数约 355 ms，见 `WEB_PERFORMANCE_ACCEPTANCE.md` |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |

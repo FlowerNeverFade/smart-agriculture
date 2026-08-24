@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AgriLoop web-ui 本地静态服务器（禁用浏览器缓存）
+AgriLoop web-ui 本地静态服务器（开发资源智能缓存）
 用法: python scripts/serve-webui.py [port]   默认端口 3000
-说明: 相比 `python -m http.server`，本脚本对所有响应附加
-      Cache-Control: no-cache, no-store 头，前端改动后刷新即生效，
-      避免浏览器用 Last-Modified 缓存旧 JS/CSS。
+说明: HTML/JS/CSS 每次刷新都会向服务器校验，保证代码改动及时生效；
+      图片、字体和 vendor 依赖短期复用，避免重复刷新时重新传输大资源。
 """
 import http.server
 import os
 import socketserver
 import sys
+from urllib.parse import urlsplit
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
 WEB_UI_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "apps", "web-ui"))
 
 
-class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+ASSET_EXTENSIONS = {".avif", ".gif", ".ico", ".jpg", ".jpeg", ".png", ".svg", ".webp", ".woff", ".woff2"}
+
+
+class DevelopmentCacheHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=WEB_UI_DIR, **kwargs)
 
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        path = urlsplit(self.path).path.lower()
+        extension = os.path.splitext(path)[1]
+        if path.startswith("/vendor/") or extension in ASSET_EXTENSIONS:
+            # 文件名稳定但未全部带内容哈希，因此只缓存一天，不使用 immutable。
+            self.send_header("Cache-Control", "public, max-age=86400")
+        else:
+            # no-cache 允许浏览器保留副本并通过 Last-Modified 获取 304；
+            # 与 no-store 相比既能看见代码更新，也不会无条件重复下载。
+            self.send_header("Cache-Control", "no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
         super().end_headers()
 
     def log_message(self, fmt, *args):
@@ -40,8 +51,8 @@ class ThreadingServer(http.server.ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
-    with ThreadingServer(("127.0.0.1", PORT), NoCacheHandler) as httpd:
-        print("AgriLoop web-ui serving %s at http://127.0.0.1:%d (no-cache, threaded)" % (WEB_UI_DIR, PORT))
+    with ThreadingServer(("127.0.0.1", PORT), DevelopmentCacheHandler) as httpd:
+        print("AgriLoop web-ui serving %s at http://127.0.0.1:%d (smart-cache, threaded)" % (WEB_UI_DIR, PORT))
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
