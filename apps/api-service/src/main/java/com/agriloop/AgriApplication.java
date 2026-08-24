@@ -584,8 +584,8 @@ class AgriStore {
         resource.put("resourceType", "WATER"); resource.put("capacityLitres", 900.0); resource.put("flowRateLitresPerMinute", 18.0);
         resource.put("unitCost", 0.004); resource.put("availableFrom", Instant.now().minus(1, ChronoUnit.HOURS).toString());
         resource.put("availableTo", Instant.now().plus(1, ChronoUnit.DAYS).toString()); save("resource-profile", "resource-default", resource);
-        seedUser("user-farmer", "farmer", "demo123", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
-        seedUser("user-operator", "operator", "demo123", "FIELD_OPERATOR", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
+        seedUser("user-farmer", "farmer", "demo123", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        seedUser("user-operator", "operator", "demo123", "FIELD_OPERATOR", List.of("farm-demo"), List.of("plot-a01", "plot-b01"));
         seedUser("user-admin", "admin", "demo123", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
         seedUser("user-system", "sysadmin", "demo123", "SYSTEM_ADMIN", List.of("farm-demo"), List.of("*"));
     }
@@ -1037,7 +1037,12 @@ class AgriEngine {
         user.put("userId", Jsons.id("user")); user.put("username", normalized);
         user.put("passwordHash", passwordEncoder.encode(password)); user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
         user.put("role", role); user.put("farmIds", List.of("farm-demo"));
-        user.put("plotIds", List.of("plot-a01", "plot-a02", "plot-b01")); user.put("enabled", true); user.put("credentialVersion", 1);
+        // Self-registered accounts receive the smallest useful demo scope;
+        // a farm administrator can widen it later through account management.
+        user.put("plotIds", "FIELD_OPERATOR".equals(role)
+                ? List.of("plot-a01", "plot-b01")
+                : List.of("plot-a01"));
+        user.put("enabled", true); user.put("credentialVersion", 1);
         if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
         store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role));
         Map<String, Object> result = authenticatedSession(user);
@@ -1146,8 +1151,12 @@ class AgriEngine {
         synchronized (attempts) { attempts.addLast(Instant.now()); }
     }
 
-    Map<String, Object> overview() {
-        List<Map<String, Object>> plots = store.list("plot");
+    Map<String, Object> overview(UserPrincipal principal) {
+        // The landing dashboard is role-scoped, but this filtering also keeps
+        // the overview response from leaking unassigned plots to the browser.
+        List<Map<String, Object>> plots = store.list("plot").stream()
+                .filter(plot -> principal == null || principal.canAccessPlot(Jsons.text(plot, "plotId", "")))
+                .toList();
         List<Map<String, Object>> cards = new ArrayList<>();
         int activeAlerts = 0, pendingTasks = 0;
         for (Map<String, Object> plot : plots) {
@@ -2645,7 +2654,7 @@ class AgriController {
     }
 
     @GetMapping("/overview")
-    ResponseEntity<?> overview() { return ok(engine.overview()); }
+    ResponseEntity<?> overview(Authentication authentication) { return ok(engine.overview(principal(authentication))); }
 
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }

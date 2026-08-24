@@ -1,10 +1,10 @@
 # 智慧农业任务看板
 
 > 项目周期：15 天
-> 任务版本：v1.4（2026-08-24）
+> 任务版本：v1.5（2026-08-24）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
-> 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。`rium_dev-v2` 增量与毛玻璃回退另有本地 Chromium 证据。
+> 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。`rium_dev-v2` 增量与毛玻璃回退另有本地 Chromium 证据；角色化 Dashboard 简洁版在独立分支本地验收，待评审。
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
 
@@ -67,6 +67,7 @@
 | T-045 | P1 | Web 等画质首屏与运行时性能优化 | 项目组 | — | D15+ | 已完成（公网验收） | `e9dc042`、`b08c664`、`docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`；按需 JS/CSS、数据并行、18,816 株植被实例空间剔除、隐藏停帧、分级缓存及首页水资源卡片尺寸反馈修复；Web real 81/81、stub/svg 80/80，真实 Chromium 18/18；公网真实 JWT 登录/3D/按需模块/水卡稳定性/健康检查通过 |
 | T-046 | P0 | `rium_dev-v2` 增量能力与毛玻璃视觉收口 | 项目组 | — | D15+ | 已完成（公网验收） | 合并提交 `9066edb`，最终收口 `7d33092`；六指标时序、右栏真实折叠、卡片按内容展开不互相覆盖、中心内嵌模块、背景天体动画兼容、无三角尺；`verify-webui real` 82/82、真实 Chromium 27/27（本地与公网 JWT）；液态 sheen/反光伪元素已移除 |
 | T-047 | P0 | 完成账号注册、身份选择与核验、恢复码重置、凭据轮换及登录页账户流程 | 前后端 | — | D15+ | 已完成（公网验收） | Flyway v2/v3、身份匹配与安全注册 Gradle 回归、Web 三模式探针、本地 API 黑盒及公网登录/注册/角色黑盒均通过；合并提交 `0151405` 已部署；`docs/account-management.md` |
+| T-048 | P1 | 角色化 Dashboard 简洁版：四角色首屏、身份导航和地块范围投影 | 前后端 | — | D15+ | 待验收 | 独立分支 `codex/role-based-dashboard-v2`；Node `verify-webui svg` 82/82、`verify-role-dashboard.mjs` 4/4、API Gradle 测试通过；待评审后再部署公网 |
 
 ### 2.1 核心八项能力任务映射
 

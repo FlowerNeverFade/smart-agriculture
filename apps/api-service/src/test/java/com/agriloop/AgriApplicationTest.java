@@ -27,6 +27,27 @@ class AgriApplicationTest {
     }
 
     @Test
+    void roleScopedOverviewOnlyContainsAssignedPlots() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER",
+                List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal operator = new UserPrincipal("user-operator", "operator", "FIELD_OPERATOR",
+                List.of("farm-demo"), List.of("plot-a01", "plot-b01"));
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN",
+                List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
+
+        assertThat(plotIds(engine.overview(farmer))).containsExactlyInAnyOrder("plot-a01", "plot-a02");
+        assertThat(plotIds(engine.overview(operator))).containsExactlyInAnyOrder("plot-a01", "plot-b01");
+        assertThat(plotIds(engine.overview(admin))).containsExactlyInAnyOrder("plot-a01", "plot-a02", "plot-b01");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<String> plotIds(Map<String, Object> overview) {
+        return ((List<Map<String, Object>>) overview.get("plots")).stream()
+                .map(plot -> String.valueOf(plot.get("plotId")))
+                .toList();
+    }
+
+    @Test
     void accountRoleSelectionIsVerifiedAndAdminSelfRegistrationIsBlocked() {
         assertThat(engine.login("operator", "demo123", "FIELD_OPERATOR")).containsKey("accessToken");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login("operator", "demo123", "FARM_ADMIN"))

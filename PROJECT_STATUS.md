@@ -3,7 +3,7 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
-> 当前总状态：**v1.0 后端已实现并完成远端验收；指定前端分支与 `rium_dev-v2` 的监测、折叠栏、中心模块和背景修补已合并验证；`feat/login-interface` 的账号注册、恢复码重置、凭据轮换和登录/注册身份选择已合并到 main，并完成公网部署验收；最终视觉采用毛玻璃；真实硬件和生产级视觉/语音仍按范围不实现**
+> 当前总状态：**v1.0 后端已实现并完成远端验收；指定前端分支与 `rium_dev-v2` 的监测、折叠栏、中心模块和背景修补已合并验证；`feat/login-interface` 的账号注册、恢复码重置、凭据轮换和登录/注册身份选择已合并到 main，并完成公网部署验收；角色化 Dashboard 简洁版在独立分支完成本地验收，待评审合入；最终视觉采用毛玻璃；真实硬件和生产级视觉/语音仍按范围不实现**
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
@@ -22,6 +22,8 @@
 > 2026-08-24 模拟器与实时窗口收口：Supervisor 管理的实时模拟器改为持续生成当前时间戳遥测，直到管理员在页面关闭开关；有限样本 CLI 回放语义保持不变。由此避免固定 1,080 条场景结束后被 Supervisor 反复拉起并进入 `FATAL`，同时保持事件 ID 唯一和数据新鲜度。遥测分页同步修正为“选取最新 N 条、按时间正序返回”，避免历史积累后图表和预测误读当天最早的旧样本。
 
 > 2026-08-24 首页水资源卡片稳定性修复：提交 `b08c664` 已推送 GitHub `main` 并热发布公网。根因是首页水球先于按需加载的协同排程 CSS 初始化，Canvas 像素尺寸与 `ResizeObserver` 形成布局反馈，点击“水资源协同排程”加载样式后才暂时恢复。现已将首页必需约束移入首屏 CSS、统一水动画模块版本并使用不参与布局计算的 Canvas 百分比尺寸。真实 Chromium 在未加载协同排程 CSS 时卡片高度连续保持 `147.5px`、页面高度保持不变，打开协同排程后仍为 `147.5px`；本地及公网真实 JWT 登录回归均为 18/18，且无未处理运行时错误。
+
+> 2026-08-24 角色化 Dashboard 简洁版（独立分支）：登录后按四种身份切换首屏——种植农户看“我的农场”、田间操作员看“我的执行任务”、农场管理员看“农场运营驾驶舱”、系统管理员看“平台运行状态”。左侧导航按身份收敛，旧版全量 Home DOM 保留用于兼容；`/overview` 同步按 JWT 地块范围过滤，内置演示账号范围通过 Flyway v4 修正。验收：Node `verify-webui svg` 82/82、`verify-role-dashboard.mjs` 4/4、API Gradle 测试在 ASCII 映射盘通过；当前仅本地分支，未部署公网。
 
 ## 1. 进度总览
 

@@ -7,6 +7,7 @@ import { api } from './api.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
 import { PlotTelemetryView } from './plot-telemetry-view.js';
+import { renderRoleDashboard, roleMeta, normalizeRole } from './role-dashboard.js';
 
 const LOGIN_ENTRY = 'login.html';
 
@@ -79,7 +80,7 @@ const SUBVIEW_RENDERERS = {
     const { renderWorkOrders } = await import('./modules/work-orders.js');
     return renderWorkOrders(container, {
       api,
-      plots: app.state.plots,
+      plots: app.getVisiblePlots(),
       selectedPlotId: plotId,
       user: app.state.user || (!app.state.isLive ? MOCK_DATA.currentUser : null),
       showToast: (message, type) => app.showToast(message, type)
@@ -89,7 +90,7 @@ const SUBVIEW_RENDERERS = {
     const { renderResourceCoordination } = await import('./modules/work-orders.js');
     return renderResourceCoordination(container, {
       api,
-      plots: app.state.plots,
+      plots: app.getVisiblePlots(),
       selectedPlotId: plotId,
       user: app.state.user || (!app.state.isLive ? MOCK_DATA.currentUser : null),
       showToast: (message, type) => app.showToast(message, type)
@@ -116,7 +117,10 @@ class AgriApp {
       agentHistory: [],
       agentHistoryTurns: [],
       agentHistoryOpen: false,
-      rightRailCollapsed: false
+      rightRailCollapsed: false,
+      // The server remains the authority for task state; this is only the
+      // optimistic visual state of buttons on the role landing page.
+      roleTaskStates: {}
     };
 
     this.dom = {};
@@ -167,6 +171,11 @@ class AgriApp {
       this.refreshSimulatorStatus(true)
     ]);
     await this.loadOverview();
+
+    const firstVisiblePlot = this.getVisiblePlots()[0];
+    if (firstVisiblePlot && !this.getVisiblePlots().some(plot => plot.plotId === this.state.currentPlotId)) {
+      this.state.currentPlotId = firstVisiblePlot.plotId;
+    }
 
     this.renderPlots();
     this.renderFeed();
@@ -249,6 +258,11 @@ class AgriApp {
 
   cacheDom() {
     this.dom.headerCurrentView = document.getElementById('headerCurrentView');
+    this.dom.roleContextBadge = document.getElementById('roleContextBadge');
+    this.dom.roleNavTitle = document.getElementById('roleNavTitle');
+    this.dom.roleNavBadge = document.getElementById('roleNavBadge');
+    this.dom.roleNavNote = document.getElementById('roleNavNote');
+    this.dom.roleDashboard = document.getElementById('roleDashboard');
     this.dom.systemStatusPill = document.getElementById('systemStatusPill');
     this.dom.systemStatusText = document.getElementById('systemStatusText');
     this.dom.rightAiModeTag = document.getElementById('rightAiModeTag');
@@ -431,6 +445,13 @@ class AgriApp {
       }
     });
 
+    // Role-home cards use one delegated listener so the dashboard can be
+    // re-rendered after an optimistic task update without rebinding buttons.
+    this.dom.roleDashboard?.addEventListener('click', (e) => {
+      const button = e.target.closest('[data-role-action]');
+      if (button) this.handleRoleDashboardAction(button);
+    });
+
     // Close Modal Button
     this.dom.btnCloseModal?.addEventListener('click', () => this.closeModal());
     this.dom.subviewModal?.addEventListener('click', (e) => {
@@ -515,6 +536,9 @@ class AgriApp {
     toggle.title = isAdmin ? (running ? '停止服务器上的数据模拟器' : '启动服务器上的数据模拟器') : '需要农场管理员或系统管理员权限';
     toggle.setAttribute('aria-pressed', String(running));
     if (refresh) refresh.disabled = !this.state.isLive || !user;
+    if (this.state.activeMainView === 'home' && this.dom.roleDashboard && !this.dom.roleDashboard.hidden) {
+      this.renderRoleDashboardView();
+    }
   }
 
   async toggleSimulator() {
@@ -606,11 +630,17 @@ class AgriApp {
     this.state.authenticated = api.isAuthenticated();
     this.state.user = api.getUser();
     const user = this.state.user;
-    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = user?.username || '未登录';
+    const role = normalizeRole(user?.role || 'FARMER');
+    const meta = roleMeta(role);
+    if (this.dom.userDisplayName) this.dom.userDisplayName.textContent = user ? `${user.username} · ${meta.label}` : '未登录';
     if (this.dom.userAvatar) this.dom.userAvatar.textContent = user ? '🧑‍🌾' : '🔐';
+    if (this.dom.roleContextBadge) {
+      this.dom.roleContextBadge.textContent = user ? meta.label : '未登录';
+      this.dom.roleContextBadge.hidden = !user;
+    }
     if (this.dom.btnUserMenu) {
       this.dom.btnUserMenu.title = user
-        ? `${user.username} · ${user.role || '已登录'} · 点击退出`
+        ? `${user.username} · ${meta.label} · 点击退出`
         : '登录后使用真实 Agent';
     }
     if (this.dom.copilotConnectionStatus) {
@@ -624,13 +654,144 @@ class AgriApp {
     this.renderSimulatorControl();
   }
 
+  getCurrentRole() {
+    return normalizeRole(this.state.user?.role || MOCK_DATA.currentUser?.role || 'FARMER');
+  }
+
+  getVisiblePlots() {
+    const allPlots = Array.isArray(this.state.plots) ? this.state.plots : [];
+    const role = this.getCurrentRole();
+    if (role === 'FARM_ADMIN' || role === 'SYSTEM_ADMIN') return allPlots;
+
+    // This is a UI projection only. The authenticated server response and
+    // every write endpoint must still enforce the JWT scope.
+    const assigned = Array.isArray(this.state.user?.plotIds) ? this.state.user.plotIds : [];
+    if (assigned.length && !assigned.includes('*')) {
+      const assignedSet = new Set(assigned.map(String));
+      const scoped = allPlots.filter(plot => assignedSet.has(String(plot.plotId)));
+      if (scoped.length) return scoped;
+    }
+
+    if (role === 'FIELD_OPERATOR') {
+      const defaultOperatorPlots = new Set(['plot-a01', 'plot-b01']);
+      const orderPlotIds = (MOCK_DATA.workOrders || [])
+        .filter(order => !['DONE', 'CANCELLED'].includes(String(order.status).toUpperCase()))
+        .map(order => order.plotId)
+        .filter(Boolean);
+      const scoped = allPlots.filter(plot => defaultOperatorPlots.has(plot.plotId) && orderPlotIds.includes(plot.plotId));
+      return scoped.length ? scoped.slice(0, 4) : allPlots.filter(plot => defaultOperatorPlots.has(plot.plotId));
+    }
+    const preferred = allPlots.filter(plot => ['plot-a01', 'plot-a02'].includes(plot.plotId));
+    return (preferred.length ? preferred : allPlots).slice(0, 4);
+  }
+
+  applyRoleShell(active) {
+    const role = this.getCurrentRole();
+    const meta = roleMeta(role);
+    document.body.classList.toggle('role-dashboard-active', Boolean(active));
+    document.body.dataset.role = role;
+    if (this.dom.btnQuickAction) this.dom.btnQuickAction.hidden = Boolean(active);
+    if (this.dom.headerCurrentView && active) this.dom.headerCurrentView.textContent = meta.title;
+    if (this.dom.roleContextBadge) {
+      this.dom.roleContextBadge.textContent = this.state.user ? meta.label : '未登录';
+      this.dom.roleContextBadge.hidden = !this.state.user;
+    }
+  }
+
+  renderRoleNavigation() {
+    const role = this.getCurrentRole();
+    const meta = roleMeta(role);
+    if (this.dom.roleNavTitle) this.dom.roleNavTitle.textContent = meta.navTitle;
+    if (this.dom.roleNavBadge) this.dom.roleNavBadge.textContent = this.state.user ? meta.label : '登录后显示';
+    if (this.dom.roleNavNote) this.dom.roleNavNote.textContent = this.state.user
+      ? '这里是当前身份最常用的入口。'
+      : '登录后只显示与你工作有关的功能。';
+    if (!this.dom.moduleNavList) return;
+    this.dom.moduleNavList.innerHTML = meta.nav.map(item => `
+      <li>
+        <a class="module-nav-item ${item.view === 'home' && this.state.activeMainView === 'home' ? 'active' : ''}" data-view="${this.escapeHtml(item.view)}">
+          <span><span class="icon">${item.icon}</span>${this.escapeHtml(item.label)}</span>
+          <span class="module-badge">${this.escapeHtml(item.badge)}</span>
+        </a>
+      </li>`).join('');
+  }
+
+  renderRoleDashboardView() {
+    if (!this.dom.roleDashboard) return;
+    const role = this.getCurrentRole();
+    const visiblePlots = this.getVisiblePlots();
+    const visiblePlotIds = new Set(visiblePlots.map(plot => String(plot.plotId)));
+    this.renderRoleNavigation();
+    renderRoleDashboard({
+      container: this.dom.roleDashboard,
+      user: this.state.user || MOCK_DATA.currentUser,
+      plots: visiblePlots,
+      feedItems: this.state.feedItems,
+      workOrders: (MOCK_DATA.workOrders || []).filter(order => visiblePlotIds.has(String(order.plotId))),
+      resourceProfile: MOCK_DATA.resourceProfile,
+      system: MOCK_DATA.system,
+      simulator: this.state.simulator,
+      isLive: this.state.isLive,
+      roleTaskStates: this.state.roleTaskStates
+    });
+    this.dom.roleDashboard.dataset.role = role;
+  }
+
+  handleRoleDashboardAction(button) {
+    const action = button.dataset.roleAction;
+    const plotId = button.dataset.plotId || this.getVisiblePlots()[0]?.plotId || this.state.currentPlotId;
+    const view = button.dataset.view;
+    const workOrderId = button.dataset.workOrderId;
+
+    if (action === 'open-view') {
+      if (view === 'plot-telemetry') this.showPlotTelemetryView(plotId);
+      else this.openSubview(view || 'home', { plotId, inline: true });
+      return;
+    }
+    if (action === 'open-plot') {
+      this.selectPlot(plotId, { silent: true });
+      this.showPlotTelemetryView(plotId);
+      return;
+    }
+    if (action === 'record-inspection') {
+      this.selectPlot(plotId, { silent: true });
+      this.openSubview('work-orders', { plotId, inline: true });
+      this.showToast('已打开现场记录入口，请在任务模块中补充巡田情况。', 'info');
+      return;
+    }
+    if (action === 'confirm-suggestion') {
+      this.showToast('建议已记录，农场主管可以在审批队列中安排执行。', 'success');
+      return;
+    }
+    if (action === 'start-task' || action === 'complete-task') {
+      if (!workOrderId) return;
+      this.state.roleTaskStates[workOrderId] = action === 'start-task' ? 'IN_PROGRESS' : 'DONE';
+      this.renderRoleDashboardView();
+      this.showToast(action === 'start-task' ? '任务已开始，完成后记得留下现场记录。' : '任务已完成，现场记录入口已保留。', 'success');
+      return;
+    }
+    if (action === 'handoff-task') {
+      this.showToast('已准备交接信息，请在任务模块中补充接收人和现场备注。', 'info');
+      this.openSubview('work-orders', { plotId, inline: true });
+      return;
+    }
+    if (action === 'toggle-simulator') {
+      void this.toggleSimulator();
+      return;
+    }
+    if (action === 'focus-health') {
+      this.dom.roleDashboard.querySelector('.role-health-list')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
   handleSessionExpired() {
     redirectToLogin();
   }
 
   renderPlots(filterKeyword = '') {
     if (!this.dom.plotListContainer) return;
-    const filtered = this.state.plots.filter(p => {
+    const visiblePlots = this.getVisiblePlots();
+    const filtered = visiblePlots.filter(p => {
       const match = (p.name + p.cropName + p.cropVariety + p.plotId).toLowerCase();
       return match.includes(filterKeyword.toLowerCase());
     });
@@ -671,16 +832,20 @@ class AgriApp {
   }
 
   selectPlot(plotId, options = {}) {
-    this.state.currentPlotId = plotId;
-    const plot = this.state.plots.find(p => p.plotId === plotId);
+    const visiblePlots = this.getVisiblePlots();
+    const requested = visiblePlots.find(p => p.plotId === plotId);
+    const plot = requested || visiblePlots[0];
+    if (!plot) return;
+    this.state.currentPlotId = plot.plotId;
     if (plot && this.dom.currentPlotContextBadge) {
       this.dom.currentPlotContextBadge.textContent = `/ 当前选中：${plot.name} (${plot.cropName} · ${plot.stageLabel})`;
     }
     this.renderPlots(this.dom.plotSearchInput?.value || '');
     if (this.state.activeMainView === 'plot-telemetry') {
-      void this.plotTelemetryView.open(plotId);
+      void this.plotTelemetryView.open(plot.plotId);
     }
-    if (!options.silent) this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    if (this.state.activeMainView === 'home' && !this.dom.roleDashboard?.hidden) this.renderRoleDashboardView();
+    if (!options.silent) this.showToast(`已切换当前工作地块至：${plot.name}`, 'info');
   }
 
   renderFeed() {
@@ -1225,7 +1390,7 @@ class AgriApp {
       ])
         .then(([, { FarmMonitor }]) => {
           this.farmMonitor = new FarmMonitor({
-            plots: this.state.plots,
+            plots: this.getVisiblePlots(),
             onExit: () => this.navigate('home'),
             onSandbox: (plotId) => {
               this.state.currentPlotId = plotId;
@@ -1283,8 +1448,12 @@ class AgriApp {
   }
 
   async openSubview(viewName, options = {}) {
-    const plotId = options.plotId || this.state.currentPlotId;
+    const visiblePlots = this.getVisiblePlots();
+    const requestedPlot = visiblePlots.find(plot => plot.plotId === (options.plotId || this.state.currentPlotId));
+    const plotId = requestedPlot?.plotId || visiblePlots[0]?.plotId || options.plotId || this.state.currentPlotId;
     const inline = options.inline === true;
+    this.applyRoleShell(false);
+    if (this.dom.roleDashboard) this.dom.roleDashboard.hidden = true;
     this.cleanupActiveSubview();
     const viewGen = this._subviewGen;
     if (viewName === 'plot-detail') {
@@ -1298,7 +1467,7 @@ class AgriApp {
       try {
         const farmMonitor = await this.ensureFarmMonitor();
         if (viewGen !== this._subviewGen) return;
-        farmMonitor.setPlots(this.state.plots);
+        farmMonitor.setPlots(this.getVisiblePlots());
         farmMonitor.open(plotId);
       } catch (error) {
         if (viewGen !== this._subviewGen) return;
@@ -1435,16 +1604,17 @@ class AgriApp {
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
     this.plotTelemetryView.close();
-    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
+    // The role dashboard is the post-login landing surface. Keep the legacy
+    // all-in-one feed available as a detail surface but do not show both.
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    if (this.dom.roleDashboard) this.dom.roleDashboard.hidden = false;
     if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
     if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
     this.state.activeMainView = 'home';
     this.setAmbientVisualsVisible(true);
-    this.dom.headerCurrentView.textContent = "Home (农智总览)";
-    document.querySelectorAll('.module-nav-item').forEach(item => {
-      item.classList.toggle('active', item.dataset.view === 'home');
-    });
+    this.applyRoleShell(true);
+    this.renderRoleDashboardView();
     if (updateHash && window.location.hash) {
       this._setHash('', true);
     }
@@ -1466,16 +1636,22 @@ class AgriApp {
   }
 
   showPlotTelemetryView(plotId, options = {}) {
+    const visiblePlots = this.getVisiblePlots();
+    const requestedPlot = visiblePlots.find(plot => plot.plotId === plotId);
+    const selectedPlotId = requestedPlot?.plotId || visiblePlots[0]?.plotId;
+    if (!selectedPlotId) return;
     this.cleanupActiveSubview();
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
     this.dom.subviewModal.classList.remove('active');
+    this.applyRoleShell(false);
+    if (this.dom.roleDashboard) this.dom.roleDashboard.hidden = true;
     this.dom.homeFeedContent.hidden = true;
     this.dom.moduleContentPanel.hidden = true;
     this.dom.plotTelemetryPanel.hidden = false;
     this.setAmbientVisualsVisible(true);
     this.state.activeMainView = 'plot-telemetry';
-    this.state.currentPlotId = plotId || this.state.currentPlotId;
+    this.state.currentPlotId = selectedPlotId;
     this.dom.headerCurrentView.textContent = '地块监测数据时序可视化';
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'plot-telemetry');

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="css/style.css?v=20260824-right-rail-card-fix">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/rium-glass.css?v=20260824-right-rail-card-fix">
+  <link rel="stylesheet" href="css/role-dashboard.css?v=20260824-role-dashboard-1">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   <script>
@@ -43,6 +44,7 @@
         <span>Dashboard</span>
         <span class="slash">/</span>
         <span class="current" id="headerCurrentView">Home (农智总览)</span>
+        <span class="role-context-badge" id="roleContextBadge" hidden></span>
       </div>
     </div>
 
@@ -100,9 +102,10 @@
       <!-- 2. Sub-Modules Navigation (Reserved Sub-views) -->
       <section class="rail-section">
         <div class="rail-section-header">
-          <span class="rail-section-title">功能子模块导航</span>
-          <span class="module-badge highlight">全景闭环</span>
+          <span class="rail-section-title" id="roleNavTitle">功能导航</span>
+          <span class="module-badge highlight" id="roleNavBadge">按身份显示</span>
         </div>
+        <p class="module-nav-role-note" id="roleNavNote">登录后只显示与你工作有关的功能。</p>
 
         <ul class="module-nav-list" id="moduleNavList">
           <li>
@@ -183,6 +186,8 @@
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
+      <!-- 登录后的第一屏：按角色投影同一套农业数据；旧版全量 Home DOM 保留用于兼容。 -->
+      <section class="role-dashboard" id="roleDashboard" hidden aria-live="polite"></section>
       <div class="main-feed-home-content" id="homeFeedContent">
       <div class="main-feed-header">
         <h1 class="main-feed-title">
@@ -453,6 +458,6 @@
   </div>
 
   <!-- Load ES Module Scripts -->
-  <script type="module" src="js/app.js?v=20260824-right-rail-card-fix"></script>
+  <script type="module" src="js/app.js?v=20260824-role-dashboard-1"></script>
 </body>
 </html>
