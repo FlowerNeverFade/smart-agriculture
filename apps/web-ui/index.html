@@ -63,7 +63,7 @@
 
       <main class="g-main">
         <transition name="fade" mode="out-in">
-          <component :is="currentViewComponent" :state="state" @navigate="navigate"></component>
+          <component :is="currentViewComponent" :state="state" :route-params="routeParams" @navigate="navigate"></component>
         </transition>
         
         <div class="g-toast-container">
@@ -150,7 +150,7 @@
         
         <!-- Root Cause & Prescription -->
         <div>
-          <div class="g-card mb-4" v-if="diagnosis">
+          <div class="g-card mb-4" v-if="diagnosis" :class="{'highlight-pulse': highlightDiagnosis}">
             <div class="flex justify-between items-center mb-4">
               <h3 class="flex items-center gap-2">
                 <span class="material-symbols-outlined" style="color:var(--g-warning)">psychology</span>
@@ -390,7 +390,7 @@
       </div>
 
       <div class="g-grid g-grid-2">
-        <div class="g-card">
+        <div class="g-card" :class="{'highlight-pulse': highlightNewOrder}">
           <h3 class="mb-4">系统调度工单</h3>
           <table class="g-table">
             <thead><tr><th>任务 (Task)</th><th>地块</th><th>状态</th><th>优先级</th></tr></thead>

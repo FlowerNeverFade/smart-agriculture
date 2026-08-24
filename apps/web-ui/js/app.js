@@ -6,12 +6,13 @@ const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
 // 1. Define Components
 const DashboardView = {
   template: '#tmpl-dashboard',
-  props: ['state'],
+  props: ['state', 'routeParams'],
   setup(props, { emit }) {
     const toast = inject('toast');
     const handleAction = (action) => {
       if (action.action === 'open-subview') {
-        emit('navigate', action.view);
+        // [INTERCONNECTIVITY] Navigate with context payload
+        emit('navigate', action.view, { highlight: 'diagnosis' });
       } else {
         toast('执行成功: ' + action.label);
       }
@@ -22,12 +23,21 @@ const DashboardView = {
 
 const DecisionConsoleView = {
   template: '#tmpl-decision-console',
-  props: ['state'],
-  setup(props) {
+  props: ['state', 'routeParams'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const diagnosis = computed(() => props.state.feedItems.find(f => f.type === 'DIAGNOSIS'));
     const prescription = computed(() => props.state.feedItems.find(f => f.type === 'PRESCRIPTION'));
     
+    // [INTERCONNECTIVITY] Highlight logic
+    const highlightDiagnosis = ref(false);
+    watch(() => props.routeParams, (newParams) => {
+      if (newParams && newParams.highlight === 'diagnosis') {
+        highlightDiagnosis.value = true;
+        setTimeout(() => { highlightDiagnosis.value = false; }, 4000);
+      }
+    }, { immediate: true });
+
     // Chat Logic
     const chatInput = ref('');
     const chatHistory = ref([
@@ -112,11 +122,23 @@ const DecisionConsoleView = {
 
     const confirmExecution = () => {
       showDualTrackModal.value = false;
-      toast('下行控制指令 (Trace: run-20260822-001) 已下发执行');
+      toast('下行控制指令已下发执行');
+      
+      // [INTERCONNECTIVITY] Mutate work orders state and navigate to it
+      props.state.workOrders.unshift({
+        workOrderId: 'wo-' + Date.now(),
+        plotId: 'plot-a01',
+        title: '执行 153L 灌溉处方',
+        reason: 'Agent 推演下发',
+        status: 'PENDING',
+        priority: 'HIGH'
+      });
+      
+      emit('navigate', 'work-orders', { highlight: 'new-order' });
     };
 
     return { 
-      diagnosis, prescription, 
+      diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
       showPassportModal, showDualTrackModal, confirmExecution 
     };
@@ -125,7 +147,7 @@ const DecisionConsoleView = {
 
 const RiskForecastView = {
   template: '#tmpl-risk-forecast',
-  props: ['state'],
+  props: ['state', 'routeParams'],
   setup(props) {
     let chart = null;
     const currentScenario = ref('DROUGHT');
@@ -145,9 +167,8 @@ const RiskForecastView = {
       const scenario = props.state.riskForecastConfig.scenarioCatalog.find(s => s.code === currentScenario.value);
       const decay = scenario ? scenario.decayFactor : 1.0;
       
-      // Calculate mock curve based on scenario
       const times = ["0h (Now)", "1h", "2h", "3h", "4h"];
-      const baseMoisture = 20.0; // Current base
+      const baseMoisture = 20.0;
       const mockCurve = times.map((t, i) => {
         if (scenario && scenario.code === 'STORM') {
             return i === 0 ? baseMoisture : (i === 1 ? baseMoisture + 6 : baseMoisture + 4 - i);
@@ -206,9 +227,19 @@ const RiskForecastView = {
 
 const WorkOrdersView = {
   template: '#tmpl-work-orders',
-  props: ['state'],
-  setup(props) {
+  props: ['state', 'routeParams'],
+  setup(props, { emit }) {
     const toast = inject('toast');
+    
+    // [INTERCONNECTIVITY] Highlight logic for new order
+    const highlightNewOrder = ref(false);
+    watch(() => props.routeParams, (newParams) => {
+      if (newParams && newParams.highlight === 'new-order') {
+        highlightNewOrder.value = true;
+        setTimeout(() => { highlightNewOrder.value = false; }, 4000);
+      }
+    }, { immediate: true });
+
     const showFormModal = ref(false);
     const form = ref({
       plotId: 'plot-a01',
@@ -223,8 +254,8 @@ const WorkOrdersView = {
         toast('请填写必填项', 'error');
         return;
       }
-      // Mutate state to show reactivity
-      props.state.inspections.unshift({
+      
+      const newIns = {
         inspectionId: 'ins-new-' + Date.now(),
         plotId: form.value.plotId,
         observedAt: new Date().toISOString(),
@@ -232,26 +263,42 @@ const WorkOrdersView = {
         cropCondition: form.value.cropCondition,
         portableSoilMoisture: form.value.portableSoilMoisture,
         notes: form.value.notes || '现场无异常情况'
+      };
+      
+      // Mutate state to show reactivity
+      props.state.inspections.unshift(newIns);
+      
+      // [INTERCONNECTIVITY] Create a Feed Item to loop back to dashboard
+      props.state.feedItems.unshift({
+        id: 'fd-' + Date.now(),
+        type: 'INFO',
+        category: '人机协同反馈',
+        title: `收到人工巡田报告 (${form.value.plotId})`,
+        summary: `现场土壤: ${form.value.soilSurface}, 植被: ${form.value.cropCondition}, 实测水分: ${form.value.portableSoilMoisture}%。已将该实测值校准回遥测模型。`,
+        timestamp: new Date().toLocaleTimeString(),
+        badge: { color: 'green' },
+        actions: []
       });
+
       showFormModal.value = false;
-      toast('巡田记录已成功录入');
+      toast('巡田记录已成功录入，并已同步至主反馈流');
       
       // Reset form
       form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
     };
 
-    return { showFormModal, form, submitInspection };
+    return { showFormModal, form, submitInspection, highlightNewOrder };
   }
 };
 
 const CropPacksView = {
   template: '#tmpl-crop-packs',
-  props: ['state']
+  props: ['state', 'routeParams']
 };
 
 const ValueLedgerView = {
   template: '#tmpl-value-ledger',
-  props: ['state'],
+  props: ['state', 'routeParams'],
   setup(props) {
     let chart = null;
 
@@ -315,6 +362,7 @@ const app = createApp({
     const isDark = ref(false);
     const isSidebarOpen = ref(true);
     const currentView = ref('dashboard');
+    const routeParams = ref({}); // [INTERCONNECTIVITY] Global route state
     const toasts = ref([]);
     
     const showToast = (message, type = 'success') => {
@@ -367,27 +415,23 @@ const app = createApp({
       window.location.replace('login.html');
     };
 
-    const navigate = (viewId) => {
+    const navigate = (viewId, params = {}) => {
       currentView.value = viewId;
+      routeParams.value = params;
     };
 
     onMounted(async () => {
-      // 1. Session Check (Preserving original contract)
       const session = api.readSession();
       if (!session) {
         window.location.replace('login.html');
         return;
       }
-
-      // 2. Theme Init
       const savedTheme = localStorage.getItem('agriloop-theme');
       if (savedTheme === 'dark') {
         isDark.value = true;
         document.documentElement.setAttribute('data-theme', 'dark');
         document.documentElement.style.colorScheme = 'dark';
       }
-
-      // 3. Health Check
       isLive.value = await api.checkHealth();
     });
 
@@ -401,6 +445,7 @@ const app = createApp({
       navItems,
       currentView,
       currentViewComponent,
+      routeParams,
       state,
       toasts,
       showToast,
