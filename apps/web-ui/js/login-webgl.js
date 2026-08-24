@@ -471,6 +471,7 @@ const BACKGROUND_FRAGMENT_SHADER = `#version 300 es
 function noopController() {
   return {
     setTaskMode() {},
+    setInteractionMode() {},
     destroy() {}
   };
 }
@@ -484,6 +485,7 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
   const debugMode = new URLSearchParams(window.location.search).get('fluidDebug') === '1';
   const pointer = { x: 0, y: 0, sampleX: 0, sampleY: 0, speed: 0, time: 0, valid: false };
   const task = { current: 1, target: 1 };
+  let interactionMode = 'wake';
   const glass = {
     currentX: 0.46,
     currentY: 0.18,
@@ -1128,6 +1130,15 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     const force = smoothstep(0.035, 0.72, normalizedSpeed);
 
     updateGlassTarget(event.clientX, event.clientY, force);
+    if (interactionMode !== 'wake') {
+      pointer.sampleX = event.clientX;
+      pointer.sampleY = event.clientY;
+      pointer.x = event.clientX;
+      pointer.y = event.clientY;
+      pointer.time = eventTime;
+      return;
+    }
+
     const sampleDeltaX = event.clientX - pointer.sampleX;
     const sampleDeltaY = event.clientY - pointer.sampleY;
     const sampleDistancePixels = Math.hypot(sampleDeltaX, sampleDeltaY);
@@ -1227,6 +1238,15 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
     task.target = active ? 0.62 : 1;
   }
 
+  function setInteractionMode(mode) {
+    const nextMode = mode === 'ink' ? 'ink' : 'wake';
+    canvas.dataset.interactionMode = nextMode;
+    if (nextMode === interactionMode) return;
+    interactionMode = nextMode;
+    clearInteractionState(false);
+    clearFlowTargets();
+  }
+
   function destroy() {
     if (destroyed) return;
     destroyed = true;
@@ -1269,5 +1289,5 @@ export function createAmbientLiquidField({ canvas, fallback, glassPanel }) {
   resizeObserver?.observe(glassPanel);
   initialize();
 
-  return { setTaskMode, destroy };
+  return { setTaskMode, setInteractionMode, destroy };
 }

@@ -157,11 +157,61 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   height: auto;
 }
 
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
 .topbar__meta {
   color: rgba(23, 51, 39, .84);
   font-size: 12px;
   font-weight: 650;
   letter-spacing: .12em;
+}
+
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  border-radius: 999px;
+  background: rgba(241, 248, 238, .20);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .18),
+    0 8px 24px rgba(29, 66, 46, .035);
+  -webkit-backdrop-filter: blur(12px) saturate(112%);
+  backdrop-filter: blur(12px) saturate(112%);
+}
+
+.mode-switch button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(23, 51, 39, .58);
+  font-size: 12px;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.mode-switch button:hover,
+.mode-switch button:focus-visible { color: var(--ink); }
+
+.mode-switch button:focus-visible {
+  outline: 2px solid rgba(36, 104, 73, .34);
+  outline-offset: 2px;
+}
+
+.mode-switch button[aria-pressed="true"] {
+  background: rgba(245, 251, 242, .68);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .42),
+    0 3px 9px rgba(29, 66, 46, .055);
 }
 
 .login-layout {
@@ -641,6 +691,7 @@ body.is-leaving .environment {
   }
 
   .topbar { position: absolute; }
+  .topbar__meta { display: none; }
 
   .login-layout {
     grid-template-columns: 1fr;
@@ -677,7 +728,8 @@ body.is-leaving .environment {
   }
 
   .brand-logo { width: 110px; }
-  .topbar__meta { display: none; }
+  .topbar__right { gap: 0; }
+  .mode-switch button { min-height: 29px; padding: 0 10px; font-size: 11px; }
 
   .login-layout {
     gap: 26px;

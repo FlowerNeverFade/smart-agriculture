@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f3f7ef">
   <title>农智闭环 · 智慧农业登录</title>
-  <link rel="stylesheet" href="css/login-motion.css?v=fangsong-cn-1">
+  <link rel="stylesheet" href="css/login-motion.css?v=background-modes-1">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
@@ -20,7 +20,13 @@
 
     <header class="topbar">
       <img class="brand-logo" src="assets/brand/agriloop-logo.png" width="1366" height="398" alt="AgriLoop">
-      <span class="topbar__meta">智慧农业 · 二〇二六</span>
+      <div class="topbar__right">
+        <span class="topbar__meta">智慧农业 · 二〇二六</span>
+        <div class="mode-switch" role="group" aria-label="背景交互方式">
+          <button type="button" data-background-mode="ink" aria-pressed="false">水墨背景</button>
+          <button type="button" data-background-mode="wake" aria-pressed="true">折射尾迹</button>
+        </div>
+      </div>
     </header>
 
     <div class="login-layout">
@@ -78,6 +84,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=pointer-wake-1"></script>
+  <script type="module" src="js/login.js?v=background-modes-1"></script>
 </body>
 </html>

@@ -25,10 +25,21 @@ const toast = document.getElementById('toast');
 const liquidCanvas = document.getElementById('ambientLiquidCanvas');
 const liquidFallback = document.getElementById('liquidFieldFallback');
 const glassPanel = document.querySelector('.auth');
+const backgroundModeButtons = [...document.querySelectorAll('[data-background-mode]')];
 
 let toastTimer;
 let leaving = false;
 let backgroundController = null;
+let backgroundMode = 'wake';
+
+function setBackgroundMode(mode) {
+  backgroundMode = mode === 'ink' ? 'ink' : 'wake';
+  document.body.dataset.backgroundMode = backgroundMode;
+  backgroundModeButtons.forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.backgroundMode === backgroundMode));
+  });
+  backgroundController?.setInteractionMode(backgroundMode);
+}
 
 function syncTaskMode() {
   const tasking = document.activeElement === username || document.activeElement === password;
@@ -145,6 +156,9 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
 });
 
 forgotPassword.addEventListener('click', () => showToast('演示环境暂不发送重置邮件'));
+backgroundModeButtons.forEach((button) => {
+  button.addEventListener('click', () => setBackgroundMode(button.dataset.backgroundMode));
+});
 form.addEventListener('submit', submitLogin);
 form.addEventListener('input', () => {
   if (formError.textContent) setError('');
@@ -165,6 +179,7 @@ if (storedSession?.mode === 'live' && storedSession.token) {
     fallback: liquidFallback,
     glassPanel
   });
+  setBackgroundMode(backgroundMode);
   syncTaskMode();
   requestAnimationFrame(() => document.body.classList.add('is-mounted'));
 }
