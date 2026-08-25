@@ -236,24 +236,41 @@ const RiskForecastView = {
       }
     };
 
-    const changePlot = () => {
-      renderChart();
+    let pot3d = null;
+    const initWebGL = () => {
+      const canvas = document.getElementById('riskPotCanvas');
+      if (!canvas) return;
+      if (pot3d) {
+        try { pot3d.dispose(); } catch(e){}
+        pot3d = null;
+      }
+      
+      const plot = props.state.plots.find(p => p.plotId === selectedPlotId.value);
+      let cCode = 'tomato';
+      if (plot) {
+        if (plot.cropVariety.includes('黄瓜')) cCode = 'cucumber';
+        else if (plot.cropVariety.includes('草莓')) cCode = 'strawberry';
+        else if (plot.cropVariety.includes('番茄')) cCode = 'tomato';
+      }
+      
+      createPotScene(canvas, { cropCode: cCode }).then(p => {
+          pot3d = p;
+          if (pot3d) {
+              const cls = currentScenario.value === 'DROUGHT' ? 'drought' : (currentScenario.value === 'STORM' ? 'storm' : (currentScenario.value === 'DRIFT' ? 'drift' : 'normal'));
+              pot3d.setScenario(cls);
+          }
+      }).catch(e => console.warn('WebGL init failed:', e));
     };
 
-    let pot3d = null;
+    const changePlot = () => {
+      renderChart();
+      initWebGL();
+    };
+
     onMounted(() => {
         currentScenario.value = props.state.riskForecastConfig.scenarioCatalog[0].code;
         renderChart();
-        const canvas = document.getElementById('riskPotCanvas');
-        if (canvas) {
-            createPotScene(canvas, { cropCode: 'TOMATO' }).then(p => {
-                pot3d = p;
-                if (pot3d) {
-                    const cls = currentScenario.value === 'DROUGHT' ? 'drought' : (currentScenario.value === 'STORM' ? 'storm' : (currentScenario.value === 'DRIFT' ? 'drift' : 'normal'));
-                    pot3d.setScenario(cls);
-                }
-            }).catch(e => console.warn('WebGL init failed:', e));
-        }
+        initWebGL();
     });
     
     const observer = new MutationObserver(() => renderChart());
