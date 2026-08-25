@@ -340,7 +340,14 @@
           <div id="riskChart" style="width: 100%; height: 450px;"></div>
         </div>
         
-        <div>
+        <div style="display:flex; flex-direction:column;">
+          <h3 class="mb-4">物理仿真 (WebGL)</h3>
+          <div class="g-card mb-4" style="padding:0; overflow:hidden; border:1px solid var(--g-border); border-radius: var(--g-radius-lg); position:relative; background: #0d1219;">
+            <canvas id="riskPotCanvas" style="width:100%; aspect-ratio: 380/440; display:block; cursor: crosshair;"></canvas>
+            <div style="position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px;">
+               <span class="g-badge" style="background: rgba(255,255,255,0.1); color: #fff; backdrop-filter: blur(4px);">实时演算</span>
+            </div>
+          </div>
           <h3 class="mb-4">情景假设 (What-if)</h3>
           <div class="flex" style="flex-direction:column; gap:12px; margin-bottom: 24px">
             <div class="scenario-btn" 

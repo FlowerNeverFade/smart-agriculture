@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
+import { createPotScene } from './three-pot.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
 
@@ -229,15 +230,30 @@ const RiskForecastView = {
     const changeScenario = (scenario) => {
       currentScenario.value = scenario.code;
       renderChart();
+      if (pot3d) {
+         const cls = scenario.code === 'DROUGHT' ? 'drought' : (scenario.code === 'STORM' ? 'flood' : 'normal');
+         pot3d.setScenario(cls);
+      }
     };
 
     const changePlot = () => {
       renderChart();
     };
 
+    let pot3d = null;
     onMounted(() => {
         currentScenario.value = props.state.riskForecastConfig.scenarioCatalog[0].code;
         renderChart();
+        const canvas = document.getElementById('riskPotCanvas');
+        if (canvas) {
+            createPotScene(canvas, { cropCode: 'CORN' }).then(p => {
+                pot3d = p;
+                if (pot3d) {
+                    const cls = currentScenario.value === 'DROUGHT' ? 'drought' : 'normal';
+                    pot3d.setScenario(cls);
+                }
+            }).catch(e => console.warn('WebGL init failed:', e));
+        }
     });
     
     const observer = new MutationObserver(() => renderChart());
