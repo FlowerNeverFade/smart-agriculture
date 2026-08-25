@@ -467,6 +467,37 @@ const AdminOverviewView = {
   setup(props) {
     const farmFilter = ref('all');
     const statusFilter = ref('all');
+    const selectedPlot = ref(null);
+    const showPlotModal = ref(false);
+    const plotMetricForm = ref([]);
+    const telemetryLoading = ref(false);
+    const openPlotMetrics = async (plot) => {
+      selectedPlot.value = plot;
+      plotMetricForm.value = [...(plot.monitoredMetrics || TELEMETRY_METRICS.map(metric => metric.code))];
+      showPlotModal.value = true;
+      await refreshPlotMetrics();
+    };
+    const refreshPlotMetrics = async () => {
+      if (!selectedPlot.value) return;
+      telemetryLoading.value = true;
+      try {
+        const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
+          const points = await api.getTelemetry(selectedPlot.value.id, metric, 1);
+          return [metric, points[points.length - 1]];
+        }));
+        results.forEach((result) => {
+          if (result.status !== 'fulfilled') return;
+          const [metric, point] = result.value;
+          if (point) selectedPlot.value.metrics[metric] = `${point.value} ${point.unit || ''}`.trim();
+        });
+      } finally {
+        telemetryLoading.value = false;
+      }
+    };
+    const savePlotMetrics = () => {
+      if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
+      showPlotModal.value = false;
+    };
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
       const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
       const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
@@ -489,7 +520,7 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS };
+    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
   }
 };
 
@@ -651,13 +682,13 @@ const AdminRulesView = {
     const expandedPacks = ref({});
     const showPackModal = ref(false);
     const editingPackId = ref(null);
-    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], metrics: ['SOIL_MOISTURE'], knowledgeDocs: [''], availableForPlanting: true });
+    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true });
     const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
     const togglePack = (id) => {
       expandedPacks.value[id] = !expandedPacks.value[id];
     };
     const resetPackForm = () => {
-      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], metrics: ['SOIL_MOISTURE'], knowledgeDocs: [''], availableForPlanting: true };
+      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true };
       editingPackId.value = null;
     };
     const openCreatePack = () => {
@@ -665,7 +696,7 @@ const AdminRulesView = {
       showPackModal.value = true;
     };
     const openEditPack = (pack) => {
-      packForm.value = { ...pack, stages: [...pack.stages], metrics: [...pack.metrics], knowledgeDocs: [...pack.knowledgeDocs] };
+      packForm.value = { ...pack, stages: [...pack.stages], knowledgeDocs: pack.knowledgeDocs.map(doc => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }) };
       editingPackId.value = pack.id;
       showPackModal.value = true;
     };
@@ -677,8 +708,7 @@ const AdminRulesView = {
         id: form.id.trim(),
         name: form.name.trim(),
         stages: form.stages.map(item => item.trim()).filter(Boolean),
-        metrics: form.metrics,
-        knowledgeDocs: form.knowledgeDocs.map(item => item.trim()).filter(Boolean)
+        knowledgeDocs: form.knowledgeDocs.map(doc => ({ title: doc.title.trim(), content: doc.content.trim() })).filter(doc => doc.title)
       };
       const packs = props.state.adminCropPacks;
       if (editingPackId.value) {
@@ -699,7 +729,16 @@ const AdminRulesView = {
     const togglePackStatus = (pack) => {
       pack.status = pack.status === 'published' ? 'draft' : 'published';
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, telemetryMetrics: TELEMETRY_METRICS, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus };
+    const addStage = () => packForm.value.stages.push('');
+    const removeStage = (index) => packForm.value.stages.splice(index, 1);
+    const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
+    const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
+    const expandedKnowledge = ref(null);
+    const toggleKnowledge = (packId, index) => {
+      const key = `${packId}:${index}`;
+      expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
+    };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge };
   }
 };
 

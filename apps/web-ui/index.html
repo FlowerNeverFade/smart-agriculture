@@ -815,7 +815,7 @@
           <span class="offline"><i></i>离线 {{ plotSummary.offline }}</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
+            <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="openPlotMetrics(plot)">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
@@ -825,7 +825,7 @@
             <div class="admin-plot-farm">{{ plot.farm }}</div>
             <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) }}%</strong><b><i :style="{width: healthPercent(plot) + '%'}"></i></b></div>
             <div class="admin-plot-metrics">
-              <span v-for="metric in telemetryMetrics" :key="metric.code"><strong>{{ plot.metrics[metric.code] }}</strong> {{ metric.label }}</span>
+              <span v-for="metric in telemetryMetrics" v-if="!plot.monitoredMetrics || plot.monitoredMetrics.includes(metric.code)" :key="metric.code"><strong>{{ plot.metrics[metric.code] }}</strong> {{ metric.label }}</span>
             </div>
             <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
             <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
@@ -833,6 +833,25 @@
           <div v-if="!filteredPlots.length" class="admin-plot-empty">没有符合当前筛选条件的地块</div>
         </div>
       </section>
+      <div class="admin-modal-overlay" v-if="showPlotModal" @click.self="showPlotModal = false">
+        <div class="admin-modal admin-modal-wide">
+          <div class="admin-modal-header">
+            <h3>{{ selectedPlot?.id }} · 监测指标</h3>
+            <button class="g-btn icon-only" @click="showPlotModal = false"><span class="material-symbols-outlined">close</span></button>
+          </div>
+          <div class="admin-modal-body">
+            <p class="admin-modal-hint">指标类型来自后端遥测合同，仅可从六项标准指标中选择。</p>
+            <div class="admin-metric-picker admin-plot-metric-picker">
+              <label v-for="metric in telemetryMetrics" :key="metric.code"><input type="checkbox" :value="metric.code" v-model="plotMetricForm"> {{ metric.label }} <small>{{ metric.code }}</small></label>
+            </div>
+            <div class="admin-telemetry-preview" v-if="selectedPlot">
+              <div class="admin-preview-title">最近遥测 <span v-if="telemetryLoading">正在同步...</span></div>
+              <span v-for="metric in telemetryMetrics" v-if="plotMetricForm.includes(metric.code)" :key="metric.code"><strong>{{ selectedPlot.metrics[metric.code] }}</strong>{{ metric.label }}</span>
+            </div>
+          </div>
+          <div class="admin-modal-footer"><button class="g-btn" @click="showPlotModal = false">取消</button><button class="g-btn primary" :disabled="!plotMetricForm.length" @click="savePlotMetrics">保存监测配置</button></div>
+        </div>
+      </div>
     </div>
   </template>
 
@@ -1153,7 +1172,7 @@
             </div>
             <div class="pack-card-stats">
               <span><span class="material-symbols-outlined" style="font-size:14px">timeline</span> {{ pack.stages.length }} 个阶段</span>
-              <span><span class="material-symbols-outlined" style="font-size:14px">speed</span> {{ pack.metrics.length }} 项指标</span>
+              <span><span class="material-symbols-outlined" style="font-size:14px">speed</span> 统一六项遥测</span>
               <span><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> {{ pack.knowledgeDocs.length }} 篇知识</span>
             </div>
             <div class="admin-pack-availability" :class="{enabled: pack.availableForPlanting && pack.status === 'published'}">
@@ -1164,8 +1183,8 @@
             <div v-if="expandedPacks[pack.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
               <div class="admin-pack-detail-grid">
                 <div><strong>生长阶段</strong><span>{{ pack.stages.join('、') }}</span></div>
-                <div><strong>指标编码</strong><span>{{ pack.metrics.join('、') }}</span></div>
-                <div><strong>知识文档</strong><span>{{ pack.knowledgeDocs.join('、') }}</span></div>
+                <div><strong>指标</strong><span>统一六项后端遥测指标，由地块配置监测类型</span></div>
+                <div><strong>知识文档</strong><span class="admin-knowledge-list"><template v-for="(doc, index) in pack.knowledgeDocs" :key="index"><button class="admin-knowledge-chip" @click="toggleKnowledge(pack.id, index)">{{ doc.title }} <span class="material-symbols-outlined">{{ expandedKnowledge === `${pack.id}:${index}` ? 'expand_less' : 'expand_more' }}</span></button><em v-if="expandedKnowledge === `${pack.id}:${index}`">{{ doc.content || '暂无正文' }}</em></template></span></div>
               </div>
               <div style="margin-top: 12px; display: flex; gap: 8px;">
                 <button class="g-btn text sm" style="padding: 4px 8px" @click="openEditPack(pack)"><span class="material-symbols-outlined">edit</span>编辑</button>
@@ -1188,9 +1207,9 @@
               <label>作物图标</label>
               <div class="admin-icon-picker"><button v-for="icon in cropIcons" :key="icon" type="button" :class="{selected: packForm.icon === icon}" @click="packForm.icon = icon">{{ icon }}</button></div>
               <label>生长阶段（每行一个）</label><textarea :value="packForm.stages.join('\n')" @input="packForm.stages = $event.target.value.split('\n')" rows="4"></textarea>
-              <label>指标（后端六项中选择）</label>
-              <div class="admin-metric-picker"><label v-for="metric in telemetryMetrics" :key="metric.code"><input type="checkbox" :value="metric.code" v-model="packForm.metrics"> {{ metric.label }} <small>{{ metric.code }}</small></label></div>
-              <label>知识文档（每行一个）</label><textarea :value="packForm.knowledgeDocs.join('\n')" @input="packForm.knowledgeDocs = $event.target.value.split('\n')" rows="3"></textarea>
+              <label>知识子文档</label>
+              <div class="admin-doc-editor" v-for="(doc, index) in packForm.knowledgeDocs" :key="index"><input v-model="doc.title" placeholder="子文档标题"><textarea v-model="doc.content" rows="3" placeholder="正文内容"></textarea><button type="button" class="g-btn text sm danger-text" @click="removeKnowledgeDoc(index)"><span class="material-symbols-outlined">delete</span>删除子文档</button></div>
+              <button type="button" class="g-btn text sm" @click="addKnowledgeDoc"><span class="material-symbols-outlined">add</span>添加知识子文档</button>
               <div class="admin-form-grid">
                 <div><label>发布状态</label><select v-model="packForm.status"><option value="draft">草稿</option><option value="published">已发布</option></select></div>
               </div>

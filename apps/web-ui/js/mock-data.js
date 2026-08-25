@@ -900,9 +900,9 @@ export const MOCK_DATA = {
   ],
 
   adminCropPacks: [
-    { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['育苗期', '营养生长期', '开花坐果期', '果实成熟期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['番茄灌溉基准表', '病虫害防治指南', '果实成熟期管理'], availableForPlanting: true },
-    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', status: 'published', stages: ['苗期', '营养生长期', '初花期', '采收盛期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['黄瓜水肥管理', '温室病害识别'], availableForPlanting: true },
-    { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['草莓温湿度管理'], availableForPlanting: false }
+    { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['育苗期', '营养生长期', '开花坐果期', '果实成熟期'], knowledgeDocs: [{ title: '番茄灌溉基准表', content: '结果期土壤含水率建议维持在 20%~40%，先确认遥测新鲜度和设备流量，再生成灌溉处方。' }, { title: '病虫害防治指南', content: '重点巡查下部老叶、叶背和果实萼片，发现异常时记录人工观察并关联地块。' }, { title: '果实成熟期管理', content: '成熟期控制水分波动，连续高温时优先核对空气温度与土壤湿度的时间窗口。' }], availableForPlanting: true },
+    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', status: 'published', stages: ['苗期', '营养生长期', '初花期', '采收盛期'], knowledgeDocs: [{ title: '黄瓜水肥管理', content: '黄瓜根系浅，保持土壤湿度稳定，灌溉应结合阶段和当前水位约束。' }, { title: '温室病害识别', content: '巡查叶片霉斑、萎蔫和果实畸形，人工观察不得覆盖原始遥测数据。' }], availableForPlanting: true },
+    { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], knowledgeDocs: [{ title: '草莓温湿度管理', content: '草莓开花和膨果期需关注温度、土壤湿度及设备在线状态，数据质量不足时转人工复核。' }], availableForPlanting: false }
   ],
 
   adminRules: [
