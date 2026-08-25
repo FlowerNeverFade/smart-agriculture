@@ -1,10 +1,10 @@
 # 农场管理员双人开发接口冻结合同
 
-> 合同编号：`ADMIN-IFACE-1`
+> 合同编号：`ADMIN-IFACE-1.1`
 >
 > 合同状态：已冻结
 >
-> 生效基线：`admin` 分支中包含本文件的提交
+> 初始生效基线：`admin` 分支中包含本文件的提交；第 2/3 轮实现补充基线为 `main@213d632`
 >
 > 适用开发线：A（生产运营与权限）、B（智能决策与经营）
 >
@@ -657,3 +657,59 @@ docs/api/openapi.yaml
 | 版本 | 日期 | 变更 | 原因 | 兼容措施 | 决策人 |
 | --- | --- | --- | --- | --- | --- |
 | `ADMIN-IFACE-1` | 2026-08-25 | 首次冻结管理员双人开发合同 | 支持 A、B 两线长期并行 | 保留现有 API 方法和 Hash 路由 | 项目负责人 |
+| `ADMIN-IFACE-1.1` | 2026-08-26 | 补充第 2/3 轮已落地的上下文、生命周期、来源与跨模块失效语义 | 八项管理能力统一接线并完成 A/B 交接闭环 | 保留五个主路由、旧 Hash 路由、JWT 与会话字段；新增字段均为兼容扩展 | 项目负责人 / 集成人 |
+
+## 16. 第 2/3 轮实现补充
+
+本节冻结跨模块可见语义，不冻结组件划分、CSS 或后端内部类结构。遇到本节未覆盖的局部问题，继续按第 14 节由负责开发者作出可回退、向后兼容的决定。
+
+### 16.1 页面与上下文
+
+- 管理员共享上下文固定为 `{ farmId, plotId, sessionMode }`；正式会话的 `farmId` 来自 `getFarms()` 返回的授权农场，不使用静默演示回退。
+- 五个主入口不变，页内标签固定为：
+  - 农场总览：`总览 / 地块管理`
+  - 农务任务：`任务列表 / 生产计划 / Crop Pack`
+  - 设备与灌溉：`设备管理 / 灌溉与水资源 / 价值对账 / 模拟器`
+  - 农场成员：`成员列表 / 地块权限`
+- 新地址使用 `#view=<主视图>&tab=<页签>&farmId=...&plotId=...`；旧五入口 Hash 和地块详情地址继续兼容。
+- 切换农场时，旧农场请求不得覆盖新农场状态；不属于新农场的 `plotId` 必须清除。
+
+### 16.2 事实刷新与来源
+
+- 写操作成功后发布 `context-changed` 或 `data-invalidated`，由根状态重新读取对应事实；模块不得把局部数组当成第二套权威数据。
+- 仅在失效域包含 `overview` 或 `plots` 时替换地块事实；成员、账本等局部刷新不得清空已有地块字段。
+- 正式模式只显示后端字段，缺失值为 `—`；不得把演示 Crop Pack、成员、账本、设备或统计合并进正式响应。
+- 价值账本保留 `OBSERVED / USER_PROVIDED / DERIVED / SIMULATED / ESTIMATED` 的 `sourceMode`；缺少产量、价格或因果证据时不推导收益。
+
+### 16.3 生命周期与权限
+
+- 地块生命周期固定为 `ACTIVE / INACTIVE`。业务视图默认排除停用地块，管理页允许查看和恢复。
+- 永久删除仅允许已停用地块，必须再次输入地块名称；遥测、设备、批次、告警、任务、诊断、巡田或审计等任一依赖存在时返回 `409` 及分类数量，不级联删除历史。
+- 新注册设备为 `OFFLINE / UNBOUND`；在收到心跳前不得显示在线。绑定和解绑必须同时校验管理员、设备、地块及当前农场范围，停用地块不可绑定。
+- 农场管理员只能调整本农场 `FARMER` 的地块范围。其他农场范围原样保留，角色及管理员权限不可通过该接口修改；受保护请求每次从账户事实重新读取权限。
+
+### 16.4 生产、诊断与交接
+
+- 生产计划只读取后端 Crop Pack 的阶段与 `taskTemplates`。缺少周期时要求人工填写；等分排期标记为 `DERIVED`，预览允许编辑。
+- 审批生成的工单必须保存 `sourceType=CROP_PLAN`、`sourceRef=planId`、`cropBatchId`、Crop Pack 版本与模板来源；重复审批必须幂等。
+- 补证工单必须保存当前 `farmId`、`plotId`、`sourceType=READINESS` 与 `sourceRef=readinessId`，并进入统一工单队列。
+- 诊断最多读取最近 24 小时的三条巡田证据。人工观察以 `USER_PROVIDED` 进入支持、反对或冲突证据，但不得覆盖遥测，也不得绕过数据质量或设备安全门。
+- 决策护照的 `humanObservations` 至少保留人员、时间、关联任务、证据编号与来源。
+
+### 16.5 公共方法与路由补充
+
+前端公共外观补充：`getFarms`、`registerDevice`、`bindDevice`、`unbindDevice`、`deactivatePlot`、`restorePlot`、`deletePlot`、`updateFarmMemberScope`、`createCropBatch`、`generateCropBatchPlan`、`reviewCropBatchPlan`、`createValueLedger`。
+
+后端补充路由：
+
+```text
+POST   /api/v1/plots/{plotId}/deactivate
+POST   /api/v1/plots/{plotId}/restore
+DELETE /api/v1/plots/{plotId}?confirmName=...
+PATCH  /api/v1/farm-members/{userId}/scope
+POST   /api/v1/crop-batches
+POST   /api/v1/crop-batches/{batchId}/plan/generate
+POST   /api/v1/crop-batches/{batchId}/plan/review
+```
+
+设备、模拟器、账本和历史读取继续兼容原路由；所有正式写接口同时执行后端角色和农场/地块范围校验。
