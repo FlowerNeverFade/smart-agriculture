@@ -989,3 +989,69 @@
   .farmer-task-tool-card { grid-template-columns: auto 1fr; }
   .farmer-task-tool-card .g-btn { grid-column: 2; justify-self: start; }
 }
+
+/* ============================================================
+   地块趋势与灌溉湿度图：轻量 SVG，保持与现有卡片一致
+   ============================================================ */
+.farmer-plot-charts-panel { margin-bottom: 20px; }
+.farmer-plot-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.farmer-metric-chart {
+  min-width: 0;
+  padding: 13px 13px 11px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+}
+.farmer-metric-chart-head,
+.farmer-advice-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.farmer-metric-chart-head h4 { margin: 0; font-size: 14px; }
+.farmer-metric-chart-head small { display: block; margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-metric-chart-head strong,
+.farmer-advice-chart-head strong { color: var(--g-text-primary); font-size: 13px; white-space: nowrap; }
+.farmer-chart-svg {
+  display: block;
+  width: 100%;
+  height: 128px;
+  margin-top: 8px;
+  overflow: visible;
+}
+.farmer-chart-grid-line { stroke: var(--g-border-subtle); stroke-width: 1; stroke-dasharray: 3 4; }
+.farmer-chart-axis-label { fill: var(--g-text-secondary); font-size: 9px; }
+.farmer-chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.farmer-chart-x-labels { display: flex; justify-content: space-between; padding: 0 4px 0 28px; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-chart-target { margin: 7px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.4; }
+.farmer-chart-legend { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 7px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.farmer-chart-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.farmer-advice-moisture-chart {
+  margin: 14px 0 4px;
+  padding: 10px 11px 8px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+.farmer-advice-chart-head { align-items: center; color: var(--g-text-secondary); font-size: 12px; }
+.farmer-advice-moisture-chart .farmer-chart-svg { height: 112px; margin-top: 4px; }
+.farmer-feedback-card { padding: 16px; }
+.farmer-feedback-card .farmer-panel-header { margin-bottom: 6px; }
+.farmer-feedback-card .farmer-advice-summary { margin: 0 0 10px; font-size: 12px; line-height: 1.5; }
+.farmer-feedback-card .farmer-feedback-actions { gap: 6px; }
+.farmer-feedback-card .farmer-feedback-actions .g-btn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .farmer-plot-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .farmer-plot-charts { grid-template-columns: 1fr; }
+  .farmer-metric-chart { padding: 12px; }
+  .farmer-feedback-card .farmer-feedback-actions .g-btn { flex: 1 1 auto; }
+}

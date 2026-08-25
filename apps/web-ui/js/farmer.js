@@ -33,6 +33,95 @@ const CROP_ICONS = {
   strawberry: '🍓'
 };
 
+const PLOT_CHART_SPECS = [
+  { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 60, amplitude: 3, precision: 1, color: 'var(--g-success)' },
+  { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: 10, max: 40, amplitude: 1.8, precision: 1, color: 'var(--g-primary)' },
+  { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
+  { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
+  { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
+  { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
+];
+
+const CHART_LABELS = ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天'];
+
+function chart_seed(value) {
+  return [...String(value || '')].reduce((seed, char) => ((seed * 31) + char.charCodeAt(0)) % 997, 17);
+}
+
+function clamp_chart_value(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parse_npk(value) {
+  const numbers = String(value || '').split(':').map((item) => Number(item));
+  return numbers.length === 3 && numbers.every((item) => Number.isFinite(item)) ? numbers : [0, 0, 0];
+}
+
+function format_chart_axis_value(value, precision = 0) {
+  if (Math.abs(value) >= 1000) return `${Number((value / 1000).toFixed(1))}k`;
+  return Number(value.toFixed(precision)).toString();
+}
+
+function format_chart_current_value(value, precision = 0) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? value.toLocaleString('zh-CN') : Number(value.toFixed(precision)).toString();
+  }
+  return String(value ?? '--');
+}
+
+function chart_points(values, min, max) {
+  const width = 360;
+  const height = 132;
+  const pad = { left: 28, right: 8, top: 10, bottom: 18 };
+  const inner_width = width - pad.left - pad.right;
+  const inner_height = height - pad.top - pad.bottom;
+  const span = Math.max(1, max - min);
+  return values.map((value, index) => {
+    const x = pad.left + (index / Math.max(1, values.length - 1)) * inner_width;
+    const y = pad.top + (1 - ((value - min) / span)) * inner_height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function metric_chart(plot, code) {
+  const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
+  const metric = plot?.metrics?.[code];
+  if (!spec || !metric) return null;
+
+  const seed = chart_seed(`${plot.plotId}:${code}`);
+  const pattern = [-1, -0.42, 0.55, 1.05, -0.52, 0.68, 0];
+  const phase = ((seed % 7) - 3) * 0.12;
+  const build_values = (base, amplitude = spec.amplitude, series_offset = 0) => pattern.map((point, index) => {
+    const wave = (point + phase + series_offset * 0.18) * amplitude;
+    const drift = (index < 3 ? (2 - index) * amplitude * 0.06 : 0);
+    return Number(clamp_chart_value(Number(base) + wave + drift, spec.min, spec.max).toFixed(spec.precision));
+  });
+
+  const series = spec.multi
+    ? parse_npk(metric.value).map((base, index) => ({
+      label: ['氮', '磷', '钾'][index],
+      color: ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
+      values: build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index)
+    }))
+    : [{ label: spec.label, color: spec.color, values: build_values(Number(metric.value)) }];
+
+  const grid = [
+    { y: 10, label: format_chart_axis_value(spec.max, spec.precision) },
+    { y: 62, label: format_chart_axis_value((spec.max + spec.min) / 2, spec.precision) },
+    { y: 114, label: format_chart_axis_value(spec.min, spec.precision) }
+  ];
+
+  return {
+    ...spec,
+    current_label: `${format_chart_current_value(metric.value, spec.precision)} ${metric.unit || spec.unit}`,
+    target: metric.target || '—',
+    labels: CHART_LABELS,
+    grid,
+    is_multi: Boolean(spec.multi),
+    series: series.map((item) => ({ ...item, points: chart_points(item.values, spec.min, spec.max) }))
+  };
+}
+
 function format_relative_label(iso) {
   if (!iso) return '';
   const diff_ms = Date.now() - new Date(iso).getTime();
@@ -115,6 +204,11 @@ const app = createApp({
 
     const current_view = ref('dashboard');
     const selected_plot = ref(plots.value[0] || null);
+    const plot_charts = computed(() => PLOT_CHART_SPECS
+      .map((spec) => metric_chart(selected_plot.value, spec.code))
+      .filter(Boolean));
+    const advice_plot = computed(() => plots.value[0] || null);
+    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE'));
     const selected_message = ref(null);
     const selected_task = ref(null);
     const analyzing = ref(false);
@@ -533,6 +627,9 @@ const app = createApp({
       tasks,
       plots,
       selected_plot,
+      plot_charts,
+      advice_plot,
+      advice_soil_chart,
       selected_message,
       selected_task,
       analyzing,

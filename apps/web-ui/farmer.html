@@ -234,6 +234,37 @@
                 <p class="farmer-history-caption">最新土壤湿度 {{ selected_plot.metrics.SOIL_MOISTURE.value }}{{ selected_plot.metrics.SOIL_MOISTURE.unit }}，目标 {{ selected_plot.metrics.SOIL_MOISTURE.target }}</p>
               </div>
             </div>
+
+            <div v-if="selected_plot && plot_charts.length" class="g-card farmer-plot-charts-panel">
+              <div class="farmer-panel-header">
+                <div>
+                  <h3>六项指标趋势</h3>
+                  <p class="farmer-panel-hint">按时间查看 {{ selected_plot.name }} 的环境与肥力变化，数据为当前演示快照。</p>
+                </div>
+                <span class="g-badge primary">近 7 天</span>
+              </div>
+              <div class="farmer-plot-charts">
+                <article v-for="chart in plot_charts" :key="chart.code" class="farmer-metric-chart">
+                  <div class="farmer-metric-chart-head">
+                    <div>
+                      <h4>{{ chart.label }}</h4>
+                      <small>{{ chart.unit }} · 时间趋势</small>
+                    </div>
+                    <strong>{{ chart.current_label }}</strong>
+                  </div>
+                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + '近7天曲线图'">
+                    <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                    <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                    <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                  </svg>
+                  <div class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
+                  <div v-if="chart.is_multi" class="farmer-chart-legend">
+                    <span v-for="series in chart.series" :key="'legend-' + series.label"><i :style="{background: series.color}"></i>{{ series.label }}</span>
+                  </div>
+                  <p class="farmer-chart-target">目标：{{ chart.target }}</p>
+                </article>
+              </div>
+            </div>
           </section>
 
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
@@ -281,6 +312,17 @@
                 </div>
                 <div class="farmer-irrigation-amount"><strong>153</strong><span>升</span><small>建议补水量 · 约 8 分 30 秒</small></div>
                 <div class="farmer-irrigation-progress"><span :style="{width: irrigation_progress + '%'}"></span></div>
+                <div v-if="advice_soil_chart" class="farmer-advice-moisture-chart">
+                  <div class="farmer-advice-chart-head">
+                    <span>{{ advice_plot.name }} · 土壤湿度趋势</span>
+                    <strong>{{ advice_soil_chart.current_label }}</strong>
+                  </div>
+                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'">
+                    <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                    <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                  </svg>
+                  <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
+                </div>
                 <p class="farmer-panel-hint">目标：土壤湿度从 16.8% 回到 30%；当前为演示操作，不会控制真实水泵。</p>
                 <div class="farmer-advice-actions">
                   <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation">
@@ -315,7 +357,7 @@
                 </div>
               </article>
 
-              <article class="g-card farmer-advice-card">
+              <article class="g-card farmer-advice-card farmer-feedback-card">
                 <div class="farmer-panel-header">
                   <div>
                     <span class="farmer-section-kicker">建议反馈</span>
