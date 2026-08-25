@@ -462,9 +462,11 @@ const app = createApp({
         { id: 'dashboard', label: '主面板', icon: 'dashboard' },
         { id: 'plots', label: '我的地块', icon: 'grass' },
         { id: 'tasks', label: '今日农务', icon: 'task', badge: pending || undefined },
+        { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'profile', label: '个人中心', icon: 'account_circle' }
+        { id: 'profile', label: '个人中心', icon: 'account_circle' },
+        { id: 'more-tools', label: '更多工具', icon: 'apps', is_footer: true, target: 'work-orders' }
       ];
     });
 
@@ -547,7 +549,7 @@ const app = createApp({
       } else if (!selected_plot.value) {
         selected_plot.value = plots.value[0] || null;
       }
-      if (view_id !== 'tasks') {
+      if (view_id !== 'inspections') {
         show_inspection_form.value = false;
         show_evidence_form.value = false;
       }
@@ -586,6 +588,18 @@ const app = createApp({
       return { background: `conic-gradient(${color} ${score}%, var(--g-border-subtle) 0)` };
     };
     const format_record_time = (iso) => format_relative_label(iso) || '刚刚';
+    const soil_surface_label = (code) => ({ DRY: '偏干', NORMAL: '正常', WET: '偏湿' }[code] || code || '—');
+    const crop_condition_label = (code) => ({
+      HEALTHY: '长势正常',
+      LEAF_SLIGHT_WILT: '叶片轻微萎蔫',
+      PEST_SUSPECTED: '疑似病虫害'
+    }[code] || code || '—');
+    const evidence_type_label = (code) => ({
+      FIELD_INSPECTION: '现场巡田',
+      RETEST: '传感器复测',
+      DEVICE_CHECK: '设备检查'
+    }[code] || code || '—');
+    const find_plot_name = (plot_id) => find_plot_by_id(plots.value, plot_id)?.name || plot_id || '—';
 
     const open_message = (msg) => {
       selected_message.value = msg;
@@ -711,7 +725,7 @@ const app = createApp({
       } else if (question.includes('温度') || question.includes('热')) {
         answer = '当前示范地块温度在 23.8~27.6°C，暂未触发高温告警；如果棚内持续升温，建议先通风并记录现场情况。';
       } else if (question.includes('病') || question.includes('虫')) {
-        answer = '系统没有足够的图像证据判断病虫害。请在今日农务中申请巡田或上传现场观察，再由管理员复核。';
+        answer = '系统没有足够的图像证据判断病虫害。请在「巡田记录」中申请巡田或录入现场观察，再由管理员复核。';
       }
       latest_answer.value = answer;
       qa_history.value.unshift({ id: Date.now(), question, answer });
@@ -720,7 +734,7 @@ const app = createApp({
     };
 
     const open_inspection_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId) => {
-      navigate('tasks');
+      navigate('inspections');
       inspection_form.value = {
         plot_id: plot_id || '',
         soil_surface: 'NORMAL',
@@ -758,7 +772,7 @@ const app = createApp({
     };
 
     const open_evidence_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId) => {
-      navigate('tasks');
+      navigate('inspections');
       evidence_form.value = { plot_id: plot_id || '', type: 'FIELD_INSPECTION', reason: '' };
       show_evidence_form.value = true;
     };
@@ -910,6 +924,10 @@ const app = createApp({
       metric_status_of,
       health_ring_style,
       format_record_time,
+      soil_surface_label,
+      crop_condition_label,
+      evidence_type_label,
+      find_plot_name,
       open_message,
       open_message_from_dashboard,
       close_message,

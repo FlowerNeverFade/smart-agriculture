@@ -19,6 +19,17 @@
 
 .farmer-sidebar {
   border-right-color: var(--g-success-bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.farmer-nav-main { display: flex; flex-direction: column; }
+.farmer-nav-footer {
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--g-border-subtle);
 }
 
 /* 导航项：紫色高亮 */
@@ -1034,6 +1045,13 @@
 .farmer-qa-history { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
 .farmer-qa-history button { border: 0; background: transparent; text-align: left; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; padding: 3px 0; }
 
+.farmer-record-meta {
+  margin-top: 4px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.farmer-evidence-panel { margin-top: 20px; }
 .farmer-task-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
 .farmer-task-tool-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
 .farmer-task-tool-card > .material-symbols-outlined { font-size: 30px; color: var(--g-success); }
@@ -1209,6 +1227,25 @@
 
 /* 原有决策模块的农户入口：只呈现少量清晰的下一步操作 */
 .farmer-shared-tools { margin-top: 20px; }
+.farmer-shared-tools-entry {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .2s, background .2s, transform .2s;
+}
+.farmer-shared-tools-entry:hover { border-color: var(--g-primary); transform: translateY(-1px); }
+.farmer-shared-tools-entry h3 { font-size: 16px; margin-bottom: 4px; }
+.farmer-shared-tools-arrow { color: var(--g-text-secondary); }
 .farmer-shared-tool-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

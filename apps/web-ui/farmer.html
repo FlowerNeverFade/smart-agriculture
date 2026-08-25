@@ -48,14 +48,27 @@
 
     <div class="g-body">
       <nav class="g-sidebar farmer-sidebar" :class="{collapsed: !is_sidebar_open}">
-        <div v-for="nav in nav_items"
-             :key="nav.id"
-             class="g-nav-item farmer-nav-item"
-             :class="{active: current_view === nav.id}"
-             @click="navigate(nav.id)">
-          <span class="material-symbols-outlined">{{ nav.icon }}</span>
-          <span class="farmer-nav-label">{{ nav.label }}</span>
-          <span v-if="nav.badge" class="farmer-nav-badge">{{ nav.badge }}</span>
+        <div class="farmer-nav-main">
+          <template v-for="nav in nav_items" :key="nav.id">
+            <div v-if="!nav.is_footer"
+                 class="g-nav-item farmer-nav-item"
+                 :class="{active: current_view === nav.id}"
+                 @click="navigate(nav.id)">
+              <span class="material-symbols-outlined">{{ nav.icon }}</span>
+              <span class="farmer-nav-label">{{ nav.label }}</span>
+              <span v-if="nav.badge" class="farmer-nav-badge">{{ nav.badge }}</span>
+            </div>
+          </template>
+        </div>
+        <div class="farmer-nav-footer">
+          <template v-for="nav in nav_items" :key="nav.id">
+            <div v-if="nav.is_footer"
+                 class="g-nav-item farmer-nav-item"
+                 @click="open_shared_view(nav.target)">
+              <span class="material-symbols-outlined">{{ nav.icon }}</span>
+              <span class="farmer-nav-label">{{ nav.label }}</span>
+            </div>
+          </template>
         </div>
       </nav>
 
@@ -188,31 +201,14 @@
               </div>
             </div>
 
-            <div class="g-card farmer-shared-tools">
-              <div class="farmer-panel-header">
-                <div>
-                  <h3>更多决策工具</h3>
-                  <p class="farmer-panel-hint">需要查看完整证据、风险推演或工单流转时，可进入原有专业模块。</p>
-                </div>
-                <span class="g-badge primary">已接入</span>
+            <button type="button" class="g-card farmer-shared-tools-entry" @click="open_shared_view('work-orders')">
+              <div>
+                <h3>更多决策工具</h3>
+                <p class="farmer-panel-hint">查看完整证据、风险推演或工单流转，进入原有专业模块。</p>
               </div>
-              <div class="farmer-shared-tool-grid">
-                <button
-                  v-for="module in shared_module_links"
-                  :key="module.id"
-                  type="button"
-                  class="farmer-shared-tool-card"
-                  @click="open_shared_view(module.id)"
-                >
-                  <span class="material-symbols-outlined farmer-shared-tool-icon">{{ module.icon }}</span>
-                  <span class="farmer-shared-tool-copy">
-                    <strong>{{ module.label }}</strong>
-                    <small>{{ module.description }}</small>
-                  </span>
-                  <span class="material-symbols-outlined farmer-shared-tool-arrow">arrow_forward</span>
-                </button>
-              </div>
-            </div>
+              <span class="g-badge primary">已接入</span>
+              <span class="material-symbols-outlined farmer-shared-tools-arrow">arrow_forward</span>
+            </button>
           </section>
 
           <section v-else-if="current_view === 'plots'" class="farmer-workspace" key="plots">
@@ -566,12 +562,11 @@
             <div class="farmer-page-header">
               <div>
                 <h2>今日农务</h2>
-                <p class="role-summary">查看待办、执行巡田和提交现场记录；任务由农场管理员下达。</p>
+                <p class="role-summary">查看待办与执行进度；任务由农场管理员下达。巡田与补证请前往「巡田记录」。</p>
               </div>
               <div class="farmer-page-actions">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('work-orders')"><span class="material-symbols-outlined">assignment</span>查看工单中心</button>
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()"><span class="material-symbols-outlined">edit_note</span>录入巡田记录</button>
-                <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_evidence_form()"><span class="material-symbols-outlined">add_task</span>申请补证</button>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('inspections')"><span class="material-symbols-outlined">fact_check</span>巡田记录</button>
               </div>
             </div>
 
@@ -599,34 +594,6 @@
                   </div>
                   <div v-if="!column.items.length" class="farmer-empty">暂无{{ column.label }}任务</div>
                 </div>
-              </div>
-            </div>
-
-            <div class="farmer-task-tools">
-              <article class="g-card farmer-task-tool-card">
-                <span class="material-symbols-outlined">fact_check</span>
-                <div><h3>巡田记录</h3><p>把现场看到的土壤、作物和设备情况记录下来，作为诊断依据。</p></div>
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()">开始记录</button>
-              </article>
-              <article class="g-card farmer-task-tool-card">
-                <span class="material-symbols-outlined">assignment_late</span>
-                <div><h3>缺少证据？</h3><p>申请复测、巡田或设备检查，提交后由管理员安排。</p></div>
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_evidence_form()">申请补证</button>
-              </article>
-            </div>
-
-            <div class="g-card farmer-record-panel">
-              <div class="farmer-panel-header">
-                <div><h3>最近巡田记录</h3><p class="farmer-panel-hint">人工观察不会覆盖传感器数据</p></div>
-                <span class="g-badge success">{{ inspection_records.length }} 条</span>
-              </div>
-              <div class="farmer-record-list">
-                <div v-for="record in inspection_records.slice(0, 3)" :key="record.inspectionId" class="farmer-record-item">
-                  <span class="material-symbols-outlined">grass</span>
-                  <div><strong>{{ record.plotName || record.plotId }}</strong><p>{{ record.notes }}</p></div>
-                  <time>{{ format_record_time(record.observedAt) }}</time>
-                </div>
-                <p v-if="!inspection_records.length" class="farmer-empty">还没有巡田记录</p>
               </div>
             </div>
 
@@ -682,12 +649,76 @@
                         <button v-if="selected_task.status === 'PENDING'" class="g-btn primary farmer-btn-light" @click="start_task(selected_task)">开始执行</button>
                         <button v-if="selected_task.status === 'IN_PROGRESS'" class="g-btn primary farmer-btn-light" @click="complete_task(selected_task)">提交完成</button>
                         <button class="g-btn secondary farmer-btn-light" @click="report_issue(selected_task)">上报问题</button>
+                        <button class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_task.plot_id)">录入巡田记录</button>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </transition>
+          </section>
+
+          <section v-else-if="current_view === 'inspections'" class="farmer-workspace" key="inspections">
+            <div class="farmer-page-header">
+              <div>
+                <h2>巡田记录</h2>
+                <p class="role-summary">录入现场观察、申请补证，并查看已提交的巡田记录；人工观察不会覆盖传感器数据。</p>
+              </div>
+              <div class="farmer-page-actions">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_evidence_form()"><span class="material-symbols-outlined">add_task</span>申请补证</button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_inspection_form()"><span class="material-symbols-outlined">edit_note</span>录入巡田记录</button>
+              </div>
+            </div>
+
+            <div class="farmer-task-tools">
+              <article class="g-card farmer-task-tool-card">
+                <span class="material-symbols-outlined">fact_check</span>
+                <div><h3>巡田记录</h3><p>把现场看到的土壤、作物和设备情况记录下来，作为诊断依据。</p></div>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()">开始记录</button>
+              </article>
+              <article class="g-card farmer-task-tool-card">
+                <span class="material-symbols-outlined">assignment_late</span>
+                <div><h3>缺少证据？</h3><p>申请复测、巡田或设备检查，提交后由管理员安排。</p></div>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_evidence_form()">申请补证</button>
+              </article>
+            </div>
+
+            <div class="g-card farmer-record-panel">
+              <div class="farmer-panel-header">
+                <div><h3>全部巡田记录</h3><p class="farmer-panel-hint">人工观察不会覆盖传感器数据，按时间倒序展示</p></div>
+                <span class="g-badge success">{{ inspection_records.length }} 条</span>
+              </div>
+              <div class="farmer-record-list">
+                <div v-for="record in inspection_records" :key="record.inspectionId" class="farmer-record-item">
+                  <span class="material-symbols-outlined">grass</span>
+                  <div>
+                    <strong>{{ record.plotName || record.plotId }}</strong>
+                    <p>{{ record.notes }}</p>
+                    <p class="farmer-record-meta">表层 {{ soil_surface_label(record.soilSurface) }} · 作物 {{ crop_condition_label(record.cropCondition) }} · 便携仪 {{ record.portableSoilMoisture }}%</p>
+                  </div>
+                  <time>{{ format_record_time(record.observedAt) }}</time>
+                </div>
+                <p v-if="!inspection_records.length" class="farmer-empty">还没有巡田记录</p>
+              </div>
+            </div>
+
+            <div v-if="evidence_requests.length" class="g-card farmer-record-panel farmer-evidence-panel">
+              <div class="farmer-panel-header">
+                <div><h3>补证申请</h3><p class="farmer-panel-hint">已提交、等待管理员安排的补证请求</p></div>
+                <span class="g-badge primary">{{ evidence_requests.length }} 条</span>
+              </div>
+              <div class="farmer-record-list">
+                <div v-for="req in evidence_requests" :key="req.id" class="farmer-record-item">
+                  <span class="material-symbols-outlined">assignment_late</span>
+                  <div>
+                    <strong>{{ evidence_type_label(req.type) }}</strong>
+                    <p>{{ req.reason }}</p>
+                    <p class="farmer-record-meta">地块 {{ find_plot_name(req.plotId) }} · {{ req.status }}</p>
+                  </div>
+                  <time>{{ format_record_time(req.createdAt) }}</time>
+                </div>
+              </div>
+            </div>
 
             <div v-if="show_inspection_form" class="farmer-form-overlay" @click.self="close_inspection_form">
               <form class="farmer-form-card" @submit.prevent="submit_inspection">

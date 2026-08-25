@@ -39,6 +39,10 @@
         <span class="g-header-title">AgriLoop Console</span>
       </div>
       <div class="g-header-right">
+        <button v-if="farmerReturnPage" type="button" class="g-btn secondary g-btn-return-farmer" @click="returnToFarmer">
+          <span class="material-symbols-outlined">arrow_back</span>
+          返回农户工作台
+        </button>
         <button class="g-btn icon-only" @click="toggleTheme" title="切换主题"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
         <button class="g-btn icon-only" @click="logout" title="退出登录"><span class="material-symbols-outlined">logout</span></button>
         <span class="g-badge" :class="isLive ? 'success' : 'warning'">

@@ -186,6 +186,19 @@ body {
 .g-btn.secondary:hover { background-color: var(--g-primary-bg); border-color: var(--g-primary); }
 .g-btn.icon-only { width: 40px; height: 40px; padding: 0; border-radius: 50%; background: transparent; color: var(--g-text-secondary); }
 .g-btn.icon-only:hover { background-color: var(--g-bg-hover); }
+.g-btn-return-farmer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.g-btn-return-farmer .material-symbols-outlined { font-size: 18px; }
+@media (max-width: 720px) {
+  .g-btn-return-farmer { padding: 6px 10px; font-size: 13px; }
+  .g-btn-return-farmer .material-symbols-outlined { margin: 0; }
+}
 
 /* Data Tables */
 .g-table { width: 100%; border-collapse: collapse; text-align: left; }

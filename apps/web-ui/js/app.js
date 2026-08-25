@@ -13,6 +13,21 @@ const NAV_CATALOG = Object.freeze([
   { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } }
 ]);
 
+const FARMER_SHARED_CONTEXT_KEY = 'agriloop-farmer-shared-context';
+
+function readFarmerReturnPage() {
+  try {
+    const raw = sessionStorage.getItem(FARMER_SHARED_CONTEXT_KEY);
+    if (!raw) return '';
+    const context = JSON.parse(raw);
+    if (context?.source !== 'farmer') return '';
+    const page = String(context.returnPage || 'farmer.html');
+    return page.endsWith('.html') ? page : 'farmer.html';
+  } catch (error) {
+    return '';
+  }
+}
+
 function scopePlots(plots, user) {
   const catalog = Array.isArray(plots) ? plots : [];
   const assigned = Array.isArray(user?.plotIds) ? user.plotIds.map(String) : [];
@@ -515,6 +530,17 @@ const app = createApp({
       window.location.replace('login.html');
     };
 
+    const farmerReturnPage = ref(readFarmerReturnPage());
+    const returnToFarmer = () => {
+      const page = farmerReturnPage.value || 'farmer.html';
+      try {
+        sessionStorage.removeItem(FARMER_SHARED_CONTEXT_KEY);
+      } catch (error) {
+        // Ignore storage failures; navigation still works.
+      }
+      window.location.assign(page);
+    };
+
     const navigate = (viewId, params = {}) => {
       if (!state.value.allowedViews.includes(viewId)) {
         showToast(`“${NAV_CATALOG.find((item) => item.id === viewId)?.label || viewId}”不在${currentRole.value.label}的权限范围内`, 'error');
@@ -585,6 +611,8 @@ const app = createApp({
       toggleTheme,
       toggleSidebar,
       logout,
+      farmerReturnPage,
+      returnToFarmer,
       navigate
     };
   }
