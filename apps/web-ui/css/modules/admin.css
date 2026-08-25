@@ -500,14 +500,15 @@
 .admin-plot-landscape { grid-column: 1 / -1; margin-top: 24px; padding-top: 4px; }
 .admin-section-caption { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
 .admin-overview-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
-.admin-overview-main { min-width: 0; }
+.admin-overview-main { display: flex; flex-direction: column; min-width: 0; min-height: 560px; }
 .admin-overview-label { margin: 2px 0 14px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
 .admin-overview-events { position: sticky; top: 20px; min-width: 0; }
 .admin-overview-events > .g-card { height: 560px; box-sizing: border-box; padding: 16px !important; }
 .admin-overview-events .event-timeline { max-height: none; height: 100%; box-sizing: border-box; }
+.admin-overview-main > div[style*="margin-top:20px"] { margin-top: auto !important; }
 .admin-overview-layout.events-collapsed { grid-template-columns: 1fr; }
 .admin-overview-layout.events-collapsed .admin-overview-main { grid-column: 1 / -1; }
-.admin-events-expand { margin-top: 12px; color: var(--g-primary); }
+.admin-events-expand { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--g-primary); }
 .admin-landscape-count { font-size: 12px; color: var(--g-text-secondary); }
 .admin-landscape-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-landscape-actions select { padding: 7px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font-size: 12px; }
