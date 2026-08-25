@@ -215,6 +215,33 @@ class AgriApplicationTest {
     }
 
     @Test
+    void activeRealReadingWinsWhenAQueuedSimulatorSampleHasALaterTimestamp() {
+        String plotId = "hardware-race-" + System.nanoTime();
+        Instant now = Instant.now();
+        Map<String, Object> queuedSimulator = Map.ofEntries(
+                Map.entry("eventId", "queued-sim-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", "mock-" + plotId),
+                Map.entry("metric", "LIGHT"), Map.entry("value", 12_345.0), Map.entry("unit", "lux"),
+                Map.entry("ts", now.plusMillis(1).toString()), Map.entry("sourceMode", "SIMULATION"),
+                Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"));
+        Map<String, Object> real = Map.ofEntries(
+                Map.entry("eventId", "queued-real-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", "bearpi-e53-ia1-race"),
+                Map.entry("metric", "LIGHT"), Map.entry("value", 432.1), Map.entry("unit", "lux"),
+                Map.entry("ts", now.toString()), Map.entry("sourceMode", "REAL"),
+                Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"));
+
+        // Store the queued synthetic sample first to model the MQTT callback
+        // race, then accept the physical sample.  The read model must still
+        // expose the physical value while its source lease is active.
+        assertThat(store.saveTelemetry(queuedSimulator)).isTrue();
+        assertThat(engine.ingest(real)).containsEntry("accepted", true);
+        Map<String, Object> latestLight = Jsons.map(new ObjectMapper(), engine.latestMetrics(plotId).get("LIGHT"));
+        assertThat(Jsons.text(latestLight, "eventId", "")).isEqualTo(real.get("eventId"));
+        assertThat(Jsons.text(latestLight, "sourceMode", "")).isEqualTo("REAL");
+    }
+
+    @Test
     void telemetryLimitReturnsTheNewestWindowInChronologicalOrder() {
         Instant base = Instant.parse("2026-08-24T00:00:00Z");
         for (int index = 0; index < 4; index++) {

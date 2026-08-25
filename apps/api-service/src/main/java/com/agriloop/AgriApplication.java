@@ -1618,12 +1618,37 @@ class AgriEngine {
     }
 
     Map<String, Object> latestMetrics(String plotId) {
-        Instant from = Instant.now().minus(48, ChronoUnit.HOURS);
+        Instant now = Instant.now();
+        Instant from = now.minus(48, ChronoUnit.HOURS);
+        List<Map<String, Object>> samples = store.telemetry(plotId, null, from, now.plusSeconds(1), 10000);
         Map<String, Map<String, Object>> latest = new LinkedHashMap<>();
-        for (Map<String, Object> e : store.telemetry(plotId, null, from, Instant.now().plusSeconds(1), 10000)) {
-            latest.put(Jsons.text(e, "metric", ""), e);
+        Map<String, Map<String, Object>> activeReal = new LinkedHashMap<>();
+        Instant realCutoff = now.minus(Math.max(1, properties.getRealSourceTimeoutSeconds()), ChronoUnit.SECONDS);
+        for (Map<String, Object> sample : samples) {
+            String metric = Jsons.text(sample, "metric", "");
+            if (metric.isBlank()) continue;
+            if (newerTelemetry(sample, latest.get(metric))) latest.put(metric, sample);
+            if ("REAL".equalsIgnoreCase(Jsons.text(sample, "sourceMode", ""))
+                    && !Jsons.instant(sample.get("ts"), Instant.EPOCH).isBefore(realCutoff)
+                    && newerTelemetry(sample, activeReal.get(metric))) {
+                activeReal.put(metric, sample);
+            }
         }
+        // A synthetic sample can be timestamped a few milliseconds after a
+        // physical reading while both MQTT callbacks are in flight.  Source
+        // priority must win that race, otherwise the overview briefly shows
+        // the simulator even though the hardware is already active.
+        activeReal.forEach(latest::put);
         return new LinkedHashMap<>(latest);
+    }
+
+    private boolean newerTelemetry(Map<String, Object> candidate, Map<String, Object> current) {
+        if (current == null) return true;
+        int byTime = Jsons.instant(candidate.get("ts"), Instant.EPOCH)
+                .compareTo(Jsons.instant(current.get("ts"), Instant.EPOCH));
+        if (byTime != 0) return byTime > 0;
+        return Jsons.text(candidate, "eventId", "")
+                .compareTo(Jsons.text(current, "eventId", "")) > 0;
     }
 
     List<Map<String, Object>> telemetry(String plotId, String metric, String from, String to, int limit) {
