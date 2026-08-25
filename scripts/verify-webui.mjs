@@ -349,10 +349,14 @@ gotoView('#view=work-orders&plotId=plot-a01');
 const opsReady = await waitFor(() => document.querySelector('.field-ops .work-kanban'), 6000);
 ok('farm-operations 工单沙盘渲染', opsReady);
 if (opsReady) {
+  ok('今日农务圆角玻璃沙盘', !!document.querySelector('.field-ops.field-ops--glass .work-kanban')
+    && !!document.querySelector('link[href*="work-orders.css?v=20260825-no-box-texture"]'));
   ok('四态工单看板与时间轴', document.querySelectorAll('.kanban-column').length === 4 && !!document.querySelector('.field-vine-timeline'));
   ok('巡田证据来源标签', document.querySelector('.inspection-strip')?.textContent.includes('USER_PROVIDED'));
   ok('农务界面已移除光标追踪画布', !document.querySelector('[data-field-effects]'));
-  ok('沙盘无网格背景层', !document.querySelector('.field-ops .field-map-grid'));
+  ok('沙盘无网格背景层', !document.querySelector('.field-ops .field-map-grid')
+    && !document.querySelector('.field-ops .field-plot')
+    && !document.querySelector('.field-ops .field-scanline'));
   ok('四项农务状态标题均强化显示', document.querySelectorAll('.ops-metric-row .status-focus').length === 4);
   ok('任务内容绑定左侧当前地块', document.querySelector('.ops-bound-plot')?.textContent.includes('A01 番茄示范田')
     && [...document.querySelectorAll('.work-card')].every((card) => card.dataset.workPlot === 'plot-a01'));
@@ -363,7 +367,14 @@ gotoView('#view=resource-coordination');
 const resourceReady = await waitFor(() => document.querySelector('.resource-ops .demand-list'), 6000);
 ok('水资源协同排程渲染', resourceReady);
 if (resourceReady) {
-  ok('透明玻璃排程面板', !!document.querySelector('.resource-ops.resource-ops--glass .demand-panel')
+  ok('水资源排程归入经营与指导', [...document.querySelectorAll('.module-nav-group')].some((group) =>
+    group.querySelector('.module-nav-group-label')?.textContent.includes('经营与指导')
+      && group.querySelector('[data-view="resource-coordination"]')));
+  ok('水资源排程不展示地块选择条', document.getElementById('workspacePlotContext')?.hidden === true);
+  ok('水资源排程 URL 无 plotId', !window.location.hash.includes('plotId='));
+  const glassPanel = document.querySelector('.resource-ops.resource-ops--glass .demand-panel');
+  ok('透明玻璃排程面板', !!glassPanel
+    && !!document.querySelector('link[href*="work-orders.css?v=20260825-no-box-texture"]')
     && !document.querySelector('.resource-ops .resource-window-effects-canvas')
     && !document.querySelector('.resource-ops .backdrop-water-sphere')
     && document.querySelector('.resource-ops').textContent.includes('SIMULATED'));

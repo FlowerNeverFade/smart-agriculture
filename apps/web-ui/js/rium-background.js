@@ -155,13 +155,15 @@ const SKY_FRAG = /* glsl */ `
     float band = exp(-pow((heightMix - 0.08) / 0.14, 2.0));
     col = mix(col, mix(uHorizon, uHaze, 0.28), band * mix(0.05, 0.12, uSunGlow));
 
-    // Smaller constant-size sun + soft glow (no hard outline)
+    // Compact sun disc with a gentle halo (no sticker-hard edge)
     float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
     float sunDisk = smoothstep(0.9972, 0.9997, sunDot);
-    float sunSoft = pow(sunDot, 280.0) * 0.22;
-    float sunGlowSoft = pow(sunDot, 48.0) * 0.1;
-    col += vec3(1.0, 0.84, 0.38) * (sunDisk * 0.95 + sunSoft) * uSunGlow;
-    col += vec3(1.0, 0.88, 0.48) * sunGlowSoft * uSunGlow;
+    float sunSoft = pow(sunDot, 220.0) * 0.32;
+    float sunHalo = pow(sunDot, 36.0) * 0.16;
+    float sunBloom = pow(sunDot, 12.0) * 0.07;
+    col += vec3(1.0, 0.90, 0.52) * (sunDisk * 0.9 + sunSoft) * uSunGlow;
+    col += vec3(1.0, 0.86, 0.48) * sunHalo * uSunGlow;
+    col += vec3(0.95, 0.88, 0.62) * sunBloom * uSunGlow;
 
     // Constant-size cool moon disc
     float moonDot = max(dot(dir, normalize(uMoonDir)), 0.0);

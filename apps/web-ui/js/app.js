@@ -21,7 +21,7 @@ function redirectToLogin() {
 
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
-const SUBVIEW_ASSET = '20260824-text-lean';
+const SUBVIEW_ASSET = '20260825-no-box-texture';
 /** 不展示工作区地块选择条：核心闭环部分视图 + 第三子区「经营与指导」 */
 const PLOT_INDEPENDENT_VIEWS = new Set([
   'home',
@@ -29,7 +29,8 @@ const PLOT_INDEPENDENT_VIEWS = new Set([
   'decision-console',
   'decision-feed',
   'crop-packs',
-  'value-ledger'
+  'value-ledger',
+  'resource-coordination'
 ]);
 const SUBVIEW_RENDERERS = {
   'risk-forecast': async (container, plotId, app) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderRiskForecast(container, plotId, {

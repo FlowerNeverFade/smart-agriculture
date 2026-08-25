@@ -207,9 +207,19 @@ body > .app-container {
   .inspection-strip,
   .ops-metric-row article,
   .field-vine-timeline,
-  .field-timeline-node
+  .field-timeline-node,
+  .field-command-hero
+),
+.main-feed-module-panel .resource-ops :is(
+  .resource-hero,
+  .resource-balance-panel,
+  .demand-panel,
+  .allocation-panel,
+  .execution-status-panel,
+  .resource-state
 ) {
   background-image: none;
+  box-shadow: var(--rium-glass-shadow);
 }
 
 .app-header::before,
@@ -332,7 +342,16 @@ body > .app-container {
   .resource-ops .demand-panel,
   .resource-ops .allocation-panel,
   .resource-ops .execution-status-panel,
-  .resource-ops .resource-state
+  .resource-ops .resource-state,
+  .field-ops .field-command-hero,
+  .field-ops .ops-metric-row article,
+  .field-ops .ops-toolbar,
+  .field-ops .kanban-column,
+  .field-ops .inspection-strip,
+  .field-ops .ops-role-card,
+  .field-ops .work-card,
+  .field-ops .field-vine-timeline,
+  .field-ops .field-timeline-node
 ) {
   background-image: none;
   -webkit-backdrop-filter: none;

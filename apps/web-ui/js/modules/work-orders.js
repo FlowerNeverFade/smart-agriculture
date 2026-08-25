@@ -168,14 +168,10 @@ function workBoardTemplate(context) {
     .slice(0, 6);
 
   return `
-    <section class="farm-ops field-ops" data-field-surface aria-label="今日农务与巡田透明农田沙盘">
+    <section class="farm-ops field-ops field-ops--glass" data-field-surface aria-label="今日农务与巡田透明农田沙盘">
       <div class="field-sandbox-backdrop" aria-hidden="true">
-        <div class="field-plot field-plot-a"></div>
-        <div class="field-plot field-plot-b"></div>
-        <div class="field-plot field-plot-c"></div>
         <div class="field-mist field-mist-one"></div>
         <div class="field-mist field-mist-two"></div>
-        <div class="field-scanline"></div>
         <div class="field-dew field-dew-a"></div>
         <div class="field-dew field-dew-b"></div>
         <div class="field-dew field-dew-c"></div>
