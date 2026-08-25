@@ -587,6 +587,26 @@ const AdminSettingsView = {
       { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
     ];
 
+    const deleteUser = (userId) => {
+      if (confirm('确定要删除该用户吗？')) {
+        const idx = props.state.adminUsers.findIndex(u => u.userId === userId);
+        if (idx > -1) {
+          const u = props.state.adminUsers[idx];
+          props.state.adminUsers.splice(idx, 1);
+          props.state.adminAuditLogs.unshift({
+            id: 'log-' + Date.now(),
+            time: new Date().toLocaleTimeString().substring(0, 5),
+            operator: 'sysadmin',
+            action: 'CONFIG_CHANGE',
+            actionLabel: '删除用户',
+            detail: '删除用户 ' + u.username,
+            ip: '127.0.0.1'
+          });
+          toast('用户已删除');
+        }
+      }
+    };
+
     const createUser = () => {
       const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       props.state.adminUsers.push({
@@ -613,7 +633,7 @@ const AdminSettingsView = {
       toast('用户创建成功');
     };
 
-    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser };
+    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser };
   }
 };
 

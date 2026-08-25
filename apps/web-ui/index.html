@@ -37,7 +37,12 @@
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar"><span class="material-symbols-outlined">menu</span></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
-        <span class="g-header-title">AgriLoop Console</span>
+        <span class="g-header-title" style="margin-right:24px">AgriLoop Console</span>
+        
+        <select v-model="selectedFarm" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
+          <option value="farm-demo">农智示范农场</option>
+          <option value="farm-science">科学城数字农业基地</option>
+        </select>
       </div>
       <div class="g-header-right">
         <button class="g-btn icon-only" @click="toggleTheme" title="切换主题"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
@@ -1058,6 +1063,20 @@
               <span><span class="material-symbols-outlined" style="font-size:14px">speed</span> {{ pack.metrics }} 项指标</span>
               <span><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> {{ pack.knowledgeDocs }} 篇知识</span>
             </div>
+            
+            <div v-if="expandedPack === pack.id" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
+              <div style="font-weight: 500; color: var(--g-text-primary); margin-bottom: 8px;">包含内容：</div>
+              <ul style="padding-left: 20px; margin: 0; line-height: 1.6;">
+                <li>生命周期：育苗期、生长期、开花期、挂果期</li>
+                <li>核心指标：土壤湿度、EC值、环境温湿度、光照、CO2</li>
+                <li>安全规则：每日最大灌溉量、命令防抖拦截</li>
+                <li>知识文档：病虫害防治指南、灌溉基准表</li>
+              </ul>
+              <div style="margin-top: 12px; display: flex; gap: 8px;">
+                <button class="g-btn text sm" style="padding: 4px 8px">编辑配置</button>
+                <button class="g-btn text sm" style="padding: 4px 8px">查看依赖</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1150,6 +1169,7 @@
                 <td>{{ u.createdAt }}</td>
                 <td>
                   <button class="g-btn text sm" @click="u.enabled = !u.enabled">{{ u.enabled ? '停用' : '启用' }}</button>
+                  <button class="g-btn text sm" style="color:var(--g-danger)" @click="deleteUser(u.userId)">删除</button>
                 </td>
               </tr>
             </tbody>
