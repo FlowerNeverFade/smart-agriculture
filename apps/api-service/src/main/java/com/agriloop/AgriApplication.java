@@ -67,6 +67,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.Instant;
@@ -462,13 +463,34 @@ class AgriStore {
     }
 
     Map<String, Object> userByUsername(String username) {
-        Map<String, Object> u = users.values().stream().filter(v -> username.equals(Jsons.text(v, "username", ""))).findFirst().orElse(null);
+        String normalized = String.valueOf(username == null ? "" : username).trim().toLowerCase(Locale.ROOT);
+        Map<String, Object> u = users.values().stream().filter(v -> normalized.equals(Jsons.text(v, "username", "").toLowerCase(Locale.ROOT))).findFirst().orElse(null);
         if (u != null) return Jsons.copy(mapper, u);
         if (!databaseReady) return null;
         try {
-            return jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled FROM user_account WHERE username=?",
-                    (rs, rowNum) -> userMap(rs), username);
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE LOWER(username)=?",
+                    (rs, rowNum) -> userMap(rs), normalized);
+            if (persisted != null) users.put(Jsons.text(persisted, "userId", normalized), Jsons.copy(mapper, persisted));
+            return persisted;
         } catch (DataAccessException ignored) { return null; }
+    }
+
+    Map<String, Object> userById(String userId) {
+        Map<String, Object> cached = users.get(userId);
+        if (cached != null) return Jsons.copy(mapper, cached);
+        if (!databaseReady) return null;
+        try {
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE user_id=?",
+                    (rs, rowNum) -> userMap(rs), userId);
+            if (persisted != null) users.put(userId, Jsons.copy(mapper, persisted));
+            return persisted;
+        } catch (DataAccessException ignored) { return null; }
+    }
+
+    boolean credentialVersionMatches(String userId, int credentialVersion) {
+        Map<String, Object> user = userById(userId);
+        return user != null && Jsons.bool(user, "enabled", true)
+                && (int) Jsons.whole(user, "credentialVersion", 1) == credentialVersion;
     }
 
     private Map<String, Object> userMap(ResultSet rs) throws java.sql.SQLException {
@@ -476,7 +498,8 @@ class AgriStore {
         u.put("userId", rs.getString("user_id")); u.put("username", rs.getString("username"));
         u.put("passwordHash", rs.getString("password_hash")); u.put("role", rs.getString("role_code"));
         u.put("farmIds", Jsons.strings(rs.getString("farm_ids"))); u.put("plotIds", Jsons.strings(rs.getString("plot_ids")));
-        u.put("enabled", rs.getBoolean("enabled")); return u;
+        u.put("enabled", rs.getBoolean("enabled")); u.put("recoveryCodeHash", rs.getString("recovery_code_hash"));
+        u.put("credentialVersion", rs.getInt("credential_version")); return u;
     }
 
     private void saveUser(Map<String, Object> user) {
@@ -485,15 +508,57 @@ class AgriStore {
         if (!databaseReady) return;
         try {
             if (postgres) {
-                jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled) VALUES (?,?,?,?,?,?,?) ON CONFLICT(username) DO NOTHING",
+                jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(username) DO NOTHING",
                         id, Jsons.text(user, "username", id), Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
-                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true));
+                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                        StringUtils.hasText(Jsons.text(user, "recoveryCodeHash", "")) ? Jsons.text(user, "recoveryCodeHash", "") : null,
+                        Jsons.whole(user, "credentialVersion", 1));
             } else {
-                jdbc.update("MERGE INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled) KEY(username) VALUES (?,?,?,?,?,?,?)",
+                jdbc.update("MERGE INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) KEY(username) VALUES (?,?,?,?,?,?,?,?,?)",
                         id, Jsons.text(user, "username", id), Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
-                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true));
+                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                        StringUtils.hasText(Jsons.text(user, "recoveryCodeHash", "")) ? Jsons.text(user, "recoveryCodeHash", "") : null,
+                        Jsons.whole(user, "credentialVersion", 1));
             }
         } catch (DataAccessException ignored) { databaseReady = false; }
+    }
+
+    synchronized boolean createUser(Map<String, Object> user) {
+        String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
+        if (username.isBlank() || userByUsername(username) != null) return false;
+        String id = Jsons.text(user, "userId", Jsons.id("usr"));
+        user.put("userId", id); user.put("username", username); user.putIfAbsent("credentialVersion", 1);
+        if (databaseReady) {
+            try {
+                jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                        id, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
+                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                        Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+            } catch (DataAccessException error) {
+                String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+                if (message.contains("unique") || message.contains("duplicate")) return false;
+                databaseReady = false;
+            }
+        }
+        users.put(id, Jsons.copy(mapper, user));
+        return true;
+    }
+
+    synchronized Map<String, Object> updatePassword(String username, String passwordHash, String recoveryCodeHash) {
+        Map<String, Object> user = userByUsername(username);
+        if (user == null) return null;
+        int version = (int) Jsons.whole(user, "credentialVersion", 1) + 1;
+        user.put("passwordHash", passwordHash); user.put("recoveryCodeHash", recoveryCodeHash); user.put("credentialVersion", version);
+        String id = Jsons.text(user, "userId", "");
+        if (databaseReady) {
+            try {
+                int updated = jdbc.update("UPDATE user_account SET password_hash=?,recovery_code_hash=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                        passwordHash, recoveryCodeHash, version, id);
+                if (updated != 1) return null;
+            } catch (DataAccessException error) { databaseReady = false; }
+        }
+        users.put(id, Jsons.copy(mapper, user));
+        return Jsons.copy(mapper, user);
     }
 
     private void seed() {
@@ -528,6 +593,7 @@ class AgriStore {
     private void seedUser(String id, String username, String password, String role, List<String> farms, List<String> plots) {
         Map<String, Object> user = new LinkedHashMap<>(); user.put("userId", id); user.put("username", username);
         user.put("passwordHash", passwordEncoder.encode(password)); user.put("role", role); user.put("farmIds", farms); user.put("plotIds", plots); user.put("enabled", true);
+        user.put("credentialVersion", 1);
         saveUser(user);
     }
 }
@@ -656,11 +722,17 @@ final class UserPrincipal {
     final String role;
     final Set<String> farmIds;
     final Set<String> plotIds;
+    final int credentialVersion;
 
     UserPrincipal(String userId, String username, String role, Collection<String> farms, Collection<String> plots) {
+        this(userId, username, role, farms, plots, 1);
+    }
+
+    UserPrincipal(String userId, String username, String role, Collection<String> farms, Collection<String> plots, int credentialVersion) {
         this.userId = userId; this.username = username; this.role = role;
         this.farmIds = new HashSet<>(farms == null ? List.of() : farms);
         this.plotIds = new HashSet<>(plots == null ? List.of() : plots);
+        this.credentialVersion = Math.max(1, credentialVersion);
     }
     boolean canAccessPlot(String plotId) { return "SYSTEM_ADMIN".equals(role) || plotIds.contains("*") || plotIds.contains(plotId); }
     boolean canControl() { return Set.of("FARM_ADMIN", "SYSTEM_ADMIN", "FIELD_OPERATOR").contains(role); }
@@ -683,14 +755,17 @@ class JwtService {
         Instant now = Instant.now();
         return Jwts.builder().subject(principal.userId).claim("username", principal.username).claim("role", principal.role)
                 .claim("farmIds", principal.farmIds).claim("plotIds", principal.plotIds)
+                .claim("credentialVersion", principal.credentialVersion)
                 .issuedAt(Date.from(now)).expiration(Date.from(now.plus(properties.getJwtTtlMinutes(), ChronoUnit.MINUTES)))
                 .signWith(key).compact();
     }
 
     UserPrincipal parse(String token) {
         Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+        Object rawVersion = claims.get("credentialVersion");
+        int credentialVersion = rawVersion instanceof Number n ? n.intValue() : 1;
         return new UserPrincipal(claims.getSubject(), String.valueOf(claims.get("username", String.class)),
-                String.valueOf(claims.get("role", String.class)), claimList(claims.get("farmIds")), claimList(claims.get("plotIds")));
+                String.valueOf(claims.get("role", String.class)), claimList(claims.get("farmIds")), claimList(claims.get("plotIds")), credentialVersion);
     }
 
     private Collection<String> claimList(Object value) {
@@ -702,7 +777,8 @@ class JwtService {
 @Component
 class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
-    JwtAuthenticationFilter(JwtService jwtService) { this.jwtService = jwtService; }
+    private final AgriStore store;
+    JwtAuthenticationFilter(JwtService jwtService, AgriStore store) { this.jwtService = jwtService; this.store = store; }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
@@ -710,6 +786,7 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (header != null && header.startsWith("Bearer ")) {
             try {
                 UserPrincipal principal = jwtService.parse(header.substring(7));
+                if (!store.credentialVersionMatches(principal.userId, principal.credentialVersion)) throw new IllegalArgumentException("credential version mismatch");
                 List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role));
                 SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, authorities));
             } catch (Exception ignored) {
@@ -886,6 +963,11 @@ class SimulatorControl {
 
 @Service
 class AgriEngine {
+    private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final int RECOVERY_MAX_FAILURES = 5;
+    private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private static final Set<String> ACCOUNT_ROLES = Set.of("FARMER", "FIELD_OPERATOR", "FARM_ADMIN", "SYSTEM_ADMIN");
+    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FIELD_OPERATOR");
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -893,6 +975,7 @@ class AgriEngine {
     private final AgriEventBus events;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
     private final StringRedisTemplate redis;
     private final MqttCommandGateway mqttCommands;
     private final RedisStreamWorker streamWorker;
@@ -901,12 +984,13 @@ class AgriEngine {
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
     private final Set<String> evaluatedCommands = ConcurrentHashMap.newKeySet();
     private final Map<String, Deque<Instant>> ruleWindows = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Instant>> recoveryFailures = new ConcurrentHashMap<>();
     private final AtomicBoolean redisAvailable = new AtomicBoolean(false);
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
 
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
-               PasswordEncoder passwordEncoder, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
+               PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
@@ -918,21 +1002,148 @@ class AgriEngine {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.store = store; this.events = events; this.properties = properties;
-        this.passwordEncoder = passwordEncoder; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
+        this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
     }
 
     Map<String, Object> login(String username, String password) {
-        Map<String, Object> user = store.userByUsername(username);
-        if (user == null || !Jsons.bool(user, "enabled", true) || !passwordEncoder.matches(password, Jsons.text(user, "passwordHash", ""))) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_INVALID", "用户名或密码错误");
+        return login(username, password, "");
+    }
+
+    Map<String, Object> login(String username, String password, String expectedRole) {
+        String normalized = normalizeUsername(username);
+        String normalizedRole = normalizeRole(expectedRole);
+        Map<String, Object> user = store.userByUsername(normalized);
+        boolean credentialsMatch = user != null && Jsons.bool(user, "enabled", true)
+                && passwordEncoder.matches(password, Jsons.text(user, "passwordHash", ""));
+        boolean roleMatches = normalizedRole.isBlank() || (user != null && ACCOUNT_ROLES.contains(normalizedRole)
+                && normalizedRole.equals(Jsons.text(user, "role", "")));
+        if (!credentialsMatch || !roleMatches) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_INVALID", "账号、密码或身份错误");
         }
-        UserPrincipal principal = new UserPrincipal(Jsons.text(user, "userId", ""), username, Jsons.text(user, "role", "FARMER"),
-                Jsons.strings(user.get("farmIds")), Jsons.strings(user.get("plotIds")));
-        Map<String, Object> result = new LinkedHashMap<>(); result.put("accessToken", new JwtService(properties).issue(principal));
+        return authenticatedSession(user);
+    }
+
+    Map<String, Object> register(String username, String password) {
+        return register(username, password, "FARMER");
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole) {
+        String normalized = normalizeUsername(username);
+        String role = validateSelfRegistrationRole(requestedRole);
+        validateUsername(normalized);
+        validatePassword(normalized, password);
+        String recoveryCode = generateRecoveryCode();
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("userId", Jsons.id("user")); user.put("username", normalized);
+        user.put("passwordHash", passwordEncoder.encode(password)); user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
+        user.put("role", role); user.put("farmIds", List.of("farm-demo"));
+        user.put("plotIds", List.of("plot-a01", "plot-a02", "plot-b01")); user.put("enabled", true); user.put("credentialVersion", 1);
+        if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role));
+        Map<String, Object> result = authenticatedSession(user);
+        result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+        return result;
+    }
+
+    Map<String, Object> resetPassword(String username, String recoveryCode, String newPassword) {
+        String normalized = normalizeUsername(username);
+        validateUsername(normalized);
+        validatePassword(normalized, newPassword);
+        ensureRecoveryAllowed(normalized);
+        Map<String, Object> user = store.userByUsername(normalized);
+        String recoveryHash = Jsons.text(user, "recoveryCodeHash", "");
+        String presentedCode = normalizeRecoveryCode(recoveryCode);
+        if (user == null || recoveryHash.isBlank() || presentedCode.isBlank() || !passwordEncoder.matches(presentedCode, recoveryHash)) {
+            recordRecoveryFailure(normalized);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "ACCOUNT_RECOVERY_INVALID", "账号或恢复码无效");
+        }
+        String nextRecoveryCode = generateRecoveryCode();
+        Map<String, Object> updated = store.updatePassword(normalized, passwordEncoder.encode(newPassword),
+                passwordEncoder.encode(normalizeRecoveryCode(nextRecoveryCode)));
+        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_UPDATE_FAILED", "密码更新失败，请稍后重试");
+        recoveryFailures.remove(normalized);
+        store.logEvent("ACCOUNT_PASSWORD_RESET", Map.of("userId", updated.get("userId"), "username", normalized,
+                "credentialVersion", Jsons.whole(updated, "credentialVersion", 1)));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("username", normalized); result.put("recoveryCode", nextRecoveryCode);
+        result.put("recoveryCodeShownOnce", true); result.put("credentialVersion", Jsons.whole(updated, "credentialVersion", 1));
+        return result;
+    }
+
+    private Map<String, Object> authenticatedSession(Map<String, Object> user) {
+        UserPrincipal principal = new UserPrincipal(Jsons.text(user, "userId", ""), Jsons.text(user, "username", ""), Jsons.text(user, "role", "FARMER"),
+                Jsons.strings(user.get("farmIds")), Jsons.strings(user.get("plotIds")), (int) Jsons.whole(user, "credentialVersion", 1));
+        Map<String, Object> result = new LinkedHashMap<>(); result.put("accessToken", jwtService.issue(principal));
         result.put("tokenType", "Bearer"); result.put("expiresInSeconds", properties.getJwtTtlMinutes() * 60);
         result.put("user", Map.of("userId", principal.userId, "username", principal.username, "role", principal.role,
                 "farmIds", principal.farmIds, "plotIds", principal.plotIds));
         return result;
+    }
+
+    private String normalizeUsername(String username) {
+        return String.valueOf(username == null ? "" : username).trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeRole(String role) {
+        return String.valueOf(role == null ? "" : role).trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String validateSelfRegistrationRole(String requestedRole) {
+        String role = normalizeRole(requestedRole);
+        if (role.isBlank()) role = "FARMER";
+        if (SELF_REGISTRATION_ROLES.contains(role)) return role;
+        if (ACCOUNT_ROLES.contains(role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "管理员身份需要系统授权，不能自助注册");
+        }
+        throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的注册身份");
+    }
+
+    private void validateUsername(String username) {
+        if (!username.matches("[a-z0-9][a-z0-9._-]{3,31}")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_USERNAME_INVALID", "账号需为 4–32 位字母、数字、点、下划线或短横线");
+        }
+    }
+
+    private void validatePassword(String username, String password) {
+        String value = String.valueOf(password == null ? "" : password);
+        boolean strongEnough = value.length() >= 8 && value.length() <= 64
+                && value.chars().anyMatch(Character::isLetter) && value.chars().anyMatch(Character::isDigit)
+                && !value.toLowerCase(Locale.ROOT).contains(username);
+        if (!strongEnough) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_PASSWORD_WEAK", "密码需为 8–64 位并同时包含字母和数字，且不能包含账号");
+        }
+    }
+
+    private String generateRecoveryCode() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder code = new StringBuilder(19);
+        for (int i = 0; i < 16; i++) {
+            if (i > 0 && i % 4 == 0) code.append('-');
+            code.append(RECOVERY_ALPHABET.charAt(random.nextInt(RECOVERY_ALPHABET.length())));
+        }
+        return code.toString();
+    }
+
+    private String normalizeRecoveryCode(String value) {
+        return String.valueOf(value == null ? "" : value).replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
+    }
+
+    private void ensureRecoveryAllowed(String username) {
+        Deque<Instant> attempts = recoveryFailures.computeIfAbsent(username, ignored -> new ArrayDeque<>());
+        synchronized (attempts) {
+            Instant cutoff = Instant.now().minus(RECOVERY_FAILURE_WINDOW);
+            while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) attempts.removeFirst();
+            if (attempts.size() >= RECOVERY_MAX_FAILURES) {
+                long retryAfter = Math.max(1, Duration.between(Instant.now(), attempts.peekFirst().plus(RECOVERY_FAILURE_WINDOW)).toSeconds());
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "ACCOUNT_RECOVERY_LOCKED", "尝试次数过多，请稍后再试")
+                        .withDetails(Map.of("retryAfterSeconds", retryAfter));
+            }
+        }
+    }
+
+    private void recordRecoveryFailure(String username) {
+        Deque<Instant> attempts = recoveryFailures.computeIfAbsent(username, ignored -> new ArrayDeque<>());
+        synchronized (attempts) { attempts.addLast(Instant.now()); }
     }
 
     Map<String, Object> overview() {
@@ -2412,7 +2623,21 @@ class AgriController {
     }
 
     @PostMapping("/auth/login")
-    ResponseEntity<?> login(@RequestBody Map<String, Object> body) { return ok(engine.login(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""))); }
+    ResponseEntity<?> login(@RequestBody Map<String, Object> body) {
+        return ok(engine.login(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "")));
+    }
+
+    @PostMapping("/auth/register")
+    ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(
+                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "FARMER"))));
+    }
+
+    @PostMapping("/auth/password/reset")
+    ResponseEntity<?> resetPassword(@RequestBody Map<String, Object> body) {
+        return ok(engine.resetPassword(Jsons.text(body, "username", ""), Jsons.text(body, "recoveryCode", ""),
+                Jsons.text(body, "newPassword", "")));
+    }
 
     @GetMapping("/auth/me")
     ResponseEntity<?> me(Authentication authentication) {

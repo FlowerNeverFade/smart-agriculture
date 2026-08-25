@@ -7,6 +7,7 @@ import { api } from './api.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
 import { PlotTelemetryView } from './plot-telemetry-view.js';
+import { initWheatFallback } from './wheat-fallback.js';
 
 const LOGIN_ENTRY = 'login.html';
 
@@ -131,6 +132,8 @@ class AgriApp {
     this._backgroundDesiredVisible = true;
     this._waterVisualsReady = false;
     this._particlesCleanup = null;
+    this._wheatFallbackCleanup = null;
+    this._webglBackgroundUnavailable = false;
     this._themeCleanup = null;
     this._savedScrollPos = null;   // 弹窗打开前的主页滚动位置
     this._lastHandledHash = null;  // hash 路由幂等去重
@@ -173,6 +176,9 @@ class AgriApp {
     this.renderChangelog();
     this.renderHomeSummary();
     this.handleRoute();
+    // 先挂载 2D 麦田兜底，再异步尝试 Three.js。这样在 WebGL 初始化慢或
+    // 被浏览器/GPU 禁用时，首屏也不会只剩空的夜空和粒子。
+    this.ensureWheatFallback();
     this.scheduleVisualEnhancements();
     void supportingDataTask;
 
@@ -197,10 +203,16 @@ class AgriApp {
 
     this._visualEnhancementTask = afterFirstPaint
       .then(async () => {
+        this.ensureWheatFallback();
         if (!this._waterVisualsReady) {
-          const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-water-rail-fix');
-          syncWaterVisuals(document);
-          this._waterVisualsReady = true;
+          try {
+            const { syncWaterVisuals } = await import('./water-visual.js?v=20260824-water-rail-fix');
+            syncWaterVisuals(document);
+            this._waterVisualsReady = true;
+          } catch (error) {
+            // 水球是增强视觉，不能阻止麦田回退和其他背景层启动。
+            console.warn('Water visual enhancement unavailable:', error);
+          }
         }
         await this.ensureAmbientVisuals();
       })
@@ -216,6 +228,8 @@ class AgriApp {
   async ensureAmbientVisuals() {
     if (!this._backgroundDesiredVisible) return;
 
+    this.ensureWheatFallback();
+
     const jobs = [];
     if (!this._particlesCleanup) {
       jobs.push(import('./particles.js?v=20260824-perf-1').then(({ initParticles }) => {
@@ -227,14 +241,42 @@ class AgriApp {
 
     const webglAvailable = typeof window.WebGLRenderingContext === 'function'
       || typeof window.WebGL2RenderingContext === 'function';
-    if (webglAvailable && !this.riumBackground) {
-      jobs.push(import('./rium-background.js?v=20260824-perf-1').then(({ initRiumBackground }) => {
-        if (!this._backgroundDesiredVisible || this.riumBackground) return;
-        this.riumBackground = initRiumBackground();
-        this.riumBackground?.setVisible(true);
-      }));
+    if (webglAvailable && !this.riumBackground && !this._webglBackgroundUnavailable) {
+      jobs.push(import('./rium-background.js?v=20260824-wheat-fallback')
+        .then(({ initRiumBackground }) => {
+          if (!this._backgroundDesiredVisible || this.riumBackground) return;
+          try {
+            const background = initRiumBackground();
+            if (!background) return;
+            this.riumBackground = background;
+            this.riumBackground.setVisible(true);
+            // Three.js 已经接管背景后移除回退画布，避免两套场景叠加。
+            if (this._wheatFallbackCleanup) {
+              this._wheatFallbackCleanup();
+              this._wheatFallbackCleanup = null;
+            }
+          } catch (error) {
+            // 保留 2D 麦田；部分浏览器仍会暴露 WebGL 构造函数，但创建
+            // renderer 或 shader 时才失败。
+            this._webglBackgroundUnavailable = true;
+            console.warn('WebGL wheat background unavailable; using 2D fallback:', error);
+          }
+        })
+        .catch(error => {
+          this._webglBackgroundUnavailable = true;
+          console.warn('WebGL wheat background module unavailable; using 2D fallback:', error);
+        }));
     }
-    await Promise.all(jobs);
+    // 背景增强互相独立：任一可选层失败，都不能把其他层和回退层一起
+    // 传播成未处理 Promise rejection。
+    await Promise.allSettled(jobs);
+  }
+
+  ensureWheatFallback() {
+    if (this._wheatFallbackCleanup || !this._backgroundDesiredVisible) return this._wheatFallbackCleanup;
+    this._wheatFallbackCleanup = initWheatFallback();
+    this._wheatFallbackCleanup?.setVisible?.(true);
+    return this._wheatFallbackCleanup;
   }
 
   setAmbientVisualsVisible(value) {
@@ -242,6 +284,7 @@ class AgriApp {
     this._backgroundDesiredVisible = visible;
     this.riumBackground?.setVisible(visible);
     this._particlesCleanup?.setVisible?.(visible);
+    this._wheatFallbackCleanup?.setVisible?.(visible);
     if (visible && (!this.riumBackground || !this._particlesCleanup)) {
       this.scheduleVisualEnhancements();
     }

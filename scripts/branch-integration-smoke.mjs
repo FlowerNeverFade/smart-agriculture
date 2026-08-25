@@ -26,6 +26,14 @@ const { chromium } = await import(pathToFileURL(playwrightPath).href);
 const baseUrl = (process.env.AGRILOOP_WEB_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const liveUsername = process.env.AGRILOOP_TEST_USERNAME || '';
 const livePassword = process.env.AGRILOOP_TEST_PASSWORD || '';
+const testTheme = ['light', 'dark'].includes(process.env.AGRILOOP_TEST_THEME)
+  ? process.env.AGRILOOP_TEST_THEME
+  : '';
+const viewportMatch = String(process.env.AGRILOOP_TEST_VIEWPORT || '').match(/^(\d+)x(\d+)$/);
+const testViewport = viewportMatch
+  ? { width: Number(viewportMatch[1]), height: Number(viewportMatch[2]) }
+  : { width: 1440, height: 900 };
+const disableWebgl = process.env.AGRILOOP_DISABLE_WEBGL === '1';
 const outputDir = 'artifacts/branch-integration';
 mkdirSync(outputDir, { recursive: true });
 
@@ -36,12 +44,25 @@ const check = (name, pass, detail = '') => {
   console.log(`${pass ? 'PASS' : 'FAIL'} | ${name}${detail ? ` | ${detail}` : ''}`);
 };
 
+const browserArgs = [
+  '--use-gl=angle',
+  '--use-angle=swiftshader',
+  '--enable-unsafe-swiftshader',
+  '--disable-gpu-sandbox'
+];
+if (disableWebgl) browserArgs.push('--disable-webgl', '--disable-gpu');
+
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox']
+  args: browserArgs
 });
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+const context = await browser.newContext({ viewport: testViewport, deviceScaleFactor: 1 });
+if (testTheme) {
+  await context.addInitScript(({ theme }) => {
+    localStorage.setItem('agriloop-theme', theme);
+  }, { theme: testTheme });
+}
 const page = await context.newPage();
 // Headless Chromium may default to reduced transparency.  Exercise the
 // normal production presentation here so the frosted blur contract is tested,
@@ -107,25 +128,35 @@ try {
     console.error('DASHBOARD DEBUG', JSON.stringify({ debugState, runtimeErrors }, null, 2));
     throw error;
   }
+  await page.waitForSelector('#rightRailPanel .system-status-card', { state: 'attached', timeout: 12_000 });
+  await page.waitForSelector('#btnToggleRightRail', { state: 'visible', timeout: 12_000 });
   await page.waitForTimeout(1_500);
   const dashboardState = await page.evaluate(() => {
     const background = document.querySelector('#riumBackground');
-    const canvas = background?.querySelector('canvas');
+    const webglCanvas = background?.querySelector('.rium-webgl-canvas');
+    const fallbackCanvas = background?.querySelector('.agri-wheat-fallback');
     const box = background?.getBoundingClientRect();
     const header = document.querySelector('.app-header');
     const headerStyle = header ? getComputedStyle(header) : null;
     const headerSheen = header ? getComputedStyle(header, '::before') : null;
+    const fallbackBox = fallbackCanvas?.getBoundingClientRect();
     return {
       plotCount: document.querySelectorAll('#plotListContainer .plot-list-item').length,
       backgroundVisible: Boolean(box && box.width > 0 && box.height > 0),
-      hasWebglCanvas: Boolean(canvas),
+      hasWebglCanvas: Boolean(webglCanvas),
+      fallbackVisible: Boolean(fallbackBox && fallbackBox.width > 0 && fallbackBox.height > 0
+        && getComputedStyle(fallbackCanvas).display !== 'none'),
       sandboxNav: Boolean(document.querySelector('[data-view="crop-sandbox"]')),
       frostedBlur: Boolean(headerStyle && `${headerStyle.backdropFilter || headerStyle.webkitBackdropFilter || ''}`.includes('blur')),
       frostedNoSheen: headerStyle?.backgroundImage === 'none' && headerSheen?.display === 'none'
     };
   });
   check('主面板渲染三块演示地块', dashboardState.plotCount >= 3, `${dashboardState.plotCount} plots`);
-  check('rium_dev 背景容器与 WebGL 画布已接入', dashboardState.backgroundVisible && dashboardState.hasWebglCanvas);
+  check('rium_dev 背景容器与 WebGL/2D 麦田画布已接入',
+    dashboardState.backgroundVisible && (dashboardState.hasWebglCanvas || dashboardState.fallbackVisible));
+  if (disableWebgl) {
+    check('WebGL 不可用时 2D 麦田回退仍可见', dashboardState.fallbackVisible);
+  }
   check('微观作物沙盘使用独立导航入口', dashboardState.sandboxNav);
   check('主面板使用毛玻璃而非液态高光', dashboardState.frostedBlur && dashboardState.frostedNoSheen);
   const railLayout = await page.evaluate(() => {
@@ -265,23 +296,29 @@ try {
   await openModalView('#view=risk-forecast&plotId=plot-a01', '.rf-root', '03-risk-forecast.png');
   await openModalView('#view=scenario-replay&plotId=plot-a01', '.sr-scenario-grid', '04-scenario-replay.png');
 
-  await page.evaluate(() => { window.location.hash = '#view=crop-sandbox&plotId=plot-a01'; });
-  await page.waitForSelector('.crop-sandbox-container.active', { timeout: 12_000 });
-  await page.waitForTimeout(1_800);
-  const sandboxState = await page.evaluate(() => {
-    const root = document.querySelector('.crop-sandbox-container.active');
-    const text = root?.textContent || '';
-    return {
-      canvas: Boolean(root?.querySelector('canvas')),
-      simulated: text.includes('SIMULATED'),
-      estimated: text.includes('ESTIMATED'),
-      hasCurrencyClaim: text.includes('¥') || text.includes('元')
-    };
-  });
-  check('lxh 微观作物沙盘 WebGL 场景已加载', sandboxState.canvas);
-  check('沙盘明确标记 SIMULATED / ESTIMATED', sandboxState.simulated && sandboxState.estimated);
-  check('沙盘未展示无证据货币收益', !sandboxState.hasCurrencyClaim);
-  await page.screenshot({ path: `${outputDir}/05-crop-sandbox.png`, fullPage: false });
+  if (disableWebgl) {
+    // 该运行专门验证 WebGL 失败时的麦田回退；微观沙盘本身也是
+    // WebGL 画布，因此在此模式下跳过其正向渲染断言。
+    check('WebGL 禁用回退运行跳过沙盘正向渲染', true);
+  } else {
+    await page.evaluate(() => { window.location.hash = '#view=crop-sandbox&plotId=plot-a01'; });
+    await page.waitForSelector('.crop-sandbox-container.active', { timeout: 12_000 });
+    await page.waitForTimeout(1_800);
+    const sandboxState = await page.evaluate(() => {
+      const root = document.querySelector('.crop-sandbox-container.active');
+      const text = root?.textContent || '';
+      return {
+        canvas: Boolean(root?.querySelector('canvas')),
+        simulated: text.includes('SIMULATED'),
+        estimated: text.includes('ESTIMATED'),
+        hasCurrencyClaim: text.includes('¥') || text.includes('元')
+      };
+    });
+    check('lxh 微观作物沙盘 WebGL 场景已加载', sandboxState.canvas);
+    check('沙盘明确标记 SIMULATED / ESTIMATED', sandboxState.simulated && sandboxState.estimated);
+    check('沙盘未展示无证据货币收益', !sandboxState.hasCurrencyClaim);
+    await page.screenshot({ path: `${outputDir}/05-crop-sandbox.png`, fullPage: false });
+  }
 
   await page.evaluate(() => { window.location.hash = '#view=work-orders&plotId=plot-a01'; });
   await page.waitForSelector('.field-ops .work-kanban', { timeout: 10_000 });
@@ -306,7 +343,8 @@ try {
 
   const unexpectedErrors = runtimeErrors.filter(message =>
     !message.includes('/actuator/health') &&
-    !message.includes('Failed to load resource: the server responded with a status of 404')
+    !message.includes('Failed to load resource: the server responded with a status of 404') &&
+    !(disableWebgl && message.includes('WebGL'))
   );
   check('真实 Chromium 无未处理运行时错误', unexpectedErrors.length === 0, unexpectedErrors.join(' || '));
 } finally {

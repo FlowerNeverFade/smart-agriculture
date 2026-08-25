@@ -865,6 +865,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = exposureFor(palette);
   lockSrgbOutput(renderer);
+  renderer.domElement.classList.add('rium-webgl-canvas');
+  renderer.domElement.dataset.backgroundLayer = 'webgl';
   container.appendChild(renderer.domElement);
 
   const hemi = new THREE.HemisphereLight(palette.zenith, palette.soil, palette.hemi);

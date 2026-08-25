@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f3f7ef">
   <title>AgriLoop · 智慧农业登录</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
-  <link rel="stylesheet" href="css/login-motion.css?v=ambient-liquid-1">
+  <link rel="stylesheet" href="css/login-motion.css?v=account-role-1">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
@@ -33,45 +33,151 @@
         <p class="intro__status"><span aria-hidden="true"></span>SYSTEM ONLINE</p>
       </section>
 
-      <section class="auth" aria-labelledby="loginTitle" aria-live="polite">
-        <h2 id="loginTitle">欢迎回来</h2>
-        <p class="auth__summary">登录 AgriLoop 智慧农业工作台</p>
-      <form id="loginForm" novalidate>
-        <label class="field">
-          <span>账号</span>
-          <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
-        </label>
+      <section class="auth" data-view="login" aria-live="polite">
+        <div class="auth-view" data-auth-view="login">
+          <h2 id="loginTitle">欢迎回来</h2>
+          <p class="auth__summary">登录 AgriLoop 智慧农业工作台</p>
+          <form id="loginForm" novalidate>
+            <label class="field">
+              <span>账号</span>
+              <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
+            </label>
 
-        <label class="field field--password">
-          <span>密码</span>
-          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
-          <button class="field__reveal" id="revealPassword" type="button" aria-label="显示密码">显示</button>
-        </label>
+            <label class="field field--select">
+              <span>登录身份</span>
+              <select id="loginRole" name="role" required>
+                <option value="" selected disabled>请选择账户身份</option>
+                <option value="FARMER">种植农户</option>
+                <option value="FIELD_OPERATOR">田间操作员</option>
+                <option value="FARM_ADMIN">农场管理员</option>
+                <option value="SYSTEM_ADMIN">系统管理员</option>
+              </select>
+              <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
+            </label>
 
-        <p class="form-error" id="formError" role="alert"></p>
+            <label class="field field--password">
+              <span>密码</span>
+              <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+              <button class="field__reveal" type="button" data-reveal="password" aria-label="显示密码">显示</button>
+            </label>
 
-        <button class="submit" id="submitButton" type="submit">
-          <span class="submit__label">进入系统</span>
-          <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 12h13M13 6l6 6-6 6"></path>
-          </svg>
-          <span class="submit__loading" aria-hidden="true">验证中</span>
-        </button>
+            <p class="form-error" id="loginError" role="alert"></p>
 
-        <div class="auth__actions">
-          <button class="text-action" id="demoToggle" type="button" aria-expanded="false" aria-controls="demoPanel">演示身份</button>
-          <button class="text-action" id="forgotPassword" type="button">忘记密码</button>
-        </div>
-      </form>
+            <button class="submit" id="loginButton" type="submit">
+              <span class="submit__label">进入系统</span>
+              <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6"></path>
+              </svg>
+              <span class="submit__loading" aria-hidden="true">验证中</span>
+            </button>
 
-        <div class="demo-panel" id="demoPanel" hidden>
-          <p>选择体验身份</p>
-          <div class="demo-panel__roles">
-            <button type="button" data-user="admin">农场管理员</button>
-            <button type="button" data-user="farmer">种植农户</button>
-            <button type="button" data-user="operator">田间操作员</button>
-            <button type="button" data-user="sysadmin">系统管理员</button>
+            <div class="auth__actions auth__actions--login">
+              <button class="text-action" id="showRegister" type="button">创建账号</button>
+              <button class="text-action" id="demoToggle" type="button" aria-expanded="false" aria-controls="demoPanel">演示身份</button>
+              <button class="text-action" id="showRecovery" type="button">忘记密码</button>
+            </div>
+          </form>
+
+          <div class="demo-panel" id="demoPanel" hidden>
+            <p>选择体验身份</p>
+            <div class="demo-panel__roles">
+              <button type="button" data-user="admin">农场管理员</button>
+              <button type="button" data-user="farmer">种植农户</button>
+              <button type="button" data-user="operator">田间操作员</button>
+              <button type="button" data-user="sysadmin">系统管理员</button>
+            </div>
           </div>
+        </div>
+
+        <div class="auth-view" data-auth-view="register" hidden>
+          <button class="auth__back" type="button" data-back-to-login aria-label="返回登录">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H6m6-6-6 6 6 6"></path></svg>
+            返回登录
+          </button>
+          <h2 id="registerTitle">创建账号</h2>
+          <p class="auth__summary">选择工作身份，开始管理示范农场</p>
+          <form id="registerForm" novalidate>
+            <label class="field">
+              <span>账号</span>
+              <input id="registerUsername" name="username" type="text" autocomplete="username" placeholder="4–32 位字母或数字" maxlength="32" required>
+            </label>
+            <label class="field field--select">
+              <span>注册身份</span>
+              <select id="registerRole" name="role" required aria-describedby="registerRoleNote">
+                <option value="" selected disabled>请选择账户身份</option>
+                <option value="FARMER">种植农户</option>
+                <option value="FIELD_OPERATOR">田间操作员</option>
+              </select>
+              <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
+            </label>
+            <label class="field field--password">
+              <span>密码</span>
+              <input id="registerPassword" name="password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" maxlength="64" required>
+              <button class="field__reveal" type="button" data-reveal="registerPassword" aria-label="显示密码">显示</button>
+            </label>
+            <label class="field field--password">
+              <span>确认密码</span>
+              <input id="registerConfirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入密码" maxlength="64" required>
+              <button class="field__reveal" type="button" data-reveal="registerConfirm" aria-label="显示密码">显示</button>
+            </label>
+            <p class="form-error" id="registerError" role="alert"></p>
+            <button class="submit" id="registerButton" type="submit">
+              <span class="submit__label">创建并继续</span>
+              <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+              <span class="submit__loading" aria-hidden="true">创建中</span>
+            </button>
+            <p class="auth__note" id="registerRoleNote">管理员身份需由系统授权；注册成功后会生成一次性账户恢复码。</p>
+          </form>
+        </div>
+
+        <div class="auth-view" data-auth-view="recovery" hidden>
+          <button class="auth__back" type="button" data-back-to-login aria-label="返回登录">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H6m6-6-6 6 6 6"></path></svg>
+            返回登录
+          </button>
+          <h2 id="recoveryTitle">重设密码</h2>
+          <p class="auth__summary">使用注册时保存的恢复码验证身份</p>
+          <form id="recoveryForm" novalidate>
+            <label class="field">
+              <span>账号</span>
+              <input id="recoveryUsername" name="username" type="text" autocomplete="username" placeholder="请输入账号" maxlength="32" required>
+            </label>
+            <label class="field">
+              <span>账户恢复码</span>
+              <input id="recoveryCodeInput" name="recoveryCode" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="24" required>
+            </label>
+            <label class="field field--password">
+              <span>新密码</span>
+              <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" maxlength="64" required>
+              <button class="field__reveal" type="button" data-reveal="newPassword" aria-label="显示密码">显示</button>
+            </label>
+            <label class="field field--password">
+              <span>确认新密码</span>
+              <input id="newPasswordConfirm" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" maxlength="64" required>
+              <button class="field__reveal" type="button" data-reveal="newPasswordConfirm" aria-label="显示密码">显示</button>
+            </label>
+            <p class="form-error" id="recoveryError" role="alert"></p>
+            <button class="submit" id="recoveryButton" type="submit">
+              <span class="submit__label">确认重设</span>
+              <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+              <span class="submit__loading" aria-hidden="true">更新中</span>
+            </button>
+          </form>
+        </div>
+
+        <div class="auth-view auth-view--recovery-code" data-auth-view="recovery-code" hidden>
+          <span class="auth__success-mark" aria-hidden="true">✓</span>
+          <h2 id="recoveryCodeTitle">保存恢复码</h2>
+          <p class="auth__summary" id="recoveryCodeSummary">此恢复码只显示一次，请立即妥善保存。</p>
+          <div class="recovery-code-box">
+            <code id="recoveryCodeValue"></code>
+            <button id="copyRecoveryCode" type="button">复制</button>
+          </div>
+          <p class="auth__note auth__note--warning">恢复码等同于账户备用钥匙。请勿截图分享；再次重设密码后，当前恢复码将自动失效。</p>
+          <button class="submit" id="recoveryCodeContinue" type="button">
+            <span class="submit__label">我已保存，进入系统</span>
+            <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+          </button>
         </div>
       </section>
     </div>
@@ -79,6 +185,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=ambient-liquid-1"></script>
+  <script type="module" src="js/login.js?v=account-role-1"></script>
 </body>
 </html>

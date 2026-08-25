@@ -57,12 +57,12 @@ export class ApiService {
   }
 
   async login(credentials, password) {
-    const { username, password: secret } = typeof credentials === 'object'
+    const { username, password: secret, role = '' } = typeof credentials === 'object'
       ? (credentials || {})
       : { username: credentials, password };
     const resp = await this._fetch('/api/v1/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password: secret })
+      body: JSON.stringify({ username, password: secret, role })
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
@@ -70,6 +70,30 @@ export class ApiService {
     }
     this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
     return session;
+  }
+
+  async register({ username, password, role }) {
+    const resp = await this._fetch('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role })
+    }, { auth: false });
+    const session = resp?.data || resp;
+    if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {
+      throw new ApiError('注册响应不完整', { code: 'ACCOUNT_REGISTER_RESPONSE_INVALID', payload: resp });
+    }
+    return session;
+  }
+
+  async resetPassword({ username, recoveryCode, newPassword }) {
+    const resp = await this._fetch('/api/v1/auth/password/reset', {
+      method: 'POST',
+      body: JSON.stringify({ username, recoveryCode, newPassword })
+    }, { auth: false });
+    const result = resp?.data || resp;
+    if (!result?.username || !result?.recoveryCode) {
+      throw new ApiError('密码重设响应不完整', { code: 'ACCOUNT_RESET_RESPONSE_INVALID', payload: resp });
+    }
+    return result;
   }
 
   async getCurrentUser() {
