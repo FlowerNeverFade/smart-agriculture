@@ -246,7 +246,7 @@ const RiskForecastView = {
         renderChart();
         const canvas = document.getElementById('riskPotCanvas');
         if (canvas) {
-            createPotScene(canvas, { cropCode: 'CORN' }).then(p => {
+            createPotScene(canvas, { cropCode: 'TOMATO' }).then(p => {
                 pot3d = p;
                 if (pot3d) {
                     const cls = currentScenario.value === 'DROUGHT' ? 'drought' : (currentScenario.value === 'STORM' ? 'storm' : (currentScenario.value === 'DRIFT' ? 'drift' : 'normal'));
