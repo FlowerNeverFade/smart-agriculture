@@ -4,6 +4,27 @@
  */
 import { MOCK_DATA } from './mock-data.js';
 
+const SESSION_STORAGE_KEY = 'agriloop_session';
+
+const DEMO_USERS = {
+  admin: {
+    userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN',
+    displayName: '周场长', farmIds: ['farm-demo'], plotIds: ['*']
+  },
+  farmer: {
+    userId: 'user-farmer', username: 'farmer', role: 'FARMER',
+    displayName: '陈农艺', farmIds: ['farm-demo'], plotIds: ['plot-a01', 'plot-a02', 'plot-a03', 'plot-b01', 'plot-b02', 'plot-b03', 'plot-c01']
+  },
+  operator: {
+    userId: 'user-operator', username: 'operator', role: 'FIELD_OPERATOR',
+    displayName: '李师傅', farmIds: ['farm-demo'], plotIds: ['plot-a01', 'plot-a02', 'plot-b01']
+  },
+  sysadmin: {
+    userId: 'user-system', username: 'sysadmin', role: 'SYSTEM_ADMIN',
+    displayName: '王工', farmIds: ['farm-demo'], plotIds: ['*']
+  }
+};
+
 export class ApiService {
   constructor(baseUrl = '') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -27,6 +48,65 @@ export class ApiService {
       this.isLive = false;
     }
     return false;
+  }
+
+  async login(username, password, expectedRole = '') {
+    const cleanUsername = String(username || '').trim();
+    if (!cleanUsername || !password) throw new Error('请输入用户名和密码');
+
+    if (this.isLive) {
+      const payload = await this._fetch('/api/v1/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username: cleanUsername, password })
+      });
+      const result = payload?.data || payload;
+      const user = result?.user;
+      if (!user || !result?.accessToken) throw new Error('登录响应不完整');
+      if (expectedRole && user.role !== expectedRole) throw new Error('账号与所选身份不一致');
+      this.token = result.accessToken;
+      localStorage.setItem('agriloop_token', this.token);
+      const session = { ...user, displayName: user.displayName || cleanUsername };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      return session;
+    }
+
+    const user = DEMO_USERS[cleanUsername];
+    if (!user || password !== 'demo123') throw new Error('用户名或密码错误');
+    if (expectedRole && user.role !== expectedRole) throw new Error('账号与所选身份不一致');
+    this.token = `demo-token-${user.role.toLowerCase()}`;
+    localStorage.setItem('agriloop_token', this.token);
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(user));
+    return { ...user };
+  }
+
+  async restoreSession() {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
+    } catch (error) {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+
+    if (!this.token || !stored?.role) return null;
+    if (!this.isLive || this.token.startsWith('demo-token-')) return stored;
+
+    try {
+      const payload = await this._fetch('/api/v1/auth/me');
+      const user = payload?.data || payload;
+      const session = { ...stored, ...user, displayName: stored.displayName || user.username };
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+      return session;
+    } catch (error) {
+      this.logout();
+      return null;
+    }
+  }
+
+  logout() {
+    this.token = '';
+    localStorage.removeItem('agriloop_token');
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem('agriloop_user');
   }
 
   async getOverview() {

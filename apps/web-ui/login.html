@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgriLoop 开放平台 · 登录</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
+  <style>
+    /* ==========================================================================
+       DeepSeek-Inspired Clean & Minimalist Aesthetic
+       ========================================================================== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans", sans-serif;
+      background-color: #0b0d11;
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .login-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 48% 52%;
+      min-height: 100vh;
+    }
+
+    @media (max-width: 960px) {
+      .login-layout {
+        grid-template-columns: 1fr;
+      }
+      .hero-section {
+        display: none;
+      }
+    }
+
+    /* ==========================================================================
+       Left Hero Section (Atmospheric Aura & Spacious Typography)
+       ========================================================================== */
+    .hero-section {
+      position: relative;
+      background: #090c12;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 80px 72px;
+      overflow: hidden;
+    }
+
+    /* DeepSeek Subtle Blue Smoke / Ambient Aura Effect */
+    .hero-section::before {
+      content: "";
+      position: absolute;
+      top: 15%;
+      left: 10%;
+      width: 580px;
+      height: 580px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(53, 98, 160, 0.32) 0%, rgba(26, 52, 90, 0.18) 45%, transparent 70%);
+      filter: blur(50px);
+      pointer-events: none;
+      animation: auraFloat 10s ease-in-out infinite alternate;
+    }
+
+    .hero-section::after {
+      content: "";
+      position: absolute;
+      bottom: -10%;
+      right: -10%;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(35, 134, 54, 0.16) 0%, transparent 65%);
+      filter: blur(60px);
+      pointer-events: none;
+    }
+
+    @keyframes auraFloat {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(25px, -35px) scale(1.08); }
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 480px;
+    }
+
+    .hero-title {
+      font-size: 42px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.25;
+      letter-spacing: -0.8px;
+      margin-bottom: 20px;
+    }
+
+    .hero-title span.brand-name {
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .hero-desc {
+      font-size: 14px;
+      color: #8b949e;
+      line-height: 1.7;
+      margin-bottom: 36px;
+      font-weight: 400;
+    }
+
+    .hero-doc-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 9999px;
+      background-color: #ffffff;
+      color: #0b0d11;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.12);
+    }
+
+    .hero-doc-btn:hover {
+      background-color: #e6edf3;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(255, 255, 255, 0.18);
+    }
+
+    /* ==========================================================================
+       Right Auth Section (Matte Charcoal Pure Dark)
+       ========================================================================== */
+    .auth-section {
+      background-color: #0e1117;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 50px 60px 32px;
+      position: relative;
+    }
+
+    .auth-container {
+      max-width: 580px;
+      width: 100%;
+      margin: auto 0;
+      align-self: center;
+    }
+
+    /* Brand Logo & Platform Badge Header */
+    .auth-brand-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 36px;
+    }
+
+    .brand-logo-text {
+      font-size: 26px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .platform-badge {
+      font-size: 11px;
+      font-weight: 600;
+      color: #ffffff;
+      border: 1px solid #30363d;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Auth Box Grid: Form on Left + QR / Role Box on Right */
+    .auth-grid {
+      display: grid;
+      grid-template-columns: 1fr 180px;
+      gap: 32px;
+      align-items: start;
+    }
+
+    @media (max-width: 640px) {
+      .auth-grid {
+        grid-template-columns: 1fr;
+      }
+      .qr-card-container {
+        display: none;
+      }
+    }
+
+    /* Form Elements (Pill Style like DeepSeek) */
+    .form-pill-group {
+      margin-bottom: 14px;
+      position: relative;
+    }
+
+    .input-pill-wrapper {
+      display: flex;
+      align-items: center;
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 9999px;
+      height: 46px;
+      padding: 0 18px;
+      transition: all 0.2s ease;
+    }
+
+    .input-pill-wrapper:focus-within {
+      border-color: #58a6ff;
+      background-color: #1c2128;
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+    }
+
+    .prefix-text {
+      font-size: 13px;
+      color: #8b949e;
+      margin-right: 12px;
+      font-weight: 500;
+      border-right: 1px solid #30363d;
+      padding-right: 12px;
+    }
+
+    .form-pill-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #ffffff;
+      font-size: 13px;
+    }
+
+    .form-pill-input::placeholder {
+      color: #6e7681;
+    }
+
+    .input-action-btn {
+      background: transparent;
+      border: none;
+      color: #58a6ff;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+      padding-left: 10px;
+      transition: color 0.15s ease;
+    }
+
+    .input-action-btn:hover {
+      color: #79c0ff;
+    }
+
+    /* Agreement Disclaimer */
+    .agreement-text {
+      font-size: 11px;
+      color: #6e7681;
+      line-height: 1.6;
+      margin: 18px 0 20px;
+    }
+
+    .agreement-text a {
+      color: #8b949e;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      transition: color 0.15s ease;
+    }
+
+    .agreement-text a:hover {
+      color: #58a6ff;
+    }
+
+    /* White Solid Submit Button */
+    .btn-login-submit {
+      width: 100%;
+      height: 44px;
+      border-radius: 9999px;
+      background-color: #ffffff;
+      color: #0b0d11;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-login-submit:hover {
+      background-color: #e6edf3;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(255, 255, 255, 0.15);
+    }
+
+    .btn-login-submit:active {
+      transform: translateY(0);
+    }
+
+    .auth-sub-actions {
+      display: flex;
+      justify-content: center;
+      margin-top: 14px;
+    }
+
+    .sub-action-link {
+      font-size: 12px;
+      color: #8b949e;
+      text-decoration: none;
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+
+    .sub-action-link:hover {
+      color: #ffffff;
+    }
+
+    /* ==========================================================================
+       Right QR Code / Quick Role Card
+       ========================================================================== */
+    .qr-card-container {
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      transition: border-color 0.2s ease;
+    }
+
+    .qr-card-container:hover {
+      border-color: #484f58;
+    }
+
+    .qr-code-box {
+      width: 132px;
+      height: 132px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      padding: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+
+    .qr-code-box svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .wechat-scan-text {
+      font-size: 12px;
+      color: #e6edf3;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    .wechat-icon {
+      color: #2ea043;
+      font-size: 14px;
+    }
+
+    /* Compact 4-Role Quick Switcher Inside QR Card */
+    .role-fast-chips {
+      width: 100%;
+      border-top: 1px solid #21262d;
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .role-chip-btn {
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      font-size: 11px;
+      padding: 5px 8px;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.15s ease;
+    }
+
+    .role-chip-btn:hover {
+      background-color: #30363d;
+      color: #ffffff;
+      border-color: #58a6ff;
+    }
+
+    .role-chip-btn.active {
+      background-color: rgba(56, 139, 253, 0.15);
+      border-color: #388bfd;
+      color: #58a6ff;
+      font-weight: 600;
+    }
+
+    .demo-login-hint {
+      margin-top: 8px;
+      color: #6e7681;
+      font-size: 10px;
+      line-height: 1.55;
+      text-align: center;
+    }
+
+    /* ==========================================================================
+       Footer (DeepSeek Style Discreet Copyright)
+       ========================================================================== */
+    .auth-footer {
+      text-align: center;
+      font-size: 12px;
+      color: #484f58;
+      margin-top: 40px;
+      letter-spacing: 0.3px;
+    }
+
+    .auth-footer a {
+      color: #484f58;
+      text-decoration: none;
+      margin-left: 10px;
+      transition: color 0.15s ease;
+    }
+
+    .auth-footer a:hover {
+      color: #8b949e;
+    }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 12px;
+      color: #e6edf3;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: slideUp 0.25s ease;
+      pointer-events: auto;
+    }
+
+    .toast.success {
+      border-left: 3px solid #3fb950;
+    }
+
+    .toast.info {
+      border-left: 3px solid #58a6ff;
+    }
+
+    .toast.error {
+      border-left: 3px solid #f85149;
+      color: #ffb4ad;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-layout">
+    <!-- ======================== Left Hero Section ======================== -->
+    <div class="hero-section">
+      <div class="hero-content">
+        <h1 class="hero-title">
+          使用 <span class="brand-name">AgriLoop</span><br>
+          API 构建你的应用
+        </h1>
+
+        <p class="hero-desc">
+          基于统一农业智能内核与 Crop Pack，创造全新的农耕产品、闭环决策体验与工作方式
+        </p>
+
+        <a href="index.html" class="hero-doc-btn">
+          <span>查看系统开发文档</span>
+          <span style="font-size: 11px;">→</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- ======================== Right Auth Section ======================== -->
+    <div class="auth-section">
+      <div></div>
+
+      <div class="auth-container">
+        <!-- Brand Header with Platform Tag -->
+        <div class="auth-brand-header">
+          <div class="brand-logo-text">
+            <span>🌱 agriloop</span>
+          </div>
+          <span class="platform-badge">开放平台</span>
+        </div>
+
+        <!-- Main Auth Grid -->
+        <div class="auth-grid">
+          <!-- Left: Login Form -->
+          <div class="auth-form-column">
+            <form id="deepseekLoginForm">
+              <!-- Account / Phone Number Input -->
+              <div class="form-pill-group">
+                <div class="input-pill-wrapper">
+                  <span class="prefix-text">+86</span>
+                  <input type="text" class="form-pill-input" id="loginUsernameInput" placeholder="请输入手机号 / 账号" value="admin" required autocomplete="username">
+                </div>
+              </div>
+
+              <!-- Password / Verification Code Input -->
+              <div class="form-pill-group">
+                <div class="input-pill-wrapper">
+                  <input type="password" class="form-pill-input" id="loginPasswordInput" placeholder="请输入密码 / 验证码" value="demo123" required autocomplete="current-password">
+                  <button type="button" class="input-action-btn" id="btnSendCode">发送验证码</button>
+                </div>
+              </div>
+
+              <!-- Agreement Disclaimer -->
+              <div class="agreement-text">
+                注册登录即代表已阅读并同意我们的 <a href="#privacy" onclick="alert('用户协议已就绪'); return false;">开放平台协议</a> 与 <a href="#privacy" onclick="alert('隐私政策已就绪'); return false;">隐私政策</a>，未注册的手机号将自动注册
+              </div>
+
+              <!-- White Solid Pill Login Button -->
+              <button type="submit" class="btn-login-submit" id="btnLoginSubmit">
+                <span>登录</span>
+              </button>
+
+              <div class="auth-sub-actions">
+                <a href="#toggle" class="sub-action-link" id="btnToggleAuthMode">账号密码登录</a>
+              </div>
+            </form>
+          </div>
+
+          <!-- Right: WeChat QR Code & Quick Role Selector -->
+          <div class="qr-card-container">
+            <div class="qr-code-box" title="微信扫码安全登录">
+              <!-- Crisp Vector QR Code Mockup -->
+              <svg viewBox="0 0 100 100" fill="#000000">
+                <rect width="100" height="100" fill="#ffffff"/>
+                <!-- Corner 1 -->
+                <rect x="10" y="10" width="24" height="24" fill="#000000"/>
+                <rect x="14" y="14" width="16" height="16" fill="#ffffff"/>
+                <rect x="18" y="18" width="8" height="8" fill="#000000"/>
+                <!-- Corner 2 -->
+                <rect x="66" y="10" width="24" height="24" fill="#000000"/>
+                <rect x="70" y="14" width="16" height="16" fill="#ffffff"/>
+                <rect x="74" y="18" width="8" height="8" fill="#000000"/>
+                <!-- Corner 3 -->
+                <rect x="10" y="66" width="24" height="24" fill="#000000"/>
+                <rect x="14" y="70" width="16" height="16" fill="#ffffff"/>
+                <rect x="18" y="74" width="8" height="8" fill="#000000"/>
+                <!-- Pattern Dots -->
+                <rect x="40" y="12" width="6" height="6"/>
+                <rect x="52" y="12" width="6" height="6"/>
+                <rect x="40" y="24" width="6" height="6"/>
+                <rect x="50" y="30" width="8" height="8"/>
+                <rect x="14" y="44" width="6" height="6"/>
+                <rect x="26" y="44" width="8" height="8"/>
+                <rect x="40" y="44" width="6" height="6"/>
+                <rect x="54" y="44" width="6" height="6"/>
+                <rect x="68" y="44" width="6" height="6"/>
+                <rect x="80" y="44" width="8" height="8"/>
+                <rect x="40" y="56" width="6" height="6"/>
+                <rect x="50" y="62" width="6" height="6"/>
+                <rect x="64" y="56" width="6" height="6"/>
+                <rect x="76" y="60" width="12" height="6"/>
+                <rect x="40" y="74" width="12" height="6"/>
+                <rect x="58" y="74" width="8" height="8"/>
+                <rect x="74" y="74" width="14" height="14"/>
+              </svg>
+            </div>
+
+            <div class="wechat-scan-text">
+              <span class="wechat-icon">🟢</span>
+              <span>微信扫码登录</span>
+            </div>
+
+            <!-- Role Fast Selector Chips -->
+            <div class="role-fast-chips" title="一键体验不同 RBAC 角色">
+              <button class="role-chip-btn active" data-user="admin" data-pass="demo123">
+                <span>👑 农场管理员</span>
+                <span>admin</span>
+              </button>
+              <button class="role-chip-btn" data-user="farmer" data-pass="demo123">
+                <span>🧑‍🌾 种植农户</span>
+                <span>farmer</span>
+              </button>
+              <button class="role-chip-btn" data-user="operator" data-pass="demo123">
+                <span>🔧 田间操作员</span>
+                <span>operator</span>
+              </button>
+              <button class="role-chip-btn" data-user="sysadmin" data-pass="demo123">
+                <span>⚙️ 系统超管</span>
+                <span>sysadmin</span>
+              </button>
+            </div>
+            <p class="demo-login-hint">点击上方身份会自动填入项目演示账号和密码，无需记忆。</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Footer -->
+      <div class="auth-footer">
+        <span>渝ICP备20260822号 · 农智闭环开放平台</span>
+        <a href="#contact">联系我们</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Alerts Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Login Logic Script -->
+  <script type="module">
+    import { api } from './js/api.js';
+
+    const userInput = document.getElementById('loginUsernameInput');
+    const passInput = document.getElementById('loginPasswordInput');
+    const roleChips = document.querySelectorAll('.role-chip-btn');
+    const form = document.getElementById('deepseekLoginForm');
+    const btnSendCode = document.getElementById('btnSendCode');
+    const btnToggleAuthMode = document.getElementById('btnToggleAuthMode');
+
+    // 1. Role Fast Switcher
+    roleChips.forEach(chip => {
+      chip.addEventListener('click', (e) => {
+        e.preventDefault();
+        roleChips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        userInput.value = chip.dataset.user;
+        passInput.value = chip.dataset.pass;
+        showToast(`已选择角色：${chip.querySelector('span').textContent}`, 'info');
+      });
+    });
+
+    // 2. Verification Code Countdown Simulation
+    btnSendCode.addEventListener('click', () => {
+      let count = 60;
+      btnSendCode.disabled = true;
+      btnSendCode.style.opacity = '0.5';
+      btnSendCode.textContent = `${count}s后重新获取`;
+
+      const timer = setInterval(() => {
+        count--;
+        if (count <= 0) {
+          clearInterval(timer);
+          btnSendCode.disabled = false;
+          btnSendCode.style.opacity = '1';
+          btnSendCode.textContent = '发送验证码';
+        } else {
+          btnSendCode.textContent = `${count}s后重新获取`;
+        }
+      }, 1000);
+
+      showToast('验证码已发送至绑定的手机号 / 终端', 'info');
+    });
+
+    // 3. Toggle Mode (SMS / Password)
+    let isPasswordMode = true;
+    btnToggleAuthMode.addEventListener('click', (e) => {
+      e.preventDefault();
+      isPasswordMode = !isPasswordMode;
+      btnToggleAuthMode.textContent = isPasswordMode ? '验证码快捷登录' : '账号密码登录';
+      passInput.placeholder = isPasswordMode ? '请输入密码' : '请输入验证码';
+      btnSendCode.style.display = isPasswordMode ? 'none' : 'inline-block';
+    });
+
+    // 4. Form Submit -> Reuse the project auth service and then enter dashboard
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = userInput.value.trim();
+      const password = passInput.value;
+
+      const rolesMap = {
+        'admin': { role: 'FARM_ADMIN', label: '农场管理员', avatar: '👑' },
+        'farmer': { role: 'FARMER', label: '种植农户', avatar: '🧑‍🌾' },
+        'operator': { role: 'FIELD_OPERATOR', label: '田间操作员', avatar: '🔧' },
+        'sysadmin': { role: 'SYSTEM_ADMIN', label: '系统管理员', avatar: '⚙️' }
+      };
+
+      const selected = rolesMap[username];
+      if (!selected) {
+        showToast('请选择右侧项目内置身份，或输入有效账号。', 'error');
+        return;
+      }
+
+      const submitButton = document.getElementById('btnLoginSubmit');
+      submitButton.disabled = true;
+      submitButton.querySelector('span').textContent = '正在登录...';
+      try {
+        if (!['4173', '5173'].includes(window.location.port)) await api.checkHealth();
+        const authenticated = await api.login(username, password, selected.role);
+        localStorage.setItem('agriloop_user', JSON.stringify({
+          username: authenticated.username || username,
+          role: authenticated.role || selected.role,
+          roleLabel: selected.label,
+          avatar: selected.avatar,
+          displayName: authenticated.displayName || selected.label,
+          farmIds: authenticated.farmIds || ['farm-demo'],
+          plotIds: authenticated.plotIds || ['*']
+        }));
+        showToast(`登录成功！正在进入【${selected.label}】系统...`, 'success');
+        setTimeout(() => { window.location.href = 'index.html'; }, 450);
+      } catch (error) {
+        showToast(error?.message || '账号或密码错误，请重新选择身份。', 'error');
+      } finally {
+        submitButton.disabled = false;
+        submitButton.querySelector('span').textContent = '登录';
+      }
+    });
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${type === 'success' ? '✓' : type === 'error' ? '!' : 'ℹ'}</span> <span>${message}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
+    }
+  </script>
+</body>
+</html>

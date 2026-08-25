@@ -3,337 +3,140 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta name="theme-color" content="#f4f7f4">
+  <title>AgriLoop · 农场工作台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23159447'/%3E%3Cpath d='M17 17c14 0 22 7 22 19-12 0-22-5-22-19Zm30 4c0 13-5 21-17 22 0-12 6-20 17-22ZM31 35v15' fill='none' stroke='white' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/farm-monitor.css">
   <link rel="stylesheet" href="css/crop-sandbox.css">
-  <!-- Favicon Icon -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 </head>
 <body>
-
-  <!-- =========================================================================
-       Top Header Navigation
-       ========================================================================= -->
-  <header class="app-header">
-    <div class="header-left">
-      <div class="brand-logo" id="btnLogoHome" title="返回 Home 仪表盘">
-        <div class="brand-logo-icon">🌱</div>
+  <div class="dashboard-shell" id="dashboardShell" hidden>
+    <aside class="primary-sidebar" aria-label="主导航">
+      <button class="brand-button" id="btnLogoHome" type="button" title="返回地块总览">
+        <span class="brand-mark"><i class="ph ph-plant" aria-hidden="true"></i></span>
         <span>AgriLoop</span>
-      </div>
-      <div class="header-nav-title">
-        <span class="slash">/</span>
-        <span>Dashboard</span>
-        <span class="slash">/</span>
-        <span class="current" id="headerCurrentView">Home (农智总览)</span>
-      </div>
-    </div>
-
-    <div class="header-search">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input type="text" id="globalSearchInput" placeholder="输入 / 或 ⌘K 快速搜索地块、指标、处方或工单..." autocomplete="off">
-        <span class="search-kbd">⌘K</span>
-      </div>
-    </div>
-
-    <div class="header-right">
-      <div class="status-pill" id="systemStatusPill" title="当前数据与后端运行模式">
-        <span class="dot"></span>
-        <span id="systemStatusText">后端仿真态 (POSTGRESQL)</span>
-      </div>
-      <button class="header-action-btn primary" id="btnQuickAction" title="快捷触发">
-        <span>+</span> 快捷操作
       </button>
-      <div class="user-profile-badge" id="btnUserMenu" title="用户角色信息">
-        <div class="user-avatar" id="userAvatar">🧑‍🌾</div>
-        <span style="font-size: 13px; font-weight: 500;" id="userDisplayName">admin</span>
-      </div>
-    </div>
-  </header>
-
-  <!-- =========================================================================
-       Main Application 3-Column Layout
-       ========================================================================= -->
-  <main class="app-container">
-
-    <!-- ======================== Left Rail (290px) ======================== -->
-    <aside class="left-rail">
-      <!-- 1. Plots & Crops Switcher -->
-      <section class="rail-section">
-        <div class="rail-section-header">
-          <span class="rail-section-title">地块与作物</span>
-          <span style="font-size: 11px; color: var(--text-muted);" id="plotsCountTag">3 个地块</span>
-        </div>
-
-        <select class="farm-switch-select" id="farmSelect" title="切换农场示范区">
-          <option value="farm-demo">示范农场 (重庆 · 科学城)</option>
-        </select>
-
-        <input type="text" class="plot-filter-input" id="plotSearchInput" placeholder="快速筛选地块 (名称/作物)...">
-
-        <ul class="plot-list" id="plotListContainer">
-          <!-- Dynamically populated by JS -->
-        </ul>
-      </section>
-
-      <!-- 2. Sub-Modules Navigation (Reserved Sub-views) -->
-      <section class="rail-section">
-        <div class="rail-section-header">
-          <span class="rail-section-title">功能子模块导航</span>
-          <span class="module-badge highlight">全景闭环</span>
-        </div>
-
-        <ul class="module-nav-list" id="moduleNavList">
-          <li>
-            <a class="module-nav-item active" data-view="home">
-              <span><span class="icon">🏠</span>主面板 (Home)</span>
-              <span class="module-badge">实时</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="plot-detail">
-              <span><span class="icon">🌾</span>农田动态监测 (3D)</span>
-              <span class="module-badge highlight">重点</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="decision-console">
-              <span><span class="icon">🧠</span>智能诊断与决策台</span>
-              <span class="module-badge">CAP-04/05</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="work-orders">
-              <span><span class="icon">📋</span>今日农务与巡田</span>
-              <span class="module-badge">CAP-02/03</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="risk-forecast">
-              <span><span class="icon">🔮</span>未来风险预测推演</span>
-              <span class="module-badge">CAP-09</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="resource-coordination">
-              <span><span class="icon">💧</span>水资源协同排程</span>
-              <span class="module-badge">CAP-11</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="value-ledger">
-              <span><span class="icon">💰</span>经营价值与效益对账</span>
-              <span class="module-badge">CAP-12</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="decision-passport">
-              <span><span class="icon">🛡️</span>决策护照与审计</span>
-              <span class="module-badge">CAP-13</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="scenario-replay">
-              <span><span class="icon">⚡</span>情景模拟与双轨回放</span>
-              <span class="module-badge">Gate 2</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="crop-packs">
-              <span><span class="icon">📦</span>作物规则包管理</span>
-              <span class="module-badge">Schema</span>
-            </a>
-          </li>
-        </ul>
-      </section>
-    </aside>
-
-    <!-- ======================== Center Feed (Flexible) ======================== -->
-    <section class="main-feed" id="mainFeedArea">
-      <div class="main-feed-header">
-        <h1 class="main-feed-title">
-          <span>Home</span>
-          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/ 示范农场全域</span>
-        </h1>
-        <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
-      </div>
-
-      <!-- Copilot Agent Prompt Box -->
-      <div class="copilot-prompt-card">
-        <div class="copilot-input-area">
-          <textarea class="copilot-textarea" id="copilotInput" placeholder="输入自然语言指令 (例如：'分析 温室1号 是否需要补水', '预测未来4小时干旱风险', '汇总今日待办农务')..."></textarea>
-        </div>
-
-        <div class="copilot-actions-bar">
-          <div class="copilot-chips">
-            <span style="font-size: 11px; color: var(--text-muted);">快捷意图：</span>
-            <button class="chip-btn" data-intent="diagnose">🌾 诊断异常</button>
-            <button class="chip-btn" data-intent="irrigation">💧 灌溉处方</button>
-            <button class="chip-btn" data-intent="forecast">🔮 风险预测</button>
-            <button class="chip-btn" data-intent="work">📋 今日农务</button>
-            <button class="chip-btn" data-intent="status">📊 地块状态</button>
-          </div>
-          <button class="copilot-send-btn" id="btnSendCopilot">
-            <span>✨ 智能分析</span>
-          </button>
-        </div>
-
-        <!-- Dynamic Output Banner -->
-        <div class="copilot-output-banner" id="copilotOutputBanner">
-          <div class="copilot-output-header">
-            <span id="copilotOutputTitle">🤖 AgriLoop Agent 协同结果</span>
-            <span style="font-family: var(--font-mono); font-size: 11px;" id="copilotTraceId">traceId: run-demo</span>
-          </div>
-          <div class="copilot-output-text" id="copilotOutputText">正在分析...</div>
-        </div>
-      </div>
-
-      <!-- Feed Filter Bar -->
-      <div class="feed-filter-bar">
-        <div class="feed-tabs" id="feedTabButtons">
-          <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
-          <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
-          <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
-          <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
-          <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
-        </div>
-        <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
-      </div>
-
-      <!-- Feed Stream Container -->
-      <div class="feed-stream" id="feedStreamContainer">
-        <!-- Dynamically rendered feed items from JS -->
-      </div>
-    </section>
-
-    <!-- ======================== Right Rail (330px) ======================== -->
-    <aside class="right-rail">
-      <!-- 1. System Health Status Card -->
-      <div class="system-status-card">
-        <div class="system-status-header">
-          <span>系统与基础设施状态</span>
-          <span style="font-size: 11px; color: var(--green-bright);">● 全部正常</span>
-        </div>
-        <ul class="dep-status-list">
-          <li class="dep-status-item">
-            <span>时序与实体数据库 (PostgreSQL)</span>
-            <span class="dep-tag">UP</span>
-          </li>
-          <li class="dep-status-item">
-            <span>事件队列 (Redis Streams)</span>
-            <span class="dep-tag">UP</span>
-          </li>
-          <li class="dep-status-item">
-            <span>IoT 消息代理 (MQTT EMQX)</span>
-            <span class="dep-tag">UP</span>
-          </li>
-          <li class="dep-status-item">
-            <span>决策引擎模式 (AI Mode)</span>
-            <span class="dep-tag" style="background-color: var(--blue-subtle); color: var(--blue-hover);" id="rightAiModeTag">rules-only</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- 2. Water Quota & Resource Coordination -->
-      <div class="system-status-card">
-        <div class="system-status-header">
-          <span>今日水资源调度配额</span>
-          <a class="btn-ghost" style="font-size: 11px; cursor: pointer;" id="btnViewResourceDetail">协同排程 →</a>
-        </div>
-        <div class="quota-progress-container">
-          <div class="quota-header">
-            <span>蓄水池消耗：1,240L / 5,000L</span>
-            <span style="font-weight: 600; color: var(--green-bright);">24.8%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: 24.8%;"></div>
-          </div>
-          <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
-            当前流速：18 L/min · 无管道争用冲突 · 状态：FEASIBLE
-          </p>
-        </div>
-      </div>
-
-      <!-- 3. Decision Readiness Hard Gates Radar -->
-      <div class="system-status-card">
-        <div class="system-status-header">
-          <span>决策就绪度安全门控</span>
-          <span style="font-size: 11px; color: var(--green-bright);">就绪分 0.98</span>
-        </div>
-        <ul class="dep-status-list" style="font-size: 11px;">
-          <li class="dep-status-item">
-            <span>遥测完整度 & 新鲜度 (≤180s)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
-          </li>
-          <li class="dep-status-item">
-            <span>数据质量 (去漂移 / GOOD)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
-          </li>
-          <li class="dep-status-item">
-            <span>执行时长安全上限 (≤900s)</span>
-            <span style="color: var(--green-bright); font-weight: 600;">PASS</span>
-          </li>
-          <li class="dep-status-item">
-            <span>120min 灌溉冷却硬锁</span>
-            <span style="color: var(--green-bright); font-weight: 600;">READY</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- 4. Agricultural Rules & Changelog -->
-      <div class="system-status-card">
-        <div class="system-status-header">
-          <span>农事知识库与规则变更</span>
-          <span style="font-size: 11px; color: var(--text-muted);">Changelog</span>
-        </div>
-        <ul class="changelog-list" id="changelogContainer">
-          <!-- Populated by JS -->
-        </ul>
+      <nav class="module-nav-list" id="moduleNavList" aria-label="功能导航">
+        <button class="module-nav-item active" type="button" data-view="home"><i class="ph ph-house" aria-hidden="true"></i><span>今日</span></button>
+        <button class="module-nav-item" type="button" data-view="plot-detail"><i class="ph ph-map-trifold" aria-hidden="true"></i><span>农田</span></button>
+        <button class="module-nav-item" type="button" data-view="work-orders"><i class="ph ph-clipboard-text" aria-hidden="true"></i><span>农务</span></button>
+        <button class="module-nav-item" type="button" data-view="decision-console"><i class="ph ph-sparkle" aria-hidden="true"></i><span>建议</span></button>
+        <button class="module-nav-item" type="button" data-view="risk-forecast"><i class="ph ph-warning" aria-hidden="true"></i><span>风险</span></button>
+        <button class="module-nav-item" type="button" data-view="value-ledger"><i class="ph ph-chart-pie-slice" aria-hidden="true"></i><span>经营</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="sidebar-quiet-button" type="button" data-dashboard-view="crop-packs" title="作物设置"><i class="ph ph-gear" aria-hidden="true"></i><span>设置</span></button>
+        <button class="sidebar-quiet-button" type="button" data-dashboard-view="decision-passport" title="使用帮助"><i class="ph ph-question" aria-hidden="true"></i><span>帮助</span></button>
       </div>
     </aside>
-  </main>
 
-  <!-- =========================================================================
-       Sub-view Modal & Drawer
-       ========================================================================= -->
-  <div class="subview-modal-backdrop" id="subviewModal">
-    <div class="subview-modal-card">
-      <div class="subview-modal-header">
-        <div class="subview-modal-title">
-          <span id="modalIcon">📊</span>
-          <span id="modalTitle">子功能模块详情</span>
-          <span class="module-badge highlight" id="modalTag">独立设计中</span>
+    <div class="workspace">
+      <header class="workspace-header">
+        <div class="header-title-row">
+          <div><p class="eyebrow">农智示范农场 · 重庆科学城</p><h1 id="headerCurrentView">地块总览</h1></div>
+          <div class="header-tools">
+            <label class="header-search" for="globalSearchInput"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input id="globalSearchInput" type="search" placeholder="搜索地块或作物" autocomplete="off"><kbd>Ctrl K</kbd></label>
+            <button class="icon-button notification-button" type="button" title="查看消息" data-dashboard-view="work-orders"><i class="ph ph-bell" aria-hidden="true"></i><span class="notification-dot"></span></button>
+            <div class="profile-menu-wrap"><button class="profile-button" id="btnUserMenu" type="button" aria-expanded="false"><span class="profile-avatar"><i class="ph ph-user" aria-hidden="true"></i></span><span><strong id="userDisplayName">管理员</strong><small id="userRoleLabel">示范农场</small></span><i class="ph ph-caret-down" aria-hidden="true"></i></button><div class="profile-menu" id="userMenu" hidden><div class="profile-menu-head"><strong id="menuUserName">用户</strong><span id="menuUserRole">身份</span></div><button id="btnLogout" type="button"><i class="ph ph-sign-out"></i>退出并切换身份</button></div></div>
+          </div>
         </div>
-        <button class="close-modal-btn" id="btnCloseModal" title="关闭">✕</button>
-      </div>
+        <div class="plot-switcher-row">
+          <button class="farm-selector" type="button"><span class="farm-selector-icon"><i class="ph ph-house-line" aria-hidden="true"></i></span><span>示范农场</span><i class="ph ph-caret-down" aria-hidden="true"></i></button>
+          <div class="plot-tabs" id="plotListContainer" aria-label="选择地块"></div>
+          <button class="add-plot-button" id="btnQuickAction" type="button"><i class="ph ph-plus" aria-hidden="true"></i>新建地块</button>
+          <span class="plot-count" id="plotsCountTag">0 个地块</span>
+          <input id="plotSearchInput" type="hidden" aria-hidden="true">
+        </div>
+      </header>
 
-      <div class="subview-modal-body" id="subviewModalBody">
-        <div class="subview-placeholder-banner">
-          <div class="subview-placeholder-icon" id="placeholderIcon">📐</div>
-          <h3 class="subview-placeholder-title" id="placeholderTitle">功能界面已就绪 · 预留独立定制接口</h3>
-          <p class="subview-placeholder-desc" id="placeholderDesc">
-            本子界面路由与上下文数据已完整打通。你可以随时在此独立扩充更深入的专业级交互图表与定制逻辑。
-          </p>
-          <button class="btn btn-secondary" id="btnBackToHome">返回主面板 (Home)</button>
-        </div>
+      <div class="dashboard-content">
+        <main class="dashboard-main" id="farmWorkspace">
+          <section class="manager-overview panel-card" id="managerOverview" hidden>
+            <div><span class="manager-overview-kicker">全场今日概况</span><strong>先处理 1 个缺水地块</strong><small>其余地块长势稳定，水源和人员够用</small></div>
+            <dl><div><dt>需留意地块</dt><dd><b id="managerRiskPlots">1</b> 块</dd></div><div><dt>待确认方案</dt><dd><b>2</b> 个</dd></div><div><dt>今日农务</dt><dd><b>8</b> 项</dd></div><div><dt>可用水量</dt><dd><b>3.8</b> 吨</dd></div><div><dt>设备在线</dt><dd><b id="managerDeviceRate">90</b>%</dd></div></dl>
+          </section>
+          <section class="plot-hero panel-card" aria-labelledby="dashboardPlotTitle">
+            <div class="crop-photo-wrap"><img id="dashboardCropImage" src="assets/crops/tomato.png" alt="当前地块作物"><span class="photo-status"><i class="ph ph-camera" aria-hidden="true"></i>地块实景</span></div>
+            <div class="plot-hero-content">
+              <div class="plot-heading-line">
+                <div>
+                  <div class="plot-title-wrap"><h2 id="dashboardPlotTitle">A01 番茄示范田</h2><span class="stage-tag" id="dashboardStageTag">挂果采收期</span></div>
+                  <div class="plot-meta-line"><span><i class="ph ph-map-pin" aria-hidden="true"></i><span id="dashboardPlotLocation">温室一号棚</span></span><span><i class="ph ph-plant" aria-hidden="true"></i><span id="dashboardCropVariety">千禧水果番茄</span></span><span><i class="ph ph-ruler" aria-hidden="true"></i><span id="dashboardPlotArea">120 平方米</span></span></div>
+                </div>
+                <button class="light-action-button" type="button" data-dashboard-view="plot-detail">进入农田监测<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+              </div>
+              <div class="hero-status-grid">
+                <div class="health-summary">
+                  <div class="section-label-row"><span>作物长势</span><span class="good-tag" id="dashboardHealthLabel">良好</span></div>
+                  <div class="health-score-line"><strong id="dashboardHealthScore">94</strong><span>分</span><div class="health-progress"><span id="dashboardHealthBar" style="width:94%"></span></div></div>
+                  <p id="dashboardHealthTip">长势总体良好，土壤稍偏干。</p>
+                </div>
+                <div class="risk-summary" id="dashboardRiskCard"><span class="risk-icon"><i class="ph ph-warning" aria-hidden="true"></i></span><div><strong id="dashboardRiskTitle">土壤偏干</strong><p id="dashboardRiskText">建议今天傍晚前补一次水，避免番茄打蔫。</p></div><button type="button" data-dashboard-view="decision-console">查看处理建议<i class="ph ph-caret-right" aria-hidden="true"></i></button></div>
+              </div>
+            </div>
+          </section>
 
-        <div id="modalDynamicContent">
-          <!-- Contextual data will be rendered here -->
-        </div>
+          <section class="metric-grid" aria-label="地块关键数据">
+            <article class="metric-card panel-card"><span class="metric-icon water"><i class="ph ph-drop" aria-hidden="true"></i></span><div class="metric-card-head"><span>土壤湿度</span><span class="metric-state" id="soilMoistureState">偏低</span></div><div class="metric-number"><strong id="soilMoistureValue">16.8</strong><span>%</span></div><p>合适范围 <span id="soilMoistureTarget">20~40%</span></p></article>
+            <article class="metric-card panel-card"><span class="metric-icon temperature"><i class="ph ph-thermometer-simple" aria-hidden="true"></i></span><div class="metric-card-head"><span>空气温度</span><span class="metric-state good" id="airTemperatureState">合适</span></div><div class="metric-number"><strong id="airTemperatureValue">26.4</strong><span>°C</span></div><p>合适范围 <span id="airTemperatureTarget">18~32°C</span></p></article>
+            <article class="metric-card panel-card"><span class="metric-icon light"><i class="ph ph-sun" aria-hidden="true"></i></span><div class="metric-card-head"><span>光照</span><span class="metric-state good" id="lightState">合适</span></div><div class="metric-number"><strong id="lightValue">43.5</strong><span>千勒克斯</span></div><p id="lightPlainTip">阳光充足，适合作物生长</p></article>
+            <article class="metric-card panel-card"><span class="metric-icon device"><i class="ph ph-broadcast" aria-hidden="true"></i></span><div class="metric-card-head"><span>设备状态</span><span class="metric-state good" id="deviceState">正常</span></div><div class="metric-number"><strong id="deviceOnlineValue">18</strong><span>/ 20 台在线</span></div><p id="deviceLastSeen">刚刚收到数据</p></article>
+          </section>
 
-        <div class="code-contract-box" id="modalCodeContract">
-          // 预留的后端数据契约与接口已绑定
-        </div>
+          <section class="dashboard-lower-grid">
+            <article class="trend-card panel-card">
+              <div class="card-heading"><div><h3>近 24 小时变化</h3><p>看湿度和温度有没有突然变化</p></div><div class="chart-legend"><span class="blue-dot">土壤湿度</span><span class="green-dot">空气温度</span></div></div>
+              <div class="chart-wrap"><canvas id="overviewTrendCanvas" aria-label="近24小时湿度与温度趋势"></canvas></div>
+              <div class="period-tabs" aria-label="趋势时间范围"><button class="active" type="button">24 小时</button><button type="button">7 天</button><button type="button">30 天</button></div>
+            </article>
+            <article class="task-card panel-card">
+              <div class="card-heading"><div><h3>今天要做</h3><p>按轻重缓急排好，做完可勾选</p></div><span class="count-tag" id="dashboardTaskCount">3 项</span></div>
+              <div class="task-list" id="dashboardTaskList"></div>
+              <button class="text-link-button" type="button" data-dashboard-view="work-orders">查看全部农务<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+            </article>
+            <article class="advice-card panel-card">
+              <div class="card-heading"><div><h3>风险和建议</h3><p>系统只给出最需要处理的一件事</p></div></div>
+              <div class="advice-warning"><span><i class="ph ph-warning" aria-hidden="true"></i></span><div><strong id="adviceRiskTitle">番茄地有缺水风险</strong><p id="adviceRiskDetail">继续偏干可能影响果实膨大。</p></div></div>
+              <div class="prescription-box"><span class="prescription-label">建议怎么做</span><strong id="adviceActionTitle">今天傍晚补水</strong><div class="prescription-value"><strong id="adviceWaterValue">153</strong><span>升</span></div><p id="adviceActionMeta">预计约 9 分钟 · 系统会自动核对设备</p><div class="prescription-actions"><button class="primary-action-button" type="button" data-dashboard-action="irrigate"><i class="ph ph-drop" aria-hidden="true"></i>执行补水</button><button class="secondary-action-button" type="button" data-dashboard-view="decision-console">调整方案</button></div></div>
+              <button class="text-link-button" type="button" data-dashboard-view="risk-forecast">看看未来会怎样<i class="ph ph-arrow-right" aria-hidden="true"></i></button>
+            </article>
+          </section>
+        </main>
+
+        <main class="role-workspace operator-workspace" id="operatorWorkspace" hidden>
+          <section class="role-welcome-card operator-welcome"><div><span class="role-page-kicker">我的今日任务</span><h2>李师傅，今天有 3 件事</h2><p>先处理 A01 番茄地补水，再巡查 A02 玉米地。每一步做完就打勾，不用填写复杂表格。</p></div><div class="workday-progress"><span>今日已完成</span><strong>1 / 4</strong><div><i style="width:25%"></i></div></div></section>
+          <section class="operator-layout"><div class="operator-task-stack" id="operatorTaskList"></div><aside class="operator-next-card panel-card"><span class="plain-badge urgent">现在先做</span><h3>A01 番茄地补水</h3><p>预计 12 分钟，建议补水 153 升。</p><ol><li><span>1</span>走到 A01 番茄地</li><li><span>2</span>检查水阀是否漏水</li><li><span>3</span>打开灌溉并观察出水</li><li><span>4</span>完成后拍照确认</li></ol><button type="button" class="primary-action-button operator-start" data-dashboard-action="start-operator-task"><i class="ph ph-navigation-arrow"></i>开始这项任务</button><button type="button" class="secondary-action-button operator-map" data-dashboard-view="plot-detail"><i class="ph ph-map-trifold"></i>在地图中查看位置</button></aside></section>
+        </main>
+
+        <main class="role-workspace system-workspace" id="systemWorkspace" hidden>
+          <section class="role-welcome-card system-welcome"><div><span class="role-page-kicker">系统运行中心</span><h2>农场系统运行正常</h2><p>核心服务都在线。当前有 2 台设备离线、1 条数据需要核对。</p></div><div class="system-health-badge"><i class="ph ph-check-circle"></i><span><strong>99.92%</strong>今日可用率</span></div></section>
+          <section class="system-summary-grid" id="systemSummaryGrid"></section>
+          <section class="system-admin-grid"><article class="panel-card admin-table-card"><div class="card-heading"><div><h3>需要处理</h3><p>只列出影响业务的问题</p></div><span class="count-tag warning">3 项</span></div><div class="admin-issue-list"><button type="button" data-dashboard-view="device-management"><span class="issue-icon red"><i class="ph ph-broadcast-slash"></i></span><span><strong>2 台土壤传感器离线</strong><small>A03、B02 · 已持续 18 分钟</small></span><b>检查设备</b></button><button type="button" data-dashboard-view="data-status"><span class="issue-icon amber"><i class="ph ph-waveform"></i></span><span><strong>A02 湿度数据变化过快</strong><small>系统已暂停自动执行，等待确认</small></span><b>核对数据</b></button><button type="button" data-dashboard-view="user-permissions"><span class="issue-icon blue"><i class="ph ph-user-plus"></i></span><span><strong>1 个新账号待分配地块</strong><small>田间操作员 · 今天 09:20 申请</small></span><b>去处理</b></button></div></article><article class="panel-card admin-table-card"><div class="card-heading"><div><h3>核心服务</h3><p>最近一次检查：刚刚</p></div><span class="count-tag">全部在线</span></div><div class="service-list"><div><span><i class="ph ph-plugs-connected"></i>后台接口</span><b class="online">正常</b><small>42 ms</small></div><div><span><i class="ph ph-database"></i>农业数据库</span><b class="online">正常</b><small>18 ms</small></div><div><span><i class="ph ph-broadcast"></i>设备消息</span><b class="online">正常</b><small>1,280 条/分</small></div><div><span><i class="ph ph-brain"></i>智能分析服务</span><b class="online">正常</b><small>置信检查开启</small></div><div><span><i class="ph ph-cloud"></i>天气服务</span><b class="online">正常</b><small>8 分钟前更新</small></div></div></article></section>
+        </main>
+
+        <aside class="system-rail" aria-label="系统信息">
+          <div class="system-rail-title"><span>农场运行情况</span><small>一眼看懂</small></div>
+          <section class="system-card backend-card" id="systemStatusPill"><div class="system-icon green"><i class="ph ph-cloud-check" aria-hidden="true"></i></div><div><span>系统连接</span><strong><span class="dot"></span><span id="systemStatusText">运行正常</span></strong><small>最后更新：2 分钟前</small></div></section>
+          <section class="system-card device-card"><div class="system-card-title"><span>设备在线</span><button type="button" data-dashboard-view="plot-detail">查看</button></div><div class="device-ring" id="deviceOnlineRing"><strong id="deviceOnlineRate">90%</strong></div><p><strong id="deviceOnlineSummary">18 / 20</strong> 台在线</p><small id="deviceOfflineSummary">2 台需要检查</small></section>
+          <section class="system-card water-card"><div class="system-card-title"><span>今日用水</span><button id="btnViewResourceDetail" type="button">详情</button></div><div class="water-usage-line"><span class="metric-icon water"><i class="ph ph-drop" aria-hidden="true"></i></span><strong>1,240</strong><span>升</span></div><div class="water-plan"><span>计划 5,000 升</span><strong>25%</strong></div><div class="water-progress"><span></span></div></section>
+          <section class="system-card message-card"><div class="system-card-title"><span>消息</span><span class="message-count">3 条</span></div><ul class="changelog-list" id="changelogContainer"></ul><button type="button" data-dashboard-view="work-orders">查看全部消息<i class="ph ph-caret-right" aria-hidden="true"></i></button></section>
+          <section class="system-card assistant-card"><div class="system-card-title"><span><i class="ph ph-sparkle" aria-hidden="true"></i>问问农场助手</span><span class="ai-mode" id="rightAiModeTag">本地分析</span></div><p>不需要记专业术语，直接问“今天先做什么”。</p><div class="assistant-input-row"><textarea id="copilotInput" rows="1" placeholder="例如：今天先做什么？"></textarea><button id="btnSendCopilot" type="button" title="发送"><i class="ph ph-paper-plane-tilt" aria-hidden="true"></i></button></div><div class="copilot-output-banner" id="copilotOutputBanner"><div><strong id="copilotOutputTitle">农场助手</strong><small id="copilotTraceId"></small></div><p id="copilotOutputText">正在分析...</p></div></section>
+        </aside>
       </div>
     </div>
   </div>
 
-  <!-- Toast Alerts Container -->
-  <div class="toast-container" id="toastContainer"></div>
+  <div class="compat-runtime" aria-hidden="true"><span id="currentPlotContextBadge"></span><div id="feedTabButtons"></div><div id="feedStreamContainer"></div><span id="feedCountTag"></span></div>
 
-  <!-- Load ES Module Scripts -->
+  <div class="subview-modal-backdrop" id="subviewModal" aria-hidden="true">
+    <div class="subview-modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="subview-modal-header"><div class="subview-modal-title"><span class="modal-symbol" id="modalIcon"></span><span id="modalTitle">功能详情</span><span class="module-badge highlight" id="modalTag">已连接</span></div><button class="close-modal-btn" id="btnCloseModal" type="button" title="关闭"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+      <div class="subview-modal-body" id="subviewModalBody"><div class="subview-placeholder-banner"><div class="subview-placeholder-icon" id="placeholderIcon"><i class="ph ph-layout" aria-hidden="true"></i></div><h3 class="subview-placeholder-title" id="placeholderTitle">功能界面已连接</h3><p class="subview-placeholder-desc" id="placeholderDesc">可继续查看所选地块的详细内容。</p><button class="secondary-action-button" id="btnBackToHome" type="button">返回地块总览</button></div><div id="modalDynamicContent"></div><pre class="code-contract-box" id="modalCodeContract"></pre></div>
+    </div>
+  </div>
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

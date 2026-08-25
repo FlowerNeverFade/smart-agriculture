@@ -242,6 +242,7 @@ export class CropSandbox {
     this.soilGroup = null;
     this.plantGroup = null;
     this.leafMeshes = [];
+    this.structuralMeshes = [];
     this.fruitMeshes = [];
     this.flowerMeshes = [];
     this.heatParticles = null;
@@ -948,6 +949,7 @@ export class CropSandbox {
     this.plantGroup = new THREE.Group();
     this.plantGroup.position.set(0, -0.33, 0); // Sits on the opaque planter soil surface
     this.leafMeshes = [];
+    this.structuralMeshes = [];
     this.fruitMeshes = [];
     this.flowerMeshes = [];
 
@@ -976,6 +978,7 @@ export class CropSandbox {
       strawberry: 2.35
     }[cropCode] || 1;
     this.plantGroup.scale.setScalar(cropScale);
+    this.plantBaseScale = this.plantGroup.scale.clone();
     this.preparePlantDynamics();
     this.scene.add(this.plantGroup);
   }
@@ -1018,6 +1021,7 @@ export class CropSandbox {
     );
     mesh.castShadow = true;
     parent.add(mesh);
+    this.structuralMeshes.push(mesh);
     return mesh;
   }
 
@@ -1040,25 +1044,29 @@ export class CropSandbox {
   }
 
   preparePlantDynamics() {
-    const dynamicMeshes = [...this.leafMeshes, ...this.fruitMeshes, ...this.flowerMeshes];
+    const dynamicMeshes = [...this.structuralMeshes, ...this.leafMeshes, ...this.fruitMeshes, ...this.flowerMeshes];
     const patchedMaterials = new Set();
     dynamicMeshes.forEach((mesh, index) => {
       mesh.userData.baseRotation = mesh.rotation.clone();
       mesh.userData.baseScale = mesh.scale.clone();
+      mesh.userData.basePosition = mesh.position.clone();
       mesh.userData.baseColor = mesh.material?.color?.clone?.() || null;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       materials.filter(Boolean).forEach(material => {
         if (patchedMaterials.has(material)) return;
         patchedMaterials.add(material);
         material.userData.sandboxWindUniforms = null;
+        material.userData.sandboxWilt = 0;
         material.onBeforeCompile = shader => {
           shader.uniforms.uSandboxTime = { value: 0 };
           shader.uniforms.uSandboxWind = { value: 1 };
+          shader.uniforms.uSandboxWilt = { value: material.userData.sandboxWilt || 0 };
           shader.vertexShader = shader.vertexShader
             .replace('#include <common>', `
               #include <common>
               uniform float uSandboxTime;
               uniform float uSandboxWind;
+              uniform float uSandboxWilt;
             `)
             .replace('#include <begin_vertex>', `
               vec3 transformed = vec3(position);
@@ -1068,6 +1076,9 @@ export class CropSandbox {
               float sandboxFlutter = sin(uSandboxTime * 4.2 + position.x * 7.0 + position.z * 5.0);
               transformed.x += sandboxFlex * (sandboxWave * 0.034 + sandboxFlutter * 0.008) * uSandboxWind;
               transformed.z += sandboxFlex * cos(uSandboxTime * 1.17 + sandboxWorldY * 2.8) * 0.018 * uSandboxWind;
+              float sandboxWiltFlex = sandboxFlex * sandboxFlex * uSandboxWilt;
+              transformed.x += sandboxWiltFlex * (0.12 + sin(sandboxWorldY * 2.4) * 0.035);
+              transformed.y -= sandboxWiltFlex * (0.11 + sandboxFlex * 0.08);
             `);
           material.userData.sandboxWindUniforms = shader.uniforms;
         };
@@ -1587,6 +1598,20 @@ export class CropSandbox {
       }
     }
 
+    this.windMaterials.forEach(material => {
+      material.userData.sandboxWilt = wilting;
+      const uniforms = material.userData.sandboxWindUniforms;
+      if (uniforms?.uSandboxWilt) uniforms.uSandboxWilt.value = wilting;
+    });
+
+    this.structuralMeshes.forEach(stem => {
+      const baseColor = stem.userData.baseColor;
+      if (stem.material?.color && baseColor) {
+        const structuralStress = Math.min(1, wilting * 0.58 + chlorosis * 0.72);
+        stem.material.color.copy(baseColor).lerp(new THREE.Color(0x6e542f), structuralStress);
+      }
+    });
+
     this.leafMeshes.forEach(leaf => {
       const baseColor = leaf.userData.baseColor;
       if (leaf.material?.color && baseColor) {
@@ -1597,6 +1622,27 @@ export class CropSandbox {
       if (baseRotation) leaf.rotation.set(baseRotation.x + wilting * 1.02, baseRotation.y, baseRotation.z + wilting * 0.14);
       if (baseScale) leaf.scale.copy(baseScale).multiplyScalar(1 - wilting * 0.24);
     });
+
+    [...this.fruitMeshes, ...this.flowerMeshes].forEach((part, index) => {
+      const baseRotation = part.userData.baseRotation;
+      const baseScale = part.userData.baseScale;
+      const basePosition = part.userData.basePosition;
+      const baseColor = part.userData.baseColor;
+      if (baseRotation) part.rotation.set(baseRotation.x + wilting * 0.34, baseRotation.y, baseRotation.z + (index % 2 ? -1 : 1) * wilting * 0.08);
+      if (baseScale) part.scale.copy(baseScale).multiplyScalar(1 - wilting * 0.11);
+      if (basePosition) part.position.copy(basePosition).add(new THREE.Vector3(wilting * 0.012, -wilting * 0.035, 0));
+      if (part.material?.color && baseColor) {
+        part.material.color.copy(baseColor).lerp(new THREE.Color(0x75563a), Math.min(0.42, chlorosis * 0.3 + wilting * 0.12));
+      }
+    });
+
+    if (this.plantGroup && this.plantBaseScale) {
+      this.plantGroup.scale.set(
+        this.plantBaseScale.x * (1 + wilting * 0.025),
+        this.plantBaseScale.y * (1 - wilting * 0.085),
+        this.plantBaseScale.z * (1 + wilting * 0.025)
+      );
+    }
 
     if (this.soilMaterial) {
       const moistSoil = new THREE.Color(floodVisible ? 0x29352e : 0x3d291c);
@@ -1867,8 +1913,8 @@ export class CropSandbox {
     }
     if (this.plantGroup) {
       const stress = this.currentMorph?.wilting || 0;
-      this.plantGroup.rotation.z = Math.sin(elapsed * 0.82) * 0.014 * (1 - stress * 0.55) + stress * 0.035;
-      this.plantGroup.rotation.x = Math.cos(elapsed * 0.61) * 0.006 + stress * 0.028;
+      this.plantGroup.rotation.z = Math.sin(elapsed * 0.82) * 0.014 * (1 - stress * 0.55) + stress * 0.14;
+      this.plantGroup.rotation.x = Math.cos(elapsed * 0.61) * 0.006 + stress * 0.075;
     }
 
     this.cloudGroup?.children.forEach(cluster => {

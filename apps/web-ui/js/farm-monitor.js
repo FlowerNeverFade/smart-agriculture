@@ -985,18 +985,12 @@ class FarmWorld3D {
 
       lamp.position.set(pos.x, 0, pos.z);
       this.scene.add(lamp);
-    });
 
-    // 4 High-Efficiency Soft Avenue Area Lights for nighttime illumination (Zero shader overhead)
-    const avenuePositions = [
-      { x: -35.0, y: 5.5, z: 18.0 },
-      { x: 35.0, y: 5.5, z: 18.0 },
-      { x: -35.0, y: 5.5, z: 3.25 },
-      { x: 35.0, y: 5.5, z: 3.25 }
-    ];
-    avenuePositions.forEach(pos => {
-      const light = new THREE.PointLight(0xffdf88, 0, 55, 1.4);
-      light.position.set(pos.x, pos.y, pos.z);
+      // Every visible streetlamp owns its own local light pool. Shadows stay off
+      // so all lamps can illuminate simultaneously without a large GPU penalty.
+      const light = new THREE.PointLight(0xffdc86, 0, 15, 1.85);
+      light.position.set(pos.x + bulbPos, 3.72, pos.z);
+      light.castShadow = false;
       this.scene.add(light);
       this.streetLights.push(light);
     });
@@ -2385,7 +2379,7 @@ class FarmWorld3D {
       light.intensity = isNight ? 3.6 : 0;
     });
     this.streetLights?.forEach(light => {
-      light.intensity = isNight ? 24.0 : 0;
+      light.intensity = isNight ? 7.2 : 0;
     });
     this.streetLampBulbs?.forEach(bulb => {
       bulb.material.color.set(isNight ? 0xffe28a : 0x728076);
