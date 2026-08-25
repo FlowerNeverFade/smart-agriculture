@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f3f7ef">
   <title>AgriLoop · 智慧农业登录</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
-  <link rel="stylesheet" href="css/login-motion.css?v=account-role-1">
+  <link rel="stylesheet" href="css/login-motion.css?v=5.1-custom-role-select">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
@@ -43,16 +43,16 @@
               <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
             </label>
 
-            <label class="field field--select">
-              <span>登录身份</span>
-              <select id="loginRole" name="role" required>
+            <div class="field field--select">
+              <span id="loginRoleLabel">登录身份</span>
+              <select id="loginRole" name="role" required aria-labelledby="loginRoleLabel">
                 <option value="" selected disabled>请选择账户身份</option>
                 <option value="FARMER">种植农户</option>
                 <option value="FARM_ADMIN">农场管理员</option>
                 <option value="SYSTEM_ADMIN">系统管理员</option>
               </select>
               <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
-            </label>
+            </div>
 
             <label class="field field--password">
               <span>密码</span>
@@ -99,13 +99,13 @@
               <span>账号</span>
               <input id="registerUsername" name="username" type="text" autocomplete="username" placeholder="4–32 位字母或数字" maxlength="32" required>
             </label>
-            <label class="field field--select">
-              <span>注册身份</span>
-              <select id="registerRole" name="role" required aria-describedby="registerRoleNote">
+            <div class="field field--select">
+              <span id="registerRoleLabel">注册身份</span>
+              <select id="registerRole" name="role" required aria-labelledby="registerRoleLabel" aria-describedby="registerRoleNote">
                 <option value="FARMER" selected>种植农户</option>
               </select>
               <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
-            </label>
+            </div>
             <label class="field field--password">
               <span>密码</span>
               <input id="registerPassword" name="password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" maxlength="64" required>
@@ -181,6 +181,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=account-role-1"></script>
+  <script type="module" src="js/login.js?v=5.1-custom-role-select"></script>
 </body>
 </html>
