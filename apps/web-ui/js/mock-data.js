@@ -902,7 +902,9 @@ export const MOCK_DATA = {
   adminCropPacks: [
     { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['育苗期', '营养生长期', '开花坐果期', '果实成熟期'], knowledgeDocs: [{ title: '番茄灌溉基准表', content: '结果期土壤含水率建议维持在 20%~40%，先确认遥测新鲜度和设备流量，再生成灌溉处方。' }, { title: '病虫害防治指南', content: '重点巡查下部老叶、叶背和果实萼片，发现异常时记录人工观察并关联地块。' }, { title: '果实成熟期管理', content: '成熟期控制水分波动，连续高温时优先核对空气温度与土壤湿度的时间窗口。' }], availableForPlanting: true },
     { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', status: 'published', stages: ['苗期', '营养生长期', '初花期', '采收盛期'], knowledgeDocs: [{ title: '黄瓜水肥管理', content: '黄瓜根系浅，保持土壤湿度稳定，灌溉应结合阶段和当前水位约束。' }, { title: '温室病害识别', content: '巡查叶片霉斑、萎蔫和果实畸形，人工观察不得覆盖原始遥测数据。' }], availableForPlanting: true },
-    { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], knowledgeDocs: [{ title: '草莓温湿度管理', content: '草莓开花和膨果期需关注温度、土壤湿度及设备在线状态，数据质量不足时转人工复核。' }], availableForPlanting: false }
+    { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], knowledgeDocs: [{ title: '草莓温湿度管理', content: '草莓开花和膨果期需关注温度、土壤湿度及设备在线状态，数据质量不足时转人工复核。' }], availableForPlanting: false },
+    { id: 'cp-corn', icon: '🌽', name: '玉米', status: 'published', stages: ['播种出苗期', '拔节期', '抽雄吐丝期', '灌浆成熟期'], knowledgeDocs: [{ title: '玉米水分管理', content: '拔节期和抽雄吐丝期是需水关键期，灌溉前应核对土壤湿度和水位。' }, { title: '玉米生长巡查', content: '重点记录株高、叶片卷曲和倒伏情况，人工观察与遥测分别保存。' }], availableForPlanting: true },
+    { id: 'cp-sunflower', icon: '🌻', name: '向日葵', status: 'published', stages: ['出苗期', '现蕾期', '开花期', '灌浆成熟期'], knowledgeDocs: [{ title: '向日葵灌溉管理', content: '现蕾至开花期关注土壤湿度连续变化，避免高温时段一次性过量灌溉。' }, { title: '向日葵田间识别', content: '巡查叶片萎蔫、花盘发育和病斑，异常时创建人工核验任务。' }], availableForPlanting: true }
   ],
 
   adminRules: [

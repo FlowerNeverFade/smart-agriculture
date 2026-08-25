@@ -499,6 +499,11 @@
 /* ---- Global plot landscape ---- */
 .admin-plot-landscape { grid-column: 1 / -1; margin-top: 24px; padding-top: 4px; }
 .admin-section-caption { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-overview-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+.admin-overview-main { min-width: 0; }
+.admin-overview-label { margin: 2px 0 14px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
+.admin-overview-events { position: sticky; top: 20px; min-width: 0; }
+.admin-overview-events > .g-card { height: 560px; box-sizing: border-box; }
 .admin-landscape-count { font-size: 12px; color: var(--g-text-secondary); }
 .admin-landscape-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-landscape-actions select { padding: 7px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font-size: 12px; }
@@ -590,6 +595,9 @@
 @media (max-width: 1024px) {
   .admin-metric-strip { grid-template-columns: repeat(2, 1fr); }
   .service-matrix { grid-template-columns: repeat(2, 1fr); }
+  .admin-overview-layout { grid-template-columns: 1fr; }
+  .admin-overview-events { position: static; }
+  .admin-overview-events > .g-card { height: 360px; }
 }
 
 @media (max-width: 640px) {
