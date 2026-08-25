@@ -258,6 +258,67 @@ class AgriApplicationTest {
     }
 
     @Test
+    void inspectionEvidencePersistsAndStaysLinkedToItsWorkOrder() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "plotId", "plot-a01",
+                "title", "复测土壤并记录现场情况",
+                "reason", "记录土壤、作物和设备外观",
+                "actionType", "INSPECTION"), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+        engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer"), admin);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(Map.of(
+                        "plotId", "plot-a01", "workOrderId", workOrderId, "soilSurface", "DRY"), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("INSPECTION_WORK_ORDER_NOT_ACTIVE"));
+        engine.transitionWorkOrder(workOrderId, Map.of("action", "START"), farmer);
+
+        Map<String, Object> input = new java.util.LinkedHashMap<>();
+        input.put("inspectionId", "client-cannot-overwrite");
+        input.put("farmId", "farm-demo");
+        input.put("plotId", "plot-a01");
+        input.put("workOrderId", workOrderId);
+        input.put("observedAt", Instant.now().minusSeconds(30).toString());
+        input.put("soilSurface", "DRY");
+        input.put("cropCondition", "LEAF_SLIGHT_WILT");
+        input.put("deviceStatus", "NORMAL");
+        input.put("portableSoilMoisture", 18.6);
+        input.put("notes", "畦面局部干裂，叶片轻微下垂");
+        Map<String, Object> inspection = engine.createInspection(input, farmer);
+        String inspectionId = String.valueOf(inspection.get("inspectionId"));
+
+        assertThat(inspectionId).startsWith("ins-").isNotEqualTo("client-cannot-overwrite");
+        assertThat(inspection).containsEntry("farmId", "farm-demo")
+                .containsEntry("plotId", "plot-a01")
+                .containsEntry("workOrderId", workOrderId)
+                .containsEntry("operatorId", "user-farmer")
+                .containsEntry("operatorName", "farmer")
+                .containsEntry("operatorRole", "FARMER")
+                .containsEntry("provenance", "USER_PROVIDED")
+                .containsEntry("sourceType", "HUMAN_OBSERVATION")
+                .containsKeys("createdAt", "updatedAt", "evidenceSummary", "quality");
+        assertThat(Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), inspection.get("quality")))
+                .containsEntry("status", "GOOD").containsEntry("completeness", 1.0);
+        assertThat(engine.inspections("plot-a01")).anySatisfy(item -> assertThat(item).containsEntry("inspectionId", inspectionId));
+        assertThat(store.find("inspection", inspectionId)).containsEntry("notes", "畦面局部干裂，叶片轻微下垂");
+
+        Map<String, Object> linkedWorkOrder = store.find("work-order", workOrderId);
+        assertThat(Jsons.strings(linkedWorkOrder.get("evidenceRefs"))).containsExactly(inspectionId);
+        assertThat(Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), linkedWorkOrder.get("history")))
+                .anySatisfy(entry -> assertThat(entry).containsEntry("action", "EVIDENCE_ADDED"));
+        Map<String, Object> submitted = engine.transitionWorkOrder(workOrderId, Map.of(
+                "action", "SUBMIT", "resultSummary", "现场核验已完成"), farmer);
+        assertThat(Jsons.strings(submitted.get("evidenceRefs"))).containsExactly(inspectionId);
+
+        Map<String, Object> otherPlotOrder = engine.createWorkOrder(Map.of(
+                "plotId", "plot-a02", "title", "检查另一地块", "reason", "例行检查"), admin);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(Map.of(
+                        "plotId", "plot-a01", "workOrderId", otherPlotOrder.get("workOrderId"), "notes", "现场正常"), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("INSPECTION_WORK_ORDER_MISMATCH"));
+    }
+
+    @Test
     void rejectedWorkOrderCanBeRestartedAndTerminalOrdersCannotMove() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and approval.
@@ -119,9 +119,9 @@ paths:
   /api/v1/decision-readiness/{readinessId}/evidence-requests:
     post: {tags: [decision], parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 补证工单}}}
   /api/v1/inspections:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 田间核验}}}
+    post: {tags: [decision], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}, responses: {'200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}}}
   /api/v1/plots/{plotId}/inspections:
-    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 核验记录}}}
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
   /api/v1/irrigation/estimate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
   /api/v1/agent/chat:
@@ -297,3 +297,35 @@ components:
       properties:
         assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
         note: {type: string, description: 分配说明}
+    InspectionCreateRequest:
+      type: object
+      required: [farmId, plotId, observedAt]
+      properties:
+        farmId: {type: string, description: 当前正式农场 ID；后端会与地块所属农场复核}
+        plotId: {type: string}
+        workOrderId: {type: string, description: 可选；关联后自动写入工单 evidenceRefs 与审计历史}
+        diagnosisId: {type: string, description: 可选；必须与地块一致}
+        cropBatchId: {type: string, description: 可选；必须与地块一致}
+        observedAt: {type: string, format: date-time}
+        soilSurface: {type: string, example: DRY}
+        cropCondition: {type: string, example: LEAF_SLIGHT_WILT}
+        deviceStatus: {type: string, example: NORMAL}
+        portableSoilMoisture: {type: number, minimum: 0, maximum: 100, nullable: true}
+        notes: {type: string, description: 现场可复核说明}
+    InspectionRecord:
+      allOf:
+        - {$ref: '#/components/schemas/InspectionCreateRequest'}
+        - type: object
+          required: [inspectionId, operatorId, operatorName, operatorRole, createdAt, updatedAt, provenance, sourceType, quality]
+          properties:
+            inspectionId: {type: string}
+            operatorId: {type: string}
+            operatorName: {type: string}
+            operatorRole: {type: string, enum: [FARMER, FARM_ADMIN]}
+            createdAt: {type: string, format: date-time}
+            updatedAt: {type: string, format: date-time}
+            revision: {type: integer, minimum: 1}
+            evidenceSummary: {type: string}
+            provenance: {type: string, enum: [USER_PROVIDED]}
+            sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
+            quality: {type: object, properties: {status: {type: string, enum: [GOOD, INCOMPLETE]}, completeness: {type: number, minimum: 0, maximum: 1}}}

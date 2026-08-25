@@ -881,7 +881,7 @@ const app = createApp({
       alerts: session?.mode === 'demo' ? (MOCK_DATA.alerts || []).map((item) => ({ ...item })) : [],
       workOrders: session?.mode === 'demo' ? MOCK_DATA.workOrders : [],
       farmMembers: session?.mode === 'demo' ? (MOCK_DATA.farmMembers || []) : [],
-      inspections: MOCK_DATA.inspections,
+      inspections: session?.mode === 'demo' ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: MOCK_DATA.resourceProfile,
       cropPackDetails: MOCK_DATA.cropPackDetails,
       riskForecastConfig: MOCK_DATA.riskForecastConfig,

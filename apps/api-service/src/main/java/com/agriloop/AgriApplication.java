@@ -1837,15 +1837,143 @@ class AgriEngine {
 
     Map<String, Object> createInspection(Map<String, Object> input, UserPrincipal principal) {
         if (!principal.canInspect()) throw new ApiException(HttpStatus.FORBIDDEN, "INSPECTION_FORBIDDEN", "当前角色不能提交巡田记录");
-        String plotId = Jsons.text(input, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
-        Map<String, Object> record = new LinkedHashMap<>(input); record.put("inspectionId", Jsons.text(input, "inspectionId", Jsons.id("ins"))); record.put("plotId", plotId);
-        record.put("operatorId", principal.userId); record.put("observedAt", Jsons.text(input, "observedAt", Instant.now().toString())); record.put("revision", Jsons.whole(input, "revision", 1));
-        record.put("provenance", "USER_PROVIDED"); record.put("sourceType", "HUMAN_OBSERVATION");
-        Map<String, Object> quality = Jsons.map(mapper, input.get("quality")); quality.putIfAbsent("status", "GOOD"); quality.putIfAbsent("completeness", 1.0); record.put("quality", quality);
-        store.save("inspection", Jsons.text(record, "inspectionId", ""), record); events.publish("inspection.created", record); store.logEvent("inspection.created", record); return record;
+        String plotId = Jsons.text(input, "plotId", "").trim();
+        if (plotId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CONTEXT_REQUIRED", "请先选择地块");
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        String farmId = Jsons.text(plot, "farmId", "");
+        String requestedFarmId = Jsons.text(input, "farmId", farmId).trim();
+        if (!farmId.equals(requestedFarmId)) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_MISMATCH", "巡田记录的农场与地块不一致");
+
+        String workOrderId = Jsons.text(input, "workOrderId", "").trim();
+        Map<String, Object> linkedWorkOrder = null;
+        if (!workOrderId.isBlank()) {
+            linkedWorkOrder = scopedWorkOrder(workOrderId, principal);
+            if (!plotId.equals(Jsons.text(linkedWorkOrder, "plotId", ""))) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_WORK_ORDER_MISMATCH", "所选任务不属于这块地");
+            }
+            String workStatus = normalizeWorkStatus(linkedWorkOrder.get("status"));
+            if (TERMINAL_WORK_ORDER_STATUSES.contains(workStatus)) {
+                throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_WORK_ORDER_CLOSED", "这项任务已经结束，不能再补充巡田记录");
+            }
+            if ("FARMER".equals(principal.role)) {
+                requireAssignedFarmer(linkedWorkOrder, principal);
+                if (!"IN_PROGRESS".equals(workStatus)) {
+                    throw new ApiException(HttpStatus.CONFLICT, "INSPECTION_WORK_ORDER_NOT_ACTIVE", "请先开始任务，再记录现场巡田结果");
+                }
+            }
+        }
+
+        String diagnosisId = validatedInspectionReference(input, "diagnosisId", "diagnosis", plotId);
+        String cropBatchId = validatedInspectionReference(input, "cropBatchId", "crop-batch", plotId);
+        String soilSurface = Jsons.text(input, "soilSurface", "").trim();
+        String cropCondition = Jsons.text(input, "cropCondition", "").trim();
+        String deviceStatus = Jsons.text(input, "deviceStatus", "").trim();
+        String notes = Jsons.text(input, "notes", "").trim();
+        if (List.of(soilSurface, cropCondition, deviceStatus, notes).stream().allMatch(String::isBlank)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_OBSERVATION_REQUIRED", "请至少填写一项现场观察");
+        }
+
+        Instant now = Instant.now();
+        String observedText = Jsons.text(input, "observedAt", now.toString()).trim();
+        Instant observedAt;
+        try { observedAt = Instant.parse(observedText); }
+        catch (Exception ignored) { throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_TIME_INVALID", "巡田时间格式不正确"); }
+        if (observedAt.isAfter(now.plus(5, ChronoUnit.MINUTES))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_TIME_INVALID", "巡田时间不能晚于当前时间");
+        }
+
+        Double portableSoilMoisture = null;
+        Object portableValue = input.get("portableSoilMoisture");
+        if (portableValue != null && !String.valueOf(portableValue).isBlank()) {
+            try { portableSoilMoisture = Double.parseDouble(String.valueOf(portableValue)); }
+            catch (NumberFormatException ignored) { throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_MOISTURE_INVALID", "便携仪含水率必须是数字"); }
+            if (portableSoilMoisture < 0 || portableSoilMoisture > 100) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_MOISTURE_INVALID", "便携仪含水率必须在 0% 到 100% 之间");
+            }
+        }
+
+        String inspectionId = Jsons.id("ins");
+        String summary = inspectionSummary(soilSurface, cropCondition, deviceStatus, notes);
+        Map<String, Object> record = new LinkedHashMap<>();
+        record.put("inspectionId", inspectionId);
+        record.put("farmId", farmId);
+        record.put("plotId", plotId);
+        if (!workOrderId.isBlank()) record.put("workOrderId", workOrderId);
+        if (!diagnosisId.isBlank()) record.put("diagnosisId", diagnosisId);
+        if (!cropBatchId.isBlank()) record.put("cropBatchId", cropBatchId);
+        record.put("operatorId", principal.userId);
+        record.put("operatorName", principal.username);
+        record.put("operatorRole", principal.role);
+        record.put("observedAt", observedAt.toString());
+        record.put("createdAt", now.toString());
+        record.put("updatedAt", now.toString());
+        record.put("revision", 1);
+        record.put("soilSurface", soilSurface.isBlank() ? null : soilSurface);
+        record.put("cropCondition", cropCondition.isBlank() ? null : cropCondition);
+        record.put("deviceStatus", deviceStatus.isBlank() ? null : deviceStatus);
+        record.put("portableSoilMoisture", portableSoilMoisture);
+        record.put("notes", notes.isBlank() ? null : notes);
+        record.put("evidenceSummary", summary);
+        record.put("provenance", "USER_PROVIDED");
+        record.put("sourceType", "HUMAN_OBSERVATION");
+        long completedFields = List.of(soilSurface, cropCondition, deviceStatus, notes).stream().filter(value -> !value.isBlank()).count();
+        record.put("quality", Map.of("status", completedFields == 4 ? "GOOD" : "INCOMPLETE", "completeness", round(completedFields / 4.0)));
+
+        store.save("inspection", inspectionId, record);
+        if (linkedWorkOrder != null) {
+            List<String> evidenceRefs = new ArrayList<>(Jsons.strings(linkedWorkOrder.get("evidenceRefs")));
+            if (!evidenceRefs.contains(inspectionId)) evidenceRefs.add(inspectionId);
+            linkedWorkOrder.put("evidenceRefs", evidenceRefs);
+            updateWorkOrderAudit(linkedWorkOrder, principal, now);
+            String status = normalizeWorkStatus(linkedWorkOrder.get("status"));
+            appendWorkOrderHistory(linkedWorkOrder, "EVIDENCE_ADDED", status, status, principal, "新增巡田证据：" + summary, List.of(inspectionId));
+            saveWorkOrder(linkedWorkOrder, "evidence-added");
+        }
+        events.publish("inspection.created", record);
+        store.logEvent("inspection.created", record);
+        return record;
     }
 
-    List<Map<String, Object>> inspections(String plotId) { return store.list("inspection").stream().filter(i -> plotId.equals(Jsons.text(i, "plotId", ""))).toList(); }
+    private String validatedInspectionReference(Map<String, Object> input, String field, String type, String plotId) {
+        String referenceId = Jsons.text(input, field, "").trim();
+        if (referenceId.isBlank()) return "";
+        Map<String, Object> reference = requireRecord(type, referenceId);
+        if (!plotId.equals(Jsons.text(reference, "plotId", ""))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_REFERENCE_MISMATCH", "关联记录不属于这块地");
+        }
+        return referenceId;
+    }
+
+    private String inspectionSummary(String soilSurface, String cropCondition, String deviceStatus, String notes) {
+        List<String> parts = new ArrayList<>();
+        if (!soilSurface.isBlank()) parts.add("土壤" + inspectionObservationLabel(soilSurface));
+        if (!cropCondition.isBlank()) parts.add("作物" + inspectionObservationLabel(cropCondition));
+        if (!deviceStatus.isBlank()) parts.add("设备" + inspectionObservationLabel(deviceStatus));
+        if (parts.isEmpty() && !notes.isBlank()) return notes;
+        return String.join("；", parts);
+    }
+
+    private String inspectionObservationLabel(String value) {
+        return switch (String.valueOf(value).trim().toUpperCase(Locale.ROOT)) {
+            case "NORMAL" -> "正常";
+            case "DRY" -> "干燥或开裂";
+            case "WET" -> "过湿或积水";
+            case "LEAF_SLIGHT_WILT" -> "叶片轻微萎蔫";
+            case "DISEASE_SUSPECTED" -> "疑似病害";
+            case "LOOSE" -> "接头松动";
+            case "LEAKING" -> "管线渗漏";
+            case "OFFLINE" -> "离线或无显示";
+            default -> value;
+        };
+    }
+
+    List<Map<String, Object>> inspections(String plotId) {
+        return store.list("inspection").stream()
+                .filter(i -> plotId.equals(Jsons.text(i, "plotId", "")))
+                .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
+                .toList();
+    }
 
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
         StreamBuilder work = new StreamBuilder();
@@ -1973,7 +2101,9 @@ class AgriEngine {
                 if (resultSummary.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_RESULT_REQUIRED", "请填写处理结果");
                 target = "SUBMITTED";
                 work.put("resultSummary", resultSummary);
-                work.put("evidenceRefs", Jsons.strings(input.get("evidenceRefs")));
+                LinkedHashSet<String> evidenceRefs = new LinkedHashSet<>(Jsons.strings(work.get("evidenceRefs")));
+                evidenceRefs.addAll(Jsons.strings(input.get("evidenceRefs")));
+                work.put("evidenceRefs", new ArrayList<>(evidenceRefs));
                 work.put("submittedAt", now.toString());
                 work.put("submittedBy", principal.userId);
             }
@@ -1990,7 +2120,8 @@ class AgriEngine {
         work.put("status", target);
         updateWorkOrderAudit(work, principal, now);
         String note = "SUBMIT".equals(action) ? Jsons.text(work, "resultSummary", "已提交处理结果") : Jsons.text(input, "note", workActionLabel(action));
-        appendWorkOrderHistory(work, action, current, target, principal, note, Jsons.strings(input.get("evidenceRefs")));
+        appendWorkOrderHistory(work, action, current, target, principal, note,
+                "SUBMIT".equals(action) ? Jsons.strings(work.get("evidenceRefs")) : Jsons.strings(input.get("evidenceRefs")));
         saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
         return work;
     }

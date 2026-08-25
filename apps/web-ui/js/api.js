@@ -84,6 +84,7 @@ export class ApiService {
       evaluations: new Map()
     };
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
+    this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
   }
 
   readStoredUser() {
@@ -611,7 +612,7 @@ export class ApiService {
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
-    return (MOCK_DATA.inspections || []).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+    return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
   }
 
   async createInspection(inspection) {
@@ -622,14 +623,39 @@ export class ApiService {
       });
       return response?.data || response;
     }
-    return {
+    const now = new Date().toISOString();
+    const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
       operatorId: this.user?.userId || 'demo-farmer',
-      observedAt: inspection.observedAt || new Date().toISOString(),
+      operatorName: this.user?.username || 'demo',
+      operatorRole: this.user?.role || 'FARMER',
+      observedAt: inspection.observedAt || now,
+      createdAt: now,
+      updatedAt: now,
+      revision: 1,
       provenance: 'USER_PROVIDED',
-      sourceType: 'HUMAN_OBSERVATION'
+      sourceType: 'HUMAN_OBSERVATION',
+      quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
+    this.demoInspections.set(saved.inspectionId, saved);
+    if (saved.workOrderId && this.demoWorkOrders.has(saved.workOrderId)) {
+      const work = this.demoWorkOrders.get(saved.workOrderId);
+      const evidenceRefs = Array.from(new Set([...(work.evidenceRefs || []), saved.inspectionId]));
+      const history = [...(work.history || []), {
+        action: 'EVIDENCE_ADDED',
+        fromStatus: work.status,
+        toStatus: work.status,
+        actorId: saved.operatorId,
+        actorName: saved.operatorName,
+        actorRole: saved.operatorRole,
+        at: now,
+        note: '新增巡田证据',
+        evidenceRefs: [saved.inspectionId]
+      }];
+      this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
+    }
+    return { ...saved };
   }
 
   async evaluateResourcePlan(input = {}) {

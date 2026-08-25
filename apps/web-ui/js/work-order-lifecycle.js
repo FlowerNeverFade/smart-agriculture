@@ -15,6 +15,11 @@ const STATUS_META = Object.freeze({
 
 const STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_STATUSES = new Set(['DONE', 'CANCELLED']);
+const INSPECTION_LABELS = Object.freeze({
+  soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
+  crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' },
+  device: { NORMAL: '外观完好', LOOSE: '接头松动', LEAKING: '管线渗漏', OFFLINE: '离线或无显示' }
+});
 
 function workStatus(value) {
   const status = String(value || 'OPEN').trim().toUpperCase();
@@ -45,6 +50,19 @@ function emptyTaskForm(plots, plotId = '') {
   };
 }
 
+function emptyInspectionForm(plots, plotId = '', workOrderId = '') {
+  return {
+    plotId: plotId || plots?.[0]?.plotId || '',
+    workOrderId,
+    observedAt: localDateTimeInput(0),
+    soilSurface: 'NORMAL',
+    cropCondition: 'NORMAL',
+    deviceStatus: 'NORMAL',
+    portableSoilMoisture: '',
+    notes: ''
+  };
+}
+
 export const WorkOrderLifecycleView = {
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
@@ -62,6 +80,8 @@ export const WorkOrderLifecycleView = {
     const isBusy = ref(false);
     const memberLoading = ref(false);
     const memberLoadError = ref('');
+    const inspectionLoading = ref(false);
+    const inspectionLoadError = ref('');
     const statusFilter = ref('ACTIVE');
     const plotFilter = ref('');
     const assigneeFilter = ref('');
@@ -78,7 +98,7 @@ export const WorkOrderLifecycleView = {
     const review = ref({ note: '' });
     const cancellation = ref({ note: '' });
     const taskForm = ref(emptyTaskForm(props.state.plots));
-    const inspectionForm = ref({ plotId: props.state.plots?.[0]?.plotId || '', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' });
+    const inspectionForm = ref(emptyInspectionForm(props.state.plots));
 
     const plotName = (plotId) => props.state.plots.find((plot) => plot.plotId === plotId)?.name || plotId || '—';
     const farmerName = (order) => order.assigneeName || props.state.farmMembers.find((member) => member.userId === order.assigneeId)?.displayName || order.assigneeId || '待分配';
@@ -93,6 +113,9 @@ export const WorkOrderLifecycleView = {
     const memberActiveTaskCount = (userId) => props.state.workOrders.filter((order) =>
       order.assigneeId === userId && !TERMINAL_STATUSES.has(workStatus(order.status))).length;
     const assignmentMemberLabel = (member) => `${member.displayName || member.username} · ${memberActiveTaskCount(member.userId)} 项待办`;
+    const inspectionOperatorName = (record) => record.operatorName || props.state.farmMembers.find((member) => member.userId === record.operatorId)?.displayName || record.operatorId || '未记录';
+    const inspectionObservationLabel = (group, value) => INSPECTION_LABELS[group]?.[String(value || '').toUpperCase()] || value || '—';
+    const inspectionTaskName = (record) => props.state.workOrders.find((order) => order.workOrderId === record.workOrderId)?.title || (record.workOrderId ? `任务 ${record.workOrderId}` : '未关联任务');
 
     const scopedOrders = computed(() => {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
@@ -122,6 +145,18 @@ export const WorkOrderLifecycleView = {
           new Date(a.dueAt || 0) - new Date(b.dueAt || 0);
       }));
 
+    const inspections = computed(() => (Array.isArray(props.state.inspections) ? props.state.inspections : [])
+      .slice()
+      .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0)));
+    const recentInspections = computed(() => inspections.value.slice(0, 8));
+    const relatedInspections = (order) => inspections.value.filter((record) =>
+      record.workOrderId === order?.workOrderId || (order?.evidenceRefs || []).includes(record.inspectionId));
+    const eligibleInspectionOrders = computed(() => scopedOrders.value.filter((order) => {
+      const status = workStatus(order.status);
+      if (order.plotId !== inspectionForm.value.plotId || TERMINAL_STATUSES.has(status)) return false;
+      return !isFarmer.value || (order.assigneeId === currentActorId.value && status === 'IN_PROGRESS');
+    }));
+
     const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
     const summary = computed(() => ({
       total: scopedOrders.value.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
@@ -139,7 +174,7 @@ export const WorkOrderLifecycleView = {
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
     const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建' }[String(source || '').toUpperCase()] || '系统任务');
-    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
+    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
     const formatTime = (value) => {
       if (!value) return '—';
       const date = new Date(value);
@@ -243,7 +278,7 @@ export const WorkOrderLifecycleView = {
 
     const openSubmit = (order) => {
       activeOrder.value = order;
-      submission.value = { resultSummary: '', evidenceText: '' };
+      submission.value = { resultSummary: '', evidenceText: '', inspectionRefs: relatedInspections(order).map((record) => record.inspectionId) };
       showSubmitModal.value = true;
     };
 
@@ -252,7 +287,10 @@ export const WorkOrderLifecycleView = {
         toast('请用一句话说明处理结果', 'error');
         return;
       }
-      const evidenceRefs = submission.value.evidenceText.split('\n').map((item) => item.trim()).filter(Boolean);
+      const evidenceRefs = Array.from(new Set([
+        ...(submission.value.inspectionRefs || []),
+        ...submission.value.evidenceText.split('\n').map((item) => item.trim()).filter(Boolean)
+      ]));
       const saved = await runAction(() => api.transitionWorkOrder(activeOrder.value.workOrderId, {
         action: 'SUBMIT',
         resultSummary: submission.value.resultSummary.trim(),
@@ -287,24 +325,72 @@ export const WorkOrderLifecycleView = {
       if (saved) showCancelModal.value = false;
     };
 
+    const loadInspections = async (announce = false) => {
+      if (inspectionLoading.value) return false;
+      const plotIds = props.state.plots.map((plot) => plot.plotId).filter(Boolean);
+      if (!plotIds.length) {
+        props.state.inspections.splice(0, props.state.inspections.length);
+        return true;
+      }
+      inspectionLoading.value = true;
+      inspectionLoadError.value = '';
+      try {
+        const results = await Promise.all(plotIds.map((plotId) => api.getInspections(plotId)));
+        const records = Array.from(new Map(results.flat().map((record) => [record.inspectionId, record])).values())
+          .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
+        props.state.inspections.splice(0, props.state.inspections.length, ...records);
+        if (announce) toast(`已重新读取 ${records.length} 条巡田证据`);
+        return true;
+      } catch (error) {
+        inspectionLoadError.value = error?.message || '巡田记录读取失败';
+        if (announce) toast('刷新巡田证据失败：' + inspectionLoadError.value, 'error');
+        return false;
+      } finally {
+        inspectionLoading.value = false;
+      }
+    };
+
+    const openInspection = (order = null) => {
+      inspectionForm.value = emptyInspectionForm(props.state.plots, order?.plotId || plotFilter.value, order?.workOrderId || '');
+      showInspectionModal.value = true;
+    };
+
     const submitInspection = async () => {
       const draft = inspectionForm.value;
-      if (!draft.plotId || !draft.soilSurface || draft.portableSoilMoisture === '') {
-        toast('请选择地块，并填写表层状况和实测含水率', 'error');
+      if (!draft.plotId || !draft.observedAt || !draft.soilSurface || !draft.cropCondition || !draft.deviceStatus || !draft.notes.trim()) {
+        toast('请完整填写地块、时间、三项现场观察和现场说明', 'error');
         return;
       }
       if (isBusy.value) return;
       isBusy.value = true;
       try {
         const saved = await api.createInspection({
-          ...draft,
-          portableSoilMoisture: Number(draft.portableSoilMoisture),
-          observedAt: new Date().toISOString()
+          farmId: currentFarmId.value,
+          plotId: draft.plotId,
+          ...(draft.workOrderId ? { workOrderId: draft.workOrderId } : {}),
+          observedAt: new Date(draft.observedAt).toISOString(),
+          soilSurface: draft.soilSurface,
+          cropCondition: draft.cropCondition,
+          deviceStatus: draft.deviceStatus,
+          portableSoilMoisture: draft.portableSoilMoisture === '' ? null : Number(draft.portableSoilMoisture),
+          notes: draft.notes.trim()
         });
-        props.state.inspections.unshift(saved);
+        const oldIndex = props.state.inspections.findIndex((record) => record.inspectionId === saved.inspectionId);
+        if (oldIndex >= 0) props.state.inspections.splice(oldIndex, 1, saved);
+        else props.state.inspections.unshift(saved);
+        if (draft.workOrderId) {
+          const order = props.state.workOrders.find((item) => item.workOrderId === draft.workOrderId);
+          if (order) order.evidenceRefs = Array.from(new Set([...(order.evidenceRefs || []), saved.inspectionId]));
+          try {
+            const refreshed = await api.getWorkOrders({ farmId: currentFarmId.value });
+            props.state.workOrders.splice(0, props.state.workOrders.length, ...refreshed);
+          } catch (_error) { /* 已保存的巡田记录仍保留，后续刷新会重新读取工单。 */ }
+        }
+        await loadInspections(false);
         showInspectionModal.value = false;
-        inspectionForm.value = { plotId: props.state.plots?.[0]?.plotId || '', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
-        toast('巡田记录已保存');
+        inspectionForm.value = emptyInspectionForm(props.state.plots, draft.plotId);
+        emit('data-invalidated', { type: 'data-invalidated', domains: ['workOrders'], farmId: currentFarmId.value, plotId: saved.plotId, reason: 'inspection-created' });
+        toast(draft.workOrderId ? '巡田证据已保存，并已关联到任务' : '巡田证据已保存，可在下方历史记录中查看');
       } catch (error) {
         toast(error.message || '巡田记录保存失败', 'error');
       } finally {
@@ -330,14 +416,29 @@ export const WorkOrderLifecycleView = {
       if (params?.highlight) focusHighlightedTask(params.highlight);
     }, { immediate: true, deep: true });
 
+    watch(() => props.state.plots.map((plot) => plot.plotId).join('|'), (plotIds) => {
+      if (!plotIds) return;
+      if (!props.state.plots.some((plot) => plot.plotId === inspectionForm.value.plotId)) {
+        inspectionForm.value.plotId = props.state.plots[0]?.plotId || '';
+      }
+      loadInspections(false);
+    }, { immediate: true });
+
+    watch(() => inspectionForm.value.plotId, () => {
+      const selected = props.state.workOrders.find((order) => order.workOrderId === inspectionForm.value.workOrderId);
+      if (selected && selected.plotId !== inspectionForm.value.plotId) inspectionForm.value.workOrderId = '';
+    });
+
     return {
-      role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError,
+      role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
       statusFilter, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
+      inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
       showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
-      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask, submitInspection
+      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
+      loadInspections, openInspection, submitInspection
     };
   },
   template: `
@@ -349,7 +450,7 @@ export const WorkOrderLifecycleView = {
           <p>{{ pageHint }}</p>
         </div>
         <div class="work-lifecycle-actions">
-          <button v-if="canInspect" type="button" class="g-btn secondary" @click="showInspectionModal = true"><app-icon name="fact_check"></app-icon>录入巡田记录</button>
+          <button v-if="canInspect" type="button" class="g-btn secondary" @click="openInspection()"><app-icon name="fact_check"></app-icon>录入巡田证据</button>
           <button v-if="canManage" type="button" class="g-btn primary" @click="openCreate()"><app-icon name="add_task"></app-icon>创建任务</button>
         </div>
       </header>
@@ -375,7 +476,7 @@ export const WorkOrderLifecycleView = {
         <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card" :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order) }]" :data-work-order-id="order.workOrderId">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
@@ -409,6 +510,7 @@ export const WorkOrderLifecycleView = {
               <button v-if="canManage && workStatus(order.status) === 'SUBMITTED'" type="button" class="g-btn primary compact" @click="openReview(order)">验收结果</button>
               <button v-if="canManage && !TERMINAL_STATUSES.has(workStatus(order.status))" type="button" class="g-btn danger-text compact" @click="openCancel(order)">取消</button>
               <button v-if="isFarmer && workStatus(order.status) === 'ASSIGNED'" type="button" class="g-btn primary compact" @click="startTask(order)">开始处理</button>
+              <button v-if="isFarmer && workStatus(order.status) === 'IN_PROGRESS'" type="button" class="g-btn secondary compact" @click="openInspection(order)">记录巡田证据</button>
               <button v-if="isFarmer && workStatus(order.status) === 'IN_PROGRESS'" type="button" class="g-btn primary compact" @click="openSubmit(order)">提交结果</button>
               <button v-if="isFarmer && workStatus(order.status) === 'REJECTED'" type="button" class="g-btn primary compact" @click="startTask(order, true)">重新处理</button>
             </div>
@@ -416,6 +518,28 @@ export const WorkOrderLifecycleView = {
         </article>
       </div>
       <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
+
+      <section class="inspection-history" aria-labelledby="inspection-history-title">
+        <header>
+          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">最近巡田证据</h2><span>人工记录不会覆盖传感器数据，每条都保留人员、时间和关联任务。</span></div>
+          <button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button>
+        </header>
+        <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
+        <div v-if="recentInspections.length" class="inspection-record-list">
+          <article v-for="record in recentInspections" :key="record.inspectionId">
+            <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
+            <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
+            <div class="inspection-observations">
+              <span>土壤：{{ inspectionObservationLabel('soil', record.soilSurface) }}</span>
+              <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
+              <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
+              <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
+            </div>
+            <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
+          </article>
+        </div>
+        <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
+      </section>
 
       <div v-if="showTaskModal" class="g-modal-overlay" @click.self="showTaskModal = false" @keydown.esc="showTaskModal = false">
         <form class="g-modal work-dialog" @submit.prevent="createTask">
@@ -452,7 +576,8 @@ export const WorkOrderLifecycleView = {
           <div class="g-modal-header"><div><small>提交处理结果</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showSubmitModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-stack">
             <label><span>处理结果</span><textarea class="g-input" rows="4" v-model="submission.resultSummary" required placeholder="例如：已复测三处，湿度分别为 21%、22%、21.5%"></textarea></label>
-            <label><span>证据编号（选填，每行一个）</span><textarea class="g-input" rows="3" v-model="submission.evidenceText" placeholder="例如：inspection-20260825-01"></textarea></label>
+            <div v-if="relatedInspections(activeOrder).length" class="inspection-evidence-picker"><strong>关联本次巡田记录</strong><label v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><input type="checkbox" :value="record.inspectionId" v-model="submission.inspectionRefs"><span><b>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</b><small>{{ record.inspectionId }}</small></span></label></div>
+            <label><span>其他证据编号（选填，每行一个）</span><textarea class="g-input" rows="2" v-model="submission.evidenceText" placeholder="例如：设备检修单或其他证据编号"></textarea></label>
           </div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showSubmitModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy">提交给管理员验收</button></div>
         </form>
@@ -461,7 +586,7 @@ export const WorkOrderLifecycleView = {
       <div v-if="showReviewModal" class="g-modal-overlay" @click.self="showReviewModal = false" @keydown.esc="showReviewModal = false">
         <div class="g-modal work-dialog work-dialog-small">
           <div class="g-modal-header"><div><small>任务验收</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showReviewModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
-          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ activeOrder?.resultSummary || '未填写结果说明' }}</p></div><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
+          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ activeOrder?.resultSummary || '未填写结果说明' }}</p></div><div v-if="relatedInspections(activeOrder).length" class="review-evidence"><strong>巡田证据 {{ relatedInspections(activeOrder).length }} 条</strong><div v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><span>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</span><small>{{ inspectionOperatorName(record) }} · {{ record.inspectionId }}</small></div></div><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
           <div class="g-modal-footer split"><button type="button" class="g-btn secondary" @click="showReviewModal = false">稍后处理</button><div><button type="button" class="g-btn danger-text" :disabled="isBusy" @click="reviewTask('REJECT')">退回处理</button><button type="button" class="g-btn primary" :disabled="isBusy" @click="reviewTask('APPROVE')">验收通过</button></div></div>
         </div>
       </div>
@@ -475,16 +600,20 @@ export const WorkOrderLifecycleView = {
       </div>
 
       <div v-if="showInspectionModal" class="g-modal-overlay" @click.self="showInspectionModal = false" @keydown.esc="showInspectionModal = false">
-        <form class="g-modal work-dialog work-dialog-small" @submit.prevent="submitInspection">
-          <div class="g-modal-header"><div><small>人工核验</small><h3>录入巡田记录</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
-          <div class="g-modal-body work-form-stack">
+        <form class="g-modal work-dialog inspection-dialog" @submit.prevent="submitInspection">
+          <div class="g-modal-header"><div><small>人工核验 · USER_PROVIDED</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-body work-form-grid">
+            <p class="inspection-guidance span-2">请只记录现场看到或实际测到的情况。保存后会生成唯一证据编号，不会修改传感器原始数据。</p>
             <label><span>地块</span><select class="g-select" v-model="inspectionForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-            <label><span>土壤表层状况</span><input class="g-input" v-model="inspectionForm.soilSurface" required placeholder="例如：湿润、局部干裂"></label>
-            <label><span>作物状态</span><input class="g-input" v-model="inspectionForm.cropCondition" placeholder="例如：长势正常、叶片轻微萎蔫"></label>
-            <label><span>便携仪实测含水率（%）</span><input type="number" min="0" max="100" step="0.1" class="g-input" v-model="inspectionForm.portableSoilMoisture" required></label>
-            <label><span>现场说明</span><textarea class="g-input" rows="3" v-model="inspectionForm.notes" placeholder="记录现场可核验的情况"></textarea></label>
+            <label><span>巡田时间</span><input type="datetime-local" class="g-input" v-model="inspectionForm.observedAt" required></label>
+            <label class="span-2"><span>关联任务（选填）</span><select class="g-select" v-model="inspectionForm.workOrderId"><option value="">不关联任务</option><option v-for="order in eligibleInspectionOrders" :key="order.workOrderId" :value="order.workOrderId">{{ order.title }} · {{ statusMeta(order).label }}</option></select><small v-if="isFarmer && !eligibleInspectionOrders.length">只有已开始、且分配给你的当前地块任务可以关联；也可以单独保存巡田记录。</small></label>
+            <label><span>土壤表层状况</span><select class="g-select" v-model="inspectionForm.soilSurface" required><option value="NORMAL">正常</option><option value="DRY">干燥或开裂</option><option value="WET">过湿或积水</option></select></label>
+            <label><span>作物状态</span><select class="g-select" v-model="inspectionForm.cropCondition" required><option value="NORMAL">长势正常</option><option value="LEAF_SLIGHT_WILT">叶片轻微萎蔫</option><option value="DISEASE_SUSPECTED">疑似病害</option></select></label>
+            <label><span>设备外观</span><select class="g-select" v-model="inspectionForm.deviceStatus" required><option value="NORMAL">外观完好</option><option value="LOOSE">接头松动</option><option value="LEAKING">管线渗漏</option><option value="OFFLINE">离线或无显示</option></select></label>
+            <label><span>便携仪实测含水率（选填）</span><div class="inspection-number"><input type="number" min="0" max="100" step="0.1" class="g-input" v-model="inspectionForm.portableSoilMoisture" placeholder="未测量"><b>%</b></div></label>
+            <label class="span-2"><span>现场说明</span><textarea class="g-input" rows="3" v-model="inspectionForm.notes" required placeholder="例如：西侧两垄表层开裂，番茄叶片轻微下垂，阀门外观正常"></textarea></label>
           </div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showInspectionModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy">保存记录</button></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showInspectionModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy">{{ isBusy ? '正在保存' : '保存巡田证据' }}</button></div>
         </form>
       </div>
     </section>
