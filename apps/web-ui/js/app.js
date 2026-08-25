@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=1787643356356';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
@@ -520,7 +520,7 @@ const AdminAuditView = {
       expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
     };
 
-    return { searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
   }
 };
 
@@ -538,7 +538,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, selectedScenario, scenarios };
+    return { simRunning, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack };
   }
 };
 

@@ -748,6 +748,14 @@ export const MOCK_DATA = {
   // ============================================================
   // SYSTEM_ADMIN mock data — used exclusively by admin views
   // ============================================================
+  
+  adminGlobalDevices: [
+    { id: 'dev-global-01', name: '全向网关 A 型', mac: '00:1A:2B:3C:4D:5E', status: 'ONLINE', farm: '科学城农场', bindStatus: 'BOUND' },
+    { id: 'dev-global-02', name: '土壤四合一探头', mac: '00:1A:2B:3C:4D:5F', status: 'ONLINE', farm: '科学城农场', bindStatus: 'BOUND' },
+    { id: 'dev-global-03', name: '智能灌溉控制柜', mac: '00:1A:2B:3C:4D:60', status: 'OFFLINE', farm: '白云基地', bindStatus: 'BOUND' },
+    { id: 'dev-global-04', name: '高光谱摄像头', mac: '00:1A:2B:3C:4D:61', status: 'ONLINE', farm: '—', bindStatus: 'UNBOUND' }
+  ],
+
   adminOverview: {
     uptime: '72h 34m',
     apiVersion: '1.4.0',
@@ -889,6 +897,18 @@ export const MOCK_DATA = {
     { id: 'RULE-THRESH-001', description: '土壤湿度告警阈值 (按作物阶段)', type: '阈值', version: '1.3', status: 'published' },
     { id: 'RULE-THRESH-002', description: '温湿度异常范围 (全局)', type: '阈值', version: '1.1', status: 'published' },
     { id: 'RULE-EVAL-001', description: '灌溉效果评价标准 (3h内恢复率)', type: '评价', version: '1.0', status: 'draft' }
+  ],
+
+  
+  adminWorkOrders: [
+    { id: "WO-2608-01", plot: "plot-a01", source: "SYSTEM", type: "IRRIGATION_CHECK", status: "COMPLETED", operator: "农户老王", time: "2026-08-22 09:30" },
+    { id: "WO-2608-02", plot: "plot-a02", source: "MANUAL", type: "INSPECTION", status: "PENDING", operator: "技术员小李", time: "2026-08-22 10:15" },
+    { id: "WO-2608-03", plot: "plot-b01", source: "SYSTEM", type: "MAINTENANCE", status: "IN_PROGRESS", operator: "设备组张工", time: "2026-08-22 14:00" }
+  ],
+
+  adminValueLedgerAudits: [
+    { traceId: "VAL-9921", date: "2026-08-21", plot: "plot-a01", item: "节水核算", baseline: "1200L/天", actual: "850L/天", counterfactual: "基于邻区传统漫灌对照组", sourceTag: "OBSERVED, 模拟器", result: "节水 350L (省 ¥1.4)" },
+    { traceId: "VAL-9922", date: "2026-08-21", plot: "plot-a02", item: "电费节约", baseline: "12 kWh/天", actual: "9.5 kWh/天", counterfactual: "水泵启停优化算法 v1.2", sourceTag: "DERIVED", result: "节电 2.5 kWh (省 ¥1.37)" }
   ],
 
   adminStrategyCandidates: [

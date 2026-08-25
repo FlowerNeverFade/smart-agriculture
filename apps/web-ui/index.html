@@ -655,7 +655,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=1787643216763"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1108,7 +1108,7 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>候选 ID</th><th>来源</th><th>描述</th><th>状态</th><th>操作</th>
+              <th>候选 ID</th><th>来源</th><th>描述</th><th>离线验证</th><th>状态</th><th>操作</th>
             </tr></thead>
             <tbody>
               <tr v-for="cand in state.adminStrategyCandidates" :key="cand.id">
@@ -1119,6 +1119,7 @@
                 <td>
                   <button v-if="cand.status==='verified'" class="g-btn text sm" @click="cand.status='approved'">批准</button>
                   <button v-if="cand.status==='verified'" class="g-btn text sm" style="color:var(--g-danger)" @click="cand.status='rejected'">拒绝</button>
+                  <button v-if="cand.status==='active'" class="g-btn text sm" style="color:var(--g-danger)" @click="cand.status='verified'; alert('策略已回滚到验证状态 (Rollback)')">回滚 (Rollback)</button>
                 </td>
               </tr>
             </tbody>
