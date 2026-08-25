@@ -2033,13 +2033,21 @@ class AgriEngine {
         if (normalizedFarmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
         if (!principal.canAccessFarm(normalizedFarmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         return store.listUsers().stream()
+                .filter(user -> Set.of("FARMER", "FARM_ADMIN").contains(RolePolicy.canonical(Jsons.text(user, "role", ""))))
                 .filter(user -> Jsons.strings(user.get("farmIds")).contains(normalizedFarmId) || Jsons.strings(user.get("farmIds")).contains("*"))
                 .map(user -> {
-                    Map<String, Object> member = new LinkedHashMap<>(user);
+                    Map<String, Object> member = new LinkedHashMap<>();
                     String role = RolePolicy.canonical(Jsons.text(user, "role", "FARMER"));
+                    member.put("userId", Jsons.text(user, "userId", ""));
+                    member.put("username", Jsons.text(user, "username", ""));
+                    member.put("displayName", Jsons.text(user, "displayName", Jsons.text(user, "username", "未命名成员")));
                     member.put("role", role);
                     member.put("roleLabel", RolePolicy.label(role));
-                    member.put("displayName", Jsons.text(user, "displayName", Jsons.text(user, "username", "未命名成员")));
+                    member.put("farmIds", List.of(normalizedFarmId));
+                    List<String> assignedPlotIds = Jsons.strings(user.get("plotIds"));
+                    member.put("plotIds", assignedPlotIds.contains("*") ? List.of("*") : assignedPlotIds.stream()
+                            .filter(plotId -> normalizedFarmId.equals(farmIdForPlot(plotId)))
+                            .toList());
                     member.put("status", Jsons.bool(user, "enabled", true) ? "ACTIVE" : "INACTIVE");
                     return member;
                 })

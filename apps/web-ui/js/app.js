@@ -38,6 +38,7 @@ const ICON_CLASS = Object.freeze({
   task: 'ph-check-square',
   record_voice_over: 'ph-user-focus',
   group_off: 'ph-user-minus',
+  refresh: 'ph-arrows-clockwise',
   psychiatry: 'ph-leaf',
   info: 'ph-info'
 });
@@ -728,18 +729,57 @@ const ResourceCoordinationView = {
 const FarmMembersView = {
   template: '#tmpl-farm-members',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['navigate'],
+  setup(props, { emit }) {
+    const toast = inject('toast');
     const isDemo = computed(() => props.state.sessionMode === 'demo');
-    const members = computed(() => isDemo.value ? props.state.farmMembers : []);
+    const isLoading = ref(false);
+    const loadError = ref('');
+    const currentFarmId = computed(() => props.state.currentUser?.farmIds?.find((farmId) => farmId !== '*') ||
+      (isDemo.value ? 'farm-demo' : ''));
+    const members = computed(() => Array.isArray(props.state.farmMembers) ? props.state.farmMembers : []);
+    const activeFarmerCount = computed(() => members.value.filter((member) =>
+      member.role === 'FARMER' && normalizedStatus(member.status) === 'ACTIVE').length);
     const plotNames = (member) => {
+      if (member?.plotIds?.includes('*')) return '全部地块';
       const names = (member?.plotIds || [])
         .map((plotId) => props.state.plots.find((plot) => plot.plotId === plotId)?.name)
         .filter(Boolean);
-      return names.length ? names.join('、') : '—';
+      return names.length ? names.join('、') : '未授权地块';
     };
     const taskCount = (member) => props.state.workOrders.filter((item) => item.assigneeId === member.userId && !isFinishedWork(item)).length;
-    const memberStatus = (member) => normalizedStatus(member?.status) === 'ACTIVE' ? '可分配任务' : '暂不在线';
-    return { isDemo, members, plotNames, taskCount, memberStatus };
+    const taskCountLabel = (member) => member.role === 'FARMER' ? `${taskCount(member)} 项` : '—';
+    const memberStatus = (member) => {
+      if (member.role !== 'FARMER') return '负责农场管理';
+      return normalizedStatus(member?.status) === 'ACTIVE' ? '可分配任务' : '已停用，不能分配';
+    };
+    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? 'SIMULATED' : '正式账号';
+    const refreshMembers = async (announce = true) => {
+      if (!currentFarmId.value) {
+        loadError.value = '当前账号没有可读取的农场范围';
+        return;
+      }
+      isLoading.value = true;
+      loadError.value = '';
+      try {
+        const loaded = await api.getFarmMembers({ farmId: currentFarmId.value });
+        props.state.farmMembers.splice(0, props.state.farmMembers.length, ...loaded);
+        if (announce) toast(`已读取 ${loaded.length} 名${isDemo.value ? '演示' : '正式'}成员`);
+      } catch (error) {
+        loadError.value = error?.message || '成员读取失败';
+        if (announce) toast('读取正式成员失败：' + loadError.value, 'error');
+      } finally {
+        isLoading.value = false;
+      }
+    };
+    const openTaskAssignment = () => emit('navigate', 'work-orders', { status: 'OPEN' });
+    onMounted(() => {
+      if (!isDemo.value && api.isLive) refreshMembers(false);
+    });
+    return {
+      isDemo, isLoading, loadError, members, activeFarmerCount,
+      plotNames, taskCountLabel, memberStatus, memberSource, refreshMembers, openTaskAssignment
+    };
   }
 };
 

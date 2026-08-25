@@ -58,7 +58,10 @@ export const WorkOrderLifecycleView = {
     const canInspect = computed(() => roleCan(props.state.currentUser, 'inspection:create'));
     const isFarmer = computed(() => role.value === 'FARMER');
     const isAuditor = computed(() => role.value === 'SYSTEM_ADMIN');
+    const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const isBusy = ref(false);
+    const memberLoading = ref(false);
+    const memberLoadError = ref('');
     const statusFilter = ref('ACTIVE');
     const plotFilter = ref('');
     const assigneeFilter = ref('');
@@ -79,8 +82,17 @@ export const WorkOrderLifecycleView = {
 
     const plotName = (plotId) => props.state.plots.find((plot) => plot.plotId === plotId)?.name || plotId || '—';
     const farmerName = (order) => order.assigneeName || props.state.farmMembers.find((member) => member.userId === order.assigneeId)?.displayName || order.assigneeId || '待分配';
-    const eligibleFarmers = (order) => props.state.farmMembers.filter((member) => member.role === 'FARMER' && member.status !== 'INACTIVE' &&
-      (member.plotIds?.includes('*') || member.plotIds?.includes(order?.plotId)));
+    const eligibleFarmers = (order) => props.state.farmMembers.filter((member) => {
+      const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
+      const plotIds = Array.isArray(member?.plotIds) ? member.plotIds : [];
+      return String(member?.role || '').toUpperCase() === 'FARMER' &&
+        String(member?.status || '').toUpperCase() === 'ACTIVE' &&
+        (farmIds.includes('*') || farmIds.includes(currentFarmId.value)) &&
+        (plotIds.includes('*') || plotIds.includes(order?.plotId));
+    });
+    const memberActiveTaskCount = (userId) => props.state.workOrders.filter((order) =>
+      order.assigneeId === userId && !TERMINAL_STATUSES.has(workStatus(order.status))).length;
+    const assignmentMemberLabel = (member) => `${member.displayName || member.username} · ${memberActiveTaskCount(member.userId)} 项待办`;
 
     const scopedOrders = computed(() => {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
@@ -180,11 +192,39 @@ export const WorkOrderLifecycleView = {
       if (saved) showTaskModal.value = false;
     };
 
-    const openAssign = (order) => {
-      activeOrder.value = order;
+    const syncAssignmentFromMembers = (order) => {
       const eligible = eligibleFarmers(order);
-      assignment.value = { assigneeId: order.assigneeId && eligible.some((member) => member.userId === order.assigneeId) ? order.assigneeId : eligible[0]?.userId || '', note: '' };
+      const preferredId = assignment.value.assigneeId || order?.assigneeId || '';
+      assignment.value.assigneeId = eligible.some((member) => member.userId === preferredId)
+        ? preferredId
+        : eligible[0]?.userId || '';
+    };
+
+    const refreshFarmMembers = async (announce = false) => {
+      if (!canManage.value || !currentFarmId.value || memberLoading.value) return false;
+      memberLoading.value = true;
+      memberLoadError.value = '';
+      try {
+        const loaded = await api.getFarmMembers({ farmId: currentFarmId.value });
+        props.state.farmMembers.splice(0, props.state.farmMembers.length, ...loaded);
+        if (activeOrder.value) syncAssignmentFromMembers(activeOrder.value);
+        if (announce) toast(`已刷新 ${loaded.filter((member) => member.role === 'FARMER').length} 名种植农户`);
+        return true;
+      } catch (error) {
+        memberLoadError.value = error?.message || '成员读取失败';
+        if (announce) toast('读取可分配农户失败：' + memberLoadError.value, 'error');
+        return false;
+      } finally {
+        memberLoading.value = false;
+      }
+    };
+
+    const openAssign = async (order) => {
+      activeOrder.value = order;
+      assignment.value = { assigneeId: order.assigneeId || '', note: '' };
+      syncAssignmentFromMembers(order);
       showAssignModal.value = true;
+      await refreshFarmMembers(false);
     };
 
     const assignTask = async () => {
@@ -284,17 +324,20 @@ export const WorkOrderLifecycleView = {
 
     watch(() => props.routeParams, (params) => {
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
+      if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED'].includes(String(params.status).toUpperCase())) {
+        statusFilter.value = String(params.status).toUpperCase();
+      }
       if (params?.highlight) focusHighlightedTask(params.highlight);
     }, { immediate: true, deep: true });
 
     return {
-      role, canManage, canInspect, isFarmer, isAuditor, isBusy,
+      role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError,
       statusFilter, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
-      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers,
+      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
       showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
-      openCreate, createTask, openAssign, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask, submitInspection
+      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask, submitInspection
     };
   },
   template: `
@@ -393,10 +436,14 @@ export const WorkOrderLifecycleView = {
         <form class="g-modal work-dialog work-dialog-small" @submit.prevent="assignTask">
           <div class="g-modal-header"><div><small>{{ activeOrder?.assigneeId ? '调整负责人' : '分配任务' }}</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showAssignModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-stack">
-            <label><span>种植农户</span><select class="g-select" v-model="assignment.assigneeId" required><option value="" disabled>请选择</option><option v-for="member in eligibleFarmers(activeOrder)" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select><small v-if="!eligibleFarmers(activeOrder).length">暂无拥有该地块权限的活跃农户。</small></label>
+            <div class="work-member-source">
+              <p>{{ isLiveSession ? '人员来自当前农场正式账号，并已按这块地的权限筛选。' : '当前使用明确标记的演示成员。' }}</p>
+              <button type="button" class="g-btn secondary compact" :disabled="memberLoading" @click="refreshFarmMembers(true)">{{ memberLoading ? '读取中' : '刷新人员' }}</button>
+            </div>
+            <label><span>种植农户</span><select class="g-select" v-model="assignment.assigneeId" required :disabled="memberLoading"><option value="" disabled>{{ memberLoading ? '正在读取成员' : '请选择' }}</option><option v-for="member in eligibleFarmers(activeOrder)" :key="member.userId" :value="member.userId">{{ assignmentMemberLabel(member) }}</option></select><small v-if="memberLoadError">成员刷新失败：{{ memberLoadError }}</small><small v-else-if="!memberLoading && !eligibleFarmers(activeOrder).length">暂无拥有该地块权限的活跃农户。</small></label>
             <label><span>分配说明（选填）</span><textarea class="g-input" rows="3" v-model="assignment.note" placeholder="例如：请在中午前完成复测"></textarea></label>
           </div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showAssignModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy || !assignment.assigneeId">确认分配</button></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showAssignModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy || memberLoading || !assignment.assigneeId">确认分配</button></div>
         </form>
       </div>
 

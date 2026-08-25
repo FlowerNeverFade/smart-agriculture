@@ -296,7 +296,16 @@ class AgriApplicationTest {
 
         List<Map<String, Object>> members = engine.farmMembers("farm-demo", admin);
         assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-farmer").containsEntry("role", "FARMER"));
-        assertThat(members).allSatisfy(member -> assertThat(member).doesNotContainKeys("passwordHash", "recoveryCodeHash", "credentialVersion"));
+        assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-admin").containsEntry("role", "FARM_ADMIN"));
+        assertThat(members).noneSatisfy(member -> assertThat(member.get("role")).isEqualTo("SYSTEM_ADMIN"));
+        assertThat(members).allSatisfy(member -> {
+            assertThat(member).containsOnlyKeys("userId", "username", "displayName", "role", "roleLabel", "farmIds", "plotIds", "status");
+            assertThat(member.get("farmIds")).isEqualTo(List.of("farm-demo"));
+        });
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.farmMembers("farm-demo", farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_MEMBERS_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.farmMembers("farm-other", admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
     }
 
     @Test

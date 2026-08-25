@@ -716,23 +716,42 @@
   <template id="tmpl-farm-members">
     <section class="simple-operations-view" aria-labelledby="member-view-title">
       <header class="simple-view-header">
-        <div><h1 id="member-view-title">农场成员</h1><p>查看种植农户负责的地块和当前待办。</p></div>
-        <span v-if="isDemo" class="source-mode-label">SIMULATED · 演示数据</span>
+        <div><h1 id="member-view-title">农场成员</h1><p>成员来自当前农场账号，任务只能分配给拥有对应地块权限的活跃农户。</p></div>
+        <div class="simple-view-actions">
+          <span class="source-mode-label">{{ isDemo ? 'SIMULATED · 演示数据' : 'ACCOUNT · 正式账号' }}</span>
+          <span class="member-active-summary">可分配农户 {{ activeFarmerCount }} 名</span>
+          <button v-if="!isDemo" type="button" class="g-btn secondary compact" :disabled="isLoading" @click="refreshMembers()">
+            <app-icon name="refresh"></app-icon>{{ isLoading ? '读取中' : '刷新成员' }}
+          </button>
+          <button type="button" class="g-btn primary compact" @click="openTaskAssignment">去分配任务</button>
+        </div>
       </header>
+      <p v-if="loadError && members.length" class="member-load-warning">成员刷新失败，当前显示上一次成功读取的结果：{{ loadError }}</p>
       <div class="simple-data-panel member-data-panel" v-if="members.length">
         <div class="simple-member-head" aria-hidden="true"><span>成员</span><span>负责地块</span><span>未完成任务</span><span>当前状态</span><span>数据来源</span></div>
         <article class="simple-member-row" v-for="member in members" :key="member.userId">
-          <span class="member-person"><i :class="member.status === 'ACTIVE' ? 'is-active' : ''"></i><span><strong>{{ member.displayName }}</strong><small>{{ member.username }} · {{ member.roleLabel }}</small></span></span>
+          <span class="member-person"><i :class="member.status === 'ACTIVE' ? 'is-active' : ''"></i><span><strong>{{ member.displayName || member.username }}</strong><small>{{ member.username }} · {{ member.roleLabel }}</small></span></span>
           <span>{{ plotNames(member) }}</span>
-          <span>{{ taskCount(member) }} 项</span>
+          <span>{{ taskCountLabel(member) }}</span>
           <span>{{ memberStatus(member) }}</span>
-          <span class="source-mode-cell">{{ member.sourceMode }}</span>
+          <span class="source-mode-cell">{{ memberSource(member) }}</span>
         </article>
+      </div>
+      <div class="simple-empty-state" v-else-if="isLoading">
+        <app-icon name="hourglass_empty"></app-icon>
+        <h2>正在读取农场成员</h2>
+        <p>系统正在核对正式账号、成员状态和地块权限。</p>
+      </div>
+      <div class="simple-empty-state" v-else-if="loadError">
+        <app-icon name="error"></app-icon>
+        <h2>暂时无法读取成员</h2>
+        <p>{{ loadError }}</p>
+        <button type="button" class="g-btn secondary" @click="refreshMembers()">重新读取</button>
       </div>
       <div class="simple-empty-state" v-else>
         <app-icon name="group_off"></app-icon>
-        <h2>正式成员数据尚未接入</h2>
-        <p>当前后端没有农场成员列表接口，因此这里不会使用演示成员代替真实数据。</p>
+        <h2>当前农场还没有成员</h2>
+        <p>没有可用于任务分配的正式账号；系统不会使用演示成员代替真实数据。</p>
       </div>
     </section>
   </template>

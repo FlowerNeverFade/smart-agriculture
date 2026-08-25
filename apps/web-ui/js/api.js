@@ -40,6 +40,22 @@ function cloneWorkOrder(item) {
   };
 }
 
+function normalizeFarmMember(item, sourceMode) {
+  const role = String(item?.role || '').trim().toUpperCase();
+  const status = String(item?.status || 'INACTIVE').trim().toUpperCase();
+  return {
+    userId: String(item?.userId || '').trim(),
+    username: String(item?.username || '').trim(),
+    displayName: String(item?.displayName || item?.username || '未命名成员').trim(),
+    role,
+    roleLabel: String(item?.roleLabel || (role === 'FARM_ADMIN' ? '农场管理员' : '种植农户')).trim(),
+    farmIds: Array.isArray(item?.farmIds) ? [...item.farmIds] : [],
+    plotIds: Array.isArray(item?.plotIds) ? [...item.plotIds] : [],
+    status,
+    sourceMode
+  };
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -492,13 +508,26 @@ export class ApiService {
   }
 
   async getFarmMembers({ farmId } = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
+      if (!this.isLive) {
+        throw new ApiError('后端未连接，暂时无法读取正式成员', {
+          code: 'FARM_MEMBERS_BACKEND_OFFLINE',
+          isNetworkError: true
+        });
+      }
       if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
       const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
-      if (Array.isArray(response?.data)) return response.data;
+      if (Array.isArray(response?.data)) {
+        const members = response.data.map((member) => normalizeFarmMember(member, 'ACCOUNT'));
+        const invalid = members.find((member) => !member.userId || !member.username || !['FARMER', 'FARM_ADMIN'].includes(member.role));
+        if (!invalid) return members;
+      }
       throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
     }
-    return (MOCK_DATA.farmMembers || []).map((member) => ({ ...member, farmIds: member.farmIds || ['farm-demo'], provenance: 'SIMULATED' }));
+    return (MOCK_DATA.farmMembers || []).map((member) => normalizeFarmMember({
+      ...member,
+      farmIds: member.farmIds || ['farm-demo']
+    }, 'SIMULATED'));
   }
 
   _demoActorId() {

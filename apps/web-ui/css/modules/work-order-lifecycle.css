@@ -237,6 +237,8 @@
 .work-form-grid .span-2 { grid-column: 1 / -1; }
 .work-form-stack { display: grid; gap: 16px; }
 .work-form-stack label > small { color: var(--g-danger); font-size: 12px; }
+.work-member-source { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: 7px; background: var(--g-bg-subtle); }
+.work-member-source p { color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .work-form-grid textarea,
 .work-form-stack textarea { resize: vertical; line-height: 1.55; }
 .g-modal-footer.split { align-items: center; justify-content: space-between; }
@@ -286,6 +288,7 @@
   .work-card-actions { flex-wrap: wrap; }
   .work-form-grid { grid-template-columns: 1fr; }
   .work-form-grid .span-2 { grid-column: auto; }
+  .work-member-source { align-items: flex-start; flex-direction: column; }
   .g-modal-footer.split { align-items: stretch; flex-direction: column; }
   .g-modal-footer.split > div { justify-content: flex-end; }
 }

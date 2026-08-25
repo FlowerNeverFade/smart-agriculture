@@ -162,13 +162,13 @@ paths:
     post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 工单}}}
     get: {tags: [management], parameters: [{name: farmId, in: query, schema: {type: string}}, {name: plotId, in: query, schema: {type: string}}, {name: status, in: query, schema: {type: string}}, {name: assigneeId, in: query, schema: {type: string}}], responses: {'200': {description: 按角色和农场地块范围过滤的工单}}}
   /api/v1/work-orders/{workOrderId}/assign:
-    post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员分配或重新分配任务}}}
+    post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AssignWorkOrderRequest'}}}}, responses: {'200': {description: 管理员将任务分配或重新分配给有对应地块权限的活跃种植农户}}}
   /api/v1/work-orders/{workOrderId}/transition:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农户开始、重新处理、提交结果或管理员取消任务}}}
   /api/v1/work-orders/{workOrderId}/review:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:
-    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场可用于任务分配的正式成员}}}
+    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场正式成员；只返回 FARMER/FARM_ADMIN 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
   /api/v1/alerts:
     get: {tags: [management], responses: {'200': {description: 告警列表}}}
   /api/v1/alerts/{alertId}/ack:
@@ -279,3 +279,21 @@ components:
         status: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
         actualWaterLitre: {type: number, minimum: 0}
         receivedAt: {type: string, format: date-time}
+    FarmMember:
+      type: object
+      required: [userId, username, displayName, role, roleLabel, farmIds, plotIds, status]
+      properties:
+        userId: {type: string}
+        username: {type: string}
+        displayName: {type: string}
+        role: {type: string, enum: [FARMER, FARM_ADMIN]}
+        roleLabel: {type: string}
+        farmIds: {type: array, items: {type: string}}
+        plotIds: {type: array, items: {type: string}}
+        status: {type: string, enum: [ACTIVE, INACTIVE]}
+    AssignWorkOrderRequest:
+      type: object
+      required: [assigneeId]
+      properties:
+        assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
+        note: {type: string, description: 分配说明}
