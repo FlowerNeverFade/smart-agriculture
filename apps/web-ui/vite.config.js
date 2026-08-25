@@ -1,8 +1,17 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { cp } from 'node:fs/promises';
+
+const webRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   base: './',
+  plugins: [{
+    name: 'copy-local-runtime-vendor',
+    async closeBundle() {
+      await cp(`${webRoot}vendor`, `${webRoot}dist/vendor`, { recursive: true });
+    }
+  }],
   assetsInclude: ['**/*.glb'],
   build: {
     chunkSizeWarningLimit: 700,

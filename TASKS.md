@@ -8,6 +8,8 @@
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
 
+> 2026-08-25 管理员 A 线按步骤推进：告警处置、工单全生命周期、正式成员读取与按地块权限分配、巡田证据持久化均已完成本地实现和正式 JWT 交互验收。成员新增/停用/授权编辑、设备/地块维护和生产计划仍为后续步骤，不提前标记完整成员管理完成。
+
 > 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，交付提交为 `85155db1f184e8a2c1b6806af2a7cd34f3e67193`；提交链已进入 GitHub `main` 并发布到 `/srv/agriloop`。Flyway v4、三角色登录与 `/auth/me`、身份错配、角色目录、透明 Logo、Supervisor 服务及健康检查均已通过服务器本机黑盒；旧应用保留为带时间戳的回滚目录。
 
 ## 1. 使用说明
@@ -34,7 +36,7 @@
 | T-010 | P0 | Crop Pack 驱动的规则、迟滞、冷却、多风险检测和候选根因评分 | 项目组 | — | D6 | 已完成（后端） | WATER_DEFICIT/SENSOR_DRIFT/DEVICE_FAULT/HEAT_STRESS |
 | T-011 | P0 | 告警状态机、统一农务工单和今日农务聚合 | 项目组 | — | D8/D13 | 已完成（后端） | alerts/work-orders/today-work 接口 |
 | T-012 | P0 | 今日农务、总览、指标卡、风险排序、决策就绪度入口、实时推送 | 项目组 | — | D7 | 已完成（后端） | overview/today-work/SSE |
-| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端 + 前端切片） | telemetry/profile/devices REST；`FarmMonitor` Three.js 全景/地块详情入口、风场/天气/昼夜和本地运行时资源已发布，完整页面不在本期 |
+| T-013 | P0 | 地块详情、历史/目标曲线、设备状态 | 项目组 | — | D8 | 已完成（后端 + 前端切片） | telemetry/profile/devices REST；`FarmMonitor` Three.js 证据作为历史验收记录保留，当前农场管理员默认入口已改为二维六指标卡片与详情弹窗，完整页面不在本期 |
 | T-014 | P0 | 虚拟灌溉开关、审批、幂等、ACK、执行实际量与非成功路径 | 项目组 | — | D11 | 已完成（后端） | FAILED/TIMEOUT/PARTIAL 状态与 INCONCLUSIVE |
 | T-015 | P0 | RAG 知识目录和检索回退策略 | 项目组 | — | D9 | 已完成（规则知识后端） | Crop Pack knowledge 目录与 rules-only 回退 |
 | T-016 | P0 | 感知/诊断/处方/安全 Agent；冻结任务、核验、预测、就绪度、效果、执行申请 Tool，按 P0/P1 启用 | 项目组 | — | D10 | 已完成（规则优先后端） | 白名单工具输出、trace、不可直连 SQL/MQTT |
@@ -49,7 +51,7 @@
 | T-025 | P0 | 集成、性能、安全、AI、就绪度及所有已宣称 P1 切片的预测/资源/案例/价值评测 | 项目组 | — | D14 | 已完成（后端验收） | Gradle、smoke、RBAC/SSE/1,000+、Redis/MQTT/ACK、远端报告 |
 | T-026 | P0 | 答辩 PPT、演示脚本、录屏和成果归档 | — | — | D15 | 未开始 | 本次只交付后端；前端/答辩物料不在本次范围 |
 | T-027 | P1 | 根据批次和 Crop Pack 生成全周期计划、阶段任务及版本变更记录 | 项目组 | — | D12 | 已完成（后端合同） | crop-batch plan + task_templates 来源 |
-| T-028 | P1 | 田间核验记录、巡田表单和人机证据融合 | 项目组 | — | D12 | 已完成（后端） | inspections API、USER_PROVIDED provenance |
+| T-028 | P1 | 田间核验记录、巡田表单和人机证据融合 | 项目组 | — | D12 | 已完成（后端 + 前端增强） | 服务端证据编号、数据库记录、USER_PROVIDED 来源、任务引用/审计、正式重新读取、提交勾选与管理员验收展示；Gradle/Vite/OpenAPI/正式 JWT 刷新闭环通过 |
 | T-029 | P0 | `diagnosis_result` 到结构化 `irrigation_plan` 的确定性链路 | 项目组 | — | D10 | 已完成（后端） | 诊断/处方/就绪度硬门及版本快照 |
 | T-030 | P1 | 处方-命令-ACK-效果评价及批次计划实绩汇总 | 项目组 | — | D13 | 已完成（后端） | planId/commandId/evaluationId 关联 |
 | T-031 | P0 | 将核心 CAP-01~CAP-08 同步到规则、README、功能/技术架构、路线、状态和任务 | 项目组 | — | D1-D3 | 已完成 | v0.4/v0.3 文档基线 |
@@ -70,6 +72,9 @@
 | T-046 | P0 | `rium_dev-v2` 增量能力与毛玻璃视觉收口 | 项目组 | — | D15+ | 已完成（公网验收） | 合并提交 `9066edb`，最终收口 `7d33092`；六指标时序、右栏真实折叠、卡片按内容展开不互相覆盖、中心内嵌模块、背景天体动画兼容、无三角尺；`verify-webui real` 82/82、真实 Chromium 27/27（本地与公网 JWT）；液态 sheen/反光伪元素已移除 |
 | T-047 | P0 | 完成账号注册、身份选择与核验、恢复码重置、凭据轮换及登录页账户流程 | 前后端 | — | D15+ | 已完成（公网验收） | Flyway v2/v3、身份匹配与安全注册 Gradle 回归、Web 三模式探针、本地 API 黑盒及公网登录/注册/角色黑盒均通过；合并提交 `0151405` 已部署；`docs/account-management.md` |
 | T-048 | P0 | 将账户与工作台角色收敛为农场管理员、种植农户、系统管理员，并迁移旧操作员范围 | 前后端 | — | 本轮 | 已完成（远端验收） | `RolePolicy`/`roles.js` 三角色权限合同、Flyway `V4__three_role_scopes.sql`、三角色 Gradle 回归、透明 Alpha Logo、角色菜单/地块隔离；实现提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`、迁移加固提交 `6e0b1db` 与交付提交 `85155db1` 已进入 GitHub `main`；V4、三角色 API、身份错配、静态资源和健康检查已在 `/srv/agriloop` 验收 |
+| T-049 | P0 | 农场管理员二维地块总览、动态任务概况与五入口导航收口 | 前端 | — | 本轮 | 已完成（本地验收） | 两列六指标地块卡、二维详情、动态五项概况、管理员任务创建、设备与成员简洁视图；`npx vite build` 通过，应用内浏览器完成 1600×1000/1280×800/390×844、鼠标/Enter/Space、路由与焦点、任务闭环、角色导航、无 3D 画布/控制台错误及 `view_image` 参考图对比；本地提交 `V4.0`，未推送 |
+| T-050 | P0 | 农场管理员地块新增、修改、删除与全局同步 | 前后端 | — | 本轮 | 已完成（本地验收） | 地块卡片三点菜单、作物/阶段/生长周期编辑、删除确认、同尺寸新增卡片；新增 `POST/PATCH/DELETE /api/v1/plots` 生命周期与农场范围权限；浏览器完成 7→8→7 增删改闭环且无运行错误，Gradle 地块生命周期测试通过 |
+| T-051 | P0 | 开发者 B 第一轮：诊断决策闭环、虚拟执行与多地块水资源试算 | 开发者 B | — | 本轮 | 已完成（本地验收） | 固定 B1 链路、显式人工确认、四类 ACK、决策护照、B2 容量/优先级/缺口；Spring 20/20、Vite 构建和浏览器三类场景通过；`docs/acceptance/ADMIN_DEVELOPER_B_ROUND1_ACCEPTANCE.md` |
 
 ### 2.1 核心八项能力任务映射
 

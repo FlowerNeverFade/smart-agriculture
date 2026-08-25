@@ -39,6 +39,39 @@ export const MOCK_DATA = {
     }
   ],
 
+  farmMembers: [
+    {
+      userId: "user-farmer",
+      username: "farmer",
+      displayName: "张明",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-a01", "plot-a02"],
+      status: "ACTIVE",
+      sourceMode: "SIMULATED"
+    },
+    {
+      userId: "demo-farmer-b",
+      username: "farmer-b",
+      displayName: "李芳",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-b01", "plot-b02"],
+      status: "ACTIVE",
+      sourceMode: "SIMULATED"
+    },
+    {
+      userId: "demo-farmer-c",
+      username: "farmer-c",
+      displayName: "王强",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-b03"],
+      status: "INACTIVE",
+      sourceMode: "SIMULATED"
+    }
+  ],
+
   plots: [
     {
       plotId: "plot-a01",
@@ -320,12 +353,40 @@ export const MOCK_DATA = {
     }
   ],
 
+  alerts: [
+    {
+      alertId: "alert-water-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      level: "HIGH",
+      status: "ACTIVE",
+      source: "SOIL_MOISTURE",
+      title: "A01 土壤偏干",
+      message: "土壤湿度持续低于番茄当前生长阶段的合适范围，请尽快确认是否需要浇水。",
+      raisedAt: new Date(Date.now() - 22 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    },
+    {
+      alertId: "alert-device-a02",
+      farmId: "farm-demo",
+      plotId: "plot-a02",
+      level: "MEDIUM",
+      status: "ACKED",
+      source: "DEVICE_FRESHNESS",
+      title: "A02 流量计上报变慢",
+      message: "流量计最近一次数据到达较慢，已确认，等待现场复查。",
+      raisedAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    }
+  ],
+
   // farm-operations 分支的增量合同：只补充工单/巡田数据，不覆盖 main 的
   // 多作物、预测、Crop Pack 与价值账本演示数据。
   workOrders: [
     {
       workOrderId: "wo-alert-a01",
       workItemId: "wo-alert-a01",
+      farmId: "farm-demo",
       plotId: "plot-a01",
       sourceType: "ALERT",
       sourceRef: "alert-water-a01",
@@ -342,6 +403,7 @@ export const MOCK_DATA = {
     {
       workOrderId: "wo-inspect-b01",
       workItemId: "wo-inspect-b01",
+      farmId: "farm-demo",
       plotId: "plot-b01",
       sourceType: "CROP_PLAN",
       sourceRef: "task-template-cucumber-ec",
@@ -350,7 +412,8 @@ export const MOCK_DATA = {
       reason: "Crop Pack 营养生长期例行核验",
       priority: "MEDIUM",
       status: "ASSIGNED",
-      assigneeId: "user-farmer",
+      assigneeId: "demo-farmer-b",
+      assigneeName: "李芳",
       dueAt: new Date(Date.now() + 2.2 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
       provenance: "DERIVED"
@@ -358,6 +421,7 @@ export const MOCK_DATA = {
     {
       workOrderId: "wo-prune-a02",
       workItemId: "wo-prune-a02",
+      farmId: "farm-demo",
       plotId: "plot-a02",
       sourceType: "CROP_PLAN",
       sourceRef: "task-template-tomato-prune",
@@ -367,6 +431,7 @@ export const MOCK_DATA = {
       priority: "LOW",
       status: "IN_PROGRESS",
       assigneeId: "user-farmer",
+      assigneeName: "张明",
       dueAt: new Date(Date.now() + 4.5 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
       provenance: "DERIVED"
@@ -374,6 +439,7 @@ export const MOCK_DATA = {
     {
       workOrderId: "wo-device-a02",
       workItemId: "wo-device-a02",
+      farmId: "farm-demo",
       plotId: "plot-a02",
       sourceType: "DEVICE_HEALTH",
       sourceRef: "mock-plot-a02",
@@ -383,10 +449,70 @@ export const MOCK_DATA = {
       priority: "MEDIUM",
       status: "DONE",
       assigneeId: "user-farmer",
+      assigneeName: "张明",
       dueAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
       completedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       provenance: "DERIVED"
+    },
+    {
+      workOrderId: "wo-inspect-a01",
+      workItemId: "wo-inspect-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      sourceType: "MANUAL",
+      sourceRef: null,
+      actionType: "INSPECTION",
+      title: "复测 A01 番茄田土壤湿度",
+      reason: "使用便携仪复测三处取样点并记录结果",
+      priority: "HIGH",
+      status: "ASSIGNED",
+      assigneeId: "user-farmer",
+      assigneeName: "张明",
+      dueAt: new Date(Date.now() + 80 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    },
+    {
+      workOrderId: "wo-review-a01",
+      workItemId: "wo-review-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-tomato-inspection",
+      actionType: "FIELD_OPERATION",
+      title: "清理番茄棚落叶并检查病斑",
+      reason: "保持棚内通风，发现疑似病斑时单独标记",
+      priority: "MEDIUM",
+      status: "SUBMITTED",
+      assigneeId: "user-farmer",
+      assigneeName: "张明",
+      resultSummary: "已清理两行落叶，未发现扩散性病斑，现场照片已留存。",
+      evidenceRefs: ["inspection-demo-a01"],
+      submittedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+      dueAt: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    },
+    {
+      workOrderId: "wo-rework-a02",
+      workItemId: "wo-rework-a02",
+      farmId: "farm-demo",
+      plotId: "plot-a02",
+      sourceType: "MANUAL",
+      sourceRef: null,
+      actionType: "DEVICE_CHECK",
+      title: "重新检查 A02 流量计接线",
+      reason: "首次提交的照片未覆盖接线端子，需要补拍并复测",
+      priority: "MEDIUM",
+      status: "REJECTED",
+      assigneeId: "user-farmer",
+      assigneeName: "张明",
+      rejectionReason: "请补充接线端子近照，并记录复测时间。",
+      rejectedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      dueAt: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
     }
   ],
 

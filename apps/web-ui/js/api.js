@@ -9,6 +9,53 @@
 import { MOCK_DATA } from './mock-data.js';
 import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
+const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
+const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+
+function normalizeWorkOrderStatus(value) {
+  const status = String(value || 'OPEN').trim().toUpperCase();
+  return WORK_ORDER_STATUS_ALIASES[status] || status;
+}
+
+function cloneWorkOrder(item) {
+  const status = normalizeWorkOrderStatus(item?.status);
+  const history = Array.isArray(item?.history) ? item.history.map((entry) => ({ ...entry })) : [];
+  if (!history.length && item?.workOrderId) {
+    history.push({
+      action: 'CREATE',
+      fromStatus: null,
+      toStatus: status,
+      actorId: item.createdBy || 'demo-seed',
+      actorName: '演示数据',
+      actorRole: 'SYSTEM',
+      at: item.createdAt || new Date().toISOString(),
+      note: '演示任务初始记录',
+      evidenceRefs: []
+    });
+  }
+  return {
+    ...(item || {}),
+    status,
+    history
+  };
+}
+
+function normalizeFarmMember(item, sourceMode) {
+  const role = String(item?.role || '').trim().toUpperCase();
+  const status = String(item?.status || 'INACTIVE').trim().toUpperCase();
+  return {
+    userId: String(item?.userId || '').trim(),
+    username: String(item?.username || '').trim(),
+    displayName: String(item?.displayName || item?.username || '未命名成员').trim(),
+    role,
+    roleLabel: String(item?.roleLabel || (role === 'FARM_ADMIN' ? '农场管理员' : '种植农户')).trim(),
+    farmIds: Array.isArray(item?.farmIds) ? [...item.farmIds] : [],
+    plotIds: Array.isArray(item?.plotIds) ? [...item.plotIds] : [],
+    status,
+    sourceMode
+  };
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -36,6 +83,8 @@ export class ApiService {
       commands: new Map(),
       evaluations: new Map()
     };
+    this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
+    this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
   }
 
   readStoredUser() {
@@ -222,6 +271,43 @@ export class ApiService {
     return MOCK_DATA.plots;
   }
 
+  async createPlot(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/plots', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的新增地块结果', { code: 'PLOT_CREATE_INVALID', payload: resp });
+    }
+    return {
+      ...input,
+      plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async updatePlot(plotId, input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块修改结果', { code: 'PLOT_UPDATE_INVALID', payload: resp });
+    }
+    return { ...input, plotId, updatedAt: new Date().toISOString() };
+  }
+
+  async deletePlot(plotId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, { method: 'DELETE' });
+      if (resp?.data?.plotId === plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块删除结果', { code: 'PLOT_DELETE_INVALID', payload: resp });
+    }
+    return { plotId, deleted: true, deletedAt: new Date().toISOString() };
+  }
+
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
     if (this.isLive) {
       const query = new URLSearchParams({ metric, limit: String(Math.max(1, Math.min(Number(limit) || 50, 5000))) });
@@ -287,29 +373,42 @@ export class ApiService {
   }
 
   /** farm-operations 增量合同：在线走后端，离线只使用显式标记的模拟数据。 */
-  async getTodayWorkItems(plotId = '') {
+  async getTodayWorkItems(filters = '') {
+    const normalizedFilters = typeof filters === 'object' && filters !== null ? filters : { plotId: filters };
+    const plotId = normalizedFilters.plotId || '';
     if (this.isLive) {
       const query = plotId ? `?plotId=${encodeURIComponent(plotId)}` : '';
       try {
         const response = await this._fetch(`/api/v1/work-items/today${query}`);
         if (Array.isArray(response?.data)) return response.data;
       } catch (error) {
-        if (error.status === 401 || error.status === 403) throw error;
-        console.warn('Falling back to simulated work items:', error);
+        throw error;
       }
     }
-    return (MOCK_DATA.workOrders || [])
+    return Array.from(this.demoWorkOrders.values())
       .filter(item => !plotId || item.plotId === plotId)
-      .map(item => ({ ...item }));
+      .map(cloneWorkOrder);
   }
 
-  async getWorkOrders() {
+  async getWorkOrders(filters = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
+    });
     if (this.isLive) {
-      const response = await this._fetch('/api/v1/work-orders');
+      const query = queryParams.size ? `?${queryParams.toString()}` : '';
+      const response = await this._fetch(`/api/v1/work-orders${query}`);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的工单数据', { code: 'WORK_ORDERS_INVALID', payload: response });
     }
-    return (MOCK_DATA.workOrders || []).map(item => ({ ...item }));
+    const currentActorId = this._demoActorId();
+    return Array.from(this.demoWorkOrders.values())
+      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId)
+      .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
+      .filter((item) => !filters.plotId || item.plotId === filters.plotId)
+      .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
+      .filter((item) => !filters.assigneeId || item.assigneeId === filters.assigneeId)
+      .map(cloneWorkOrder);
   }
 
   async saveWorkOrder(workOrder) {
@@ -321,8 +420,228 @@ export class ApiService {
       return response?.data || response;
     }
     const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
-    return { ...workOrder, workOrderId, workItemId: workOrder.workItemId || workOrderId, createdAt: workOrder.createdAt || new Date().toISOString() };
+    const now = new Date().toISOString();
+    const saved = cloneWorkOrder({
+      ...workOrder,
+      workOrderId,
+      workItemId: workOrder.workItemId || workOrderId,
+      farmId: workOrder.farmId || 'farm-demo',
+      status: normalizeWorkOrderStatus(workOrder.status || 'OPEN'),
+      assigneeId: workOrder.assigneeId || null,
+      assigneeName: workOrder.assigneeName || null,
+      createdAt: workOrder.createdAt || now,
+      updatedAt: now,
+      createdBy: workOrder.createdBy || this._demoActorId(),
+      updatedBy: this._demoActorId(),
+      history: [{
+        action: 'CREATE',
+        fromStatus: null,
+        toStatus: normalizeWorkOrderStatus(workOrder.status || 'OPEN'),
+        actorId: this._demoActorId(),
+        actorName: this.user?.username || 'demo',
+        actorRole: this.user?.role || 'FARM_ADMIN',
+        at: now,
+        note: workOrder.reason || '创建任务',
+        evidenceRefs: []
+      }]
+    });
+    this.demoWorkOrders.set(workOrderId, saved);
+    return cloneWorkOrder(saved);
   }
+
+  async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async assignWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以分配任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+    const work = this._demoWorkOrder(workOrderId);
+    if (TERMINAL_WORK_ORDER_STATUSES.has(normalizeWorkOrderStatus(work.status))) throw new ApiError('已结束的任务不能重新分配', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+    const member = (MOCK_DATA.farmMembers || []).find((item) => item.userId === input.assigneeId && item.role === 'FARMER' && item.status === 'ACTIVE');
+    if (!member || (!member.plotIds?.includes(work.plotId) && !member.plotIds?.includes('*'))) {
+      throw new ApiError('请选择有权处理这块地的种植农户', { status: 400, code: 'ASSIGNEE_SCOPE_MISMATCH' });
+    }
+    return this._saveDemoTransition(work, {
+      status: 'ASSIGNED',
+      assigneeId: member.userId,
+      assigneeName: member.displayName || member.username,
+      assignedAt: new Date().toISOString(),
+      assignedBy: this._demoActorId()
+    }, work.status === 'OPEN' ? 'ASSIGN' : 'REASSIGN', input.note || `分配给${member.displayName || member.username}`);
+  }
+
+  async transitionWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/transition`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    const work = this._demoWorkOrder(workOrderId);
+    const current = normalizeWorkOrderStatus(work.status);
+    let action = String(input.action || input.status || '').trim().toUpperCase();
+    if (action === 'IN_PROGRESS') action = current === 'REJECTED' ? 'RESTART' : 'START';
+    if (action === 'SUBMITTED') action = 'SUBMIT';
+    if (action === 'CANCELLED') action = 'CANCEL';
+    if (action === 'CANCEL') {
+      if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以取消任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+      if (TERMINAL_WORK_ORDER_STATUSES.has(current)) throw new ApiError('已结束的任务不能取消', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+      return this._saveDemoTransition(work, { status: 'CANCELLED', cancelledAt: new Date().toISOString(), cancelledBy: this._demoActorId(), cancelReason: input.note || '管理员取消任务' }, 'CANCEL', input.note || '管理员取消任务');
+    }
+    this._requireDemoAssignee(work);
+    if (action === 'START' && current === 'ASSIGNED') {
+      return this._saveDemoTransition(work, { status: 'IN_PROGRESS', startedAt: new Date().toISOString(), startedBy: this._demoActorId() }, 'START', input.note || '开始执行');
+    }
+    if (['RESTART', 'RESUME'].includes(action) && current === 'REJECTED') {
+      return this._saveDemoTransition(work, {
+        status: 'IN_PROGRESS',
+        restartedAt: new Date().toISOString(),
+        restartedBy: this._demoActorId(),
+        resultSummary: null,
+        evidenceRefs: [],
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNote: null,
+        rejectedAt: null,
+        rejectedBy: null,
+        rejectionReason: null
+      }, 'RESTART', input.note || '按退回意见重新处理');
+    }
+    if (action === 'SUBMIT' && current === 'IN_PROGRESS') {
+      const resultSummary = String(input.resultSummary || input.note || '').trim();
+      if (!resultSummary) throw new ApiError('请填写处理结果', { status: 400, code: 'WORK_RESULT_REQUIRED' });
+      return this._saveDemoTransition(work, { status: 'SUBMITTED', resultSummary, evidenceRefs: input.evidenceRefs || [], submittedAt: new Date().toISOString(), submittedBy: this._demoActorId() }, 'SUBMIT', resultSummary, input.evidenceRefs || []);
+    }
+    throw new ApiError('当前任务不能执行这个操作', { status: 409, code: 'WORK_ORDER_TRANSITION_INVALID' });
+  }
+
+  async reviewWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/review`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以验收任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+    const work = this._demoWorkOrder(workOrderId);
+    if (normalizeWorkOrderStatus(work.status) !== 'SUBMITTED') throw new ApiError('只有等待验收的任务可以处理', { status: 409, code: 'WORK_ORDER_TRANSITION_INVALID' });
+    const action = String(input.action || input.status || '').trim().toUpperCase();
+    const approved = ['APPROVE', 'ACCEPT', 'DONE'].includes(action);
+    const rejected = ['REJECT', 'REJECTED'].includes(action);
+    const note = String(input.note || '').trim();
+    if (!approved && !rejected) throw new ApiError('请选择验收通过或退回处理', { status: 400, code: 'WORK_REVIEW_ACTION_INVALID' });
+    if (rejected && !note) throw new ApiError('退回任务时请填写原因', { status: 400, code: 'WORK_REVIEW_NOTE_REQUIRED' });
+    const now = new Date().toISOString();
+    return this._saveDemoTransition(work, approved
+      ? { status: 'DONE', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, completedAt: now, completedBy: this._demoActorId() }
+      : { status: 'REJECTED', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, rejectedAt: now, rejectedBy: this._demoActorId(), rejectionReason: note },
+    approved ? 'APPROVE' : 'REJECT', note || '验收通过');
+  }
+
+  async getFarmMembers({ farmId } = {}) {
+    if (this.sessionMode === 'live') {
+      if (!this.isLive) {
+        throw new ApiError('后端未连接，暂时无法读取正式成员', {
+          code: 'FARM_MEMBERS_BACKEND_OFFLINE',
+          isNetworkError: true
+        });
+      }
+      if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
+      const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
+      if (Array.isArray(response?.data)) {
+        const members = response.data.map((member) => normalizeFarmMember(member, 'ACCOUNT'));
+        const invalid = members.find((member) => !member.userId || !member.username || !['FARMER', 'FARM_ADMIN'].includes(member.role));
+        if (!invalid) return members;
+      }
+      throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.farmMembers || []).map((member) => normalizeFarmMember({
+      ...member,
+      farmIds: member.farmIds || ['farm-demo']
+    }, 'SIMULATED'));
+  }
+
+  _demoActorId() {
+    if (this.user?.userId) return this.user.userId;
+    if (this.user?.username === 'farmer') return 'user-farmer';
+    if (this.user?.username === 'admin') return 'user-admin';
+    if (this.user?.username === 'sysadmin') return 'user-system';
+    return this.user?.username || 'demo-user';
+  }
+
+  _demoWorkOrder(workOrderId) {
+    const work = this.demoWorkOrders.get(workOrderId);
+    if (!work) throw new ApiError('没有找到这项任务', { status: 404, code: 'NOT_FOUND' });
+    return cloneWorkOrder(work);
+  }
+
+  _requireDemoAssignee(work) {
+    if (this.user?.role !== 'FARMER' || work.assigneeId !== this._demoActorId()) {
+      throw new ApiError('只有这项任务的执行农户可以操作', { status: 403, code: 'WORK_ORDER_ASSIGNEE_REQUIRED' });
+    }
+  }
+
+  _saveDemoTransition(work, changes, action, note, evidenceRefs = []) {
+    const now = new Date().toISOString();
+    const previousStatus = normalizeWorkOrderStatus(work.status);
+    const nextStatus = normalizeWorkOrderStatus(changes.status || previousStatus);
+    const history = [...(work.history || []), {
+      action,
+      fromStatus: previousStatus,
+      toStatus: nextStatus,
+      actorId: this._demoActorId(),
+      actorName: this.user?.username || 'demo',
+      actorRole: this.user?.role || 'FARMER',
+      at: now,
+      note: note || '',
+      evidenceRefs: Array.isArray(evidenceRefs) ? evidenceRefs : []
+    }];
+    const saved = cloneWorkOrder({ ...work, ...changes, status: nextStatus, updatedAt: now, updatedBy: this._demoActorId(), history });
+    this.demoWorkOrders.set(work.workOrderId, saved);
+    return cloneWorkOrder(saved);
+  }
+
+  async getAlerts(filters = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
+    });
+    if (this.isLive) {
+      const query = queryParams.size ? `?${queryParams.toString()}` : '';
+      const response = await this._fetch(`/api/v1/alerts${query}`);
+      if (Array.isArray(response?.data)) return response.data;
+      throw new ApiError('后端返回了无效的告警数据', { code: 'ALERTS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.alerts || [])
+      .filter(alert => !filters.plotId || alert.plotId === filters.plotId)
+      .filter(alert => !filters.status || alert.status === filters.status)
+      .map(alert => ({ ...alert }));
+  }
+
+  async transitionAlert(alertId, action) {
+    const operation = String(action || '').toLowerCase();
+    if (!['ack', 'close', 'escalate'].includes(operation)) throw new ApiError('不支持的告警操作', { code: 'ALERT_ACTION_INVALID' });
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/alerts/${encodeURIComponent(alertId)}/${operation}`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      return response?.data || response;
+    }
+    const status = { ack: 'ACKED', close: 'CLOSED', escalate: 'ESCALATED' }[operation];
+    return { alertId, status, updatedAt: new Date().toISOString(), provenance: 'SIMULATED' };
+  }
+
+  async ackAlert(alertId) { return this.transitionAlert(alertId, 'ack'); }
+  async closeAlert(alertId) { return this.transitionAlert(alertId, 'close'); }
+  async escalateAlert(alertId) { return this.transitionAlert(alertId, 'escalate'); }
 
   async getInspections(plotId = '') {
     if (this.isLive) {
@@ -330,7 +649,7 @@ export class ApiService {
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
-    return (MOCK_DATA.inspections || []).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+    return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
   }
 
   async createInspection(inspection) {
@@ -341,14 +660,39 @@ export class ApiService {
       });
       return response?.data || response;
     }
-    return {
+    const now = new Date().toISOString();
+    const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
       operatorId: this.user?.userId || 'demo-farmer',
-      observedAt: inspection.observedAt || new Date().toISOString(),
+      operatorName: this.user?.username || 'demo',
+      operatorRole: this.user?.role || 'FARMER',
+      observedAt: inspection.observedAt || now,
+      createdAt: now,
+      updatedAt: now,
+      revision: 1,
       provenance: 'USER_PROVIDED',
-      sourceType: 'HUMAN_OBSERVATION'
+      sourceType: 'HUMAN_OBSERVATION',
+      quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
+    this.demoInspections.set(saved.inspectionId, saved);
+    if (saved.workOrderId && this.demoWorkOrders.has(saved.workOrderId)) {
+      const work = this.demoWorkOrders.get(saved.workOrderId);
+      const evidenceRefs = Array.from(new Set([...(work.evidenceRefs || []), saved.inspectionId]));
+      const history = [...(work.history || []), {
+        action: 'EVIDENCE_ADDED',
+        fromStatus: work.status,
+        toStatus: work.status,
+        actorId: saved.operatorId,
+        actorName: saved.operatorName,
+        actorRole: saved.operatorRole,
+        at: now,
+        note: '新增巡田证据',
+        evidenceRefs: [saved.inspectionId]
+      }];
+      this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
+    }
+    return { ...saved };
   }
 
   async evaluateResourcePlan(input = {}) {
@@ -357,7 +701,8 @@ export class ApiService {
         method: 'POST',
         body: JSON.stringify(input)
       });
-      return response?.data || response;
+      const plan = response?.data || response;
+      return { ...plan, trialOnly: true, provenance: plan?.provenance || 'DERIVED', sourceMode: 'ESTIMATED' };
     }
     const capacity = Number(MOCK_DATA.resourceProfile?.capacityLitres || 0);
     let remaining = capacity;
@@ -385,7 +730,9 @@ export class ApiService {
       conflicts,
       unmetDemands,
       algorithmVersion: 'capacity-priority-v1',
-      provenance: 'SIMULATED'
+      provenance: 'SIMULATED',
+      sourceMode: 'ESTIMATED',
+      trialOnly: true
     };
   }
 
@@ -529,7 +876,10 @@ export class ApiService {
     }
   }
 
-  async evaluateDiagnosis(plotId = 'plot-a01', input = {}) {
+  async evaluateDiagnosis(plotId, input = {}) {
+    if (!plotId) {
+      throw new ApiError('请选择要诊断的地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     const body = { ...input, plotId };
     if (body.scenarioId === 'live') delete body.scenarioId;
     if (this.isLive) {
@@ -545,7 +895,7 @@ export class ApiService {
 
     const plot = this.mockPlot(plotId);
     const scenario = String(input.scenarioId || 'normal').toLowerCase();
-    const sourceMode = scenario === 'normal' || scenario === 'live' ? 'OBSERVED' : 'SIMULATED';
+    const sourceMode = 'SIMULATED';
     const moisture = scenario === 'drought' ? 12.4 : Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const deviceStatus = scenario === 'device-offline' ? 'OFFLINE' : (plot?.deviceStatus || 'ONLINE');
     const drift = scenario === 'sensor-drift';
@@ -590,6 +940,9 @@ export class ApiService {
   }
 
   async estimateIrrigation(input = {}) {
+    if (!input.plotId) {
+      throw new ApiError('生成灌溉建议前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/irrigation/estimate', {
         method: 'POST',
@@ -601,7 +954,7 @@ export class ApiService {
       return plan;
     }
 
-    const plotId = input.plotId || 'plot-a01';
+    const plotId = input.plotId;
     const plot = this.mockPlot(plotId);
     const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
       || await this.evaluateDiagnosis(plotId, input);
@@ -750,8 +1103,14 @@ export class ApiService {
   }
 
   async executeIrrigation(planId, plotId, options = {}) {
+    if (!plotId) {
+      throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     if (!roleCan(this.user, 'irrigation:approve')) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
+    if (options.approved !== true) {
+      throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
     }
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/commands/virtual', {
@@ -760,41 +1119,64 @@ export class ApiService {
           planId,
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
-          approved: options.approved !== false,
+          approved: true,
           source: options.source || 'web-decision-console',
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });
       if (resp && resp.data) {
-        this.decisionCache.commands.set(resp.data.commandId, resp.data);
-        return resp.data;
+        const command = { ...resp.data, executionMode: 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
+        this.decisionCache.commands.set(command.commandId, command);
+        return command;
       }
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
-    // Mock realistic virtual execution sequence
+    const plan = this.decisionCache.plans.get(planId);
+    if (!plan || plan.plotId !== plotId) {
+      throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
+    }
+    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false) {
+      throw new ApiError('处方未通过安全门或尚未人工确认', { status: 409, code: 'IRRIGATION_NOT_READY' });
+    }
+
+    // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
+    const requestedOutcome = String(options.outcome || 'SUCCEEDED').toUpperCase();
+    const outcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const plannedWater = Number(plan.waterLitre || plan.howMuch?.waterLitre || 0);
+    const plannedDuration = Number(plan.durationSeconds || plan.howMuch?.durationSeconds || 0);
+    const actualWater = outcome === 'SUCCEEDED' ? plannedWater : outcome === 'PARTIAL' ? Number((plannedWater * .55).toFixed(1)) : 0;
+    const effectScore = outcome === 'SUCCEEDED' ? .96 : outcome === 'PARTIAL' ? .52 : 0;
+    const evaluationStatus = ['SUCCEEDED', 'PARTIAL'].includes(outcome) ? 'COMPLETED' : outcome;
     const command = {
       commandId: "cmd-" + Math.random().toString(36).substring(2, 9),
       plotId,
       planId,
-      status: "SUCCEEDED",
+      traceId: plan.traceId,
+      status: outcome,
       type: "IRRIGATION_START",
-      waterLitre: 153.0,
-      durationSeconds: 510,
+      waterLitre: plannedWater,
+      durationSeconds: plannedDuration,
       transport: "MQTT_VIRTUAL_ACTUATOR",
+      executionMode: 'SIMULATED',
+      provenance: 'SIMULATED',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
-        status: "SUCCEEDED",
-        actualWaterLitre: 153.0,
-        result: "GOOD",
+        status: outcome,
+        actualWaterLitre: actualWater,
+        result: outcome === 'SUCCEEDED' ? 'GOOD' : outcome,
+        provenance: 'SIMULATED',
         receivedAt: new Date().toISOString()
       },
       evaluation: {
-        effectivenessScore: 0.96,
-        status: "COMPLETED",
-        result: "GOOD",
-        expectedMoisture: "30.0%",
-        actualMoisture: "29.8%"
+        effectivenessScore: effectScore,
+        status: evaluationStatus,
+        result: outcome === 'SUCCEEDED' ? 'GOOD' : outcome,
+        expectedMoisture: `${Number(plan.expectedResult?.to ?? 30).toFixed(1)}%`,
+        actualMoisture: outcome === 'SUCCEEDED'
+          ? `${Number((Number(plan.expectedResult?.to ?? 30) - .2).toFixed(1))}%`
+          : outcome === 'PARTIAL' ? `${Number((Number(plan.expectedResult?.from ?? 20) + 3).toFixed(1))}%` : '未改善',
+        provenance: 'SIMULATED'
       }
     };
     this.decisionCache.commands.set(command.commandId, command);

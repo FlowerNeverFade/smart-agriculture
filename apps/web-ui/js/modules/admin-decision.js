@@ -1,0 +1,347 @@
+import { api } from '../api.js';
+import { roleCan } from '../roles.js';
+
+const { ref, computed, watch, onMounted } = Vue;
+
+const RISK_META = Object.freeze({
+  WATER_DEFICIT: { label: '地块缺水', icon: '💧', tone: 'water', advice: '湿度持续偏低，可以进入补水试算。' },
+  SENSOR_DRIFT: { label: '传感器读数可疑', icon: '〽', tone: 'drift', advice: '先用便携设备复测，禁止按可疑读数直接灌溉。' },
+  DEVICE_FAULT: { label: '采集设备异常', icon: '⌁', tone: 'device', advice: '先恢复设备和新鲜数据，再重新诊断。' },
+  INSUFFICIENT_EVIDENCE: { label: '证据不足', icon: '?', tone: 'unknown', advice: '需要补充现场检查或更长时间的数据。' }
+});
+
+const READINESS_META = Object.freeze({
+  READY: { label: '可以审批', tone: 'ready', description: '数据、设备、权限和安全限制均已通过。' },
+  NEEDS_EVIDENCE: { label: '需要补充检查', tone: 'evidence', description: '当前只能参考，不能创建灌溉命令。' },
+  HUMAN_REVIEW: { label: '等待人工复核', tone: 'review', description: '建议已生成，但仍缺少审批或关键确认。' },
+  UNAVAILABLE: { label: '当前不可执行', tone: 'unavailable', description: '设备、数据或安全条件不满足。' }
+});
+
+const GATE_LABELS = Object.freeze({
+  requiredMetrics: '关键数据', freshness: '数据是否新鲜', dataQuality: '数据是否可靠', deviceHealth: '设备是否在线',
+  diagnosisSafety: '诊断是否安全', resourceCapacity: '水源是否充足', permission: '账号权限', safetyLimit: '用水是否超限'
+});
+
+const EVIDENCE_LABELS = Object.freeze({
+  FLOW_RATE_CALIBRATION: '检查流量计', PORTABLE_METER_COMPARISON: '使用便携仪复测', FRESH_TELEMETRY: '获取最新传感器数据',
+  DEVICE_HEALTH: '检查设备在线状态', MORE_TELEMETRY_HISTORY: '延长数据观察时间', CONTROL_PERMISSION: '请管理员审批'
+});
+
+function traceId() {
+  return `decision-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function asPercent(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(numeric * 100)}%` : '—';
+}
+
+function terminalStatus(command) {
+  return String(command?.ack?.status || command?.status || '').toUpperCase();
+}
+
+export const AdminDecisionView = {
+  props: {
+    state: { type: Object, required: true },
+    routeParams: { type: Object, default: () => ({}) }
+  },
+  emits: ['navigate', 'data-invalidated'],
+  setup(props, { emit }) {
+    const selectedPlotId = ref('');
+    const scenario = ref('normal');
+    const loading = ref(false);
+    const executing = ref(false);
+    const evidenceCreating = ref(false);
+    const confirmed = ref(false);
+    const demoOutcome = ref('SUCCEEDED');
+    const error = ref(null);
+    const currentTraceId = ref('');
+    const diagnosis = ref(null);
+    const plan = ref(null);
+    const readiness = ref(null);
+    const command = ref(null);
+    const evaluation = ref(null);
+    const passport = ref(null);
+    const evidenceRequest = ref(null);
+
+    const plots = computed(() => props.state?.plots || []);
+    const selectedPlot = computed(() => plots.value.find((item) => item.plotId === selectedPlotId.value) || null);
+    const farmId = computed(() => selectedPlot.value?.farmId || props.routeParams?.farmId || props.state?.farms?.[0]?.farmId || '');
+    const isDemo = computed(() => props.state?.sessionMode === 'demo');
+    const canApprove = computed(() => roleCan(props.state?.currentUser, 'irrigation:approve'));
+    const risk = computed(() => RISK_META[String(diagnosis.value?.primaryCause || '').toUpperCase()] || RISK_META.INSUFFICIENT_EVIDENCE);
+    const readinessView = computed(() => READINESS_META[String(readiness.value?.status || 'UNAVAILABLE').toUpperCase()] || READINESS_META.UNAVAILABLE);
+    const gates = computed(() => Object.entries(readiness.value?.hardGates || {}).map(([key, status]) => ({ key, label: GATE_LABELS[key] || key, status })));
+    const missingEvidence = computed(() => (readiness.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || item));
+    const canExecute = computed(() => canApprove.value && plan.value?.executable === true && readiness.value?.status === 'READY' && confirmed.value && !executing.value);
+    const commandStatus = computed(() => terminalStatus(command.value));
+    const isCommandSuccess = computed(() => commandStatus.value === 'SUCCEEDED');
+    const metrics = computed(() => Object.entries(selectedPlot.value?.metrics || {}).slice(0, 6).map(([code, metric]) => ({ code, ...metric })));
+    const passportCounts = computed(() => ({
+      observations: passport.value?.observations?.length || 0,
+      diagnoses: passport.value?.diagnoses?.length || (diagnosis.value ? 1 : 0),
+      plans: passport.value?.plans?.length || (plan.value ? 1 : 0),
+      commands: passport.value?.commands?.length || (command.value ? 1 : 0),
+      evaluations: passport.value?.evaluations?.length || (evaluation.value ? 1 : 0)
+    }));
+
+    const clearResult = () => {
+      diagnosis.value = null;
+      plan.value = null;
+      readiness.value = null;
+      command.value = null;
+      evaluation.value = null;
+      passport.value = null;
+      evidenceRequest.value = null;
+      confirmed.value = false;
+    };
+
+    const requirePlot = () => {
+      if (selectedPlotId.value) return true;
+      const contextError = new Error('请选择一个地块后再开始诊断');
+      contextError.code = 'PLOT_CONTEXT_REQUIRED';
+      error.value = contextError;
+      return false;
+    };
+
+    const runDecisionChain = async () => {
+      if (!requirePlot() || loading.value) return;
+      loading.value = true;
+      error.value = null;
+      clearResult();
+      currentTraceId.value = traceId();
+      const scenarioInput = scenario.value === 'normal' ? {} : { scenarioId: scenario.value };
+      try {
+        diagnosis.value = await api.evaluateDiagnosis(selectedPlotId.value, { ...scenarioInput, traceId: currentTraceId.value });
+        plan.value = await api.estimateIrrigation({
+          plotId: selectedPlotId.value,
+          diagnosisId: diagnosis.value.diagnosisId,
+          traceId: currentTraceId.value,
+          ...scenarioInput
+        });
+        readiness.value = await api.getDecisionReadiness('IRRIGATION_PLAN', plan.value.planId, {
+          farmId: farmId.value,
+          plotId: selectedPlotId.value,
+          diagnosis: diagnosis.value,
+          plan: plan.value
+        });
+        passport.value = await api.getDecisionPassport(currentTraceId.value);
+      } catch (caught) {
+        error.value = caught;
+      } finally {
+        loading.value = false;
+      }
+    };
+
+    const choosePlot = () => {
+      error.value = null;
+      if (!selectedPlotId.value) return;
+      emit('navigate', 'decision-console', { farmId: farmId.value, plotId: selectedPlotId.value });
+      runDecisionChain();
+    };
+
+    const createEvidenceRequest = async () => {
+      if (!readiness.value?.readinessId || evidenceCreating.value) return;
+      evidenceCreating.value = true;
+      try {
+        evidenceRequest.value = await api.createDecisionEvidenceRequest(readiness.value.readinessId, {
+          farmId: farmId.value,
+          plotId: selectedPlotId.value,
+          title: `决策补充检查：${missingEvidence.value.slice(0, 2).join('、') || '现场复测'}`,
+          reason: `当前就绪状态为 ${readiness.value.status}`,
+          actionType: 'INSPECTION',
+          priority: 'HIGH',
+          dueAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
+        });
+        emit('data-invalidated', { domains: ['workOrders'], farmId: farmId.value, plotIds: [selectedPlotId.value], record: evidenceRequest.value });
+      } catch (caught) {
+        error.value = caught;
+      } finally {
+        evidenceCreating.value = false;
+      }
+    };
+
+    const executePlan = async () => {
+      if (!canExecute.value) return;
+      executing.value = true;
+      error.value = null;
+      try {
+        command.value = await api.executeIrrigation(plan.value.planId, selectedPlotId.value, {
+          approved: true,
+          idempotencyKey: `web-${currentTraceId.value}`,
+          source: 'admin-decision-console',
+          ...(isDemo.value ? { outcome: demoOutcome.value } : {})
+        });
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          if (['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(terminalStatus(command.value))) break;
+          await delay(650);
+          command.value = await api.getCommand(command.value.commandId) || command.value;
+        }
+        evaluation.value = await api.getCommandEvaluation(command.value.commandId);
+        passport.value = await api.getDecisionPassport(currentTraceId.value);
+        emit('data-invalidated', { domains: ['commands', 'evaluations', 'plots'], farmId: farmId.value, plotIds: [selectedPlotId.value] });
+      } catch (caught) {
+        error.value = caught;
+      } finally {
+        executing.value = false;
+      }
+    };
+
+    const refreshPassport = async () => {
+      if (!currentTraceId.value) return;
+      try {
+        passport.value = await api.getDecisionPassport(currentTraceId.value);
+      } catch (caught) {
+        error.value = caught;
+      }
+    };
+
+    watch(() => props.routeParams?.plotId, (routePlotId) => {
+      if (!routePlotId || routePlotId === selectedPlotId.value) return;
+      selectedPlotId.value = routePlotId;
+      runDecisionChain();
+    });
+
+    onMounted(() => {
+      const routePlotId = props.routeParams?.plotId;
+      if (routePlotId && plots.value.some((item) => item.plotId === routePlotId)) {
+        selectedPlotId.value = routePlotId;
+        runDecisionChain();
+      } else if (isDemo.value && plots.value.length) {
+        selectedPlotId.value = plots.value[0].plotId;
+        runDecisionChain();
+      } else {
+        requirePlot();
+      }
+    });
+
+    return {
+      selectedPlotId, scenario, loading, executing, evidenceCreating, confirmed, demoOutcome, error,
+      diagnosis, plan, readiness, command, evaluation, passport, evidenceRequest, plots, selectedPlot,
+      farmId, isDemo, canApprove, risk, readinessView, gates, missingEvidence, canExecute, commandStatus,
+      isCommandSuccess, metrics, passportCounts, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
+      executePlan, refreshPassport, asPercent
+    };
+  },
+  template: `
+    <section class="dc-root admin-decision" aria-labelledby="decision-title">
+      <header class="dc-hero">
+        <div class="dc-hero-copy">
+          <span class="dc-kicker">诊断 · 审批 · 虚拟执行</span>
+          <h2 id="decision-title">智能诊断与灌溉决策</h2>
+          <p>选择地块后，系统按同一条链路完成诊断、补水试算、安全检查和执行留痕。</p>
+        </div>
+        <div class="dc-toolbar">
+          <label>当前地块
+            <select v-model="selectedPlotId" @change="choosePlot">
+              <option value="">请选择地块</option>
+              <option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}（{{ plot.plotId }}）</option>
+            </select>
+          </label>
+          <label>诊断场景
+            <select v-model="scenario" @change="runDecisionChain" :disabled="!selectedPlotId">
+              <option value="normal">当前状态</option>
+              <option value="drought">干旱测试</option>
+              <option value="sensor-drift">读数漂移测试</option>
+              <option value="device-offline">设备离线测试</option>
+            </select>
+          </label>
+          <button class="dc-button primary" @click="runDecisionChain" :disabled="loading || !selectedPlotId">{{ loading ? '正在分析…' : '重新分析' }}</button>
+        </div>
+      </header>
+
+      <div class="dc-trust-strip">
+        <span>{{ isDemo || scenario !== 'normal' ? 'SIMULATED · 模拟数据' : 'OBSERVED · 现场数据' }}</span><i></i>
+        <span>所有剂量由当前地块数据计算</span><i></i><span>未通过安全检查时禁止执行</span>
+      </div>
+      <div v-if="error" class="dc-error"><strong>{{ error.code || 'DECISION_FAILED' }}</strong><span>{{ error.message || error }}</span></div>
+
+      <template v-if="selectedPlot">
+        <section class="dc-context-bar">
+          <div><span class="dc-live-dot"></span><strong>{{ selectedPlot.name }}</strong><small>{{ selectedPlot.cropName || selectedPlot.cropCode }} · {{ selectedPlot.stageLabel || selectedPlot.stage }}</small></div>
+          <div class="dc-context-tags"><span>{{ selectedPlot.plotId }}</span><span>{{ farmId }}</span><span>{{ isDemo ? 'DEMO' : 'LIVE' }}</span></div>
+        </section>
+
+        <section class="dc-metric-grid">
+          <article v-for="metric in metrics" :key="metric.code" class="dc-metric" :class="{'is-warn': !['NORMAL','GOOD'].includes(String(metric.status || '').toUpperCase())}">
+            <span>{{ metric.label || metric.code }}</span><strong>{{ metric.value ?? '—' }}<small>{{ metric.unit }}</small></strong>
+            <footer><b>{{ metric.status || 'UNKNOWN' }}</b><em>{{ isDemo || scenario !== 'normal' ? 'SIMULATED' : 'OBSERVED' }}</em></footer>
+          </article>
+        </section>
+
+        <div class="dc-main-grid">
+          <main>
+            <section class="dc-card">
+              <div class="dc-card-heading"><div><span class="dc-kicker">第一步 · 找出原因</span><h3>AI 辅助诊断</h3></div><span class="dc-version-chip">{{ diagnosis?.ruleVersion || '等待分析' }}</span></div>
+              <div v-if="diagnosis" class="dc-primary-cause" :class="'tone-' + risk.tone">
+                <div class="dc-cause-icon">{{ risk.icon }}</div>
+                <div class="dc-cause-copy"><small>最可能原因</small><strong>{{ risk.label }}</strong><p>{{ risk.advice }}</p></div>
+                <div class="dc-confidence"><strong>{{ asPercent(diagnosis.confidence) }}</strong><span>可信程度</span></div>
+              </div>
+              <div v-if="diagnosis" class="dc-candidate-list">
+                <article v-for="(candidate,index) in diagnosis.candidateCauses" :key="candidate.code" :class="{'is-primary': index === 0}">
+                  <div><strong>{{ RISK_META?.[candidate.code]?.label || candidate.code }}</strong><em>{{ asPercent(candidate.confidence) }}</em></div>
+                  <div class="dc-score-track"><i :style="{width: asPercent(candidate.confidence)}"></i></div>
+                </article>
+              </div>
+              <div v-if="!diagnosis" class="dc-empty-panel">{{ loading ? '正在读取地块数据并分析…' : '等待开始分析' }}</div>
+            </section>
+
+            <section class="dc-card">
+              <div class="dc-card-heading"><div><span class="dc-kicker">第二步 · 生成办法</span><h3>补水建议</h3></div><span class="dc-plan-state" :class="plan?.executable ? 'is-ready' : 'is-advisory'">{{ plan?.executable ? '可审批' : '仅供参考' }}</span></div>
+              <template v-if="plan">
+                <div class="dc-prescription-grid">
+                  <article><span>做什么</span><strong>精准补水</strong><small>IRRIGATION</small></article>
+                  <article><span>在哪块地</span><strong>{{ selectedPlot.name }}</strong><small>{{ plan.plotId }}</small></article>
+                  <article class="is-dose"><span>建议用水</span><strong>{{ Number(plan.waterLitre || 0).toFixed(1) }} L</strong><small>{{ Math.ceil(Number(plan.durationSeconds || 0) / 60) }} 分钟</small></article>
+                  <article><span>预计变化</span><strong>{{ plan.expectedResult?.from ?? '—' }}% → {{ plan.expectedResult?.to ?? '—' }}%</strong><small>土壤湿度</small></article>
+                </div>
+                <div class="dc-why-row"><div><span>为什么这样做</span><p>{{ plan.why }}</p></div><div><span>其他选择</span><p>{{ plan.alternatives?.[0] || '稍后复测再决定' }}</p></div></div>
+              </template>
+              <div v-else class="dc-empty-panel">尚未生成建议</div>
+            </section>
+
+            <section class="dc-card">
+              <div class="dc-card-heading"><div><span class="dc-kicker">第三步 · 人工确认</span><h3>虚拟执行与回执</h3></div><span class="dc-command-id">{{ command?.commandId || '尚未创建命令' }}</span></div>
+              <div class="dc-approval-panel embedded" v-if="plan">
+                <label><input type="checkbox" v-model="confirmed" :disabled="!plan.executable || readiness?.status !== 'READY'"> 我已核对地块、用水量和设备状态，同意创建虚拟灌溉命令。</label>
+                <label v-if="isDemo" class="dc-outcome-select">演示回执
+                  <select v-model="demoOutcome"><option value="SUCCEEDED">成功</option><option value="PARTIAL">部分完成</option><option value="FAILED">失败</option><option value="TIMEOUT">超时</option></select>
+                </label>
+                <button class="dc-button primary" @click="executePlan" :disabled="!canExecute">{{ executing ? '等待设备回执…' : '确认并虚拟执行' }}</button>
+              </div>
+              <div v-if="command" class="dc-execution-facts">
+                <div><span>执行方式</span><strong>SIMULATED</strong></div>
+                <div><span>命令状态</span><strong :class="'status-' + commandStatus.toLowerCase()">{{ commandStatus }}</strong></div>
+                <div><span>实际用水</span><strong>{{ command.ack?.actualWaterLitre ?? '—' }} L</strong></div>
+                <div><span>效果评价</span><strong>{{ evaluation?.status || '等待评价' }}</strong></div>
+              </div>
+              <p v-if="command && !isCommandSuccess" class="dc-command-warning">本次结果不是成功：{{ commandStatus }}。系统不会把它显示为已完成。</p>
+            </section>
+          </main>
+
+          <aside>
+            <section class="dc-card" :class="'tone-' + readinessView.tone">
+              <div class="dc-card-heading"><div><span class="dc-kicker">安全检查</span><h3>现在能不能执行</h3></div><span class="dc-readiness-badge" :class="'tone-' + readinessView.tone">{{ readinessView.label }}</span></div>
+              <div class="dc-readiness-summary" v-if="readiness"><div class="dc-score-ring" :style="{'--dc-score': Math.round(Number(readiness.score || 0) * 360) + 'deg'}"><div><strong>{{ Math.round(Number(readiness.score || 0) * 100) }}</strong><span>综合分</span></div></div><p>{{ readinessView.description }}</p></div>
+              <div class="dc-gate-grid"><article v-for="gate in gates" :key="gate.key" :class="'gate-' + String(gate.status).toLowerCase()"><i>{{ gate.status === 'PASS' ? '✓' : gate.status === 'REVIEW' ? '◐' : '×' }}</i><div><strong>{{ gate.label }}</strong><span>{{ gate.status }}</span></div></article></div>
+              <div v-if="missingEvidence.length" class="dc-missing-actions"><strong>还需要做</strong><span v-for="item in missingEvidence" :key="item">{{ item }}</span></div>
+              <button v-if="readiness && readiness.status !== 'READY'" class="dc-button secondary wide" @click="createEvidenceRequest" :disabled="evidenceCreating">{{ evidenceCreating ? '正在创建…' : evidenceRequest ? '检查任务已创建' : '创建补充检查任务' }}</button>
+            </section>
+
+            <section class="dc-card dc-passport-card">
+              <div class="dc-card-heading"><div><span class="dc-kicker">全程留痕</span><h3>本次决策记录</h3></div><button class="dc-button secondary" @click="refreshPassport">刷新</button></div>
+              <div class="dc-trace"><span>追踪编号</span><code>{{ currentTraceId || '—' }}</code></div>
+              <div class="dc-passport-flow"><article><strong>{{ passportCounts.observations }}</strong><span>数据</span></article><i>→</i><article><strong>{{ passportCounts.diagnoses }}</strong><span>诊断</span></article><i>→</i><article><strong>{{ passportCounts.plans }}</strong><span>建议</span></article><i>→</i><article><strong>{{ passportCounts.commands }}</strong><span>命令</span></article><i>→</i><article><strong>{{ passportCounts.evaluations }}</strong><span>评价</span></article></div>
+              <div class="dc-provenance-row"><span v-for="source in (passport?.provenance || ['DERIVED','SIMULATED','ESTIMATED'])" :key="source">{{ source }}</span></div>
+            </section>
+          </aside>
+        </div>
+      </template>
+    </section>
+  `
+};
