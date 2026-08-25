@@ -758,11 +758,11 @@ export const MOCK_DATA = {
 
   
   adminGlobalPlots: [
-    { id: 'plot-a01', farm: '科学城农业园', crop: '番茄', status: 'HEALTHY', moisture: '28%', temp: '25°C', updated: '2分钟前' },
-    { id: 'plot-a02', farm: '科学城农业园', crop: '黄瓜', status: 'WARNING', moisture: '18%', temp: '27°C', updated: '1分钟前', issue: '缺水预警' },
-    { id: 'plot-b01', farm: '白云基地', crop: '草莓', status: 'CRITICAL', moisture: '12%', temp: '30°C', updated: '刚刚', issue: '严重干旱' },
-    { id: 'plot-b02', farm: '白云基地', crop: '辣椒', status: 'HEALTHY', moisture: '24%', temp: '26°C', updated: '5分钟前' },
-    { id: 'plot-c01', farm: '增城果园', crop: '葡萄', status: 'OFFLINE', moisture: '--', temp: '--', updated: '2小时前', issue: '网关掉线' }
+    { id: 'plot-a01', farm: '科学城农业园', crop: '番茄', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '28%', AIR_TEMPERATURE: '25°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.4', WATER_LEVEL: '72%' } },
+    { id: 'plot-a02', farm: '科学城农业园', crop: '黄瓜', status: 'WARNING', updated: '1分钟前', issue: '缺水预警', metrics: { SOIL_MOISTURE: '18%', AIR_TEMPERATURE: '27°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.2', WATER_LEVEL: '41%' } },
+    { id: 'plot-b01', farm: '白云基地', crop: '草莓', status: 'CRITICAL', updated: '刚刚', issue: '严重干旱', metrics: { SOIL_MOISTURE: '12%', AIR_TEMPERATURE: '30°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.0', WATER_LEVEL: '18%' } },
+    { id: 'plot-b02', farm: '白云基地', crop: '辣椒', status: 'HEALTHY', updated: '5分钟前', metrics: { SOIL_MOISTURE: '24%', AIR_TEMPERATURE: '26°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.5', WATER_LEVEL: '68%' } },
+    { id: 'plot-c01', farm: '增城果园', crop: '葡萄', status: 'OFFLINE', updated: '2小时前', issue: '网关掉线', metrics: { SOIL_MOISTURE: '--', AIR_TEMPERATURE: '--', LIGHT: '--', CO2: '--', PH: '--', WATER_LEVEL: '--' } }
   ],
 
   adminOverview: {
@@ -900,9 +900,9 @@ export const MOCK_DATA = {
   ],
 
   adminCropPacks: [
-    { id: 'cp-tomato', icon: '🍅', name: '番茄', version: '2.1', status: 'published', stages: 5, metrics: 8, knowledgeDocs: 3, availableForPlanting: true },
-    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', version: '1.2', status: 'published', stages: 4, metrics: 7, knowledgeDocs: 2, availableForPlanting: true },
-    { id: 'cp-strawberry', icon: '🍓', name: '草莓', version: '1.0', status: 'draft', stages: 6, metrics: 9, knowledgeDocs: 1, availableForPlanting: false }
+    { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['育苗期', '营养生长期', '开花坐果期', '果实成熟期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['番茄灌溉基准表', '病虫害防治指南', '果实成熟期管理'], availableForPlanting: true },
+    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', status: 'published', stages: ['苗期', '营养生长期', '初花期', '采收盛期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['黄瓜水肥管理', '温室病害识别'], availableForPlanting: true },
+    { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], metrics: ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'], knowledgeDocs: ['草莓温湿度管理'], availableForPlanting: false }
   ],
 
   adminRules: [

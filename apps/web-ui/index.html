@@ -785,8 +785,6 @@
           </div>
         </div>
       </div>
-    </div>
-  </template>
 
       <!-- Global plot landscape -->
       <section class="admin-plot-landscape">
@@ -827,8 +825,7 @@
             <div class="admin-plot-farm">{{ plot.farm }}</div>
             <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) }}%</strong><b><i :style="{width: healthPercent(plot) + '%'}"></i></b></div>
             <div class="admin-plot-metrics">
-              <span><strong>{{ plot.moisture }}</strong> 湿度</span>
-              <span><strong>{{ plot.temp }}</strong> 温度</span>
+              <span v-for="metric in telemetryMetrics" :key="metric.code"><strong>{{ plot.metrics[metric.code] }}</strong> {{ metric.label }}</span>
             </div>
             <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
             <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
@@ -1150,32 +1147,30 @@
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
                 <div class="pack-card-title">{{ pack.name }}</div>
-                <div class="pack-card-ver">v{{ pack.version }} · {{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
+                <div class="pack-card-ver">{{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
               </div>
               <span class="status-pill" :class="pack.status" style="margin-left:auto">{{ pack.status === 'published' ? '已发布' : '草稿' }}</span>
             </div>
             <div class="pack-card-stats">
-              <span><span class="material-symbols-outlined" style="font-size:14px">timeline</span> {{ pack.stages }} 个阶段</span>
-              <span><span class="material-symbols-outlined" style="font-size:14px">speed</span> {{ pack.metrics }} 项指标</span>
-              <span><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> {{ pack.knowledgeDocs }} 篇知识</span>
+              <span><span class="material-symbols-outlined" style="font-size:14px">timeline</span> {{ pack.stages.length }} 个阶段</span>
+              <span><span class="material-symbols-outlined" style="font-size:14px">speed</span> {{ pack.metrics.length }} 项指标</span>
+              <span><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> {{ pack.knowledgeDocs.length }} 篇知识</span>
+            </div>
+            <div class="admin-pack-availability" :class="{enabled: pack.availableForPlanting && pack.status === 'published'}">
+              <span class="material-symbols-outlined">{{ pack.availableForPlanting && pack.status === 'published' ? 'check_circle' : 'block' }}</span>
+              {{ pack.availableForPlanting && pack.status === 'published' ? '可供新地块选择' : '暂不可用于新地块' }}
             </div>
             
             <div v-if="expandedPacks[pack.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
-              <div style="font-weight: 500; color: var(--g-text-primary); margin-bottom: 8px;">包含内容：</div>
-              <ul style="padding-left: 20px; margin: 0; line-height: 1.6;">
-                <li>生命周期：育苗期、生长期、开花期、挂果期</li>
-                <li>核心指标：土壤湿度、EC值、环境温湿度、光照、CO2</li>
-                <li>安全规则：每日最大灌溉量、命令防抖拦截</li>
-                <li>知识文档：病虫害防治指南、灌溉基准表</li>
-              </ul>
+              <div class="admin-pack-detail-grid">
+                <div><strong>生长阶段</strong><span>{{ pack.stages.join('、') }}</span></div>
+                <div><strong>指标编码</strong><span>{{ pack.metrics.join('、') }}</span></div>
+                <div><strong>知识文档</strong><span>{{ pack.knowledgeDocs.join('、') }}</span></div>
+              </div>
               <div style="margin-top: 12px; display: flex; gap: 8px;">
                 <button class="g-btn text sm" style="padding: 4px 8px" @click="openEditPack(pack)"><span class="material-symbols-outlined">edit</span>编辑</button>
                 <button class="g-btn text sm" style="padding: 4px 8px" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
                 <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><span class="material-symbols-outlined">delete</span>删除</button>
-              </div>
-              <div class="admin-pack-availability" :class="{enabled: pack.availableForPlanting && pack.status === 'published'}">
-                <span class="material-symbols-outlined">{{ pack.availableForPlanting && pack.status === 'published' ? 'check_circle' : 'block' }}</span>
-                {{ pack.availableForPlanting && pack.status === 'published' ? '可供新地块选择' : '暂不可用于新地块' }}
               </div>
             </div>
           </div>
@@ -1190,12 +1185,13 @@
             <div class="admin-modal-body admin-pack-form">
               <label>作物包 ID</label><input v-model="packForm.id" :disabled="!!editingPackId" placeholder="例如 cp-lettuce">
               <label>作物名称</label><input v-model="packForm.name" placeholder="例如 生菜">
-              <label>图标</label><input v-model="packForm.icon" maxlength="2" placeholder="🌱">
-              <label>版本</label><input v-model="packForm.version" placeholder="1.0">
+              <label>作物图标</label>
+              <div class="admin-icon-picker"><button v-for="icon in cropIcons" :key="icon" type="button" :class="{selected: packForm.icon === icon}" @click="packForm.icon = icon">{{ icon }}</button></div>
+              <label>生长阶段（每行一个）</label><textarea :value="packForm.stages.join('\n')" @input="packForm.stages = $event.target.value.split('\n')" rows="4"></textarea>
+              <label>指标（后端六项中选择）</label>
+              <div class="admin-metric-picker"><label v-for="metric in telemetryMetrics" :key="metric.code"><input type="checkbox" :value="metric.code" v-model="packForm.metrics"> {{ metric.label }} <small>{{ metric.code }}</small></label></div>
+              <label>知识文档（每行一个）</label><textarea :value="packForm.knowledgeDocs.join('\n')" @input="packForm.knowledgeDocs = $event.target.value.split('\n')" rows="3"></textarea>
               <div class="admin-form-grid">
-                <div><label>生长阶段数</label><input type="number" min="1" v-model="packForm.stages"></div>
-                <div><label>指标数</label><input type="number" min="1" v-model="packForm.metrics"></div>
-                <div><label>知识文档数</label><input type="number" min="0" v-model="packForm.knowledgeDocs"></div>
                 <div><label>发布状态</label><select v-model="packForm.status"><option value="draft">草稿</option><option value="published">已发布</option></select></div>
               </div>
               <label class="admin-checkbox"><input type="checkbox" v-model="packForm.availableForPlanting"> 允许新地块选择此作物</label>

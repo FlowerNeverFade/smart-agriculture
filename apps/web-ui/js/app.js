@@ -489,9 +489,18 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent };
+    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS };
   }
 };
+
+const TELEMETRY_METRICS = [
+  { code: 'SOIL_MOISTURE', label: '土壤湿度' },
+  { code: 'AIR_TEMPERATURE', label: '空气温度' },
+  { code: 'LIGHT', label: '光照' },
+  { code: 'CO2', label: 'CO2' },
+  { code: 'PH', label: 'PH' },
+  { code: 'WATER_LEVEL', label: '水位' }
+];
 
 const AdminOpsView = {
   template: '#tmpl-admin-ops',
@@ -642,12 +651,13 @@ const AdminRulesView = {
     const expandedPacks = ref({});
     const showPackModal = ref(false);
     const editingPackId = ref(null);
-    const packForm = ref({ id: '', icon: '🌱', name: '', version: '1.0', status: 'draft', stages: 4, metrics: 6, knowledgeDocs: 1, availableForPlanting: true });
+    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], metrics: ['SOIL_MOISTURE'], knowledgeDocs: [''], availableForPlanting: true });
+    const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
     const togglePack = (id) => {
       expandedPacks.value[id] = !expandedPacks.value[id];
     };
     const resetPackForm = () => {
-      packForm.value = { id: '', icon: '🌱', name: '', version: '1.0', status: 'draft', stages: 4, metrics: 6, knowledgeDocs: 1, availableForPlanting: true };
+      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], metrics: ['SOIL_MOISTURE'], knowledgeDocs: [''], availableForPlanting: true };
       editingPackId.value = null;
     };
     const openCreatePack = () => {
@@ -655,7 +665,7 @@ const AdminRulesView = {
       showPackModal.value = true;
     };
     const openEditPack = (pack) => {
-      packForm.value = { ...pack };
+      packForm.value = { ...pack, stages: [...pack.stages], metrics: [...pack.metrics], knowledgeDocs: [...pack.knowledgeDocs] };
       editingPackId.value = pack.id;
       showPackModal.value = true;
     };
@@ -666,9 +676,9 @@ const AdminRulesView = {
         ...form,
         id: form.id.trim(),
         name: form.name.trim(),
-        stages: Number(form.stages) || 0,
-        metrics: Number(form.metrics) || 0,
-        knowledgeDocs: Number(form.knowledgeDocs) || 0
+        stages: form.stages.map(item => item.trim()).filter(Boolean),
+        metrics: form.metrics,
+        knowledgeDocs: form.knowledgeDocs.map(item => item.trim()).filter(Boolean)
       };
       const packs = props.state.adminCropPacks;
       if (editingPackId.value) {
@@ -689,7 +699,7 @@ const AdminRulesView = {
     const togglePackStatus = (pack) => {
       pack.status = pack.status === 'published' ? 'draft' : 'published';
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, telemetryMetrics: TELEMETRY_METRICS, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus };
   }
 };
 
