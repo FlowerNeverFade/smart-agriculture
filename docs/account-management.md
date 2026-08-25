@@ -34,16 +34,19 @@
 
 ## 历史公网验收（2026-08-24，V4 三角色迁移之前）
 
-以下记录对应账号管理提交 `0151405` 的当时公网版本；本轮 `V4__three_role_scopes.sql` 与三角色收口属于仓库变更，按本次 GitHub 推送记录，不宣称已同步到该公网服务。
+以下记录对应账号管理提交 `0151405` 的当时公网版本，保留用于区分 V4 发布前后的验收边界。
 
 - 合并提交 `0151405935815d8300613434f82e7ac8a9a3c36d` 已部署到 `/srv/agriloop`，API 由 Supervisor 管理，应用环境文件仍保持 `600` 权限。
 - Flyway 日志确认 `V2__account_management.sql` 与 `V3__social_identity.sql` 均已成功应用，数据库版本为 v3。
 - 公网黑盒：三类演示账号登录和 `/auth/me` 为 HTTP 200；选择错误身份为 HTTP 401 `AUTH_INVALID`；`FARMER` 自助注册为 HTTP 201 且恢复码仅返回一次；管理员身份自助注册返回 `403 ACCOUNT_ROLE_REQUIRES_ADMIN`；登录页三类账户表单从公网入口加载。
 - 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。
 
-## 本轮仓库交付（2026-08-25）
+## 本轮远端交付（2026-08-25）
 
 - 三角色收口、V4 迁移、角色权限与透明 Logo 已包含在实现提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，旧操作员全量迁移加固在 `6e0b1db`。
-- 上述提交已进入 GitHub `main` 并完成远程指针核对；本轮未执行公网服务发布，公网服务需单独部署后再复跑 V4 迁移与黑盒验收。
+- 上述提交已通过交付提交 `85155db1f184e8a2c1b6806af2a7cd34f3e67193` 进入 GitHub `main` 并发布到 `/srv/agriloop`。发布前数据库备份成功，旧应用保存在 `/srv/agriloop/releases/pre-85155db1f184e8a2c1b6806af2a7cd34f3e67193-20260825-051853-backup`。
+- Flyway 日志确认 v4 `three role scopes` 成功应用；数据库中的 `admin`、`farmer`、`operator`、`sysadmin` 分别归一为 `FARM_ADMIN`、`FARMER`、`FARMER`、`SYSTEM_ADMIN`，并同步各自地块范围。
+- 服务器本机黑盒确认三类演示账号登录和 `/auth/me` 均为 HTTP 200，分别返回对应角色与权限；选择错误身份返回 HTTP 401 `AUTH_INVALID`，`/auth/roles` 只返回三类公开角色。Nginx 提供的新登录页和透明 Alpha Logo 均为 HTTP 200，API 健康状态为 `UP`。
+- Supervisor 中 API、Nginx、模拟器、Cron 与 Qwen 均为 `RUNNING`。当前工作环境无法直连 AutoDL 公网代理，因此本轮不把浏览器级公网截图列为证据；公网映射地址保持不变。
 
 生产部署若要求邮件找回，应在现有恢复码哈希与凭据版本机制之上接入受信任的邮件发送、分布式限流和管理员审核，不应由前端伪造“已发送邮件”。

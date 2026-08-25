@@ -8,7 +8,7 @@
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
 
-> 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，两者均已进入 GitHub `main` 并完成远程指针核对；该动作只替换仓库分支，不代表公网服务部署。
+> 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，交付提交为 `85155db1f184e8a2c1b6806af2a7cd34f3e67193`；提交链已进入 GitHub `main` 并发布到 `/srv/agriloop`。Flyway v4、三角色登录与 `/auth/me`、身份错配、角色目录、透明 Logo、Supervisor 服务及健康检查均已通过服务器本机黑盒；旧应用保留为带时间戳的回滚目录。
 
 ## 1. 使用说明
 
@@ -69,7 +69,7 @@
 | T-045 | P1 | Web 等画质首屏与运行时性能优化 | 项目组 | — | D15+ | 已完成（公网验收） | `e9dc042`、`b08c664`、`docs/acceptance/WEB_PERFORMANCE_ACCEPTANCE.md`；按需 JS/CSS、数据并行、18,816 株植被实例空间剔除、隐藏停帧、分级缓存及首页水资源卡片尺寸反馈修复；Web real 81/81、stub/svg 80/80，真实 Chromium 18/18；公网真实 JWT 登录/3D/按需模块/水卡稳定性/健康检查通过 |
 | T-046 | P0 | `rium_dev-v2` 增量能力与毛玻璃视觉收口 | 项目组 | — | D15+ | 已完成（公网验收） | 合并提交 `9066edb`，最终收口 `7d33092`；六指标时序、右栏真实折叠、卡片按内容展开不互相覆盖、中心内嵌模块、背景天体动画兼容、无三角尺；`verify-webui real` 82/82、真实 Chromium 27/27（本地与公网 JWT）；液态 sheen/反光伪元素已移除 |
 | T-047 | P0 | 完成账号注册、身份选择与核验、恢复码重置、凭据轮换及登录页账户流程 | 前后端 | — | D15+ | 已完成（公网验收） | Flyway v2/v3、身份匹配与安全注册 Gradle 回归、Web 三模式探针、本地 API 黑盒及公网登录/注册/角色黑盒均通过；合并提交 `0151405` 已部署；`docs/account-management.md` |
-| T-048 | P0 | 将账户与工作台角色收敛为农场管理员、种植农户、系统管理员，并迁移旧操作员范围 | 前后端 | — | 本轮 | 已完成 | `RolePolicy`/`roles.js` 三角色权限合同、Flyway `V4__three_role_scopes.sql`、三角色 Gradle 回归、透明 Alpha Logo、角色菜单/地块隔离；实现提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`、迁移加固提交 `6e0b1db` 已进入 GitHub `main` |
+| T-048 | P0 | 将账户与工作台角色收敛为农场管理员、种植农户、系统管理员，并迁移旧操作员范围 | 前后端 | — | 本轮 | 已完成（远端验收） | `RolePolicy`/`roles.js` 三角色权限合同、Flyway `V4__three_role_scopes.sql`、三角色 Gradle 回归、透明 Alpha Logo、角色菜单/地块隔离；实现提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`、迁移加固提交 `6e0b1db` 与交付提交 `85155db1` 已进入 GitHub `main`；V4、三角色 API、身份错配、静态资源和健康检查已在 `/srv/agriloop` 验收 |
 
 ### 2.1 核心八项能力任务映射
 
