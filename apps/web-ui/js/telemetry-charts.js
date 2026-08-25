@@ -5,11 +5,113 @@
 export const TELEMETRY_METRICS = [
   { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', color: '#3fb950', targetLow: 20, targetHigh: 45 },
   { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', color: '#f85149', targetLow: 18, targetHigh: 32 },
-  { code: 'LIGHT', label: '光照强度', unit: 'lux', color: '#d29922', targetLow: null, targetHigh: null },
+  { code: 'LIGHT', label: '光照强度', unit: 'lux', color: '#d29922', targetLow: 10000, targetHigh: 70000 },
   { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', color: '#58a6ff', targetLow: 350, targetHigh: 1200 },
   { code: 'PH', label: '土壤 pH', unit: 'pH', color: '#a371f7', targetLow: 5.5, targetHigh: 7.2 },
   { code: 'WATER_LEVEL', label: '水箱水位', unit: '%', color: '#39c5cf', targetLow: 20, targetHigh: 100 },
 ];
+
+/** Parse "20~40%" / "10k~70k lux" or fall back to metric defaults. Do not invent a band. */
+export function parseTargetRange(targetText, meta = {}) {
+  const text = String(targetText || '').replace(/,/g, '');
+  const match = text.match(/([\d.]+)\s*(k)?\s*[~～\-—至到]\s*([\d.]+)\s*(k)?/i);
+  if (match) {
+    const low = Number(match[1]) * (match[2] ? 1000 : 1);
+    const high = Number(match[3]) * (match[4] ? 1000 : 1);
+    if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
+      return { low, high, source: 'plot' };
+    }
+  }
+  const low = Number(meta.targetLow);
+  const high = Number(meta.targetHigh);
+  if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
+    return { low, high, source: 'default' };
+  }
+  return null;
+}
+
+export function formatMetricNumber(value, unit) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (unit === 'lux' || Math.abs(n) >= 1000) return Math.round(n).toLocaleString('zh-CN');
+  if (Math.abs(n - Math.round(n)) < 0.05) return String(Math.round(n));
+  return n.toFixed(1);
+}
+
+/**
+ * Compare latest reading with the standard band.
+ * Returns null when value or band is unavailable (never guess).
+ * level: alert = already outside, warn = approaching boundary / plot WARN.
+ */
+export function assessMetricRisk(meta, series = [], plotMetric) {
+  const latest = series.length ? Number(series[series.length - 1].value) : Number(plotMetric?.value);
+  if (!Number.isFinite(latest)) return null;
+  const range = parseTargetRange(plotMetric?.target, meta);
+  if (!range) return null;
+
+  const { low, high } = range;
+  const span = high - low;
+  const margin = span * 0.15;
+  let level = 'ok';
+  let side = null;
+  if (latest < low) {
+    level = 'alert';
+    side = 'low';
+  } else if (latest > high) {
+    level = 'alert';
+    side = 'high';
+  } else if (latest <= low + margin) {
+    level = 'warn';
+    side = 'low';
+  } else if (latest >= high - margin) {
+    level = 'warn';
+    side = 'high';
+  }
+
+  if (level === 'ok' && series.length >= 5) {
+    const window = series.slice(-6);
+    const first = Number(window[0].value);
+    const last = Number(window[window.length - 1].value);
+    if (Number.isFinite(first) && Number.isFinite(last)) {
+      const delta = last - first;
+      if ((latest - low) / span <= 0.28 && delta < -span * 0.04) {
+        level = 'warn';
+        side = 'low';
+      } else if ((high - latest) / span <= 0.28 && delta > span * 0.04) {
+        level = 'warn';
+        side = 'high';
+      }
+    }
+  }
+
+  const status = String(plotMetric?.status || '').toUpperCase();
+  if (level === 'ok' && (status === 'WARN' || status === 'ALERT' || status === 'CRITICAL')) {
+    level = status === 'WARN' ? 'warn' : 'alert';
+    side = latest < (low + high) / 2 ? 'low' : 'high';
+  }
+
+  const unit = plotMetric?.unit || meta.unit || '';
+  const label = plotMetric?.label || meta.label || meta.code;
+  const fmt = (v) => `${formatMetricNumber(v, unit)}${unit ? ` ${unit}` : ''}`;
+  let hint = `标准区间 ${fmt(low)} ~ ${fmt(high)}`;
+  if (level === 'alert' && side === 'low') hint = `已低于下限 ${fmt(low)} · 标准 ${fmt(low)} ~ ${fmt(high)}`;
+  else if (level === 'alert' && side === 'high') hint = `已高于上限 ${fmt(high)} · 标准 ${fmt(low)} ~ ${fmt(high)}`;
+  else if (level === 'warn' && side === 'low') hint = `接近下限 ${fmt(low)} · 标准 ${fmt(low)} ~ ${fmt(high)}`;
+  else if (level === 'warn' && side === 'high') hint = `接近上限 ${fmt(high)} · 标准 ${fmt(low)} ~ ${fmt(high)}`;
+
+  return {
+    code: meta.code,
+    label,
+    unit,
+    value: latest,
+    low,
+    high,
+    level,
+    side,
+    hint,
+    displayValue: formatMetricNumber(latest, unit)
+  };
+}
 
 export function groupByMetric(points) {
   const map = {};

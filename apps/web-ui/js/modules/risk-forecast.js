@@ -7,13 +7,94 @@
  */
 import { api } from '../api.js?v=20260824-module-v5';
 import { MOCK_DATA } from '../mock-data.js?v=20260824-module-v5';
-import { svgGauge, svgLineChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js';
+import { svgGauge, svgLineChart, initEChart, attachCustomTip, escapeHtml } from '../charts.js?v=20260824-gauge-outside';
+import { getTheme } from '../theme.js';
 
 const BOUNDARY_COLOR = '#f85149';
 const BASELINE_COLOR = '#d29922';
 const MEAN_COLOR = '#58a6ff';
 const AXIS_COLOR = '#8b949e';
 const GRID_COLOR = '#21262d';
+
+function themeTextColor() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim();
+  if (raw) return raw;
+  return getTheme() === 'light' ? '#172231' : '#f0f6fc';
+}
+
+function themeMutedColor() {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim();
+  if (raw) return raw;
+  return getTheme() === 'light' ? '#627487' : '#8b949e';
+}
+
+const PLAIN_ASSUMPTIONS = {
+  '无降水 / 无外界灌溉': '这段时间不会再下雨，也没有额外浇水',
+  '无降水/无外界灌溉': '这段时间不会再下雨，也没有额外浇水',
+  '棚室通风与外部光热保持稳定': '大棚通风和外面温度变化不大',
+  '设备保持在线，遥测质量 GOOD': '传感器在线，数据质量正常'
+};
+
+function plainAssumption(text) {
+  return PLAIN_ASSUMPTIONS[text] || String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function plainUncertainty(note) {
+  const raw = String(note || '');
+  if (raw.includes('MAD') || raw.includes('UNAVAILABLE')) {
+    return '预测越远误差可能越大；数据不够时系统会直接提示“无法预测”，不会乱猜。';
+  }
+  return raw.replace(/置信区间/g, '可能范围').replace(/样本不足/g, '数据不够');
+}
+
+function formatTimeToRisk(v) {
+  return v >= 240 ? '>240' : String(v);
+}
+
+function gaugeOption(timeToRisk) {
+  const needle = themeTextColor();
+  const muted = themeMutedColor();
+  return {
+    series: [{
+      type: 'gauge',
+      startAngle: 180,
+      endAngle: 0,
+      min: 0,
+      max: 240,
+      splitNumber: 4,
+      radius: '62%',
+      center: ['50%', '78%'],
+      axisLine: {
+        lineStyle: {
+          width: 14,
+          color: [[0.25, BOUNDARY_COLOR], [0.625, BASELINE_COLOR], [1, '#3fb950']]
+        }
+      },
+      pointer: {
+        length: '52%',
+        width: 4,
+        itemStyle: { color: needle }
+      },
+      anchor: { show: true, size: 8, itemStyle: { color: needle } },
+      axisTick: { show: false },
+      splitLine: {
+        show: true,
+        length: 8,
+        distance: 6,
+        lineStyle: { color: muted, width: 1.5 }
+      },
+      axisLabel: {
+        distance: -22,
+        color: muted,
+        fontSize: 11,
+        formatter: (v) => (v >= 240 ? '240+' : `${v}`)
+      },
+      detail: { show: false },
+      title: { show: false },
+      data: [{ value: timeToRisk, name: '分钟后可能达到危险线' }]
+    }]
+  };
+}
 
 /** 统一深色主题 tooltip：内容紧凑、按内容自适应尺寸
  * 关键：modal 背景为 #161b22，tooltip 若同色会完全融入背景、看不见浮窗边界。
@@ -42,9 +123,9 @@ function darkTooltip() {
 /* ================================================================
  * 视图 1：未来风险预测推演 (renderRiskForecast)
  * ================================================================ */
-export async function renderRiskForecast(container, plotId) {
+export async function renderRiskForecast(container, plotId, context = {}) {
   try {
-    return await paintRiskForecast(container, plotId);
+    return await paintRiskForecast(container, plotId, context);
   } catch (error) {
     console.error('[AgriLoop] risk-forecast render failed:', error);
     container.innerHTML = `
@@ -53,14 +134,14 @@ export async function renderRiskForecast(container, plotId) {
         <div>
           <strong>预测视图渲染中断，已降级</strong>
           <p>${escapeHtml(error?.message || error)}</p>
-          <p class="agri-meta-line">后端无足够遥测样本时会回退本地演示算法；若仍失败请强制刷新后再打开本模块。</p>
+          <p class="agri-meta-line">数据不足时回退本地演示算法；若仍失败请刷新后重试。</p>
         </div>
       </div>`;
     return () => {};
   }
 }
 
-async function paintRiskForecast(container, plotId) {
+async function paintRiskForecast(container, plotId, context = {}) {
   const loadingId = `rf-loading-${Date.now()}`;
   container.innerHTML = `
     <div class="agri-skeleton-wrap" id="${loadingId}">
@@ -71,7 +152,7 @@ async function paintRiskForecast(container, plotId) {
     </div>`;
 
   const data = await api.getRiskForecast(plotId, 'SOIL_MOISTURE');
-  const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+  const plot = context.plot || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   const horizons = Array.isArray(data?.horizons) ? data.horizons : [];
   const assumptions = Array.isArray(data?.assumptions) ? data.assumptions : [];
   const curve = Array.isArray(data?.curve) ? data.curve : [];
@@ -81,9 +162,9 @@ async function paintRiskForecast(container, plotId) {
       <div class="agri-alert agri-alert-danger">
         <div class="agri-alert-icon">🚫</div>
         <div>
-          <strong>预测状态：UNAVAILABLE</strong>
-          <p>${escapeHtml((data && data.reason) || '样本或阶段上下文不足，拒绝生成伪预测')}</p>
-          <p class="agri-meta-line">算法版本：${escapeHtml((data && data.algorithmVersion) || MOCK_DATA.riskForecastConfig?.algorithmVersion || 'robust-trend-v1.2')} · 按确定性策略弃权，不提供未来值</p>
+          <strong>暂时无法预测</strong>
+          <p>${escapeHtml((data && data.reason) || '最近数据不够或阶段信息不全，系统不会编造未来数值。')}</p>
+          <p class="agri-meta-line">可补测土壤湿度或检查传感器；数据恢复后重开本页。</p>
         </div>
       </div>`;
     return () => {};
@@ -91,13 +172,15 @@ async function paintRiskForecast(container, plotId) {
 
   const fmtTime = new Date(data.generatedAt || Date.now()).toLocaleTimeString('zh-CN', { hour12: false });
   const zone = timeToRisk < 60
-    ? { label: '高危 · 立即处置', cls: 'agri-pill-danger' }
+    ? { label: '高危 · 建议马上处理', cls: 'agri-pill-danger' }
     : timeToRisk < 150
-      ? { label: '警示 · 计划补水', cls: 'agri-pill-warn' }
-      : { label: '安全 · 维持观察', cls: 'agri-pill-ok' };
+      ? { label: '注意 · 建议安排补水', cls: 'agri-pill-warn' }
+      : { label: '暂时安全 · 继续观察', cls: 'agri-pill-ok' };
   const plotName = plot?.name || plotId || '示范地块';
   const plotCrop = plot?.cropName || plot?.cropCode || '作物';
   const plotStage = plot?.stageLabel || plot?.stageCode || '当前阶段';
+  const inputHours = Math.max(1, Math.round(Number(data.inputWindowMinutes || 60) / 60));
+  const forecastHours = Math.max(1, Math.round(Number(data.forecastRangeMinutes || 240) / 60));
 
   container.innerHTML = `
     <div class="agri-module rf-root">
@@ -105,42 +188,47 @@ async function paintRiskForecast(container, plotId) {
       <div class="rf-header">
         <div>
           <div class="agri-module-title">🔮 未来风险预测 · ${escapeHtml(plotName)}</div>
-          <div class="agri-module-sub">${escapeHtml(plotCrop)} · ${escapeHtml(plotStage)} · 指标 SOIL_MOISTURE · 输入窗口 ${data.inputWindowMinutes}min · 预测范围 ${data.forecastRangeMinutes}min</div>
+          <div class="agri-module-sub">${escapeHtml(plotCrop)} · ${escapeHtml(plotStage)} · 土壤湿度 · 近 ${inputHours}h 数据 · 预测 ${forecastHours}h</div>
         </div>
         <div class="rf-header-right">
           <button class="cmd-nav-btn" data-nav="scenario-replay">⚡ 情景模拟</button>
           <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
           <span class="agri-pill ${zone.cls}">${zone.label}</span>
-          <span class="agri-pill agri-pill-blue">${escapeHtml(data.algorithmVersion)}</span>
         </div>
       </div>
 
       <div class="rf-top-grid">
         <div class="agri-card rf-gauge-card">
-          <div class="agri-card-title">⏱️ Time-to-Risk 倒计时</div>
-          <div class="rf-gauge-body" data-role="gauge"></div>
-          <div class="rf-gauge-foot">当前湿度 <b class="agri-mono">${data.startMoisture}%</b> → 极限胁迫边界 <b class="agri-mono">${data.stressBoundary}%</b>（低于 ${data.baselineMoisture}% 即进入失水胁迫带）</div>
+          <div class="agri-card-title">⏱️ 预计多久会缺水</div>
+          <div class="rf-gauge-body">
+            <div class="rf-gauge-readout">
+              <strong class="rf-gauge-readout-value agri-mono">${formatTimeToRisk(timeToRisk)}</strong>
+              <span class="rf-gauge-readout-label">分钟后可能达到危险线</span>
+            </div>
+            <div class="rf-gauge-chart" data-role="gauge"></div>
+          </div>
+          <div class="rf-gauge-foot">当前 <b class="agri-mono">${data.startMoisture}%</b>，低于 <b class="agri-mono">${data.stressBoundary}%</b> 进危险区（适宜下限 <b class="agri-mono">${data.baselineMoisture}%</b>）</div>
         </div>
 
         <div class="rf-horizons">
           ${horizons.map(h => `
             <div class="agri-card rf-horizon-card">
               <div class="rf-horizon-head">
-                <span class="rf-horizon-label">+${h.minute} 分钟</span>
+                <span class="rf-horizon-label">${h.minute >= 60 ? `${Math.round(h.minute / 60)} 小时后` : `${h.minute} 分钟后`}</span>
                 <span class="rf-horizon-expected">${h.expected}%</span>
               </div>
-              <div class="rf-horizon-band">置信区间 ${h.band}</div>
+              <div class="rf-horizon-band">可能范围 ${h.band}</div>
               <div class="rf-horizon-bar">
                 <div class="rf-horizon-bar-fill" style="width: ${Math.min(Math.max((h.expected - data.stressBoundary) / (data.baselineMoisture - data.stressBoundary) * 100, 4), 100)}%;"></div>
               </div>
-              <div class="rf-horizon-meta">基线 ${data.baselineMoisture}% · 边界 ${data.stressBoundary}%</div>
+              <div class="rf-horizon-meta">适宜下限 ${data.baselineMoisture}% · 危险线 ${data.stressBoundary}%</div>
             </div>
           `).join('')}
           <div class="agri-card rf-assumption-card">
-            <div class="agri-card-title">🧾 推演假设与失效条件</div>
+            <div class="agri-card-title">🧾 预测前提</div>
             <ul class="agri-kv-list">
-              ${assumptions.map(a => `<li><span class="agri-kv-key">假设</span><span>${escapeHtml(a)}</span></li>`).join('')}
-              <li><span class="agri-kv-key">不确定性</span><span>${escapeHtml(data.uncertaintyNote)}</span></li>
+              ${assumptions.map(a => `<li><span class="agri-kv-key">前提</span><span>${escapeHtml(plainAssumption(a))}</span></li>`).join('')}
+              <li><span class="agri-kv-key">说明</span><span>${escapeHtml(plainUncertainty(data.uncertaintyNote))}</span></li>
             </ul>
           </div>
         </div>
@@ -148,7 +236,7 @@ async function paintRiskForecast(container, plotId) {
 
       <div class="agri-card rf-chart-card">
         <div class="rf-chart-head">
-          <div class="agri-card-title">📉 土壤水分衰减预测曲线（含置信区间包络）</div>
+          <div class="agri-card-title">📉 湿度趋势</div>
           <div class="rf-horizon-toggles" data-role="horizon-toggles">
             ${[60, 120, 240].map(m => `
               <button class="rf-toggle-chip ${m === 240 ? 'active' : ''}" data-min="${m}">${m === 60 ? '1 小时' : m === 120 ? '2 小时' : '4 小时'}</button>
@@ -157,21 +245,21 @@ async function paintRiskForecast(container, plotId) {
         </div>
         <div class="rf-chart-body" data-role="chart-body"></div>
         <div class="rf-chart-legend">
-          <span class="rf-legend-item"><i style="background:#58a6ff"></i>期望值（均值）</span>
-          <span class="rf-legend-item"><i class="rf-legend-band"></i>置信区间 ±</span>
-          <span class="rf-legend-item"><i style="background:#d29922"></i>最低适宜基线 ${data.baselineMoisture}%</span>
-          <span class="rf-legend-item"><i style="background:#f85149"></i>极限胁迫边界 ${data.stressBoundary}%</span>
+          <span class="rf-legend-item"><i style="background:#58a6ff"></i>最可能值</span>
+          <span class="rf-legend-item"><i class="rf-legend-band"></i>可能范围</span>
+          <span class="rf-legend-item"><i style="background:#d29922"></i>适宜下限 ${data.baselineMoisture}%</span>
+          <span class="rf-legend-item"><i style="background:#f85149"></i>危险线 ${data.stressBoundary}%</span>
         </div>
       </div>
 
       <div class="agri-card rf-meta-card">
-        <div class="agri-card-title">📋 预测元数据（决策护照输入）</div>
+        <div class="agri-card-title">📋 预测信息</div>
         <div class="rf-meta-grid">
-          <div><span class="agri-kv-key">预测时点</span><span>${fmtTime}</span></div>
-          <div><span class="agri-kv-key">输入窗口</span><span>近 ${data.inputWindowMinutes} 分钟遥测</span></div>
-          <div><span class="agri-kv-key">预测范围</span><span>未来 ${data.forecastRangeMinutes} 分钟（1/2/4h 三档）</span></div>
-          <div><span class="agri-kv-key">算法版本</span><span class="agri-mono">${escapeHtml(data.algorithmVersion)}</span></div>
-          <div><span class="agri-kv-key">状态</span><span class="agri-pill agri-pill-ok">AVAILABLE</span></div>
+          <div><span class="agri-kv-key">生成时间</span><span>${fmtTime}</span></div>
+          <div><span class="agri-kv-key">参考数据</span><span>近 ${data.inputWindowMinutes}min 传感器读数</span></div>
+          <div><span class="agri-kv-key">预测时长</span><span>未来 ${forecastHours}h（1/2/4h 三档）</span></div>
+          <div><span class="agri-kv-key">计算版本</span><span class="agri-mono">${escapeHtml(data.algorithmVersion)}</span></div>
+          <div><span class="agri-kv-key">状态</span><span class="agri-pill agri-pill-ok">可查看</span></div>
         </div>
       </div>
     </div>`;
@@ -189,45 +277,15 @@ async function paintRiskForecast(container, plotId) {
   }
   if (gauge) {
     try {
-    gauge.setOption({
-      series: [{
-        type: 'gauge',
-        startAngle: 180, endAngle: 0,
-        min: 0, max: 240,
-        radius: '100%',
-        center: ['50%', '78%'],
-        axisLine: {
-          lineStyle: {
-            width: 14,
-            color: [[0.25, BOUNDARY_COLOR], [0.625, BASELINE_COLOR], [1, '#3fb950']]
-          }
-        },
-        pointer: {
-          length: '58%', width: 5,
-          itemStyle: { color: '#f0f6fc' }
-        },
-        anchor: { show: true, size: 10, itemStyle: { color: '#f0f6fc' } },
-        axisTick: { distance: -22, length: 5, lineStyle: { color: '#6e7681' } },
-        splitLine: { distance: -28, length: 12, lineStyle: { color: '#6e7681', width: 1.5 } },
-        axisLabel: { distance: 2, color: AXIS_COLOR, fontSize: 10, formatter: v => v >= 240 ? '240+' : v },
-        detail: {
-          valueAnimation: true,
-          formatter: v => v >= 240 ? '>240' : v,
-          color: '#f0f6fc', fontSize: 34, fontWeight: 700, fontFamily: 'SFMono-Regular, Consolas, monospace',
-          offsetCenter: [0, '-48%']
-        },
-        title: { offsetCenter: [0, '-14%'], color: AXIS_COLOR, fontSize: 12 },
-        data: [{ value: timeToRisk, name: '分钟 · 触达极限胁迫边界' }]
-      }]
-    });
+    gauge.setOption(gaugeOption(timeToRisk));
     charts.push(gauge);
     } catch (error) {
       console.warn('Risk forecast gauge setOption failed:', error);
       try { gauge.dispose(); } catch (e) { /* noop */ }
       if (gaugeEl) {
         gaugeEl.innerHTML = svgGauge({
-          width: 320, height: 190, value: timeToRisk, min: 0, max: 240,
-          unit: '分钟 · 触达极限胁迫边界',
+          width: 320, height: 220, value: timeToRisk, min: 0, max: 240,
+          hideCenterText: true,
           format: v => v >= 240 ? '>240' : v,
           zones: [
             { from: 0, to: 60, color: BOUNDARY_COLOR },
@@ -239,8 +297,8 @@ async function paintRiskForecast(container, plotId) {
     }
   } else if (gaugeEl) {
     gaugeEl.innerHTML = svgGauge({
-      width: 320, height: 190, value: timeToRisk, min: 0, max: 240,
-      unit: '分钟 · 触达极限胁迫边界',
+      width: 320, height: 220, value: timeToRisk, min: 0, max: 240,
+      hideCenterText: true,
       format: v => v >= 240 ? '>240' : v,
       zones: [
         { from: 0, to: 60, color: BOUNDARY_COLOR },
@@ -271,8 +329,8 @@ async function paintRiskForecast(container, plotId) {
           if (!p) return null;
           const tLabel = p.minute === 0 ? '现在' : `+${p.minute}min`;
           return `<div style="color:#8b949e">${tLabel}</div>
-            <div>期望值：<b style="color:#58a6ff">${p.expected}%</b></div>
-            <div style="color:#8b949e">置信区间：${p.lower}% ~ ${p.upper}%</div>`;
+            <div>最可能值：<b style="color:#58a6ff">${p.expected}%</b></div>
+            <div style="color:#8b949e">可能范围：${p.lower}% ~ ${p.upper}%</div>`;
         }));
       }
       const option = {
@@ -319,8 +377,8 @@ async function paintRiskForecast(container, plotId) {
               label: { color: '#8b949e', fontSize: 10, position: 'insideEndTop' },
               lineStyle: { type: 'dashed' },
               data: [
-                { yAxis: data.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `最低适宜基线 ${data.baselineMoisture}%`, color: BASELINE_COLOR } },
-                { yAxis: data.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `极限胁迫边界 ${data.stressBoundary}%`, color: BOUNDARY_COLOR } }
+                { yAxis: data.baselineMoisture, lineStyle: { color: BASELINE_COLOR }, label: { formatter: `适宜下限 ${data.baselineMoisture}%`, color: BASELINE_COLOR } },
+                { yAxis: data.stressBoundary, lineStyle: { color: BOUNDARY_COLOR }, label: { formatter: `危险线 ${data.stressBoundary}%`, color: BOUNDARY_COLOR } }
               ]
             }
           },
@@ -361,8 +419,8 @@ async function paintRiskForecast(container, plotId) {
           color: MEAN_COLOR, opacity: 0.14
         }],
         hMarkers: [
-          { y: data.baselineMoisture, label: `最低适宜基线 ${data.baselineMoisture}%`, color: BASELINE_COLOR },
-          { y: data.stressBoundary, label: `极限胁迫边界 ${data.stressBoundary}%`, color: BOUNDARY_COLOR }
+          { y: data.baselineMoisture, label: `适宜下限 ${data.baselineMoisture}%`, color: BASELINE_COLOR },
+          { y: data.stressBoundary, label: `危险线 ${data.stressBoundary}%`, color: BOUNDARY_COLOR }
         ]
       });
     }
@@ -405,8 +463,8 @@ export async function renderScenarioReplay(container, plotId) {
   container.innerHTML = `
     <div class="agri-module sr-root">
 
-      <div class="agri-module-title">⚡ 情景模拟器与双轨回放</div>
-      <div class="agri-module-sub">一键注入故障情景 → 同一冻结快照 + 同一随机种子 → 执行 vs 放任 双轨对比（只读推演，不写回主状态）
+      <div class="agri-module-title">⚡ 情景模拟器</div>
+      <div class="agri-module-sub">选择情景 → 同一种子双轨对比（只读推演，不写回主状态）
         <span style="margin-left:10px">
           <button class="cmd-nav-btn" data-nav="risk-forecast">🔮 风险预测</button>
           <button class="cmd-nav-btn" data-nav="value-ledger">💰 效益对账</button>
@@ -414,7 +472,7 @@ export async function renderScenarioReplay(container, plotId) {
       </div>
 
       <div class="agri-card sr-inject-card">
-        <div class="agri-card-title">🎛️ 一键情景注入与故障发生器</div>
+        <div class="agri-card-title">🎛️ 情景注入</div>
         <div class="sr-scenario-grid" data-role="scenario-grid">
           ${catalog.map(s => `
             <button class="sr-scenario-btn" data-scenario="${s.code}" style="--scenario-color: ${s.color}" title="${escapeHtml(s.desc)}">
@@ -425,10 +483,10 @@ export async function renderScenarioReplay(container, plotId) {
           `).join('')}
         </div>
         <div class="sr-inject-bar">
-          <label class="sr-seed-label" for="srSeedInput">随机种子 Seed</label>
+          <label class="sr-seed-label" for="srSeedInput">Seed</label>
           <input type="number" class="sr-seed-input" id="srSeedInput" value="42" min="1" max="99999">
-          <span class="sr-seed-hint">同一种子可重复复现双轨推演</span>
-          <button class="btn btn-primary" data-role="run-btn" disabled>▶ 运行双轨推演</button>
+          <span class="sr-seed-hint">同一种子可复现</span>
+          <button class="btn btn-primary" data-role="run-btn" disabled>▶ 运行推演</button>
         </div>
       </div>
 
@@ -485,7 +543,7 @@ export async function renderScenarioReplay(container, plotId) {
       runOutput.innerHTML = `
         <div class="agri-alert agri-alert-danger">
           <div class="agri-alert-icon">⚠️</div>
-          <div><strong>缺少随机种子</strong><p>请先填写 Seed（1 ~ 99999）后再运行双轨推演，同一 Seed 才能复现同一条推演路径。</p></div>
+          <div><strong>缺少随机种子</strong><p>请填写 Seed（1 ~ 99999）后再运行。</p></div>
         </div>`;
       return;
     }
@@ -494,7 +552,7 @@ export async function renderScenarioReplay(container, plotId) {
     stopPlayback();
     disposeCharts();
     runBtn.disabled = true;
-    runBtn.innerHTML = '<span>⏳ 正在冻结快照并推演...</span>';
+    runBtn.innerHTML = '<span>⏳ 推演中...</span>';
 
     try {
       const run = await api.runScenario({ scenario: selectedScenario, seed, plotId });
@@ -509,7 +567,7 @@ export async function renderScenarioReplay(container, plotId) {
         </div>`;
     } finally {
       runBtn.disabled = false;
-      runBtn.innerHTML = '<span>▶ 运行双轨推演</span>';
+      runBtn.innerHTML = '<span>▶ 运行推演</span>';
     }
   });
 
@@ -520,9 +578,9 @@ export async function renderScenarioReplay(container, plotId) {
           <div class="agri-alert agri-alert-danger">
             <div class="agri-alert-icon">🚫</div>
             <div>
-              <strong>推演状态：UNAVAILABLE（${escapeHtml(run.scenarioLabel)}）</strong>
+              <strong>推演不可用：${escapeHtml(run.scenarioLabel)}</strong>
               <p>${escapeHtml(cmp.reason)}</p>
-              <p class="agri-meta-line">按确定性策略：样本/质量不足时不得生成预测与可执行处方，前端展示降级状态而非伪结果。</p>
+              <p class="agri-meta-line">数据不足时不生成预测，已显示降级状态。</p>
             </div>
           </div>
           <div class="sr-run-meta">
@@ -549,30 +607,30 @@ export async function renderScenarioReplay(container, plotId) {
     let conclusion = '';
     let conclusionCls = 'ok';
     if (breachNoop && !breachExec) {
-      conclusion = `执行补水使地块在 4h 内未触达 ${cmp.stressBoundary}% 胁迫边界（放任将在 t=${breachNoop.minute}min 触达）`;
+      conclusion = `补水后 4h 未触达 ${cmp.stressBoundary}% 边界（放任 t=${breachNoop.minute}min 触达）`;
     } else if (breachNoop && breachExec) {
       const delay = breachExec.minute - breachNoop.minute;
       conclusionCls = delay > 0 ? 'ok' : 'warn';
       conclusion = delay > 0
-        ? `执行补水将越界时刻推迟 ${delay} 分钟（A t=${breachExec.minute}min vs B t=${breachNoop.minute}min）`
-        : '执行补水未能改变越界时刻（补水量不足以覆盖蒸散）';
+        ? `越界推迟 ${delay} 分钟（A t=${breachExec.minute}min vs B t=${breachNoop.minute}min）`
+        : '越界时刻未改变（补水量不足）';
     } else if (!breachNoop && !breachExec) {
-      conclusion = '两分支 4h 内均未触达胁迫边界，本情景对当前地块影响有限';
+      conclusion = '两分支 4h 均未触达边界，影响有限';
       conclusionCls = 'warn';
     } else {
-      conclusion = '执行分支出现越界但放任分支未越界（执行时刻或补水量需复核）';
+      conclusion = '执行越界但放任未越界（需复核）';
       conclusionCls = 'warn';
     }
     const summaryHtml = `
       <div class="sr-summary">
         <div class="sr-summary-item">
-          <span>4h 末端湿度</span>
+          <span>4h 末端</span>
           <b class="agri-mono" style="color:#3fb950">A ${lastExec.value}%</b>
           <b class="agri-mono" style="color:#f85149">B ${lastNoop.value}%</b>
           <span class="agri-mono sr-summary-diff">Δ ${endDiff >= 0 ? '+' : ''}${endDiff.toFixed(1)}%</span>
         </div>
         <div class="sr-summary-item">
-          <span>触达极限边界（${cmp.stressBoundary}%）</span>
+          <span>触达边界（${cmp.stressBoundary}%）</span>
           <b class="agri-mono" style="color:#3fb950">A ${breachExec ? `t=${breachExec.minute}min` : '未触达'}</b>
           <b class="agri-mono" style="color:#f85149">B ${breachNoop ? `t=${breachNoop.minute}min` : '未触达'}</b>
         </div>
@@ -588,28 +646,22 @@ export async function renderScenarioReplay(container, plotId) {
           </div>
           <div class="sr-run-meta">
             <span>Seed <b class="agri-mono">${seed}</b></span>
-            <span>冻结快照：${escapeHtml(run.frozenSnapshot.plotName)} · 湿度 ${cmp.frozenSnapshot.startMoisture}%</span>
-          </div>
-          <div class="sr-run-meta sr-seed-params">
-            <span>本 Seed 推演参数：蒸散速率 ×<b class="agri-mono">${cmp.seedParams.evapotranspirationFactor}</b></span>
-            <span>灌溉回升 <b class="agri-mono">+${cmp.seedParams.irrigationBoostPct}%</b></span>
-            ${cmp.seedParams.rainBoostPct ? `<span>暴雨抬升 <b class="agri-mono">+${cmp.seedParams.rainBoostPct}%</b></span>` : ''}
-            ${cmp.seedParams.driftRatePerHour ? `<span>漂移速率 <b class="agri-mono">${cmp.seedParams.driftRatePerHour}%/h</b></span>` : ''}
+            <span>快照：${escapeHtml(run.frozenSnapshot.plotName)} · ${cmp.frozenSnapshot.startMoisture}%</span>
           </div>
         </div>
 
-        <div class="agri-card-title">🛤️ 双轨对比 · 同一快照同一 Seed</div>
+        <div class="agri-card-title">🛤️ 双轨对比</div>
         <div class="sr-chart-body" data-role="sr-chart"></div>
         <div class="rf-chart-legend">
-          <span class="rf-legend-item"><i style="background:#3fb950"></i>分支 A · 执行灌溉处方（t=30min 补水 ≈13.2%）</span>
-          <span class="rf-legend-item"><i style="background:#f85149"></i>分支 B · 不采取措施放任干旱</span>
-          <span class="rf-legend-item"><i style="background:#d29922"></i>最低适宜基线 ${cmp.baselineMoisture}%</span>
-          <span class="rf-legend-item"><i style="background:#f85149"></i>极限胁迫边界 ${cmp.stressBoundary}%</span>
+          <span class="rf-legend-item"><i style="background:#3fb950"></i>分支 A · 执行灌溉</span>
+          <span class="rf-legend-item"><i style="background:#f85149"></i>分支 B · 放任干旱</span>
+          <span class="rf-legend-item"><i style="background:#d29922"></i>适宜基线 ${cmp.baselineMoisture}%</span>
+          <span class="rf-legend-item"><i style="background:#f85149"></i>胁迫边界 ${cmp.stressBoundary}%</span>
         </div>
 
         <div class="sr-scrubber">
           <div class="sr-scrubber-head">
-            <span>⏪ 回放时间轴（拖动滑块动态回放）</span>
+            <span>⏪ 回放</span>
             <span class="sr-scrubber-time agri-mono" data-role="scrub-time">t = 0 min</span>
           </div>
           <div class="sr-scrubber-controls">
@@ -619,15 +671,15 @@ export async function renderScenarioReplay(container, plotId) {
           </div>
           <div class="sr-readouts">
             <div class="sr-readout" style="border-color:#3fb950">
-              <span>分支 A · 执行灌溉</span>
+              <span>A · 执行灌溉</span>
               <b class="agri-mono" data-role="val-exec">${bExec.points[0].value}%</b>
             </div>
             <div class="sr-readout" style="border-color:#f85149">
-              <span>分支 B · 放任干旱</span>
+              <span>B · 放任干旱</span>
               <b class="agri-mono" data-role="val-noop">${bNoop.points[0].value}%</b>
             </div>
             <div class="sr-readout">
-              <span>差值（A - B）</span>
+              <span>差值</span>
               <b class="agri-mono" data-role="val-diff">+0.0%</b>
             </div>
           </div>
@@ -635,7 +687,7 @@ export async function renderScenarioReplay(container, plotId) {
 
         ${summaryHtml}
 
-        <div class="agri-meta-line">${escapeHtml(cmp.note)} · 场景参数：${escapeHtml(run.params.desc)}</div>
+        <div class="agri-meta-line">${escapeHtml(cmp.note)}</div>
       </div>`;
 
     const chartEl = runOutput.querySelector('[data-role="sr-chart"]');
@@ -722,8 +774,8 @@ export async function renderScenarioReplay(container, plotId) {
             if (!pa || !pb) return null;
             const diff = pa.value - pb.value;
             return `<div style="color:#8b949e">t = ${pa.minute} min</div>
-              <div>分支 A 执行：<b style="color:#3fb950">${pa.value.toFixed(1)}%</b></div>
-              <div>分支 B 放任：<b style="color:#f85149">${pb.value.toFixed(1)}%</b></div>
+              <div>A 执行：<b style="color:#3fb950">${pa.value.toFixed(1)}%</b></div>
+              <div>B 放任：<b style="color:#f85149">${pb.value.toFixed(1)}%</b></div>
               <div>差值：<b style="color:#d29922">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</b></div>`;
           });
           activeChart.setOption(buildEChartsOption(t), true); // 首次全量渲染

@@ -367,6 +367,16 @@ const SECTOR_VIEWS = {
   sw_hub: { name: '西南粮仓储运区', icon: 'ph-warehouse', cam: { x: -65, y: 24, z: 70 }, target: { x: -65, y: 0, z: 46 } }
 };
 
+/** 进入 3D：先仰望天空（与主页天空衔接），再缓慢落回默认全景 */
+const FARM_INTRO_VIEW = {
+  from: { x: 0, y: 38, z: 22 },
+  target: { x: 0, y: 140, z: -55 },
+  to: { x: 0, y: 32, z: 46 },
+  toTarget: { x: 0, y: 0, z: -2 },
+  holdMs: 520,
+  durationMs: 3600
+};
+
 const DEFAULT_PLOTS = [
   {
     plotId: 'plot-a01', name: 'A01 号地块 (番茄示范田)', cropCode: 'tomato', cropName: '优质番茄', stageCode: 'fruiting', stageLabel: '挂果采收期',
@@ -2238,6 +2248,44 @@ class FarmWorld3D {
     };
   }
 
+  playIntroAnimation(duration = FARM_INTRO_VIEW.durationMs) {
+    if (this.isDestroyed) return Promise.resolve();
+    const fromPos = new THREE.Vector3(FARM_INTRO_VIEW.from.x, FARM_INTRO_VIEW.from.y, FARM_INTRO_VIEW.from.z);
+    const fromTarget = new THREE.Vector3(FARM_INTRO_VIEW.target.x, FARM_INTRO_VIEW.target.y, FARM_INTRO_VIEW.target.z);
+    const toPos = new THREE.Vector3(FARM_INTRO_VIEW.to.x, FARM_INTRO_VIEW.to.y, FARM_INTRO_VIEW.to.z);
+    const toTarget = new THREE.Vector3(FARM_INTRO_VIEW.toTarget.x, FARM_INTRO_VIEW.toTarget.y, FARM_INTRO_VIEW.toTarget.z);
+    const holdMs = FARM_INTRO_VIEW.holdMs || 0;
+    this.camera.position.copy(fromPos);
+    this.cameraTarget.copy(fromTarget);
+    this.camera.lookAt(this.cameraTarget);
+    const startTime = performance.now();
+    return new Promise((resolve) => {
+      this.cameraAnimation = {
+        update: () => {
+          const elapsed = performance.now() - startTime;
+          if (elapsed < holdMs) {
+            this.camera.position.copy(fromPos);
+            this.cameraTarget.copy(fromTarget);
+            this.camera.lookAt(this.cameraTarget);
+            return;
+          }
+          const progress = Math.min(1, (elapsed - holdMs) / duration);
+          // 缓慢落回：前半更缓，后半再收束到全景
+          const ease = progress < 0.5
+            ? 2 * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+          this.camera.position.lerpVectors(fromPos, toPos, ease);
+          this.cameraTarget.lerpVectors(fromTarget, toTarget, ease);
+          this.camera.lookAt(this.cameraTarget);
+          if (progress >= 1) {
+            this.cameraAnimation = null;
+            resolve();
+          }
+        }
+      };
+    });
+  }
+
   resize() {
     if (!this.renderer || !this.camera) return;
     const width = Math.max(1, this.host.clientWidth);
@@ -2535,11 +2583,12 @@ export class FarmMonitor {
     this.plots = plots?.length ? plots : DEFAULT_PLOTS;
   }
 
-  open(plotId) {
+  open(plotId, options = {}) {
+    const introAnimation = options.introAnimation !== false;
     if (this.isOpen) {
       this.selectedPlotId = plotId || this.selectedPlotId;
       this.world?.setSelectedPlot(this.selectedPlotId);
-      return;
+      return Promise.resolve();
     }
     this.isOpen = true;
     const openToken = ++this._openToken;
@@ -2547,7 +2596,7 @@ export class FarmMonitor {
     document.body.classList.add('farm-monitor-open');
 
     this.shell = document.createElement('section');
-    this.shell.className = 'farm-monitor-shell';
+    this.shell.className = `farm-monitor-shell is-world-loading${introAnimation ? ' is-intro-active is-entering' : ''}`;
     this.shell.innerHTML = this.renderShell();
     document.body.appendChild(this.shell);
 
@@ -2557,30 +2606,55 @@ export class FarmMonitor {
 
     this.startClock();
     this.resolveWeather();
-    // Let the full-screen shell and loading state paint before the expensive
-    // geometry/shader setup blocks the main thread.
-    this._worldInitFrame = requestAnimationFrame(() => {
-      this.shell?.classList.add('active');
-      this._worldInitFrame = requestAnimationFrame(() => {
-        if (!this.isOpen || openToken !== this._openToken || !this.dom.world) return;
+
+    return new Promise((resolveOpen) => {
+      const finishOpen = async () => {
         try {
-          this.world = new FarmWorld3D(this.dom.world, {
-            plots: this.plots,
-            onSelect: (id, origin) => this.selectPlot(id, origin),
-            onDoubleSelect: id => this.openSandbox(id),
-            onSelectSlot: (slotId, origin) => this.openReclamationWizard(slotId),
-            onFrame: data => this.updateProjectedUi(data),
-            onFatal: error => this.showWorldError(error)
-          });
-          this.world.init();
-          this.world.setSelectedPlot(this.selectedPlotId);
-          this.world.setWeather(this.weather);
-          this.shell?.classList.remove('is-world-loading');
-          this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+          if (introAnimation && this.world?.playIntroAnimation) {
+            this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+            await this.world.playIntroAnimation();
+          }
         } catch (error) {
-          console.error('[FarmMonitor] WebGL 启动异常:', error);
-          this.showWorldError(error);
+          console.warn('[FarmMonitor] intro animation skipped:', error);
         }
+        if (!this.isOpen || openToken !== this._openToken) return;
+        this.shell?.classList.remove('is-world-loading', 'is-intro-active', 'is-entering');
+        this.shell?.classList.add('is-intro-complete');
+        this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+        resolveOpen();
+      };
+
+      // Let the full-screen shell and loading state paint before the expensive
+      // geometry/shader setup blocks the main thread.
+      this._worldInitFrame = requestAnimationFrame(() => {
+        this.shell?.classList.add('active');
+        this._worldInitFrame = requestAnimationFrame(() => {
+          if (!this.isOpen || openToken !== this._openToken || !this.dom.world) return;
+          try {
+            this.world = new FarmWorld3D(this.dom.world, {
+              plots: this.plots,
+              onSelect: (id, origin) => this.selectPlot(id, origin),
+              onDoubleSelect: id => this.openSandbox(id),
+              onSelectSlot: (slotId, origin) => this.openReclamationWizard(slotId),
+              onFrame: data => this.updateProjectedUi(data),
+              onFatal: error => this.showWorldError(error)
+            });
+            this.world.init();
+            if (introAnimation) {
+              // 切入瞬间直接对准天空，避免先闪默认全景
+              this.world.camera.position.set(FARM_INTRO_VIEW.from.x, FARM_INTRO_VIEW.from.y, FARM_INTRO_VIEW.from.z);
+              this.world.cameraTarget.set(FARM_INTRO_VIEW.target.x, FARM_INTRO_VIEW.target.y, FARM_INTRO_VIEW.target.z);
+              this.world.camera.lookAt(this.world.cameraTarget);
+            }
+            this.world.setSelectedPlot(this.selectedPlotId);
+            this.world.setWeather(this.weather);
+            void finishOpen();
+          } catch (error) {
+            console.error('[FarmMonitor] WebGL 启动异常:', error);
+            this.showWorldError(error);
+            resolveOpen();
+          }
+        });
       });
     });
   }

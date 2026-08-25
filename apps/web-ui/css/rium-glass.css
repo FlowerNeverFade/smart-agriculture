@@ -7,33 +7,52 @@
   /* Transparent glass: sheen + tint only — no backdrop blur. */
   --rium-glass-blur: 0px;
   --rium-glass-saturation: 100%;
-  --rium-glass-border: rgba(255, 255, 255, .18);
-  --rium-glass-highlight: rgba(255, 255, 255, .28);
-  --rium-glass-shadow: 0 14px 40px rgba(0, 0, 0, .18);
-  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 42%, transparent);
+  --rium-glass-border: rgba(255, 255, 255, .12);
+  --rium-glass-highlight: rgba(255, 255, 255, .18);
+  --rium-glass-shadow: 0 14px 40px rgba(0, 0, 0, .12);
+  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 34%, transparent);
   --rium-glass-sheen:
-    linear-gradient(125deg, rgba(255, 255, 255, .16), transparent 24% 72%, rgba(126, 211, 252, .07)),
-    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .12), transparent 34%);
+    linear-gradient(125deg, rgba(255, 255, 255, .1), transparent 24% 72%, rgba(126, 211, 252, .04)),
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .08), transparent 34%);
+  --chart-text: var(--text-primary);
+  --chart-axis: var(--text-muted);
+  --chart-grid: var(--border-muted);
 }
 
 [data-theme="light"] {
-  --bg-canvas: rgba(246, 250, 255, .62);
-  --bg-surface: rgba(255, 255, 255, .58);
-  --bg-subtle: rgba(240, 246, 252, .56);
-  --bg-card: rgba(255, 255, 255, .66);
-  --bg-card-hover: rgba(255, 255, 255, .82);
-  --bg-input: rgba(255, 255, 255, .6);
-  --bg-overlay: rgba(236, 243, 251, .76);
-  --border-default: rgba(98, 125, 151, .28);
-  --border-muted: rgba(98, 125, 151, .16);
+  --bg-canvas: rgba(246, 250, 255, .44);
+  --bg-surface: rgba(255, 255, 255, .38);
+  --bg-subtle: rgba(240, 246, 252, .36);
+  --bg-card: rgba(255, 255, 255, .46);
+  --bg-card-hover: rgba(255, 255, 255, .58);
+  --bg-input: rgba(255, 255, 255, .4);
+  --bg-overlay: rgba(236, 243, 251, .58);
+  --border-default: rgba(98, 125, 151, .22);
+  --border-muted: rgba(98, 125, 151, .12);
   --text-primary: #172231;
   --text-secondary: #46586b;
   --text-muted: #627487;
   --text-link: #0969da;
-  --rium-glass-border: rgba(255, 255, 255, .68);
-  --rium-glass-highlight: rgba(255, 255, 255, .82);
-  --rium-glass-shadow: 0 14px 40px rgba(60, 88, 116, .14);
-  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 52%, transparent);
+  --green-primary: #1a7f37;
+  --green-hover: #116329;
+  --green-bright: #1a7f37;
+  --green-subtle: rgba(26, 127, 55, .12);
+  --blue-primary: #0550ae;
+  --blue-hover: #0969da;
+  --blue-subtle: rgba(9, 105, 218, .12);
+  --amber-primary: #9a6700;
+  --amber-subtle: rgba(154, 103, 0, .12);
+  --red-primary: #cf222e;
+  --red-subtle: rgba(207, 34, 46, .1);
+  --purple-primary: #8250df;
+  --purple-subtle: rgba(130, 80, 223, .1);
+  --rium-glass-border: rgba(255, 255, 255, .52);
+  --rium-glass-highlight: rgba(255, 255, 255, .62);
+  --rium-glass-shadow: 0 14px 40px rgba(60, 88, 116, .1);
+  --rium-glass-fill: color-mix(in srgb, var(--bg-surface) 40%, transparent);
+  --chart-text: var(--text-primary);
+  --chart-axis: var(--text-muted);
+  --chart-grid: var(--border-muted);
 }
 
 html,
@@ -54,8 +73,16 @@ body {
   overflow: hidden;
   pointer-events: none;
   background: #070b16;
+  /* Idle: 压低 3D 背景存在感，避免与主界面抢注意力 */
+  opacity: .36;
+  filter: saturate(0.72) brightness(0.88);
+  transition: opacity .9s ease, background-color .8s ease, filter .9s ease;
+}
+
+/* Loading / boot: original clear presence, no idle dimming */
+html.is-booting #riumBackground {
   opacity: .94;
-  transition: opacity .8s ease, background-color .8s ease;
+  filter: none;
 }
 
 #riumBackground canvas {
@@ -80,6 +107,7 @@ body > .app-container {
 
 .app-header,
 .rail-section,
+.workspace-plot-slider,
 .copilot-prompt-card,
 .feed-card,
 .system-status-card,
@@ -109,7 +137,7 @@ body > .app-container {
 .right-rail-panel,
 .right-rail-toggle {
   border-color: var(--rium-glass-border);
-  background-color: color-mix(in srgb, var(--bg-surface) 38%, transparent);
+  background-color: color-mix(in srgb, var(--bg-surface) 24%, transparent);
   background-image: var(--rium-glass-sheen);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -121,7 +149,7 @@ body > .app-container {
 }
 
 .right-rail-panel .system-status-card {
-  background-color: color-mix(in srgb, var(--bg-surface) 34%, transparent);
+  background-color: color-mix(in srgb, var(--bg-surface) 20%, transparent);
   background-image: var(--rium-glass-sheen);
   box-shadow: inset 0 1px 0 var(--rium-glass-highlight);
   -webkit-backdrop-filter: none;
@@ -134,15 +162,16 @@ body > .app-container {
 .main-feed-module-header {
   overflow: hidden;
   border-color: var(--rium-glass-border);
-  background-color: color-mix(in srgb, var(--bg-surface) 44%, transparent);
+  background-color: color-mix(in srgb, var(--bg-surface) 26%, transparent);
   background-image: var(--rium-glass-sheen);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
 }
 
+/* 通用卡片：透明玻璃（仅色调/边框，无 backdrop blur 毛玻璃） */
+.agri-card,
 .main-feed-module-panel :is(
-  .agri-card,
   .work-card,
   .ops-role-card,
   .resource-balance-panel,
@@ -153,11 +182,16 @@ body > .app-container {
   .module-placeholder-card
 ) {
   border-color: var(--rium-glass-border);
-  background-color: color-mix(in srgb, var(--bg-surface) 64%, transparent);
-  background-image:
-    linear-gradient(125deg, rgba(255, 255, 255, .12), transparent 25% 72%, rgba(126, 211, 252, .07)),
-    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .1), transparent 34%);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, .14), inset 0 1px 0 var(--rium-glass-highlight);
+  background-color: color-mix(in srgb, var(--bg-surface) 34%, transparent);
+  background-image: var(--rium-glass-sheen);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--rium-glass-shadow), inset 0 1px 0 var(--rium-glass-highlight);
+}
+
+.agri-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .main-feed-module-panel :is(.agri-card, .work-card, .module-placeholder-card) > * {
@@ -165,8 +199,22 @@ body > .app-container {
   z-index: 1;
 }
 
+.main-feed-module-panel .field-ops :is(
+  .work-card,
+  .ops-role-card,
+  .ops-toolbar,
+  .kanban-column,
+  .inspection-strip,
+  .ops-metric-row article,
+  .field-vine-timeline,
+  .field-timeline-node
+) {
+  background-image: none;
+}
+
 .app-header::before,
 .rail-section::before,
+.workspace-plot-slider::before,
 .copilot-prompt-card::before,
 .feed-card::before,
 .system-status-card::before,
@@ -178,14 +226,15 @@ body > .app-container {
   pointer-events: none;
   border-radius: inherit;
   background:
-    linear-gradient(125deg, rgba(255, 255, 255, .12), transparent 22% 72%, rgba(126, 211, 252, .08)),
-    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .12), transparent 33%);
-  opacity: .8;
+    linear-gradient(125deg, rgba(255, 255, 255, .08), transparent 22% 72%, rgba(126, 211, 252, .05)),
+    radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .08), transparent 33%);
+  opacity: .52;
   mix-blend-mode: screen;
 }
 
 .app-header > *,
 .rail-section > *,
+.workspace-plot-slider > *,
 .copilot-prompt-card > *,
 .feed-card > *,
 .system-status-card > *,
@@ -196,7 +245,7 @@ body > .app-container {
 }
 
 .app-header {
-  background-color: color-mix(in srgb, var(--bg-surface) 46%, transparent);
+  background-color: color-mix(in srgb, var(--bg-surface) 30%, transparent);
   background-image: var(--rium-glass-sheen);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -213,7 +262,13 @@ body > .app-container {
   inset: 56px 0 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 48% 18%, rgba(93, 208, 151, .09), transparent 42%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-canvas) 32%, transparent) 0%,
+      color-mix(in srgb, var(--bg-canvas) 22%, transparent) 55%,
+      color-mix(in srgb, var(--bg-canvas) 28%, transparent) 100%
+    );
 }
 
 .theme-toggle-btn {
@@ -225,7 +280,7 @@ body > .app-container {
   border: 1px solid var(--rium-glass-border);
   border-radius: var(--radius-pill);
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--bg-surface) 48%, transparent);
+  background: color-mix(in srgb, var(--bg-surface) 32%, transparent);
   background-image: var(--rium-glass-sheen);
   cursor: pointer;
   -webkit-backdrop-filter: none;
@@ -241,10 +296,68 @@ body > .app-container {
 .theme-toggle-icon { line-height: 1; }
 .theme-toggle-label { font-size: 11px; }
 
+/* 模块正文跟随主题：浅色深字 / 深色浅字 */
+.main-feed-module-body,
+.farm-ops,
+.resource-ops,
+.agri-module,
+.decision-feed-panel {
+  color: var(--text-primary);
+}
+
+/* Dark mode: flat transparent glass — no sheen / inset white highlight / blur. */
+:root:not([data-theme="light"]) :is(
+  .agri-card,
+  .rail-section,
+  .workspace-plot-slider,
+  .farm-switch-select,
+  .plot-filter-input,
+  .module-nav-item,
+  .copilot-prompt-card,
+  .feed-card,
+  .system-status-card,
+  .subview-modal-card,
+  .home-summary-card,
+  .main-feed-module-header,
+  .main-feed-module-panel .work-card,
+  .main-feed-module-panel .ops-role-card,
+  .main-feed-module-panel .resource-balance-panel,
+  .main-feed-module-panel .demand-panel,
+  .main-feed-module-panel .allocation-panel,
+  .main-feed-module-panel .execution-status-panel,
+  .main-feed-module-panel .module-context-card,
+  .main-feed-module-panel .module-placeholder-card,
+  .resource-ops .resource-hero,
+  .resource-ops .resource-balance-panel,
+  .resource-ops .demand-panel,
+  .resource-ops .allocation-panel,
+  .resource-ops .execution-status-panel,
+  .resource-ops .resource-state
+) {
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--rium-glass-shadow);
+}
+
+:root:not([data-theme="light"]) :is(
+  .rail-section,
+  .workspace-plot-slider,
+  .copilot-prompt-card,
+  .feed-card,
+  .system-status-card,
+  .subview-modal-card,
+  .home-summary-card
+)::before {
+  content: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  #riumBackground { opacity: .78; }
+  #riumBackground { opacity: .34; filter: saturate(0.72) brightness(0.88); transition: none; }
+  html.is-booting #riumBackground { opacity: .94; filter: none; }
   .app-header,
   .rail-section,
+.workspace-plot-slider,
   .copilot-prompt-card,
   .feed-card,
   .system-status-card,

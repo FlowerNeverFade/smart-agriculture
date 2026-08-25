@@ -1,7 +1,7 @@
 # 智慧农业项目进度
 
 > 项目：农智闭环（AgriLoop）
-> 更新时间：2026-08-23
+> 更新时间：2026-08-24
 > 当前周期：15 天软件仿真交付
 > 当前总状态：**v1.0 后端已实现并完成远端验收；最小 Web 登录/Copilot 入口与农田动态监测切片已发布，完整业务前端、真实硬件和生产级视觉/语音仍按范围不实现**
 
@@ -62,6 +62,8 @@
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
 - `quhl` 最新登录改版已评审：采用其更真实的番茄/根系背景资产和会话错误处理，但保留当前更有层次的 WebGL 视差/动效，并把真实 JWT、离线演示会话和 API 错误合同接入同一登录脚本；`rium_dev` 的麦田 Three.js 背景与液态玻璃层已作为兼容叠加加入 main（全屏 3D 监测时暂停、无 WebGL 时 CSS 降级），没有替换默认认证/监测路由；`feat/farm-operations` 的工单、巡田、资源约束和水/田交互沙盘已选择性移植，保留 main 的 AI/预测/模拟器；`yyx` 分支的增强功能已吸收（按需 ECharts/SVG 图表、预测与双轨回放、价值账本、番茄/黄瓜/草莓/辣椒 Crop Pack 注册表、⌘K 命令面板、首页摘要），仅不合并名为 `task5` 的独立分支。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
+- 2026-08-24 修复左侧地块/作物选择器只更新卡片、不刷新右侧子界面的上下文断链：当前 `plotId` 现会同步到 URL、模块标题、风险预测、时序监测、数字孪生、Crop Pack 初始选择和决策护照；农场级价值与资源模块继续保持聚合口径。真实浏览器使用 A01/A02/A03/B03 完成联动回归且控制台无错误，证据见 [`docs/acceptance/FRONTEND_PLOT_CONTEXT_ACCEPTANCE.md`](docs/acceptance/FRONTEND_PLOT_CONTEXT_ACCEPTANCE.md)。
+- 2026-08-24 调整农务与巡田界面：任务看板、状态统计、巡田证据和执行藤蔓改为直接绑定左侧当前地块；移除光标追踪画布与事件，执行藤蔓下移至巡田区之后，并强化“待处理/执行中”视觉层级。A01/A02 切换、表单地块锁定和控制台检查均通过，证据见 [`docs/acceptance/FRONTEND_FARM_OPERATIONS_UI_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_OPERATIONS_UI_ACCEPTANCE.md)。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门

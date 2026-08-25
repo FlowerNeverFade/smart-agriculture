@@ -725,8 +725,8 @@ export const MOCK_DATA = {
       status: "模块独立路由就绪 · 可单独定制"
     },
     "decision-passport": {
-      title: "可信决策护照与全链路审计 (Decision Passport & Audit Log)",
-      desc: "输入遥测快照、证据链、白名单工具调用、审批记录、执行 ACK 与效果闭环追溯",
+      title: "决策护照",
+      desc: "每次决策的完整来龙去脉，全程可追溯、可审计",
       tags: ["CAP-13", "B-10"],
       status: "模块独立路由就绪 · 可单独定制"
     },
@@ -736,11 +736,17 @@ export const MOCK_DATA = {
       tags: ["Gate 2", "Gate 3", "Simulator"],
       status: "模块独立路由就绪 · 可单独定制"
     },
+    "decision-feed": {
+      title: "关键动态消息",
+      desc: "诊断、处方、预测与农务工单的全链路闭环动态流",
+      tags: ["CAP-01", "实时"],
+      status: "核心闭环 · 无需绑定地块"
+    },
     "crop-packs": {
-      title: "作物包全景与规则注册表 (Crop Pack Registry)",
-      desc: "番茄、黄瓜等作物生长阶段、指标定义、适宜区间、阈值规则与知识文档管理",
+      title: "作物培养指导",
+      desc: "番茄、黄瓜等作物生长阶段、指标定义、适宜区间、阈值规则与知识文档查阅手册",
       tags: ["Crop Pack", "Schema 1.0"],
-      status: "模块独立路由就绪 · 可单独定制"
+      status: "培养指导手册 · 无需绑定地块"
     }
   }
 };

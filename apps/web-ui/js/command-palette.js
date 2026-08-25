@@ -71,7 +71,7 @@ export function initCommandPalette(app) {
         title: f.title,
         sub: f.category,
         keywords: `${f.title} ${f.summary} ${f.plotName}`,
-        run: () => app.navigate('home')
+        run: () => app.navigate('decision-feed')
       });
     });
   };

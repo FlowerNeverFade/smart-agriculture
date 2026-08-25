@@ -3,14 +3,14 @@
  * High-density operational dashboard with modular router & interactive closed-loop
  */
 import { MOCK_DATA } from './mock-data.js?v=20260824-module-v5';
-import { api } from './api.js?v=20260824-telemetry-fix';
+import { api } from './api.js?v=20260824-telemetry-risk';
 import { FarmMonitor } from './farm-monitor.js';
-import { PlotTelemetryView } from './plot-telemetry-view.js';
+import { PlotTelemetryView } from './plot-telemetry-view.js?v=20260824-telemetry-risk';
 import { initParticles } from './particles.js';
 import { initCommandPalette } from './command-palette.js';
 import { initTheme } from './theme.js';
 import { initRiumBackground } from './rium-background.js';
-import { syncWaterVisuals } from './water-visual.js';
+import { getResourceWaterState, syncWaterVisuals } from './water-visual.js';
 
 const LOGIN_ENTRY = 'login.html';
 
@@ -21,12 +21,23 @@ function redirectToLogin() {
 
 // yyx 分支的增强视图按需加载，首屏不阻塞；plot-detail 仍由 lxh 的
 // Three.js Digital Twin 接管，避免两个渲染器争夺同一个全屏画布。
-const SUBVIEW_ASSET = '20260824-module-v5';
+const SUBVIEW_ASSET = '20260824-text-lean';
+/** 不展示工作区地块选择条：核心闭环部分视图 + 第三子区「经营与指导」 */
+const PLOT_INDEPENDENT_VIEWS = new Set([
+  'home',
+  'plot-detail',
+  'decision-console',
+  'decision-feed',
+  'crop-packs',
+  'value-ledger'
+]);
 const SUBVIEW_RENDERERS = {
-  'risk-forecast': async (container, plotId) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderRiskForecast(container, plotId),
+  'risk-forecast': async (container, plotId, app) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderRiskForecast(container, plotId, {
+    plot: app.state.plots.find(item => item.plotId === plotId)
+  }),
   'scenario-replay': async (container, plotId) => (await import(`./modules/risk-forecast.js?v=${SUBVIEW_ASSET}`)).renderScenarioReplay(container, plotId),
   'value-ledger': async (container) => (await import(`./modules/value-ledger.js?v=${SUBVIEW_ASSET}`)).renderValueLedger(container),
-  'crop-packs': async (container) => (await import(`./modules/crop-packs.js?v=${SUBVIEW_ASSET}`)).renderCropPacks(container),
+  'crop-packs': async (container, _plotId, app) => (await import(`./modules/crop-packs.js?v=${SUBVIEW_ASSET}`)).renderCropPacks(container, { app }),
   'work-orders': async (container, plotId, app) => {
     const { renderWorkOrders } = await import(`./modules/work-orders.js?v=${SUBVIEW_ASSET}`);
     return renderWorkOrders(container, {
@@ -163,11 +174,11 @@ class AgriApp {
     this.dom.btnUserMenu = document.getElementById('btnUserMenu');
     this.dom.copilotConnectionStatus = document.getElementById('copilotConnectionStatus');
     this.dom.btnCopilotLogin = document.getElementById('btnCopilotLogin');
-    this.dom.plotListContainer = document.getElementById('plotListContainer');
+    this.dom.plotSliderTrack = document.getElementById('plotSliderTrack');
+    this.dom.workspacePlotContext = document.getElementById('workspacePlotContext');
     this.dom.plotsCountTag = document.getElementById('plotsCountTag');
     this.dom.plotSearchInput = document.getElementById('plotSearchInput');
     this.dom.globalSearchInput = document.getElementById('globalSearchInput');
-    this.dom.currentPlotContextBadge = document.getElementById('currentPlotContextBadge');
     this.dom.copilotInput = document.getElementById('copilotInput');
     this.dom.btnSendCopilot = document.getElementById('btnSendCopilot');
     this.dom.copilotOutputBanner = document.getElementById('copilotOutputBanner');
@@ -195,14 +206,11 @@ class AgriApp {
     this.dom.btnToggleSimulator = document.getElementById('btnToggleSimulator');
     this.dom.btnRefreshSimulator = document.getElementById('btnRefreshSimulator');
     this.dom.plotTelemetryPanel = document.getElementById('plotTelemetryPanel');
+    this.dom.decisionFeedPanel = document.getElementById('decisionFeedPanel');
+    this.dom.btnDecisionFeedBackHome = document.getElementById('btnDecisionFeedBackHome');
     this.dom.homeFeedContent = document.getElementById('homeFeedContent');
     this.dom.moduleContentPanel = document.getElementById('moduleContentPanel');
     this.dom.moduleContentBody = document.getElementById('moduleContentBody');
-    this.dom.moduleContentIcon = document.getElementById('moduleContentIcon');
-    this.dom.moduleContentTitle = document.getElementById('moduleContentTitle');
-    this.dom.moduleContentDescription = document.getElementById('moduleContentDescription');
-    this.dom.moduleContentTag = document.getElementById('moduleContentTag');
-    this.dom.btnModuleBackHome = document.getElementById('btnModuleBackHome');
     this.dom.appContainer = document.querySelector('.app-container');
     this.dom.btnToggleRightRail = document.getElementById('btnToggleRightRail');
     if (this.dom.plotTelemetryPanel) this.plotTelemetryView?.bind(this.dom.plotTelemetryPanel);
@@ -251,7 +259,7 @@ class AgriApp {
 
     this.dom.btnToggleSimulator?.addEventListener('click', () => this.toggleSimulator());
     this.dom.btnRefreshSimulator?.addEventListener('click', () => this.refreshSimulatorStatus());
-    this.dom.btnModuleBackHome?.addEventListener('click', () => this.navigate('home'));
+    this.dom.btnDecisionFeedBackHome?.addEventListener('click', () => this.navigate('home'));
     this.dom.btnToggleRightRail?.addEventListener('click', () => {
       this.setRightRailCollapsed(!this.state.rightRailCollapsed);
     });
@@ -317,6 +325,10 @@ class AgriApp {
         this.navigate('home');
       } else if (view === 'plot-telemetry') {
         this.showPlotTelemetryView(this.state.currentPlotId);
+      } else if (view === 'decision-feed') {
+        this.showDecisionFeedView();
+      } else if (PLOT_INDEPENDENT_VIEWS.has(view)) {
+        this.openSubview(view);
       } else {
         this.openSubview(view, { plotId: this.state.currentPlotId });
       }
@@ -519,40 +531,63 @@ class AgriApp {
     redirectToLogin();
   }
 
+  isPlotContextVisible(viewName = this.state.activeMainView) {
+    return !PLOT_INDEPENDENT_VIEWS.has(viewName);
+  }
+
+  updatePlotContextVisibility(viewName = this.state.activeMainView) {
+    const visible = this.isPlotContextVisible(viewName);
+    if (this.dom.workspacePlotContext) {
+      this.dom.workspacePlotContext.hidden = !visible;
+    }
+  }
+
+  getCropEmoji(cropCode) {
+    const map = {
+      tomato: '🍅',
+      cucumber: '🥒',
+      corn: '🌽',
+      rice: '🌾',
+      sunflower: '🌻',
+      strawberry: '🍓',
+      pepper: '🌶️',
+    };
+    return map[cropCode] || '🌱';
+  }
+
   renderPlots(filterKeyword = '') {
-    if (!this.dom.plotListContainer) return;
+    if (!this.dom.plotSliderTrack) return;
     const filtered = this.state.plots.filter(p => {
       const match = (p.name + p.cropName + p.cropVariety + p.plotId).toLowerCase();
       return match.includes(filterKeyword.toLowerCase());
     });
 
-    this.dom.plotsCountTag.textContent = `${filtered.length} 个地块`;
+    if (this.dom.plotsCountTag) {
+      this.dom.plotsCountTag.textContent = `${filtered.length} 个地块`;
+    }
 
-    this.dom.plotListContainer.innerHTML = filtered.map(plot => {
+    this.dom.plotSliderTrack.innerHTML = filtered.map(plot => {
       const isActive = plot.plotId === this.state.currentPlotId;
       const moisture = plot.metrics.SOIL_MOISTURE.value;
       const isWarn = moisture < 20.0;
 
       return `
-        <li class="plot-list-item ${isActive ? 'active' : ''}" data-plot-id="${plot.plotId}">
-          <div class="plot-info">
-            <span class="plot-name">
-              ${plot.cropCode === 'tomato' ? '🍅' : '🥒'} ${plot.name}
-            </span>
-            <span class="plot-meta">${plot.cropName} · ${plot.stageLabel}</span>
-          </div>
-          <span class="plot-metric-pill ${isWarn ? 'warn' : ''}" title="土壤湿度当前值 (目标: ${plot.metrics.SOIL_MOISTURE.target})">
-            ${moisture}%
-          </span>
-        </li>
+        <button type="button"
+          class="plot-slider-item ${isActive ? 'active' : ''} ${isWarn ? 'has-warn' : ''}"
+          data-plot-id="${plot.plotId}"
+          role="tab"
+          aria-selected="${isActive}">
+          <span class="plot-slider-emoji">${this.getCropEmoji(plot.cropCode)}</span>
+          <span class="plot-slider-name">${plot.name}</span>
+          <span class="plot-slider-meta">${plot.cropName} · 湿度 ${moisture}%</span>
+        </button>
       `;
     }).join('');
 
-    // Attach click listeners to plot items
-    this.dom.plotListContainer.querySelectorAll('.plot-list-item').forEach(item => {
+    this.dom.plotSliderTrack.querySelectorAll('.plot-slider-item').forEach(item => {
       item.addEventListener('click', () => {
         const plotId = item.dataset.plotId;
-        this.selectPlot(plotId);
+        if (plotId) this.selectPlot(plotId);
       });
     });
   }
@@ -562,15 +597,36 @@ class AgriApp {
   }
 
   selectPlot(plotId, options = {}) {
-    this.state.currentPlotId = plotId;
     const plot = this.state.plots.find(p => p.plotId === plotId);
-    if (plot && this.dom.currentPlotContextBadge) {
-      this.dom.currentPlotContextBadge.textContent = `/ 当前选中：${plot.name} (${plot.cropName} · ${plot.stageLabel})`;
+    if (!plot) {
+      if (!options.silent) this.showToast(`未找到地块：${plotId}`, 'error');
+      return;
     }
+
+    const plotChanged = this.state.currentPlotId !== plotId;
+    this.state.currentPlotId = plotId;
     this.renderPlots(this.dom.plotSearchInput?.value || '');
-    if (!options.silent) {
-      this.showToast(`已切换当前工作地块至：${plot ? plot.name : plotId}`, 'info');
+    this.renderHomeSummary();
+
+    // 左侧地块是整个工作台的上下文选择器。切换后必须让当前右侧视图
+    // 重新接收 plotId，避免模块继续显示打开时捕获的旧地块数据。
+    if (plotChanged && options.syncView !== false) {
+      this.syncActiveViewToPlot(plotId);
     }
+    if (!options.silent) {
+      this.showToast(`已切换当前工作地块至：${plot.name}`, 'info');
+    }
+  }
+
+  syncActiveViewToPlot(plotId) {
+    const viewName = this.state.activeMainView || 'home';
+    if (PLOT_INDEPENDENT_VIEWS.has(viewName)) return;
+
+    if (viewName === 'plot-telemetry') {
+      this.showPlotTelemetryView(plotId);
+      return;
+    }
+    this.openSubview(viewName, { plotId });
   }
 
   renderFeed() {
@@ -925,49 +981,117 @@ class AgriApp {
     `).join('');
   }
 
-  /** yyx 首页驾驶舱摘要：预测、价值账本、Crop Pack 三张可点击卡片。 */
+  /** 主面板方形快捷卡：农务/动态/风险/用水 + 作物手册/经营收益/情景模拟。 */
   renderHomeSummary() {
     const grid = document.getElementById('homeSummaryGrid');
-    if (!grid) return;
+    const toolsGrid = document.getElementById('homeSummaryToolsGrid');
+    if (!grid || !toolsGrid) return;
     const plots = this.state.plots || MOCK_DATA.plots;
-    const plot = plots.find(item => item.plotId === 'plot-a01') || plots[0];
-    const cfg = MOCK_DATA.riskForecastConfig || {};
-    const ledger = MOCK_DATA.valueLedger?.summary || {};
-    const packs = MOCK_DATA.cropPackDetails || [];
-    const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 20);
-    const boundary = Number(cfg.stressBoundary ?? 14);
-    const maxHorizon = Number(cfg.maxHorizonMinutes ?? 240);
-    const k = Math.log(16.8 / boundary) / 72;
-    const ttr = moisture > boundary ? Math.min(Math.max(Math.round(Math.log(moisture / boundary) / k), 0), maxHorizon) : 0;
-    const zone = ttr < 60 ? 'danger' : ttr < 150 ? 'warn' : 'ok';
-    const farmLabel = plot?.name || '温室 1 号棚';
-    const totalSaved = Number(ledger.totalSavedRmb ?? 0);
-    const savedWater = Number(ledger.savedWaterLitres ?? 0);
-    const deviation = Number(ledger.deviationRatePct ?? 0);
+    const pendingTasks = (MOCK_DATA.workOrders || []).filter((item) => item.status !== 'DONE');
+    const urgentTasks = pendingTasks.filter((item) => item.priority === 'HIGH');
+    const feedCount = (this.state.feedItems || MOCK_DATA.feedItems || []).length;
+    const atRiskPlots = plots.filter((plot) => {
+      const level = String(plot.riskLevel || 'LOW').toUpperCase();
+      if (level === 'HIGH' || level === 'MEDIUM') return true;
+      return Object.values(plot.metrics || {}).some((metric) =>
+        ['WARN', 'ALERT', 'CRITICAL'].includes(String(metric.status || '').toUpperCase())
+      );
+    });
+    const water = getResourceWaterState();
+    const remaining = Math.round(Number(water.remainingLitres || 0));
+    const used = Math.round(Number(water.usedTodayLitres || 0));
+    const remainingPct = Math.round(Number(water.remainingPercent || 0));
+    const remainingDisplay = `${remaining.toLocaleString('zh-CN')}L`;
+    const waterTone = Number(water.remainingPercent || 0) < 60 ? 'warn' : 'ok';
+    const riskTone = atRiskPlots.length ? 'danger' : 'ok';
+    const taskTone = urgentTasks.length ? 'warn' : pendingTasks.length ? 'ok' : '';
+    const badgeText = feedCount > 99 ? '99+' : String(feedCount);
+    const riskNames = atRiskPlots.slice(0, 2).map((plot) => this.escapeHtml(plot.name)).join('、');
+    const cropCatalog = MOCK_DATA.cropPackDetails || MOCK_DATA.cropPacks || [];
+    const cropSpeciesCount = cropCatalog.length;
+    const ledgerSummary = MOCK_DATA.valueLedger?.summary || {};
+    const totalSavedRmb = Number(ledgerSummary.totalSavedRmb || 0);
+    const valueDisplay = `¥${totalSavedRmb.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const scenarioCount = (MOCK_DATA.riskForecastConfig?.scenarioCatalog || []).length;
+    const telemetryMetricCount = 6;
+    const plotCount = plots.length;
+
     grid.innerHTML = `
-      <div class="home-summary-card" data-view="risk-forecast" title="打开未来风险预测推演">
-        <div class="hs-icon">🔮</div><div class="hs-body">
-          <div class="hs-title">未来风险 · ${this.escapeHtml(farmLabel)}</div>
-          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= maxHorizon ? '&gt;240' : ttr} 分钟</div>
-          <div class="hs-sub">当前湿度 ${moisture}% · 极限边界 ${boundary}%</div>
-        </div><span class="hs-go">→</span>
-      </div>
-      <div class="home-summary-card" data-view="value-ledger" title="打开经营价值与效益对账本">
-        <div class="hs-icon">💰</div><div class="hs-body">
-          <div class="hs-title">经营价值对账</div>
-          <div class="hs-value ok">¥ ${totalSaved.toFixed(2)}</div>
-          <div class="hs-sub">节水 ${savedWater.toLocaleString()}L · 偏差率 ${deviation}%</div>
-        </div><span class="hs-go">→</span>
-      </div>
-      <div class="home-summary-card" data-view="crop-packs" title="打开作物包全景与规则注册表">
-        <div class="hs-icon">📦</div><div class="hs-body">
-          <div class="hs-title">作物包注册表</div>
-          <div class="hs-value">${packs.length} 个包 · ${packs.reduce((sum, pack) => sum + (pack.stages?.length || 0), 0)} 阶段</div>
-          <div class="hs-sub">${packs.map(pack => this.escapeHtml(pack.identity?.name || pack.cropCode)).join(' / ')} · Schema v${this.escapeHtml(packs[0]?.schemaVersion || '1.0')}</div>
-        </div><span class="hs-go">→</span>
-      </div>`;
-    grid.querySelectorAll('.home-summary-card').forEach(card => {
-      card.addEventListener('click', () => this.openSubview(card.dataset.view, { plotId: this.state.currentPlotId }));
+      <button type="button" class="home-summary-card" data-view="work-orders" data-role="home-task-card" title="打开今日农务">
+        <span class="hs-icon" aria-hidden="true">📋</span>
+        <span class="hs-title">任务提示</span>
+        <strong class="hs-value ${taskTone}">${pendingTasks.length}</strong>
+        <span class="hs-sub">${pendingTasks.length
+          ? `待处理工单${urgentTasks.length ? ` · ${urgentTasks.length} 项紧急` : ''}`
+          : '今日暂无待办'}</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="decision-feed" data-role="home-feed-card" title="打开关键动态消息">
+        <span class="hs-icon-wrap">
+          <span class="hs-icon" aria-hidden="true">📡</span>
+          ${feedCount ? `<span class="hs-badge" aria-label="${feedCount} 条动态消息">${badgeText}</span>` : ''}
+        </span>
+        <span class="hs-title">动态消息</span>
+        <strong class="hs-value">${feedCount}</strong>
+        <span class="hs-sub">${feedCount ? '诊断、处方与农务闭环动态' : '暂无新消息'}</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="risk-forecast" data-role="home-risk-card" title="打开风险预测">
+        <span class="hs-icon" aria-hidden="true">⚠️</span>
+        <span class="hs-title">风险地块</span>
+        <strong class="hs-value ${riskTone}">${atRiskPlots.length}</strong>
+        <span class="hs-sub">${atRiskPlots.length ? `${riskNames} 需关注` : '当前无风险地块'}</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="resource-coordination" data-role="home-water-card" title="打开用水资源协同排程">
+        <span class="hs-icon" aria-hidden="true">💧</span>
+        <span class="hs-title">用水协同</span>
+        <strong class="hs-value ${waterTone}">${remainingDisplay}</strong>
+        <span class="hs-sub">已用 ${used.toLocaleString('zh-CN')}L · 余 ${remainingPct}%</span>
+
+      </button>`;
+
+    toolsGrid.innerHTML = `
+      <button type="button" class="home-summary-card" data-view="plot-telemetry" data-role="home-telemetry-card" title="打开地块数据监测">
+        <span class="hs-icon" aria-hidden="true">📈</span>
+        <span class="hs-title">数据监测</span>
+        <strong class="hs-value ok">${telemetryMetricCount}</strong>
+        <span class="hs-sub">${plotCount} 块地 · ${telemetryMetricCount} 项指标时序与偏离风险</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="crop-packs" data-role="home-crop-manual-card" title="打开作物培养指导">
+        <span class="hs-icon" aria-hidden="true">📦</span>
+        <span class="hs-title">作物手册</span>
+        <strong class="hs-value ok">${cropSpeciesCount}</strong>
+        <span class="hs-sub">已收录 ${cropSpeciesCount} 种作物培养资料</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="scenario-replay" data-role="home-scenario-card" title="打开情景模拟与双轨回放">
+        <span class="hs-icon" aria-hidden="true">⚡</span>
+        <span class="hs-title">情景模拟</span>
+        <strong class="hs-value">${scenarioCount || 5}</strong>
+        <span class="hs-sub">${scenarioCount ? `${scenarioCount} 种情景可一键双轨推演` : '干旱/热浪/暴雨等情景推演'}</span>
+      </button>
+      <button type="button" class="home-summary-card" data-view="value-ledger" data-role="home-value-card" title="打开经营价值与效益对账">
+        <span class="hs-icon" aria-hidden="true">💰</span>
+        <span class="hs-title">经营收益</span>
+        <strong class="hs-value ok">${valueDisplay}</strong>
+        <span class="hs-sub">本期综合折算价值 · 节水节电与工时</span>
+      </button>`;
+
+    const panel = document.getElementById('homeSummaryPanel') || grid.parentElement;
+    panel?.querySelectorAll('.home-summary-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const view = card.dataset.view;
+        if (view === 'risk-forecast' && atRiskPlots[0]) {
+          this.navigate(view, { plotId: atRiskPlots[0].plotId });
+          return;
+        }
+        if (view === 'plot-telemetry') {
+          this.showPlotTelemetryView(this.state.currentPlotId);
+          return;
+        }
+        if (view === 'scenario-replay') {
+          this.navigate(view, { plotId: this.state.currentPlotId });
+          return;
+        }
+        this.navigate(view);
+      });
     });
   }
 
@@ -985,8 +1109,13 @@ class AgriApp {
 
     if (view === 'plot-telemetry') {
       this.showPlotTelemetryView(plotId, { updateHash: false });
+    } else if (view === 'decision-feed') {
+      this.showDecisionFeedView({ updateHash: false });
+    } else if (view === 'plot-detail') {
+      void this.openFarmMonitor(plotId, { updateHash: false, skipTransition: true });
     } else if (view && view !== 'home') {
-      this.openSubview(view, { plotId, updateHash: false });
+      const plotIndependent = PLOT_INDEPENDENT_VIEWS.has(view);
+      this.openSubview(view, plotIndependent ? {} : { plotId, updateHash: false });
     } else {
       this.closeModal(false);
       this.showHomeView({ updateHash: false });
@@ -1027,20 +1156,13 @@ class AgriApp {
   }
 
   openSubview(viewName, options = {}) {
-    const plotId = options.plotId || this.state.currentPlotId;
+    const plotIndependent = PLOT_INDEPENDENT_VIEWS.has(viewName);
+    const plotId = plotIndependent ? this.state.currentPlotId : (options.plotId || this.state.currentPlotId);
+    if (!plotIndependent && options.plotId && options.plotId !== this.state.currentPlotId) {
+      this.selectPlot(options.plotId, { silent: true, syncView: false });
+    }
     if (viewName === 'plot-detail') {
-      this.cleanupActiveSubview();
-      this.riumBackground?.setVisible(false);
-      this.dom.subviewModal.classList.remove('active');
-      this.farmMonitor?.setPlots(this.state.plots);
-      this.farmMonitor?.open(plotId);
-      this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
-      document.querySelectorAll('.module-nav-item').forEach(item => {
-        item.classList.toggle('active', item.dataset.view === viewName);
-      });
-      if (options.updateHash !== false) {
-        this.navigate(viewName, { plotId });
-      }
+      void this.openFarmMonitor(options.plotId || this.state.currentPlotId, options);
       return;
     }
 
@@ -1048,23 +1170,17 @@ class AgriApp {
     this.riumBackground?.setVisible(true);
     this.plotTelemetryView?.close();
     this.cleanupActiveSubview();
-    const meta = MOCK_DATA.subviewsMeta[viewName] || {
-      title: viewName,
-      desc: '预留独立子模块界面',
-      tags: ['Reserved View'],
-      status: '模块独立路由就绪'
-    };
-
     const plot = this.state.plots.find(p => p.plotId === plotId) || this.state.plots[0];
     this.dom.subviewModal.classList.remove('active');
     if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
-    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = false;
-    if (this.dom.moduleContentIcon) this.dom.moduleContentIcon.textContent = this.getViewIcon(viewName);
-    if (this.dom.moduleContentTitle) this.dom.moduleContentTitle.textContent = `${meta.title} · 【${plot?.name || '示范农场'}】`;
-    if (this.dom.moduleContentDescription) this.dom.moduleContentDescription.textContent = meta.desc || '功能模块';
-    if (this.dom.moduleContentTag) this.dom.moduleContentTag.textContent = meta.status || '模块已就绪';
+    if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = true;
+    if (this.dom.moduleContentPanel) {
+      this.dom.moduleContentPanel.hidden = false;
+      this.dom.moduleContentPanel.classList.add('is-headerless');
+    }
     this.state.activeMainView = viewName;
+    this.updatePlotContextVisibility(viewName);
 
     // yyx 增强模块：异步渲染完整预测/回放/价值/Crop Pack 视图。
     const renderer = SUBVIEW_RENDERERS[viewName];
@@ -1075,24 +1191,40 @@ class AgriApp {
       console.error('[AgriLoop] moduleContentBody missing; cannot render', viewName);
       return;
     }
+
+    // 视图切换淡出
+    body.classList.add('agri-view-leaving');
+
+    const triggerEnter = () => {
+      body.classList.remove('agri-view-leaving');
+      body.classList.remove('agri-view-enter');
+      void body.offsetWidth;
+      body.classList.add('agri-view-enter');
+    };
+
     if (renderer) {
       body.innerHTML = '<div class="agri-module-loading">正在加载功能模块…</div>';
+      triggerEnter();
       Promise.resolve(renderer(body, plotId, this)).then(cleanup => {
         if (viewGen !== this._subviewGen) {
           if (typeof cleanup === 'function') cleanup();
           return;
         }
         if (typeof cleanup === 'function') this._activeSubviewCleanup = cleanup;
+        triggerEnter();
       }).catch(error => {
         if (viewGen !== this._subviewGen) return;
         console.error(`[AgriLoop] module ${viewName} failed:`, error);
         body.innerHTML = `<div class="agri-alert agri-alert-danger"><div class="agri-alert-icon">⚠️</div><div><strong>模块加载失败</strong><p>${this.escapeHtml(String(error?.message || error))}</p></div></div>`;
+        triggerEnter();
       });
     } else {
       this.renderSubviewContextualContent(viewName, plot, body);
+      triggerEnter();
     }
 
-    this.dom.headerCurrentView.textContent = meta.title.split(' ')[0];
+    const viewMeta = MOCK_DATA.subviewsMeta?.[viewName];
+    this.dom.headerCurrentView.textContent = (viewMeta?.title || viewName).split(/[(（]/)[0].trim();
 
     // Highlight left nav item
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1106,7 +1238,9 @@ class AgriApp {
     document.getElementById('mainFeedArea')?.scrollTo?.({ top: 0, behavior: 'smooth' });
 
     if (options.updateHash !== false) {
-      this._setHash(new URLSearchParams({ view: viewName, plotId }).toString());
+      const params = { view: viewName };
+      if (!plotIndependent) params.plotId = plotId;
+      this._setHash(new URLSearchParams(params).toString());
     }
   }
 
@@ -1118,17 +1252,129 @@ class AgriApp {
     this._activeSubviewCleanup = null;
   }
 
+  _ensureFarmEntryOverlay() {
+    if (this._farmEntryOverlay) return this._farmEntryOverlay;
+    const el = document.createElement('div');
+    el.className = 'farm-entry-overlay';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML = `
+      <div class="farm-entry-overlay__vignette"></div>
+      <div class="farm-entry-overlay__content">
+        <i class="ph ph-spinner-gap" aria-hidden="true"></i>
+        <strong data-farm-entry-title>正在进入农田动态监测</strong>
+        <span data-farm-entry-sub>视角切入田野…</span>
+      </div>
+    `;
+    document.body.appendChild(el);
+    this._farmEntryOverlay = el;
+    return el;
+  }
+
+  _setFarmEntryOverlayText(title, sub) {
+    const overlay = this._farmEntryOverlay;
+    if (!overlay) return;
+    const titleEl = overlay.querySelector('[data-farm-entry-title]');
+    const subEl = overlay.querySelector('[data-farm-entry-sub]');
+    if (titleEl && title) titleEl.textContent = title;
+    if (subEl && sub) subEl.textContent = sub;
+  }
+
+  _showFarmEntryOverlay() {
+    const overlay = this._ensureFarmEntryOverlay();
+    overlay.classList.add('active', 'is-sky-bridge');
+    document.body.classList.add('farm-entry-transition');
+  }
+
+  _hideFarmEntryOverlay() {
+    this._farmEntryOverlay?.classList.remove('active', 'is-sky-bridge');
+    document.body.classList.remove('farm-entry-transition');
+  }
+
+  async openFarmMonitor(plotId, options = {}) {
+    if (this._farmEntryBusy) return;
+    if (plotId !== this.state.currentPlotId) {
+      this.selectPlot(plotId, { silent: true, syncView: false });
+    }
+    this.state.activeMainView = 'plot-detail';
+    this.updatePlotContextVisibility('plot-detail');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const introAnimation = !reducedMotion && options.skipTransition !== true && options.introAnimation !== false;
+
+    if (this.farmMonitor?.isOpen) {
+      this.farmMonitor.setPlots(this.state.plots);
+      await this.farmMonitor.open(plotId, { introAnimation: false });
+      this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
+      document.querySelectorAll('.module-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === 'plot-detail');
+      });
+      if (options.updateHash !== false) {
+        this.navigate('plot-detail', { plotId });
+      }
+      return;
+    }
+
+    this._farmEntryBusy = true;
+    try {
+      this.cleanupActiveSubview();
+      this.plotTelemetryView?.close();
+      this.dom.subviewModal?.classList.remove('active');
+      if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+      if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+      if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = true;
+      if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+
+      if (introAnimation) {
+        this._showFarmEntryOverlay();
+        this._setFarmEntryOverlayText('正在进入农田动态监测', '视角移向天空…');
+        this.riumBackground?.restoreHomeCamera?.();
+        this.riumBackground?.setVisible(true);
+        await this.riumBackground?.playFarmEntryDive?.();
+        this._setFarmEntryOverlayText('正在切换数字孪生场景', '衔接到监测界面的天空…');
+      }
+
+      this.riumBackground?.setVisible(false);
+      this.farmMonitor?.setPlots(this.state.plots);
+
+      const openPromise = this.farmMonitor?.open(plotId, { introAnimation });
+      if (introAnimation) {
+        // 切入天空后稍作停留再收起遮罩，让落回全景更清晰可见
+        await new Promise(resolve => setTimeout(resolve, 640));
+        this._setFarmEntryOverlayText('农田动态监测已就绪', '缓慢落回全景视角…');
+        await new Promise(resolve => setTimeout(resolve, 420));
+        this._hideFarmEntryOverlay();
+      }
+      await openPromise;
+      this._hideFarmEntryOverlay();
+
+      this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
+      document.querySelectorAll('.module-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.view === 'plot-detail');
+      });
+      if (options.updateHash !== false) {
+        this.navigate('plot-detail', { plotId });
+      }
+    } finally {
+      this._farmEntryBusy = false;
+    }
+  }
+
   closeModal(updateHash = true) {
     this.cleanupActiveSubview();
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
     this.plotTelemetryView?.close();
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
-    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = true;
+    if (this.dom.moduleContentPanel) {
+      this.dom.moduleContentPanel.hidden = true;
+    }
     if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
     if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
     this.state.activeMainView = 'home';
+    this.updatePlotContextVisibility('home');
     this.riumBackground?.setVisible(true);
+    this.riumBackground?.restoreHomeCamera?.();
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === 'home');
@@ -1148,15 +1394,40 @@ class AgriApp {
     }
   }
 
+  showDecisionFeedView(options = {}) {
+    this.cleanupActiveSubview();
+    this.plotTelemetryView?.close();
+    this.farmMonitor?.close(false);
+    if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
+    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
+    if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = false;
+    this.state.activeMainView = 'decision-feed';
+    this.updatePlotContextVisibility('decision-feed');
+    this.dom.headerCurrentView.textContent = '关键动态消息';
+    document.querySelectorAll('.module-nav-item').forEach((item) => {
+      item.classList.toggle('active', item.dataset.view === 'decision-feed');
+    });
+    this.renderFeed();
+    document.getElementById('mainFeedArea')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+    if (options.updateHash !== false) {
+      this._setHash(new URLSearchParams({ view: 'decision-feed' }).toString());
+    }
+  }
+
   showPlotTelemetryView(plotId, options = {}) {
+    if (plotId && plotId !== this.state.currentPlotId) {
+      this.selectPlot(plotId, { silent: true, syncView: false });
+    }
     this.closeModal(false);
     this.farmMonitor?.close(false);
     if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = true;
     if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = true;
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = false;
     this.state.activeMainView = 'plot-telemetry';
-    if (plotId) this.state.currentPlotId = plotId;
-    this.dom.headerCurrentView.textContent = '地块监测数据时序可视化';
+    this.updatePlotContextVisibility('plot-telemetry');
+    this.dom.headerCurrentView.textContent = '地块数据监测';
     document.querySelectorAll('.module-nav-item').forEach((item) => {
       item.classList.toggle('active', item.dataset.view === 'plot-telemetry');
     });
@@ -1170,10 +1441,14 @@ class AgriApp {
     this.cleanupActiveSubview();
     this.plotTelemetryView?.close();
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
-    if (this.dom.moduleContentPanel) this.dom.moduleContentPanel.hidden = true;
+    if (this.dom.decisionFeedPanel) this.dom.decisionFeedPanel.hidden = true;
+    if (this.dom.moduleContentPanel) {
+      this.dom.moduleContentPanel.hidden = true;
+    }
     if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
     if (this.dom.homeFeedContent) this.dom.homeFeedContent.hidden = false;
     this.state.activeMainView = 'home';
+    this.updatePlotContextVisibility('home');
     this.dom.headerCurrentView.textContent = 'Home (农智总览)';
     document.querySelectorAll('.module-nav-item').forEach((item) => {
       item.classList.toggle('active', item.dataset.view === 'home');
@@ -1186,6 +1461,7 @@ class AgriApp {
   getViewIcon(viewName) {
     const map = {
       'plot-detail': '📊',
+      'decision-feed': '📡',
       'decision-console': '🧠',
       'work-orders': '📋',
       'risk-forecast': '🔮',
@@ -1231,15 +1507,74 @@ class AgriApp {
         </div>
       `;
     } else if (viewName === 'decision-passport') {
+      const moisture = plot?.metrics?.SOIL_MOISTURE;
+      const temp = plot?.metrics?.AIR_TEMPERATURE;
+      const deviceHealth = Number.isFinite(Number(plot?.healthScore))
+        ? `${Math.round(Number(plot.healthScore) * 100)}%`
+        : '—';
+      const riskMap = { HIGH: { label: '高风险', cls: 'agri-pill-danger' }, MEDIUM: { label: '中风险', cls: 'agri-pill-warn' }, LOW: { label: '低风险', cls: 'agri-pill-ok' } };
+      const risk = riskMap[plot?.riskLevel] || { label: '未知', cls: 'agri-pill-warn' };
+      const statusMap = { ONLINE: '在线', OFFLINE: '离线', NORMAL: '正常', WARN: '偏低', ERROR: '异常' };
+      const moistureStatus = statusMap[moisture?.status] || moisture?.status || '未知';
+      const deviceStatusLabel = statusMap[plot?.deviceStatus] || plot?.deviceStatus || '未知';
       contentHtml = `
-        <div class="module-context-card">
-          <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 8px;">🛡️ 决策审计护照链 (Audit Provenance)</div>
-          <div style="display: flex; flex-direction: column; gap: 6px; color: var(--text-secondary);">
-            <div>• 遥测输入 (OBSERVED): SOIL_MOISTURE 16.8% (200ms 新鲜度 / GOOD 质量)</div>
-            <div>• 诊断推断 (DERIVED): WATER_DEFICIT (置信度 0.92, 排除漂移)</div>
-            <div>• 处方规则 (RULES_AGENT): 补水 153L (8.5分钟) / 决策就绪分 0.98</div>
-            <div>• 虚拟执行 (VIRTUAL_ACTUATOR): MQTT Command cmd-a01-ack -> ACK: SUCCEEDED</div>
-            <div>• 闭环验证 (COMPLETED): 土壤湿度 16.8% -> 29.8% (效果分 0.96)</div>
+        <div class="agri-module dp-root">
+          <div>
+            <div class="agri-module-title">🛡️ 决策护照</div>
+            <div class="agri-module-sub">每次决策的完整来龙去脉：用了什么数据、什么规则、谁批准、结果如何，全程可追溯。</div>
+          </div>
+
+          <div class="agri-card">
+            <div class="agri-card-title">📍 当前地块</div>
+            <div class="dp-plot-info">
+              <div><span class="agri-kv-key">地块</span><span>${this.escapeHtml(plot?.name || '未知地块')}</span></div>
+              <div><span class="agri-kv-key">作物</span><span>${this.escapeHtml(plot?.cropName || '—')} · ${this.escapeHtml(plot?.stageLabel || '—')}</span></div>
+              <div><span class="agri-kv-key">风险</span><span class="agri-pill ${risk.cls}">${risk.label}</span></div>
+            </div>
+          </div>
+
+          <div class="agri-card">
+            <div class="agri-card-title">📊 数据来源</div>
+            <ul class="agri-kv-list">
+              <li><span class="agri-kv-key">土壤湿度</span><span>${this.escapeHtml(moisture?.value ?? '—')}${this.escapeHtml(moisture?.unit || '')}（${moistureStatus}）<em style="color:var(--text-muted)">· 模拟数据</em></span></li>
+              <li><span class="agri-kv-key">空气温度</span><span>${this.escapeHtml(temp?.value ?? '—')}${this.escapeHtml(temp?.unit || '')}</span></li>
+              <li><span class="agri-kv-key">设备</span><span>${this.escapeHtml(plot?.deviceId || '—')}（${deviceStatusLabel} · 健康 ${deviceHealth}）</span></li>
+            </ul>
+            <div class="agri-meta-line">本期所有数据来自模拟器，不是真实传感器读数。</div>
+          </div>
+
+          <div class="agri-card">
+            <div class="agri-card-title">🔗 决策链路</div>
+            <div class="dp-chain">
+              <div class="dp-chain-step done"><span class="dp-chain-num">1</span><span>观测</span><span class="dp-chain-note">传感器读数</span></div>
+              <div class="dp-chain-step done"><span class="dp-chain-num">2</span><span>诊断</span><span class="dp-chain-note">根因分析</span></div>
+              <div class="dp-chain-step done"><span class="dp-chain-num">3</span><span>处方</span><span class="dp-chain-note">灌溉建议</span></div>
+              <div class="dp-chain-step"><span class="dp-chain-num">4</span><span>审批</span><span class="dp-chain-note">人工确认</span></div>
+              <div class="dp-chain-step"><span class="dp-chain-num">5</span><span>执行</span><span class="dp-chain-note">虚拟下发</span></div>
+              <div class="dp-chain-step"><span class="dp-chain-num">6</span><span>验证</span><span class="dp-chain-note">效果回测</span></div>
+            </div>
+            <div class="agri-meta-line">已完成步骤标绿，待执行步骤需人工审批后继续。</div>
+          </div>
+
+          <div class="agri-card">
+            <div class="agri-card-title">📦 版本追踪</div>
+            <ul class="agri-kv-list">
+              <li><span class="agri-kv-key">作物包</span><span>${this.escapeHtml(plot?.cropCode || '—')} v1.0</span></li>
+              <li><span class="agri-kv-key">规则</span><span class="agri-mono">rule-v20260822</span></li>
+              <li><span class="agri-kv-key">知识库</span><span class="agri-mono">kb-v20260822</span></li>
+              <li><span class="agri-kv-key">智能体</span><span class="agri-mono">agent-v0.4</span></li>
+            </ul>
+            <div class="agri-meta-line">每次建议都会记录所用版本，确保结果可复现。</div>
+          </div>
+
+          <div class="agri-card">
+            <div class="agri-card-title">✅ 护照保障</div>
+            <ul class="agri-kv-list">
+              <li><span class="agri-kv-key">追溯</span><span>从观测到执行，每一步都有记录</span></li>
+              <li><span class="agri-kv-key">审计</span><span>原始输入、工具调用、审批人、执行结果全程留存</span></li>
+              <li><span class="agri-kv-key">降级</span><span>数据不足时明确提示，不编造结果</span></li>
+              <li><span class="agri-kv-key">安全</span><span>高风险动作必须人工确认，模型不能绕过</span></li>
+            </ul>
           </div>
         </div>
       `;

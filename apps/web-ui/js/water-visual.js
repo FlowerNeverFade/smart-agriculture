@@ -210,6 +210,10 @@ export function syncWaterVisuals(root = document) {
     bindWaterInteraction(surface);
   });
 
+  root.querySelectorAll?.('.resource-ops').forEach((panel) => {
+    panel.style.setProperty('--water-level', `${state.remainingPercent.toFixed(1)}%`);
+  });
+
   updateText(document, '[data-water-used]', formatLitres(state.usedTodayLitres));
   updateText(document, '[data-water-remaining-global]', formatLitres(state.remainingLitres));
   updateText(document, '[data-water-percent-global]', `${state.remainingPercent.toFixed(1)}%`);

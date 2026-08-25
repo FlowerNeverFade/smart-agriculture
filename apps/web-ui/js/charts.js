@@ -394,13 +394,14 @@ export function svgAreaChart(opts) {
  * opts: { width, height, value, min, max, unit, zones:[{from,to,color}], label, format }
  */
 export function svgGauge(opts) {
-  const { width = 320, height = 190 } = opts;
-  const cx = width / 2, cy = height - 26;
-  const r = Math.min(width / 2 - 18, height - 34);
+  const { width = 320, height = 248 } = opts;
+  const cx = width / 2;
+  const cy = height - 28;
+  const r = Math.min(width / 2 - 42, height - 96);
   const val = Math.max(opts.min, Math.min(opts.max, opts.value));
   const span = opts.max - opts.min || 1;
   const ratio = (val - opts.min) / span;
-  const angle = Math.PI * (1 - ratio); // 0..π
+  const angle = Math.PI * (1 - ratio);
   const px = cx + r * Math.cos(angle);
   const py = cy - r * Math.sin(angle);
 
@@ -411,35 +412,35 @@ export function svgGauge(opts) {
 
   let html = `<svg class="agri-chart" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" role="img">`;
 
-  // 刻度背景弧
   html += `<path d="M ${polar(180, r)[0].toFixed(2)} ${polar(180, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(0, r)[0].toFixed(2)} ${polar(0, r)[1].toFixed(2)}" fill="none" stroke="#21262d" stroke-width="14" stroke-linecap="round"/>`;
 
-  // 分区色带（危险红 -> 警示橙 -> 安全绿）
   (opts.zones || []).forEach(z => {
     const a0 = 180 - ((z.from - opts.min) / span) * 180;
     const a1 = 180 - ((z.to - opts.min) / span) * 180;
     html += `<path d="M ${polar(a0, r)[0].toFixed(2)} ${polar(a0, r)[1].toFixed(2)} A ${r} ${r} 0 0 1 ${polar(a1, r)[0].toFixed(2)} ${polar(a1, r)[1].toFixed(2)}" fill="none" stroke="${z.color}" stroke-width="14" stroke-linecap="butt" opacity="${z.opacity ?? 0.85}"/>`;
   });
 
-  // 指针
-  html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="#f0f6fc" stroke-width="2.5" stroke-linecap="round"/>`;
-  html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="#f0f6fc"/>`;
+  html += `<line x1="${cx.toFixed(2)}" y1="${cy.toFixed(2)}" x2="${px.toFixed(2)}" y2="${py.toFixed(2)}" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`;
+  html += `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="5" fill="currentColor"/>`;
 
-  // 刻度
-  for (let v = opts.min; v <= opts.max; v += Math.ceil(span / 6)) {
+  const tickStep = span / 4;
+  for (let v = opts.min; v <= opts.max + 0.01; v += tickStep) {
     const a = 180 - ((v - opts.min) / span) * 180;
     const [x1, y1] = polar(a, r + 10);
     const [x2, y2] = polar(a, r + 16);
-    html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="#6e7681" stroke-width="1"/>`;
+    const [lx, ly] = polar(a, r + 30);
+    html += `<line x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="currentColor" stroke-width="1.4" opacity="0.55"/>`;
+    html += `<text class="chart-axis-label" x="${lx.toFixed(2)}" y="${(ly + 4).toFixed(2)}" text-anchor="middle">${v >= opts.max ? '240+' : Math.round(v)}</text>`;
   }
 
-  // 数值
-  html += `<text class="chart-gauge-value" x="${cx.toFixed(2)}" y="${(cy - 34).toFixed(2)}" text-anchor="middle">${opts.format ? opts.format(val) : val}</text>`;
-  if (opts.unit) {
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy - 16).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.unit)}</text>`;
-  }
-  if (opts.label) {
-    html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy + 22).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.label)}</text>`;
+  if (!opts.hideCenterText) {
+    html += `<text class="chart-gauge-value" x="${cx.toFixed(2)}" y="${(cy - 28).toFixed(2)}" text-anchor="middle">${opts.format ? opts.format(val) : val}</text>`;
+    if (opts.unit) {
+      html += `<text class="chart-gauge-unit" x="${cx.toFixed(2)}" y="${(cy - 8).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.unit)}</text>`;
+    }
+    if (opts.label) {
+      html += `<text class="chart-axis-label" x="${cx.toFixed(2)}" y="${(cy + 16).toFixed(2)}" text-anchor="middle">${escapeHtml(opts.label)}</text>`;
+    }
   }
 
   html += `</svg>`;

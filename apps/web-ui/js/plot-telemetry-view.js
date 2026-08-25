@@ -1,8 +1,18 @@
 /**
  * Full-page plot telemetry view: plot slider + multi-metric time series charts.
  */
-import { api } from './api.js?v=20260824-telemetry-fix';
-import { TELEMETRY_METRICS, groupByMetric, drawLineChart } from './telemetry-charts.js';
+import { api } from './api.js?v=20260824-telemetry-risk';
+import { TELEMETRY_METRICS, groupByMetric, drawLineChart, assessMetricRisk, parseTargetRange } from './telemetry-charts.js?v=20260824-telemetry-risk';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
 
 export class PlotTelemetryView {
   constructor(app) {
@@ -37,6 +47,11 @@ export class PlotTelemetryView {
       }
       if (e.target.closest('#btnDrumNext')) {
         this.nudgeDrum(1);
+        return;
+      }
+      const riskCard = e.target.closest('[data-risk-metric]');
+      if (riskCard && this.container?.contains(riskCard)) {
+        this.focusMetric(riskCard.dataset.riskMetric);
         return;
       }
       if (this._suppressCardClick) return;
@@ -277,10 +292,11 @@ export class PlotTelemetryView {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (!canvas?.isConnected || this.expandedMetric !== code) return;
+          const band = this.chartBandFor(meta, this.app.state.plots.find((p) => p.plotId === this.plotId));
           drawLineChart(canvas, sorted, {
             color: meta.color,
-            targetLow: meta.targetLow,
-            targetHigh: meta.targetHigh,
+            targetLow: band.low,
+            targetHigh: band.high,
           });
         });
       });
@@ -299,8 +315,8 @@ export class PlotTelemetryView {
       <div class="telemetry-view">
         <div class="telemetry-view-toolbar">
           <div>
-            <h2 class="telemetry-view-title">地块监测数据时序可视化</h2>
-            <p class="telemetry-view-subtitle">选中地块各项环境指标随时间变化 · 数据来源：${
+            <h2 class="telemetry-view-title">地块数据监测</h2>
+            <p class="telemetry-view-subtitle">选中地块各项环境指标随时间变化，右侧高亮脱离标准区间的风险 · 数据来源：${
               api.isLive ? (api.liveSource === 'virtual-sensor' ? '内置虚拟传感器' : '后端 API') : 'Mock 演示'
             }</p>
           </div>
@@ -309,34 +325,30 @@ export class PlotTelemetryView {
             <button type="button" class="btn btn-sm btn-secondary" id="btnTelemetryBackHome">返回主面板</button>
           </div>
         </div>
-        <div class="plot-slider-wrap">
-          <div class="plot-slider" id="plotSliderTrack" role="tablist" aria-label="地块切换">
-            ${plots
-              .map(
-                (p) => `
-              <button type="button" class="plot-slider-item ${p.plotId === this.plotId ? 'active' : ''}"
-                data-plot-id="${p.plotId}" role="tab"
-                aria-selected="${p.plotId === this.plotId}">
-                <span class="plot-slider-emoji">${p.cropCode === 'tomato' ? '🍅' : '🥒'}</span>
-                <span class="plot-slider-name">${p.name}</span>
-                <span class="plot-slider-meta">${p.cropName} · ${p.metrics?.SOIL_MOISTURE?.value ?? '—'}%</span>
-              </button>`,
-              )
-              .join('')}
-          </div>
-        </div>
         <div class="telemetry-status-line" id="telemetryStatusLine">加载中…</div>
         <div class="telemetry-charts-area">
-          <div class="telemetry-drum" id="telemetryDrum">
-            <button type="button" class="telemetry-drum-nav telemetry-drum-nav--prev" id="btnDrumPrev" aria-label="上一指标">▲</button>
-            <div class="telemetry-drum-stage" id="telemetryDrumStage" tabindex="0" aria-label="指标圆柱滚筒">
-              <div class="telemetry-drum-tube" aria-hidden="true"></div>
-              <div class="telemetry-drum-cylinder" id="telemetryChartsGrid"></div>
+          <div class="telemetry-viz-pane">
+            <div class="telemetry-drum" id="telemetryDrum">
+              <button type="button" class="telemetry-drum-nav telemetry-drum-nav--prev" id="btnDrumPrev" aria-label="上一指标">▲</button>
+              <div class="telemetry-drum-stage" id="telemetryDrumStage" tabindex="0" aria-label="指标圆柱滚筒">
+                <div class="telemetry-drum-tube" aria-hidden="true"></div>
+                <div class="telemetry-drum-cylinder" id="telemetryChartsGrid"></div>
+              </div>
+              <button type="button" class="telemetry-drum-nav telemetry-drum-nav--next" id="btnDrumNext" aria-label="下一指标">▼</button>
+              <p class="telemetry-drum-hint">滚轮 / 拖动切换 · 点击正面卡片查看全时段</p>
             </div>
-            <button type="button" class="telemetry-drum-nav telemetry-drum-nav--next" id="btnDrumNext" aria-label="下一指标">▼</button>
-            <p class="telemetry-drum-hint">滚轮 / 拖动切换 · 点击正面卡片查看全时段</p>
+            <div class="telemetry-zoom-inline" id="telemetryZoomPanel" hidden></div>
           </div>
-          <div class="telemetry-zoom-inline" id="telemetryZoomPanel" hidden></div>
+          <aside class="telemetry-risk-rail" id="telemetryRiskRail" aria-label="指标偏离风险">
+            <header class="telemetry-risk-head">
+              <p class="telemetry-risk-kicker">STANDARD BAND</p>
+              <h3>偏离风险</h3>
+              <p>对照作物适宜区间，高亮已越界或逼近边界的指标</p>
+            </header>
+            <div class="telemetry-risk-list" id="telemetryRiskList">
+              <div class="telemetry-risk-empty">正在评估指标偏离风险…</div>
+            </div>
+          </aside>
         </div>
       </div>
     `;
@@ -347,33 +359,11 @@ export class PlotTelemetryView {
     this.container.querySelector('#btnTelemetryRefresh')?.addEventListener('click', () => {
       void this.refresh({ force: true });
     });
-    this.container.querySelectorAll('.plot-slider-item').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const id = btn.dataset.plotId;
-        if (id && id !== this.plotId) {
-          this.plotId = id;
-          this.app.selectPlot(id, { silent: true });
-          this.renderFrame();
-          this.playEnterAnimation();
-          void this.refresh({ force: true });
-        }
-      });
-    });
   }
 
   syncPlotSlider() {
-    const plots = this.app.state.plots;
-    this.container.querySelectorAll('.plot-slider-item').forEach((btn) => {
-      const plotId = btn.dataset.plotId;
-      const plot = plots.find((p) => p.plotId === plotId);
-      const active = plotId === this.plotId;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-selected', String(active));
-      const meta = btn.querySelector('.plot-slider-meta');
-      if (meta && plot) {
-        meta.textContent = `${plot.cropName} · ${plot.metrics?.SOIL_MOISTURE?.value ?? '—'}%`;
-      }
-    });
+    // 地块切换统一由工作区顶栏处理，此处仅同步当前 plotId。
+    this.plotId = this.app.state.currentPlotId;
   }
 
   async refresh(options = {}) {
@@ -448,15 +438,21 @@ export class PlotTelemetryView {
     }
 
     const plot = this.app.state.plots.find((p) => p.plotId === this.plotId);
+    const risks = this.collectRisks(byMetric, plot);
     grid.innerHTML = TELEMETRY_METRICS.map((meta) => {
       const series = byMetric[meta.code] || [];
       const latest = series[series.length - 1];
       const liveVal = latest ? Number(latest.value).toFixed(1) : (plot?.metrics?.[meta.code]?.value ?? '—');
+      const risk = risks.find((item) => item.code === meta.code);
+      const riskClass = risk?.level === 'alert' ? ' is-risk-alert' : risk?.level === 'warn' ? ' is-risk-warn' : '';
+      const riskPill = risk
+        ? `<span class="telemetry-chart-risk-pill">${risk.level === 'alert' ? '已越界' : '逼近边界'}</span>`
+        : '';
       return `
-        <article class="telemetry-chart-card" data-metric-card="${meta.code}" role="button" tabindex="-1" title="点击查看当天全时段曲线">
+        <article class="telemetry-chart-card${riskClass}" data-metric-card="${meta.code}" role="button" tabindex="-1" title="点击查看当天全时段曲线">
           <div class="telemetry-chart-card-inner">
             <div class="telemetry-chart-overlay">
-              <span class="telemetry-chart-name">${meta.label}</span>
+              <span class="telemetry-chart-name">${meta.label}${riskPill}</span>
               <span class="telemetry-chart-latest" data-latest-for="${meta.code}"><strong>${liveVal}</strong><small>${meta.unit}</small></span>
             </div>
             <div class="telemetry-chart-body">
@@ -470,17 +466,32 @@ export class PlotTelemetryView {
     this.scheduleDrawCharts(byMetric);
     this.bindCylinder();
     this.updateCylinder();
+    this.renderRiskCards(risks);
   }
 
   updateCharts(byMetric) {
     const plot = this.app.state.plots.find((p) => p.plotId === this.plotId);
     const grid = this.container.querySelector('#telemetryChartsGrid');
     if (!grid) return;
+    const risks = this.collectRisks(byMetric, plot);
 
     for (const meta of TELEMETRY_METRICS) {
       const series = byMetric[meta.code] || [];
       const latest = series[series.length - 1];
       const liveVal = latest ? Number(latest.value).toFixed(1) : (plot?.metrics?.[meta.code]?.value ?? '—');
+      const risk = risks.find((item) => item.code === meta.code);
+      const card = grid.querySelector(`[data-metric-card="${meta.code}"]`);
+      if (card) {
+        card.classList.toggle('is-risk-alert', risk?.level === 'alert');
+        card.classList.toggle('is-risk-warn', risk?.level === 'warn');
+        const nameEl = card.querySelector('.telemetry-chart-name');
+        if (nameEl) {
+          const pill = risk
+            ? `<span class="telemetry-chart-risk-pill">${risk.level === 'alert' ? '已越界' : '逼近边界'}</span>`
+            : '';
+          nameEl.innerHTML = `${meta.label}${pill}`;
+        }
+      }
 
       const latestEl = grid.querySelector(`[data-latest-for="${meta.code}"]`);
       if (latestEl) {
@@ -489,14 +500,16 @@ export class PlotTelemetryView {
 
       const canvas = grid.querySelector(`canvas[data-metric="${meta.code}"]`);
       if (canvas) {
+        const band = this.chartBandFor(meta, plot);
         drawLineChart(canvas, series, {
           color: meta.color,
-          targetLow: meta.targetLow,
-          targetHigh: meta.targetHigh,
+          targetLow: band.low,
+          targetHigh: band.high,
         });
       }
     }
     this.applyCylinder();
+    this.renderRiskCards(risks);
   }
 
   scheduleDrawCharts(byMetric) {
@@ -508,10 +521,12 @@ export class PlotTelemetryView {
           const code = canvas.dataset.metric;
           const meta = TELEMETRY_METRICS.find((m) => m.code === code);
           const series = byMetric[code] || [];
+          const plot = this.app.state.plots.find((p) => p.plotId === this.plotId);
+          const band = this.chartBandFor(meta, plot);
           drawLineChart(canvas, series, {
             color: meta?.color,
-            targetLow: meta?.targetLow,
-            targetHigh: meta?.targetHigh,
+            targetLow: band.low,
+            targetHigh: band.high,
           });
         });
         this.updateCylinder();
@@ -527,6 +542,47 @@ export class PlotTelemetryView {
       return;
     }
     this.renderCharts();
+  }
+
+  chartBandFor(meta, plot) {
+    const range = parseTargetRange(plot?.metrics?.[meta?.code]?.target, meta || {});
+    return {
+      low: range?.low ?? meta?.targetLow ?? null,
+      high: range?.high ?? meta?.targetHigh ?? null
+    };
+  }
+
+  collectRisks(byMetric, plot) {
+    return TELEMETRY_METRICS
+      .map((meta) => assessMetricRisk(meta, byMetric[meta.code] || [], plot?.metrics?.[meta.code]))
+      .filter((item) => item && item.level !== 'ok')
+      .sort((a, b) => (a.level === 'alert' ? 0 : 1) - (b.level === 'alert' ? 0 : 1));
+  }
+
+  renderRiskCards(risks) {
+    const list = this.container?.querySelector('#telemetryRiskList');
+    if (!list) return;
+    if (!risks.length) {
+      list.innerHTML = '<div class="telemetry-risk-empty">当前监测指标均在标准区间内</div>';
+      return;
+    }
+    list.innerHTML = risks.map((risk) => `
+      <button type="button" class="telemetry-risk-card is-${risk.level}" data-risk-metric="${escapeHtml(risk.code)}" title="查看 ${escapeHtml(risk.label)} 曲线">
+        <span class="telemetry-risk-level">${risk.level === 'alert' ? '已越界' : '逼近边界'}</span>
+        <strong>${escapeHtml(risk.label)}</strong>
+        <b>${escapeHtml(risk.displayValue)} <small>${escapeHtml(risk.unit)}</small></b>
+        <span>${escapeHtml(risk.hint)}</span>
+      </button>
+    `).join('');
+  }
+
+  focusMetric(code) {
+    const idx = TELEMETRY_METRICS.findIndex((meta) => meta.code === code);
+    if (idx < 0) return;
+    const n = this.metricCount();
+    const target = this.drumOffset + this.shortestDelta(idx, this.drumOffset, n);
+    this.animateDrumTo(target);
+    if (this.expandedMetric) this.openMetricZoom(code);
   }
 
   bindCylinder() {

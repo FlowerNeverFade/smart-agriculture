@@ -145,36 +145,29 @@ const SKY_FRAG = /* glsl */ `
   varying vec3 vDir;
   void main() {
     vec3 dir = normalize(vDir);
-    float h = clamp(dir.y * 0.52 + 0.32, 0.0, 1.0);
-    vec3 col = mix(uHorizon, uZenith, smoothstep(0.02, 0.78, h));
+    // Match farm-monitor height blend for a clearer blue zenith
+    float heightMix = smoothstep(-0.02, 0.72, dir.y);
+    vec3 col = mix(uHorizon, uZenith, heightMix);
 
-    float rayleigh = pow(1.0 - max(dir.y, 0.0), 2.6);
-    col = mix(col, uHaze * vec3(1.08, 0.9, 0.68), rayleigh * mix(0.1, 0.34, uSunGlow));
+    // Cool atmospheric haze only (avoid warm orange wash that desaturates blue)
+    float rayleigh = pow(1.0 - max(dir.y, 0.0), 2.8);
+    col = mix(col, uHaze, rayleigh * mix(0.05, 0.14, uSunGlow));
+    float band = exp(-pow((heightMix - 0.08) / 0.14, 2.0));
+    col = mix(col, mix(uHorizon, uHaze, 0.35), band * mix(0.08, 0.18, uSunGlow));
 
-    float band = exp(-pow((h - 0.06) / 0.12, 2.0));
-    col = mix(col, uHaze, band * mix(0.18, 0.58, uSunGlow));
-    col += uHaze * exp(-pow(dir.y * 4.4, 2.0)) * mix(0.06, 0.2, uSunGlow);
-
+    // Smaller constant-size sun + soft glow (no hard outline)
     float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
-    float sunDisk = smoothstep(0.992, 0.9996, sunDot) * uSunGlow;
-    col = mix(col, vec3(1.0, 0.88, 0.55), sunDisk);
-    col += vec3(1.0, 0.7, 0.32) * pow(sunDot, 5.0) * uSunGlow * 0.26;
-    col += vec3(1.0, 0.82, 0.48) * pow(sunDot, 16.0) * uSunGlow * 0.18;
-    col += vec3(1.0, 0.92, 0.66) * pow(sunDot, 80.0) * uSunGlow * 0.22;
-    col += vec3(1.0, 0.94, 0.78) * pow(sunDot, 220.0) * uSunGlow * 0.16;
+    float sunDisk = smoothstep(0.9972, 0.9997, sunDot);
+    float sunSoft = pow(sunDot, 280.0) * 0.22;
+    float sunGlowSoft = pow(sunDot, 48.0) * 0.1;
+    col += vec3(1.0, 0.84, 0.38) * (sunDisk * 0.95 + sunSoft) * uSunGlow;
+    col += vec3(1.0, 0.88, 0.48) * sunGlowSoft * uSunGlow;
 
-    float ang = atan(dir.x, dir.z);
-    float shafts = pow(sunDot, 9.0) * (0.5 + 0.5 * sin(ang * 14.0 + dir.y * 6.0));
-    col += vec3(1.0, 0.76, 0.38) * shafts * uSunGlow * 0.1;
-    float aniso = pow(sunDot, 24.0) * abs(dir.x) * (1.0 - abs(dir.y));
-    col += vec3(1.0, 0.84, 0.5) * aniso * uSunGlow * 0.12;
-
+    // Constant-size cool moon disc
     float moonDot = max(dot(dir, normalize(uMoonDir)), 0.0);
-    float moonDisk = smoothstep(0.993, 0.9997, moonDot) * uMoonGlow;
-    col += vec3(0.94, 0.96, 1.0) * moonDisk;
-    col += vec3(0.72, 0.82, 1.0) * pow(moonDot, 14.0) * uMoonGlow * 0.32;
-    col += vec3(0.82, 0.88, 1.0) * pow(moonDot, 48.0) * uMoonGlow * 0.24;
-    col += vec3(0.7, 0.78, 1.0) * pow(moonDot, 6.0) * uMoonGlow * 0.1;
+    float moonDisk = smoothstep(0.9942, 0.9995, moonDot);
+    float moonRim = pow(moonDot, 160.0) * 0.16;
+    col += vec3(0.86, 0.91, 1.0) * (moonDisk * 1.05 + moonRim) * uMoonGlow;
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -328,98 +321,6 @@ function makeCloudTexture(variant = 0) {
   texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
   return texture;
-}
-
-function makeCelestialTexture(kind) {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size * 0.46;
-
-  if (kind === 'sun') {
-    // Soft outer halo (does not wash out the disc).
-    const halo = ctx.createRadialGradient(cx, cy, r * 0.46, cx, cy, r);
-    halo.addColorStop(0, 'rgba(255,220,150,0.14)');
-    halo.addColorStop(0.5, 'rgba(255,200,110,0.04)');
-    halo.addColorStop(1, 'rgba(255,190,80,0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(0, 0, size, size);
-
-    // Solid disc with a warm gradient so it stands out against a pale sky.
-    const discR = r * 0.34;
-    const body = ctx.createRadialGradient(cx - discR * 0.22, cy - discR * 0.22, 0, cx, cy, discR);
-    body.addColorStop(0, 'rgba(255,240,185,1)');
-    body.addColorStop(0.6, 'rgba(252,222,150,1)');
-    body.addColorStop(1, 'rgba(238,192,92,1)');
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Rim outline so the contour stays visible on bright backgrounds.
-    ctx.strokeStyle = 'rgba(160,92,24,0.92)';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
-    ctx.stroke();
-  } else {
-    const halo = ctx.createRadialGradient(cx, cy, r * 0.28, cx, cy, r);
-    halo.addColorStop(0, 'rgba(220,228,242,0.28)');
-    halo.addColorStop(0.5, 'rgba(200,210,228,0.07)');
-    halo.addColorStop(1, 'rgba(180,190,210,0)');
-    ctx.fillStyle = halo;
-    ctx.fillRect(0, 0, size, size);
-
-    const discR = r * 0.30;
-    const body = ctx.createRadialGradient(cx - discR * 0.25, cy - discR * 0.25, 0, cx, cy, discR);
-    body.addColorStop(0, 'rgba(246,250,255,1)');
-    body.addColorStop(0.7, 'rgba(228,234,246,1)');
-    body.addColorStop(1, 'rgba(206,214,232,1)');
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(148,160,186,0.5)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, discR, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(168,178,198,0.4)';
-    for (const [ox, oy, rr] of [
-      [0.12, -0.08, 0.09],
-      [-0.14, 0.1, 0.07],
-      [0.05, 0.16, 0.06],
-      [-0.06, -0.15, 0.05],
-    ]) {
-      ctx.beginPath();
-      ctx.arc(cx + ox * r, cy + oy * r, rr * r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.needsUpdate = true;
-  return texture;
-}
-
-function createSkySprite(texture, scale) {
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    depthTest: false,
-    depthWrite: false,
-    fog: false,
-  });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(scale, scale, 1);
-  sprite.renderOrder = 50;
-  return sprite;
 }
 
 function terrainHeight(x, z) {
@@ -797,6 +698,14 @@ export function initRiumBackground(containerId = 'riumBackground') {
   const revealFromLook = new THREE.Vector3();
   const lookTarget = new THREE.Vector3(0, 1.45, -0.8);
   let revealDone = null;
+  let entryDiveT = -1;
+  let entryDiveDone = null;
+  let entryDiveTimeout = 0;
+  const entryDiveFromPos = new THREE.Vector3();
+  const entryDiveFromLook = new THREE.Vector3();
+  // 主页入场：镜头上仰，切入天空（与监测界面天空衔接）
+  const entryDiveToPos = new THREE.Vector3(0, 10.8, 12.5);
+  const entryDiveToLook = new THREE.Vector3(0, 42, -18);
   if (reducedMotion) {
     bootMode = false;
     camera.fov = 48;
@@ -858,22 +767,23 @@ export function initRiumBackground(containerId = 'riumBackground') {
   skyDome.renderOrder = 0;
   scene.add(skyDome);
 
-  const sunTexture = makeCelestialTexture('sun');
-  const moonTexture = makeCelestialTexture('moon');
-  const sunSprite = createSkySprite(sunTexture, 24);
-  const CELESTIAL_PEAK = { x: 18, y: 20, z: -58 };
+  // Invisible anchors for sun/moon direction — no visible moon sprite (looked like emoji)
+  const sunAnchor = new THREE.Object3D();
+  const moonAnchor = new THREE.Object3D();
+  const CELESTIAL_PEAK = { x: 18, y: 22, z: -58 };
   const CELESTIAL_ENTER_Y = 40;
   const CELESTIAL_EXIT_Y = -30;
-  sunSprite.position.set(CELESTIAL_PEAK.x, CELESTIAL_PEAK.y, CELESTIAL_PEAK.z);
-  camera.add(sunSprite);
+  const probe = new THREE.Object3D();
+  probe.position.set(CELESTIAL_PEAK.x, CELESTIAL_PEAK.y, CELESTIAL_PEAK.z);
+  camera.add(probe);
   camera.updateMatrixWorld();
   const celestialBase = new THREE.Vector3();
-  sunSprite.getWorldPosition(celestialBase);
-  camera.remove(sunSprite);
-  sunSprite.position.copy(celestialBase);
-
-  const moonSprite = createSkySprite(moonTexture, 20);
-  moonSprite.position.copy(celestialBase);
+  probe.getWorldPosition(celestialBase);
+  camera.remove(probe);
+  sunAnchor.position.copy(celestialBase);
+  moonAnchor.position.copy(celestialBase);
+  scene.add(sunAnchor);
+  scene.add(moonAnchor);
 
   const sunDirWorld = new THREE.Vector3();
   const moonDirWorld = new THREE.Vector3();
@@ -960,8 +870,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
   }
 
   function syncSkyDirections() {
-    sunSprite.getWorldPosition(sunDirWorld);
-    moonSprite.getWorldPosition(moonDirWorld);
+    sunAnchor.getWorldPosition(sunDirWorld);
+    moonAnchor.getWorldPosition(moonDirWorld);
     sunDirWorld.sub(camera.position).normalize();
     moonDirWorld.sub(camera.position).normalize();
     skyMat.uniforms.uSunDir.value.copy(sunDirWorld);
@@ -972,8 +882,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
   }
 
   function setDayNight(isDay) {
-    sunSprite.visible = isDay;
-    moonSprite.visible = !isDay;
+    sunAnchor.visible = isDay;
+    moonAnchor.visible = !isDay;
     clouds.visible = isDay;
     stars.visible = !isDay;
     pollen.visible = isDay;
@@ -1171,38 +1081,43 @@ export function initRiumBackground(containerId = 'riumBackground') {
       const moonEntering = to === 'dark';
       const sg = sunEntering ? progress : 1 - progress;
       const mg = moonEntering ? progress : 1 - progress;
-      sunSprite.visible = true;
-      moonSprite.visible = true;
+      sunAnchor.visible = true;
+      moonAnchor.visible = true;
       const sunLocalY = sunEntering
         ? THREE.MathUtils.lerp(CELESTIAL_ENTER_Y, CELESTIAL_PEAK.y, progress)
         : THREE.MathUtils.lerp(CELESTIAL_PEAK.y, CELESTIAL_EXIT_Y, progress);
       const moonLocalY = moonEntering
         ? THREE.MathUtils.lerp(CELESTIAL_ENTER_Y, CELESTIAL_PEAK.y, progress)
         : THREE.MathUtils.lerp(CELESTIAL_PEAK.y, CELESTIAL_EXIT_Y, progress);
-      sunSprite.position.x = celestialBase.x;
-      moonSprite.position.x = celestialBase.x;
-      sunSprite.position.y = celestialBase.y + (sunLocalY - CELESTIAL_PEAK.y);
-      moonSprite.position.y = celestialBase.y + (moonLocalY - CELESTIAL_PEAK.y);
-      sunSprite.material.opacity = Math.pow(sg, 0.85);
-      moonSprite.material.opacity = Math.pow(mg, 0.85);
-      clouds.visible = sg > 0.06;
+      sunAnchor.position.x = celestialBase.x;
+      moonAnchor.position.x = celestialBase.x;
+      sunAnchor.position.y = celestialBase.y + (sunLocalY - CELESTIAL_PEAK.y);
+      moonAnchor.position.y = celestialBase.y + (moonLocalY - CELESTIAL_PEAK.y);
+
+      // Clouds: gradual dissolve into night / soft reappear into day (not a hard snap)
+      const cloudFade = sunEntering
+        ? THREE.MathUtils.smoothstep(progress, 0.1, 0.78)
+        : 1 - THREE.MathUtils.smoothstep(progress, 0.08, 0.92);
+      const dayCloudOpacity = PALETTES.light.cloudOpacity ?? 0.82;
+      clouds.visible = cloudFade > 0.015;
+      clouds.position.y = THREE.MathUtils.lerp(0, 3.2, 1 - cloudFade);
       for (const mat of cloudMaterials) {
-        mat.uniforms.uOpacity.value = (palette.cloudOpacity ?? 0.88) * sg;
+        mat.uniforms.uOpacity.value = dayCloudOpacity * cloudFade;
       }
+
       stars.visible = mg > 0.06;
       pollen.visible = sg > 0.45;
       syncSkyDirections();
     } else {
-      sunSprite.position.copy(celestialBase);
-      moonSprite.position.copy(celestialBase);
-      sunSprite.material.opacity = 1;
-      moonSprite.material.opacity = 1;
+      sunAnchor.position.copy(celestialBase);
+      moonAnchor.position.copy(celestialBase);
+      clouds.position.y = 0;
       setDayNight(isDay);
     }
 
     if (!transition) {
       for (const mat of cloudMaterials) {
-        mat.uniforms.uOpacity.value = isDay ? (palette.cloudOpacity ?? 0.88) : 0;
+        mat.uniforms.uOpacity.value = isDay ? (PALETTES.light.cloudOpacity ?? 0.82) : 0;
       }
     }
 
@@ -1228,8 +1143,13 @@ export function initRiumBackground(containerId = 'riumBackground') {
 
   function onThemeTransition(e) {
     const { from, to, progress } = e.detail;
-    const sunGlow = to === 'light' ? progress : 1 - progress;
-    const moonGlow = 1 - sunGlow;
+    // Brightness-only fade; disc angular size stays constant in the sky shader
+    const sunGlow = to === 'light'
+      ? THREE.MathUtils.smoothstep(progress, 0.04, 0.42)
+      : 1 - THREE.MathUtils.smoothstep(progress, 0.58, 0.96);
+    const moonGlow = to === 'dark'
+      ? THREE.MathUtils.smoothstep(progress, 0.04, 0.42)
+      : 1 - THREE.MathUtils.smoothstep(progress, 0.58, 0.96);
     applyPalette(blendPalettes(from, to, progress), { sunGlow, moonGlow, to, progress });
   }
 
@@ -1278,6 +1198,21 @@ export function initRiumBackground(containerId = 'riumBackground') {
       camera.lookAt(lookTarget);
       camera.fov = THREE.MathUtils.lerp(32, 46, widen);
       camera.updateProjectionMatrix();
+    } else if (entryDiveT >= 0 && entryDiveT < 1) {
+      entryDiveT = Math.min(1, entryDiveT + 0.011);
+      const e = 1 - (1 - entryDiveT) ** 3;
+      camera.position.lerpVectors(entryDiveFromPos, entryDiveToPos, e);
+      lookTarget.lerpVectors(entryDiveFromLook, entryDiveToLook, e);
+      camera.lookAt(lookTarget);
+      camera.fov = THREE.MathUtils.lerp(48, 54, e);
+      camera.updateProjectionMatrix();
+      if (entryDiveT >= 1 && entryDiveDone) {
+        clearTimeout(entryDiveTimeout);
+        entryDiveTimeout = 0;
+        const done = entryDiveDone;
+        entryDiveDone = null;
+        done();
+      }
     } else if (revealT < 1) {
       revealT = Math.min(1, revealT + 0.012);
       const e = 1 - (1 - revealT) ** 3;
@@ -1305,7 +1240,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
   function animate(t) {
     rafId = requestAnimationFrame(animate);
     const revealing = !bootMode && revealT < 1;
-    if ((!visible || !externallyVisible) && !bootMode && !revealing) return;
+    const diving = entryDiveT >= 0 && entryDiveT < 1;
+    if ((!visible || !externallyVisible) && !bootMode && !revealing && !diving) return;
     try {
       renderFrame(t);
     } catch (err) {
@@ -1418,6 +1354,38 @@ export function initRiumBackground(containerId = 'riumBackground') {
     });
   }
 
+  function restoreHomeCamera() {
+    entryDiveT = -1;
+    entryDiveDone = null;
+    clearTimeout(entryDiveTimeout);
+    entryDiveTimeout = 0;
+    camera.position.set(HOME_POS.x, HOME_POS.y, HOME_POS.z);
+    lookTarget.set(HOME_LOOK.x, HOME_LOOK.y, HOME_LOOK.z);
+    camera.fov = 48;
+    camera.lookAt(lookTarget);
+    camera.updateProjectionMatrix();
+  }
+
+  function playFarmEntryDive() {
+    if (reducedMotion) return Promise.resolve();
+    externallyVisible = true;
+    if (!rafId) rafId = requestAnimationFrame(animate);
+    entryDiveFromPos.set(camera.position.x, camera.position.y, camera.position.z);
+    entryDiveFromLook.copy(lookTarget);
+    entryDiveT = 0;
+    return new Promise((resolve) => {
+      entryDiveDone = resolve;
+      clearTimeout(entryDiveTimeout);
+      entryDiveTimeout = window.setTimeout(() => {
+        if (!entryDiveDone) return;
+        entryDiveT = 1;
+        const done = entryDiveDone;
+        entryDiveDone = null;
+        done();
+      }, 2800);
+    });
+  }
+
   fieldInstance = {
     setVisible(value) {
       externallyVisible = value !== false;
@@ -1432,6 +1400,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
     getBootProgress,
     waitUntilBootProgress,
     revealFromBoot,
+    restoreHomeCamera,
+    playFarmEntryDive,
     dispose() {
       fieldInstance = null;
       cancelAnimationFrame(rafId);
@@ -1443,10 +1413,6 @@ export function initRiumBackground(containerId = 'riumBackground') {
       renderer.dispose();
       skyGeo.dispose();
       skyMat.dispose();
-      sunTexture.dispose();
-      moonTexture.dispose();
-      sunSprite.material.dispose();
-      moonSprite.material.dispose();
       starGeo.dispose();
       starMat.dispose();
       cloudGeo.dispose();

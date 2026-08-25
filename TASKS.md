@@ -61,6 +61,8 @@
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `6183803`、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Agent 黑盒证据、LoRA v3 双 GPU 回归 |
 | T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | 最新 `lxh-frontend` 3D 监测切片（全图雨云/漫游/18 槽位）；`quhl` 最新真实作物背景 + 保留 WebGL 动效 + JWT/离线演示会话；`rium_dev` 麦田背景 + 液态玻璃兼容叠加；`feat/farm-operations` 工单/巡田/资源约束/交互沙盘选择性移植；`yyx` 预测/情景双轨/价值账本/四类 Crop Pack/命令面板/首页摘要均已适配并通过 svg/stub/real 回归；未合并名为 `task5` 的分支 |
+| T-042 | P0 | 修复左侧地块/作物切换与右侧功能子界面的上下文联动 | Codex | — | D15+ | 已完成 | `apps/web-ui/js/app.js` 统一同步 `plotId`；风险预测/时序监测/Crop Pack/决策护照真实浏览器回归通过，见 `docs/acceptance/FRONTEND_PLOT_CONTEXT_ACCEPTANCE.md` |
+| T-043 | P0 | 精简农务巡田光标特效、下移执行藤蔓、强化状态并绑定左侧地块 | Codex | — | D15+ | 已完成 | A01/A02 真实浏览器回归通过；任务/表单均绑定当前 `plotId`，见 `docs/acceptance/FRONTEND_FARM_OPERATIONS_UI_ACCEPTANCE.md` |
 
 ### 2.1 核心八项能力任务映射
 

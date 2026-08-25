@@ -48,6 +48,130 @@ body.farm-monitor-open > .app-container {
   opacity: 1;
 }
 
+.farm-monitor-shell.is-entering {
+  opacity: 0;
+}
+
+.farm-monitor-shell.is-entering.active {
+  opacity: 1;
+  transition: opacity 720ms var(--farm-ease);
+}
+
+/* 入场只淡入主控 UI；弹窗/Toast 保持各自默认隐藏态，避免被强制 opacity:1 后无法关闭 */
+.farm-monitor-shell.is-intro-active > .farm-tool-rail,
+.farm-monitor-shell.is-intro-active > .farm-sector-nav,
+.farm-monitor-shell.is-intro-active > .farm-top-actions,
+.farm-monitor-shell.is-intro-active > .farm-reclaim-banner,
+.farm-monitor-shell.is-intro-active > .farm-marker-layer,
+.farm-monitor-shell.is-intro-active > .farm-wind-readout,
+.farm-monitor-shell.is-intro-active > .farm-scene-hint,
+.farm-monitor-shell.is-intro-active > .farm-env-dock,
+.farm-monitor-shell.is-intro-active > .farm-detail-panel {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
+}
+
+.farm-monitor-shell.is-intro-complete > .farm-tool-rail,
+.farm-monitor-shell.is-intro-complete > .farm-sector-nav,
+.farm-monitor-shell.is-intro-complete > .farm-top-actions,
+.farm-monitor-shell.is-intro-complete > .farm-reclaim-banner,
+.farm-monitor-shell.is-intro-complete > .farm-marker-layer,
+.farm-monitor-shell.is-intro-complete > .farm-wind-readout,
+.farm-monitor-shell.is-intro-complete > .farm-scene-hint,
+.farm-monitor-shell.is-intro-complete > .farm-env-dock,
+.farm-monitor-shell.is-intro-complete > .farm-detail-panel {
+  opacity: 1;
+  transform: none;
+  transition: opacity 680ms ease 140ms, transform 680ms var(--farm-ease) 140ms;
+}
+
+.farm-monitor-shell.is-intro-complete > .farm-reclaim-banner:not(.open),
+.farm-monitor-shell.is-intro-complete > .farm-detail-panel:not(.open) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.farm-entry-transition > .app-header,
+body.farm-entry-transition > .app-container {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 420ms ease;
+}
+
+.farm-entry-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 480;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 420ms ease, visibility 420ms ease;
+}
+
+.farm-entry-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.farm-entry-overlay__vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 42%, transparent 34%, rgba(10, 28, 20, 0.28) 82%),
+    linear-gradient(180deg, rgba(12, 32, 24, 0.04), rgba(12, 32, 24, 0.22));
+  transition: opacity 420ms ease;
+}
+
+.farm-entry-overlay.is-sky-bridge .farm-entry-overlay__vignette {
+  opacity: 0.35;
+}
+
+.farm-entry-overlay.is-sky-bridge .farm-entry-overlay__content {
+  background: rgba(12, 42, 31, 0.38);
+}
+
+.farm-entry-overlay__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px 28px;
+  border-radius: 20px;
+  color: rgba(244, 255, 248, 0.95);
+  background: rgba(12, 42, 31, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 24px 56px rgba(6, 24, 16, 0.42);
+}
+
+.farm-entry-overlay__content i {
+  font-size: 28px;
+  color: var(--farm-green-glow);
+  animation: farmWorldLoadingSpin 1s linear infinite;
+}
+
+.farm-entry-overlay__content strong {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.farm-entry-overlay__content span {
+  max-width: 360px;
+  color: rgba(224, 242, 230, 0.72);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .farm-entry-overlay__content i { animation: none; }
+  .farm-monitor-shell.is-entering.active { transition: none; }
+  .farm-monitor-shell.is-intro-complete > :not(.farm-world-host):not(.farm-world-loading) { transition: none; }
+}
+
 /* =========================================================================
    3D World Host & Canvas
    ========================================================================= */
@@ -1593,8 +1717,14 @@ body.farm-monitor-open > .app-container {
 }
 
 .farm-reclaim-dialog-backdrop.open {
-  opacity: 1;
+  opacity: 1 !important;
   pointer-events: auto;
+}
+
+.farm-monitor-shell .farm-reclaim-dialog-backdrop:not(.open),
+.farm-monitor-shell .farm-dialog-backdrop:not(.open) {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .farm-reclaim-card {

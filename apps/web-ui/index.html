@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css?v=20260824-layout-fix">
+  <link rel="stylesheet" href="css/style.css?v=20260824-text-lean">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="css/farm-monitor.css?v=20260824-stable-3d">
-  <link rel="stylesheet" href="css/modules/forecast.css?v=20260824-forecast-v3">
+  <link rel="stylesheet" href="css/farm-monitor.css?v=20260824-farm-sky">
+  <link rel="stylesheet" href="css/modules/forecast.css?v=20260825-transparent-cards">
   <link rel="stylesheet" href="css/modules/value-ledger.css?v=20260824-forecast-v3">
   <link rel="stylesheet" href="css/modules/crop-packs.css?v=20260824-forecast-v3">
-  <link rel="stylesheet" href="css/modules/work-orders.css?v=20260824-forecast-v3">
-  <link rel="stylesheet" href="css/rium-glass.css?v=20260824-rail-toggle-fix">
+  <link rel="stylesheet" href="css/modules/work-orders.css?v=20260824-theme-v1">
+  <link rel="stylesheet" href="css/rium-glass.css?v=20260825-transparent-cards">
   <!-- Favicon Icon -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   <script>
@@ -128,7 +128,6 @@
 
     <!-- ======================== Left Rail (290px) ======================== -->
     <aside class="left-rail">
-      <!-- 1. Plots & Crops Switcher -->
       <section class="rail-section">
         <div class="rail-section-header">
           <span class="rail-section-title">地块与作物</span>
@@ -139,107 +138,124 @@
           <option value="farm-demo">示范农场 (重庆 · 科学城)</option>
         </select>
 
-        <input type="text" class="plot-filter-input" id="plotSearchInput" placeholder="快速筛选地块 (名称/作物)...">
-
-        <ul class="plot-list" id="plotListContainer">
-          <!-- Dynamically populated by JS -->
-        </ul>
+        <input type="text" class="plot-filter-input" id="plotSearchInput" placeholder="筛选地块 (名称/作物)…">
       </section>
 
-      <!-- 2. Sub-Modules Navigation (Reserved Sub-views) -->
       <section class="rail-section">
         <div class="rail-section-header">
           <span class="rail-section-title">功能子模块导航</span>
           <span class="module-badge highlight">全景闭环</span>
         </div>
 
-        <ul class="module-nav-list" id="moduleNavList">
-          <li>
-            <a class="module-nav-item active" data-view="home">
-              <span><span class="icon">🏠</span>主面板 (Home)</span>
-              <span class="module-badge">实时</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="plot-detail">
-              <span><span class="icon">🌾</span>农田动态监测 (3D)</span>
-              <span class="module-badge highlight">重点</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="plot-telemetry">
-              <span><span class="icon">📊</span>地块监测数据时序可视化</span>
-              <span class="module-badge">B-01~03</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="decision-console">
-              <span><span class="icon">🧠</span>智能诊断与决策台</span>
-              <span class="module-badge">CAP-04/05</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="work-orders">
-              <span><span class="icon">📋</span>今日农务与巡田</span>
-              <span class="module-badge">CAP-02/03</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="risk-forecast">
-              <span><span class="icon">🔮</span>未来风险预测推演</span>
-              <span class="module-badge">CAP-09</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="resource-coordination">
-              <span><span class="icon">💧</span>水资源协同排程</span>
-              <span class="module-badge">CAP-11</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="value-ledger">
-              <span><span class="icon">💰</span>经营价值与效益对账</span>
-              <span class="module-badge">CAP-12</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="decision-passport">
-              <span><span class="icon">🛡️</span>决策护照与审计</span>
-              <span class="module-badge">CAP-13</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="scenario-replay">
-              <span><span class="icon">⚡</span>情景模拟与双轨回放</span>
-              <span class="module-badge">Gate 2</span>
-            </a>
-          </li>
-          <li>
-            <a class="module-nav-item" data-view="crop-packs">
-              <span><span class="icon">📦</span>作物规则包管理</span>
-              <span class="module-badge">Schema</span>
-            </a>
-          </li>
-        </ul>
+        <div class="module-nav-groups" id="moduleNavList">
+          <div class="module-nav-group">
+            <div class="module-nav-group-label">核心闭环</div>
+            <ul class="module-nav-list">
+              <li>
+                <a class="module-nav-item active" data-view="home">
+                  <span><span class="icon">🏠</span>主面板 (Home)</span>
+                  <span class="module-badge">总览</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="decision-feed">
+                  <span><span class="icon">📡</span>关键动态消息</span>
+                  <span class="module-badge">实时</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="plot-detail">
+                  <span><span class="icon">🌾</span>农田动态监测 (3D)</span>
+                  <span class="module-badge highlight">重点</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="decision-console">
+                  <span><span class="icon">🧠</span>智能诊断与决策台</span>
+                  <span class="module-badge">CAP-04/05</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="module-nav-group">
+            <div class="module-nav-group-label">增强能力</div>
+            <ul class="module-nav-list">
+              <li>
+                <a class="module-nav-item" data-view="plot-telemetry">
+                  <span><span class="icon">📊</span>地块数据监测</span>
+                  <span class="module-badge">B-01~03</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="work-orders">
+                  <span><span class="icon">📋</span>今日农务与巡田</span>
+                  <span class="module-badge">CAP-02/03</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="risk-forecast">
+                  <span><span class="icon">🔮</span>未来风险预测推演</span>
+                  <span class="module-badge">CAP-09</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="resource-coordination">
+                  <span><span class="icon">💧</span>水资源协同排程</span>
+                  <span class="module-badge">CAP-11</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="decision-passport">
+                  <span><span class="icon">🛡️</span>决策护照与审计</span>
+                  <span class="module-badge">CAP-13</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="scenario-replay">
+                  <span><span class="icon">⚡</span>情景模拟与双轨回放</span>
+                  <span class="module-badge">Gate 2</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="module-nav-group">
+            <div class="module-nav-group-label">经营与指导</div>
+            <ul class="module-nav-list">
+              <li>
+                <a class="module-nav-item" data-view="crop-packs">
+                  <span><span class="icon">📦</span>作物培养指导</span>
+                  <span class="module-badge">手册</span>
+                </a>
+              </li>
+              <li>
+                <a class="module-nav-item" data-view="value-ledger">
+                  <span><span class="icon">💰</span>经营价值与效益对账</span>
+                  <span class="module-badge">CAP-12</span>
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
       </section>
     </aside>
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
-      <div id="homeFeedContent">
-      <div class="main-feed-header">
-        <h1 class="main-feed-title">
-          <span>Home</span>
-          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/ 示范农场全域</span>
-        </h1>
-        <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
+      <!-- 工作区顶部：地块选择卡片（与当前功能子界面共享上下文） -->
+      <div class="workspace-plot-slider" id="workspacePlotContext">
+        <div class="plot-slider-wrap workspace-plot-slider-wrap">
+          <div class="plot-slider" id="plotSliderTrack" role="tablist" aria-label="地块切换">
+            <!-- Dynamically populated by JS -->
+          </div>
+        </div>
       </div>
 
-      <!-- 预测、经营、Crop Pack 快速摘要（yyx 增强能力；点击进入独立模块） -->
-      <div class="home-summary-grid" id="homeSummaryGrid"></div>
-
-      <!-- Copilot Agent Prompt Box -->
-      <div class="copilot-prompt-card">
+      <div class="workspace-content" id="workspaceContent">
+      <div id="homeFeedContent">
+      <!-- 自然语言指令框置顶 -->
+      <div class="copilot-prompt-card home-copilot-top">
         <div class="copilot-connection-row">
           <span class="copilot-connection-status" id="copilotConnectionStatus">登录后连接服务器上的 Qwen3.8-27B</span>
           <button class="btn-ghost copilot-login-link" id="btnCopilotLogin" type="button">登录</button>
@@ -262,7 +278,6 @@
           </button>
         </div>
 
-        <!-- Dynamic Output Banner -->
         <div class="copilot-output-banner" id="copilotOutputBanner">
           <div class="copilot-output-header">
             <span id="copilotOutputTitle">🤖 AgriLoop Agent 协同结果</span>
@@ -272,44 +287,52 @@
         </div>
       </div>
 
-      <!-- Feed Filter Bar -->
-      <div class="feed-filter-bar">
-        <div class="feed-tabs" id="feedTabButtons">
-          <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
-          <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
-          <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
-          <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
-          <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
-        </div>
-        <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
+      <div class="main-feed-header">
+        <h1 class="main-feed-title">
+          <span>Home</span>
+        </h1>
+        <p class="main-feed-subtitle">驾驶舱摘要、智能体协同入口与快捷跳转</p>
       </div>
 
-      <!-- Feed Stream Container -->
-      <div class="feed-stream" id="feedStreamContainer">
-        <!-- Dynamically rendered feed items from JS -->
+      <div class="home-summary-panel" id="homeSummaryPanel">
+        <div class="home-summary-grid home-summary-grid--ops" id="homeSummaryGrid"></div>
+        <section class="home-summary-tools" aria-labelledby="homeToolsHeading">
+          <h3 class="home-summary-section-title" id="homeToolsHeading">常用工具</h3>
+          <div class="home-summary-grid home-summary-grid--tools" id="homeSummaryToolsGrid"></div>
+        </section>
       </div>
       </div><!-- /homeFeedContent -->
 
-      <!-- 地块监测数据时序可视化（rium_dev 集成；与 Home 信息流互斥切换） -->
+      <!-- 关键动态消息（从主面板拆出，核心闭环独立模块） -->
+      <section class="decision-feed-panel" id="decisionFeedPanel" hidden>
+        <header class="decision-feed-header">
+          <div>
+            <h2 class="decision-feed-title">关键动态消息</h2>
+            <p class="decision-feed-subtitle">诊断、处方、预测与农务工单的全链路闭环动态 · 按类型筛选浏览</p>
+          </div>
+          <button class="btn btn-secondary" id="btnDecisionFeedBackHome" type="button">返回主面板</button>
+        </header>
+        <div class="feed-filter-bar">
+          <div class="feed-tabs" id="feedTabButtons">
+            <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
+            <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
+            <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
+            <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
+            <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
+          </div>
+          <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
+        </div>
+        <div class="feed-stream" id="feedStreamContainer"></div>
+      </section>
+
+      <!-- 地块数据监测（rium_dev 集成；与 Home 信息流互斥切换） -->
       <div id="plotTelemetryPanel" hidden></div>
 
       <!-- 其余功能子模块统一在中间区域展示 -->
-      <section class="main-feed-module-panel" id="moduleContentPanel" hidden>
-        <header class="main-feed-module-header">
-          <div class="main-feed-module-heading">
-            <span class="main-feed-module-icon" id="moduleContentIcon" aria-hidden="true">🧩</span>
-            <div>
-              <h2 id="moduleContentTitle">功能子模块</h2>
-              <p id="moduleContentDescription">模块内容</p>
-            </div>
-          </div>
-          <div class="main-feed-module-actions">
-            <span class="module-badge highlight" id="moduleContentTag">已就绪</span>
-            <button class="btn btn-secondary" id="btnModuleBackHome" type="button">返回主面板</button>
-          </div>
-        </header>
+      <section class="main-feed-module-panel is-headerless" id="moduleContentPanel" hidden>
         <div class="main-feed-module-body" id="moduleContentBody"></div>
       </section>
+      </div><!-- /workspaceContent -->
     </section>
 
     <!-- ======================== Right Rail (330px) ======================== -->
@@ -496,6 +519,6 @@
   </div>
 
   <!-- Load ES Module Scripts -->
-  <script type="module" src="js/app.js?v=20260824-telemetry-fix"></script>
+  <script type="module" src="js/app.js?v=20260824-home-badge-fix"></script>
 </body>
 </html>

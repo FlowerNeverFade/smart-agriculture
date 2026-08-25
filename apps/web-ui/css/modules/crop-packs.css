@@ -87,12 +87,35 @@
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.5;
-  overflow-wrap: anywhere; /* 长指标名不截断 */
+  overflow-wrap: anywhere;
 }
-.cp-metric-range {
+.cp-metric-name--primary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+.cp-metric-unit {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.cp-metric-code,
+.cp-rule-code,
+.cp-scenario-code,
+.cp-task-code {
   font-size: 10px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+.cp-stage-code {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.cp-metric-range {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 /* 阶段参数时间线 */

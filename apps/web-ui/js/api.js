@@ -342,7 +342,9 @@ export class ApiService {
     }
     const plots = Array.isArray(MOCK_DATA?.plots) ? MOCK_DATA.plots : [];
     const targetPlot = plots.find((p) => p.plotId === plotId) || plots[0] || { metrics: {} };
-    const baseValue = targetPlot.metrics?.[metric]?.value ?? 25.0;
+    const fallbackBase = { PH: 6.4, WATER_LEVEL: 72, LIGHT: 42000, CO2: 680, AIR_TEMPERATURE: 25, SOIL_MOISTURE: 28 };
+    const rawBase = targetPlot.metrics?.[metric]?.value;
+    const baseValue = Number.isFinite(Number(rawBase)) ? Number(rawBase) : (fallbackBase[metric] ?? 25.0);
     const startMs = from ? new Date(from).getTime() : Date.now() - 24 * 10 * 60 * 1000;
     const endMs = to ? new Date(to).getTime() : Date.now();
     const stepMs = Math.max(5 * 60 * 1000, Math.floor((endMs - startMs) / Math.max(limit, 24)));

@@ -12,7 +12,6 @@ function demoWorkOrders() {
   return Array.isArray(MOCK_DATA?.workOrders) ? MOCK_DATA.workOrders : [];
 }
 import { setResourcePlanPreview, syncWaterVisuals } from '../water-visual.js';
-import { initFieldSandbox } from '../field-visual.js';
 
 const STATUS_META = {
   OPEN: { label: '待认领', icon: '○', next: 'ASSIGNED', nextLabel: '认领' },
@@ -58,7 +57,6 @@ function canDispatch(user) {
 const farmOpsState = {
   workItems: [],
   inspections: [],
-  plotFilter: '',
   priorityFilter: 'ALL',
   resourceResult: null,
   demands: null,
@@ -112,6 +110,10 @@ function plotLabel(plots, plotId) {
   return plots.find((plot) => plot.plotId === plotId)?.name || plotId || '未知地块';
 }
 
+function selectedPlot(context) {
+  return context.plots.find((plot) => plot.plotId === context.selectedPlotId) || context.plots[0] || null;
+}
+
 function notify(context, message, type = 'info') {
   context.showToast?.(message, type);
 }
@@ -120,7 +122,7 @@ function workCard(item, context) {
   const meta = STATUS_META[item.status];
   const canWrite = canDispatch(context.user);
   return `
-    <article class="work-card priority-${item.priority.toLowerCase()}" draggable="${canWrite ? 'true' : 'false'}" data-work-id="${escapeHtml(item.workItemId)}">
+    <article class="work-card priority-${item.priority.toLowerCase()}" draggable="${canWrite ? 'true' : 'false'}" data-work-id="${escapeHtml(item.workItemId)}" data-work-plot="${escapeHtml(item.plotId)}">
       <div class="work-card-topline">
         <span class="source-chip source-${item.sourceType.toLowerCase()}">${escapeHtml(SOURCE_META[item.sourceType] || item.sourceType)}</span>
         <span class="priority-chip priority-${item.priority.toLowerCase()}">${PRIORITY_META[item.priority].label}</span>
@@ -143,16 +145,18 @@ function workCard(item, context) {
   `;
 }
 
-function filteredItems() {
+function filteredItems(context) {
+  const selectedPlotId = selectedPlot(context)?.plotId;
   return farmOpsState.workItems.filter((item) => {
-    const plotMatch = !farmOpsState.plotFilter || item.plotId === farmOpsState.plotFilter;
+    const plotMatch = !selectedPlotId || item.plotId === selectedPlotId;
     const priorityMatch = farmOpsState.priorityFilter === 'ALL' || item.priority === farmOpsState.priorityFilter;
     return plotMatch && priorityMatch;
   });
 }
 
 function workBoardTemplate(context) {
-  const items = filteredItems();
+  const currentPlot = selectedPlot(context);
+  const items = filteredItems(context);
   const counts = Object.keys(STATUS_META).reduce((result, status) => {
     result[status] = items.filter((item) => item.status === status).length;
     return result;
@@ -166,10 +170,9 @@ function workBoardTemplate(context) {
   return `
     <section class="farm-ops field-ops" data-field-surface aria-label="今日农务与巡田透明农田沙盘">
       <div class="field-sandbox-backdrop" aria-hidden="true">
-        <div class="field-map-grid"></div>
-        <div class="field-plot field-plot-a"><span>01</span></div>
-        <div class="field-plot field-plot-b"><span>02</span></div>
-        <div class="field-plot field-plot-c"><span>03</span></div>
+        <div class="field-plot field-plot-a"></div>
+        <div class="field-plot field-plot-b"></div>
+        <div class="field-plot field-plot-c"></div>
         <div class="field-mist field-mist-one"></div>
         <div class="field-mist field-mist-two"></div>
         <div class="field-scanline"></div>
@@ -177,13 +180,11 @@ function workBoardTemplate(context) {
         <div class="field-dew field-dew-b"></div>
         <div class="field-dew field-dew-c"></div>
       </div>
-      <canvas class="field-effects-canvas" data-field-effects aria-hidden="true"></canvas>
-
       <header class="farm-ops-hero field-command-hero">
         <div>
           <p class="ops-kicker">FIELD MISSION CONTROL · ${new Date().toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}</p>
           <h3>今日农务透明农田沙盘</h3>
-          <p>计划、告警、诊断与设备任务沿地块生长脉络汇入同一执行队列；移动鼠标唤醒叶脉轨迹，点击任意区域播下一次现场反馈。</p>
+          <p>计划、告警、诊断与设备任务沿地块生长脉络汇入同一执行队列；任务内容直接跟随左侧当前地块切换。</p>
         </div>
         <div class="ops-role-card">
           <span>${roleMeta.avatar}</span>
@@ -192,39 +193,20 @@ function workBoardTemplate(context) {
         </div>
       </header>
 
-      <section class="field-vine-timeline" aria-label="今日农务时间轴">
-        <div class="field-timeline-heading">
-          <div><span class="ops-kicker">TODAY'S ROUTE</span><h3>今日执行藤蔓</h3></div>
-          <span>按截止时间生长 · 点击节点进入巡田记录</span>
-        </div>
-        <div class="field-timeline-track">
-          ${timelineItems.length ? timelineItems.map((item, index) => `
-            <button class="field-timeline-node status-${item.status.toLowerCase()} priority-${item.priority.toLowerCase()}" data-timeline-work="${escapeHtml(item.workItemId)}" style="--node-index:${index}">
-              <i></i>
-              <time>${formatTime(item.dueAt).replace('今日 ', '')}</time>
-              <strong>${escapeHtml(plotLabel(context.plots, item.plotId))}</strong>
-              <span>${escapeHtml(item.title)}</span>
-              <b>${STATUS_META[item.status].label}</b>
-            </button>
-          `).join('') : '<div class="field-timeline-empty">今日没有符合筛选条件的任务</div>'}
-        </div>
-      </section>
-
       <div class="ops-metric-row">
-        <article><span>待处理</span><strong>${counts.OPEN + counts.ASSIGNED}</strong><small>包含已认领</small></article>
-        <article><span>执行中</span><strong>${counts.IN_PROGRESS}</strong><small>现场作业进行中</small></article>
-        <article class="metric-alert"><span>紧急项</span><strong>${urgentCount}</strong><small>按风险与时限排序</small></article>
-        <article><span>今日已完成</span><strong>${counts.DONE}</strong><small>可回溯执行证据</small></article>
+        <article class="status-focus"><span>待处理</span><strong>${counts.OPEN + counts.ASSIGNED}</strong><small>包含已认领</small></article>
+        <article class="status-focus"><span>执行中</span><strong>${counts.IN_PROGRESS}</strong><small>现场作业进行中</small></article>
+        <article class="metric-alert status-focus"><span>紧急项</span><strong>${urgentCount}</strong><small>按风险与时限排序</small></article>
+        <article class="status-focus"><span>今日已完成</span><strong>${counts.DONE}</strong><small>可回溯执行证据</small></article>
       </div>
 
       <div class="ops-toolbar">
         <div class="ops-filter-group">
-          <label>地块
-            <select id="workPlotFilter">
-              <option value="">全部地块</option>
-              ${context.plots.map((plot) => `<option value="${escapeHtml(plot.plotId)}" ${farmOpsState.plotFilter === plot.plotId ? 'selected' : ''}>${escapeHtml(plot.name)}</option>`).join('')}
-            </select>
-          </label>
+          <div class="ops-bound-plot">
+            <span>当前地块 · 跟随左侧选择</span>
+            <strong>${escapeHtml(currentPlot?.name || '未知地块')}</strong>
+            <small>${escapeHtml(currentPlot?.cropName || '')} · ${escapeHtml(currentPlot?.stageLabel || '')}</small>
+          </div>
           <label>优先级
             <select id="workPriorityFilter">
               <option value="ALL">全部</option>
@@ -269,6 +251,24 @@ function workBoardTemplate(context) {
         </div>
       </section>
 
+      <section class="field-vine-timeline" aria-label="今日农务时间轴">
+        <div class="field-timeline-heading">
+          <div><span class="ops-kicker">TODAY'S ROUTE</span><h3>今日执行藤蔓</h3></div>
+          <span>当前地块 · 按截止时间生长 · 点击节点进入巡田记录</span>
+        </div>
+        <div class="field-timeline-track">
+          ${timelineItems.length ? timelineItems.map((item, index) => `
+            <button class="field-timeline-node status-${item.status.toLowerCase()} priority-${item.priority.toLowerCase()}" data-timeline-work="${escapeHtml(item.workItemId)}" style="--node-index:${index}">
+              <i></i>
+              <time>${formatTime(item.dueAt).replace('今日 ', '')}</time>
+              <strong>${escapeHtml(plotLabel(context.plots, item.plotId))}</strong>
+              <span>${escapeHtml(item.title)}</span>
+              <b>${STATUS_META[item.status].label}</b>
+            </button>
+          `).join('') : '<div class="field-timeline-empty">当前地块今日暂无任务</div>'}
+        </div>
+      </section>
+
       ${workOrderDialog(context)}
       ${inspectionDialog(context)}
     </section>
@@ -276,13 +276,14 @@ function workBoardTemplate(context) {
 }
 
 function workOrderDialog(context) {
+  const plot = selectedPlot(context);
   return `
     <dialog class="ops-dialog" id="workOrderDialog">
       <form method="dialog" id="workOrderForm">
         <header><div><span class="ops-kicker">NEW WORK ORDER</span><h3>派发农务工单</h3></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
         <div class="ops-form-grid">
           <label class="span-2">任务标题<input name="title" required maxlength="80" placeholder="例：核对 1 号棚流量计与阀门"></label>
-          <label>地块<select name="plotId" required>${context.plots.map((plot) => `<option value="${escapeHtml(plot.plotId)}">${escapeHtml(plot.name)}</option>`).join('')}</select></label>
+          <label>地块（跟随左侧选择）<input value="${escapeHtml(plot?.name || '未知地块')}" readonly><input name="plotId" type="hidden" value="${escapeHtml(plot?.plotId || '')}"></label>
           <label>优先级<select name="priority"><option value="HIGH">紧急</option><option value="MEDIUM" selected>中</option><option value="LOW">普通</option></select></label>
           <label>任务类型<select name="actionType"><option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉处方审核</option></select></label>
           <label>截止时间<input name="dueAt" type="datetime-local" required></label>
@@ -295,13 +296,14 @@ function workOrderDialog(context) {
 }
 
 function inspectionDialog(context) {
+  const plot = selectedPlot(context);
   return `
     <dialog class="ops-dialog inspection-drawer" id="inspectionDialog">
       <form method="dialog" id="inspectionForm">
         <header><div><span class="ops-kicker">FIELD INSPECTION DRAWER</span><h3>录入人工巡田证据</h3><small id="inspectionTaskContext">从今日沙盘创建现场核验</small></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
         <p class="inspection-guidance">人工观察会以 <strong>USER_PROVIDED</strong> 标签进入证据链，不会覆盖原始传感器遥测。</p>
         <div class="ops-form-grid">
-          <label>地块<select name="plotId" required>${context.plots.map((plot) => `<option value="${escapeHtml(plot.plotId)}">${escapeHtml(plot.name)}</option>`).join('')}</select></label>
+          <label>地块（跟随左侧选择）<input value="${escapeHtml(plot?.name || '未知地块')}" readonly><input name="plotId" type="hidden" value="${escapeHtml(plot?.plotId || '')}"></label>
           <label>观测时间<input name="observedAt" type="datetime-local" required></label>
           <label>土壤表象<select name="soilSurface"><option value="NORMAL">正常</option><option value="DRY">干燥开裂</option><option value="WET">过湿积水</option></select></label>
           <label>作物状态<select name="cropCondition"><option value="NORMAL">长势正常</option><option value="LEAF_SLIGHT_WILT">叶片轻微萎蔫</option><option value="DISEASE_SUSPECTED">疑似病害</option></select></label>
@@ -317,10 +319,6 @@ function inspectionDialog(context) {
 }
 
 function bindWorkBoard(container, context) {
-  container.querySelector('#workPlotFilter')?.addEventListener('change', (event) => {
-    farmOpsState.plotFilter = event.target.value;
-    paintWorkBoard(container, context);
-  });
   container.querySelector('#workPriorityFilter')?.addEventListener('change', (event) => {
     farmOpsState.priorityFilter = event.target.value;
     paintWorkBoard(container, context);
@@ -491,7 +489,6 @@ async function transitionWorkItem(container, context, workItemId, targetStatus) 
 function paintWorkBoard(container, context) {
   container.innerHTML = workBoardTemplate(context);
   bindWorkBoard(container, context);
-  initFieldSandbox(container.querySelector('[data-field-surface]'));
 }
 
 export async function renderWorkOrders(container, context, forceRefresh = false) {
@@ -535,22 +532,12 @@ function resourceTemplate(context) {
   const projectedPercent = Math.round(projectedRemaining / profile.dailyLimitLitres * 1000) / 10;
 
   return `
-    <section class="farm-ops resource-ops" data-water-surface aria-label="水资源协同排程">
-      <div class="resource-water-backdrop" aria-hidden="true">
-        <div class="backdrop-water-sphere">
-          <div class="backdrop-water-volume"><span></span><i></i></div>
-          <div class="backdrop-water-rim"></div>
-          <div class="backdrop-water-spray">
-            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          </div>
-        </div>
-      </div>
-      <canvas class="resource-window-effects-canvas" data-water-surface-canvas aria-hidden="true"></canvas>
+    <section class="farm-ops resource-ops resource-ops--glass" aria-label="水资源协同排程">
       <header class="farm-ops-hero resource-hero">
         <div>
           <p class="ops-kicker">CAPACITY-AWARE SCHEDULING</p>
           <h3>多地块水资源协同排程</h3>
-          <p>在固定可用水量与 18 L/min 管网流量下按风险优先级分配，不超容量、不隐藏未满足需求。</p>
+          <p>按风险优先级分配水量，不超总量。</p>
         </div>
         <div class="resource-state ${result?.status === 'INFEASIBLE' || overCapacity > 0 ? 'state-conflict' : 'state-feasible'}">
           <small>当前计划状态</small>
@@ -570,16 +557,16 @@ function resourceTemplate(context) {
             <strong data-water-remaining>${profile.remainingLitres.toLocaleString()} L</strong>
             <span><b data-water-percent>${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 1000) / 10}%</b> / 总配额 <b data-water-limit>${profile.dailyLimitLitres.toLocaleString()} L</b></span>
           </div>
-          <div class="resource-balance-level"><i></i><span>水球背景水位约 ${Math.round(profile.remainingLitres / profile.dailyLimitLitres * 100)}%</span></div>
+          <div class="resource-balance-level"><i></i></div>
           <div class="resource-preview-reading ${result ? 'active' : ''}">
-            <span>排程试算后</span>
-            <strong data-water-preview>试算后 ${projectedRemaining.toLocaleString()} L</strong>
-            <small>${result ? `预计剩余 ${projectedPercent}% · 不回写实际水位` : '尚未生成排程试算'}</small>
+            <span>分配后</span>
+            <strong data-water-preview>${projectedRemaining.toLocaleString()} L</strong>
+            <small>${result ? `预计剩余 ${projectedPercent}%` : '尚未排程'}</small>
           </div>
           <dl class="resource-facts">
-            <div><dt>本轮可调度容量</dt><dd>${planCapacity} L</dd></div>
-            <div><dt>管网最大流量</dt><dd>${profile.flowRateLitresPerMinute} L/min</dd></div>
-            <div><dt>本轮试算分配</dt><dd>${allocatedTotal.toLocaleString()} L</dd></div>
+            <div><dt>可调度</dt><dd>${planCapacity} L</dd></div>
+            <div><dt>管网流量</dt><dd>${profile.flowRateLitresPerMinute} L/min</dd></div>
+            <div><dt>已分配</dt><dd>${allocatedTotal.toLocaleString()} L</dd></div>
           </dl>
         </article>
 
@@ -601,14 +588,14 @@ function resourceTemplate(context) {
             <span>请求总量 ${totalRequested} L</span>
             <span class="${overCapacity > 0 ? 'danger-text' : 'success-text'}">${overCapacity > 0 ? `超出 ${overCapacity} L，需按优先级裁剪` : `剩余 ${planCapacity - totalRequested} L`}</span>
           </div>
-          <button class="btn btn-primary evaluate-resource-btn" id="evaluateResourcePlan" ${canEvaluate ? '' : 'disabled'}>${result ? '重新计算分配方案' : '评估容量与生成排程'}</button>
+
         </article>
       </div>
 
       <section class="allocation-panel">
-        <div class="section-title-row"><div><span class="ops-kicker">ALLOCATION MAP</span><h3>管网分配热力图</h3></div><span class="provenance-tag">SIMULATED · ${escapeHtml(result?.resourcePlanId || '尚未评估')}</span></div>
+        <div class="section-title-row"><div><span class="ops-kicker">ALLOCATION MAP</span><h3>管网分配热力图</h3></div><div style="display:flex;align-items:center;gap:10px"><span class="provenance-tag">SIMULATED · ${escapeHtml(result?.resourcePlanId || '尚未评估')}</span><button class="btn btn-primary evaluate-resource-btn" id="evaluateResourcePlan" ${canEvaluate ? '' : 'disabled'}>${result ? '重新计算' : '生成排程'}</button></div></div>
         <div class="allocation-network">
-          <div class="network-source"><span>💧</span><strong>集中蓄水池</strong><small>${planCapacity} L / 18 L·min⁻¹</small></div>
+          <div class="network-source"><span>💧</span><strong>集中蓄水池</strong><small>${planCapacity} L / 18 L/min</small></div>
           <div class="network-trunk"></div>
           <div class="allocation-lanes">
             ${(context.plots || []).map((plot) => {
@@ -632,7 +619,7 @@ function resourceTemplate(context) {
       </section>
 
       <section class="execution-status-panel">
-        <div class="section-title-row"><div><span class="ops-kicker">EXECUTION STATUS</span><h3>关联农务执行状态</h3></div><a href="#view=work-orders">返回工单看板 →</a></div>
+        <div class="section-title-row"><div><span class="ops-kicker">EXECUTION STATUS</span><h3>关联工单</h3></div><a href="#view=work-orders">返回工单看板 →</a></div>
         <div class="execution-status-list">
           ${(farmOpsState.workItems.length ? farmOpsState.workItems : demoWorkOrders()).slice(0, 5).map((item) => {
             const normalized = normalizeWorkItem(item);
@@ -684,7 +671,7 @@ function bindResourceView(container, context) {
     try {
       farmOpsState.resourceResult = await context.api.evaluateResourcePlan({ scope: 'farm-demo', demands: farmOpsState.demands });
       setResourcePlanPreview(farmOpsState.resourceResult);
-      notify(context, farmOpsState.resourceResult.status === 'FEASIBLE' ? '资源排程已生成，所有需求均在容量内。' : '已生成受约束方案，未满足需求已明确标记。', farmOpsState.resourceResult.status === 'FEASIBLE' ? 'success' : 'info');
+      notify(context, farmOpsState.resourceResult.status === 'FEASIBLE' ? '排程已生成。' : '已生成，部分需求未满足。', farmOpsState.resourceResult.status === 'FEASIBLE' ? 'success' : 'info');
       paintResourceView(container, context);
     } catch (error) {
       notify(context, error.message || '水资源方案评估失败。', 'error');

@@ -1,12 +1,11 @@
 /**
- * Light / dark theme toggle with animated cross-fade transition.
- * Transition implementation follows rium_dev: 2s CSS color cross-fade + JS-driven overlay.
+ * Light / dark theme toggle with CSS color cross-fade + 3D palette blending.
+ * No fullscreen color wash overlay.
  */
 const STORAGE_KEY = 'agriloop-theme';
 const TRANSITION_MS = 2000;
 
 let transitionRaf = 0;
-let overlayEl = null;
 
 export function getTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -14,34 +13,6 @@ export function getTheme() {
 
 function easeInOutSine(t) {
   return -(Math.cos(Math.PI * t) - 1) / 2;
-}
-
-function ensureOverlay() {
-  if (!overlayEl) {
-    overlayEl = document.createElement('div');
-    overlayEl.id = 'themeTransitionOverlay';
-    overlayEl.setAttribute('aria-hidden', 'true');
-    document.body.appendChild(overlayEl);
-  }
-  return overlayEl;
-}
-
-function updateTransitionOverlay(from, to, progress) {
-  const el = ensureOverlay();
-  const peak = Math.sin(progress * Math.PI);
-  const goingLight = to === 'light';
-  if (goingLight) {
-    el.style.background = `rgba(255, 236, 180, ${peak * 0.72})`;
-  } else {
-    el.style.background = `rgba(6, 10, 28, ${peak * 0.78})`;
-  }
-  el.classList.add('active');
-}
-
-function hideTransitionOverlay() {
-  if (!overlayEl) return;
-  overlayEl.classList.remove('active');
-  overlayEl.style.background = 'transparent';
 }
 
 function setThemeAttribute(theme) {
@@ -84,27 +55,23 @@ function animateTheme(from, to) {
   cancelAnimationFrame(transitionRaf);
   const root = document.documentElement;
 
-  // Flip the theme attribute immediately so CSS transitions (2s) animate
-  // background-color / color / border-color on themed elements. JS drives
-  // the overlay + 3D background palette blending separately.
+  // Flip theme immediately so CSS transitions animate colors;
+  // JS only drives 3D background palette blending.
   root.classList.add('theme-animating');
   setThemeAttribute(to);
   updateThemeToggleUI(to);
   setThemeToggleDisabled(true);
-  ensureOverlay();
 
   const start = performance.now();
 
   const step = (now) => {
     const raw = Math.min((now - start) / TRANSITION_MS, 1);
     const progress = easeInOutSine(raw);
-    updateTransitionOverlay(from, to, progress);
     dispatchTransition(from, to, progress);
 
     if (raw < 1) {
       transitionRaf = requestAnimationFrame(step);
     } else {
-      hideTransitionOverlay();
       root.classList.remove('theme-animating');
       localStorage.setItem(STORAGE_KEY, to);
       setThemeToggleDisabled(false);
@@ -127,7 +94,6 @@ export function applyTheme(theme, options = {}) {
   }
 
   cancelAnimationFrame(transitionRaf);
-  hideTransitionOverlay();
   document.documentElement.classList.remove('theme-animating');
   setThemeAttribute(theme);
   localStorage.setItem(STORAGE_KEY, theme);
@@ -151,7 +117,6 @@ export function initTheme() {
 
   return () => {
     cancelAnimationFrame(transitionRaf);
-    hideTransitionOverlay();
     button?.removeEventListener('click', toggleTheme);
   };
 }
