@@ -5,6 +5,14 @@
    - snake_case 命名
    ============================================================ */
 
+/* 与 #app 一致：约束视口高度，让 .g-main 获得可滚轮滑动的溢出区域
+   （body 为 overflow:hidden，缺少此布局会导致内容被截断且无法滚动） */
+#farmer_app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
 .farmer-header {
   border-bottom-color: var(--g-success-bg);
 }
