@@ -336,6 +336,28 @@
 }
 .admin-member-list article > div { display: grid; gap: 2px; }
 .admin-member-list article > div > span { color: var(--g-text-secondary); font-size: 12px; }
+.admin-member-list .admin-member-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 1px;
+  color: var(--g-text-secondary);
+  font: 400 12px/1.35 var(--g-font-family);
+  font-style: normal;
+  font-synthesis: none;
+  letter-spacing: 0;
+  transform: none;
+  white-space: nowrap;
+}
+.admin-member-list .admin-member-meta > span { display: inline; color: inherit; font: inherit; }
+.admin-member-list .admin-member-meta-separator { color: var(--g-text-disabled); }
+.admin-member-list .admin-member-meta-source {
+  color: var(--g-text-disabled) !important;
+  font-family: var(--g-mono) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: .02em !important;
+}
 .admin-status-pill { padding: 4px 7px; border: 1px solid var(--g-border); border-radius: 999px; font-size: 11px; text-align: center; }
 .admin-status-pill.active { color: #1b6540; border-color: #b9d7c5; }
 

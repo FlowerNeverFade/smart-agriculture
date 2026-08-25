@@ -52,7 +52,14 @@ export const AdminMemberManagementView = {
         <div class="admin-member-list">
           <article v-for="member in members" :key="member.userId">
             <span class="admin-member-avatar">{{ String(member.displayName || member.username || '?').slice(0, 1) }}</span>
-            <div><strong>{{ member.displayName || member.username }}</strong><small>{{ member.roleLabel || member.role }} · {{ member.sourceMode || (state.sessionMode === 'demo' ? 'SIMULATED' : 'ACCOUNT') }}</small></div>
+            <div>
+              <strong>{{ member.displayName || member.username }}</strong>
+              <small class="admin-member-meta">
+                <span>{{ member.roleLabel || member.role }}</span>
+                <span class="admin-member-meta-separator" aria-hidden="true">·</span>
+                <span class="admin-member-meta-source">{{ member.sourceMode || (state.sessionMode === 'demo' ? 'SIMULATED' : 'ACCOUNT') }}</span>
+              </small>
+            </div>
             <div><span>负责地块</span><strong>{{ memberPlots(member).join('、') || '未分配' }}</strong></div>
             <span class="admin-status-pill" :class="String(member.status || '').toLowerCase()">{{ member.status || '—' }}</span>
             <button class="g-btn secondary compact" v-if="member.role === 'FARMER'" @click="openAssignments(member)">查看任务</button>
