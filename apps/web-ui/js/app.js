@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js?v=1787644000105';
+import { MOCK_DATA } from './mock-data.js?v=1787645254016';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
@@ -532,7 +532,22 @@ const AdminSimulatorView = {
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const selectedScenario = ref('NORMAL');
     const adminDualTrackModal = ref(false);
+    const adminReplayModal = ref(false);
+    const replayEvents = ref([]);
+    const selectedReplayScenario = ref('');
     const selectedDualTrackScenario = ref('');
+
+    const openReplay = (run) => {
+      selectedReplayScenario.value = run.scenarioId;
+      adminReplayModal.value = true;
+      replayEvents.value = [
+        { time: '00:00', action: '初始化推演环境', agent: 'System' },
+        { time: '00:05', action: '注入偏差事件', agent: 'Mock Gateway' },
+        { time: '00:15', action: '诊断异常并下发调整规则', agent: 'Diagnose Agent' },
+        { time: '00:30', action: '执行处方 ACK 确认', agent: 'Actuator Mock' },
+        { time: '01:00', action: '生成推演效果对比报告', agent: 'System' }
+      ];
+    };
 
     const openDualTrack = (run) => {
       selectedDualTrackScenario.value = run.scenarioId || 'NORMAL';
@@ -579,7 +594,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack };
+    return { simRunning, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay };
   }
 };
 
@@ -698,6 +713,7 @@ const app = createApp({
     'admin-settings-view': AdminSettingsView
   },
   setup() {
+    const selectedFarm = ref('farm-science');
     const isLive = ref(false);
     const isDark = ref(false);
     const isSidebarOpen = ref(true);
@@ -729,6 +745,7 @@ const app = createApp({
       riskForecastConfig: MOCK_DATA.riskForecastConfig,
       valueLedger: MOCK_DATA.valueLedger,
       adminOverview: MOCK_DATA.adminOverview || {},
+      adminGlobalPlots: MOCK_DATA.adminGlobalPlots || [],
       adminDevices: MOCK_DATA.adminDevices || [],
       adminAlerts: MOCK_DATA.adminAlerts || [],
       adminAuditRecords: MOCK_DATA.adminAuditRecords || [],
@@ -826,6 +843,7 @@ const app = createApp({
     app.provide('toast', showToast);
 
     return {
+      selectedFarm,
       isLive,
       isDark,
       isSidebarOpen,

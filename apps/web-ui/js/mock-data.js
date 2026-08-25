@@ -756,6 +756,15 @@ export const MOCK_DATA = {
     { id: 'dev-global-04', name: '高光谱摄像头', mac: '00:1A:2B:3C:4D:61', status: 'ONLINE', farm: '—', bindStatus: 'UNBOUND' }
   ],
 
+  
+  adminGlobalPlots: [
+    { id: 'plot-a01', farm: '科学城农业园', crop: '番茄', status: 'HEALTHY', moisture: '28%', temp: '25°C', updated: '2分钟前' },
+    { id: 'plot-a02', farm: '科学城农业园', crop: '黄瓜', status: 'WARNING', moisture: '18%', temp: '27°C', updated: '1分钟前', issue: '缺水预警' },
+    { id: 'plot-b01', farm: '白云基地', crop: '草莓', status: 'CRITICAL', moisture: '12%', temp: '30°C', updated: '刚刚', issue: '严重干旱' },
+    { id: 'plot-b02', farm: '白云基地', crop: '辣椒', status: 'HEALTHY', moisture: '24%', temp: '26°C', updated: '5分钟前' },
+    { id: 'plot-c01', farm: '增城果园', crop: '葡萄', status: 'OFFLINE', moisture: '--', temp: '--', updated: '2小时前', issue: '网关掉线' }
+  ],
+
   adminOverview: {
     uptime: '72h 34m',
     apiVersion: '1.4.0',
@@ -763,7 +772,14 @@ export const MOCK_DATA = {
     llmModel: 'Qwen-2.5-72B',
     alerts: { open: 3, acknowledged: 1, closedToday: 7 },
     devices: { total: 12, online: 10, offline: 2 },
-    simulator: { running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00' },
+    simulator: { 
+      running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00',
+      history: [
+        { id: 'sim-802', scenarioId: 'DROUGHT', timestamp: '2026-08-24 15:30', eventsEmitted: 450, status: 'COMPLETED' },
+        { id: 'sim-803', scenarioId: 'STORM', timestamp: '2026-08-24 17:10', eventsEmitted: 210, status: 'ABORTED' },
+        { id: 'sim-804', scenarioId: 'SENSOR_DRIFT', timestamp: '2026-08-25 09:00', eventsEmitted: 1200, status: 'COMPLETED' }
+      ]
+    },
     services: [
       { name: 'PostgreSQL', status: 'UP', latency: '3ms', version: '15.4' },
       { name: 'Redis Streams', status: 'UP', pending: 12, lag: '0.2s' },

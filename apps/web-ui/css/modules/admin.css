@@ -490,6 +490,44 @@
   gap: 8px;
 }
 
+/* ---- Global plot landscape ---- */
+.admin-plot-landscape { grid-column: 1 / -1; margin-top: 24px; padding-top: 4px; }
+.admin-section-caption { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-landscape-count { font-size: 12px; color: var(--g-text-secondary); }
+.admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.admin-plot-card { padding: 16px; background: var(--g-bg-surface); border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); transition: transform 0.2s, box-shadow 0.2s; }
+.admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
+.admin-plot-card.warning { border-left-color: var(--g-warning); }
+.admin-plot-card.critical { border-left-color: var(--g-danger); }
+.admin-plot-card.offline { border-left-color: var(--g-text-disabled); }
+.admin-plot-card-head, .admin-plot-metrics { display: flex; align-items: center; gap: 8px; }
+.admin-plot-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--g-success); }
+.warning .admin-plot-status-dot { background: var(--g-warning); }
+.critical .admin-plot-status-dot { background: var(--g-danger); }
+.offline .admin-plot-status-dot { background: var(--g-text-disabled); }
+.admin-plot-id { font: 12px var(--g-mono); color: var(--g-text-secondary); }
+.admin-plot-updated { margin-left: auto; font-size: 11px; color: var(--g-text-disabled); }
+.admin-plot-crop { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--g-text-primary); }
+.admin-plot-farm { margin-top: 2px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-plot-metrics { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--g-border-subtle); font-size: 11px; color: var(--g-text-secondary); }
+.admin-plot-metrics strong { margin-right: 2px; color: var(--g-text-primary); font-size: 14px; }
+.admin-plot-issue { display: flex; align-items: center; gap: 4px; margin-top: 12px; font-size: 11px; color: var(--g-danger); }
+.admin-plot-issue.quiet { color: var(--g-success); }
+.admin-plot-issue .material-symbols-outlined { font-size: 15px; }
+.admin-action-cell { white-space: nowrap; }
+.admin-action-cell .g-btn { display: inline-flex; align-items: center; gap: 3px; }
+.admin-action-cell .material-symbols-outlined { font-size: 16px; }
+.admin-modal-wide { width: 760px; }
+.admin-dual-chart { width: 100%; height: 360px; }
+.admin-replay-timeline { list-style: none; margin: 0; padding: 4px 0 4px 56px; }
+.admin-replay-timeline li { position: relative; display: grid; grid-template-columns: 52px 1fr; gap: 14px; min-height: 52px; color: var(--g-text-primary); }
+.admin-replay-timeline li::before { content: ''; position: absolute; left: 65px; top: 17px; bottom: -17px; width: 1px; background: var(--g-border); }
+.admin-replay-timeline li:last-child::before { display: none; }
+.admin-replay-time { color: var(--g-primary); font: 12px var(--g-mono); }
+.admin-replay-node { position: relative; z-index: 1; width: 9px; height: 9px; margin-top: 4px; margin-left: 8px; border: 3px solid var(--g-bg-surface); border-radius: 50%; background: var(--g-primary); box-shadow: 0 0 0 1px var(--g-primary); }
+.admin-replay-timeline li > span:last-child { grid-column: 2; margin-top: -22px; margin-left: 25px; font-size: 13px; }
+.admin-replay-timeline small { display: block; margin-top: 4px; color: var(--g-text-secondary); }
+
 /* ---- Responsive ---- */
 @media (max-width: 1024px) {
   .admin-metric-strip { grid-template-columns: repeat(2, 1fr); }
@@ -499,4 +537,8 @@
 @media (max-width: 640px) {
   .admin-metric-strip { grid-template-columns: 1fr; }
   .service-matrix { grid-template-columns: 1fr; }
+  .admin-plot-landscape { margin-top: 16px; }
+  .admin-action-cell { white-space: normal; }
+  .admin-modal-wide { width: 90vw; }
+  .admin-dual-chart { height: 280px; }
 }

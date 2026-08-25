@@ -655,7 +655,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=1787644000106"></script>
+  <script type="module" src="js/app.js?v=1787645254017"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -817,6 +817,34 @@
             </div>
           </div>
         </div>
+
+        <!-- Global plot landscape -->
+        <section class="admin-plot-landscape">
+          <div class="admin-section-head">
+            <div>
+              <div class="admin-section-title"><span class="material-symbols-outlined">grid_view</span> 全局地块态势</div>
+              <div class="admin-section-caption">跨农场查看作物、环境指标与设备健康</div>
+            </div>
+            <span class="admin-landscape-count">{{ state.adminGlobalPlots.length }} 个地块</span>
+          </div>
+          <div class="admin-plot-grid">
+            <article v-for="plot in state.adminGlobalPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
+              <div class="admin-plot-card-head">
+                <span class="admin-plot-status-dot"></span>
+                <span class="admin-plot-id">{{ plot.id }}</span>
+                <span class="admin-plot-updated">{{ plot.updated }}</span>
+              </div>
+              <div class="admin-plot-crop">{{ plot.crop }}</div>
+              <div class="admin-plot-farm">{{ plot.farm }}</div>
+              <div class="admin-plot-metrics">
+                <span><strong>{{ plot.moisture }}</strong> 湿度</span>
+                <span><strong>{{ plot.temp }}</strong> 温度</span>
+              </div>
+              <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
+              <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
+            </article>
+          </div>
+        </section>
       </div>
 
       <!-- Tab: Devices -->
@@ -1020,7 +1048,7 @@
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>
-            <th>场景 ID</th><th>场景类型</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th>
+            <th>场景 ID</th><th>场景类型</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>
             <tr v-for="run in state.adminSimHistory" :key="run.scenarioId">
@@ -1030,9 +1058,43 @@
               <td>{{ run.endTime || '—' }}</td>
               <td>{{ run.events }}</td>
               <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.status === 'COMPLETED' ? '已完成' : run.status === 'RUNNING' ? '运行中' : '已中止' }}</span></td>
+              <td class="admin-action-cell">
+                <button class="g-btn text sm" @click="openDualTrack(run)"><span class="material-symbols-outlined">compare_arrows</span> 双轨对比</button>
+                <button class="g-btn text sm" @click="openReplay(run)"><span class="material-symbols-outlined">replay</span> 回放</button>
+              </td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Dual-track comparison modal -->
+      <div class="admin-modal-overlay" v-if="adminDualTrackModal" @click.self="adminDualTrackModal = false">
+        <div class="admin-modal admin-modal-wide">
+          <div class="admin-modal-header">
+            <h3>双轨对比 · {{ selectedDualTrackScenario }}</h3>
+            <button class="g-btn icon-only" @click="adminDualTrackModal = false"><span class="material-symbols-outlined">close</span></button>
+          </div>
+          <div class="admin-modal-body"><div id="adminDualTrackChart" class="admin-dual-chart"></div></div>
+        </div>
+      </div>
+
+      <!-- Scenario replay modal -->
+      <div class="admin-modal-overlay" v-if="adminReplayModal" @click.self="adminReplayModal = false">
+        <div class="admin-modal">
+          <div class="admin-modal-header">
+            <h3>场景回放 · {{ selectedReplayScenario }}</h3>
+            <button class="g-btn icon-only" @click="adminReplayModal = false"><span class="material-symbols-outlined">close</span></button>
+          </div>
+          <div class="admin-modal-body">
+            <ol class="admin-replay-timeline">
+              <li v-for="event in replayEvents" :key="event.time + event.action">
+                <span class="admin-replay-time">{{ event.time }}</span>
+                <span class="admin-replay-node"></span>
+                <span><strong>{{ event.action }}</strong><small>{{ event.agent }}</small></span>
+              </li>
+            </ol>
+          </div>
+        </div>
       </div>
     </div>
   </template>
