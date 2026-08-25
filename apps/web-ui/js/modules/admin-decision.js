@@ -7,6 +7,7 @@ const RISK_META = Object.freeze({
   WATER_DEFICIT: { label: '地块缺水', icon: '💧', tone: 'water', advice: '湿度持续偏低，可以进入补水试算。' },
   SENSOR_DRIFT: { label: '传感器读数可疑', icon: '〽', tone: 'drift', advice: '先用便携设备复测，禁止按可疑读数直接灌溉。' },
   DEVICE_FAULT: { label: '采集设备异常', icon: '⌁', tone: 'device', advice: '先恢复设备和新鲜数据，再重新诊断。' },
+  HEAT_STRESS: { label: '高温胁迫', icon: '☀', tone: 'heat', advice: '补充温度、湿度与作物现场观察，先核验通风或遮阴。' },
   INSUFFICIENT_EVIDENCE: { label: '证据不足', icon: '?', tone: 'unknown', advice: '需要补充现场检查或更长时间的数据。' }
 });
 
@@ -335,7 +336,7 @@ export const AdminDecisionView = {
                 <div class="dc-confidence"><strong>{{ asPercent(diagnosis.confidence) }}</strong><span>可信程度</span></div>
               </div>
               <div v-if="diagnosis" class="dc-candidate-list">
-                <article v-for="(candidate,index) in diagnosis.candidateCauses" :key="candidate.code" :class="{'is-primary': index === 0}">
+                <article v-for="candidate in diagnosis.candidateCauses" :key="candidate.code" :class="{'is-primary': candidate.code === diagnosis.primaryCause}">
                   <div><strong>{{ RISK_META?.[candidate.code]?.label || candidate.code }}</strong><em>{{ asPercent(candidate.confidence) }}</em></div>
                   <div class="dc-score-track"><i :style="{width: asPercent(candidate.confidence)}"></i></div>
                 </article>

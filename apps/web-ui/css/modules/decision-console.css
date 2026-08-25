@@ -260,7 +260,7 @@
 
 .dc-primary-cause { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; margin: 14px 16px 10px; padding: 13px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--bg-subtle); }
 .dc-primary-cause.tone-water { border-color: color-mix(in srgb, var(--blue-hover) 44%, var(--border-default)); background: linear-gradient(110deg, var(--blue-subtle), var(--bg-subtle)); }
-.dc-primary-cause.tone-drift, .dc-primary-cause.tone-device { border-color: color-mix(in srgb, var(--amber-primary) 50%, var(--border-default)); background: linear-gradient(110deg, var(--amber-subtle), var(--bg-subtle)); }
+.dc-primary-cause.tone-drift, .dc-primary-cause.tone-device, .dc-primary-cause.tone-heat { border-color: color-mix(in srgb, var(--amber-primary) 50%, var(--border-default)); background: linear-gradient(110deg, var(--amber-subtle), var(--bg-subtle)); }
 .dc-cause-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 12px; background: var(--bg-canvas); font-size: 20px; }
 .dc-cause-copy small, .dc-cause-copy strong { display: block; }
 .dc-cause-copy small { color: var(--text-muted); font-size: 9px; }
