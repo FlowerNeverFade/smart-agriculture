@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js?v=1787643356356';
+import { MOCK_DATA } from './mock-data.js?v=1787644000105';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
@@ -491,6 +491,7 @@ const AdminAuditView = {
   template: '#tmpl-admin-audit',
   props: ['state', 'routeParams'],
   setup(props) {
+    const auditTab = ref('passport');
     const searchQuery = ref(props.routeParams?.traceId || '');
     const typeFilter = ref('all');
     const expandedPassport = ref(props.routeParams?.traceId || null);
@@ -530,6 +531,46 @@ const AdminSimulatorView = {
   setup(props) {
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const selectedScenario = ref('NORMAL');
+    const adminDualTrackModal = ref(false);
+    const selectedDualTrackScenario = ref('');
+
+    const openDualTrack = (run) => {
+      selectedDualTrackScenario.value = run.scenarioId || 'NORMAL';
+      adminDualTrackModal.value = true;
+      Vue.nextTick(() => {
+        const chartDom = document.getElementById('adminDualTrackChart');
+        if (chartDom && window.echarts) {
+          const myChart = echarts.init(chartDom);
+          const times = Array.from({length: 24}, (_, i) => `${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`);
+          const option = {
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['执行处方 (有干预)', '未执行 (基线漂移)'] },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            xAxis: { type: 'category', boundaryGap: false, data: times },
+            yAxis: { type: 'value', name: '土壤含水率 (%)', min: 10, max: 40 },
+            series: [
+              {
+                name: '执行处方 (有干预)',
+                type: 'line',
+                data: times.map((_, i) => i < 8 ? 22 - (i * 0.5) : (i === 8 ? 35 : 35 - ((i - 8) * 0.4))),
+                itemStyle: { color: '#2ea043' },
+                smooth: true
+              },
+              {
+                name: '未执行 (基线漂移)',
+                type: 'line',
+                data: times.map((_, i) => 22 - (i * 0.5)),
+                itemStyle: { color: '#f85149' },
+                lineStyle: { type: 'dashed' },
+                smooth: true
+              }
+            ]
+          };
+          myChart.setOption(option);
+        }
+      });
+    };
+
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
@@ -547,8 +588,11 @@ const AdminRulesView = {
   props: ['state', 'routeParams'],
   setup() {
     const activeTab = ref('packs');
-    const expandedPack = ref(null);
-    return { activeTab, expandedPack };
+    const expandedPacks = ref({});
+    const togglePack = (id) => {
+      expandedPacks.value[id] = !expandedPacks.value[id];
+    };
+    return { activeTab, expandedPacks, togglePack };
   }
 };
 

@@ -655,7 +655,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=1787643216763"></script>
+  <script type="module" src="js/app.js?v=1787644000106"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1051,7 +1051,7 @@
       <!-- Tab: Crop Packs -->
       <div v-if="activeTab === 'packs'">
         <div class="pack-grid">
-          <div class="pack-card" v-for="pack in state.adminCropPacks" :key="pack.id" @click="expandedPack = expandedPack === pack.id ? null : pack.id">
+          <div class="pack-card" v-for="pack in state.adminCropPacks" :key="pack.id" @click="togglePack(pack.id)">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
@@ -1066,7 +1066,7 @@
               <span><span class="material-symbols-outlined" style="font-size:14px">menu_book</span> {{ pack.knowledgeDocs }} 篇知识</span>
             </div>
             
-            <div v-if="expandedPack === pack.id" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
+            <div v-if="expandedPacks[pack.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
               <div style="font-weight: 500; color: var(--g-text-primary); margin-bottom: 8px;">包含内容：</div>
               <ul style="padding-left: 20px; margin: 0; line-height: 1.6;">
                 <li>生命周期：育苗期、生长期、开花期、挂果期</li>
