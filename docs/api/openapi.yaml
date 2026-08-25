@@ -71,6 +71,9 @@ paths:
   /api/v1/plots:
     get: {tags: [farm], responses: {'200': {description: 授权地块列表}}}
     post: {tags: [farm], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}}}
+  /api/v1/plots/{plotId}:
+    patch: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 修改作物、品种、生长阶段、生长周期或面积}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    delete: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 删除地块并清理关联记录}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/resolved-profile:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 参数解析结果}}}
   /api/v1/crop-packs:

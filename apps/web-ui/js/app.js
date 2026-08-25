@@ -2,7 +2,7 @@ import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 
-const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
 const ICON_CLASS = Object.freeze({
   dashboard: 'ph-squares-four',
@@ -37,7 +37,11 @@ const ICON_CLASS = Object.freeze({
   record_voice_over: 'ph-user-focus',
   group_off: 'ph-user-minus',
   psychiatry: 'ph-leaf',
-  info: 'ph-info'
+  info: 'ph-info',
+  more_vertical: 'ph-dots-three-vertical',
+  edit: 'ph-pencil-simple',
+  delete: 'ph-trash',
+  add: 'ph-plus'
 });
 
 const AppIcon = {
@@ -62,6 +66,21 @@ const NAV_CATALOG = Object.freeze([
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
+const CROP_OPTIONS = Object.freeze([
+  { code: 'tomato', name: '番茄' },
+  { code: 'corn', name: '玉米' },
+  { code: 'cucumber', name: '黄瓜' },
+  { code: 'rice', name: '水稻' },
+  { code: 'sunflower', name: '向日葵' },
+  { code: 'strawberry', name: '草莓' }
+]);
+const STAGE_OPTIONS = Object.freeze([
+  { code: 'seedling', label: '育苗期' },
+  { code: 'vegetative', label: '营养生长期' },
+  { code: 'flowering', label: '开花期' },
+  { code: 'fruiting', label: '结果期' },
+  { code: 'harvest', label: '采收期' }
+]);
 
 function normalizedStatus(value, fallback = 'UNKNOWN') {
   return String(value || fallback).trim().toUpperCase();
@@ -153,6 +172,20 @@ const DashboardView = {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const selectedFarmId = ref(props.state.farms[0]?.farmId || '');
+    const plotMenuId = ref('');
+    const plotSaving = ref(false);
+    const plotEditor = ref({ open: false, mode: 'create' });
+    const deleteConfirm = ref({ open: false, plot: null });
+    const emptyPlotDraft = () => ({
+      plotId: '',
+      name: '',
+      cropCode: 'tomato',
+      cropVariety: '',
+      stageCode: 'vegetative',
+      growthCycleDays: 120,
+      areaM2: 100
+    });
+    const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
       const workItems = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
       const activeItems = workItems.filter((item) => !isFinishedWork(item));
@@ -189,6 +222,112 @@ const DashboardView = {
       plotId: plot.plotId,
       trigger: event?.currentTarget || null
     });
+    const togglePlotMenu = (plotId) => {
+      plotMenuId.value = plotMenuId.value === plotId ? '' : plotId;
+    };
+    const closePlotMenu = () => { plotMenuId.value = ''; };
+    const openCreatePlot = () => {
+      closePlotMenu();
+      plotDraft.value = emptyPlotDraft();
+      plotEditor.value = { open: true, mode: 'create' };
+    };
+    const openEditPlot = (plot) => {
+      closePlotMenu();
+      plotDraft.value = {
+        plotId: plot.plotId,
+        name: plot.name || '',
+        cropCode: plot.cropCode || 'tomato',
+        cropVariety: plot.cropVariety || '',
+        stageCode: plot.stageCode || 'vegetative',
+        growthCycleDays: Number(plot.growthCycleDays || 120),
+        areaM2: Number(plot.areaM2 || 100)
+      };
+      plotEditor.value = { open: true, mode: 'edit' };
+    };
+    const closePlotEditor = () => {
+      if (plotSaving.value) return;
+      plotEditor.value.open = false;
+    };
+    const metricTemplateFor = (cropCode, excludedPlotId = '') => {
+      const source = props.state.plots.find((plot) => plot.cropCode === cropCode && plot.plotId !== excludedPlotId);
+      return source?.metrics ? JSON.parse(JSON.stringify(source.metrics)) : Object.fromEntries(PLOT_METRIC_ORDER.map((code) => [code, {
+        label: code,
+        value: null,
+        unit: '',
+        status: 'UNAVAILABLE',
+        target: '待配置'
+      }]));
+    };
+    const submitPlot = async () => {
+      const draft = plotDraft.value;
+      if (!draft.name.trim() || !draft.cropVariety.trim()) {
+        toast('请填写地块名称和作物品种', 'error');
+        return;
+      }
+      const crop = CROP_OPTIONS.find((item) => item.code === draft.cropCode) || CROP_OPTIONS[0];
+      const stage = STAGE_OPTIONS.find((item) => item.code === draft.stageCode) || STAGE_OPTIONS[1];
+      const current = props.state.plots.find((plot) => plot.plotId === draft.plotId);
+      const cropChanged = Boolean(current && current.cropCode !== crop.code);
+      const payload = {
+        ...(current || {}),
+        farmId: selectedFarmId.value || current?.farmId || props.state.farms[0]?.farmId || 'farm-demo',
+        name: draft.name.trim(),
+        cropCode: crop.code,
+        cropName: crop.name,
+        cropVariety: draft.cropVariety.trim(),
+        stageCode: stage.code,
+        stageLabel: stage.label,
+        growthCycleDays: Math.max(1, Math.round(Number(draft.growthCycleDays) || 1)),
+        areaM2: Math.max(1, Number(draft.areaM2) || 1),
+        lastSeen: plotEditor.value.mode === 'edit' ? '刚刚更新' : '等待设备接入',
+        metrics: current && !cropChanged ? current.metrics : metricTemplateFor(crop.code, draft.plotId),
+        deviceStatus: current?.deviceStatus || 'UNBOUND',
+        healthScore: current?.healthScore ?? null,
+        riskLevel: current?.riskLevel || 'LOW'
+      };
+      plotSaving.value = true;
+      try {
+        if (plotEditor.value.mode === 'edit') {
+          const saved = await api.updatePlot(draft.plotId, payload);
+          emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          toast(`${payload.name}已更新，其他模块已同步`);
+        } else {
+          const saved = await api.createPlot(payload);
+          emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          toast(`${payload.name}已添加到农场`);
+        }
+        plotEditor.value.open = false;
+      } catch (error) {
+        toast(error.message || '保存地块失败', 'error');
+      } finally {
+        plotSaving.value = false;
+      }
+    };
+    const requestDeletePlot = (plot) => {
+      closePlotMenu();
+      deleteConfirm.value = { open: true, plot };
+    };
+    const cancelDeletePlot = () => {
+      if (plotSaving.value) return;
+      deleteConfirm.value = { open: false, plot: null };
+    };
+    const confirmDeletePlot = async () => {
+      const plot = deleteConfirm.value.plot;
+      if (!plot) return;
+      plotSaving.value = true;
+      try {
+        await api.deletePlot(plot.plotId);
+        emit('plot-change', { type: 'delete', plot });
+        deleteConfirm.value = { open: false, plot: null };
+        toast(`${plot.name}已删除，关联页面已同步`);
+      } catch (error) {
+        toast(error.message || '删除地块失败', 'error');
+      } finally {
+        plotSaving.value = false;
+      }
+    };
+    onMounted(() => document.addEventListener('click', closePlotMenu));
+    onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { openCreateTask: true });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
@@ -216,6 +355,21 @@ const DashboardView = {
       metricTone,
       metricStatusIcon,
       openPlotDetail,
+      plotMenuId,
+      plotSaving,
+      plotEditor,
+      plotDraft,
+      deleteConfirm,
+      cropOptions: CROP_OPTIONS,
+      stageOptions: STAGE_OPTIONS,
+      togglePlotMenu,
+      openCreatePlot,
+      openEditPlot,
+      closePlotEditor,
+      submitPlot,
+      requestDeletePlot,
+      cancelDeletePlot,
+      confirmDeletePlot,
       createTask,
       handleAction,
       visibleActions
@@ -928,6 +1082,26 @@ const app = createApp({
       window.location.hash = targetHash.slice(1);
     };
 
+    const applyPlotChange = ({ type, plot } = {}) => {
+      if (!plot?.plotId) return;
+      const index = state.value.plots.findIndex((item) => item.plotId === plot.plotId);
+      if (type === 'delete') {
+        state.value.plots = state.value.plots.filter((item) => item.plotId !== plot.plotId);
+        state.value.workOrders = state.value.workOrders.filter((item) => item.plotId !== plot.plotId);
+        state.value.farmMembers = state.value.farmMembers.map((member) => ({
+          ...member,
+          plotIds: Array.isArray(member.plotIds) ? member.plotIds.filter((plotId) => plotId !== plot.plotId) : []
+        }));
+        if (selectedPlotId.value === plot.plotId) selectedPlotId.value = '';
+        return;
+      }
+      if (index >= 0) {
+        state.value.plots.splice(index, 1, { ...state.value.plots[index], ...plot });
+      } else {
+        state.value.plots.push(plot);
+      }
+    };
+
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
       const plot = state.value.plots.find((item) => item.plotId === plotId);
       if (!plot) {
@@ -1037,6 +1211,7 @@ const app = createApp({
       toggleSidebar,
       logout,
       navigate,
+      applyPlotChange,
       openPlotDetail,
       closePlotDetail,
       navigateFromPlotDetail

@@ -63,7 +63,8 @@
       <main class="g-main">
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :route-params="routeParams"
-                     @navigate="navigate" @open-plot-detail="openPlotDetail"></component>
+                     @navigate="navigate" @open-plot-detail="openPlotDetail"
+                     @plot-change="applyPlotChange"></component>
         </transition>
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
@@ -123,12 +124,29 @@
               <h2>{{ plot.name }}</h2>
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
-            <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
+            <div class="manager-plot-card-tools">
+              <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
+              <div class="manager-plot-actions" @click.stop>
+                <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
+                        :aria-label="`${plot.name}地块操作`" @click.stop="togglePlotMenu(plot.plotId)">
+                  <app-icon name="more_vertical"></app-icon>
+                </button>
+                <div v-if="plotMenuId === plot.plotId" class="manager-plot-menu" role="menu">
+                  <button type="button" role="menuitem" @click="openEditPlot(plot)">
+                    <app-icon name="edit"></app-icon><span>修改地块</span>
+                  </button>
+                  <button type="button" class="is-danger" role="menuitem" @click="requestDeletePlot(plot)">
+                    <app-icon name="delete"></app-icon><span>删除地块</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </header>
           <p class="manager-plot-meta">
             <span>品种：{{ plot.cropVariety || '—' }}</span>
             <span>面积：{{ plot.areaM2 ?? '—' }}㎡</span>
             <span>生长阶段：{{ plot.stageLabel || '—' }}</span>
+            <span>生长周期：{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</span>
           </p>
           <div class="manager-metric-grid">
             <div class="manager-metric" :class="`is-${metricTone(metric)}`" v-for="metric in plotMetrics(plot)" :key="metric.code">
@@ -143,11 +161,75 @@
             </div>
           </div>
         </article>
+        <button type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
+          <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
+          <strong>添加新地块</strong>
+          <small>录入作物种类、生长周期和地块面积</small>
+        </button>
       </div>
       <div v-if="!state.plots.length" class="simple-empty-state manager-plot-empty">
         <app-icon name="info"></app-icon>
         <h2>暂无可显示的地块</h2>
         <p>请确认后端服务和当前账户的地块权限；系统不会用演示指标代替正式数据。</p>
+      </div>
+
+      <div v-if="plotEditor.open" class="g-modal-overlay manager-plot-editor-overlay" @click.self="closePlotEditor">
+        <form class="g-modal manager-plot-editor" role="dialog" aria-modal="true" @submit.prevent="submitPlot">
+          <div class="g-modal-header">
+            <div>
+              <p>{{ plotEditor.mode === 'edit' ? '修改地块信息' : '新增地块' }}</p>
+              <h2>{{ plotEditor.mode === 'edit' ? plotDraft.name : '添加一个新地块' }}</h2>
+            </div>
+            <button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePlotEditor"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body manager-plot-form">
+            <label class="g-form-group manager-form-span-2">
+              <span class="g-form-label">地块名称 *</span>
+              <input class="g-input" v-model.trim="plotDraft.name" maxlength="40" required placeholder="例如：C02 辣椒试验田">
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">作物种类 *</span>
+              <select class="g-select" v-model="plotDraft.cropCode" required>
+                <option v-for="crop in cropOptions" :key="crop.code" :value="crop.code">{{ crop.name }}</option>
+              </select>
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">作物品种 *</span>
+              <input class="g-input" v-model.trim="plotDraft.cropVariety" maxlength="40" required placeholder="例如：千禧水果番茄">
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">当前生长阶段 *</span>
+              <select class="g-select" v-model="plotDraft.stageCode" required>
+                <option v-for="stage in stageOptions" :key="stage.code" :value="stage.code">{{ stage.label }}</option>
+              </select>
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">完整生长周期（天）*</span>
+              <input class="g-input" type="number" v-model.number="plotDraft.growthCycleDays" min="1" max="1000" required>
+            </label>
+            <label class="g-form-group manager-form-span-2">
+              <span class="g-form-label">地块面积（㎡）*</span>
+              <input class="g-input" type="number" v-model.number="plotDraft.areaM2" min="1" step="0.1" required>
+            </label>
+            <p class="manager-form-note manager-form-span-2">保存后，农场总览、地块详情、设备绑定和任务选择中的地块信息会同时更新。</p>
+          </div>
+          <div class="g-modal-footer">
+            <button type="button" class="g-btn secondary" :disabled="plotSaving" @click="closePlotEditor">取消</button>
+            <button type="submit" class="g-btn primary" :disabled="plotSaving">{{ plotSaving ? '保存中…' : '保存地块' }}</button>
+          </div>
+        </form>
+      </div>
+
+      <div v-if="deleteConfirm.open" class="g-modal-overlay manager-plot-editor-overlay" @click.self="cancelDeletePlot">
+        <section class="g-modal manager-delete-dialog" role="alertdialog" aria-modal="true">
+          <div class="manager-delete-icon"><app-icon name="delete"></app-icon></div>
+          <h2>确定删除这个地块？</h2>
+          <p>“{{ deleteConfirm.plot?.name }}”将从农场总览和所有地块选择列表中移除，此操作不能撤销。</p>
+          <div class="g-modal-footer">
+            <button type="button" class="g-btn secondary" :disabled="plotSaving" @click="cancelDeletePlot">取消</button>
+            <button type="button" class="g-btn danger" :disabled="plotSaving" @click="confirmDeletePlot">{{ plotSaving ? '删除中…' : '确认删除' }}</button>
+          </div>
+        </section>
       </div>
     </section>
 

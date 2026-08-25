@@ -17,6 +17,50 @@ class AgriApplicationTest {
     @Autowired AgriEngine engine;
     @Autowired AgriStore store;
     @Autowired JwtService jwtService;
+    @Autowired AgriController controller;
+
+    @Test
+    void farmAdminCanCreateUpdateAndDeletePlotAcrossFarmScope() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        String plotId = "plot-lifecycle-" + System.nanoTime();
+        Map<String, Object> created = responseData(controller.createPlot(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId,
+                "farmId", "farm-demo",
+                "name", "测试番茄田",
+                "cropCode", "tomato",
+                "cropName", "番茄",
+                "cropVariety", "千禧番茄",
+                "stageCode", "vegetative",
+                "stageLabel", "营养生长期",
+                "growthCycleDays", 120,
+                "areaM2", 88
+        )), authentication));
+        assertThat(created.get("plotId")).isEqualTo(plotId);
+        assertThat(engine.canAccessPlot(admin, plotId)).isTrue();
+
+        Map<String, Object> updated = responseData(controller.updatePlot(plotId, Map.of(
+                "cropCode", "cucumber",
+                "cropName", "黄瓜",
+                "cropVariety", "水果黄瓜",
+                "stageCode", "flowering",
+                "stageLabel", "开花期",
+                "growthCycleDays", 95
+        ), authentication));
+        assertThat(updated.get("cropCode")).isEqualTo("cucumber");
+        assertThat(updated.get("growthCycleDays")).isEqualTo(95);
+
+        store.save("work-order", "wo-" + plotId, new java.util.LinkedHashMap<>(Map.of("workOrderId", "wo-" + plotId, "plotId", plotId)));
+        Map<String, Object> deleted = responseData(controller.deletePlot(plotId, authentication));
+        assertThat(deleted.get("deleted")).isEqualTo(true);
+        assertThat(store.find("plot", plotId)).isNull();
+        assertThat(store.find("work-order", "wo-" + plotId)).isNull();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> responseData(org.springframework.http.ResponseEntity<?> response) {
+        return (Map<String, Object>) ((Map<String, Object>) response.getBody()).get("data");
+    }
 
     @Test
     void seededLoginAndCropPacksWork() {

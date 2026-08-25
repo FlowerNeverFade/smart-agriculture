@@ -222,6 +222,43 @@ export class ApiService {
     return MOCK_DATA.plots;
   }
 
+  async createPlot(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/plots', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的新增地块结果', { code: 'PLOT_CREATE_INVALID', payload: resp });
+    }
+    return {
+      ...input,
+      plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async updatePlot(plotId, input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块修改结果', { code: 'PLOT_UPDATE_INVALID', payload: resp });
+    }
+    return { ...input, plotId, updatedAt: new Date().toISOString() };
+  }
+
+  async deletePlot(plotId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, { method: 'DELETE' });
+      if (resp?.data?.plotId === plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块删除结果', { code: 'PLOT_DELETE_INVALID', payload: resp });
+    }
+    return { plotId, deleted: true, deletedAt: new Date().toISOString() };
+  }
+
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
     if (this.isLive) {
       const query = new URLSearchParams({ metric, limit: String(Math.max(1, Math.min(Number(limit) || 50, 5000))) });
