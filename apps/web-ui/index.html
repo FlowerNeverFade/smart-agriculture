@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark light">
   <title>AgriLoop · 农智闭环 - 智慧农业智能中枢</title>
-  <link rel="stylesheet" href="css/style.css?v=20260824-wheat-fallback">
+  <link rel="stylesheet" href="css/style.css?v=20260825-simple-home">
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/rium-glass.css?v=20260824-wheat-fallback">
   <!-- Favicon Icon -->
@@ -105,9 +105,9 @@
         </div>
 
         <ul class="module-nav-list" id="moduleNavList">
-          <li>
+          <li class="home-primary-nav">
             <a class="module-nav-item active" data-view="home">
-              <span><span class="icon">🏠</span>主面板 (Home)</span>
+              <span><span class="icon">🏠</span>农场总览</span>
               <span class="module-badge">实时</span>
             </a>
           </li>
@@ -117,19 +117,19 @@
               <span class="module-badge highlight">重点</span>
             </a>
           </li>
-          <li>
+          <li class="home-primary-nav">
             <a class="module-nav-item" data-view="plot-telemetry">
-              <span><span class="icon">📈</span>地块监测数据时序</span>
+              <span><span class="icon">📈</span>地块监测</span>
               <span class="module-badge">数据</span>
             </a>
           </li>
-          <li>
+          <li class="home-primary-nav">
             <a class="module-nav-item" data-view="decision-console">
-              <span><span class="icon">🧠</span>智能诊断与决策台</span>
-              <span class="module-badge">CAP-04/05</span>
+              <span><span class="icon">⚠️</span>风险诊断</span>
+              <span class="module-badge">AI</span>
             </a>
           </li>
-          <li>
+          <li class="home-primary-nav">
             <a class="module-nav-item" data-view="work-orders">
               <span><span class="icon">📋</span>今日农务与巡田</span>
               <span class="module-badge">CAP-02/03</span>
@@ -147,7 +147,7 @@
               <span class="module-badge highlight">3D</span>
             </a>
           </li>
-          <li>
+          <li class="home-primary-nav">
             <a class="module-nav-item" data-view="resource-coordination">
               <span><span class="icon">💧</span>水资源协同排程</span>
               <span class="module-badge">CAP-11</span>
@@ -177,26 +177,76 @@
               <span class="module-badge">Schema</span>
             </a>
           </li>
+          <li class="home-nav-more-item">
+            <button class="home-nav-more-btn" id="btnHomeNavMore" type="button" aria-expanded="false">
+              <span><span class="icon">☰</span>更多功能</span>
+              <span class="module-badge">7</span>
+            </button>
+          </li>
         </ul>
       </section>
     </aside>
 
     <!-- ======================== Center Feed (Flexible) ======================== -->
     <section class="main-feed" id="mainFeedArea">
-      <div class="main-feed-home-content" id="homeFeedContent">
-      <div class="main-feed-header">
-        <h1 class="main-feed-title">
-          <span>Home</span>
-          <span style="font-size: 13px; font-weight: normal; color: var(--text-muted);" id="currentPlotContextBadge">/ 示范农场全域</span>
-        </h1>
-        <p class="main-feed-subtitle">全场景遥测汇聚、多因果智能诊断、结构化处方推荐与决策闭环动态</p>
-      </div>
+      <div class="main-feed-home-content simple-home" id="homeFeedContent">
+        <header class="simple-home-heading">
+          <div>
+            <span class="simple-home-eyebrow">示范农场 · 今日总览</span>
+            <h1>农场情况，一眼看懂</h1>
+            <p id="currentPlotContextBadge">当前展示全场地块、农务、风险和用水情况</p>
+          </div>
+          <div class="simple-home-heading-actions">
+            <span class="simple-home-source"><span class="simple-home-live-dot"></span><span id="simpleHomeDataMode">演示数据</span></span>
+            <button class="simple-home-action-btn secondary" type="button" data-home-panel="activity">📋 查看全部动态</button>
+            <button class="simple-home-action-btn primary" type="button" data-home-panel="copilot">✨ 智能分析</button>
+          </div>
+        </header>
 
-      <!-- 预测、经营、Crop Pack 快速摘要（yyx 增强能力；点击进入独立模块） -->
-      <div class="home-summary-grid" id="homeSummaryGrid"></div>
+        <section class="simple-home-kpis" id="simpleHomeKpis" aria-label="农场核心指标"></section>
 
-      <!-- Copilot Agent Prompt Box -->
-      <div class="copilot-prompt-card">
+        <div class="simple-home-main-grid">
+          <section class="simple-home-card simple-home-plots-card">
+            <div class="simple-home-section-head">
+              <div><span class="section-kicker">田间实况</span><h2>地块状态总览</h2></div>
+              <div class="simple-home-legend"><span><i class="ok"></i>正常</span><span><i class="warn"></i>有风险</span><span><i class="offline"></i>离线</span></div>
+            </div>
+            <div class="simple-plot-map" id="simplePlotMap"></div>
+            <p class="simple-home-hint">点击任意地块，查看它的湿度、温度和设备数据</p>
+          </section>
+
+          <aside class="simple-home-card simple-home-risk-card">
+            <div class="simple-home-section-head">
+              <div><span class="section-kicker">需要留意</span><h2>风险诊断</h2></div>
+              <button class="simple-home-text-btn" type="button" data-home-view="decision-console">查看全部 →</button>
+            </div>
+            <div class="simple-risk-list" id="simpleRiskList"></div>
+          </aside>
+        </div>
+
+        <div class="simple-home-bottom-grid">
+          <section class="simple-home-card simple-home-tasks-card">
+            <div class="simple-home-section-head">
+              <div><span class="section-kicker">待处理</span><h2>今日农务</h2></div>
+              <button class="simple-home-text-btn" type="button" data-home-view="work-orders">进入农务中心 →</button>
+            </div>
+            <div class="simple-task-list" id="simpleTaskList"></div>
+          </section>
+
+          <section class="simple-home-card simple-home-water-card" id="simpleWaterCard"></section>
+        </div>
+
+        <div class="simple-home-overlay" id="simpleHomeOverlay" hidden>
+          <button class="simple-home-overlay-backdrop" type="button" data-home-close aria-label="关闭弹层"></button>
+          <section class="simple-home-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="simpleHomeDialogTitle">
+            <header class="simple-home-dialog-head">
+              <div><span class="section-kicker" id="simpleHomeDialogKicker">农智助手</span><h2 id="simpleHomeDialogTitle">智能分析</h2></div>
+              <button class="simple-home-dialog-close" type="button" data-home-close aria-label="关闭">×</button>
+            </header>
+
+            <div class="simple-home-dialog-panel" id="homeCopilotPanel" hidden>
+              <!-- Copilot Agent Prompt Box -->
+              <div class="copilot-prompt-card">
         <div class="copilot-connection-row">
           <span class="copilot-connection-status" id="copilotConnectionStatus">登录后连接服务器上的 Qwen3.8-27B</span>
           <button class="btn-ghost copilot-login-link" id="btnCopilotLogin" type="button">登录</button>
@@ -238,23 +288,23 @@
           </div>
         </section>
       </div>
+            </div>
 
-      <!-- Feed Filter Bar -->
-      <div class="feed-filter-bar">
-        <div class="feed-tabs" id="feedTabButtons">
-          <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
-          <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
-          <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
-          <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
-          <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
+            <div class="simple-home-dialog-panel" id="homeActivityPanel" hidden>
+              <div class="feed-filter-bar">
+                <div class="feed-tabs" id="feedTabButtons">
+                  <button class="feed-tab-btn active" data-filter="ALL">全部动态</button>
+                  <button class="feed-tab-btn" data-filter="DIAGNOSIS">根因诊断</button>
+                  <button class="feed-tab-btn" data-filter="PRESCRIPTION">灌溉处方</button>
+                  <button class="feed-tab-btn" data-filter="FORECAST">风险预测</button>
+                  <button class="feed-tab-btn" data-filter="WORK_ORDER">今日农务</button>
+                </div>
+                <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
+              </div>
+              <div class="feed-stream" id="feedStreamContainer"></div>
+            </div>
+          </section>
         </div>
-        <span class="feed-count-tag" id="feedCountTag">共 4 条关键动态</span>
-      </div>
-
-      <!-- Feed Stream Container -->
-      <div class="feed-stream" id="feedStreamContainer">
-        <!-- Dynamically rendered feed items from JS -->
-      </div>
       </div>
 
       <!-- Navigation modules render in the center feed instead of opening a modal. -->
@@ -453,6 +503,6 @@
   </div>
 
   <!-- Load ES Module Scripts -->
-  <script type="module" src="js/app.js?v=20260824-wheat-fallback"></script>
+  <script type="module" src="js/app.js?v=20260825-simple-home"></script>
 </body>
 </html>

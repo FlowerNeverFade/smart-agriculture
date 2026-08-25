@@ -106,6 +106,8 @@ class AgriApp {
       selectedFarmId: 'farm-demo',
       plots: [...MOCK_DATA.plots],
       feedItems: [...MOCK_DATA.feedItems],
+      workOrders: [...(MOCK_DATA.workOrders || [])],
+      resourceProfile: { ...(MOCK_DATA.resourceProfile || {}) },
       activeSubview: null,
       activeMainView: 'home',
       isLive: false,
@@ -169,7 +171,7 @@ class AgriApp {
       this.loadAgentHistory(true),
       this.refreshSimulatorStatus(true)
     ]);
-    await this.loadOverview();
+    await Promise.all([this.loadOverview(), this.loadHomeSupportingData()]);
 
     this.renderPlots();
     this.renderFeed();
@@ -346,6 +348,18 @@ class AgriApp {
     this.dom.appContainer = document.querySelector('.app-container');
     this.dom.mainFeedArea = document.getElementById('mainFeedArea');
     this.dom.btnToggleRightRail = document.getElementById('btnToggleRightRail');
+    this.dom.btnHomeNavMore = document.getElementById('btnHomeNavMore');
+    this.dom.simpleHomeKpis = document.getElementById('simpleHomeKpis');
+    this.dom.simplePlotMap = document.getElementById('simplePlotMap');
+    this.dom.simpleRiskList = document.getElementById('simpleRiskList');
+    this.dom.simpleTaskList = document.getElementById('simpleTaskList');
+    this.dom.simpleWaterCard = document.getElementById('simpleWaterCard');
+    this.dom.simpleHomeDataMode = document.getElementById('simpleHomeDataMode');
+    this.dom.simpleHomeOverlay = document.getElementById('simpleHomeOverlay');
+    this.dom.homeCopilotPanel = document.getElementById('homeCopilotPanel');
+    this.dom.homeActivityPanel = document.getElementById('homeActivityPanel');
+    this.dom.simpleHomeDialogKicker = document.getElementById('simpleHomeDialogKicker');
+    this.dom.simpleHomeDialogTitle = document.getElementById('simpleHomeDialogTitle');
     if (this.dom.plotTelemetryPanel) this.plotTelemetryView.bind(this.dom.plotTelemetryPanel);
   }
 
@@ -396,6 +410,39 @@ class AgriApp {
     this.dom.btnToggleRightRail?.addEventListener('click', () => {
       this.setRightRailCollapsed(!this.state.rightRailCollapsed);
     });
+    this.dom.btnHomeNavMore?.addEventListener('click', () => {
+      const expanded = !this.dom.moduleNavList?.classList.contains('home-nav-expanded');
+      this.dom.moduleNavList?.classList.toggle('home-nav-expanded', expanded);
+      this.dom.btnHomeNavMore.setAttribute('aria-expanded', String(expanded));
+      const label = this.dom.btnHomeNavMore.querySelector('span:first-child');
+      if (label) label.innerHTML = `<span class="icon">${expanded ? '↑' : '☰'}</span>${expanded ? '收起功能' : '更多功能'}`;
+    });
+
+    this.dom.homeFeedContent?.addEventListener('click', (event) => {
+      const closeButton = event.target.closest('[data-home-close]');
+      if (closeButton) {
+        this.closeHomeDetail();
+        return;
+      }
+      const panelButton = event.target.closest('[data-home-panel]');
+      if (panelButton) {
+        this.openHomeDetail(panelButton.dataset.homePanel);
+        return;
+      }
+      const viewButton = event.target.closest('[data-home-view]');
+      if (viewButton) {
+        const plotId = viewButton.dataset.plotId || this.state.currentPlotId;
+        this.closeHomeDetail();
+        this.openSubview(viewButton.dataset.homeView, { plotId, inline: true });
+        return;
+      }
+      const plotButton = event.target.closest('[data-home-plot-id]');
+      if (plotButton) {
+        const plotId = plotButton.dataset.homePlotId;
+        this.selectPlot(plotId, { silent: true });
+        this.showPlotTelemetryView(plotId);
+      }
+    });
 
     // Resource schedule click
     this.dom.btnViewResourceDetail?.addEventListener('click', () => {
@@ -418,7 +465,8 @@ class AgriApp {
     // ⌘K / Ctrl+K / "/" 交给 yyx 命令面板；这里仅负责 Escape 关闭本应用弹窗。
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        this.closeModal();
+        if (this.dom.simpleHomeOverlay && !this.dom.simpleHomeOverlay.hidden) this.closeHomeDetail();
+        else this.closeModal();
       }
     });
 
@@ -494,6 +542,19 @@ class AgriApp {
         this.handleSessionExpired(false);
       } else if (this.state.isLive) {
         this.showToast('读取后端总览失败：' + e.message, 'error');
+      }
+    }
+  }
+
+  async loadHomeSupportingData() {
+    try {
+      const workOrders = await api.getTodayWorkItems();
+      if (Array.isArray(workOrders)) this.state.workOrders = workOrders;
+    } catch (error) {
+      if (error.status === 401 || error.code === 'AUTH_REQUIRED' || error.code === 'AUTH_INVALID') {
+        this.handleSessionExpired(false);
+      } else if (this.state.isLive) {
+        console.warn('[AgriLoop] 首页今日农务读取失败，保留当前快照。', error);
       }
     }
   }
@@ -589,6 +650,7 @@ class AgriApp {
         try {
           await this.loadOverview();
           this.renderPlots(this.dom.plotSearchInput?.value || '');
+          this.renderHomeSummary();
         } catch (e) {
           console.warn('[AgriLoop] 刷新模拟器遥测失败。', e);
         }
@@ -1156,49 +1218,134 @@ class AgriApp {
     `).join('');
   }
 
-  /** yyx 首页驾驶舱摘要：预测、价值账本、Crop Pack 三张可点击卡片。 */
+  /** 低密度 Home：所有数字从当前状态与已有农务合同推导。 */
   renderHomeSummary() {
-    const grid = document.getElementById('homeSummaryGrid');
-    if (!grid) return;
     const plots = this.state.plots || MOCK_DATA.plots;
-    const plot = plots.find(item => item.plotId === 'plot-a01') || plots[0];
-    const cfg = MOCK_DATA.riskForecastConfig;
-    const ledger = MOCK_DATA.valueLedger?.summary || {};
-    const packs = MOCK_DATA.cropPackDetails || [];
-    const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 20);
-    const boundary = Number(cfg?.stressBoundary ?? 14);
-    const k = Math.log(16.8 / boundary) / 72;
-    const ttr = moisture > boundary ? Math.min(Math.max(Math.round(Math.log(moisture / boundary) / k), 0), cfg.maxHorizonMinutes) : 0;
-    const zone = ttr < 60 ? 'danger' : ttr < 150 ? 'warn' : 'ok';
-    const farmLabel = plot?.name || '温室 1 号棚';
-    const totalSaved = Number(ledger.totalSavedRmb ?? 0);
-    const savedWater = Number(ledger.savedWaterLitres ?? 0);
-    const deviation = Number(ledger.deviationRatePct ?? 0);
-    grid.innerHTML = `
-      <div class="home-summary-card" data-view="risk-forecast" title="打开未来风险预测推演">
-        <div class="hs-icon">🔮</div><div class="hs-body">
-          <div class="hs-title">未来风险 · ${this.escapeHtml(farmLabel)}</div>
-          <div class="hs-value ${zone}">⏱ Time-to-Risk ${ttr >= cfg.maxHorizonMinutes ? '&gt;240' : ttr} 分钟</div>
-          <div class="hs-sub">当前湿度 ${moisture}% · 极限边界 ${boundary}%</div>
-        </div><span class="hs-go">→</span>
-      </div>
-      <div class="home-summary-card" data-view="value-ledger" title="打开经营价值与效益对账本">
-        <div class="hs-icon">💰</div><div class="hs-body">
-          <div class="hs-title">经营价值对账</div>
-          <div class="hs-value ok">¥ ${totalSaved.toFixed(2)}</div>
-          <div class="hs-sub">节水 ${savedWater.toLocaleString()}L · 偏差率 ${deviation}%</div>
-        </div><span class="hs-go">→</span>
-      </div>
-      <div class="home-summary-card" data-view="crop-packs" title="打开作物包全景与规则注册表">
-        <div class="hs-icon">📦</div><div class="hs-body">
-          <div class="hs-title">作物包注册表</div>
-          <div class="hs-value">${packs.length} 个包 · ${packs.reduce((sum, pack) => sum + (pack.stages?.length || 0), 0)} 阶段</div>
-          <div class="hs-sub">${packs.map(pack => this.escapeHtml(pack.identity?.name || pack.cropCode)).join(' / ')} · Schema v${this.escapeHtml(packs[0]?.schemaVersion || '1.0')}</div>
-        </div><span class="hs-go">→</span>
-      </div>`;
-    grid.querySelectorAll('.home-summary-card').forEach(card => {
-      card.addEventListener('click', () => this.openSubview(card.dataset.view, { plotId: this.state.currentPlotId }));
-    });
+    if (!plots.length) return;
+
+    const isOffline = plot => String(plot.deviceStatus || '').toUpperCase() !== 'ONLINE';
+    const isRisk = plot => isOffline(plot) || ['HIGH', 'MEDIUM', 'CRITICAL'].includes(String(plot.riskLevel || '').toUpperCase());
+    const riskPlots = plots.filter(isRisk);
+    const onlineCount = plots.filter(plot => !isOffline(plot)).length;
+    const normalCount = Math.max(plots.length - riskPlots.length, 0);
+    const onlineRate = plots.length ? Math.round((onlineCount / plots.length) * 100) : 0;
+
+    if (this.dom.simpleHomeDataMode) {
+      this.dom.simpleHomeDataMode.textContent = this.state.isLive ? '服务器实时数据' : '本地演示数据';
+    }
+
+    if (this.dom.simpleHomeKpis) {
+      const cards = [
+        { icon: '🌱', label: '地块总数', value: plots.length, unit: '个', note: '当前农场全部生产地块', className: '' },
+        { icon: '✅', label: '正常地块', value: normalCount, unit: '个', note: `${plots.length ? Math.round((normalCount / plots.length) * 100) : 0}% 状态正常`, className: '' },
+        { icon: '⚠️', label: '风险地块', value: riskPlots.length, unit: '个', note: riskPlots.length ? '请优先查看风险建议' : '暂无需要处理的风险', className: 'risk' },
+        { icon: '📡', label: '设备在线率', value: onlineRate, unit: '%', note: `${onlineCount} / ${plots.length} 台设备在线`, className: 'device' }
+      ];
+      this.dom.simpleHomeKpis.innerHTML = cards.map(card => `
+        <article class="simple-kpi ${card.className}">
+          <span class="simple-kpi-icon" aria-hidden="true">${card.icon}</span>
+          <div><span class="simple-kpi-label">${card.label}</span><strong class="simple-kpi-value">${card.value}<small>${card.unit}</small></strong></div>
+          <span class="simple-kpi-note">${card.note}</span>
+        </article>`).join('');
+    }
+
+    const cropIcons = { tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓' };
+    if (this.dom.simplePlotMap) {
+      this.dom.simplePlotMap.innerHTML = plots.map(plot => {
+        const offline = isOffline(plot);
+        const risk = isRisk(plot);
+        const moisture = plot.metrics?.SOIL_MOISTURE;
+        const statusText = offline ? '离线' : (risk ? '有风险' : '正常');
+        return `
+          <button class="simple-plot-tile ${offline ? 'is-offline' : risk ? 'is-risk' : ''}" type="button" data-home-plot-id="${this.escapeHtml(plot.plotId)}" aria-label="查看${this.escapeHtml(plot.name)}监测数据">
+            <span class="simple-plot-top"><span class="simple-plot-name">${cropIcons[plot.cropCode] || '🌱'} ${this.escapeHtml(plot.name)}</span><span class="simple-plot-status">${offline ? '🔴' : risk ? '🟠' : '🟢'} ${statusText}</span></span>
+            <span class="simple-plot-meta">${this.escapeHtml(plot.cropName || '作物')} · ${this.escapeHtml(plot.stageLabel || '当前阶段')}</span>
+            <span class="simple-plot-metric">${this.escapeHtml(moisture?.label || '土壤湿度')} ${this.escapeHtml(String(moisture?.value ?? '—'))}${this.escapeHtml(moisture?.unit || '')}</span>
+          </button>`;
+      }).join('');
+    }
+
+    if (this.dom.simpleRiskList) {
+      if (!riskPlots.length) {
+        this.dom.simpleRiskList.innerHTML = '<div class="simple-safe-state"><div><span style="font-size:34px">✅</span><strong>全部正常</strong><span>当前没有需要立即处理的地块</span></div></div>';
+      } else {
+        this.dom.simpleRiskList.innerHTML = riskPlots.slice(0, 2).map(plot => {
+          const offline = isOffline(plot);
+          const moisture = Number(plot.metrics?.SOIL_MOISTURE?.value);
+          const title = offline ? `${plot.name}：设备离线` : `${plot.name}：缺水风险`;
+          const advice = offline ? '建议检查设备电源和网络连接' : `土壤湿度 ${Number.isFinite(moisture) ? `${moisture}%` : '偏低'}，建议核验后补水`;
+          return `
+            <button class="simple-risk-item" type="button" data-home-view="decision-console" data-plot-id="${this.escapeHtml(plot.plotId)}">
+              <span class="simple-list-icon">${offline ? '📶' : '💧'}</span>
+              <span><span class="simple-list-title">${this.escapeHtml(title)}</span><span class="simple-list-sub">${this.escapeHtml(advice)}</span></span>
+              <span class="simple-list-arrow">›</span>
+            </button>`;
+        }).join('');
+      }
+    }
+
+    if (this.dom.simpleTaskList) {
+      const priorityRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+      const tasks = [...(this.state.workOrders || MOCK_DATA.workOrders || [])]
+        .filter(item => !['DONE', 'CANCELLED'].includes(String(item.status || '').toUpperCase()))
+        .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9))
+        .slice(0, 3);
+      this.dom.simpleTaskList.innerHTML = tasks.length ? tasks.map(task => {
+        const due = task.dueAt ? new Date(task.dueAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '今日';
+        const plot = plots.find(item => item.plotId === task.plotId);
+        return `
+          <button class="simple-task-item" type="button" data-home-view="work-orders" data-plot-id="${this.escapeHtml(task.plotId || this.state.currentPlotId)}">
+            <span class="simple-list-icon">${task.actionType === 'INSPECTION' ? '🔎' : task.actionType === 'IRRIGATION_REVIEW' ? '💧' : '🌿'}</span>
+            <span><span class="simple-list-title">${this.escapeHtml(task.title)}</span><span class="simple-list-sub">${this.escapeHtml(plot?.name || '全场农务')} · ${due}前</span><span class="simple-task-priority ${String(task.priority).toLowerCase()}">${task.priority === 'HIGH' ? '紧急' : task.priority === 'MEDIUM' ? '普通' : '可稍后处理'}</span></span>
+          </button>`;
+      }).join('') : '<div class="simple-safe-state"><div><strong>今日任务已完成</strong><span>暂无待处理农务</span></div></div>';
+    }
+
+    if (this.dom.simpleWaterCard) {
+      const water = this.state.resourceProfile || MOCK_DATA.resourceProfile || {};
+      const limit = Number(water.dailyLimitLitres || 0);
+      const used = Number(water.usedTodayLitres || 0);
+      const remaining = Number(water.remainingLitres ?? Math.max(limit - used, 0));
+      const usedPct = limit > 0 ? Math.min(Math.round((used / limit) * 100), 100) : 0;
+      this.dom.simpleWaterCard.innerHTML = `
+        <div class="simple-water-heading"><div><span class="section-kicker">今日用水</span><h2>水资源协同排程</h2></div><span class="simple-water-drop">💧</span></div>
+        <div class="simple-water-values">
+          <div><span>今日额度</span><strong>${limit.toLocaleString()} L</strong></div>
+          <div><span>已使用</span><strong>${used.toLocaleString()} L</strong></div>
+          <div><span>剩余</span><strong>${remaining.toLocaleString()} L</strong></div>
+        </div>
+        <div class="simple-water-progress" aria-label="今日用水进度 ${usedPct}%"><i style="width:${usedPct}%"></i></div>
+        <div class="simple-water-foot"><span>已使用 ${usedPct}% · ${water.activeConflicts || 0} 个调度冲突</span><button class="simple-home-text-btn" type="button" data-home-view="resource-coordination">安排用水 →</button></div>`;
+    }
+  }
+
+  applyHomeLayout(active) {
+    this.dom.appContainer?.classList.toggle('home-simple-mode', Boolean(active));
+    if (!active) {
+      this.dom.moduleNavList?.classList.remove('home-nav-expanded');
+      this.dom.btnHomeNavMore?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  openHomeDetail(panelName) {
+    if (!this.dom.simpleHomeOverlay) return;
+    const isActivity = panelName === 'activity';
+    this.dom.homeCopilotPanel.hidden = isActivity;
+    this.dom.homeActivityPanel.hidden = !isActivity;
+    this.dom.simpleHomeDialogKicker.textContent = isActivity ? '农场记录' : '农智助手';
+    this.dom.simpleHomeDialogTitle.textContent = isActivity ? '全部关键动态' : '智能分析';
+    this.dom.simpleHomeOverlay.hidden = false;
+    document.body.style.overflow = 'hidden';
+    const focusTarget = isActivity ? this.dom.homeActivityPanel.querySelector('button') : this.dom.copilotInput;
+    window.setTimeout(() => focusTarget?.focus(), 0);
+  }
+
+  closeHomeDetail() {
+    if (!this.dom.simpleHomeOverlay) return;
+    this.dom.simpleHomeOverlay.hidden = true;
+    this.dom.homeCopilotPanel.hidden = true;
+    this.dom.homeActivityPanel.hidden = true;
+    document.body.style.overflow = '';
   }
 
   /**
@@ -1328,6 +1475,8 @@ class AgriApp {
   async openSubview(viewName, options = {}) {
     const plotId = options.plotId || this.state.currentPlotId;
     const inline = options.inline === true;
+    this.closeHomeDetail();
+    this.applyHomeLayout(false);
     this.cleanupActiveSubview();
     const viewGen = this._subviewGen;
     if (viewName === 'plot-detail') {
@@ -1474,6 +1623,7 @@ class AgriApp {
 
   closeModal(updateHash = true) {
     this.cleanupActiveSubview();
+    this.closeHomeDetail();
     this.dom.subviewModal.classList.remove('active');
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
@@ -1483,6 +1633,8 @@ class AgriApp {
     if (this.dom.plotTelemetryPanel) this.dom.plotTelemetryPanel.hidden = true;
     if (this.dom.moduleContentBody) this.dom.moduleContentBody.innerHTML = '';
     this.state.activeMainView = 'home';
+    this.applyHomeLayout(true);
+    this.renderHomeSummary();
     this.setAmbientVisualsVisible(true);
     this.dom.headerCurrentView.textContent = "Home (农智总览)";
     document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1510,6 +1662,8 @@ class AgriApp {
 
   showPlotTelemetryView(plotId, options = {}) {
     this.cleanupActiveSubview();
+    this.closeHomeDetail();
+    this.applyHomeLayout(false);
     this.farmMonitor?.close(false);
     this.releaseCropSandbox();
     this.dom.subviewModal.classList.remove('active');
