@@ -172,6 +172,32 @@
                 </div>
               </div>
             </div>
+
+            <div class="g-card farmer-shared-tools">
+              <div class="farmer-panel-header">
+                <div>
+                  <h3>更多决策工具</h3>
+                  <p class="farmer-panel-hint">需要查看完整证据、风险推演或工单流转时，可进入原有专业模块。</p>
+                </div>
+                <span class="g-badge primary">已接入</span>
+              </div>
+              <div class="farmer-shared-tool-grid">
+                <button
+                  v-for="module in shared_module_links"
+                  :key="module.id"
+                  type="button"
+                  class="farmer-shared-tool-card"
+                  @click="open_shared_view(module.id)"
+                >
+                  <span class="material-symbols-outlined farmer-shared-tool-icon">{{ module.icon }}</span>
+                  <span class="farmer-shared-tool-copy">
+                    <strong>{{ module.label }}</strong>
+                    <small>{{ module.description }}</small>
+                  </span>
+                  <span class="material-symbols-outlined farmer-shared-tool-arrow">arrow_forward</span>
+                </button>
+              </div>
+            </div>
           </section>
 
           <section v-else-if="current_view === 'plots'" class="farmer-workspace" key="plots">
@@ -272,7 +298,15 @@
                 <h2>灌溉与农事建议</h2>
                 <p class="role-summary">把风险、诊断、浇水建议和农户问答放在一起，先看结论再决定操作。</p>
               </div>
-              <span class="g-badge warning">{{ stats.risk_alerts }} 条风险提醒</span>
+              <div class="farmer-page-actions">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('decision-console', advice_plot && advice_plot.plotId)">
+                  <span class="material-symbols-outlined">psychology</span>查看完整诊断
+                </button>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('risk-forecast', advice_plot && advice_plot.plotId)">
+                  <span class="material-symbols-outlined">timeline</span>打开风险推演
+                </button>
+                <span class="g-badge warning">{{ stats.risk_alerts }} 条风险提醒</span>
+              </div>
             </div>
 
             <div class="farmer-advice-grid">
@@ -453,6 +487,7 @@
                 <p class="role-summary">查看待办、执行巡田和提交现场记录；任务由农场管理员下达。</p>
               </div>
               <div class="farmer-page-actions">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('work-orders')"><span class="material-symbols-outlined">assignment</span>查看工单中心</button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()"><span class="material-symbols-outlined">edit_note</span>录入巡田记录</button>
                 <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_evidence_form()"><span class="material-symbols-outlined">add_task</span>申请补证</button>
               </div>

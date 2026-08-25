@@ -66,6 +66,14 @@ const CHART_RANGE_OPTIONS = [
   }
 ];
 
+const SHARED_MODULE_LINKS = [
+  { id: 'decision-console', label: '智能诊断与处方', icon: 'psychology', description: '查看根因、证据和灌溉处方' },
+  { id: 'risk-forecast', label: '风险推演', icon: 'timeline', description: '切换情景并查看未来趋势' },
+  { id: 'work-orders', label: '工单与巡田', icon: 'assignment', description: '查看工单流转和人工核验' }
+];
+
+const SHARED_CONTEXT_KEY = 'agriloop-farmer-shared-context';
+
 function chart_seed(value) {
   return [...String(value || '')].reduce((seed, char) => ((seed * 31) + char.charCodeAt(0)) % 997, 17);
 }
@@ -242,6 +250,7 @@ const app = createApp({
 
     const current_view = ref('dashboard');
     const selected_plot = ref(plots.value[0] || null);
+    const shared_module_links = SHARED_MODULE_LINKS;
     const chart_range = ref('7d');
     const chart_range_options = CHART_RANGE_OPTIONS;
     const plot_charts = computed(() => PLOT_CHART_SPECS
@@ -487,6 +496,22 @@ const app = createApp({
       selected_plot.value = plot;
     };
 
+    const open_shared_view = (view_id, plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId) => {
+      const module = SHARED_MODULE_LINKS.find((item) => item.id === view_id);
+      if (!module) return;
+      try {
+        sessionStorage.setItem(SHARED_CONTEXT_KEY, JSON.stringify({
+          source: 'farmer',
+          plotId: plot_id || '',
+          returnPage: 'farmer.html',
+          createdAt: new Date().toISOString()
+        }));
+      } catch (error) {
+        // Session storage may be unavailable in a restricted browser; navigation still works.
+      }
+      window.location.assign(`index.html#${module.id}`);
+    };
+
     const toggle_irrigation = () => {
       irrigation_running.value = !irrigation_running.value;
       irrigation_progress.value = irrigation_running.value ? 18 : 0;
@@ -650,6 +675,7 @@ const app = createApp({
       user,
       farm,
       nav_items,
+      shared_module_links,
       current_view,
       messages,
       tasks,
@@ -708,6 +734,7 @@ const app = createApp({
       open_task_from_dashboard,
       close_task,
       open_plot,
+      open_shared_view,
       toggle_irrigation,
       set_suggestion_feedback,
       ask_question,
