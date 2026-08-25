@@ -81,6 +81,20 @@ export const AdminDecisionView = {
     const commandStatus = computed(() => terminalStatus(command.value));
     const isCommandSuccess = computed(() => commandStatus.value === 'SUCCEEDED');
     const metrics = computed(() => Object.entries(selectedPlot.value?.metrics || {}).slice(0, 6).map(([code, metric]) => ({ code, ...metric })));
+    const dataLabel = computed(() => {
+      if (isDemo.value) return 'SIMULATED · 演示数据';
+      if (String(scenario.value).toUpperCase() !== 'NORMAL') return 'SIMULATED · 情景数据';
+      const backendSimulation = metrics.value.some((metric) =>
+        String(metric.sourceMode || '').toUpperCase() === 'SIMULATION'
+        || String(metric.provenance || '').toUpperCase() === 'SIMULATED');
+      return backendSimulation ? 'BACKEND · 模拟遥测' : 'OBSERVED · 现场数据';
+    });
+    const metricSource = (metric) => {
+      if (isDemo.value) return 'SIMULATED';
+      if (String(scenario.value).toUpperCase() !== 'NORMAL') return 'SIMULATED';
+      return String(metric?.sourceMode || '').toUpperCase() === 'SIMULATION' ? 'BACKEND' : 'OBSERVED';
+    };
+    const executionLabel = computed(() => isDemo.value ? 'SIMULATED · 演示命令' : 'BACKEND · 虚拟命令');
     const passportCounts = computed(() => ({
       observations: Array.isArray(passport.value?.observations)
         ? passport.value.observations.length
@@ -231,7 +245,7 @@ export const AdminDecisionView = {
       selectedPlotId, scenario, loading, executing, evidenceCreating, confirmed, demoOutcome, error,
       diagnosis, plan, readiness, command, evaluation, passport, evidenceRequest, plots, selectedPlot,
       farmId, isDemo, canApprove, risk, readinessView, gates, missingEvidence, canExecute, commandStatus,
-      isCommandSuccess, metrics, passportCounts, decisionTraceId, humanTime, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
+      isCommandSuccess, metrics, dataLabel, metricSource, executionLabel, passportCounts, decisionTraceId, humanTime, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
       executePlan, refreshPassport, asPercent
     };
   },
@@ -263,7 +277,7 @@ export const AdminDecisionView = {
       </header>
 
       <div class="dc-trust-strip">
-        <span>{{ isDemo || scenario !== 'normal' ? 'SIMULATED · 模拟数据' : 'OBSERVED · 现场数据' }}</span><i></i>
+        <span>{{ dataLabel }}</span><i></i>
         <span>所有剂量由当前地块数据计算</span><i></i><span>未通过安全检查时禁止执行</span>
       </div>
       <div v-if="error" class="dc-error"><strong>{{ error.code || 'DECISION_FAILED' }}</strong><span>{{ error.message || error }}</span></div>
@@ -277,7 +291,7 @@ export const AdminDecisionView = {
         <section class="dc-metric-grid">
           <article v-for="metric in metrics" :key="metric.code" class="dc-metric" :class="{'is-warn': !['NORMAL','GOOD'].includes(String(metric.status || '').toUpperCase())}">
             <span>{{ metric.label || metric.code }}</span><strong>{{ metric.value ?? '—' }}<small>{{ metric.unit }}</small></strong>
-            <footer><b>{{ metric.status || 'UNKNOWN' }}</b><em>{{ isDemo || scenario !== 'normal' ? 'SIMULATED' : 'OBSERVED' }}</em></footer>
+            <footer><b>{{ metric.status || 'UNKNOWN' }}</b><em>{{ metricSource(metric) }}</em></footer>
           </article>
         </section>
 
@@ -323,7 +337,7 @@ export const AdminDecisionView = {
                 <button class="dc-button primary" @click="executePlan" :disabled="!canExecute">{{ executing ? '等待设备回执…' : '确认并虚拟执行' }}</button>
               </div>
               <div v-if="command" class="dc-execution-facts">
-                <div><span>执行方式</span><strong>SIMULATED</strong></div>
+                <div><span>执行方式</span><strong>{{ executionLabel }}</strong></div>
                 <div><span>命令状态</span><strong :class="'status-' + commandStatus.toLowerCase()">{{ commandStatus }}</strong></div>
                 <div><span>实际用水</span><strong>{{ command.ack?.actualWaterLitre ?? '—' }} L</strong></div>
                 <div><span>效果评价</span><strong>{{ evaluation?.status || '等待评价' }}</strong></div>
@@ -352,7 +366,7 @@ export const AdminDecisionView = {
                   <small>{{ observation.workOrderId ? '关联任务 ' + observation.workOrderId : '未关联任务' }}</small>
                 </article>
               </div>
-              <div class="dc-provenance-row"><span v-for="source in (passport?.provenance || ['DERIVED','SIMULATED','ESTIMATED'])" :key="source">{{ source }}</span></div>
+              <div class="dc-provenance-row"><span v-for="source in (passport?.provenance || [])" :key="source">{{ source }}</span><em v-if="!passport">等待后端记录</em></div>
             </section>
           </aside>
         </div>

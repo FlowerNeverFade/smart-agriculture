@@ -10,6 +10,18 @@ import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import {
+  buildLiveFeedItems,
+  emptyAdminOverview,
+  mapAdminAlert,
+  mapAdminDevice,
+  mapAdminPlot,
+  mapAdminRule,
+  mapCropPack,
+  mapStrategyCandidate,
+  mapTimelineRecord,
+  normalizePlot
+} from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
@@ -200,6 +212,78 @@ function mergeOverviewPlots(plots) {
   });
 }
 
+const EMPTY_RISK_FORECAST_CONFIG = Object.freeze({
+  baselineMoisture: null,
+  stressBoundary: null,
+  scenarioCatalog: []
+});
+
+const EMPTY_VALUE_LEDGER = Object.freeze({
+  summary: { plannedWaterLitres: '—', actualWaterLitres: '—', savedWaterLitres: '—', savedElectricityKwh: '—', labourSavedHours: '—', totalSavedRmb: '—' },
+  provenance: [],
+  counterfactual: [],
+  daily: []
+});
+
+function liveStatusValue(status, fallback = 'UNKNOWN') {
+  return String(status || fallback).trim().toUpperCase();
+}
+
+function adminServiceCards(systemStatus = {}) {
+  const entries = [
+    ['PostgreSQL', systemStatus.database],
+    ['Redis Streams', systemStatus.redis],
+    ['MQTT Broker', systemStatus.mqtt],
+    ['SSE Gateway', 'UP'],
+    ['API Service', 'UP'],
+    ['AI 服务', systemStatus.ai]
+  ];
+  return entries.map(([name, status]) => ({
+    name,
+    status: liveStatusValue(status, 'UNKNOWN'),
+    mode: name === 'AI 服务' ? (status || '—') : undefined,
+    sourceMode: 'BACKEND'
+  }));
+}
+
+function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {}, alerts = [], devices = [], recentEvents = [] } = {}) {
+  const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
+  const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
+  const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
+  const online = devices.filter((device) => ['ONLINE', 'UP', 'ACTIVE'].includes(liveStatusValue(device.status))).length;
+  const simStatus = liveStatusValue(simulator.status, 'UNAVAILABLE');
+  return {
+    uptime: '—',
+    apiVersion: '—',
+    aiMode: String(systemStatus.ai || overview.aiMode || '—').toLowerCase(),
+    llmModel: '—',
+    alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
+    devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
+    simulator: {
+      running: simStatus === 'RUNNING',
+      scenario: simulator.scenario || simulator.scenarioId || '',
+      eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
+      startTime: simulator.startedAt || null
+    },
+    services: adminServiceCards(systemStatus),
+    recentEvents: Array.isArray(recentEvents) ? recentEvents.slice(0, 20) : [],
+    generatedAt: overview.generatedAt || new Date().toISOString(),
+    dataOrigin: 'BACKEND'
+  };
+}
+
+function mapSystemMembers(members, farms) {
+  const farmMap = new Map((farms || []).map((farm) => [farm.farmId, farm]));
+  return (Array.isArray(members) ? members : []).map((member) => ({
+    ...member,
+    farmName: (member.farmIds || []).map((id) => farmMap.get(id)?.name).filter(Boolean).join('、') || '—',
+    plotIds: Array.isArray(member.plotIds) ? member.plotIds : [],
+    enabled: liveStatusValue(member.status, 'ACTIVE') !== 'INACTIVE',
+    createdAt: member.createdAt || '—',
+    dataOrigin: 'BACKEND'
+  }));
+}
+
 // Telemetry and device heartbeats are useful to live data views, but they are
 // intentionally not user notifications.  The simulator emits a batch of
 // these events every second, so surfacing each one as a toast makes the admin
@@ -214,19 +298,27 @@ function systemEventType(event) {
   return String(event?.data?.eventType || event?.type || 'system').trim().toLowerCase();
 }
 
+function isSilentSystemEventType(type) {
+  const normalized = String(type || '').toLowerCase();
+  return SILENT_SYSTEM_EVENT_TYPES.has(normalized)
+    || normalized.includes('telemetry')
+    || normalized.includes('heartbeat');
+}
+
 function presentSystemEvent(event) {
   const payload = event?.data?.payload || event?.data || {};
   const type = systemEventType(event);
   const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
   const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
-  const title = payload.title || payload.summary || payload.message || (SILENT_SYSTEM_EVENT_TYPES.has(type) ? '实时数据已更新' : `${type} 事件已到达`);
+  const silent = isSilentSystemEventType(type);
+  const title = payload.title || payload.summary || payload.message || (silent ? '实时数据已更新' : `${type} 事件已到达`);
   return {
     id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`,
     type,
     category,
     icon,
     title,
-    silent: SILENT_SYSTEM_EVENT_TYPES.has(type),
+    silent,
     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     traceId: payload.traceId
   };
@@ -552,6 +644,7 @@ const PlotDetailModal = {
 const DecisionConsoleView = {
   template: '#tmpl-decision-console',
   props: ['state', 'routeParams'],
+  emits: ['navigate', 'data-invalidated'],
   setup(props, { emit }) {
     const toast = inject('toast');
     const diagnosis = computed(() => props.state.feedItems.find(f => f.type === 'DIAGNOSIS'));
@@ -574,7 +667,7 @@ const DecisionConsoleView = {
     const isTyping = ref(false);
     const chatBox = ref(null);
 
-    const sendMessage = () => {
+    const sendMessage = async () => {
       if (!chatInput.value.trim()) return;
       
       const userMessage = chatInput.value.trim();
@@ -583,6 +676,20 @@ const DecisionConsoleView = {
       
       isTyping.value = true;
       scrollToBottom();
+
+      if (props.state.sessionMode === 'live') {
+        try {
+          const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
+          const response = await api.agentChat(userMessage, plotId);
+          chatHistory.value.push({ role: 'agent', content: response?.summary || response?.message || '后端智能服务未返回摘要。', traceId: response?.traceId, dataOrigin: 'BACKEND' });
+        } catch (error) {
+          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}` });
+        } finally {
+          isTyping.value = false;
+          scrollToBottom();
+        }
+        return;
+      }
       
       setTimeout(() => {
         isTyping.value = false;
@@ -658,25 +765,39 @@ const DecisionConsoleView = {
       }
     });
 
-    const confirmExecution = () => {
+    const confirmExecution = async () => {
       if (!canApproveIrrigation.value) {
         showDualTrackModal.value = false;
         toast('当前身份没有灌溉执行权限', 'error');
         return;
       }
       showDualTrackModal.value = false;
-      toast('下行控制指令已下发执行');
-      
-      // [INTERCONNECTIVITY] Mutate work orders state and navigate to it
-      props.state.workOrders.unshift({
-        workOrderId: 'wo-' + Date.now(),
-        plotId: 'plot-a01',
-        title: '执行 153L 灌溉处方',
-        reason: 'Agent 推演下发',
-        status: 'PENDING',
-        priority: 'HIGH'
-      });
-      
+      const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
+      if (props.state.sessionMode === 'live') {
+        try {
+          const saved = await api.createWorkOrder({
+            farmId: props.state.adminContext?.farmId || props.state.farms[0]?.farmId,
+            plotId,
+            title: '执行灌溉处方',
+            reason: '已通过当前决策护照的人工确认，等待执行工单流转',
+            actionType: 'IRRIGATION_REVIEW',
+            sourceType: 'AGENT',
+            priority: 'HIGH',
+            provenance: 'DERIVED'
+          });
+          props.state.workOrders.unshift(saved);
+          emit('data-invalidated', { domains: ['workOrders', 'overview'], farmId: saved.farmId, plotId: saved.plotId, record: saved });
+          toast('灌溉执行申请已写入后端工单，农场管理员可继续审批');
+        } catch (error) {
+          toast(error.message || '灌溉执行申请失败', 'error');
+        }
+      } else {
+        props.state.workOrders.unshift({
+          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153L 灌溉处方',
+          reason: '演示决策下发', status: 'OPEN', priority: 'HIGH', sourceMode: 'SIMULATED'
+        });
+        toast('演示工单已创建');
+      }
       emit('navigate', 'work-orders', { highlight: 'new-order' });
     };
 
@@ -702,7 +823,8 @@ const RoleAwareDecisionConsoleView = {
       if (value === 'alerts') showDiagnosis.value = false;
     });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    return { showDiagnosis, isFarmAdmin };
+    const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
+    return { showDiagnosis, isFarmAdmin, isFarmer };
   },
   template: `
     <div class="role-decision-shell">
@@ -716,7 +838,12 @@ const RoleAwareDecisionConsoleView = {
                         @navigate="(view, params) => $emit('navigate', view, params)"
                         @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
       </template>
-      <legacy-decision-console v-else :state="state" :route-params="routeParams" @navigate="(view, params) => $emit('navigate', view, params)"></legacy-decision-console>
+      <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
+                      @navigate="(view, params) => $emit('navigate', view, params)"
+                      @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
+      <legacy-decision-console v-else :state="state" :route-params="routeParams"
+                               @navigate="(view, params) => $emit('navigate', view, params)"
+                               @data-invalidated="payload => $emit('data-invalidated', payload)"></legacy-decision-console>
     </div>
   `
 };
@@ -726,9 +853,23 @@ const RiskForecastView = {
   props: ['state', 'routeParams'],
   setup(props) {
     let chart = null;
-    const currentScenario = ref('DROUGHT');
-    const selectedPlotId = ref(props.state.plots[0].plotId);
+    const currentScenario = ref('NORMAL');
+    const selectedPlotId = ref(props.state.plots[0]?.plotId || '');
     const highlightChart = ref(false);
+    const forecast = ref(null);
+    const loading = ref(false);
+    const error = ref('');
+    const DEFAULT_SCENARIOS = Object.freeze([
+      { code: 'NORMAL', emoji: '🌱', label: '当前状态', desc: '读取后端最新遥测与风险预测', color: '#1a73e8' },
+      { code: 'DROUGHT', emoji: '🏜️', label: '干旱情景', desc: '由后端仿真服务生成只读情景记录', color: '#d97706' },
+      { code: 'STORM', emoji: '🌧️', label: '暴雨情景', desc: '由后端仿真服务生成只读情景记录', color: '#2563eb' },
+      { code: 'SENSOR_DRIFT', emoji: '📡', label: '传感器漂移', desc: '由后端仿真服务生成只读情景记录', color: '#7c3aed' },
+      { code: 'DEVICE_OFFLINE', emoji: '🔌', label: '设备离线', desc: '后端将按设备数据质量门禁返回结果', color: '#6b7280' }
+    ]);
+    const scenarioOptions = computed(() => {
+      const configured = props.state.riskForecastConfig?.scenarioCatalog;
+      return Array.isArray(configured) && configured.length ? configured : DEFAULT_SCENARIOS;
+    });
 
     watch(() => props.routeParams, (newParams) => {
       if (newParams && newParams.targetPlot) {
@@ -743,8 +884,56 @@ const RiskForecastView = {
       if (plot && plot.metrics && plot.metrics.SOIL_MOISTURE) {
         return parseFloat(plot.metrics.SOIL_MOISTURE.value);
       }
-      return props.state.riskForecastConfig.baselineMoisture; // Fallback
+      return '—';
     });
+
+    const loadForecast = async () => {
+      if (!selectedPlotId.value) { forecast.value = null; return; }
+      loading.value = true;
+      error.value = '';
+      try {
+        if (props.state.sessionMode === 'live') {
+          forecast.value = await api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE');
+        } else {
+          forecast.value = await api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE');
+        }
+      } catch (caught) {
+        forecast.value = null;
+        error.value = caught?.message || '风险预测读取失败';
+      } finally {
+        loading.value = false;
+        renderChart();
+      }
+    };
+
+    const loadScenario = async (scenario) => {
+      currentScenario.value = scenario.code;
+      if (props.state.sessionMode !== 'live' || scenario.code === 'NORMAL') {
+        await loadForecast();
+        return;
+      }
+      loading.value = true;
+      error.value = '';
+      try {
+        const run = await api.runScenario({ scenario: scenario.code, plotId: selectedPlotId.value });
+        forecast.value = {
+          ...run,
+          status: run?.status || run?.runStatus || 'RECORDED',
+          curve: Array.isArray(run?.curve) ? run.curve : [],
+          horizons: Array.isArray(run?.horizons) ? run.horizons : [],
+          dataOrigin: 'BACKEND'
+        };
+        if (!forecast.value.curve.length && !forecast.value.horizons.length) {
+          error.value = '后端已记录该情景，但暂未提供可绘制的曲线数据';
+        }
+      } catch (caught) {
+        forecast.value = null;
+        error.value = caught?.message || '情景记录读取失败';
+      } finally {
+        loading.value = false;
+        renderChart();
+      }
+    };
 
     const renderChart = async () => {
       await nextTick();
@@ -758,17 +947,22 @@ const RiskForecastView = {
       const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
       const textColor = isDark ? '#e8eaed' : '#202124';
       
-      const scenario = props.state.riskForecastConfig.scenarioCatalog.find(s => s.code === currentScenario.value);
-      const decay = scenario ? scenario.decayFactor : 1.0;
-      
-      const times = ["0h (Now)", "1h", "2h", "3h", "4h"];
-      const baseMoisture = currentPlotBaseMoisture.value;
-      const mockCurve = times.map((t, i) => {
-        if (scenario && scenario.code === 'STORM') {
-            return i === 0 ? baseMoisture : (i === 1 ? baseMoisture + 6 : baseMoisture + 4 - i);
-        }
-        return Math.max(8.0, baseMoisture - (i * 2.8 * decay));
-      });
+      const scenario = scenarioOptions.value.find(s => s.code === currentScenario.value) || {};
+      const points = (forecast.value?.curve?.length ? forecast.value.curve : forecast.value?.horizons || [])
+        .map((point) => ({
+          minute: Number(point.minute ?? point.minutes ?? 0),
+          expected: Number(point.expected ?? point.value),
+          lower: Number(point.lower ?? point.expected ?? point.value),
+          upper: Number(point.upper ?? point.expected ?? point.value)
+        }))
+        .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
+      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute}m`);
+      const values = points.map((point) => point.expected);
+      const baseMoisture = Number(currentPlotBaseMoisture.value);
+      const finiteValues = values.filter(Number.isFinite);
+      const minValue = finiteValues.length ? Math.min(...finiteValues) : 0;
+      const maxValue = finiteValues.length ? Math.max(...finiteValues) : 40;
+      const boundary = Number(forecast.value?.stressBoundary ?? forecast.value?.riskBoundary?.value);
       
       chart.setOption({
         backgroundColor: 'transparent',
@@ -777,49 +971,47 @@ const RiskForecastView = {
         yAxis: { 
           type: 'value', 
           name: '推演含水率 (%)', 
-          min: 5, max: Math.max(35, baseMoisture + 10),
+          min: Math.max(0, Math.floor(Math.min(minValue, Number.isFinite(baseMoisture) ? baseMoisture : minValue) - 5)),
+          max: Math.ceil(Math.max(35, maxValue + 5, Number.isFinite(baseMoisture) ? baseMoisture + 5 : 0)),
           axisLabel: { color: textColor },
           nameTextStyle: { color: textColor }
         },
         series: [{
-          data: mockCurve,
+          data: values,
           type: 'line',
           smooth: true,
-          itemStyle: { color: scenario ? scenario.color : '#1a73e8' },
+          itemStyle: { color: scenario.color || '#1a73e8' },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: scenario ? scenario.color : '#1a73e8' },
+              { offset: 0, color: scenario.color || '#1a73e8' },
               { offset: 1, color: 'rgba(0,0,0,0.0)' }
             ]),
             opacity: 0.2
           },
-          markLine: {
-            data: [{ yAxis: props.state.riskForecastConfig.stressBoundary, name: '胁迫极限 14%' }],
+          markLine: Number.isFinite(boundary) ? {
+            data: [{ yAxis: boundary, name: `胁迫阈值 ${boundary}%` }],
             lineStyle: { color: '#d93025', type: 'dashed' },
             label: { position: 'insideStartTop', color: textColor, formatter: '{b}' }
-          }
+          } : undefined
         }]
       });
     };
 
-    const changeScenario = (scenario) => {
-      currentScenario.value = scenario.code;
-      renderChart();
-    };
+    const changeScenario = (scenario) => loadScenario(scenario);
 
     const changePlot = () => {
-      renderChart();
+      loadForecast();
     };
 
     onMounted(() => {
-        currentScenario.value = props.state.riskForecastConfig.scenarioCatalog[0].code;
-        renderChart();
+        currentScenario.value = scenarioOptions.value[0]?.code || 'NORMAL';
+        loadForecast();
     });
     
     const observer = new MutationObserver(() => renderChart());
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
     
-    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, changeScenario, changePlot };
+    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, loading, error, changeScenario, changePlot };
   }
 };
 
@@ -907,7 +1099,7 @@ const WorkOrdersView = {
       }
     };
 
-    const submitInspection = () => {
+    const submitInspection = async () => {
       if (!canRecordInspection.value) {
         toast('当前身份只能查看工单，不能提交巡田记录', 'error');
         return;
@@ -917,6 +1109,27 @@ const WorkOrdersView = {
         return;
       }
       
+      if (props.state.sessionMode === 'live') {
+        try {
+          const saved = await api.createInspection({
+            farmId: props.state.adminContext?.farmId || props.state.plots.find((plot) => plot.plotId === form.value.plotId)?.farmId,
+            plotId: form.value.plotId,
+            observedAt: new Date().toISOString(),
+            soilSurface: form.value.soilSurface,
+            cropCondition: form.value.cropCondition,
+            portableSoilMoisture: Number(form.value.portableSoilMoisture),
+            notes: form.value.notes || '现场无异常情况'
+          });
+          showFormModal.value = false;
+          emit('data-invalidated', { domains: ['inspections', 'overview'], plotIds: [form.value.plotId], record: saved });
+          toast('巡田记录已保存，管理员与系统审计可读取');
+          form.value = { plotId: props.state.plots[0]?.plotId || '', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
+        } catch (error) {
+          toast(error.message || '巡田记录保存失败', 'error');
+        }
+        return;
+      }
+
       const newIns = {
         inspectionId: 'ins-new-' + Date.now(),
         plotId: form.value.plotId,
@@ -943,7 +1156,7 @@ const WorkOrdersView = {
       });
 
       showFormModal.value = false;
-      toast('巡田记录已成功录入，并已同步至主反馈流');
+      toast('演示巡田记录已录入');
       
       // Reset form
       form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
@@ -1030,7 +1243,7 @@ const FarmMembersView = {
     };
     const openTaskAssignment = () => emit('navigate', 'work-orders', { status: 'OPEN' });
     onMounted(() => {
-      if (!isDemo.value && api.isLive) refreshMembers(false);
+      if (!isDemo.value) refreshMembers(false);
     });
     return {
       isDemo, isLoading, loadError, members, activeFarmerCount,
@@ -1071,22 +1284,29 @@ const METRIC_AVAILABILITY_LABELS = { SUPPORTED: '已接入', SIMULATION_ONLY: '�
 
 function manualEnvMetrics(pack, stage) {
   const target = stage?.target || {};
-  const samplePlot = (MOCK_DATA.plots || []).find((plot) => plot.cropCode === pack.cropCode);
+  const metricLabels = {
+    SOIL_MOISTURE: '土壤湿度',
+    AIR_TEMPERATURE: '空气温度',
+    WATER_LEVEL: '水位',
+    LIGHT: '光照',
+    CO2: 'CO2',
+    SOIL_EC: '土壤 EC',
+    NPK_RATIO: '氮磷钾'
+  };
   const items = [
-    { code: 'SOIL_MOISTURE', label: samplePlot?.metrics?.SOIL_MOISTURE?.label || '土壤湿度', range: `${target.soilMoistureLow}~${target.soilMoistureHigh}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
-    { code: 'AIR_TEMPERATURE', label: samplePlot?.metrics?.AIR_TEMPERATURE?.label || '空气温度', range: `${target.airTemperatureLow}~${target.airTemperatureHigh}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
+    { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
+    { code: 'AIR_TEMPERATURE', label: metricLabels.AIR_TEMPERATURE, range: `${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
   ];
   (pack.metrics || []).forEach((metric) => {
     if (['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'WATER_LEVEL'].includes(metric.code)) return;
-    const sampleMetric = samplePlot?.metrics?.[metric.code];
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
     items.push({
       code: metric.code,
-      label: metric.label,
-      range: sampleMetric?.target || fallbackRange,
-      unit: metric.unit || sampleMetric?.unit || '',
+      label: metric.label || metricLabels[metric.code] || metric.code,
+      range: fallbackRange,
+      unit: metric.unit || '',
       availability: metric.availability || 'SIMULATION_ONLY',
-      note: metric.availability === 'SUPPORTED' ? '可监测指标' : '演示环境参考区间'
+      note: metric.availability === 'SUPPORTED' ? '可监测指标' : '模型参考区间'
     });
   });
   return items;
@@ -1219,6 +1439,7 @@ const AdminOverviewView = {
   template: '#tmpl-admin-overview',
   props: ['state', 'routeParams'],
   setup(props) {
+    const toast = inject('toast');
     const showEvents = ref(true);
     const farmFilter = ref('all');
     const statusFilter = ref('all');
@@ -1250,6 +1471,11 @@ const AdminOverviewView = {
       }
     };
     const savePlotMetrics = () => {
+      if (props.state.sessionMode === 'live') {
+        toast('正式会话只读显示后端遥测指标，监测项配置请通过设备配置接口维护', 'error');
+        showPlotModal.value = false;
+        return;
+      }
       if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
       showPlotModal.value = false;
     };
@@ -1270,6 +1496,11 @@ const AdminOverviewView = {
       };
     });
     const healthPercent = (plot) => {
+      if (plot?.healthScore !== undefined && plot?.healthScore !== null && plot.healthScore !== '') {
+        const numeric = Number(plot.healthScore);
+        if (Number.isFinite(numeric)) return Math.round(numeric <= 1 ? numeric * 100 : numeric);
+      }
+      if (props.state.sessionMode === 'live') return 0;
       if (plot.status === 'HEALTHY') return 92;
       if (plot.status === 'WARNING') return 64;
       if (plot.status === 'CRITICAL') return 28;
@@ -1292,6 +1523,7 @@ const AdminOpsView = {
   template: '#tmpl-admin-ops',
   props: ['state', 'routeParams'],
   setup(props) {
+    const toast = inject('toast');
     const activeTab = ref(props.routeParams?.tab || 'services');
     const deviceFilter = ref('all');
     const alertFilter = ref('all');
@@ -1314,7 +1546,19 @@ const AdminOpsView = {
       return alerts;
     });
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts };
+    const transitionAlert = async (alert, action) => {
+      if (!alert?.id) return;
+      try {
+        const saved = action === 'ack' ? await api.ackAlert(alert.id) : await api.closeAlert(alert.id);
+        const nextStatus = String(saved?.status || (action === 'ack' ? 'ACKED' : 'CLOSED')).toUpperCase();
+        alert.status = nextStatus === 'ACKED' ? 'ACK' : nextStatus === 'ACTIVE' ? 'OPEN' : 'CLOSED';
+        toast(action === 'ack' ? '告警已确认，已同步后端' : '告警已关闭，已同步后端');
+      } catch (error) {
+        toast(error.message || '告警状态更新失败', 'error');
+      }
+    };
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert };
   }
 };
 
@@ -1360,7 +1604,9 @@ const AdminSimulatorView = {
   template: '#tmpl-admin-simulator',
   props: ['state', 'routeParams'],
   setup(props) {
+    const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
+    const simBusy = ref(false);
     const selectedScenario = ref('NORMAL');
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
@@ -1368,21 +1614,82 @@ const AdminSimulatorView = {
     const selectedReplayScenario = ref('');
     const selectedDualTrackScenario = ref('');
 
-    const openReplay = (run) => {
-      selectedReplayScenario.value = run.scenarioId;
+    const syncSimulator = (status = {}) => {
+      props.state.simulatorStatus = status;
+      props.state.adminOverview.simulator = {
+        ...(props.state.adminOverview.simulator || {}),
+        running: String(status.status || '').toUpperCase() === 'RUNNING',
+        scenario: status.scenario || status.scenarioId || '',
+        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0)
+      };
+      simRunning.value = props.state.adminOverview.simulator.running;
+    };
+    const toggleSimulator = async () => {
+      if (simBusy.value) return;
+      simBusy.value = true;
+      try {
+        const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
+        syncSimulator(status);
+        toast(simRunning.value ? '模拟器已启动，状态来自 Supervisor' : '模拟器已停止，状态来自 Supervisor');
+      } catch (error) {
+        toast(error.message || '模拟器控制失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const openReplay = async (run) => {
+      selectedReplayScenario.value = run.scenarioId || run.runId || '—';
       adminReplayModal.value = true;
-      replayEvents.value = [
-        { time: '00:00', action: '初始化推演环境', agent: 'System' },
-        { time: '00:05', action: '注入偏差事件', agent: 'Mock Gateway' },
-        { time: '00:15', action: '诊断异常并下发调整规则', agent: 'Diagnose Agent' },
-        { time: '00:30', action: '执行处方 ACK 确认', agent: 'Actuator Mock' },
-        { time: '01:00', action: '生成推演效果对比报告', agent: 'System' }
-      ];
+      if (props.state.sessionMode !== 'live') {
+        replayEvents.value = [
+          { time: '00:00', action: '初始化演示推演环境', agent: '演示引擎' },
+          { time: '00:05', action: '记录情景事件', agent: '演示数据' },
+          { time: '00:30', action: '生成只读对比结果', agent: '演示引擎' }
+        ];
+        return;
+      }
+      try {
+        const snapshot = await api.getScenarioSnapshot(run.runId || run.scenarioId);
+        const events = [...(snapshot?.branchEvents || []), ...(snapshot?.mainEvents || [])]
+          .sort((a, b) => new Date(a.ts || a.createdAt || 0).getTime() - new Date(b.ts || b.createdAt || 0).getTime())
+          .map((event) => ({
+            time: new Date(event.ts || event.createdAt || 0).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+            action: `${event.metric || event.eventType || '情景'}：${event.value ?? event.message ?? '已记录'}`,
+            agent: event.branchId || event.source || '后端仿真'
+          }));
+        replayEvents.value = events.length ? events : [{ time: '—', action: '后端未提供该运行的事件明细', agent: '后端记录' }];
+      } catch (error) {
+        replayEvents.value = [{ time: '—', action: error.message || '仿真快照读取失败', agent: '后端' }];
+        toast(error.message || '仿真快照读取失败', 'error');
+      }
     };
 
-    const openDualTrack = (run) => {
+    const openDualTrack = async (run) => {
       selectedDualTrackScenario.value = run.scenarioId || 'NORMAL';
       adminDualTrackModal.value = true;
+      if (props.state.sessionMode === 'live') {
+        try {
+          const comparison = await api.compareScenario({ scenario: run.type, scenarioId: run.scenarioId, seed: run.seed || 42, plotId: run.plotId || props.state.allPlots?.[0]?.plotId || 'plot-a01' });
+          Vue.nextTick(() => {
+            const chartDom = document.getElementById('adminDualTrackChart');
+            if (!chartDom || !window.echarts) return;
+            const myChart = echarts.init(chartDom);
+            const left = comparison?.leftBranch || {};
+            const right = comparison?.rightBranch || {};
+            myChart.setOption({
+              tooltip: { trigger: 'axis' },
+              legend: { data: ['执行分支', '未执行分支'] },
+              xAxis: { type: 'category', data: ['样本数', '均值', '最低值', '最高值'] },
+              yAxis: { type: 'value', name: '后端统计值' },
+              series: [
+                { name: '执行分支', type: 'bar', data: [left.eventCount, left.soilMean, left.soilMin, left.soilMax], itemStyle: { color: '#2ea043' } },
+                { name: '未执行分支', type: 'bar', data: [right.eventCount, right.soilMean, right.soilMin, right.soilMax], itemStyle: { color: '#f85149' } }
+              ]
+            });
+          });
+        } catch (error) {
+          toast(error.message || '双轨结果读取失败', 'error');
+        }
+        return;
+      }
       Vue.nextTick(() => {
         const chartDom = document.getElementById('adminDualTrackChart');
         if (chartDom && window.echarts) {
@@ -1425,7 +1732,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay };
+    return { simRunning, simBusy, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
   }
 };
 
@@ -1433,6 +1740,8 @@ const AdminRulesView = {
   template: '#tmpl-admin-rules',
   props: ['state', 'routeParams'],
   setup(props) {
+    const toast = inject('toast');
+    const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref('packs');
     const expandedPacks = ref({});
     const showPackModal = ref(false);
@@ -1456,6 +1765,10 @@ const AdminRulesView = {
       showPackModal.value = true;
     };
     const savePack = () => {
+      if (isLiveSession.value) {
+        toast('正式 Crop Pack 由后端版本目录维护，当前页面只提供读取，未修改本地假数据。', 'error');
+        return;
+      }
       const form = packForm.value;
       if (!form.name.trim() || !form.id.trim()) return;
       const normalized = {
@@ -1476,13 +1789,29 @@ const AdminRulesView = {
       resetPackForm();
     };
     const deletePack = (pack) => {
+      if (isLiveSession.value) {
+        toast('正式 Crop Pack 暂无删除接口，未修改后端数据。', 'error');
+        return;
+      }
       if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
         const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
         if (index >= 0) props.state.adminCropPacks.splice(index, 1);
       }
     };
     const togglePackStatus = (pack) => {
+      if (isLiveSession.value) {
+        toast('正式 Crop Pack 状态由后端发布流程维护，当前只读。', 'error');
+        return;
+      }
       pack.status = pack.status === 'published' ? 'draft' : 'published';
+    };
+    const transitionCandidate = async (candidate, status) => {
+      if (!candidate?.id) return;
+      try {
+        const saved = await api.transitionStrategyCandidate(candidate.id, status);
+        candidate.status = String(saved?.status || status).toLowerCase();
+        toast(`策略候选已更新为 ${candidate.status}，后端记录已同步`);
+      } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
     };
     const addStage = () => packForm.value.stages.push('');
     const removeStage = (index) => packForm.value.stages.splice(index, 1);
@@ -1493,7 +1822,7 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
   }
 };
 
@@ -1502,6 +1831,7 @@ const AdminSettingsView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const toast = inject('toast');
+    const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref(props.routeParams?.tab || 'users');
     const roleFilter = ref('all');
     const logFilter = ref('all');
@@ -1537,6 +1867,10 @@ const AdminSettingsView = {
     ];
 
     const deleteUser = (userId) => {
+      if (isLiveSession.value) {
+        toast('正式账号的停用/删除接口尚未开放，未修改后端数据。', 'error');
+        return;
+      }
       if (confirm('确定要删除该用户吗？')) {
         const idx = props.state.adminUsers.findIndex(u => u.userId === userId);
         if (idx > -1) {
@@ -1556,7 +1890,19 @@ const AdminSettingsView = {
       }
     };
 
+    const toggleUser = (user) => {
+      if (isLiveSession.value) {
+        toast('正式账号状态由账号服务维护，当前页面只读。', 'error');
+        return;
+      }
+      user.enabled = !user.enabled;
+    };
+
     const createUser = () => {
+      if (isLiveSession.value) {
+        toast('正式账号创建请走注册/授权流程，当前页面不会写入浏览器假数据。', 'error');
+        return;
+      }
       const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       props.state.adminUsers.push({
         userId: 'user-' + Date.now(),
@@ -1582,7 +1928,7 @@ const AdminSettingsView = {
       toast('用户创建成功');
     };
 
-    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser };
+    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser, toggleUser };
   }
 };
 
@@ -1628,6 +1974,7 @@ const app = createApp({
     const session = api.readSession();
     const sessionUser = presentRoleUser(session?.user);
     const initialUser = sessionUser || presentRoleUser(MOCK_DATA.currentUser);
+    const isDemoSession = session?.mode !== 'live';
 
     // Reactive State representing all the data originally rendered manually
     const state = ref({
@@ -1635,42 +1982,51 @@ const app = createApp({
       allowedViews: roleViews(initialUser),
       sessionMode: session?.mode || 'demo',
       adminContext: { farmId: '', plotId: null, sessionMode: session?.mode || 'demo' },
-      farms: session?.mode === 'demo' ? MOCK_DATA.farms.map(farm => ({ ...farm, sourceMode: 'SIMULATED' })) : [],
-      plots: session?.mode === 'demo' ? scopePlots(MOCK_DATA.plots, initialUser) : [],
-      allPlots: session?.mode === 'demo' ? scopePlots(MOCK_DATA.plots, initialUser).map(plot => ({ ...plot, status: plot.status || 'ACTIVE' })) : [],
-      overview: {},
-      feedItems: MOCK_DATA.feedItems,
-      alerts: session?.mode === 'demo' ? (MOCK_DATA.alerts || []).map((item) => ({ ...item })) : [],
-      workOrders: session?.mode === 'demo' ? MOCK_DATA.workOrders : [],
-      farmMembers: session?.mode === 'demo' ? (MOCK_DATA.farmMembers || []) : [],
+      farms: isDemoSession ? MOCK_DATA.farms.map(farm => ({ ...farm, sourceMode: 'SIMULATED' })) : [],
+      plots: isDemoSession ? scopePlots(MOCK_DATA.plots, initialUser) : [],
+      allPlots: isDemoSession ? scopePlots(MOCK_DATA.plots, initialUser).map(plot => ({ ...plot, status: plot.status || 'ACTIVE' })) : [],
+      overview: isDemoSession ? {} : {},
+      feedItems: isDemoSession ? MOCK_DATA.feedItems.map((item) => ({ ...item })) : [],
+      alerts: isDemoSession ? (MOCK_DATA.alerts || []).map((item) => ({ ...item })) : [],
+      workOrders: isDemoSession ? MOCK_DATA.workOrders.map((item) => ({ ...item })) : [],
+      farmMembers: isDemoSession ? (MOCK_DATA.farmMembers || []).map((item) => ({ ...item })) : [],
       devices: [],
       cropBatches: [],
-      cropPacks: session?.mode === 'demo' ? (MOCK_DATA.cropPackDetails || []) : [],
+      cropPacks: isDemoSession ? (MOCK_DATA.cropPackDetails || []) : [],
       valueLedgers: [],
-      simulatorStatus: { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
-      inspections: session?.mode === 'demo' ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
-      resourceProfile: MOCK_DATA.resourceProfile,
-      cropPackDetails: MOCK_DATA.cropPackDetails,
-      riskForecastConfig: MOCK_DATA.riskForecastConfig,
-      valueLedger: MOCK_DATA.valueLedger,
-      farmerMessages: MOCK_DATA.farmer_messages || [],
-      farmerTasks: MOCK_DATA.farmer_tasks || [],
-      farmerProfile: MOCK_DATA.farmer_profile || {},
-      gapCoverage: MOCK_DATA.gapCoverage || {},
-      adminOverview: MOCK_DATA.adminOverview || {},
-      adminGlobalPlots: MOCK_DATA.adminGlobalPlots || [],
-      adminDevices: MOCK_DATA.adminDevices || [],
-      adminAlerts: MOCK_DATA.adminAlerts || [],
-      adminAuditRecords: MOCK_DATA.adminAuditRecords || [],
-      adminSimHistory: MOCK_DATA.adminSimHistory || [],
-      adminCropPacks: MOCK_DATA.adminCropPacks || [],
-      adminRules: MOCK_DATA.adminRules || [],
-      adminStrategyCandidates: MOCK_DATA.adminStrategyCandidates || [],
-      adminUsers: MOCK_DATA.adminUsers || [],
-      adminAuditLogs: MOCK_DATA.adminAuditLogs || []
+      simulatorStatus: isDemoSession ? { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' } : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
+      inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
+      resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
+      cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
+      riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
+      valueLedger: isDemoSession ? MOCK_DATA.valueLedger : EMPTY_VALUE_LEDGER,
+      farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
+      farmerTasks: isDemoSession ? (MOCK_DATA.farmer_tasks || []).map((item) => ({ ...item })) : [],
+      farmerProfile: isDemoSession ? (MOCK_DATA.farmer_profile || {}) : {},
+      gapCoverage: isDemoSession ? (MOCK_DATA.gapCoverage || {}) : {},
+      adminOverview: isDemoSession ? (MOCK_DATA.adminOverview || {}) : emptyAdminOverview(),
+      adminGlobalPlots: isDemoSession ? (MOCK_DATA.adminGlobalPlots || []) : [],
+      adminDevices: isDemoSession ? (MOCK_DATA.adminDevices || []) : [],
+      adminAlerts: isDemoSession ? (MOCK_DATA.adminAlerts || []) : [],
+      adminAuditRecords: isDemoSession ? (MOCK_DATA.adminAuditRecords || []) : [],
+      adminSimHistory: isDemoSession ? (MOCK_DATA.adminSimHistory || []) : [],
+      adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
+      adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
+      adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
+      adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
     });
 
     let contextRequestVersion = 0;
+    let systemRequestVersion = 0;
+    let systemRefreshTimer = null;
+    const scheduleSystemRefresh = () => {
+      if (systemRefreshTimer) return;
+      systemRefreshTimer = window.setTimeout(async () => {
+        systemRefreshTimer = null;
+        await refreshSystemAdminData({ announceErrors: false });
+      }, 450);
+    };
     let requestContextChange = async () => {};
     const selectedFarmId = computed({
       get: () => state.value.adminContext.farmId || state.value.farms[0]?.farmId || '',
@@ -1683,7 +2039,8 @@ const app = createApp({
     const accountProfile = computed(() => buildAccountProfile(state.value.currentUser, {
       state: state.value,
       farms: state.value.farms,
-      farmId: state.value.adminContext.farmId || selectedFarmId.value
+      farmId: state.value.adminContext.farmId || selectedFarmId.value,
+      isLive: state.value.sessionMode === 'live'
     }));
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
@@ -1752,13 +2109,19 @@ const app = createApp({
         passwordError.value = '两次输入的新密码不一致';
         return;
       }
+      if (state.value.sessionMode === 'live') {
+        passwordError.value = '正式账号暂未开放在线改密，请退出后在登录页使用恢复码重设密码';
+        return;
+      }
       closeAccountModal();
       showToast('演示密码修改成功，接入账号服务后将正式生效');
     };
 
     const forgotPassword = () => {
       closeProfileMenu();
-      showToast(`找回密码指引已发送到 ${accountProfile.value.contact}`);
+      showToast(state.value.sessionMode === 'live'
+        ? '请退出后在登录页使用恢复码重设密码'
+        : `演示找回密码指引：${accountProfile.value.contact}`);
     };
 
     const logout = () => {
@@ -1799,6 +2162,13 @@ const app = createApp({
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
+      if (wants('inspections') || wants('overview')) {
+        jobs.inspections = api.getPlots({ farmId, includeInactive: false })
+          .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
+          .then((results) => results
+            .filter((result) => result.status === 'fulfilled')
+            .flatMap((result) => result.value || []));
+      }
       const entries = Object.entries(jobs);
       const settled = await Promise.all(entries.map(async ([key, promise]) => {
         try { return [key, { status: 'fulfilled', value: await promise }]; }
@@ -1824,10 +2194,172 @@ const app = createApp({
       if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
       if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
       if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
-      if (results.cropPacks?.status === 'fulfilled') state.value.cropPacks = results.cropPacks.value || [];
+      if (results.cropPacks?.status === 'fulfilled') {
+        state.value.cropPacks = results.cropPacks.value || [];
+        state.value.cropPackDetails = state.value.cropPacks;
+      }
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
+      if (results.inspections?.status === 'fulfilled') {
+        state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
+      }
+      state.value.feedItems = buildLiveFeedItems({
+        alerts: state.value.alerts,
+        workOrders: state.value.workOrders,
+        inspections: state.value.inspections,
+        plots: state.value.allPlots
+      });
       if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
+    };
+
+    const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {
+      if (state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') return;
+      const version = ++systemRequestVersion;
+      const jobs = {
+        farms: api.getFarms(),
+        overview: api.getOverview(),
+        plots: api.getPlots({ includeInactive: true }),
+        workOrders: api.getWorkOrders(),
+        alerts: api.getAlerts(),
+        cropPacks: api.getCropPacks(),
+        rules: api.getRules(),
+        strategies: api.getStrategyCandidates(),
+        simulator: api.getSimulatorStatus(),
+        systemStatus: api.getSystemStatus(),
+        scenarios: api.getScenarioRuns()
+      };
+      const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
+        try { return [key, { status: 'fulfilled', value: await promise }]; }
+        catch (reason) { return [key, { status: 'rejected', reason }]; }
+      }));
+      if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
+      const results = Object.fromEntries(settled);
+      const failures = Object.entries(results)
+        .filter(([, result]) => result.status === 'rejected')
+        .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
+      const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
+      const rawPlots = results.plots?.status === 'fulfilled' ? (results.plots.value || []) : [];
+      const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : {};
+      const overviewCards = Array.isArray(overview.plots) ? overview.plots : [];
+      const cardMap = new Map(overviewCards.map((card) => [String(card.plotId), card]));
+      const plots = rawPlots.map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+      const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
+      const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
+      const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : [];
+      const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : [];
+      const devices = [];
+      const members = [];
+      const ledgers = [];
+      const timelineEntries = [];
+      const inspectionEntries = [];
+      const farmIds = farms.map((farm) => farm.farmId).filter(Boolean);
+      const farmJobs = await Promise.all(farmIds.map(async (farmId) => {
+        const [deviceResult, memberResult, ledgerResult] = await Promise.allSettled([
+          api.getDevices({ farmId }),
+          api.getFarmMembers({ farmId }),
+          api.getValueLedgers({ farmId })
+        ]);
+        return { farmId, deviceResult, memberResult, ledgerResult };
+      }));
+      farmJobs.forEach(({ deviceResult, memberResult, ledgerResult }) => {
+        if (deviceResult.status === 'fulfilled') devices.push(...(deviceResult.value || []));
+        if (memberResult.status === 'fulfilled') members.push(...(memberResult.value || []));
+        if (ledgerResult.status === 'fulfilled') ledgers.push(...(ledgerResult.value || []));
+      });
+      const timelineResults = await Promise.allSettled(plots.map(async (plot) => Promise.allSettled([
+        api.getPlotTimeline(plot.plotId),
+        api.getInspections(plot.plotId)
+      ])));
+      timelineResults.forEach((result) => {
+        if (result.status !== 'fulfilled') return;
+        const [timelineResult, inspectionResult] = result.value;
+        if (timelineResult.status === 'fulfilled') timelineEntries.push(...(timelineResult.value || []));
+        if (inspectionResult.status === 'fulfilled') inspectionEntries.push(...(inspectionResult.value || []));
+      });
+      const auditRecords = timelineEntries
+        .map((entry, index) => mapTimelineRecord(entry, plotMap, index))
+        .sort((a, b) => (new Date(b.timeIso || 0).getTime() || 0) - (new Date(a.timeIso || 0).getTime() || 0))
+        .filter((record, index, list) => list.findIndex((candidate) => candidate.traceId === record.traceId) === index);
+      const recentEvents = auditRecords.slice(0, 20).map((record) => ({
+        id: `audit:${record.traceId}`,
+        category: record.type === 'ALERT' ? 'alert' : 'system',
+        icon: record.type === 'ALERT' ? 'warning' : 'history',
+        title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${record.summary}`,
+        time: record.time,
+        traceId: record.traceId,
+        dataOrigin: 'BACKEND'
+      }));
+      const adminPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
+      const adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
+      const adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
+      const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
+      const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
+      const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
+      const currentUser = state.value.currentUser;
+      const adminUsers = mapSystemMembers(members, farms);
+      if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
+        adminUsers.unshift({
+          userId: currentUser.userId,
+          username: currentUser.username,
+          displayName: currentUser.displayName || currentUser.username,
+          role: currentUser.role,
+          roleLabel: currentUser.roleLabel,
+          farmIds: currentUser.farmIds || ['*'],
+          plotIds: currentUser.plotIds || ['*'],
+          farmName: '全平台',
+          enabled: true,
+          status: 'ACTIVE',
+          createdAt: '—',
+          dataOrigin: 'BACKEND'
+        });
+      }
+      const adminAuditLogs = auditRecords.map((record) => ({
+        id: `log:${record.traceId}`,
+        time: record.time,
+        operator: record.operator,
+        action: record.type,
+        actionLabel: record.typeLabel,
+        detail: record.summary,
+        ip: '—',
+        dataOrigin: 'BACKEND'
+      }));
+      state.value.farms = farms;
+      state.value.overview = overview;
+      state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      state.value.allPlots = plots;
+      state.value.workOrders = workOrders;
+      state.value.alerts = alerts;
+      state.value.inspections = Array.from(new Map(inspectionEntries.map((record) => [record.inspectionId, record])).values());
+      state.value.feedItems = buildLiveFeedItems({ alerts, workOrders, inspections: state.value.inspections, plots });
+      state.value.devices = devices;
+      state.value.farmMembers = members;
+      state.value.valueLedgers = ledgers;
+      state.value.cropPacks = results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value || [] : [];
+      state.value.cropPackDetails = state.value.cropPacks;
+      state.value.simulatorStatus = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
+      state.value.adminGlobalPlots = adminPlots;
+      state.value.adminDevices = adminDevices;
+      state.value.adminAlerts = adminAlerts;
+      state.value.adminAuditRecords = auditRecords;
+      state.value.adminSimHistory = (results.scenarios?.status === 'fulfilled' ? results.scenarios.value : []).map((run) => ({
+        runId: run.runId,
+        scenarioId: run.scenarioId || run.runId,
+        type: run.scenario || run.scenarioId || '—',
+        seed: run.seed,
+        plotId: run.plotId,
+        startTime: run.startedAt || run.createdAt || '—',
+        endTime: run.completedAt || run.endedAt || null,
+        events: Number(run.events || run.mainEvents || run.replayEvents || 0),
+        status: liveStatusValue(run.status, 'UNKNOWN'),
+        dataOrigin: 'BACKEND'
+      }));
+      state.value.adminCropPacks = adminCropPacks;
+      state.value.adminRules = adminRules;
+      state.value.adminStrategyCandidates = adminStrategyCandidates;
+      state.value.adminUsers = adminUsers;
+      state.value.adminAuditLogs = adminAuditLogs;
+      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: state.value.simulatorStatus, alerts, devices, recentEvents });
+      if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 
     const handleContextChanged = async ({ farmId, plotId = null, sessionMode = state.value.sessionMode } = {}, options = {}) => {
@@ -2038,17 +2570,36 @@ const app = createApp({
           state.value.allPlots = [];
           showToast(`读取管理员农场上下文失败：${error.message}`, 'error');
         }
-      } else if (isLive.value && session.mode === 'live') {
-        const [farmsResult, overviewResult, workOrdersResult, alertsResult] = await Promise.allSettled([
-          api.getFarms(), api.getOverview(), api.getWorkOrders(), api.getAlerts()
-        ]);
-        if (farmsResult.status === 'fulfilled') state.value.farms = farmsResult.value || [];
-        if (overviewResult.status === 'fulfilled' && Array.isArray(overviewResult.value?.plots)) {
-          state.value.plots = scopePlots(mergeOverviewPlots(overviewResult.value.plots), state.value.currentUser);
-          state.value.allPlots = [...state.value.plots];
-        } else if (overviewResult.status === 'rejected') showToast('读取角色范围内的地块失败：' + overviewResult.reason.message, 'error');
-        if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
-        if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
+      } else if (session.mode === 'live') {
+        if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
+          await refreshSystemAdminData();
+        } else {
+          const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
+            api.getFarms(), api.getOverview(), api.getPlots({ includeInactive: true }), api.getWorkOrders(), api.getAlerts()
+          ]);
+          if (farmsResult.status === 'fulfilled') state.value.farms = farmsResult.value || [];
+          if (overviewResult.status === 'fulfilled' && plotsResult.status === 'fulfilled' && Array.isArray(overviewResult.value?.plots)) {
+            const cards = overviewResult.value.plots;
+            const rawPlots = plotsResult.value || [];
+            const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
+            const normalized = rawPlots.map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+            state.value.plots = scopePlots(normalized, state.value.currentUser);
+            state.value.allPlots = [...state.value.plots];
+            state.value.overview = overviewResult.value;
+          } else if (overviewResult.status === 'rejected' || plotsResult.status === 'rejected') {
+            const reason = overviewResult.status === 'rejected' ? overviewResult.reason : plotsResult.reason;
+            showToast('读取角色范围内的地块失败：' + (reason?.message || '后端返回异常'), 'error');
+          }
+          if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
+          if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
+          const plotMap = new Map(state.value.plots.map((plot) => [String(plot.plotId), plot]));
+          const inspectionResults = await Promise.allSettled(state.value.plots.map((plot) => api.getInspections(plot.plotId)));
+          state.value.inspections = inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+          state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.plots });
+          if (state.value.currentUser?.role === 'FARM_ADMIN') {
+            state.value.farmMembers = [];
+          }
+        }
       } else if (session.mode === 'demo') {
         state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
         state.value.allPlots = state.value.plots.map(plot => ({ ...plot, status: plot.status || 'ACTIVE' }));
@@ -2062,7 +2613,11 @@ const app = createApp({
         state.value.farmMembers = [];
         showToast('当前未连接后端服务，正式数据暂不可用', 'error');
       }
-      if (isLive.value && session.mode === 'live') {
+      // A successful API call can recover from a transient health-probe
+      // failure. Use the service transport flag here so formal sessions can
+      // start SSE after their REST refresh has proved the backend works.
+      isLive.value = api.isLive;
+      if (api.isLive && session.mode === 'live') {
         try {
           await api.subscribeEvents((event) => {
             if (event.type === 'connected' || event.type === 'heartbeat') return;
@@ -2078,13 +2633,17 @@ const app = createApp({
                 if (oldest) seenSystemEventIds.delete(oldest);
               }
             }
-            if (systemEvent.silent) return;
-            state.value.adminOverview.recentEvents.unshift(systemEvent);
-            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
             const domains = domainsForEventType(event.type);
             if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
               refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
             }
+            if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
+              scheduleSystemRefresh();
+            }
+            if (systemEvent.silent) return;
+            if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
+            state.value.adminOverview.recentEvents.unshift(systemEvent);
+            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
             showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
           });
         } catch (error) { showToast('系统消息暂不可用：' + error.message, 'error'); }

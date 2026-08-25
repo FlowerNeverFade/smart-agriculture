@@ -188,6 +188,10 @@ export class ApiService {
     }
     this.sessionMode = mode;
     this.token = mode === 'live' ? token : '';
+    // A demo session must never inherit the previous live health flag.  That
+    // flag is only a transport status; the session mode decides whether a
+    // method may use the local demo store or must surface a backend error.
+    if (mode !== 'live') this.isLive = false;
     this.user = normalizedUser;
     localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
     localStorage.setItem('agriloop_session_mode', mode);
@@ -308,7 +312,7 @@ export class ApiService {
   }
 
   async getFarms() {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/farms');
       if (Array.isArray(resp?.data)) return resp.data;
       throw new ApiError('后端返回了无效的农场数据', { code: 'FARMS_INVALID', payload: resp });
@@ -317,7 +321,7 @@ export class ApiService {
   }
 
   async getOverview(filters = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const query = new URLSearchParams();
       if (filters?.farmId) query.set('farmId', filters.farmId);
       const resp = await this._fetch(`/api/v1/overview${query.size ? `?${query}` : ''}`);
@@ -336,27 +340,94 @@ export class ApiService {
     };
   }
 
+  async getSystemStatus() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/system/status');
+      const status = resp?.data || resp;
+      if (status && typeof status === 'object') return status;
+      throw new ApiError('后端返回了无效的系统状态', { code: 'SYSTEM_STATUS_INVALID', payload: resp });
+    }
+    return { mode: 'demo', database: 'SIMULATED', redis: 'SIMULATED', mqtt: 'SIMULATED', ai: 'mock' };
+  }
+
+  async getPlotTimeline(plotId) {
+    if (!plotId) return [];
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/timeline`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的地块时间线', { code: 'PLOT_TIMELINE_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async getScenarioRuns() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/scenarios/runs');
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的仿真运行记录', { code: 'SCENARIO_RUNS_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async getScenarioSnapshot(runId) {
+    if (!runId) throw new ApiError('缺少仿真运行编号', { status: 400, code: 'SCENARIO_RUN_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/scenarios/runs/${encodeURIComponent(runId)}/snapshot`);
+      const snapshot = resp?.data || resp;
+      if (snapshot && typeof snapshot === 'object') return snapshot;
+      throw new ApiError('后端返回了无效的仿真快照', { code: 'SCENARIO_SNAPSHOT_INVALID', payload: resp });
+    }
+    return null;
+  }
+
+  async getStrategyCandidates() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/strategy-candidates');
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的策略候选', { code: 'STRATEGY_CANDIDATES_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async transitionStrategyCandidate(id, status) {
+    if (!id) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(id)}/transition`, {
+        method: 'POST',
+        body: JSON.stringify({ status })
+      });
+      return resp?.data || resp;
+    }
+    return { id, status, sourceMode: 'SIMULATED' };
+  }
+
   async getSimulatorStatus() {
-    if (!this.isLive || this.sessionMode !== 'live') return { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' };
+    if (this.sessionMode !== 'live') return { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' };
     const resp = await this._fetch('/api/v1/simulator/status');
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器状态', { code: 'SIMULATOR_STATUS_INVALID', payload: resp });
   }
 
   async startSimulator() {
+    if (this.sessionMode !== 'live') {
+      throw new ApiError('演示会话不能控制后端模拟器', { code: 'SIMULATOR_DEMO_ONLY', isNetworkError: false });
+    }
     const resp = await this._fetch('/api/v1/simulator/start', { method: 'POST', body: JSON.stringify({}) });
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器启动结果', { code: 'SIMULATOR_START_INVALID', payload: resp });
   }
 
   async stopSimulator() {
+    if (this.sessionMode !== 'live') {
+      throw new ApiError('演示会话不能控制后端模拟器', { code: 'SIMULATOR_DEMO_ONLY', isNetworkError: false });
+    }
     const resp = await this._fetch('/api/v1/simulator/stop', { method: 'POST', body: JSON.stringify({}) });
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器停止结果', { code: 'SIMULATOR_STOP_INVALID', payload: resp });
   }
 
   async getPlots(filters = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const query = new URLSearchParams();
       Object.entries(filters || {}).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
@@ -373,7 +444,7 @@ export class ApiService {
   }
 
   async createPlot(input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/plots', {
         method: 'POST',
         body: JSON.stringify(input)
@@ -393,7 +464,7 @@ export class ApiService {
   }
 
   async updatePlot(plotId, input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, {
         method: 'PATCH',
         body: JSON.stringify(input)
@@ -407,7 +478,7 @@ export class ApiService {
   }
 
   async deactivatePlot(plotId) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/deactivate`, { method: 'POST', body: '{}' });
       if (resp?.data?.plotId === plotId) return resp.data;
       throw new ApiError('后端返回了无效的地块停用结果', { code: 'PLOT_DEACTIVATE_INVALID', payload: resp });
@@ -420,7 +491,7 @@ export class ApiService {
   }
 
   async restorePlot(plotId) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/restore`, { method: 'POST', body: '{}' });
       if (resp?.data?.plotId === plotId) return resp.data;
       throw new ApiError('后端返回了无效的地块恢复结果', { code: 'PLOT_RESTORE_INVALID', payload: resp });
@@ -433,7 +504,7 @@ export class ApiService {
   }
 
   async deletePlot(plotId, confirmName = '') {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const query = new URLSearchParams({ confirmName });
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}?${query}`, { method: 'DELETE' });
       if (resp?.data?.plotId === plotId) return resp.data;
@@ -448,7 +519,7 @@ export class ApiService {
   }
 
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const query = new URLSearchParams({ metric, limit: String(Math.max(1, Math.min(Number(limit) || 50, 5000))) });
       if (options.from) query.set('from', options.from);
       if (options.to) query.set('to', options.to);
@@ -485,7 +556,8 @@ export class ApiService {
    */
   async getPlotTelemetryAll(plotId = 'plot-a01', limit = 120) {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 120, 5000));
-    if (this.isLive) {
+    let mixedError = null;
+    if (this.sessionMode === 'live') {
       try {
         const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/telemetry?limit=${boundedLimit}`);
         if (Array.isArray(resp?.data) && resp.data.length) {
@@ -494,12 +566,24 @@ export class ApiService {
             .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
         }
       } catch (error) {
-        console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
+        mixedError = error;
+        if (this.isLive) console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
       }
     }
     const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'];
-    const batches = await Promise.all(metrics.map(metric => this.getTelemetry(plotId, metric, boundedLimit)));
-    return batches.flat().sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+    // A backend may legitimately omit one optional metric (for example PH or
+    // WATER_LEVEL) while still serving the core soil/air series.  Keep the
+    // successful backend windows instead of turning one partial endpoint
+    // failure into an empty farmer workspace.
+    const batches = await Promise.allSettled(metrics.map(metric => this.getTelemetry(plotId, metric, boundedLimit)));
+    const successful = batches
+      .filter(result => result.status === 'fulfilled')
+      .flatMap(result => result.value || [])
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+    if (!successful.length && batches.every(result => result.status === 'rejected')) {
+      throw mixedError || batches.find(result => result.status === 'rejected')?.reason || new ApiError('正式遥测读取失败', { code: 'TELEMETRY_UNAVAILABLE', isNetworkError: true });
+    }
+    return successful;
   }
 
   async getTelemetryDay(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 5000) {
@@ -516,7 +600,7 @@ export class ApiService {
     const normalizedFilters = typeof filters === 'object' && filters !== null ? filters : { plotId: filters };
     const plotId = normalizedFilters.plotId || '';
     const farmId = normalizedFilters.farmId || '';
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const queryParams = new URLSearchParams();
       if (farmId) queryParams.set('farmId', farmId);
       if (plotId) queryParams.set('plotId', plotId);
@@ -524,6 +608,7 @@ export class ApiService {
       try {
         const response = await this._fetch(`/api/v1/work-items/today${query}`);
         if (Array.isArray(response?.data)) return response.data;
+        throw new ApiError('后端返回了无效的今日工单数据', { code: 'TODAY_WORK_INVALID', payload: response });
       } catch (error) {
         throw error;
       }
@@ -539,7 +624,7 @@ export class ApiService {
     Object.entries(filters || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
     });
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const query = queryParams.size ? `?${queryParams.toString()}` : '';
       const response = await this._fetch(`/api/v1/work-orders${query}`);
       if (Array.isArray(response?.data)) return response.data;
@@ -556,7 +641,7 @@ export class ApiService {
   }
 
   async saveWorkOrder(workOrder) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/work-orders', {
         method: 'POST',
         body: JSON.stringify(workOrder)
@@ -596,7 +681,7 @@ export class ApiService {
   async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
 
   async assignWorkOrder(workOrderId, input = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/assign`, {
         method: 'POST',
         body: JSON.stringify(input)
@@ -620,7 +705,7 @@ export class ApiService {
   }
 
   async transitionWorkOrder(workOrderId, input = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/transition`, {
         method: 'POST',
         body: JSON.stringify(input)
@@ -666,7 +751,7 @@ export class ApiService {
   }
 
   async reviewWorkOrder(workOrderId, input = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/review`, {
         method: 'POST',
         body: JSON.stringify(input)
@@ -691,12 +776,6 @@ export class ApiService {
 
   async getFarmMembers({ farmId } = {}) {
     if (this.sessionMode === 'live') {
-      if (!this.isLive) {
-        throw new ApiError('后端未连接，暂时无法读取正式成员', {
-          code: 'FARM_MEMBERS_BACKEND_OFFLINE',
-          isNetworkError: true
-        });
-      }
       if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
       const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
       if (Array.isArray(response?.data)) {
@@ -712,7 +791,7 @@ export class ApiService {
   }
 
   async updateFarmMemberScope(userId, { farmId, plotIds = [] } = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}/scope`, {
         method: 'PATCH',
         body: JSON.stringify({ farmId, plotIds })
@@ -775,7 +854,7 @@ export class ApiService {
     Object.entries(filters || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
     });
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const query = queryParams.size ? `?${queryParams.toString()}` : '';
       const response = await this._fetch(`/api/v1/alerts${query}`);
       if (Array.isArray(response?.data)) return response.data;
@@ -790,7 +869,7 @@ export class ApiService {
   async transitionAlert(alertId, action) {
     const operation = String(action || '').toLowerCase();
     if (!['ack', 'close', 'escalate'].includes(operation)) throw new ApiError('不支持的告警操作', { code: 'ALERT_ACTION_INVALID' });
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/alerts/${encodeURIComponent(alertId)}/${operation}`, {
         method: 'POST',
         body: JSON.stringify({})
@@ -806,7 +885,7 @@ export class ApiService {
   async escalateAlert(alertId) { return this.transitionAlert(alertId, 'escalate'); }
 
   async getInspections(plotId = '') {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
@@ -815,7 +894,7 @@ export class ApiService {
   }
 
   async createInspection(inspection) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/inspections', {
         method: 'POST',
         body: JSON.stringify(inspection)
@@ -858,7 +937,7 @@ export class ApiService {
   }
 
   async evaluateResourcePlan(input = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/resource-plans/evaluate', {
         method: 'POST',
         body: JSON.stringify(input)
@@ -899,7 +978,7 @@ export class ApiService {
   }
 
   async getAgentHistory(conversationId = '', limit = 40) {
-    if (!this.isLive) {
+    if (this.sessionMode !== 'live') {
       const userId = this.user?.userId || this.user?.username || 'demo';
       return {
         conversation: { conversationId: `conversation-${userId}`, title: '我的农智对话', messageCount: 0 },
@@ -914,7 +993,7 @@ export class ApiService {
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const body = { message, plotId };
       if (conversationId) body.conversationId = conversationId;
       const resp = await this._fetch('/api/v1/agent/chat', {
@@ -1044,7 +1123,7 @@ export class ApiService {
     }
     const body = { ...input, plotId };
     if (body.scenarioId === 'live') delete body.scenarioId;
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/diagnoses/evaluate', {
         method: 'POST',
         body: JSON.stringify(body)
@@ -1105,7 +1184,7 @@ export class ApiService {
     if (!input.plotId) {
       throw new ApiError('生成灌溉建议前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     }
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/irrigation/estimate', {
         method: 'POST',
         body: JSON.stringify(input)
@@ -1170,7 +1249,7 @@ export class ApiService {
   }
 
   async getDecisionReadiness(subjectType, subjectId, context = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}/readiness`);
       const readiness = resp?.data || resp;
       if (!readiness?.readinessId) throw new ApiError('就绪度响应缺少 readinessId', { code: 'READINESS_INVALID', payload: resp });
@@ -1221,7 +1300,7 @@ export class ApiService {
   }
 
   async createDecisionEvidenceRequest(readinessId, input = {}) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decision-readiness/${encodeURIComponent(readinessId)}/evidence-requests`, {
         method: 'POST',
         body: JSON.stringify(input)
@@ -1242,7 +1321,7 @@ export class ApiService {
   }
 
   async getDecisionPassport(traceId) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decision-passports/${encodeURIComponent(traceId)}`);
       return resp?.data || resp;
     }
@@ -1274,7 +1353,7 @@ export class ApiService {
     if (options.approved !== true) {
       throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
     }
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/commands/virtual', {
         method: 'POST',
         body: JSON.stringify({
@@ -1347,7 +1426,7 @@ export class ApiService {
   }
 
   async getCommand(commandId) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/commands/${encodeURIComponent(commandId)}`);
       const command = resp?.data || resp;
       this.decisionCache.commands.set(commandId, command);
@@ -1357,7 +1436,7 @@ export class ApiService {
   }
 
   async getCommandEvaluation(commandId) {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/commands/${encodeURIComponent(commandId)}/evaluation`);
       const evaluation = resp?.data || resp;
       this.decisionCache.evaluations.set(commandId, evaluation);
@@ -1371,7 +1450,7 @@ export class ApiService {
    * 同一套可重复的演示算法；所有返回值都标记为模拟/推导口径，不伪装成现场实测。
    */
   async getRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/risk-forecast?metric=${encodeURIComponent(metric)}`);
       return this.normalizeForecast(resp?.data || resp, plotId, metric);
     }
@@ -1379,40 +1458,46 @@ export class ApiService {
   }
 
   normalizeForecast(raw, plotId, metric) {
-    const cfg = MOCK_DATA.riskForecastConfig;
-    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const live = this.sessionMode === 'live';
+    const cfg = live ? {} : MOCK_DATA.riskForecastConfig;
+    const plot = live ? null : (MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0]);
     const source = raw || {};
-    const boundary = Number(source.stressBoundary ?? source.riskBoundary?.value ?? cfg.stressBoundary);
-    const baseline = Number(source.baselineMoisture ?? cfg.baselineMoisture);
-    const start = Number(source.startMoisture ?? plot?.metrics?.[metric]?.value ?? 25);
+    const toFinite = (value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    const boundary = toFinite(source.stressBoundary ?? source.riskBoundary?.value ?? cfg.stressBoundary);
+    const baseline = toFinite(source.baselineMoisture ?? cfg.baselineMoisture);
     const horizons = (source.horizons || []).map(h => ({
       minute: Number(h.minute ?? h.minutes ?? 0),
-      expected: Number(h.expected ?? h.value ?? h.expectedMoisture ?? start),
-      lower: Number(h.lower ?? h.expected ?? h.value ?? start),
-      upper: Number(h.upper ?? h.expected ?? h.value ?? start)
+      expected: toFinite(h.expected ?? h.value ?? h.expectedMoisture),
+      lower: toFinite(h.lower ?? h.expected ?? h.value),
+      upper: toFinite(h.upper ?? h.expected ?? h.value)
     })).filter(h => Number.isFinite(h.minute));
-    const maxHorizon = Number(source.forecastRangeMinutes ?? cfg.maxHorizonMinutes);
+    const start = toFinite(source.startMoisture ?? source.currentMoisture ?? horizons[0]?.expected ?? plot?.metrics?.[metric]?.value);
+    const maxHorizon = toFinite(source.forecastRangeMinutes ?? cfg.maxHorizonMinutes) || (horizons.at(-1)?.minute || null);
     const curve = Array.isArray(source.curve) && source.curve.length
-      ? source.curve.map(p => ({ minute: Number(p.minute), expected: Number(p.expected ?? p.value), lower: Number(p.lower ?? p.expected ?? p.value), upper: Number(p.upper ?? p.expected ?? p.value) }))
-      : this.interpolateForecastCurve(start, horizons, maxHorizon);
+      ? source.curve.map(p => ({ minute: Number(p.minute), expected: toFinite(p.expected ?? p.value), lower: toFinite(p.lower ?? p.expected ?? p.value), upper: toFinite(p.upper ?? p.expected ?? p.value) }))
+      : (live ? horizons : this.interpolateForecastCurve(start, horizons, maxHorizon || 240));
     const unavailable = String(source.status || '').toUpperCase() !== 'AVAILABLE';
     return {
       ...source,
       status: unavailable ? (source.status || 'UNAVAILABLE') : 'AVAILABLE',
       plotId, metric,
       generatedAt: source.generatedAt || source.issuedAt || new Date().toISOString(),
-      inputWindowMinutes: Number(source.inputWindowMinutes ?? source.inputWindow?.validSamples ?? cfg.inputWindowMinutes),
+      inputWindowMinutes: toFinite(source.inputWindowMinutes ?? source.inputWindow?.minutes ?? source.inputWindow?.validSamples ?? cfg.inputWindowMinutes),
       forecastRangeMinutes: maxHorizon,
-      algorithmVersion: source.algorithmVersion || cfg.algorithmVersion,
-      algorithmLabel: source.algorithmLabel || cfg.algorithmLabel,
+      algorithmVersion: source.algorithmVersion || (live ? '后端风险模型' : cfg.algorithmVersion),
+      algorithmLabel: source.algorithmLabel || (live ? '后端风险模型' : cfg.algorithmLabel),
       startMoisture: start,
       stressBoundary: boundary,
       baselineMoisture: baseline,
-      timeToRiskMinutes: source.timeToRiskMinutes == null ? maxHorizon : Number(source.timeToRiskMinutes),
+      timeToRiskMinutes: source.timeToRiskMinutes == null ? null : toFinite(source.timeToRiskMinutes),
       horizons,
       curve,
-      assumptions: source.assumptions || ['无降水 / 无外界灌溉', '设备保持在线，遥测质量 GOOD'],
-      uncertaintyNote: source.uncertaintyNote || '置信区间由历史残差 MAD 推导；样本不足时返回 UNAVAILABLE'
+      assumptions: source.assumptions || (live ? [] : ['无降水 / 无外界灌溉', '设备保持在线，遥测质量 GOOD']),
+      uncertaintyNote: source.uncertaintyNote || (live ? '后端未提供不确定性说明' : '置信区间由历史残差 MAD 推导；样本不足时返回 UNAVAILABLE'),
+      dataOrigin: live ? 'BACKEND' : 'SIMULATED'
     };
   }
 
@@ -1462,26 +1547,22 @@ export class ApiService {
 
   async runScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
     const normalizedScenario = String(scenario).toUpperCase();
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/scenarios/runs', { method: 'POST', body: JSON.stringify({ scenario: normalizedScenario, seed, plotId }) });
       const run = resp?.data || resp;
-      const def = MOCK_DATA.riskForecastConfig.scenarioCatalog.find(s => s.code === normalizedScenario) || MOCK_DATA.riskForecastConfig.scenarioCatalog[0];
-      return { ...run, scenario: run.scenario || normalizedScenario, scenarioLabel: run.scenarioLabel || def.label, params: run.params || def, frozenSnapshot: { ...(run.frozenSnapshot || {}), plotId, plotName: run.frozenSnapshot?.plotName || this.mockPlot(plotId).name, startMoisture: run.frozenSnapshot?.startMoisture ?? this.mockPlot(plotId).metrics.SOIL_MOISTURE.value } };
+      return { ...run, scenario: run.scenario || normalizedScenario, scenarioLabel: run.scenarioLabel || normalizedScenario, plotId, dataOrigin: 'BACKEND' };
     }
     const def = MOCK_DATA.riskForecastConfig.scenarioCatalog.find(s => s.code === normalizedScenario) || MOCK_DATA.riskForecastConfig.scenarioCatalog[0];
     const plot = this.mockPlot(plotId);
     return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', frozenSnapshot: { plotId, plotName: plot.name, startMoisture: plot.metrics.SOIL_MOISTURE.value, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
   }
 
-  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
+  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '' } = {}) {
     const normalizedScenario = String(scenario).toUpperCase();
-    if (this.isLive) {
-      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
       const server = resp?.data || resp;
-      // 后端基础合同返回汇总统计；交互式曲线由同一 Seed 的只读确定性
-      // 回放补齐，serverSummary 保留在结果中供审计查看。
-      if (server?.branches?.EXECUTE?.points && server?.branches?.NO_ACTION?.points) return server;
-      return { ...this.mockScenarioCompare(normalizedScenario, seed, plotId), serverSummary: server, provenance: 'SIMULATED' };
+      return { ...(server || {}), scenario: normalizedScenario, seed, plotId, dataOrigin: 'BACKEND', provenance: 'BACKEND' };
     }
     return this.mockScenarioCompare(normalizedScenario, seed, plotId);
   }
@@ -1529,7 +1610,7 @@ export class ApiService {
   async getDevices(filters = {}) {
     const farmId = filters?.farmId || '';
     if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/devices?farmId=${encodeURIComponent(farmId)}`);
       if (Array.isArray(resp?.data)) return resp.data;
       throw new ApiError('后端返回了无效的设备数据', { code: 'DEVICES_INVALID', payload: resp });
@@ -1538,7 +1619,7 @@ export class ApiService {
   }
 
   async registerDevice(input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/devices', { method: 'POST', body: JSON.stringify(input) });
       if (resp?.data?.deviceId) return resp.data;
       throw new ApiError('后端返回了无效的设备注册结果', { code: 'DEVICE_REGISTER_INVALID', payload: resp });
@@ -1551,7 +1632,7 @@ export class ApiService {
   }
 
   async bindDevice(deviceId, plotId) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/bind`, { method: 'POST', body: JSON.stringify({ plotId }) });
       if (resp?.data?.deviceId) return resp.data;
       throw new ApiError('后端返回了无效的设备绑定结果', { code: 'DEVICE_BIND_INVALID', payload: resp });
@@ -1567,7 +1648,7 @@ export class ApiService {
   }
 
   async unbindDevice(deviceId) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/unbind`, { method: 'POST', body: '{}' });
       if (resp?.data?.deviceId) return resp.data;
       throw new ApiError('后端返回了无效的设备解绑结果', { code: 'DEVICE_UNBIND_INVALID', payload: resp });
@@ -1582,7 +1663,7 @@ export class ApiService {
   async getCropBatches(filters = {}) {
     const query = new URLSearchParams();
     if (filters?.farmId) query.set('farmId', filters.farmId);
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/crop-batches${query.size ? `?${query}` : ''}`);
       if (Array.isArray(resp?.data)) return resp.data;
       throw new ApiError('后端返回了无效的种植批次数据', { code: 'CROP_BATCHES_INVALID', payload: resp });
@@ -1591,7 +1672,7 @@ export class ApiService {
   }
 
   async createCropBatch(input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/crop-batches', { method: 'POST', body: JSON.stringify(input) });
       if (resp?.data?.batchId) return resp.data;
       throw new ApiError('后端返回了无效的种植批次结果', { code: 'CROP_BATCH_CREATE_INVALID', payload: resp });
@@ -1604,7 +1685,7 @@ export class ApiService {
   }
 
   async getCropBatchPlan(batchId) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan`);
       return resp?.data || resp;
     }
@@ -1612,7 +1693,7 @@ export class ApiService {
   }
 
   async generateCropBatchPlan(batchId, input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan/generate`, { method: 'POST', body: JSON.stringify(input) });
       if (resp?.data?.planId) return resp.data;
       throw new ApiError('后端返回了无效的生产计划预览', { code: 'CROP_PLAN_INVALID', payload: resp });
@@ -1646,7 +1727,7 @@ export class ApiService {
   }
 
   async reviewCropBatchPlan(batchId, input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan/review`, { method: 'POST', body: JSON.stringify(input) });
       if (resp?.data?.planId) return resp.data;
       throw new ApiError('后端返回了无效的计划审批结果', { code: 'CROP_PLAN_REVIEW_INVALID', payload: resp });
@@ -1676,7 +1757,7 @@ export class ApiService {
   async getValueLedgers(filters = {}) {
     const farmId = filters?.farmId || '';
     if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/value-ledgers?farmId=${encodeURIComponent(farmId)}`);
       const records = resp?.data || resp;
       if (Array.isArray(records)) return records;
@@ -1686,7 +1767,7 @@ export class ApiService {
   }
 
   async createValueLedger(input = {}) {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/value-ledgers', { method: 'POST', body: JSON.stringify(input) });
       if (resp?.data?.valueLedgerId) return resp.data;
       throw new ApiError('后端返回了无效的价值对账结果', { code: 'VALUE_LEDGER_CREATE_INVALID', payload: resp });
@@ -1701,7 +1782,7 @@ export class ApiService {
   }
 
   async getCropPacks() {
-    if (this.isLive && this.sessionMode === 'live') {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/crop-packs');
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
@@ -1722,10 +1803,23 @@ export class ApiService {
   }
 
   async getRules() {
-    if (this.isLive) {
+    if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/rules');
       const raw = resp?.data || resp;
-      if (Array.isArray(raw)) return raw.flatMap(entry => (entry.rules || []).map(rule => ({ ...rule, cropCode: entry.cropCode, cropName: MOCK_DATA.cropPackDetails.find(p => p.cropCode === entry.cropCode)?.identity.name || entry.cropCode, ruleVersion: entry.version || entry.ruleVersion })));
+      if (Array.isArray(raw)) {
+        // The rules endpoint intentionally returns codes only.  Resolve the
+        // display name from the same backend Crop Pack response; never borrow
+        // a demo crop name in a live session.
+        const packs = await this.getCropPacks();
+        const names = new Map(packs.map(pack => [pack.cropCode, pack.identity?.name || pack.cropCode]));
+        return raw.flatMap(entry => (entry.rules || []).map(rule => ({
+          ...rule,
+          cropCode: entry.cropCode,
+          cropName: names.get(entry.cropCode) || entry.cropCode,
+          ruleVersion: entry.version || entry.ruleVersion
+        })));
+      }
+      throw new ApiError('后端返回了无效的规则数据', { code: 'RULES_INVALID', payload: resp });
     }
     return MOCK_DATA.cropPackDetails.flatMap(pack => pack.rules.map(rule => ({ ...rule, cropCode: pack.cropCode, cropName: pack.identity.name, ruleVersion: pack.ruleVersion })));
   }
@@ -1742,6 +1836,7 @@ export class ApiService {
     try {
       response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
     } catch (error) {
+      if (this.sessionMode === 'live') this.isLive = false;
       throw new ApiError('无法连接后端服务', {
         code: 'NETWORK_ERROR',
         isNetworkError: true,
@@ -1772,6 +1867,7 @@ export class ApiService {
       });
     }
     if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
+    if (this.sessionMode === 'live') this.isLive = true;
     return payload;
   }
 }

@@ -120,7 +120,18 @@ export const WorkOrderLifecycleView = {
     const scopedOrders = computed(() => {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
       if (!isFarmer.value) return orders;
-      return orders.filter((order) => order.assigneeId === currentActorId.value);
+      return orders.filter((order) => {
+        if (order.assigneeId === currentActorId.value) return true;
+        // A farmer must be able to track an evidence request they created
+        // before it is assigned.  The backend applies the same rule in
+        // GET /work-orders; keeping it here prevents the shared workbench
+        // from hiding a record that the farmer.html workspace can already
+        // read.
+        const createdByFarmer = order.createdBy === currentActorId.value;
+        const evidenceRequest = String(order.sourceType || '').toUpperCase() === 'READINESS'
+          || String(order.actionType || '').toUpperCase() === 'INSPECTION';
+        return createdByFarmer && evidenceRequest;
+      });
     });
 
     const filteredOrders = computed(() => scopedOrders.value
@@ -169,7 +180,7 @@ export const WorkOrderLifecycleView = {
     const pageTitle = computed(() => canManage.value ? '农务任务' : isFarmer.value ? '我的农务' : '工单审计');
     const pageHint = computed(() => canManage.value
       ? '先分配无人负责的任务，再处理等待验收的结果。'
-      : isFarmer.value ? '这里只显示分配给你的任务，按顺序开始、提交或返工。' : '查看任务状态和操作记录，系统管理员不参与日常执行。');
+      : isFarmer.value ? '这里显示分配给你的任务，以及你提交的补证请求。按顺序开始、提交或返工。' : '查看任务状态和操作记录，系统管理员不参与日常执行。');
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
@@ -335,10 +346,16 @@ export const WorkOrderLifecycleView = {
       inspectionLoading.value = true;
       inspectionLoadError.value = '';
       try {
-        const results = await Promise.all(plotIds.map((plotId) => api.getInspections(plotId)));
-        const records = Array.from(new Map(results.flat().map((record) => [record.inspectionId, record])).values())
+        const results = await Promise.allSettled(plotIds.map((plotId) => api.getInspections(plotId)));
+        const rejected = results.filter((result) => result.status === 'rejected');
+        const records = Array.from(new Map(results
+          .filter((result) => result.status === 'fulfilled')
+          .flatMap((result) => result.value || [])
+          .map((record) => [record.inspectionId, record])).values())
           .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
         props.state.inspections.splice(0, props.state.inspections.length, ...records);
+        if (rejected.length && !records.length) throw rejected[0].reason;
+        if (rejected.length) inspectionLoadError.value = `${rejected.length} 个地块的巡田记录暂不可用`;
         if (announce) toast(`已重新读取 ${records.length} 条巡田证据`);
         return true;
       } catch (error) {

@@ -2122,7 +2122,7 @@ class AgriEngine {
         StreamBuilder work = new StreamBuilder();
         store.list("work-order").stream()
                 .filter(w -> canAccessPlot(principal, Jsons.text(w, "plotId", "")))
-                .filter(w -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(w, "assigneeId", "")))
+                .filter(w -> !"FARMER".equals(principal.role) || farmerCanSeeWorkOrder(w, principal))
                 .filter(w -> plotId == null || plotId.equals(Jsons.text(w, "plotId", "")))
                 .map(this::normalizeWorkOrderForRead).forEach(work::add);
         store.list("alert").stream().filter(a -> canAccessPlot(principal, Jsons.text(a, "plotId", "")) &&
@@ -2178,7 +2178,7 @@ class AgriEngine {
         if (!plotId.isBlank()) ensurePlotAccess(principal, plotId);
         return store.list("work-order").stream()
                 .filter(work -> canAccessPlot(principal, Jsons.text(work, "plotId", "")))
-                .filter(work -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(work, "assigneeId", "")))
+                .filter(work -> !"FARMER".equals(principal.role) || farmerCanSeeWorkOrder(work, principal))
                 .filter(work -> farmId.isBlank() || farmId.equals(Jsons.text(work, "farmId", farmIdForPlot(Jsons.text(work, "plotId", "")))))
                 .filter(work -> plotId.isBlank() || plotId.equals(Jsons.text(work, "plotId", "")))
                 .filter(work -> status.isBlank() || status.equals(normalizeWorkStatus(work.get("status"))))
@@ -2333,6 +2333,20 @@ class AgriEngine {
         Map<String, Object> work = requireRecord("work-order", workOrderId);
         ensurePlotAccess(principal, Jsons.text(work, "plotId", ""));
         return normalizeWorkOrderForRead(work);
+    }
+
+    /**
+     * Farmers see tasks assigned to them plus the evidence/readiness requests
+     * they created themselves.  The latter used to disappear immediately
+     * after submission because the list was filtered only by assignee, which
+     * made the admin and farmer workspaces disagree about the same request.
+     */
+    private boolean farmerCanSeeWorkOrder(Map<String, Object> work, UserPrincipal principal) {
+        if (principal == null || !"FARMER".equals(principal.role)) return true;
+        if (principal.userId.equals(Jsons.text(work, "assigneeId", ""))) return true;
+        return principal.userId.equals(Jsons.text(work, "createdBy", ""))
+                && ("READINESS".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
+                || "INSPECTION".equalsIgnoreCase(Jsons.text(work, "actionType", "")));
     }
 
     private Map<String, Object> normalizeWorkOrderForRead(Map<String, Object> source) {

@@ -59,6 +59,7 @@ export function domainsForEventType(type = '') {
   if (value.includes('alert')) { domains.add('alerts'); domains.add('overview'); }
   if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
   if (value.includes('member')) domains.add('members');
+  if (value.includes('inspection')) domains.add('inspections');
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
   return [...domains];
@@ -75,17 +76,24 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
         ...(metrics[code] || { label: code, target: '—' }),
         value: event.value,
         unit: event.unit || metrics[code]?.unit || '',
-        status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || metrics[code]?.status || 'NORMAL')
+        status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || metrics[code]?.status || 'NORMAL'),
+        observedAt: event.ts || event.observedAt || metrics[code]?.observedAt || null,
+        provenance: 'OBSERVED',
+        sourceMode: 'SIMULATION',
+        dataOrigin: 'BACKEND'
       };
     });
     return {
       ...fact,
       ...card,
       metrics,
+      history: fact.history || card.history || {},
       deviceId: card.device?.deviceId || card.deviceId || fact.deviceId || null,
       deviceStatus: card.device?.status || card.deviceStatus || fact.deviceStatus || 'UNKNOWN',
       healthScore: card.device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
-      lastSeen: card.device?.lastSeen || card.lastSeen || fact.lastSeen || null
+      lastSeen: card.device?.lastSeen || card.lastSeen || fact.lastSeen || null,
+      sourceMode: fact.sourceMode || card.sourceMode || 'SIMULATION',
+      dataOrigin: 'BACKEND'
     };
   });
 }

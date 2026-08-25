@@ -693,7 +693,7 @@
           <h3 class="mb-4">情景假设 (What-if)</h3>
           <div class="flex" style="flex-direction:column; gap:12px; margin-bottom: 24px">
             <div class="scenario-btn"
-                 v-for="scenario in state.riskForecastConfig.scenarioCatalog"
+                 v-for="scenario in scenarioOptions"
                  :key="scenario.code"
                  :class="{active: currentScenario === scenario.code}"
                  @click="changeScenario(scenario)">
@@ -708,6 +708,8 @@
                 </span>
               </div>
             </div>
+          <p v-if="loading" class="text-muted">正在读取后端预测结果…</p>
+          <p v-if="error" class="text-muted" style="color:var(--g-warning)">{{ error }}</p>
           </div>
 
           <h3 class="mb-4">算法护照 (Explainability)</h3>
@@ -1451,8 +1453,8 @@
                 <td>{{ a.summary }}</td>
                 <td><span class="status-pill" :class="a.status === 'OPEN' ? 'warning' : a.status === 'ACK' ? 'info' : 'completed'">{{ a.status === 'OPEN' ? '未处理' : a.status === 'ACK' ? '已确认' : '已关闭' }}</span></td>
                 <td>
-                  <button v-if="a.status==='OPEN'" class="g-btn text sm" @click="a.status='ACK'">确认</button>
-                  <button v-if="a.status==='ACK'" class="g-btn text sm" @click="a.status='CLOSED'">关闭</button>
+                  <button v-if="a.status==='OPEN'" class="g-btn text sm" @click="transitionAlert(a, 'ack')">确认</button>
+                  <button v-if="a.status==='ACK'" class="g-btn text sm" @click="transitionAlert(a, 'close')">关闭</button>
                 </td>
               </tr>
             </tbody>
@@ -1567,10 +1569,10 @@
           <div class="sim-info-value">{{ state.adminOverview.simulator.eventsEmitted }}</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="g-btn primary" v-if="!simRunning" @click="simRunning=true">
+          <button class="g-btn primary" v-if="!simRunning" :disabled="simBusy" @click="toggleSimulator">
             <span class="material-symbols-outlined">play_arrow</span> 启动
           </button>
-          <button class="g-btn danger" v-else @click="simRunning=false">
+          <button class="g-btn danger" v-else :disabled="simBusy" @click="toggleSimulator">
             <span class="material-symbols-outlined">stop</span> 停止
           </button>
         </div>
@@ -1761,9 +1763,9 @@
                 <td>{{ cand.description }}</td>
                 <td><span class="status-pill" :class="cand.status">{{ {pending:'待验证',verified:'已验证',approved:'已批准',rejected:'已拒绝'}[cand.status] }}</span></td>
                 <td>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" @click="cand.status='approved'">批准</button>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" style="color:var(--g-danger)" @click="cand.status='rejected'">拒绝</button>
-                  <button v-if="cand.status==='active'" class="g-btn text sm" style="color:var(--g-danger)" @click="cand.status='verified'; alert('策略已回滚到验证状态 (Rollback)')">回滚 (Rollback)</button>
+                  <button v-if="cand.status==='verified'" class="g-btn text sm" @click="transitionCandidate(cand, 'APPROVED')">批准</button>
+                  <button v-if="cand.status==='verified'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'REJECTED')">拒绝</button>
+                  <button v-if="cand.status==='active'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'ROLLED_BACK')">回滚 (Rollback)</button>
                 </td>
               </tr>
             </tbody>
@@ -1815,7 +1817,7 @@
                 <td><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
-                  <button class="g-btn text sm" @click="u.enabled = !u.enabled">{{ u.enabled ? '停用' : '启用' }}</button>
+                  <button class="g-btn text sm" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
                   <button class="g-btn text sm" style="color:var(--g-danger)" @click="deleteUser(u.userId)">删除</button>
                 </td>
               </tr>

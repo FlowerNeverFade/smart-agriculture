@@ -327,6 +327,29 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerCanReadOwnUnassignedEvidenceRequestAcrossRoleWorkspaces() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+
+        Map<String, Object> request = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo",
+                "plotId", "plot-a01",
+                "sourceType", "READINESS",
+                "actionType", "INSPECTION",
+                "title", "申请现场复测",
+                "reason", "请补充便携仪含水率"), farmer);
+        String workOrderId = String.valueOf(request.get("workOrderId"));
+
+        assertThat(engine.workOrders(Map.of(), farmer)).anySatisfy(item ->
+                assertThat(item).containsEntry("workOrderId", workOrderId).containsEntry("assigneeId", null));
+        assertThat(engine.workOrders(Map.of(), otherFarmer)).noneMatch(item -> workOrderId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), admin)).anyMatch(item -> workOrderId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), systemAdmin)).anyMatch(item -> workOrderId.equals(item.get("workOrderId")));
+    }
+
+    @Test
     void inspectionEvidencePersistsAndStaysLinkedToItsWorkOrder() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));

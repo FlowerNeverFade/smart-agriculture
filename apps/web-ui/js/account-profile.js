@@ -58,7 +58,7 @@ function isFinished(item) {
 }
 
 function isPending(item) {
-  return ['PENDING', 'ASSIGNED', 'OPEN', 'TODO', 'IN_PROGRESS'].includes(String(item?.status || '').trim().toUpperCase());
+  return ['PENDING', 'ASSIGNED', 'OPEN', 'TODO', 'IN_PROGRESS', 'REJECTED'].includes(String(item?.status || '').trim().toUpperCase());
 }
 
 function isDueSoon(item) {
@@ -125,7 +125,7 @@ function statsForFarmer(user, context, state) {
   const totalDone = numberOr(firstNonEmpty(user?.total_done, profile.total_done), 0);
   const monthDone = numberOr(firstNonEmpty(user?.month_done, profile.month_done), 0);
   const inProgress = tasks.filter((item) => String(item?.status || '').toUpperCase() === 'IN_PROGRESS').length;
-  const pending = tasks.filter((item) => ['PENDING', 'ASSIGNED'].includes(String(item?.status || '').toUpperCase())).length;
+  const pending = tasks.filter((item) => ['PENDING', 'ASSIGNED', 'OPEN', 'IN_PROGRESS', 'REJECTED'].includes(String(item?.status || '').toUpperCase())).length;
   const dueSoon = tasks.filter(isDueSoon).length;
   const completed = tasks.filter(isFinished).length;
   const completionRate = numberOr(firstNonEmpty(user?.completion_rate, profile.completion_rate), tasks.length ? Math.round((completed / tasks.length) * 100) : 0);
@@ -143,6 +143,7 @@ function statsForFarmer(user, context, state) {
 }
 
 function statsForFarmAdmin(context, state) {
+  const live = Boolean(context.isLive);
   const plots = resolvePlots(context, state, 'FARM_ADMIN');
   const tasks = resolveTasks(context, state, 'FARM_ADMIN');
   const alerts = resolveAlerts(context, state);
@@ -152,10 +153,10 @@ function statsForFarmAdmin(context, state) {
   );
   const totalTasks = tasks.length;
   const doneTasks = tasks.filter(isFinished).length;
-  const completionRate = totalTasks ? Math.round((doneTasks / totalTasks) * 100) : 88;
+  const completionRate = totalTasks ? Math.round((doneTasks / totalTasks) * 100) : (live ? 0 : 88);
   const openAlerts = alerts.filter((item) => ['OPEN', 'ACTIVE', 'UNACKNOWLEDGED'].includes(String(item?.status || '').toUpperCase())).length || numberOr(state?.adminOverview?.alerts?.open, 0);
   const pendingTasks = tasks.filter(isPending).length;
-  const activeFarmers = members.filter((item) => item?.role === 'FARMER' && String(item?.status || 'ACTIVE').toUpperCase() !== 'INACTIVE' && item?.enabled !== false).length || 3;
+  const activeFarmers = members.filter((item) => item?.role === 'FARMER' && String(item?.status || 'ACTIVE').toUpperCase() !== 'INACTIVE' && item?.enabled !== false).length || (live ? 0 : 3);
   const onlineDevices = devices.filter((item) => ['ONLINE', 'UP', 'ACTIVE'].includes(String(item?.status || '').toUpperCase())).length;
   return [
     { value: plots.length || 0, label: '管理地块', detail: '当前农场范围' },
@@ -168,6 +169,7 @@ function statsForFarmAdmin(context, state) {
 }
 
 function statsForSystemAdmin(context, state) {
+  const live = Boolean(context.isLive);
   const services = resolveServices(context, state);
   const devices = asArray(Array.isArray(context.devices) ? context.devices : state?.adminDevices);
   const users = asArray(context.users || state?.adminUsers);
@@ -175,7 +177,7 @@ function statsForSystemAdmin(context, state) {
   const auditRecords = asArray(context.auditRecords || state?.adminAuditRecords);
   const overview = state?.adminOverview || {};
   const onlineServices = services.filter((item) => ['UP', 'ONLINE', 'HEALTHY'].includes(String(item?.status || '').toUpperCase())).length;
-  const totalServices = services.length || 6;
+  const totalServices = services.length || (live ? 0 : 6);
   const activeUsers = users.filter((item) => item?.enabled !== false && String(item?.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').length || 0;
   const publishedRules = rules.filter((item) => String(item?.status || '').toLowerCase() === 'published').length || rules.length;
   const running = Boolean(overview.simulator?.running || state?.simulatorStatus?.status === 'RUNNING');
@@ -183,10 +185,10 @@ function statsForSystemAdmin(context, state) {
   return [
     { value: `${onlineServices}/${totalServices}`, label: '在线服务', detail: '平台服务节点' },
     { value: auditRecords.length, label: '决策审计', detail: '最近决策记录' },
-    { value: publishedRules || '—', label: '生效规则', detail: '已发布版本' },
+    { value: publishedRules || (live ? 0 : '—'), label: '生效规则', detail: '已发布版本' },
     { value: running ? '运行中' : '待机', label: '模拟器状态', detail: overview.simulator?.scenario ? `场景 ${overview.simulator.scenario}` : '可随时启动' },
-    { value: activeUsers || '—', label: '启用账号', detail: '全平台账号' },
-    { value: events || '—', label: '今日事件', detail: `${devices.length || 0} 个设备接入` }
+    { value: activeUsers || (live ? 0 : '—'), label: '启用账号', detail: '全平台账号' },
+    { value: events || (live ? 0 : '—'), label: '今日事件', detail: `${devices.length || 0} 个设备接入` }
   ];
 }
 
@@ -195,14 +197,15 @@ export function buildAccountProfile(user, context = {}) {
   const role = normalizedRole(user);
   const config = ROLE_CONFIG[role];
   const fallback = context.profile || {};
+  const live = Boolean(context.isLive);
   const farm = resolveFarm(context, state);
   const plots = resolvePlots(context, state, role);
   const status = profileStatus(user, role);
   const username = firstNonEmpty(user?.username, fallback.username, config.defaultUsername);
   const roleLabel = firstNonEmpty(user?.roleLabel, user?.role_label, fallback.role_label, config.label);
-  const contact = firstNonEmpty(user?.contact, user?.phone, fallback.contact, config.defaultContact);
-  const joinedAt = firstNonEmpty(user?.joined_at, user?.joinedAt, user?.createdAt, fallback.joined_at, config.defaultJoinedAt);
-  const farmName = firstNonEmpty(farm?.name, user?.farmName, fallback.farm_name, '农智示范农场');
+  const contact = firstNonEmpty(user?.contact, user?.phone, fallback.contact, live ? '—' : config.defaultContact);
+  const joinedAt = firstNonEmpty(user?.joined_at, user?.joinedAt, user?.createdAt, fallback.joined_at, live ? '—' : config.defaultJoinedAt);
+  const farmName = firstNonEmpty(farm?.name, user?.farmName, fallback.farm_name, live ? '—' : '农智示范农场');
   const plotNames = asArray(user?.plot_names || user?.plotNames).length
     ? asArray(user.plot_names || user.plotNames)
     : plots.map((plot) => plot?.name || plot?.plotName || plot?.plotId).filter(Boolean);
@@ -215,7 +218,7 @@ export function buildAccountProfile(user, context = {}) {
     const online = services.filter((item) => ['UP', 'ONLINE', 'HEALTHY'].includes(String(item?.status || '').toUpperCase())).length;
     rows = [
       { label: '管理范围', value: '全平台' },
-      { label: '服务节点', value: `${online || 0}/${services.length || 6} 在线` },
+      { label: '服务节点', value: `${online || 0}/${services.length || (live ? 0 : 6)} 在线` },
       { label: '联系方式', value: contact },
       { label: '任职时间', value: joinedAt },
       { label: '当前状态', value: status.label, tone: status.tone, badge: true }
