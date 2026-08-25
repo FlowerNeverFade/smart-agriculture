@@ -7,6 +7,8 @@
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
+> 2026-08-25 农场管理员二维地块总览（本地已验收）：在 GitHub `main` 基线增量实现农场选择、创建农务、今日任务/逾期/异常地块/待分配/待审批五项动态概况、两列地块六指标卡片及无 3D 的二维详情弹窗；管理员导航收口为农场总览、农务任务、告警与诊断、设备与灌溉、农场成员。任务创建继续使用现有 `saveWorkOrder` 合同，正式会话成员接口缺失或后端离线时显示空状态，不以演示指标代替正式数据；演示成员明确标记 `SIMULATED`。Vite 生产构建通过，应用内浏览器在 1600×1000、1280×800、390×844 完成统计、鼠标/键盘详情、路由/焦点、任务创建、设备、成员、两角色回归、无横向溢出及控制台检查；参考图和最终截图均已用 `view_image` 对照。旧 3D FarmMonitor 验收文档仅保留为历史证据，当前默认地块入口不再加载其样式或画布；未修改后端接口、JWT、Token、会话字段或权限边界。本轮未推送或部署。
+
 > 2026-08-24 main 部署记录：右栏功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已同步到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
 
 > 2026-08-24 `rium_dev-v2` 增量整合与右栏收口：合并提交 `9066edb`（父提交 `7b9db81` + `e2d0b69`）完成能力整合，功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已发布公网。地块监测六指标时序视图、右侧栏真实折叠、卡片按内容展开且不互相覆盖、中心内嵌子模块、背景天体动画兼容和无三角尺占位均已验证；液态高光已按最新要求回退为毛玻璃（半透明填充、背景模糊、轻边框，无 sheen/反光伪元素）。`verify-webui real` 为 `82/82`，真实 Chromium 为 `27/27`，公网真实 JWT Chromium 同样为 `27/27`。
@@ -40,7 +42,7 @@
 | Crop Pack 设计 | 已完成 | 100% | 配置模型、继承、版本、回归要求已写入架构文档 |
 | 数据主线实现 | 已完成（后端） | 100% | MQTT -> Redis Stream -> PostgreSQL、质量/去重、SSE；远端 1,080 条固定种子回放 |
 | 智能体主线实现 | 已完成（规则优先后端） | 100% | 白名单 Tool、rules-only/mock 边界、诊断/预测/处方/护照和降级状态 |
-| 可视化主线实现 | 已完成（核心演示切片） | 100%（已实现切片） | JWT 登录、Copilot、3D 农田监测及完整智能诊断决策中枢；诊断台覆盖证据、就绪度、处方、补证、审批、虚拟执行和护照，其他未实现业务页面仍不计完成 |
+| 可视化主线实现 | 已完成（核心演示切片） | 100%（已实现切片） | JWT 登录、Copilot、智能诊断决策中枢及农场管理员二维地块总览；旧 3D FarmMonitor 只保留历史验收证据，当前默认地块入口为六指标卡片与二维详情，其他未实现业务页面仍不计完成 |
 | 账号管理 | 已完成（远端验收） | 100%（当前功能范围） | 三角色登录/注册核验、权限与地块范围、V4 迁移、透明 Alpha Logo、本地 Gradle/Web 回归与服务器本机 API/静态资源黑盒通过；实现提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`、迁移加固提交 `6e0b1db` 及交付提交 `85155db1` 已进入 GitHub `main` 并部署到 `/srv/agriloop`；详见 `docs/account-management.md` |
 | 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
 | Web 等画质性能 | 已完成（公网验收） | 100%（本轮范围） | 等画质按需加载、空间分块剔除、隐藏停帧与分级缓存；Dashboard 可用时间中位数约 355 ms；首页水资源卡片的首屏样式/Canvas 尺寸反馈回路已修复，提交 `e9dc042`、`b08c664` 均已发布，见 `WEB_PERFORMANCE_ACCEPTANCE.md` |
@@ -80,6 +82,7 @@
 - 远端固定验收已通过：健康、JWT/RBAC、1,000+ 事件、Redis Streams、MQTT、SSE、干旱/漂移分流、非成功 ACK、成功 ACK、回放隔离、资源约束、价值账本、案例和策略状态机。
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
+- 当前农场管理员默认入口已改为二维地块总览，不再加载或创建旧 FarmMonitor 画布；上一条 3D 内容及其验收记录仅作为历史实现证据保留。登录页 WebGL、Three.js 依赖和其他角色模块不在本轮删除范围内。
 - `feat/login-interface` 的独立登录页、`rium_dev` 的麦田/地形背景、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现、`lxh-frontend` 的农田监测/独立作物沙盘以及 `rium_dev-v2` 的时序、折叠栏和中心模块已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`；主界面最终采用毛玻璃，不启用液态高光层。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - “智能诊断与决策中枢”已从通用占位预览升级为真实接口驱动页面：相反证据与缺失证据不会被隐藏，安全门只阻断执行而不阻断解释和参考试算，漂移可直接生成补证工单，READY 处方经人工确认后显示 ACK 与效果状态。
 - 当前 `yyx2` 已将账户生命周期收敛为三类身份：农场管理员、种植农户、系统管理员。登录强制选择并校验角色；自助注册仅创建种植农户，管理员身份继续要求系统授权；注册时一次性展示恢复码，密码重设会轮换恢复码并使旧 JWT 失效。旧 `FIELD_OPERATOR/operator` 数据已由 V4 迁移兼容转换为种植农户，登录页不再展示第四类身份。本地回归、远端 Flyway v4、三角色登录、`/auth/me`、身份错配、角色目录和透明 Logo 静态资源均已验证；当前工作环境未能直连 AutoDL 公网代理，浏览器级公网截图不计入本次证据。

@@ -4,10 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
-  <title>AgriLoop · Google Style WebUI</title>
+  <title>AgriLoop · 智慧农业工作台</title>
   
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+  <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/style.css">
   
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -16,10 +15,6 @@
   <script src="vendor/echarts.min.js"></script>
   
   <style>
-    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .metric-box { padding: 12px; background: var(--g-bg-base); border-radius: var(--g-radius); border: 1px solid var(--g-border-subtle); }
-    .metric-label { font-size: 12px; color: var(--g-text-secondary); margin-bottom: 4px; display:flex; justify-content:space-between; }
-    .metric-val { font-size: 18px; font-weight: 500; }
     .feed-actions { display: flex; gap: 8px; margin-top: 12px; }
     .chat-msg { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; max-width: 85%; line-height:1.5; }
     .chat-msg.user { background: var(--g-primary-bg); color: var(--g-primary-hover); margin-left: auto; border-bottom-right-radius: 4px; }
@@ -31,16 +26,16 @@
   </style>
 </head>
 <body>
-  <div id="app" v-cloak>
+  <div id="app" v-cloak :class="roleClass">
     <header class="g-header">
       <div class="g-header-left">
-        <button class="g-btn icon-only" @click="toggleSidebar"><span class="material-symbols-outlined">menu</span></button>
+        <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
         <span class="g-header-title">AgriLoop Console</span>
       </div>
       <div class="g-header-right">
-        <button class="g-btn icon-only" @click="toggleTheme" title="切换主题"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
-        <button class="g-btn icon-only" @click="logout" title="退出登录"><span class="material-symbols-outlined">logout</span></button>
+        <button class="g-btn icon-only" @click="toggleTheme" title="切换主题" aria-label="切换主题"><app-icon :name="isDark ? 'light_mode' : 'dark_mode'"></app-icon></button>
+        <button class="g-btn icon-only" @click="logout" title="退出登录" aria-label="退出登录"><app-icon name="logout"></app-icon></button>
         <span class="g-badge" :class="isLive ? 'success' : 'warning'">
           {{ isLive ? '系统在线 (UP)' : '仿真态 (MOCK)' }}
         </span>
@@ -56,23 +51,28 @@
 
     <div class="g-body">
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
-        <div v-for="nav in navItems" :key="nav.id" 
+        <button v-for="nav in navItems" :key="nav.id" type="button"
              class="g-nav-item" :class="{active: currentView === nav.id}"
+             :aria-current="currentView === nav.id ? 'page' : null"
              @click="navigate(nav.id)">
-          <span class="material-symbols-outlined">{{ nav.icon }}</span>
+          <app-icon :name="nav.icon"></app-icon>
           {{ nav.label }}
-        </div>
+        </button>
       </nav>
 
       <main class="g-main">
         <transition name="fade" mode="out-in">
-          <component :is="currentViewComponent" :state="state" :route-params="routeParams" @navigate="navigate"></component>
+          <component :is="currentViewComponent" :state="state" :route-params="routeParams"
+                     @navigate="navigate" @open-plot-detail="openPlotDetail"></component>
         </transition>
+
+        <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
+                           @close="closePlotDetail" @navigate="navigateFromPlotDetail"></plot-detail-modal>
         
         <div class="g-toast-container">
           <transition-group name="toast">
             <div v-for="toast in toasts" :key="toast.id" class="g-toast">
-              <span class="material-symbols-outlined" :style="{color: toast.type === 'error' ? 'var(--g-danger)' : 'var(--g-success)'}">{{ toast.type === 'error' ? 'error' : 'check_circle' }}</span>
+              <app-icon :name="toast.type === 'error' ? 'error' : 'check_circle'" :style="{color: toast.type === 'error' ? 'var(--g-danger)' : 'var(--g-success)'}"></app-icon>
               {{ toast.message }}
             </div>
           </transition-group>
@@ -83,7 +83,75 @@
 
   <!-- Dashboard Template -->
   <template id="tmpl-dashboard">
-    <div>
+    <section v-if="isFarmAdmin" class="manager-dashboard" aria-labelledby="manager-dashboard-title">
+      <header class="manager-dashboard-header">
+        <div class="manager-dashboard-heading">
+          <h1 id="manager-dashboard-title">农场总览</h1>
+          <p>先看地块状态，再处理异常和农务。</p>
+        </div>
+        <div class="manager-dashboard-actions">
+          <label class="sr-only" for="manager-farm-select">选择农场</label>
+          <select id="manager-farm-select" class="g-select manager-farm-select" v-model="selectedFarmId">
+            <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">
+              {{ farm.name }} · {{ farm.region }}
+            </option>
+          </select>
+          <button type="button" class="g-btn primary manager-create-task" @click="createTask">
+            <app-icon name="add_task"></app-icon>
+            创建农务任务
+          </button>
+        </div>
+      </header>
+
+      <div class="manager-summary-strip" aria-label="今日农场概况">
+        <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+      </div>
+
+      <div class="manager-plot-grid" aria-label="地块状态列表">
+        <article v-for="plot in state.plots" :key="plot.plotId"
+                 class="manager-plot-card" :class="`is-${cardTone(plot)}`"
+                 role="button" tabindex="0" :data-plot-card="plot.plotId"
+                 :aria-label="`查看${plot.name}二维详情`"
+                 @click="openPlotDetail(plot, $event)"
+                 @keydown.enter.prevent="openPlotDetail(plot, $event)"
+                 @keydown.space.prevent="openPlotDetail(plot, $event)">
+          <header class="manager-plot-card-header">
+            <div class="manager-plot-title">
+              <h2>{{ plot.name }}</h2>
+              <span>{{ plot.lastSeen || '—' }}</span>
+            </div>
+            <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
+          </header>
+          <p class="manager-plot-meta">
+            <span>品种：{{ plot.cropVariety || '—' }}</span>
+            <span>面积：{{ plot.areaM2 ?? '—' }}㎡</span>
+            <span>生长阶段：{{ plot.stageLabel || '—' }}</span>
+          </p>
+          <div class="manager-metric-grid">
+            <div class="manager-metric" :class="`is-${metricTone(metric)}`" v-for="metric in plotMetrics(plot)" :key="metric.code">
+              <div class="manager-metric-label">
+                <span>{{ metric.label }}</span>
+                <app-icon :name="metricStatusIcon(metric)"></app-icon>
+              </div>
+              <div class="manager-metric-value">
+                {{ formatMetric(metric) }} <small v-if="formatMetric(metric) !== '—'">{{ metric.unit }}</small>
+              </div>
+              <div class="manager-metric-target">靶标：{{ metric.target }}</div>
+            </div>
+          </div>
+        </article>
+      </div>
+      <div v-if="!state.plots.length" class="simple-empty-state manager-plot-empty">
+        <app-icon name="info"></app-icon>
+        <h2>暂无可显示的地块</h2>
+        <p>请确认后端服务和当前账户的地块权限；系统不会用演示指标代替正式数据。</p>
+      </div>
+    </section>
+
+    <div v-else>
       <div class="flex justify-between items-center mb-4">
         <div>
           <h2>{{ state.currentUser.roleLabel }} · 工作台</h2>
@@ -91,7 +159,6 @@
         </div>
         <span class="g-badge primary">{{ state.farms[0].name }} · {{ state.farms[0].region }}</span>
       </div>
-      
       <div class="g-grid g-grid-2 mb-4">
         <div class="g-card" v-for="plot in state.plots" :key="plot.plotId">
           <div class="flex justify-between items-center mb-4">
@@ -100,22 +167,20 @@
               <span class="g-badge" :class="plot.deviceStatus==='ONLINE'?'success':'danger'">{{ plot.deviceId }} ({{ plot.lastSeen }})</span>
             </div>
             <span class="g-badge" :class="plot.riskLevel === 'LOW' ? 'success' : (plot.riskLevel === 'WARN' ? 'warning' : 'danger')">
-              综合健康 {{ (plot.healthScore * 100).toFixed(0) }}
+              综合健康 {{ healthScore(plot) }}
             </span>
           </div>
           <p class="text-muted mb-4">品种：{{ plot.cropVariety }} | 面积：{{ plot.areaM2 }}㎡ | 阶段：{{ plot.stageLabel }}</p>
-          
           <div class="metric-grid">
-            <div class="metric-box" v-for="(metric, key) in plot.metrics" :key="key">
+            <div class="metric-box" v-for="metric in plotMetrics(plot)" :key="metric.code">
               <div class="metric-label">
                 <span>{{ metric.label }}</span>
-                <span class="material-symbols-outlined" style="font-size:14px; color:var(--g-success)" v-if="metric.status==='NORMAL'">check_circle</span>
-                <span class="material-symbols-outlined" style="font-size:14px; color:var(--g-warning)" v-if="metric.status==='WARN'">warning</span>
+                <app-icon :name="metricStatusIcon(metric)" :class="`metric-${metricTone(metric)}`"></app-icon>
               </div>
-              <div class="metric-val" :style="{color: metric.status==='NORMAL'?'inherit':'var(--g-warning)'}">
-                {{ metric.value }} <span style="font-size:12px; color:var(--g-text-secondary)">{{ metric.unit }}</span>
+              <div class="metric-val" :class="`metric-${metricTone(metric)}`">
+                {{ formatMetric(metric) }} <span>{{ metric.unit }}</span>
               </div>
-              <div style="font-size:11px; color:var(--g-text-secondary); margin-top:4px">靶标: {{ metric.target }}</div>
+              <div class="metric-target">靶标：{{ metric.target }}</div>
             </div>
           </div>
         </div>
@@ -124,9 +189,8 @@
       <h3 class="mt-4 mb-4">智能警报与信息流</h3>
       <div class="g-grid g-grid-2">
         <div class="g-card flex gap-4" v-for="feed in state.feedItems" :key="feed.id">
-          <span class="material-symbols-outlined" :style="{color: feed.badge.color === 'amber' ? 'var(--g-warning)' : (feed.badge.color === 'green' ? 'var(--g-success)' : 'var(--g-primary)'), fontSize: '32px'}">
-            {{ feed.type === 'DIAGNOSIS' ? 'warning' : (feed.type === 'PRESCRIPTION' ? 'water_drop' : 'info') }}
-          </span>
+          <app-icon :name="feed.type === 'DIAGNOSIS' ? 'warning' : (feed.type === 'PRESCRIPTION' ? 'water_drop' : 'info')"
+                    :style="{color: feed.badge.color === 'amber' ? 'var(--g-warning)' : (feed.badge.color === 'green' ? 'var(--g-success)' : 'var(--g-primary)'), fontSize: '32px'}"></app-icon>
           <div style="flex:1">
             <div class="flex justify-between items-center mb-2">
               <span class="g-badge" style="background:var(--g-bg-base); border:1px solid var(--g-border)">{{ feed.category }}</span>
@@ -134,18 +198,76 @@
             </div>
             <h4>{{ feed.title }}</h4>
             <p class="text-muted mt-2" style="font-size:13px">{{ feed.summary }}</p>
-            
             <div class="feed-actions">
               <button v-for="(act, idx) in visibleActions(feed.actions)" :key="idx"
                       class="g-btn" :class="act.type === 'primary' ? 'primary' : 'secondary'"
-                      @click="handleAction(act)">
-                {{ act.label }}
-              </button>
+                      @click="handleAction(act)">{{ act.label }}</button>
             </div>
           </div>
         </div>
       </div>
     </div>
+  </template>
+
+  <template id="tmpl-plot-detail-modal">
+    <transition name="fade">
+      <div class="g-modal-overlay plot-detail-overlay" @click.self="close" @keydown.esc="close">
+        <section class="g-modal plot-detail-dialog" role="dialog" aria-modal="true" :aria-labelledby="`plot-detail-${plot.plotId}`">
+          <header class="g-modal-header plot-detail-header">
+            <div>
+              <p>二维地块详情</p>
+              <h2 :id="`plot-detail-${plot.plotId}`">{{ plot.name }}</h2>
+            </div>
+            <button type="button" class="g-btn icon-only" data-plot-detail-close @click="close" aria-label="关闭地块详情">
+              <app-icon name="close"></app-icon>
+            </button>
+          </header>
+          <div class="g-modal-body plot-detail-body">
+            <div class="plot-detail-facts">
+              <div><span>品种</span><strong>{{ plot.cropVariety || '—' }}</strong></div>
+              <div><span>面积</span><strong>{{ plot.areaM2 ?? '—' }}㎡</strong></div>
+              <div><span>生长阶段</span><strong>{{ plot.stageLabel || '—' }}</strong></div>
+              <div><span>综合健康</span><strong>{{ healthScore(plot.healthScore) }}</strong></div>
+            </div>
+
+            <section class="plot-detail-section" aria-labelledby="plot-detail-metrics-title">
+              <h3 id="plot-detail-metrics-title">关键数据</h3>
+              <div class="plot-detail-metrics">
+                <div class="plot-detail-metric" :class="`is-${metricTone(metric)}`" v-for="metric in metrics" :key="metric.code">
+                  <div><span>{{ metric.label }}</span><app-icon :name="metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber'"></app-icon></div>
+                  <strong>{{ formatMetric(metric) }} <small v-if="formatMetric(metric) !== '—'">{{ metric.unit }}</small></strong>
+                  <p>建议范围：{{ metric.target }}</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="plot-plain-issue" :class="`is-${issueSummary.tone}`" aria-labelledby="plot-detail-issue-title">
+              <app-icon :name="issueSummary.tone === 'normal' ? 'check_circle' : 'warning_amber'"></app-icon>
+              <div><h3 id="plot-detail-issue-title">{{ issueSummary.title }}</h3><p>{{ issueSummary.detail }}</p></div>
+            </section>
+
+            <section class="plot-detail-section" aria-labelledby="plot-detail-work-title">
+              <div class="plot-detail-section-heading">
+                <h3 id="plot-detail-work-title">相关农务</h3>
+                <button type="button" class="text-action" @click="openView('work-orders', { openCreateTask: true })">安排农务</button>
+              </div>
+              <div class="plot-related-work" v-if="relatedWork.length">
+                <article v-for="item in relatedWork" :key="item.workOrderId || item.workItemId">
+                  <div><strong>{{ item.title || '未命名任务' }}</strong><span>{{ statusLabel(item) }}</span></div>
+                  <p>{{ item.reason || '暂无执行说明' }}</p>
+                  <time>{{ dueLabel(item) }}</time>
+                </article>
+              </div>
+              <p class="plot-empty-work" v-else>这块地目前没有相关农务。</p>
+            </section>
+          </div>
+          <footer class="g-modal-footer plot-detail-footer">
+            <button type="button" class="g-btn secondary" @click="openView('decision-console', { highlight: 'diagnosis' })">查看告警</button>
+            <button type="button" class="g-btn primary" @click="openView('work-orders', { openCreateTask: true })">安排农务</button>
+          </footer>
+        </section>
+      </div>
+    </transition>
   </template>
 
   <!-- Decision Console Template -->
@@ -159,7 +281,7 @@
           <div class="g-card mb-4" v-if="diagnosis" :class="{'highlight-pulse': highlightDiagnosis}">
             <div class="flex justify-between items-center mb-4">
               <h3 class="flex items-center gap-2">
-                <span class="material-symbols-outlined" style="color:var(--g-warning)">psychology</span>
+                <app-icon name="psychology" style="color:var(--g-warning)"></app-icon>
                 根因诊断 (Root Cause)
               </h3>
               <span class="g-badge success">置信度 {{ (diagnosis.details.confidence * 100).toFixed(0) }}%</span>
@@ -188,7 +310,7 @@
           <div class="g-card" v-if="prescription">
             <div class="flex justify-between items-center mb-4">
               <h3 class="flex items-center gap-2">
-                <span class="material-symbols-outlined" style="color:var(--g-primary)">receipt_long</span>
+                <app-icon name="receipt_long" style="color:var(--g-primary)"></app-icon>
                 农业处方 (Prescription)
               </h3>
               <span class="g-badge success">READY · 就绪</span>
@@ -219,10 +341,10 @@
 
             <div class="flex gap-2">
               <button class="g-btn primary" style="flex:1" @click="openExecution">
-                <span class="material-symbols-outlined">bolt</span> 虚拟执行 (What-if)
+                <app-icon name="bolt"></app-icon> 虚拟执行 (What-if)
               </button>
               <button class="g-btn secondary" @click="showPassportModal = true">
-                <span class="material-symbols-outlined">policy</span> 决策护照
+                <app-icon name="policy"></app-icon> 决策护照
               </button>
             </div>
           </div>
@@ -231,7 +353,7 @@
         <!-- Copilot Chat -->
         <div class="g-card flex" style="flex-direction:column; height: calc(100vh - 140px)">
           <div class="flex items-center gap-2 mb-4">
-            <span class="material-symbols-outlined" style="color:var(--g-purple)">smart_toy</span>
+            <app-icon name="smart_toy" style="color:var(--g-purple)"></app-icon>
             <h3>Agent Copilot 沙盘咨询</h3>
           </div>
           
@@ -239,12 +361,12 @@
             <div class="text-center text-muted mb-4" style="font-size:12px">AgriLoop 诊断内核已连接 · 模型推理就绪</div>
             <div v-for="(msg, i) in chatHistory" :key="i" class="chat-msg" :class="msg.role">
               <div style="font-size:12px; opacity:0.7; margin-bottom:4px" v-if="msg.role==='agent'">
-                <span class="material-symbols-outlined" style="font-size:12px; vertical-align:middle">auto_awesome</span> AgriLoop AI
+                <app-icon name="auto_awesome" style="font-size:12px; vertical-align:middle"></app-icon> AgriLoop AI
               </div>
               <div v-html="msg.content"></div>
             </div>
             <div v-if="isTyping" class="chat-msg agent">
-               <span class="material-symbols-outlined" style="animation: spin 2s linear infinite;">hourglass_empty</span> 推理中...
+               <app-icon name="hourglass_empty" style="animation: spin 2s linear infinite;"></app-icon> 推理中...
             </div>
           </div>
           
@@ -253,7 +375,7 @@
                    v-model="chatInput" @keyup.enter="sendMessage"
                    placeholder="询问当前地块的诊断细节或处方计算原理...">
             <button class="g-btn primary icon-only" style="width:48px; height:48px" @click="sendMessage">
-              <span class="material-symbols-outlined">send</span>
+              <app-icon name="send"></app-icon>
             </button>
           </div>
         </div>
@@ -265,7 +387,7 @@
           <div class="g-modal" style="max-width: 800px;">
             <div class="g-modal-header">
               <h3>双轨推演模拟 (Dual-Track What-if)</h3>
-              <button class="g-btn icon-only" @click="showDualTrackModal = false"><span class="material-symbols-outlined">close</span></button>
+              <button class="g-btn icon-only" @click="showDualTrackModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
               <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“下发处方 (执行)”与“不下发处方 (不执行)”的演化结果。</p>
@@ -284,8 +406,8 @@
         <div class="g-modal-overlay" v-if="showPassportModal" @click.self="showPassportModal = false">
           <div class="g-modal">
             <div class="g-modal-header">
-              <h3 class="flex items-center gap-2"><span class="material-symbols-outlined" style="color:var(--g-primary)">policy</span> 决策护照 (Passport)</h3>
-              <button class="g-btn icon-only" @click="showPassportModal = false"><span class="material-symbols-outlined">close</span></button>
+              <h3 class="flex items-center gap-2"><app-icon name="policy" style="color:var(--g-primary)"></app-icon> 决策护照 (Passport)</h3>
+              <button class="g-btn icon-only" @click="showPassportModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
               <ul class="gates-list">
@@ -338,7 +460,7 @@
         <div class="g-card" :class="{'highlight-pulse': highlightChart}">
           <div class="flex justify-between items-center mb-4">
             <h3 class="flex items-center gap-2">
-              <span class="material-symbols-outlined" style="color:var(--g-primary)">analytics</span>
+              <app-icon name="analytics" style="color:var(--g-primary)"></app-icon>
               综合地块含水率推演模型
             </h3>
             <span class="g-badge primary">初始基线：{{ currentPlotBaseMoisture }}%</span>
@@ -394,20 +516,27 @@
     <div>
       <div class="flex justify-between items-center mb-4">
         <h2>工单流转与人机协同 (Work Orders & Inspections)</h2>
-        <button v-if="canRecordInspection" class="g-btn primary" @click="showFormModal = true">+ 录入巡田记录</button>
-        <span v-else class="text-muted">当前身份可查看工单，巡田记录由授权人员提交</span>
+        <div class="work-order-header-actions" v-if="canCreateWorkOrder || canRecordInspection">
+          <button v-if="canCreateWorkOrder" type="button" class="g-btn primary" @click="showWorkOrderModal = true">
+            <app-icon name="add_task"></app-icon>创建农务任务
+          </button>
+          <button v-if="canRecordInspection" type="button" class="g-btn secondary" @click="showFormModal = true">
+            <app-icon name="fact_check"></app-icon>录入巡田记录
+          </button>
+        </div>
+        <span v-else class="text-muted">当前身份可查看工单，操作由授权人员完成</span>
       </div>
       
       <div class="g-grid g-grid-3 mb-4">
         <div class="g-card flex items-center gap-4">
-          <span class="material-symbols-outlined" style="font-size:40px; color:var(--g-primary)">task</span>
+          <app-icon name="task" style="font-size:40px; color:var(--g-primary)"></app-icon>
           <div>
             <div class="text-muted">待办任务总数</div>
             <div style="font-size:28px; font-weight:500">{{ state.workOrders.length }}</div>
           </div>
         </div>
         <div class="g-card flex items-center gap-4">
-          <span class="material-symbols-outlined" style="font-size:40px; color:var(--g-success)">water_drop</span>
+          <app-icon name="water_drop" style="font-size:40px; color:var(--g-success)"></app-icon>
           <div style="flex:1">
             <div class="flex justify-between text-muted mb-1">
               <span>{{ state.resourceProfile.resourceType }}</span>
@@ -419,7 +548,7 @@
           </div>
         </div>
         <div class="g-card flex items-center gap-4">
-          <span class="material-symbols-outlined" style="font-size:40px; color:var(--g-warning)">record_voice_over</span>
+          <app-icon name="record_voice_over" style="font-size:40px; color:var(--g-warning)"></app-icon>
           <div>
             <div class="text-muted">人工巡田报告</div>
             <div style="font-size:28px; font-weight:500">{{ state.inspections.length }}</div>
@@ -469,13 +598,60 @@
         </div>
       </div>
 
+      <transition name="fade">
+        <div class="g-modal-overlay" v-if="showWorkOrderModal" @click.self="showWorkOrderModal = false" @keydown.esc="showWorkOrderModal = false">
+          <form class="g-modal task-create-dialog" @submit.prevent="submitWorkOrder">
+            <div class="g-modal-header">
+              <div><p class="modal-context-label">新建任务</p><h3>创建农务任务</h3></div>
+              <button type="button" class="g-btn icon-only" @click="showWorkOrderModal = false" aria-label="关闭创建任务窗口"><app-icon name="close"></app-icon></button>
+            </div>
+            <div class="g-modal-body task-create-grid">
+              <div class="g-form-group span-2">
+                <label class="g-form-label" for="task-title">任务标题</label>
+                <input id="task-title" class="g-input" v-model="workOrderForm.title" maxlength="80" required placeholder="例如：复测 A01 土壤湿度">
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label" for="task-plot">地块</label>
+                <select id="task-plot" class="g-select" v-model="workOrderForm.plotId" required>
+                  <option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option>
+                </select>
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label" for="task-priority">优先级</label>
+                <select id="task-priority" class="g-select" v-model="workOrderForm.priority">
+                  <option value="HIGH">紧急</option><option value="MEDIUM">中</option><option value="LOW">普通</option>
+                </select>
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label" for="task-type">任务类型</label>
+                <select id="task-type" class="g-select" v-model="workOrderForm.actionType">
+                  <option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option>
+                </select>
+              </div>
+              <div class="g-form-group">
+                <label class="g-form-label" for="task-due">截止时间</label>
+                <input id="task-due" type="datetime-local" class="g-input" v-model="workOrderForm.dueAt" required>
+              </div>
+              <div class="g-form-group span-2">
+                <label class="g-form-label" for="task-reason">执行说明</label>
+                <textarea id="task-reason" class="g-input" rows="4" v-model="workOrderForm.reason" required placeholder="说明任务原因、验收标准或安全注意事项"></textarea>
+              </div>
+            </div>
+            <div class="g-modal-footer">
+              <button type="button" class="g-btn secondary" @click="showWorkOrderModal = false">取消</button>
+              <button type="submit" class="g-btn primary">创建并进入待分配</button>
+            </div>
+          </form>
+        </div>
+      </transition>
+
       <!-- Add Inspection Modal -->
       <transition name="fade">
         <div class="g-modal-overlay" v-if="showFormModal" @click.self="showFormModal = false">
           <div class="g-modal">
             <div class="g-modal-header">
               <h3>录入人工巡田数据</h3>
-              <button class="g-btn icon-only" @click="showFormModal = false"><span class="material-symbols-outlined">close</span></button>
+              <button class="g-btn icon-only" @click="showFormModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
               <div class="g-form-group">
@@ -512,6 +688,54 @@
     </div>
   </template>
 
+  <template id="tmpl-resource-coordination">
+    <section class="simple-operations-view" aria-labelledby="resource-view-title">
+      <header class="simple-view-header">
+        <div><h1 id="resource-view-title">设备与灌溉</h1><p>先确认采集设备状态，再进入对应地块处理灌溉方案。</p></div>
+      </header>
+      <div class="simple-summary-row">
+        <div><span>采集设备</span><strong>{{ devices.length }}</strong></div>
+        <div><span>当前在线</span><strong>{{ onlineCount }}</strong></div>
+        <div><span>需要检查</span><strong>{{ devices.length - onlineCount }}</strong></div>
+      </div>
+      <div class="simple-data-panel">
+        <div class="simple-device-head" aria-hidden="true"><span>设备</span><span>绑定地块</span><span>状态</span><span>最后更新</span><span>健康分</span><span>操作</span></div>
+        <article class="simple-device-row" v-for="device in devices" :key="device.plotId">
+          <span><strong>{{ device.deviceId }}</strong><small>采集终端</small></span>
+          <span>{{ device.plotName }}</span>
+          <span class="device-state" :class="device.status === 'ONLINE' ? 'is-online' : 'is-offline'"><i></i>{{ statusLabel(device.status) }}</span>
+          <span>{{ device.lastSeen }}</span>
+          <span>{{ device.healthScore }}</span>
+          <button type="button" class="text-action" @click="openIrrigation(device.plotId)">查看灌溉</button>
+        </article>
+      </div>
+    </section>
+  </template>
+
+  <template id="tmpl-farm-members">
+    <section class="simple-operations-view" aria-labelledby="member-view-title">
+      <header class="simple-view-header">
+        <div><h1 id="member-view-title">农场成员</h1><p>查看种植农户负责的地块和当前待办。</p></div>
+        <span v-if="isDemo" class="source-mode-label">SIMULATED · 演示数据</span>
+      </header>
+      <div class="simple-data-panel member-data-panel" v-if="members.length">
+        <div class="simple-member-head" aria-hidden="true"><span>成员</span><span>负责地块</span><span>未完成任务</span><span>当前状态</span><span>数据来源</span></div>
+        <article class="simple-member-row" v-for="member in members" :key="member.userId">
+          <span class="member-person"><i :class="member.status === 'ACTIVE' ? 'is-active' : ''"></i><span><strong>{{ member.displayName }}</strong><small>{{ member.username }} · {{ member.roleLabel }}</small></span></span>
+          <span>{{ plotNames(member) }}</span>
+          <span>{{ taskCount(member) }} 项</span>
+          <span>{{ memberStatus(member) }}</span>
+          <span class="source-mode-cell">{{ member.sourceMode }}</span>
+        </article>
+      </div>
+      <div class="simple-empty-state" v-else>
+        <app-icon name="group_off"></app-icon>
+        <h2>正式成员数据尚未接入</h2>
+        <p>当前后端没有农场成员列表接口，因此这里不会使用演示成员代替真实数据。</p>
+      </div>
+    </section>
+  </template>
+
   <!-- Crop Packs Template -->
   <template id="tmpl-crop-packs">
     <div>
@@ -520,7 +744,7 @@
       <div class="g-card mb-4" v-for="crop in state.cropPackDetails" :key="crop.cropCode">
         <div class="flex justify-between items-baseline mb-4">
           <h3 class="flex items-center gap-2">
-            <span class="material-symbols-outlined" style="color:var(--g-primary)">psychiatry</span>
+            <app-icon name="psychiatry" style="color:var(--g-primary)"></app-icon>
             {{ crop.identity.name }} ({{ crop.identity.variety }})
           </h3>
           <span class="text-muted">知识版本: {{ crop.knowledgeVersion }} | 规则版本: {{ crop.ruleVersion }}</span>

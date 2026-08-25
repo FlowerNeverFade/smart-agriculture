@@ -39,6 +39,39 @@ export const MOCK_DATA = {
     }
   ],
 
+  farmMembers: [
+    {
+      userId: "user-farmer",
+      username: "farmer",
+      displayName: "张明",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-a01", "plot-a02"],
+      status: "ACTIVE",
+      sourceMode: "SIMULATED"
+    },
+    {
+      userId: "demo-farmer-b",
+      username: "farmer-b",
+      displayName: "李芳",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-b01", "plot-b02"],
+      status: "ACTIVE",
+      sourceMode: "SIMULATED"
+    },
+    {
+      userId: "demo-farmer-c",
+      username: "farmer-c",
+      displayName: "王强",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      plotIds: ["plot-b03"],
+      status: "INACTIVE",
+      sourceMode: "SIMULATED"
+    }
+  ],
+
   plots: [
     {
       plotId: "plot-a01",
