@@ -658,7 +658,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=1787645254017"></script>
+  <script type="module" src="js/app.js?v=1787652039003"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -688,7 +688,7 @@
         </div>
       </div>
 
-      <div class="admin-overview-layout" :class="{ 'events-collapsed': !showEvents }">
+      <div class="admin-overview-layout">
         <!-- Left: platform overview, plots, simulator -->
         <div class="admin-overview-main">
           <div class="admin-overview-label">平台运行概览</div>
@@ -717,7 +717,7 @@
           </div>
 
           <!-- Simulator Quick Card -->
-          <div style="margin-top:20px">
+          <div style="margin-top:8px">
             <div class="admin-section-head">
               <div class="admin-section-title"><span class="material-symbols-outlined">science</span> 模拟器状态</div>
               <button class="g-btn text" @click="$emit('navigate','admin-simulator')">查看详情 →</button>
@@ -741,10 +741,10 @@
         </div>
 
         <!-- Right: fixed event timeline -->
-        <div v-if="showEvents" class="admin-overview-events">
+        <div class="admin-overview-events">
           <div class="admin-section-head">
             <div class="admin-section-title"><span class="material-symbols-outlined">history</span> 最近系统事件</div>
-            <button class="g-btn icon-only" title="收起最近系统事件" @click="showEvents = false"><span class="material-symbols-outlined">right_panel_close</span></button>
+
           </div>
           <div class="g-card" style="padding: 12px 16px">
             <ul class="event-timeline">
@@ -762,7 +762,7 @@
           </div>
         </div>
       </div>
-      <button v-if="!showEvents" class="admin-events-expand g-btn" title="展开最近系统事件" @click="showEvents = true"><span class="material-symbols-outlined">right_panel_open</span> 展开系统事件</button>
+
       <!-- Global plot landscape -->
       <section class="admin-plot-landscape">
         <div class="admin-section-head">
