@@ -625,11 +625,15 @@ const AdminSettingsView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const toast = inject('toast');
-    const activeTab = ref('users');
+    const activeTab = ref(props.routeParams?.tab || 'users');
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+
+    watch(() => props.routeParams, (params) => {
+      if (params?.tab) activeTab.value = params.tab;
+    });
 
     const filteredUsers = computed(() => {
       const users = props.state.adminUsers || [];
