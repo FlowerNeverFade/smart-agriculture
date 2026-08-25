@@ -90,6 +90,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 16.8, unit: "%", status: "ALERT", label: "土壤湿度", target: "20~40%" },
         AIR_TEMPERATURE: { value: 26.4, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 64.2, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 43500, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 680, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
         SOIL_EC: { value: 1.4, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.2 mS/cm" },
@@ -113,6 +114,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 28.5, unit: "%", status: "NORMAL", label: "土壤湿度", target: "25~45%" },
         AIR_TEMPERATURE: { value: 27.2, unit: "°C", status: "NORMAL", label: "空气温度", target: "22~32°C" },
+        AIR_HUMIDITY: { value: 61.7, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~78%RH" },
         LIGHT: { value: 46800, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 710, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
         SOIL_EC: { value: 1.6, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.2~2.4 mS/cm" },
@@ -136,6 +138,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 26.2, unit: "%", status: "WARN", label: "土壤湿度", target: "28~48%" },
         AIR_TEMPERATURE: { value: 25.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "19~30°C" },
+        AIR_HUMIDITY: { value: 68.5, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "50~82%RH" },
         LIGHT: { value: 41200, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~60k lux" },
         CO2: { value: 660, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
         SOIL_EC: { value: 1.3, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.0 mS/cm" },
@@ -159,6 +162,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 35.4, unit: "%", status: "NORMAL", label: "田面湿度", target: "30~55%" },
         AIR_TEMPERATURE: { value: 25.1, unit: "°C", status: "NORMAL", label: "环境温度", target: "25~32°C" },
+        AIR_HUMIDITY: { value: 72.1, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "55~85%RH" },
         LIGHT: { value: 39500, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~60k lux" },
         CO2: { value: 650, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
         SOIL_EC: { value: 1.3, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "0.8~1.8 mS/cm" },
@@ -182,6 +186,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 24.8, unit: "%", status: "NORMAL", label: "土壤湿度", target: "20~38%" },
         AIR_TEMPERATURE: { value: 27.6, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~28°C" },
+        AIR_HUMIDITY: { value: 58.9, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "40~75%RH" },
         LIGHT: { value: 52000, unit: "lux", status: "NORMAL", label: "光照强度", target: "35k~65k lux" },
         CO2: { value: 690, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
         SOIL_EC: { value: 1.5, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.2 mS/cm" },
@@ -205,6 +210,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 31.0, unit: "%", status: "NORMAL", label: "基质湿度", target: "25~45%" },
         AIR_TEMPERATURE: { value: 23.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~28°C" },
+        AIR_HUMIDITY: { value: 70.4, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "50~82%RH" },
         LIGHT: { value: 38000, unit: "lux", status: "NORMAL", label: "光照强度", target: "25k~48k lux" },
         CO2: { value: 740, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "600~900 ppm" },
         SOIL_EC: { value: 1.2, unit: "mS/cm", status: "NORMAL", label: "基质 EC 值", target: "0.8~1.6 mS/cm" },
@@ -228,6 +234,7 @@ export const MOCK_DATA = {
       metrics: {
         SOIL_MOISTURE: { value: 32.5, unit: "%", status: "NORMAL", label: "基质湿度", target: "28~45%" },
         AIR_TEMPERATURE: { value: 24.5, unit: "°C", status: "NORMAL", label: "室内温度", target: "22~28°C" },
+        AIR_HUMIDITY: { value: 66.8, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~78%RH" },
         LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "补光强度", target: "35k~55k lux" },
         CO2: { value: 820, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "700~1000 ppm" },
         SOIL_EC: { value: 1.8, unit: "mS/cm", status: "NORMAL", label: "营养液 EC", target: "1.4~2.2 mS/cm" },

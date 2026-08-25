@@ -52,6 +52,7 @@ const CROP_ICONS = {
 const PLOT_CHART_SPECS = [
   { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 60, amplitude: 3, precision: 1, color: 'var(--g-success)' },
   { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: 10, max: 40, amplitude: 1.8, precision: 1, color: 'var(--g-primary)' },
+  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
   { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
   { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
   { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },

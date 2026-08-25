@@ -1,5 +1,6 @@
 package com.agriloop;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -178,6 +179,39 @@ class AgriApplicationTest {
         assertThat(second.get("duplicate")).isEqualTo(true);
         Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("scenarioId", "sensor-drift"));
         assertThat(diagnosis.get("primaryCause")).isEqualTo("SENSOR_DRIFT");
+    }
+
+    @Test
+    void realTelemetryWinsOverRecentSimulatorValueAndHumidityIsNormalised() {
+        String plotId = "hardware-plot-" + System.nanoTime();
+        String realId = "hardware-real-" + System.nanoTime();
+        String simId = "hardware-sim-" + System.nanoTime();
+        Instant now = Instant.now();
+        Map<String, Object> real = Map.of(
+                "eventId", realId, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "bearpi-e53-ia1-test", "metric", "AIR_TEMPERATURE",
+                "value", 26.4, "ts", now.toString(), "sourceMode", "REAL",
+                "provenance", "OBSERVED", "dataOrigin", "HARDWARE");
+        Map<String, Object> simulator = Map.ofEntries(
+                Map.entry("eventId", simId), Map.entry("farmId", "farm-demo"), Map.entry("plotId", plotId),
+                Map.entry("deviceId", "mock-" + plotId), Map.entry("metric", "AIR_TEMPERATURE"),
+                Map.entry("value", 31.0), Map.entry("unit", "°C"), Map.entry("ts", now.plusMillis(1).toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"));
+
+        assertThat(engine.ingest(real)).containsEntry("accepted", true);
+        Map<String, Object> suppressed = engine.ingest(simulator);
+        assertThat(suppressed).containsEntry("accepted", true).containsEntry("suppressed", true)
+                .containsEntry("reason", "REAL_SOURCE_ACTIVE");
+        Map<String, Object> latestTemperature = Jsons.map(new ObjectMapper(), engine.latestMetrics(plotId).get("AIR_TEMPERATURE"));
+        assertThat(Jsons.text(latestTemperature, "eventId", "")).isEqualTo(realId);
+
+        Map<String, Object> humidity = engine.ingest(Map.of(
+                "eventId", "hardware-humidity-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "bearpi-e53-ia1-test", "metric", "AIR_HUMIDITY", "value", 63.2,
+                "ts", now.plusSeconds(1).toString(), "sourceMode", "REAL", "dataOrigin", "HARDWARE"));
+        Map<String, Object> humidityEvent = Jsons.map(new ObjectMapper(), humidity.get("event"));
+        assertThat(humidityEvent).containsEntry("unit", "%RH").containsEntry("sourceMode", "REAL")
+                .containsEntry("dataOrigin", "HARDWARE");
     }
 
     @Test

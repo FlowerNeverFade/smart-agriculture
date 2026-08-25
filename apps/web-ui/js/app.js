@@ -104,7 +104,11 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
+const METRIC_LABELS = Object.freeze({
+  SOIL_MOISTURE: '土壤湿度', AIR_TEMPERATURE: '空气温度', AIR_HUMIDITY: '空气湿度',
+  LIGHT: '光照', CO2: 'CO2', SOIL_EC: '土壤 EC', NPK_RATIO: '氮磷钾'
+});
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
   { code: 'tomato', name: '番茄' },
@@ -368,7 +372,7 @@ const DashboardView = {
 
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: plot?.metrics?.[code]?.label || code,
+      label: plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
       target: plot?.metrics?.[code]?.target || '—',
       unit: plot?.metrics?.[code]?.unit || '',
       value: plot?.metrics?.[code]?.value,
@@ -576,7 +580,7 @@ const PlotDetailModal = {
   setup(props, { emit }) {
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: props.plot?.metrics?.[code]?.label || code,
+      label: props.plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
       target: props.plot?.metrics?.[code]?.target || '—',
       unit: props.plot?.metrics?.[code]?.unit || '',
       value: props.plot?.metrics?.[code]?.value,
@@ -1295,6 +1299,7 @@ function manualEnvMetrics(pack, stage) {
   const metricLabels = {
     SOIL_MOISTURE: '土壤湿度',
     AIR_TEMPERATURE: '空气温度',
+    AIR_HUMIDITY: '空气湿度',
     WATER_LEVEL: '水位',
     LIGHT: '光照',
     CO2: 'CO2',
@@ -1521,6 +1526,7 @@ const AdminOverviewView = {
 const TELEMETRY_METRICS = [
   { code: 'SOIL_MOISTURE', label: '土壤湿度' },
   { code: 'AIR_TEMPERATURE', label: '空气温度' },
+  { code: 'AIR_HUMIDITY', label: '空气湿度' },
   { code: 'LIGHT', label: '光照' },
   { code: 'CO2', label: 'CO2' },
   { code: 'PH', label: 'PH' },

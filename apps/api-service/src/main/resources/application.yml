@@ -54,6 +54,7 @@ agriloop:
   mqtt-password: ${MQTT_PASSWORD:}
   telemetry-stream: ${TELEMETRY_STREAM:agri.telemetry}
   device-timeout-seconds: ${DEVICE_TIMEOUT_SECONDS:90}
+  real-source-timeout-seconds: ${REAL_SOURCE_TIMEOUT_SECONDS:120}
   seed-data: ${SEED_DATA:true}
   sse-heartbeat-seconds: ${SSE_HEARTBEAT_SECONDS:15}
   max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}

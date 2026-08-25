@@ -78,9 +78,9 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
         unit: event.unit || metrics[code]?.unit || '',
         status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || metrics[code]?.status || 'NORMAL'),
         observedAt: event.ts || event.observedAt || metrics[code]?.observedAt || null,
-        provenance: 'OBSERVED',
-        sourceMode: 'SIMULATION',
-        dataOrigin: 'BACKEND'
+        provenance: event.provenance || 'OBSERVED',
+        sourceMode: event.sourceMode || metrics[code]?.sourceMode || 'SIMULATION',
+        dataOrigin: event.dataOrigin || metrics[code]?.dataOrigin || 'BACKEND'
       };
     });
     return {
@@ -92,8 +92,8 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
       deviceStatus: card.device?.status || card.deviceStatus || fact.deviceStatus || 'UNKNOWN',
       healthScore: card.device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
       lastSeen: card.device?.lastSeen || card.lastSeen || fact.lastSeen || null,
-      sourceMode: fact.sourceMode || card.sourceMode || 'SIMULATION',
-      dataOrigin: 'BACKEND'
+      sourceMode: fact.sourceMode || card.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
+      dataOrigin: fact.dataOrigin || card.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
     };
   });
 }

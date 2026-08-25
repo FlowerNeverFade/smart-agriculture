@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover - clean fallback environment
 ROOT = Path(__file__).resolve().parents[1]
 PACK_ROOTS = [ROOT / "crop-packs", ROOT / "apps" / "api-service" / "src" / "main" / "resources" / "crop-packs"]
 REQUIRED_SCENARIOS = {"normal", "drought", "heavy-rain", "sensor-drift", "device-offline"}
-REQUIRED_METRICS = {"SOIL_MOISTURE", "AIR_TEMPERATURE", "LIGHT", "CO2", "PH", "WATER_LEVEL"}
+REQUIRED_METRICS = {"SOIL_MOISTURE", "AIR_TEMPERATURE", "AIR_HUMIDITY", "LIGHT", "CO2", "PH", "WATER_LEVEL"}
 
 
 def load_yaml(path: Path) -> dict:
@@ -86,7 +86,7 @@ def main() -> int:
         for error in errors:
             print(error)
         return 1
-    print("crop packs: PASS (tomato, cucumber; 6 metrics; required scenarios)")
+    print("crop packs: PASS (tomato, cucumber; 7 metrics; required scenarios)")
     return 0
 
 

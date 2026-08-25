@@ -283,9 +283,11 @@ docs/api/                OpenAPI 与 JSON Schema
 
 ```bash
 docker compose -f infra/docker-compose.yml up --build
-python simulator/runner.py --scenario drought --seed 42 --mqtt --mqtt-host 127.0.0.1 --speed 20
-# 默认 60 个采样点 × 3 个地块 × 6 个指标 = 1,080 条可重复事件
+python simulator/runner.py --scenario drought --seed 42 --mqtt --mqtt-host 127.0.0.1 --speed 1 --interval 5
+# 默认 60 个采样点 × 3 个地块 × 7 个指标 = 1,260 条可重复事件；持续模式使用平滑温湿度和昼夜光照
 ```
+
+BearPi HM Nano E53_IA1 的本地实时适配器见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。它通过串口桥接温度、空气湿度和光照到 MQTT，并标记 `REAL/HARDWARE`；真实读数在后端优先于同指标模拟值。板卡烧录 E53_IA1 固件前不要把物理端到端状态写成已完成。
 
 默认演示用户为 `farmer`（种植农户）、`admin`（农场管理员）和 `sysadmin`（系统管理员）；演示密码只在受控环境配置，不进入 Git。API 默认端口为 `8080`，登录后可使用 `/api/v1/overview`、`/api/v1/plots/{plotId}/telemetry`、`/api/v1/diagnoses/evaluate`、`/api/v1/irrigation/estimate`、`/api/v1/commands/virtual`、`/api/v1/events/stream` 等接口。
 

@@ -121,6 +121,8 @@ class AgriProperties {
     private String mqttPassword = "";
     private String telemetryStream = "agri.telemetry";
     private long deviceTimeoutSeconds = 90;
+    /** How long a fresh REAL reading keeps the simulator from overwriting it. */
+    private long realSourceTimeoutSeconds = 120;
     private boolean seedData = true;
     private long sseHeartbeatSeconds = 15;
     private long maxIrrigationSeconds = 900;
@@ -176,6 +178,8 @@ class AgriProperties {
     public void setTelemetryStream(String telemetryStream) { this.telemetryStream = telemetryStream; }
     public long getDeviceTimeoutSeconds() { return deviceTimeoutSeconds; }
     public void setDeviceTimeoutSeconds(long deviceTimeoutSeconds) { this.deviceTimeoutSeconds = deviceTimeoutSeconds; }
+    public long getRealSourceTimeoutSeconds() { return realSourceTimeoutSeconds; }
+    public void setRealSourceTimeoutSeconds(long realSourceTimeoutSeconds) { this.realSourceTimeoutSeconds = realSourceTimeoutSeconds; }
     public boolean isSeedData() { return seedData; }
     public void setSeedData(boolean seedData) { this.seedData = seedData; }
     public long getSseHeartbeatSeconds() { return sseHeartbeatSeconds; }
@@ -408,13 +412,15 @@ class AgriStore {
             eventCount.incrementAndGet();
             return true;
         }
-        String sql = "INSERT INTO telemetry(event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "INSERT INTO telemetry(event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try {
             jdbc.update(sql, eventId, Jsons.text(copy, "farmId", "farm-demo"), Jsons.text(copy, "plotId", "plot-a01"),
                     Jsons.text(copy, "deviceId", "mock-device"), Jsons.text(copy, "metric", "UNKNOWN"), Jsons.number(copy, "value", 0),
                     Jsons.text(copy, "unit", ""), TimestampParser.sql(Jsons.instant(copy.get("ts"), Instant.now())),
                     Jsons.text(Jsons.map(mapper, copy.get("quality")), "status", "GOOD"), Jsons.json(mapper, copy.get("quality")),
-                    Jsons.text(copy, "scenarioId", Jsons.text(copy, "scenario", null)), Jsons.text(copy, "branchId", null));
+                    Jsons.text(copy, "scenarioId", Jsons.text(copy, "scenario", null)), Jsons.text(copy, "branchId", null),
+                    Jsons.text(copy, "sourceMode", "SIMULATION"), Jsons.text(copy, "provenance", "OBSERVED"),
+                    Jsons.text(copy, "dataOrigin", "SIMULATOR"));
         } catch (DataAccessException ignored) {
             // A duplicate at the database is still a successfully handled duplicate.
             if (String.valueOf(ignored.getMessage()).toLowerCase(Locale.ROOT).contains("duplicate") ||
@@ -447,7 +453,7 @@ class AgriStore {
                 .map(e -> Jsons.copy(mapper, e)).collect(Collectors.toCollection(ArrayList::new));
         if (!result.isEmpty() || !databaseReady) return result;
         try {
-            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id FROM telemetry WHERE 1=1");
+            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
             if (plotId != null) { sql.append(" AND plot_id=?"); args.add(plotId); }
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
@@ -460,7 +466,8 @@ class AgriStore {
                 e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
                 e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
                 e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
                 return e;
             }, args.toArray());
             Collections.reverse(rows);
@@ -477,7 +484,7 @@ class AgriStore {
                 .map(e -> Jsons.copy(mapper, e)).orElse(null);
         if (latest != null || !databaseReady) return latest;
         try {
-            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id FROM telemetry WHERE 1=1");
+            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
             if (plotId != null) { sql.append(" AND plot_id=?"); args.add(plotId); }
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
@@ -490,7 +497,44 @@ class AgriStore {
                 e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
                 e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
                 e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
+                return e;
+            }, args.toArray());
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ignored) { return null; }
+    }
+
+    /**
+     * Return the newest explicitly REAL reading for a plot/metric.  Keeping
+     * this query in the store makes the source arbitration rule work after a
+     * restart as well as while the in-memory read model is warm.
+     */
+    Map<String, Object> latestRealTelemetry(String plotId, String metric, Instant from, Instant to) {
+        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
+                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
+                "REAL".equalsIgnoreCase(Jsons.text(e, "sourceMode", "")) &&
+                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
+        Map<String, Object> latest = telemetry.stream().filter(filter)
+                .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
+                .map(e -> Jsons.copy(mapper, e)).orElse(null);
+        if (latest != null || !databaseReady) return latest;
+        try {
+            StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE source_mode='REAL'");
+            List<Object> args = new ArrayList<>();
+            if (plotId != null) { sql.append(" AND plot_id=?"); args.add(plotId); }
+            if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
+            sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
+            args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
+                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
+                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
+                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
+                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
+                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
+                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
                 return e;
             }, args.toArray());
             return rows.isEmpty() ? null : rows.get(0);
@@ -1389,18 +1433,41 @@ class AgriEngine {
             events.publish("scenario.telemetry", event);
             return Map.of("accepted", true, "duplicate", false, "branchOnly", true, "event", event);
         }
+        String sourceMode = Jsons.text(event, "sourceMode", "SIMULATION").toUpperCase(Locale.ROOT);
+        if ("SIMULATION".equals(sourceMode)) {
+            Instant now = Instant.now();
+            Instant cutoff = now.minus(Math.max(1, properties.getRealSourceTimeoutSeconds()), ChronoUnit.SECONDS);
+            Map<String, Object> real = store.latestRealTelemetry(
+                    Jsons.text(event, "plotId", "plot-a01"), Jsons.text(event, "metric", ""), cutoff, now.plusSeconds(1));
+            if (real != null) {
+                Map<String, Object> suppression = new LinkedHashMap<>();
+                suppression.put("eventId", Jsons.text(event, "eventId", ""));
+                suppression.put("plotId", Jsons.text(event, "plotId", ""));
+                suppression.put("metric", Jsons.text(event, "metric", ""));
+                suppression.put("sourceMode", sourceMode);
+                suppression.put("suppressedBy", Jsons.text(real, "eventId", "REAL_READING"));
+                suppression.put("suppressedAt", now.toString());
+                suppression.put("reason", "REAL_SOURCE_ACTIVE");
+                store.logEvent("telemetry.suppressed", suppression);
+                return Map.of("accepted", true, "duplicate", false, "suppressed", true,
+                        "reason", "REAL_SOURCE_ACTIVE", "event", event, "activeRealEvent", real);
+            }
+        }
         boolean inserted = store.saveTelemetry(event);
         if (!inserted) return Map.of("accepted", false, "duplicate", true, "eventId", event.get("eventId"), "quality", event.get("quality"));
         publishTelemetryStream(event);
         String plotId = Jsons.text(event, "plotId", "plot-a01");
         String deviceId = Jsons.text(event, "deviceId", "mock-" + plotId);
-        Map<String, Object> device = deviceForPlot(plotId);
-        if (device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
+        Map<String, Object> device = store.find("device", deviceId);
+        if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
         Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
         boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
                 && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
         device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
         device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        device.put("sourceMode", sourceMode);
+        device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
+        device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
         store.save("device", deviceId, device);
         Map<String, Object> ruleResult = evaluateRuleForEvent(event);
         events.publish("telemetry.received", event);
@@ -1461,6 +1528,10 @@ class AgriEngine {
         double value = Jsons.number(input, "value", 0);
         String unit = Jsons.text(input, "unit", unitFor(metric));
         Instant ts = Jsons.instant(input.get("ts"), Instant.now());
+        String deviceId = Jsons.text(input, "deviceId", "mock-" + plotId);
+        String sourceMode = normaliseSourceMode(input.get("sourceMode"));
+        String provenance = normaliseProvenance(input.get("provenance"));
+        String dataOrigin = normaliseDataOrigin(input.get("dataOrigin"), sourceMode);
         String scenario = Jsons.text(input, "scenarioId", Jsons.text(input, "scenario", "normal"));
         Map<String, Object> quality = Jsons.map(mapper, input.get("quality"));
         String qualityStatus = validateQuality(metric, value, ts, quality);
@@ -1474,15 +1545,37 @@ class AgriEngine {
         quality.put("status", qualityStatus); quality.putIfAbsent("freshnessMs", Math.max(0, Duration.between(ts, Instant.now()).toMillis()));
         quality.putIfAbsent("confidence", qualityStatus.equals("GOOD") ? 0.98 : qualityStatus.equals("DEGRADED") ? 0.65 : 0.2);
         Map<String, Object> e = new LinkedHashMap<>(); e.put("eventId", eventId); e.put("farmId", Jsons.text(input, "farmId", "farm-demo"));
-        e.put("plotId", plotId); e.put("deviceId", Jsons.text(input, "deviceId", "mock-" + plotId)); e.put("metric", metric); e.put("value", value); e.put("unit", unit);
+        e.put("plotId", plotId); e.put("deviceId", deviceId); e.put("metric", metric); e.put("value", value); e.put("unit", unit);
         e.put("ts", ts.toString()); e.put("quality", quality); e.put("scenarioId", scenario); e.put("scenario", scenario); e.put("schemaVersion", "1.0");
+        e.put("sourceMode", sourceMode); e.put("provenance", provenance); e.put("dataOrigin", dataOrigin);
         if (input.containsKey("branchId")) e.put("branchId", input.get("branchId"));
         return e;
+    }
+
+    private String normaliseSourceMode(Object raw) {
+        String value = raw == null ? "" : String.valueOf(raw).trim().toUpperCase(Locale.ROOT);
+        if ("REAL".equals(value) || "SIMULATION".equals(value)) return value;
+        // Older simulator clients did not send provenance.  Keep those events
+        // explicitly synthetic; an omitted source must never masquerade as a
+        // hardware observation.
+        return "SIMULATION";
+    }
+
+    private String normaliseProvenance(Object raw) {
+        String value = raw == null ? "" : String.valueOf(raw).trim().toUpperCase(Locale.ROOT);
+        return Set.of("OBSERVED", "USER_PROVIDED", "DERIVED", "SIMULATED", "ESTIMATED").contains(value) ? value : "OBSERVED";
+    }
+
+    private String normaliseDataOrigin(Object raw, String sourceMode) {
+        String value = raw == null ? "" : String.valueOf(raw).trim().toUpperCase(Locale.ROOT);
+        if (!value.isBlank()) return value;
+        return "REAL".equals(sourceMode) ? "HARDWARE" : "SIMULATOR";
     }
 
     private double jumpLimitFor(String metric) {
         return switch (metric) {
             case "AIR_TEMPERATURE" -> 15;
+            case "AIR_HUMIDITY" -> 25;
             case "LIGHT" -> 12_000;
             case "CO2" -> 500;
             case "PH" -> 2;
@@ -1492,8 +1585,8 @@ class AgriEngine {
     }
 
     private String validateQuality(String metric, double value, Instant ts, Map<String, Object> quality) {
-        double low = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> 0; case "AIR_TEMPERATURE" -> -40; case "PH" -> 0; default -> 0; };
-        double high = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> 100; case "AIR_TEMPERATURE" -> 80; case "PH" -> 14; case "CO2" -> 10000; default -> 1_000_000; };
+        double low = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL", "AIR_HUMIDITY" -> 0; case "AIR_TEMPERATURE" -> -40; case "PH" -> 0; default -> 0; };
+        double high = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL", "AIR_HUMIDITY" -> 100; case "AIR_TEMPERATURE" -> 80; case "PH" -> 14; case "CO2" -> 10000; default -> 1_000_000; };
         if (value < low || value > high) return "BAD";
         long age = Math.max(0, Duration.between(ts, Instant.now()).toSeconds());
         if (ts.isAfter(Instant.now().plusSeconds(30)) || age > 300 || "BAD".equalsIgnoreCase(Jsons.text(quality, "status", ""))) return "BAD";
@@ -1502,7 +1595,7 @@ class AgriEngine {
     }
 
     private String unitFor(String metric) {
-        return switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_TEMPERATURE" -> "°C"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; default -> "unit"; };
+        return switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_HUMIDITY" -> "%RH"; case "AIR_TEMPERATURE" -> "°C"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; default -> "unit"; };
     }
 
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
@@ -1551,6 +1644,9 @@ class AgriEngine {
             int online = Boolean.compare("ONLINE".equals(Jsons.text(left, "status", "")),
                     "ONLINE".equals(Jsons.text(right, "status", "")));
             if (online != 0) return -online;
+            int real = Boolean.compare("REAL".equalsIgnoreCase(Jsons.text(left, "sourceMode", "")),
+                    "REAL".equalsIgnoreCase(Jsons.text(right, "sourceMode", "")));
+            if (real != 0) return -real;
             return Jsons.instant(Jsons.text(right, "lastSeen", ""), Instant.EPOCH)
                     .compareTo(Jsons.instant(Jsons.text(left, "lastSeen", ""), Instant.EPOCH));
         });
@@ -3006,6 +3102,7 @@ class AgriEngine {
         return switch (String.valueOf(metric).toUpperCase(Locale.ROOT)) {
             case "SOIL_MOISTURE" -> "土壤湿度";
             case "AIR_TEMPERATURE" -> "空气温度";
+            case "AIR_HUMIDITY" -> "空气湿度";
             case "LIGHT" -> "光照";
             case "CO2" -> "CO₂";
             case "PH" -> "pH";

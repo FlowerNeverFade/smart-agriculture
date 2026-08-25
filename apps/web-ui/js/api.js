@@ -570,7 +570,7 @@ export class ApiService {
         if (this.isLive) console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
       }
     }
-    const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'];
+    const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'];
     // A backend may legitimately omit one optional metric (for example PH or
     // WATER_LEVEL) while still serving the core soil/air series.  Keep the
     // successful backend windows instead of turning one partial endpoint

@@ -10,6 +10,7 @@ stages:
 metrics:
   - {code: SOIL_MOISTURE, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
   - {code: AIR_TEMPERATURE, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
+  - {code: AIR_HUMIDITY, unit: '%RH', availability: SUPPORTED, range: {min: 0, max: 100}}
   - {code: LIGHT, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
   - {code: CO2, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
   - {code: PH, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}

@@ -272,13 +272,16 @@ components:
         farmId: {type: string}
         plotId: {type: string}
         deviceId: {type: string}
-        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, LIGHT, CO2, PH, WATER_LEVEL]}
+        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL]}
         value: {type: number}
         unit: {type: string}
         ts: {type: string, format: date-time}
         quality: {type: object, additionalProperties: true}
         scenarioId: {type: string}
         branchId: {type: string, enum: [MAIN, EXECUTE, NO_ACTION]}
+        sourceMode: {type: string, enum: [REAL, SIMULATION]}
+        provenance: {type: string, enum: [OBSERVED, USER_PROVIDED, DERIVED, SIMULATED, ESTIMATED]}
+        dataOrigin: {type: string}
     VirtualCommandRequest:
       type: object
       required: [plotId, idempotencyKey, approved]

@@ -8,13 +8,16 @@
     "farmId": {"type": "string"},
     "plotId": {"type": "string", "minLength": 1},
     "deviceId": {"type": "string", "minLength": 1},
-    "metric": {"enum": ["SOIL_MOISTURE", "AIR_TEMPERATURE", "LIGHT", "CO2", "PH", "WATER_LEVEL"]},
+    "metric": {"enum": ["SOIL_MOISTURE", "AIR_TEMPERATURE", "AIR_HUMIDITY", "LIGHT", "CO2", "PH", "WATER_LEVEL"]},
     "value": {"type": "number"},
     "unit": {"type": "string"},
     "ts": {"type": "string", "format": "date-time"},
     "quality": {"type": "object"},
     "scenarioId": {"type": "string"},
-    "branchId": {"enum": ["MAIN", "EXECUTE", "NO_ACTION"]}
+    "branchId": {"enum": ["MAIN", "EXECUTE", "NO_ACTION"]},
+    "sourceMode": {"enum": ["REAL", "SIMULATION"]},
+    "provenance": {"enum": ["OBSERVED", "USER_PROVIDED", "DERIVED", "SIMULATED", "ESTIMATED"]},
+    "dataOrigin": {"type": "string"}
   },
   "additionalProperties": true
 }

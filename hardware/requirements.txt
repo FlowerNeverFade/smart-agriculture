@@ -1,0 +1,2 @@
+pyserial>=3.5,<4
+paho-mqtt>=2.1,<3

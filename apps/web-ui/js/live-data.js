@@ -119,9 +119,9 @@ function metricFromLatest(code, event, current = {}) {
     target: current.target || '—',
     status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || current.status || 'UNKNOWN'),
     observedAt: event.ts || event.observedAt || null,
-    provenance: 'OBSERVED',
-    sourceMode: 'SIMULATION',
-    dataOrigin: 'BACKEND'
+    provenance: event.provenance || 'OBSERVED',
+    sourceMode: event.sourceMode || current.sourceMode || 'SIMULATION',
+    dataOrigin: event.dataOrigin || current.dataOrigin || 'BACKEND'
   };
 }
 
@@ -152,8 +152,8 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(device.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     healthScore: device.healthScore ?? plot.healthScore ?? null,
     lastSeen: device.lastSeen || plot.lastSeen || null,
-    sourceMode: plot.sourceMode || overviewCard.sourceMode || 'SIMULATION',
-    dataOrigin: 'BACKEND'
+    sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
+    dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
 }
 
