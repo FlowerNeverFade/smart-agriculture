@@ -840,59 +840,143 @@
   box-shadow: var(--g-shadow-1);
   transform: translateY(-1px);
 }
-.farmer-plot-overview-head,
-.farmer-health-row {
+.farmer-plot-overview-head {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+}
+.farmer-plot-overview-head-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.farmer-plot-overview-head-right {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  justify-content: flex-end;
+  align-self: stretch;
+  gap: 10px;
+  flex-shrink: 0;
 }
-.farmer-plot-crop-icon { font-size: 24px; line-height: 1; }
+.farmer-plot-crop-icon { font-size: 26px; line-height: 1; }
 .farmer-plot-status {
-  padding: 3px 8px;
+  flex-shrink: 0;
+  padding: 4px 9px;
   border-radius: var(--g-radius-pill);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
-.farmer-plot-overview-card > strong { font-size: 15px; margin-top: 2px; }
-.farmer-plot-overview-meta { color: var(--g-text-secondary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.farmer-health-row { justify-content: flex-start; margin-top: 8px; color: var(--g-text-secondary); }
-.farmer-health-row small { font-size: 11px; }
-.farmer-health-row em { font-size: 12px; font-style: normal; color: var(--g-text-primary); }
+.farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
+.farmer-plot-overview-meta {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.farmer-health-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  color: var(--g-text-secondary);
+}
+.farmer-health-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.farmer-health-row small { font-size: 12px; line-height: 1.2; }
+.farmer-health-row em {
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--g-text-primary);
+  line-height: 1.2;
+}
 .farmer-health-ring {
   display: inline-grid;
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
   place-items: center;
   border-radius: 50%;
   position: relative;
   color: var(--g-text-primary);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 .farmer-health-ring::after {
   content: '';
   position: absolute;
-  inset: 5px;
+  inset: 6px;
   border-radius: 50%;
   background: var(--g-bg-base);
 }
 .farmer-health-ring b { position: relative; z-index: 1; }
 
-.farmer-plot-detail-layout,
+/* 地块概览卡片内的全指标列表 */
+.farmer-plot-overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--g-border-subtle);
+}
+.farmer-plot-overview-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.farmer-plot-overview-metric dt {
+  font-size: 11px;
+  color: var(--g-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.farmer-plot-overview-metric dd {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--g-text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.farmer-plot-overview-metric dd small {
+  margin-left: 3px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--g-text-secondary);
+}
+.farmer-plot-overview-metric dd.metric-WARN { color: var(--g-warning); }
+.farmer-plot-overview-metric dd.metric-NORMAL { color: var(--g-success); }
+.farmer-plot-overview-metric dd.metric-ALERT { color: var(--g-danger); }
+@media (max-width: 480px) {
+  .farmer-plot-overview-metrics { grid-template-columns: 1fr; }
+}
+
 .farmer-advice-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
   gap: 20px;
   margin-bottom: 20px;
 }
-.farmer-plot-detail-card,
-.farmer-history-card,
 .farmer-advice-card { min-width: 0; }
-.farmer-plot-metrics-compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.farmer-plot-detail-actions,
 .farmer-advice-actions,
 .farmer-feedback-actions,
 .farmer-security-actions,
@@ -902,21 +986,6 @@
   gap: 10px;
   align-items: center;
 }
-.farmer-plot-detail-actions { margin-top: 16px; }
-.farmer-history-bars {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 8px;
-  height: 190px;
-  padding: 20px 8px 0;
-  border-bottom: 1px solid var(--g-border);
-}
-.farmer-history-bar-wrap { height: 100%; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: end; gap: 7px; }
-.farmer-history-bar { display: block; width: min(28px, 70%); min-height: 18px; border-radius: 8px 8px 2px 2px; background: var(--g-success); }
-.farmer-history-bar.warning { background: var(--g-warning); }
-.farmer-history-bar-wrap small { color: var(--g-text-secondary); font-size: 11px; white-space: nowrap; }
-.farmer-history-caption { margin-top: 14px; color: var(--g-text-secondary); font-size: 12px; }
 
 .farmer-section-kicker { display: block; color: var(--g-success); font-size: 12px; font-weight: 700; margin-bottom: 5px; }
 .farmer-risk-score { padding: 5px 9px; border-radius: var(--g-radius-pill); color: var(--g-danger); background: var(--g-danger-bg); font-size: 12px; font-weight: 700; }
@@ -929,7 +998,6 @@
 .farmer-readiness-list div { display: flex; align-items: center; gap: 7px; }
 .farmer-readiness-list .material-symbols-outlined { color: var(--g-success); font-size: 18px; }
 .farmer-advice-actions { margin-top: 18px; }
-.farmer-advice-grid-lower { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .farmer-irrigation-amount { display: flex; align-items: baseline; gap: 7px; color: var(--g-success); }
 .farmer-irrigation-amount strong { font-size: 42px; line-height: 1; }
 .farmer-irrigation-amount span { font-size: 18px; }
@@ -975,7 +1043,7 @@
 @media (max-width: 1100px) {
   .farmer-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .farmer-plot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .farmer-plot-detail-layout, .farmer-advice-grid { grid-template-columns: 1fr; }
+  .farmer-advice-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .g-header-title { display: none; }
@@ -985,11 +1053,11 @@
   .farmer-sidebar .farmer-nav-label, .farmer-sidebar .farmer-nav-badge { display: none; }
   .farmer-sidebar .farmer-nav-item { justify-content: center; padding: 0; gap: 0; }
   .farmer-main { padding: 16px; }
-  .farmer-dashboard-row, .farmer-advice-grid-lower, .farmer-task-tools { grid-template-columns: 1fr; }
+  .farmer-dashboard-row, .farmer-task-tools { grid-template-columns: 1fr; }
   .farmer-security-panel { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 480px) {
-  .farmer-stats-grid, .farmer-plot-grid, .farmer-plot-metrics-compact, .farmer-form-grid { grid-template-columns: 1fr; }
+  .farmer-stats-grid, .farmer-plot-grid, .farmer-form-grid { grid-template-columns: 1fr; }
   .farmer-plot-overview-card { padding: 13px; }
   .farmer-page-header h2 { font-size: 21px; }
   .farmer-data-freshness { display: none; }
@@ -1013,7 +1081,67 @@
   border: 1px solid var(--g-border-subtle);
   border-radius: var(--g-radius);
   background: var(--g-bg-base);
+  transition: border-color .2s, box-shadow .2s, background .2s;
 }
+.farmer-metric-chart.is-warn {
+  border-color: var(--g-warning);
+  background: color-mix(in srgb, var(--g-warning-bg) 70%, var(--g-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-warning) 35%, transparent);
+}
+.farmer-metric-chart.is-alert {
+  border-color: var(--g-danger);
+  background: color-mix(in srgb, var(--g-danger-bg) 70%, var(--g-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-danger) 35%, transparent);
+}
+.farmer-chart-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-bg-subtle);
+  border: 1px solid var(--g-border-subtle);
+}
+.farmer-chart-range-btn {
+  min-width: 44px;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--g-radius-pill);
+  background: transparent;
+  color: var(--g-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.farmer-chart-range-btn:hover { color: var(--g-text-primary); background: var(--g-bg-hover); }
+.farmer-chart-range-btn.active {
+  background: var(--g-success);
+  color: #fff;
+}
+.farmer-chart-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--g-radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.farmer-chart-risk-badge.status-WARN {
+  color: var(--g-warning);
+  background: var(--g-warning-bg);
+}
+.farmer-chart-risk-badge.status-ALERT {
+  color: var(--g-danger);
+  background: var(--g-danger-bg);
+}
+.farmer-metric-chart-head strong.is-risk-value { color: var(--g-warning); }
+.farmer-metric-chart.is-alert .farmer-metric-chart-head strong.is-risk-value { color: var(--g-danger); }
+.farmer-chart-line.is-risk-line { stroke-width: 3; }
 .farmer-metric-chart-head,
 .farmer-advice-chart-head {
   display: flex;
@@ -1049,11 +1177,20 @@
 }
 .farmer-advice-chart-head { align-items: center; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-advice-moisture-chart .farmer-chart-svg { height: 112px; margin-top: 4px; }
-.farmer-feedback-card { padding: 16px; }
-.farmer-feedback-card .farmer-panel-header { margin-bottom: 6px; }
-.farmer-feedback-card .farmer-advice-summary { margin: 0 0 10px; font-size: 12px; line-height: 1.5; }
-.farmer-feedback-card .farmer-feedback-actions { gap: 6px; }
-.farmer-feedback-card .farmer-feedback-actions .g-btn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+
+/* 灌溉建议卡内嵌反馈区 */
+.farmer-feedback-inline {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--g-border-subtle);
+}
+.farmer-feedback-inline .farmer-panel-header { margin-bottom: 6px; }
+.farmer-feedback-inline .farmer-advice-summary { margin: 0 0 10px; font-size: 12px; line-height: 1.5; }
+.farmer-feedback-inline .farmer-feedback-actions { gap: 6px; }
+.farmer-feedback-inline .farmer-feedback-actions .g-btn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+
+/* 农事助手单独成行 */
+.farmer-assistant-card { margin-top: 20px; }
 
 @media (max-width: 1100px) {
   .farmer-plot-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1061,5 +1198,5 @@
 @media (max-width: 560px) {
   .farmer-plot-charts { grid-template-columns: 1fr; }
   .farmer-metric-chart { padding: 12px; }
-  .farmer-feedback-card .farmer-feedback-actions .g-btn { flex: 1 1 auto; }
+  .farmer-feedback-inline .farmer-feedback-actions .g-btn { flex: 1 1 auto; }
 }

@@ -42,7 +42,29 @@ const PLOT_CHART_SPECS = [
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
 ];
 
-const CHART_LABELS = ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天'];
+const CHART_RANGE_OPTIONS = [
+  {
+    id: '7h',
+    label: '7h',
+    title: '近 7 小时',
+    amplitude_scale: 0.35,
+    labels: ['6h前', '5h前', '4h前', '3h前', '2h前', '1h前', '现在']
+  },
+  {
+    id: '24h',
+    label: '24h',
+    title: '近 24 小时',
+    amplitude_scale: 0.7,
+    labels: ['24h前', '20h前', '16h前', '12h前', '8h前', '4h前', '现在']
+  },
+  {
+    id: '7d',
+    label: '7天',
+    title: '近 7 天',
+    amplitude_scale: 1,
+    labels: ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天']
+  }
+];
 
 function chart_seed(value) {
   return [...String(value || '')].reduce((seed, char) => ((seed * 31) + char.charCodeAt(0)) % 997, 17);
@@ -83,27 +105,39 @@ function chart_points(values, min, max) {
   }).join(' ');
 }
 
-function metric_chart(plot, code) {
+function find_chart_range(range_id) {
+  return CHART_RANGE_OPTIONS.find((item) => item.id === range_id) || CHART_RANGE_OPTIONS[2];
+}
+
+function metric_chart(plot, code, range_id = '7d') {
   const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
   const metric = plot?.metrics?.[code];
   if (!spec || !metric) return null;
 
-  const seed = chart_seed(`${plot.plotId}:${code}`);
+  const range = find_chart_range(range_id);
+  const is_risk = metric.status === 'WARN' || metric.status === 'ALERT';
+  const seed = chart_seed(`${plot.plotId}:${code}:${range.id}`);
   const pattern = [-1, -0.42, 0.55, 1.05, -0.52, 0.68, 0];
   const phase = ((seed % 7) - 3) * 0.12;
   const build_values = (base, amplitude = spec.amplitude, series_offset = 0) => pattern.map((point, index) => {
-    const wave = (point + phase + series_offset * 0.18) * amplitude;
-    const drift = (index < 3 ? (2 - index) * amplitude * 0.06 : 0);
+    const scaled = amplitude * range.amplitude_scale;
+    const wave = (point + phase + series_offset * 0.18) * scaled;
+    const drift = (index < 3 ? (2 - index) * scaled * 0.06 : 0);
     return Number(clamp_chart_value(Number(base) + wave + drift, spec.min, spec.max).toFixed(spec.precision));
   });
 
+  const risk_color = metric.status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
   const series = spec.multi
     ? parse_npk(metric.value).map((base, index) => ({
       label: ['氮', '磷', '钾'][index],
-      color: ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
+      color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
       values: build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index)
     }))
-    : [{ label: spec.label, color: spec.color, values: build_values(Number(metric.value)) }];
+    : [{
+      label: spec.label,
+      color: is_risk ? risk_color : spec.color,
+      values: build_values(Number(metric.value))
+    }];
 
   const grid = [
     { y: 10, label: format_chart_axis_value(spec.max, spec.precision) },
@@ -115,7 +149,11 @@ function metric_chart(plot, code) {
     ...spec,
     current_label: `${format_chart_current_value(metric.value, spec.precision)} ${metric.unit || spec.unit}`,
     target: metric.target || '—',
-    labels: CHART_LABELS,
+    status: metric.status || 'NORMAL',
+    is_risk,
+    risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
+    range_title: range.title,
+    labels: range.labels,
     grid,
     is_multi: Boolean(spec.multi),
     series: series.map((item) => ({ ...item, points: chart_points(item.values, spec.min, spec.max) }))
@@ -204,11 +242,13 @@ const app = createApp({
 
     const current_view = ref('dashboard');
     const selected_plot = ref(plots.value[0] || null);
+    const chart_range = ref('7d');
+    const chart_range_options = CHART_RANGE_OPTIONS;
     const plot_charts = computed(() => PLOT_CHART_SPECS
-      .map((spec) => metric_chart(selected_plot.value, spec.code))
+      .map((spec) => metric_chart(selected_plot.value, spec.code, chart_range.value))
       .filter(Boolean));
     const advice_plot = computed(() => plots.value[0] || null);
-    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE'));
+    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '7d'));
     const selected_message = ref(null);
     const selected_task = ref(null);
     const analyzing = ref(false);
@@ -360,18 +400,6 @@ const app = createApp({
       const score = Math.round((plot?.healthScore || 0) * 100);
       const color = plot?.riskLevel === 'LOW' ? 'var(--g-success)' : 'var(--g-warning)';
       return { background: `conic-gradient(${color} ${score}%, var(--g-border-subtle) 0)` };
-    };
-    const plot_metrics = (plot) => {
-      if (!plot?.metrics) return {};
-      return Object.fromEntries(Object.entries(plot.metrics).filter(([code]) => ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'SOIL_EC'].includes(code)));
-    };
-    const plot_history = (plot) => {
-      const base = Number(plot?.metrics?.SOIL_MOISTURE?.value || 0);
-      const offsets = [-3.4, -1.8, 0.6, 2.1, -0.7, 1.5, 0];
-      return offsets.map((offset, index) => {
-        const value = Math.max(0, Math.round((base + offset) * 10) / 10);
-        return { label: index === 6 ? '今天' : `${6 - index}日`, value, height: Math.min(96, Math.max(18, value * 2.2)), warning: value < 20 };
-      });
     };
     const format_record_time = (iso) => format_relative_label(iso) || '刚刚';
 
@@ -627,6 +655,8 @@ const app = createApp({
       tasks,
       plots,
       selected_plot,
+      chart_range,
+      chart_range_options,
       plot_charts,
       advice_plot,
       advice_soil_chart,
@@ -668,8 +698,6 @@ const app = createApp({
       category_label,
       crop_icon,
       health_ring_style,
-      plot_metrics,
-      plot_history,
       format_record_time,
       open_message,
       open_message_from_dashboard,

@@ -116,17 +116,27 @@
               <div class="farmer-plot-grid">
                 <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" @click="open_plot(plot)">
                   <div class="farmer-plot-overview-head">
-                    <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
-                    <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
-                      {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
-                    </span>
+                    <div class="farmer-plot-overview-head-left">
+                      <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
+                      <strong>{{ plot.name }}</strong>
+                      <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
+                    </div>
+                    <div class="farmer-plot-overview-head-right">
+                      <div class="farmer-health-row">
+                        <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
+                        <span class="farmer-health-copy"><small>综合健康</small><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
+                      </div>
+                      <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
+                        {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
+                      </span>
+                    </div>
                   </div>
-                  <strong>{{ plot.name }}</strong>
-                  <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
-                  <div class="farmer-health-row">
-                    <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
-                    <span><small>综合健康</small><br><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
-                  </div>
+                  <dl class="farmer-plot-overview-metrics">
+                    <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
+                      <dt>{{ metric.label }}</dt>
+                      <dd :class="'metric-' + metric.status">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                    </div>
+                  </dl>
                 </button>
               </div>
             </div>
@@ -179,60 +189,28 @@
             <div class="farmer-plot-grid farmer-plot-grid-page">
               <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" :class="{selected: selected_plot && selected_plot.plotId === plot.plotId}" @click="open_plot(plot)">
                 <div class="farmer-plot-overview-head">
-                  <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
-                  <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
-                    {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
-                  </span>
+                  <div class="farmer-plot-overview-head-left">
+                    <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
+                    <strong>{{ plot.name }}</strong>
+                    <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
+                  </div>
+                  <div class="farmer-plot-overview-head-right">
+                    <div class="farmer-health-row">
+                      <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
+                      <span class="farmer-health-copy"><small>综合健康</small><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
+                    </div>
+                    <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
+                      {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
+                    </span>
+                  </div>
                 </div>
-                <strong>{{ plot.name }}</strong>
-                <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
-                <div class="farmer-health-row">
-                  <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
-                  <span><small>综合健康</small><br><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
-                </div>
+                <dl class="farmer-plot-overview-metrics">
+                  <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
+                    <dt>{{ metric.label }}</dt>
+                    <dd :class="'metric-' + metric.status">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                  </div>
+                </dl>
               </button>
-            </div>
-
-            <div v-if="selected_plot" class="farmer-plot-detail-layout">
-              <div class="g-card farmer-plot-detail-card">
-                <div class="farmer-panel-header">
-                  <div>
-                    <h3>{{ selected_plot.name }}</h3>
-                    <p class="farmer-panel-hint">{{ selected_plot.cropVariety }} · {{ selected_plot.stageLabel }} · {{ selected_plot.areaM2 }}㎡</p>
-                  </div>
-                  <span class="g-badge" :class="selected_plot.deviceStatus === 'ONLINE' ? 'success' : 'danger'">
-                    {{ selected_plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}
-                  </span>
-                </div>
-                <div class="farmer-plot-metrics farmer-plot-metrics-compact">
-                  <div v-for="(metric, code) in plot_metrics(selected_plot)" :key="code" class="farmer-metric-item">
-                    <span class="farmer-metric-label">{{ metric.label }}</span>
-                    <span class="farmer-metric-value" :class="'metric-' + metric.status">{{ metric.value }} {{ metric.unit }}</span>
-                    <span class="farmer-metric-target">目标 {{ metric.target }}</span>
-                  </div>
-                </div>
-                <div class="farmer-plot-detail-actions">
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('advice')">查看风险与建议</button>
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_plot.plotId)">录入巡田记录</button>
-                </div>
-              </div>
-
-              <div class="g-card farmer-history-card">
-                <div class="farmer-panel-header">
-                  <div>
-                    <h3>近 7 天变化</h3>
-                    <p class="farmer-panel-hint">以土壤湿度为主的趋势参考</p>
-                  </div>
-                  <span class="g-badge primary">历史趋势</span>
-                </div>
-                <div class="farmer-history-bars" role="img" :aria-label="selected_plot.name + '近7天土壤湿度趋势'">
-                  <span v-for="point in plot_history(selected_plot)" :key="point.label" class="farmer-history-bar-wrap">
-                    <span class="farmer-history-bar" :style="{height: point.height + '%'}" :class="{warning: point.warning}"></span>
-                    <small>{{ point.label }}</small>
-                  </span>
-                </div>
-                <p class="farmer-history-caption">最新土壤湿度 {{ selected_plot.metrics.SOIL_MOISTURE.value }}{{ selected_plot.metrics.SOIL_MOISTURE.unit }}，目标 {{ selected_plot.metrics.SOIL_MOISTURE.target }}</p>
-              </div>
             </div>
 
             <div v-if="selected_plot && plot_charts.length" class="g-card farmer-plot-charts-panel">
@@ -241,21 +219,42 @@
                   <h3>六项指标趋势</h3>
                   <p class="farmer-panel-hint">按时间查看 {{ selected_plot.name }} 的环境与肥力变化，数据为当前演示快照。</p>
                 </div>
-                <span class="g-badge primary">近 7 天</span>
+                <div class="farmer-chart-range" role="group" aria-label="趋势时间范围">
+                  <button
+                    type="button"
+                    v-for="option in chart_range_options"
+                    :key="option.id"
+                    class="farmer-chart-range-btn"
+                    :class="{active: chart_range === option.id}"
+                    @click="chart_range = option.id"
+                  >{{ option.label }}</button>
+                </div>
               </div>
               <div class="farmer-plot-charts">
-                <article v-for="chart in plot_charts" :key="chart.code" class="farmer-metric-chart">
+                <article
+                  v-for="chart in plot_charts"
+                  :key="chart.code"
+                  class="farmer-metric-chart"
+                  :class="{
+                    'is-risk': chart.is_risk,
+                    'is-warn': chart.status === 'WARN',
+                    'is-alert': chart.status === 'ALERT'
+                  }"
+                >
                   <div class="farmer-metric-chart-head">
                     <div>
-                      <h4>{{ chart.label }}</h4>
-                      <small>{{ chart.unit }} · 时间趋势</small>
+                      <h4>
+                        {{ chart.label }}
+                        <span v-if="chart.is_risk" class="farmer-chart-risk-badge" :class="'status-' + chart.status">{{ chart.risk_label }}</span>
+                      </h4>
+                      <small>{{ chart.unit }} · {{ chart.range_title }}</small>
                     </div>
-                    <strong>{{ chart.current_label }}</strong>
+                    <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + '近7天曲线图'">
+                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'">
                     <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                     <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                    <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                    <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
                   </svg>
                   <div class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
                   <div v-if="chart.is_multi" class="farmer-chart-legend">
@@ -332,47 +331,45 @@
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_running" class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>演示灌溉执行中，已完成 {{ irrigation_progress }}%</p>
+
+                <div class="farmer-feedback-inline">
+                  <div class="farmer-panel-header">
+                    <div>
+                      <span class="farmer-section-kicker">建议反馈</span>
+                      <h3>这条建议有帮助吗？</h3>
+                    </div>
+                    <span class="g-badge" :class="suggestion_feedback ? 'success' : 'primary'">{{ suggestion_feedback || '待反馈' }}</span>
+                  </div>
+                  <p class="farmer-advice-summary">你的反馈会帮助管理员复核建议是否适合现场情况，并保留为可审计记录。</p>
+                  <div class="farmer-feedback-actions">
+                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('采纳建议')"><span class="material-symbols-outlined">thumb_up</span>采纳建议</button>
+                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('需要调整')"><span class="material-symbols-outlined">edit_note</span>需要调整</button>
+                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('暂不处理')"><span class="material-symbols-outlined">schedule</span>暂不处理</button>
+                  </div>
+                </div>
               </article>
             </div>
 
-            <div class="farmer-advice-grid farmer-advice-grid-lower">
-              <article class="g-card farmer-advice-card">
-                <div class="farmer-panel-header">
-                  <div>
-                    <span class="farmer-section-kicker">智能问答</span>
-                    <h3>问问农事助手</h3>
-                  </div>
-                  <span class="g-badge primary">规则 + 知识</span>
+            <article class="g-card farmer-advice-card farmer-assistant-card">
+              <div class="farmer-panel-header">
+                <div>
+                  <span class="farmer-section-kicker">智能问答</span>
+                  <h3>问问农事助手</h3>
                 </div>
-                <form class="farmer-question-form" @submit.prevent="ask_question">
-                  <input v-model="qa_input" type="text" placeholder="例如：番茄现在需要浇多少水？" aria-label="农事问题">
-                  <button type="submit" class="g-btn primary farmer-btn-analyze">提问</button>
-                </form>
-                <div class="farmer-qa-answer" v-if="latest_answer">
-                  <span class="material-symbols-outlined">smart_toy</span>
-                  <p>{{ latest_answer }}</p>
-                </div>
-                <div class="farmer-qa-history" v-if="qa_history.length">
-                  <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer">{{ item.question }}</button>
-                </div>
-              </article>
-
-              <article class="g-card farmer-advice-card farmer-feedback-card">
-                <div class="farmer-panel-header">
-                  <div>
-                    <span class="farmer-section-kicker">建议反馈</span>
-                    <h3>这条建议有帮助吗？</h3>
-                  </div>
-                  <span class="g-badge" :class="suggestion_feedback ? 'success' : 'primary'">{{ suggestion_feedback || '待反馈' }}</span>
-                </div>
-                <p class="farmer-advice-summary">你的反馈会帮助管理员复核建议是否适合现场情况，并保留为可审计记录。</p>
-                <div class="farmer-feedback-actions">
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('采纳建议')"><span class="material-symbols-outlined">thumb_up</span>采纳建议</button>
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('需要调整')"><span class="material-symbols-outlined">edit_note</span>需要调整</button>
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('暂不处理')"><span class="material-symbols-outlined">schedule</span>暂不处理</button>
-                </div>
-              </article>
-            </div>
+                <span class="g-badge primary">规则 + 知识</span>
+              </div>
+              <form class="farmer-question-form" @submit.prevent="ask_question">
+                <input v-model="qa_input" type="text" placeholder="例如：番茄现在需要浇多少水？" aria-label="农事问题">
+                <button type="submit" class="g-btn primary farmer-btn-analyze">提问</button>
+              </form>
+              <div class="farmer-qa-answer" v-if="latest_answer">
+                <span class="material-symbols-outlined">smart_toy</span>
+                <p>{{ latest_answer }}</p>
+              </div>
+              <div class="farmer-qa-history" v-if="qa_history.length">
+                <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer">{{ item.question }}</button>
+              </div>
+            </article>
           </section>
 
           <section v-else-if="current_view === 'messages'" class="farmer-workspace" key="messages">
