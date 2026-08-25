@@ -55,6 +55,15 @@ function mergeOverviewPlots(plots) {
   });
 }
 
+function presentSystemEvent(event) {
+  const payload = event?.data?.payload || event?.data || {};
+  const type = event?.data?.eventType || event?.type || 'system';
+  const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
+  const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
+  const title = payload.title || payload.summary || payload.message || `${type} 事件已到达`;
+  return { id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`, category, icon, title, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), traceId: payload.traceId };
+}
+
 // 1. Define Components
 const DashboardView = {
   template: '#tmpl-dashboard',
@@ -834,6 +843,17 @@ const app = createApp({
           if (Array.isArray(overview?.plots)) state.value.plots = scopePlots(mergeOverviewPlots(overview.plots), state.value.currentUser);
         } catch (error) {
           showToast('读取角色范围内的地块失败：' + error.message, 'error');
+        }
+        try {
+          await api.subscribeEvents((event) => {
+            if (event.type === 'connected' || event.type === 'heartbeat') return;
+            const systemEvent = presentSystemEvent(event);
+            state.value.adminOverview.recentEvents.unshift(systemEvent);
+            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+            showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+          });
+        } catch (error) {
+          showToast('系统消息暂不可用：' + error.message, 'error');
         }
       }
       if (!state.value.allowedViews.includes(currentView.value)) navigate(currentRole.value.defaultView);

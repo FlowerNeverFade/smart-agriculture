@@ -29,6 +29,7 @@ export class ApiService {
     this.sessionMode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     this.isLive = false;
     this.sseSource = null;
+    this.sseAbortController = null;
     this.decisionCache = {
       diagnoses: new Map(),
       plans: new Map(),
@@ -154,6 +155,8 @@ export class ApiService {
     this.sessionMode = null;
     this.sseSource?.close();
     this.sseSource = null;
+    this.sseAbortController?.abort();
+    this.sseAbortController = null;
     localStorage.removeItem('agriloop_token');
     localStorage.removeItem('agriloop_user');
     localStorage.removeItem('agriloop_session_mode');
@@ -174,6 +177,57 @@ export class ApiService {
       this.isLive = false;
     }
     return false;
+  }
+
+  async subscribeEvents(onEvent) {
+    if (!this.isLive || !this.token || typeof onEvent !== 'function') return () => {};
+    this.sseAbortController?.abort();
+    const controller = new AbortController();
+    this.sseAbortController = controller;
+    const response = await fetch(`${this.baseUrl}/api/v1/events/stream`, {
+      headers: { Accept: 'text/event-stream', Authorization: `Bearer ${this.token}` },
+      signal: controller.signal
+    });
+    if (!response.ok || !response.body) {
+      throw new ApiError('系统消息流连接失败', { status: response.status, code: 'EVENT_STREAM_UNAVAILABLE' });
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let event = { type: 'message', data: '' };
+    const flush = () => {
+      if (!event.data) return;
+      let data = event.data;
+      try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
+      onEvent({ type: event.type, data });
+      event = { type: 'message', data: '' };
+    };
+    const consume = (line) => {
+      if (!line) { flush(); return; }
+      const separator = line.indexOf(':');
+      const field = separator === -1 ? line : line.slice(0, separator);
+      const value = separator === -1 ? '' : line.slice(separator + 1).trimStart();
+      if (field === 'event') event.type = value || 'message';
+      if (field === 'data') event.data += `${value}\n`;
+    };
+    const run = async () => {
+      try {
+        while (!controller.signal.aborted) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || '';
+          lines.forEach(consume);
+        }
+        if (buffer) consume(buffer);
+        flush();
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+      }
+    };
+    run().catch(error => console.warn('[AgriLoop] system event stream closed:', error));
+    return () => controller.abort();
   }
 
   async getOverview() {

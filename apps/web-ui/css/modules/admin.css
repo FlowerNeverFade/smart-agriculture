@@ -481,6 +481,12 @@
   margin-bottom: 16px;
 }
 
+.admin-section-head-link { cursor: pointer; }
+.admin-section-head-link:hover .admin-section-title,
+.admin-section-head-link:hover .admin-section-arrow { color: var(--g-primary); }
+.admin-section-arrow { color: var(--g-text-secondary); font-size: 20px; transition: transform 0.2s; }
+.admin-section-head-link:hover .admin-section-arrow { transform: translateX(3px); }
+
 .admin-section-title {
   font-size: 16px;
   font-weight: 600;

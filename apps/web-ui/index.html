@@ -687,7 +687,7 @@
             <div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div>
           </div>
         </div>
-        <div class="admin-metric-card">
+        <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon green">
             <span class="material-symbols-outlined">schedule</span>
           </div>
@@ -712,8 +712,9 @@
       <div class="g-grid" style="grid-template-columns: 2fr 1fr; gap: 24px">
         <!-- Left: Service Matrix -->
         <div>
-          <div class="admin-section-head">
+          <div class="admin-section-head admin-section-head-link" @click="$emit('navigate','admin-ops',{tab:'services'})">
             <div class="admin-section-title"><span class="material-symbols-outlined">dns</span> 服务健康矩阵</div>
+            <span class="material-symbols-outlined admin-section-arrow">arrow_forward</span>
           </div>
           <div class="service-matrix">
             <div class="service-card" v-for="svc in state.adminOverview.services" :key="svc.name">
