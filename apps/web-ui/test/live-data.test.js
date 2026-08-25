@@ -2,12 +2,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  agentResponseSource,
+  agentResponseText,
   buildFarmerMessages,
   mapStrategyCandidate,
   mapTimelineRecord,
   normalizeFarmerTask,
   normalizeWorkStatus
 } from '../js/live-data.js';
+
+test('agent surfaces show the generated narrative instead of the card summary', () => {
+  const response = {
+    adapter: 'openai-compatible',
+    degraded: false,
+    summary: '已读取地块状态',
+    narrative: '**当前地块状态**\n土壤湿度正常。'
+  };
+  assert.equal(agentResponseText(response), '当前地块状态\n土壤湿度正常。');
+  assert.equal(agentResponseSource(response), 'Qwen 实时回答');
+  assert.equal(agentResponseSource({ degraded: true, adapter: 'openai-compatible' }), '规则降级回答');
+  assert.equal(agentResponseText({ summary: '规则摘要' }), '规则摘要');
+});
 
 test('formal work-order records keep backend status and plot context', () => {
   assert.equal(normalizeWorkStatus('CLAIMED'), 'ASSIGNED');

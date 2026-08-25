@@ -34,6 +34,36 @@ const STATUS_LABELS = Object.freeze({
   CANCELLED: '已取消'
 });
 
+/**
+ * The API keeps a short deterministic `summary` for cards and audits, while
+ * `narrative` is the answer intended for a person to read.  Always prefer the
+ * latter in the chat surfaces so a successful LLM response is not replaced by
+ * the generic intent summary.
+ */
+export function agentResponseText(response = {}, fallback = '') {
+  for (const candidate of [response?.narrative, response?.summary, response?.message]) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+        .replace(/^\s*#{1,6}\s+/gm, '')
+        .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/__(.*?)__/g, '$1')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/^\s*[-*]\s+/gm, '• ');
+    }
+  }
+  return fallback;
+}
+
+export function agentResponseSource(response = {}, sessionMode = 'live') {
+  if (sessionMode !== 'live') return '演示规则';
+  const adapter = String(response?.adapter || '').trim().toLowerCase();
+  if (adapter === 'openai-compatible' && response?.degraded === false) return 'Qwen 实时回答';
+  if (adapter === 'mock') return '模拟回答';
+  if (response?.degraded) return '规则降级回答';
+  if (adapter === 'rules-fast-path') return '规则快捷回答';
+  return adapter ? '规则 + 知识' : 'AI 助手';
+}
+
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }

@@ -524,7 +524,7 @@
                   <span class="farmer-section-kicker">智能问答</span>
                   <h3>问问农事助手</h3>
                 </div>
-                <span class="g-badge primary">规则 + 知识</span>
+                <span class="g-badge primary">{{ qa_source_label }}</span>
               </div>
               <form class="farmer-question-form" @submit.prevent="ask_question">
                 <input v-model="qa_input" type="text" placeholder="例如：番茄现在需要浇多少水？" aria-label="农事问题">
@@ -532,10 +532,10 @@
               </form>
               <div class="farmer-qa-answer" v-if="latest_answer">
                 <span class="material-symbols-outlined">smart_toy</span>
-                <p>{{ latest_answer }}</p>
+                <p class="farmer-ai-answer-text">{{ latest_answer }}</p>
               </div>
               <div class="farmer-qa-history" v-if="qa_history.length">
-                <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer">{{ item.question }}</button>
+                <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || '后端 AI'">{{ item.question }}</button>
               </div>
             </article>
           </section>
@@ -598,9 +598,9 @@
                   <div v-if="analysis_result" class="farmer-analysis-box">
                     <div class="farmer-analysis-header">
                       <span class="material-symbols-outlined">insights</span>
-                      <strong>AI 概括分析</strong>
+                      <strong>AI 概括分析<span v-if="analysis_source_label" class="farmer-ai-source"> · {{ analysis_source_label }}</span></strong>
                     </div>
-                    <p>{{ analysis_result }}</p>
+                    <p class="farmer-ai-answer-text">{{ analysis_result }}</p>
                   </div>
                   <div v-if="analysis_error" class="farmer-analysis-box farmer-analysis-error">
                     <div class="farmer-analysis-header">

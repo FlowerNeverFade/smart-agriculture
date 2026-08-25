@@ -1225,6 +1225,8 @@
 .farmer-form-card textarea:focus { outline: 2px solid var(--g-primary); outline-offset: 1px; }
 .farmer-qa-answer { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border-radius: var(--g-radius); background: var(--g-success-bg); color: var(--g-text-primary); line-height: 1.6; font-size: 13px; }
 .farmer-qa-answer .material-symbols-outlined { color: var(--g-success); }
+.farmer-ai-answer-text { white-space: pre-line; overflow-wrap: anywhere; }
+.farmer-ai-source { color: var(--g-text-secondary); font-size: 11px; font-weight: 500; }
 .farmer-qa-history { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
 .farmer-qa-history button { border: 0; background: transparent; text-align: left; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; padding: 3px 0; }
 

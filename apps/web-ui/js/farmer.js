@@ -3,6 +3,8 @@ import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import {
+  agentResponseSource,
+  agentResponseText,
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
@@ -600,6 +602,7 @@ const app = createApp({
     const analyzing = ref(false);
     const analysis_result = ref('');
     const analysis_error = ref('');
+    const analysis_source_label = ref('');
     const show_inspection_form = ref(false);
     const show_evidence_form = ref(false);
     const show_account_modal = ref(false);
@@ -625,6 +628,7 @@ const app = createApp({
     const qa_input = ref('');
     const latest_answer = ref('');
     const qa_history = ref([]);
+    const qa_source_label = ref(is_formal_session ? '后端 AI' : '演示规则');
 
     const nav_items = computed(() => {
       const unread = messages.value.filter((m) => !m.read).length;
@@ -953,6 +957,7 @@ const app = createApp({
       analyzing.value = true;
       analysis_result.value = '';
       analysis_error.value = '';
+      analysis_source_label.value = '';
       try {
         if (!is_formal_session) {
           await new Promise((resolve) => setTimeout(resolve, 800));
@@ -962,13 +967,15 @@ const app = createApp({
           `请概括这条消息：${msg.title}\n${msg.body_paragraphs?.join('；') || msg.snippet || ''}`,
           msg.plotId || plots.value[0]?.plotId
         );
-        analysis_result.value = result?.summary || result?.message || '后端智能服务未返回摘要。';
+        analysis_result.value = agentResponseText(result, '后端智能服务未返回摘要。');
+        analysis_source_label.value = agentResponseSource(result, 'live');
       } catch (error) {
         if (error.is_network || !is_live.value) {
           analysis_error.value = '当前为离线模式，AI 概括服务不可用。请启动后端服务后再试，或联系农场管理员获取人工分析。';
         } else {
           analysis_error.value = error.message || 'AI 分析服务暂时不可用，请稍后重试。';
         }
+        analysis_source_label.value = 'AI 暂不可用';
       } finally {
         analyzing.value = false;
       }
@@ -1049,13 +1056,15 @@ const app = createApp({
         const plot_id = advice_selected_plot.value?.plotId || selected_plot.value?.plotId || plots.value[0]?.plotId;
         try {
           const response = await api.agentChat(question, plot_id);
-          const answer = response?.summary || response?.message || '后端智能服务已返回，但没有可展示的摘要。';
+          const answer = agentResponseText(response, '后端智能服务已返回，但没有可展示的回答。');
           latest_answer.value = answer;
-          qa_history.value.unshift({ id: Date.now(), question, answer, traceId: response?.traceId, dataOrigin: 'BACKEND' });
+          qa_source_label.value = agentResponseSource(response, 'live');
+          qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value, traceId: response?.traceId, dataOrigin: 'BACKEND' });
           qa_history.value = qa_history.value.slice(0, 4);
           qa_input.value = '';
           return;
         } catch (error) {
+          qa_source_label.value = 'AI 暂不可用';
           show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
           return;
         }
@@ -1070,7 +1079,8 @@ const app = createApp({
         answer = '系统没有足够的图像证据判断病虫害。请在「巡田记录」中申请巡田或录入现场观察，再由管理员复核。';
       }
       latest_answer.value = answer;
-      qa_history.value.unshift({ id: Date.now(), question, answer });
+      qa_source_label.value = '演示规则';
+      qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value });
       qa_history.value = qa_history.value.slice(0, 4);
       qa_input.value = '';
     };
@@ -1340,6 +1350,7 @@ const app = createApp({
       analyzing,
       analysis_result,
       analysis_error,
+      analysis_source_label,
       inspection_records,
       evidence_requests,
       show_inspection_form,
@@ -1356,6 +1367,7 @@ const app = createApp({
       qa_input,
       latest_answer,
       qa_history,
+      qa_source_label,
       toasts,
       greeting,
       stats,

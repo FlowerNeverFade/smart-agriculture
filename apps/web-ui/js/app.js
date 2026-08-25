@@ -11,6 +11,8 @@ import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
+  agentResponseSource,
+  agentResponseText,
   buildLiveFeedItems,
   emptyAdminOverview,
   mapAdminAlert,
@@ -662,7 +664,7 @@ const DecisionConsoleView = {
     // Chat Logic
     const chatInput = ref('');
     const chatHistory = ref([
-      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。<br><br>关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。' }
+      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop AI' }
     ]);
     const isTyping = ref(false);
     const chatBox = ref(null);
@@ -681,9 +683,15 @@ const DecisionConsoleView = {
         try {
           const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
           const response = await api.agentChat(userMessage, plotId);
-          chatHistory.value.push({ role: 'agent', content: response?.summary || response?.message || '后端智能服务未返回摘要。', traceId: response?.traceId, dataOrigin: 'BACKEND' });
+          chatHistory.value.push({
+            role: 'agent',
+            content: agentResponseText(response, '后端智能服务未返回可展示的回答。'),
+            sourceLabel: agentResponseSource(response, 'live'),
+            traceId: response?.traceId,
+            dataOrigin: 'BACKEND'
+          });
         } catch (error) {
-          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}` });
+          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: 'AI 暂不可用' });
         } finally {
           isTyping.value = false;
           scrollToBottom();
@@ -700,7 +708,7 @@ const DecisionConsoleView = {
           reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18L/min 恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
         }
         
-        chatHistory.value.push({ role: 'agent', content: reply });
+        chatHistory.value.push({ role: 'agent', content: reply, sourceLabel: '演示规则' });
         scrollToBottom();
       }, 1500);
     };

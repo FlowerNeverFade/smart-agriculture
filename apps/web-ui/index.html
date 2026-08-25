@@ -26,6 +26,7 @@
   <style>
     .feed-actions { display: flex; gap: 8px; margin-top: 12px; }
     .chat-msg { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; max-width: 85%; line-height:1.5; }
+    .chat-msg-content { white-space: pre-line; overflow-wrap: anywhere; }
     .chat-msg.user { background: var(--g-primary-bg); color: var(--g-primary-hover); margin-left: auto; border-bottom-right-radius: 4px; }
     .chat-msg.agent { background: var(--g-bg-base); color: var(--g-text-primary); margin-right: auto; border-bottom-left-radius: 4px; border: 1px solid var(--g-border-subtle); }
     .scenario-btn { text-align: left; padding: 16px; border: 1px solid var(--g-border); border-radius: var(--g-radius); cursor: pointer; transition: all 0.2s; background: var(--g-bg-surface); }
@@ -579,12 +580,14 @@
           </div>
 
           <div class="metric-box" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; padding:16px" ref="chatBox">
-            <div class="text-center text-muted mb-4" style="font-size:12px">AgriLoop 诊断内核已连接 · 模型推理就绪</div>
+            <div class="text-center text-muted mb-4" style="font-size:12px">
+              {{ state.sessionMode === 'demo' ? '演示规则模式' : (['openai', 'openai-compatible'].includes(state.adminOverview?.aiMode) ? 'Qwen AI 服务已配置 · 正式模式' : 'AI 规则降级模式') }}
+            </div>
             <div v-for="(msg, i) in chatHistory" :key="i" class="chat-msg" :class="msg.role">
               <div style="font-size:12px; opacity:0.7; margin-bottom:4px" v-if="msg.role==='agent'">
-                <app-icon name="auto_awesome" style="font-size:12px; vertical-align:middle"></app-icon> AgriLoop AI
+                <app-icon name="auto_awesome" style="font-size:12px; vertical-align:middle"></app-icon> {{ msg.sourceLabel || 'AgriLoop AI' }}
               </div>
-              <div v-html="msg.content"></div>
+              <div class="chat-msg-content">{{ msg.content }}</div>
             </div>
             <div v-if="isTyping" class="chat-msg agent">
                <app-icon name="hourglass_empty" style="animation: spin 2s linear infinite;"></app-icon> 推理中...
