@@ -668,57 +668,30 @@
     <div>
       <h2 class="g-page-title"><span class="material-symbols-outlined">monitoring</span> 平台总览</h2>
 
-      <!-- Metric Strip -->
-      <div class="admin-metric-strip">
-        <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'alerts'})">
-          <div class="admin-metric-icon" :class="state.adminOverview.alerts.open > 5 ? 'red' : state.adminOverview.alerts.open > 0 ? 'orange' : 'green'">
-            <span class="material-symbols-outlined">notifications_active</span>
-          </div>
-          <div class="admin-metric-info">
-            <div class="admin-metric-label">未处理告警</div>
-            <div class="admin-metric-value">{{ state.adminOverview.alerts.open }}</div>
-            <div class="admin-metric-sub">今日关闭 {{ state.adminOverview.alerts.closedToday }}</div>
-          </div>
-        </div>
-        <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'devices'})">
-          <div class="admin-metric-icon" :class="state.adminOverview.devices.offline > 0 ? 'orange' : 'green'">
-            <span class="material-symbols-outlined">sensors</span>
-          </div>
-          <div class="admin-metric-info">
-            <div class="admin-metric-label">设备在线</div>
-            <div class="admin-metric-value">{{ state.adminOverview.devices.online }} / {{ state.adminOverview.devices.total }}</div>
-            <div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div>
-          </div>
-        </div>
-        <div class="admin-metric-card">
-          <div class="admin-metric-icon green">
-            <span class="material-symbols-outlined">schedule</span>
-          </div>
-          <div class="admin-metric-info">
-            <div class="admin-metric-label">平台运行时长</div>
-            <div class="admin-metric-value">{{ state.adminOverview.uptime }}</div>
-            <div class="admin-metric-sub">API v{{ state.adminOverview.apiVersion }}</div>
-          </div>
-        </div>
-        <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
-          <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'">
-            <span class="material-symbols-outlined">smart_toy</span>
-          </div>
-          <div class="admin-metric-info">
-            <div class="admin-metric-label">AI 运行模式</div>
-            <div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div>
-            <div class="admin-metric-sub">LLM: {{ state.adminOverview.llmModel }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="admin-overview-layout">
+      <div class="admin-overview-layout" :class="{ 'events-collapsed': !showEvents }">
         <!-- Left: platform overview, plots, simulator -->
         <div class="admin-overview-main">
           <div class="admin-overview-label">平台运行概览</div>
+          <div class="admin-metric-strip">
+            <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'alerts'})">
+              <div class="admin-metric-icon" :class="state.adminOverview.alerts.open > 5 ? 'red' : state.adminOverview.alerts.open > 0 ? 'orange' : 'green'"><span class="material-symbols-outlined">notifications_active</span></div>
+              <div class="admin-metric-info"><div class="admin-metric-label">未处理告警</div><div class="admin-metric-value">{{ state.adminOverview.alerts.open }}</div><div class="admin-metric-sub">今日关闭 {{ state.adminOverview.alerts.closedToday }}</div></div>
+            </div>
+            <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'devices'})">
+              <div class="admin-metric-icon" :class="state.adminOverview.devices.offline > 0 ? 'orange' : 'green'"><span class="material-symbols-outlined">sensors</span></div>
+              <div class="admin-metric-info"><div class="admin-metric-label">设备在线</div><div class="admin-metric-value">{{ state.adminOverview.devices.online }} / {{ state.adminOverview.devices.total }}</div><div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div></div>
+            </div>
+            <div class="admin-metric-card">
+              <div class="admin-metric-icon green"><span class="material-symbols-outlined">schedule</span></div>
+              <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ state.adminOverview.uptime }}</div><div class="admin-metric-sub">API v{{ state.adminOverview.apiVersion }}</div></div>
+            </div>
+            <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
+              <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><span class="material-symbols-outlined">smart_toy</span></div>
+              <div class="admin-metric-info"><div class="admin-metric-label">AI 运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">LLM: {{ state.adminOverview.llmModel }}</div></div>
+            </div>
+          </div>
           <div class="admin-section-head admin-section-head-link" @click="$emit('navigate','admin-ops',{tab:'services'})">
             <div class="admin-section-title"><span class="material-symbols-outlined">dns</span> 服务健康矩阵</div>
-            <span class="material-symbols-outlined admin-section-arrow">arrow_forward</span>
           </div>
           <div class="service-matrix">
             <div class="service-card" v-for="svc in state.adminOverview.services" :key="svc.name">
@@ -766,9 +739,10 @@
         </div>
 
         <!-- Right: fixed event timeline -->
-        <div class="admin-overview-events">
+        <div v-if="showEvents" class="admin-overview-events">
           <div class="admin-section-head">
             <div class="admin-section-title"><span class="material-symbols-outlined">history</span> 最近系统事件</div>
+            <button class="g-btn icon-only" title="收起最近系统事件" @click="showEvents = false"><span class="material-symbols-outlined">right_panel_close</span></button>
           </div>
           <div class="g-card" style="padding: 12px 16px">
             <ul class="event-timeline">
@@ -786,6 +760,7 @@
           </div>
         </div>
       </div>
+      <button v-if="!showEvents" class="admin-events-expand g-btn" title="展开最近系统事件" @click="showEvents = true"><span class="material-symbols-outlined">right_panel_open</span> 展开系统事件</button>
       <!-- Global plot landscape -->
       <section class="admin-plot-landscape">
         <div class="admin-section-head">

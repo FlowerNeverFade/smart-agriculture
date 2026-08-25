@@ -465,6 +465,7 @@ const AdminOverviewView = {
   template: '#tmpl-admin-overview',
   props: ['state', 'routeParams'],
   setup(props) {
+    const showEvents = ref(true);
     const farmFilter = ref('all');
     const statusFilter = ref('all');
     const selectedPlot = ref(null);
@@ -520,7 +521,7 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
+    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
   }
 };
 
