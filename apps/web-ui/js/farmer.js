@@ -344,6 +344,11 @@ function health_level(score) {
   return '状态良好';
 }
 
+// 兼容组员更新后的初始化流程：首次分配地块时也使用同一套综合评分。
+function compute_plot_health_score(plot) {
+  return health_breakdown(plot).score;
+}
+
 const app = createApp({
   setup() {
     const is_live = ref(false);
@@ -376,11 +381,17 @@ const app = createApp({
 
     const farm = ref(MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
-    const assigned_plots = MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({ ...plot }));
+    const assigned_plots = MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
+      ...plot,
+      healthScore: compute_plot_health_score(plot)
+    }));
     if (assigned_plot_names.size > assigned_plots.length) {
       const cucumber_plot = MOCK_DATA.plots.find((plot) => plot.cropCode === 'cucumber');
       const missing_name = [...assigned_plot_names].find((name) => !assigned_plots.some((plot) => plot.name === name));
-      if (cucumber_plot && missing_name) assigned_plots.push({ ...cucumber_plot, name: missing_name });
+      if (cucumber_plot && missing_name) {
+        const patched = { ...cucumber_plot, name: missing_name };
+        assigned_plots.push({ ...patched, healthScore: compute_plot_health_score(patched) });
+      }
     }
     const plots = ref(assigned_plots);
 

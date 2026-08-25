@@ -7,6 +7,7 @@
 
 > 2026-08-25 `farmer-ui` 农户工作台增量：首页收敛为“今日待办/执行中/风险提醒/未读消息”四项可点击指标，新增受权限范围约束的“我的地块”网格、实时指标与近 7 天趋势；任务/消息首页入口直达对应详情；新增灌溉与农事建议（风险预测、诊断就绪度、演示灌溉、问答与反馈）、巡田记录、补证申请和账户自助。顶部改为“数据更新于刚刚”，所有执行器明确为演示/模拟；已通过本地静态页面、Vue 运行时无错误、桌面/552px 窄屏和主要交互回归。后续增量在地块详情下方加入土壤湿度、空气温度、光照、CO2、EC、氮磷钾六项 SVG 趋势子图，并在灌溉建议中加入对应地块土壤湿度曲线；建议反馈改为紧凑操作区。最新增量保留组员的地块卡片/趋势范围优化，并新增“更多决策工具”入口，将农户页的诊断、风险推演和工单按钮接入原有 `index.html` 模块；本地浏览器已验证三条入口分别进入 `decision-console`、`risk-forecast` 和 `work-orders`。
 > 2026-08-25 `farmer-ui` 账户与健康评分收口：侧栏移除“个人中心”，右上角头像下方弹出原个人资料、农务统计和密码操作；地块综合健康改为指标状态（68%）、设备在线/新鲜度（14%）和风险等级（18%）加权，并对缺失指标、离线设备和异常值施加扣分，卡片同时展示“状态良好/关注中/需要处理/高风险”和设备状态；本地 Chromium 回归显示 3 个授权地块评分为 68/87/79，头像弹窗、密码入口、地块导航、浅深色切换通过，运行时 error/warn 为 0。
+> 2026-08-25 `farmer-ui` 组员工具台合并：合入 `dab54bb` 的作物培养手册、农务工单/巡田、风险推演和共享工作台入口；本地浏览器验证农户页进入 `index.html#work-orders`、工单列表渲染、返回农户页和运行时 error/warn 为 0，同时保留头像个人中心与综合健康评分改动。
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 

@@ -27,7 +27,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     description: '查看分配地块、提交巡田记录并确认农事建议。',
     avatar: '🧑‍🌾',
     defaultView: 'dashboard',
-    views: Object.freeze(['dashboard', 'decision-console', 'risk-forecast', 'work-orders']),
+    views: Object.freeze(['dashboard', 'decision-console', 'risk-forecast', 'work-orders', 'crop-manual']),
     permissions: Object.freeze(['plots:read', 'diagnosis:read', 'inspection:create', 'work-order:request', 'irrigation:request'])
   }),
   SYSTEM_ADMIN: Object.freeze({

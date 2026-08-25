@@ -28,6 +28,40 @@
     .scenario-btn:hover { border-color: var(--g-primary); background: var(--g-primary-bg); }
     .scenario-btn.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px var(--g-primary); }
     .gates-list li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--g-border-subtle); }
+
+    .cm-section { margin-bottom: 16px; }
+    .cm-section-label { font-size: 12px; font-weight: 600; color: var(--g-text-secondary); margin-bottom: 10px; }
+    .cm-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+    .cm-pick-card {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+      min-height: 88px; padding: 12px; border: 1px solid var(--g-border-subtle);
+      border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary);
+      font: inherit; text-align: left; cursor: pointer;
+      transition: border-color .2s, background .2s, box-shadow .2s, transform .15s;
+    }
+    .cm-pick-card:hover { border-color: var(--g-primary); background: var(--g-primary-bg); transform: translateY(-1px); }
+    .cm-pick-card.active {
+      border-color: var(--g-primary); background: var(--g-primary-bg);
+      box-shadow: inset 0 0 0 1px var(--g-primary); color: var(--g-primary);
+    }
+    .cm-pick-icon { font-size: 22px; line-height: 1; }
+    .cm-pick-seq {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px; border-radius: 6px; font-size: 11px; font-weight: 700;
+      background: var(--g-bg-subtle); color: var(--g-text-secondary);
+    }
+    .cm-pick-card.active .cm-pick-seq { background: var(--g-primary); color: #fff; }
+    .cm-pick-title { font-size: 14px; font-weight: 600; line-height: 1.3; }
+    .cm-pick-meta { font-size: 11px; color: var(--g-text-secondary); line-height: 1.35; }
+    .cm-pick-card.active .cm-pick-meta { color: var(--g-primary); opacity: .85; }
+    .cm-summary {
+      display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px;
+      margin: 16px 0; padding: 12px 14px; border-radius: var(--g-radius);
+      background: var(--g-bg-base); border: 1px solid var(--g-border-subtle);
+    }
+    @media (max-width: 720px) {
+      .cm-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -39,10 +73,6 @@
         <span class="g-header-title">AgriLoop Console</span>
       </div>
       <div class="g-header-right">
-        <button v-if="farmerReturnPage" type="button" class="g-btn secondary g-btn-return-farmer" @click="returnToFarmer">
-          <span class="material-symbols-outlined">arrow_back</span>
-          返回农户工作台
-        </button>
         <button class="g-btn icon-only" @click="toggleTheme" title="切换主题"><span class="material-symbols-outlined">{{ isDark ? 'light_mode' : 'dark_mode' }}</span></button>
         <button class="g-btn icon-only" @click="logout" title="退出登录"><span class="material-symbols-outlined">logout</span></button>
         <span class="g-badge" :class="isLive ? 'success' : 'warning'">
@@ -60,11 +90,19 @@
 
     <div class="g-body">
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
-        <div v-for="nav in navItems" :key="nav.id" 
-             class="g-nav-item" :class="{active: currentView === nav.id}"
-             @click="navigate(nav.id)">
-          <span class="material-symbols-outlined">{{ nav.icon }}</span>
-          {{ nav.label }}
+        <div class="g-sidebar-main">
+          <div v-for="nav in navItems" :key="nav.id"
+               class="g-nav-item" :class="{active: currentView === nav.id}"
+               @click="navigate(nav.id)">
+            <span class="material-symbols-outlined">{{ nav.icon }}</span>
+            <span class="g-nav-label">{{ nav.label }}</span>
+          </div>
+        </div>
+        <div v-if="farmerReturnPage" class="g-sidebar-footer">
+          <button type="button" class="g-nav-item g-nav-return-farmer" @click="returnToFarmer">
+            <span class="material-symbols-outlined">arrow_back</span>
+            <span class="g-nav-label">返回农户工作台</span>
+          </button>
         </div>
       </nav>
 
@@ -513,6 +551,77 @@
           </div>
         </div>
       </transition>
+    </div>
+  </template>
+
+  <!-- Crop Manual Template -->
+  <template id="tmpl-crop-manual">
+    <div>
+      <div class="flex justify-between items-center mb-4">
+        <h2>作物培养手册</h2>
+        <span v-if="cropPack" class="g-badge primary">v{{ cropPack.version }}</span>
+      </div>
+
+      <div class="g-card mb-4">
+        <div class="cm-section">
+          <div class="cm-section-label">作物种类</div>
+          <div class="cm-card-grid">
+            <button
+              v-for="crop in cropOptions"
+              :key="crop.cropCode"
+              type="button"
+              class="cm-pick-card"
+              :class="{active: cropCode === crop.cropCode}"
+              @click="selectCrop(crop.cropCode)"
+            >
+              <span class="cm-pick-icon">{{ crop.icon }}</span>
+              <span class="cm-pick-title">{{ crop.label }}</span>
+              <span class="cm-pick-meta">{{ crop.region }} · {{ crop.stageCount }} 个阶段</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="cm-section">
+          <div class="cm-section-label">生长阶段</div>
+          <div class="cm-card-grid">
+            <button
+              v-for="st in stageOptions"
+              :key="st.code"
+              type="button"
+              class="cm-pick-card"
+              :class="{active: stage && stage.code === st.code}"
+              @click="selectStage(st.code)"
+            >
+              <span class="cm-pick-seq">{{ st.sequence }}</span>
+              <span class="cm-pick-title">{{ st.label }}</span>
+              <span class="cm-pick-meta">湿度 {{ st.target.soilMoistureLow }}~{{ st.target.soilMoistureHigh }}%</span>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="stage" class="cm-summary">
+          <strong style="font-size:15px">{{ cropPack?.identity?.name }} · {{ stage.label }}</strong>
+          <span class="text-muted" style="font-size:12px">知识版本 {{ cropPack?.knowledgeVersion }} · 规则版本 {{ cropPack?.ruleVersion }}</span>
+        </div>
+
+        <div class="g-grid g-grid-3" style="margin-bottom:16px">
+          <div v-for="metric in envMetrics" :key="metric.code" class="metric-box">
+            <div class="flex justify-between items-center mb-2">
+              <span style="font-weight:500; font-size:14px">{{ metric.label }}</span>
+              <span class="g-badge" :class="metric.availability === 'SUPPORTED' ? 'success' : 'primary'">{{ availabilityLabel(metric.availability) }}</span>
+            </div>
+            <div style="font-size:22px; font-weight:600; line-height:1.2">
+              {{ metric.range }}<small v-if="metric.unit" style="margin-left:4px; font-size:13px; font-weight:500; color:var(--g-text-secondary)">{{ metric.unit }}</small>
+            </div>
+            <div class="text-muted" style="margin-top:6px; font-size:12px">{{ metric.note }}</div>
+          </div>
+        </div>
+
+        <div style="padding-top:12px; border-top:1px solid var(--g-border-subtle)">
+          <h4 style="margin-bottom:10px; font-size:15px">阶段培养说明</h4>
+          <p v-for="(paragraph, index) in guideParagraphs" :key="index" style="margin-bottom:10px; font-size:13px; line-height:1.7">{{ paragraph }}</p>
+        </div>
+      </div>
     </div>
   </template>
 
