@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/farmer.css">
+  <link rel="stylesheet" href="css/account-profile.css">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -36,10 +37,11 @@
           <span class="farmer-freshness-dot" :class="{live: is_live}"></span>
           数据更新于 {{ data_updated_label }}
         </span>
-        <div class="farmer-account-anchor">
+        <div class="farmer-account-anchor account-profile-anchor">
           <button
             type="button"
-            class="farmer-account-trigger"
+            class="farmer-account-trigger account-profile-trigger"
+            aria-label="打开个人中心"
             aria-haspopup="dialog"
             :aria-expanded="show_profile_menu ? 'true' : 'false'"
             @click.stop="toggle_profile_menu"
@@ -52,41 +54,37 @@
             <span class="material-symbols-outlined farmer-account-chevron">expand_more</span>
           </button>
 
-          <div v-if="show_profile_menu" class="farmer-profile-popover" role="dialog" aria-label="个人中心" @click.stop>
-            <div class="farmer-profile-popover-header">
-              <div class="farmer-profile-popover-identity">
-                <span class="farmer-profile-avatar farmer-profile-avatar-small">
-                  <span class="material-symbols-outlined">account_circle</span>
+          <div v-if="show_profile_menu" class="account-profile-popover" :class="account_profile.roleClass" role="dialog" aria-label="个人中心" @click.stop>
+            <div class="account-profile-popover-header">
+              <div class="account-profile-popover-identity">
+                <span class="account-profile-avatar">
+                  <span class="material-symbols-outlined">{{ account_profile.icon }}</span>
                 </span>
                 <div>
-                  <strong>{{ user.username }}</strong>
-                  <span>{{ user.role_label }}</span>
+                  <strong>{{ account_profile.displayName }}</strong>
+                  <span>{{ account_profile.roleLabel }}</span>
                 </div>
               </div>
-              <button type="button" class="g-btn icon-only farmer-btn-light" title="关闭个人中心" @click="close_profile_menu">
+              <button type="button" class="g-btn icon-only farmer-btn-light account-profile-close" title="关闭个人中心" aria-label="关闭个人中心" @click="close_profile_menu">
                 <span class="material-symbols-outlined">close</span>
               </button>
             </div>
 
-            <dl class="farmer-profile-popover-info">
-              <div><dt>所属农场</dt><dd>{{ farm.name }}</dd></div>
-              <div><dt>负责地块</dt><dd>{{ user.plot_names ? user.plot_names.join('、') : '全场' }}</dd></div>
-              <div><dt>联系方式</dt><dd>{{ user.contact }}</dd></div>
-              <div><dt>入职时间</dt><dd>{{ user.joined_at }}</dd></div>
-              <div><dt>当前状态</dt><dd><span class="g-badge success">在岗</span></dd></div>
+            <dl class="account-profile-popover-info">
+              <div v-for="row in account_profile.rows" :key="row.label">
+                <dt>{{ row.label }}</dt>
+                <dd><span v-if="row.badge" class="account-profile-status" :class="row.tone === 'danger' ? 'is-danger' : ''">{{ row.value }}</span><template v-else>{{ row.value }}</template></dd>
+              </div>
             </dl>
 
-            <div class="farmer-profile-popover-section-title">农务概览</div>
-            <div class="farmer-profile-popover-stats">
-              <div><strong>{{ profile_stats.total_done }}</strong><span>累计完成</span><small>本月完成 {{ profile_stats.month_done }} 项</small></div>
-              <div><strong>{{ profile_stats.in_progress }}</strong><span>执行中</span><small>请按时跟进</small></div>
-              <div><strong>{{ profile_stats.pending }}</strong><span>待办任务</span><small>即将到期 {{ profile_stats.due_soon }} 项</small></div>
-              <div><strong>{{ profile_stats.completion_rate }}%</strong><span>任务完成率</span><small>基于近 30 天</small></div>
-              <div><strong>{{ profile_stats.inspections }}</strong><span>巡田记录</span><small>本月已提交</small></div>
-              <div><strong>{{ profile_stats.messages }}</strong><span>收到消息</span><small>未读 {{ profile_stats.unread }} 条</small></div>
+            <div class="account-profile-section-title">{{ account_profile.sectionLabel }}</div>
+            <div class="account-profile-popover-stats">
+              <div v-for="stat in account_profile.stats" :key="stat.label">
+                <strong>{{ stat.value }}</strong><span>{{ stat.label }}</span><small>{{ stat.detail }}</small>
+              </div>
             </div>
 
-            <div class="farmer-profile-popover-footer">
+            <div class="account-profile-popover-footer">
               <button type="button" class="g-btn secondary farmer-btn-light" @click="open_account_modal">
                 <span class="material-symbols-outlined">lock_reset</span>修改密码
               </button>

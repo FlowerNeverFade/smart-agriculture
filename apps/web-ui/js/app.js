@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js?v=1787645254016';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -1609,6 +1610,10 @@ const app = createApp({
     const isLive = ref(false);
     const isDark = ref(false);
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
+    const showProfileMenu = ref(false);
+    const showAccountModal = ref(false);
+    const passwordForm = ref({ current: '', next: '', confirm: '' });
+    const passwordError = ref('');
     
     const toasts = ref([]);
     const seenSystemEventIds = new Set();
@@ -1675,6 +1680,12 @@ const app = createApp({
       }
     });
 
+    const accountProfile = computed(() => buildAccountProfile(state.value.currentUser, {
+      state: state.value,
+      farms: state.value.farms,
+      farmId: state.value.adminContext.farmId || selectedFarmId.value
+    }));
+
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
     const navItems = computed(() => {
       return state.value.allowedViews
@@ -1705,6 +1716,49 @@ const app = createApp({
 
     const toggleSidebar = () => {
       isSidebarOpen.value = !isSidebarOpen.value;
+    };
+
+    const toggleProfileMenu = () => {
+      showProfileMenu.value = !showProfileMenu.value;
+    };
+
+    const closeProfileMenu = () => {
+      showProfileMenu.value = false;
+    };
+
+    const openAccountModal = () => {
+      closeProfileMenu();
+      passwordForm.value = { current: '', next: '', confirm: '' };
+      passwordError.value = '';
+      showAccountModal.value = true;
+    };
+
+    const closeAccountModal = () => {
+      showAccountModal.value = false;
+      passwordError.value = '';
+    };
+
+    const changePassword = () => {
+      passwordError.value = '';
+      if (!passwordForm.value.current) {
+        passwordError.value = '请输入当前密码';
+        return;
+      }
+      if (passwordForm.value.next.length < 6) {
+        passwordError.value = '新密码至少需要 6 位';
+        return;
+      }
+      if (passwordForm.value.next !== passwordForm.value.confirm) {
+        passwordError.value = '两次输入的新密码不一致';
+        return;
+      }
+      closeAccountModal();
+      showToast('演示密码修改成功，接入账号服务后将正式生效');
+    };
+
+    const forgotPassword = () => {
+      closeProfileMenu();
+      showToast(`找回密码指引已发送到 ${accountProfile.value.contact}`);
     };
 
     const logout = () => {
@@ -2052,6 +2106,11 @@ const app = createApp({
       isLive,
       isDark,
       isSidebarOpen,
+      showProfileMenu,
+      showAccountModal,
+      passwordForm,
+      passwordError,
+      accountProfile,
       roleClass,
       currentRole,
       navItems,
@@ -2064,6 +2123,12 @@ const app = createApp({
       showToast,
       toggleTheme,
       toggleSidebar,
+      toggleProfileMenu,
+      closeProfileMenu,
+      openAccountModal,
+      closeAccountModal,
+      changePassword,
+      forgotPassword,
       logout,
       navigate,
       applyPlotChange,

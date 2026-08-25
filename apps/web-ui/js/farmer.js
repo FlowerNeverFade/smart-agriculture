@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
+import { buildAccountProfile } from './account-profile.js';
 
 const { createApp, ref, computed, onMounted } = Vue;
 
@@ -374,6 +375,7 @@ const app = createApp({
 
     const user = ref({
       ...initial_user,
+      role_label: initial_user?.roleLabel || fallback_user.role_label,
       joined_at: fallback_user.joined_at,
       contact: fallback_user.contact,
       plot_names: fallback_user.plot_names
@@ -655,6 +657,15 @@ const app = createApp({
       const unread = messages.value.filter((m) => !m.read).length;
       return { total_done, month_done, in_progress, pending, due_soon, completion_rate, inspections, messages: messages_count, unread };
     });
+
+    const account_profile = computed(() => buildAccountProfile(user.value, {
+      farm: farm.value,
+      plots: plots.value,
+      tasks: tasks.value,
+      messages: messages.value,
+      inspections: inspection_records.value,
+      profile: MOCK_DATA.farmer_profile
+    }));
 
     const navigate = (view_id) => {
       current_view.value = view_id;
@@ -1044,6 +1055,7 @@ const app = createApp({
       unread_count,
       task_columns,
       profile_stats,
+      account_profile,
       navigate,
       toggle_sidebar,
       toggle_profile_menu,

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="css/google-material.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/account-profile.css">
   <link rel="stylesheet" href="css/modules/admin-alerts.css">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css">
   <link rel="stylesheet" href="css/modules/decision-console.css">
@@ -68,7 +69,7 @@
   </style>
 </head>
 <body>
-  <div id="app" v-cloak :class="roleClass">
+  <div id="app" v-cloak :class="roleClass" @click="closeProfileMenu">
     <header class="g-header">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
@@ -87,12 +88,55 @@
         <span class="g-badge" :class="state.sessionMode === 'demo' ? 'warning' : (isLive ? 'success' : 'danger')">
           {{ state.sessionMode === 'demo' ? '仿真态 (MOCK)' : (isLive ? '系统在线 (UP)' : '后端离线') }}
         </span>
-        <div class="flex items-center gap-2 ml-2">
-          <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
-          <span class="g-user-identity">
-            <strong>{{ state.currentUser.username }}</strong>
-            <small>{{ state.currentUser.roleLabel }}</small>
-          </span>
+        <div class="account-profile-anchor ml-2">
+          <button type="button" class="account-profile-trigger" aria-label="打开个人中心" aria-haspopup="dialog"
+                  :aria-expanded="showProfileMenu ? 'true' : 'false'" @click.stop="toggleProfileMenu">
+            <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
+            <span class="g-user-identity">
+              <strong>{{ state.currentUser.username }}</strong>
+              <small>{{ state.currentUser.roleLabel }}</small>
+            </span>
+            <span class="material-symbols-outlined account-profile-chevron" aria-hidden="true">expand_more</span>
+          </button>
+
+          <div v-if="showProfileMenu" class="account-profile-popover" :class="accountProfile.roleClass"
+               role="dialog" aria-label="个人中心" @click.stop>
+            <div class="account-profile-popover-header">
+              <div class="account-profile-popover-identity">
+                <span class="account-profile-avatar"><span class="material-symbols-outlined">{{ accountProfile.icon }}</span></span>
+                <div>
+                  <strong>{{ accountProfile.displayName }}</strong>
+                  <span>{{ accountProfile.roleLabel }}</span>
+                </div>
+              </div>
+              <button type="button" class="g-btn icon-only account-profile-close" title="关闭个人中心" aria-label="关闭个人中心" @click="closeProfileMenu">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <dl class="account-profile-popover-info">
+              <div v-for="row in accountProfile.rows" :key="row.label">
+                <dt>{{ row.label }}</dt>
+                <dd><span v-if="row.badge" class="account-profile-status" :class="row.tone === 'danger' ? 'is-danger' : ''">{{ row.value }}</span><template v-else>{{ row.value }}</template></dd>
+              </div>
+            </dl>
+
+            <div class="account-profile-section-title">{{ accountProfile.sectionLabel }}</div>
+            <div class="account-profile-popover-stats">
+              <div v-for="stat in accountProfile.stats" :key="stat.label">
+                <strong>{{ stat.value }}</strong><span>{{ stat.label }}</span><small>{{ stat.detail }}</small>
+              </div>
+            </div>
+
+            <div class="account-profile-popover-footer">
+              <button type="button" class="g-btn secondary" @click="openAccountModal">
+                <span class="material-symbols-outlined">lock_reset</span>修改密码
+              </button>
+              <button type="button" class="g-btn secondary" @click="forgotPassword">
+                <span class="material-symbols-outlined">help</span>找回密码
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -126,6 +170,30 @@
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
                            @close="closePlotDetail" @navigate="navigateFromPlotDetail"></plot-detail-modal>
+
+        <div v-if="showAccountModal" class="account-security-overlay" @click.self="closeAccountModal">
+          <form class="account-security-card" @submit.prevent="changePassword">
+            <div class="account-security-card-header">
+              <div>
+                <h2>修改密码</h2>
+                <p>为 {{ accountProfile.username }} 更新登录密码。</p>
+              </div>
+              <button type="button" class="g-btn icon-only" title="关闭" aria-label="关闭" @click="closeAccountModal">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <div class="account-security-card-body">
+              <label>当前密码<input v-model="passwordForm.current" type="password" autocomplete="current-password" required></label>
+              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="6" required></label>
+              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="6" required></label>
+              <p v-if="passwordError" class="account-security-error">{{ passwordError }}</p>
+            </div>
+            <div class="account-security-card-footer">
+              <button type="button" class="g-btn secondary" @click="closeAccountModal">取消</button>
+              <button type="submit" class="g-btn primary">确认修改</button>
+            </div>
+          </form>
+        </div>
 
         <div class="g-toast-container">
           <transition-group name="toast">
