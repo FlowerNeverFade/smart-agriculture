@@ -499,11 +499,11 @@
 /* ---- Global plot landscape ---- */
 .admin-plot-landscape { grid-column: 1 / -1; margin-top: 16px; padding-top: 0; }
 .admin-section-caption { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
-.admin-overview-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 20px; align-items: stretch; }
+.admin-overview-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
 .admin-overview-main { display: flex; flex-direction: column; min-width: 0; gap: 12px; }
 .admin-overview-label { margin: 2px 0 14px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
-.admin-overview-events { display: flex; flex-direction: column; min-width: 0; }
-.admin-overview-events > .g-card { flex: 1; overflow-y: auto; box-sizing: border-box; padding: 12px 16px !important; }
+.admin-overview-events { min-width: 0; }
+.admin-overview-events > .g-card { max-height: 320px; overflow-y: auto; box-sizing: border-box; padding: 10px 14px !important; }
 .admin-overview-events .event-timeline { max-height: none; box-sizing: border-box; }
 
 /* removed: no collapse mode */
@@ -622,3 +622,10 @@
 /* Compact admin overview */
 .g-page-title { margin-bottom: 12px !important; }
 .admin-overview-label { margin: 0 0 8px; }
+
+/* Compact event items */
+.event-timeline .event-item { padding: 6px 0; gap: 10px; }
+.event-timeline .event-icon { width: 32px; height: 32px; }
+.event-timeline .event-icon .material-symbols-outlined { font-size: 16px; }
+.event-timeline .event-title { font-size: 13px; }
+.event-timeline .event-time { font-size: 11px; }
