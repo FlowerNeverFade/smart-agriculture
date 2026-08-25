@@ -3,8 +3,10 @@ import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
+import { AdminDecisionView } from './modules/admin-decision.js';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 
-const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
 const ICON_CLASS = Object.freeze({
   dashboard: 'ph-squares-four',
@@ -40,7 +42,11 @@ const ICON_CLASS = Object.freeze({
   group_off: 'ph-user-minus',
   refresh: 'ph-arrows-clockwise',
   psychiatry: 'ph-leaf',
-  info: 'ph-info'
+  info: 'ph-info',
+  more_vertical: 'ph-dots-three-vertical',
+  edit: 'ph-pencil-simple',
+  delete: 'ph-trash',
+  add: 'ph-plus'
 });
 
 const AppIcon = {
@@ -65,6 +71,21 @@ const NAV_CATALOG = Object.freeze([
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
+const CROP_OPTIONS = Object.freeze([
+  { code: 'tomato', name: '番茄' },
+  { code: 'corn', name: '玉米' },
+  { code: 'cucumber', name: '黄瓜' },
+  { code: 'rice', name: '水稻' },
+  { code: 'sunflower', name: '向日葵' },
+  { code: 'strawberry', name: '草莓' }
+]);
+const STAGE_OPTIONS = Object.freeze([
+  { code: 'seedling', label: '育苗期' },
+  { code: 'vegetative', label: '营养生长期' },
+  { code: 'flowering', label: '开花期' },
+  { code: 'fruiting', label: '结果期' },
+  { code: 'harvest', label: '采收期' }
+]);
 
 function normalizedStatus(value, fallback = 'UNKNOWN') {
   return String(value || fallback).trim().toUpperCase();
@@ -156,6 +177,20 @@ const DashboardView = {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const selectedFarmId = ref(props.state.farms[0]?.farmId || '');
+    const plotMenuId = ref('');
+    const plotSaving = ref(false);
+    const plotEditor = ref({ open: false, mode: 'create' });
+    const deleteConfirm = ref({ open: false, plot: null });
+    const emptyPlotDraft = () => ({
+      plotId: '',
+      name: '',
+      cropCode: 'tomato',
+      cropVariety: '',
+      stageCode: 'vegetative',
+      growthCycleDays: 120,
+      areaM2: 100
+    });
+    const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
       const workItems = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
       const activeItems = workItems.filter((item) => !isFinishedWork(item));
@@ -192,6 +227,112 @@ const DashboardView = {
       plotId: plot.plotId,
       trigger: event?.currentTarget || null
     });
+    const togglePlotMenu = (plotId) => {
+      plotMenuId.value = plotMenuId.value === plotId ? '' : plotId;
+    };
+    const closePlotMenu = () => { plotMenuId.value = ''; };
+    const openCreatePlot = () => {
+      closePlotMenu();
+      plotDraft.value = emptyPlotDraft();
+      plotEditor.value = { open: true, mode: 'create' };
+    };
+    const openEditPlot = (plot) => {
+      closePlotMenu();
+      plotDraft.value = {
+        plotId: plot.plotId,
+        name: plot.name || '',
+        cropCode: plot.cropCode || 'tomato',
+        cropVariety: plot.cropVariety || '',
+        stageCode: plot.stageCode || 'vegetative',
+        growthCycleDays: Number(plot.growthCycleDays || 120),
+        areaM2: Number(plot.areaM2 || 100)
+      };
+      plotEditor.value = { open: true, mode: 'edit' };
+    };
+    const closePlotEditor = () => {
+      if (plotSaving.value) return;
+      plotEditor.value.open = false;
+    };
+    const metricTemplateFor = (cropCode, excludedPlotId = '') => {
+      const source = props.state.plots.find((plot) => plot.cropCode === cropCode && plot.plotId !== excludedPlotId);
+      return source?.metrics ? JSON.parse(JSON.stringify(source.metrics)) : Object.fromEntries(PLOT_METRIC_ORDER.map((code) => [code, {
+        label: code,
+        value: null,
+        unit: '',
+        status: 'UNAVAILABLE',
+        target: '待配置'
+      }]));
+    };
+    const submitPlot = async () => {
+      const draft = plotDraft.value;
+      if (!draft.name.trim() || !draft.cropVariety.trim()) {
+        toast('请填写地块名称和作物品种', 'error');
+        return;
+      }
+      const crop = CROP_OPTIONS.find((item) => item.code === draft.cropCode) || CROP_OPTIONS[0];
+      const stage = STAGE_OPTIONS.find((item) => item.code === draft.stageCode) || STAGE_OPTIONS[1];
+      const current = props.state.plots.find((plot) => plot.plotId === draft.plotId);
+      const cropChanged = Boolean(current && current.cropCode !== crop.code);
+      const payload = {
+        ...(current || {}),
+        farmId: selectedFarmId.value || current?.farmId || props.state.farms[0]?.farmId || 'farm-demo',
+        name: draft.name.trim(),
+        cropCode: crop.code,
+        cropName: crop.name,
+        cropVariety: draft.cropVariety.trim(),
+        stageCode: stage.code,
+        stageLabel: stage.label,
+        growthCycleDays: Math.max(1, Math.round(Number(draft.growthCycleDays) || 1)),
+        areaM2: Math.max(1, Number(draft.areaM2) || 1),
+        lastSeen: plotEditor.value.mode === 'edit' ? '刚刚更新' : '等待设备接入',
+        metrics: current && !cropChanged ? current.metrics : metricTemplateFor(crop.code, draft.plotId),
+        deviceStatus: current?.deviceStatus || 'UNBOUND',
+        healthScore: current?.healthScore ?? null,
+        riskLevel: current?.riskLevel || 'LOW'
+      };
+      plotSaving.value = true;
+      try {
+        if (plotEditor.value.mode === 'edit') {
+          const saved = await api.updatePlot(draft.plotId, payload);
+          emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          toast(`${payload.name}已更新，其他模块已同步`);
+        } else {
+          const saved = await api.createPlot(payload);
+          emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          toast(`${payload.name}已添加到农场`);
+        }
+        plotEditor.value.open = false;
+      } catch (error) {
+        toast(error.message || '保存地块失败', 'error');
+      } finally {
+        plotSaving.value = false;
+      }
+    };
+    const requestDeletePlot = (plot) => {
+      closePlotMenu();
+      deleteConfirm.value = { open: true, plot };
+    };
+    const cancelDeletePlot = () => {
+      if (plotSaving.value) return;
+      deleteConfirm.value = { open: false, plot: null };
+    };
+    const confirmDeletePlot = async () => {
+      const plot = deleteConfirm.value.plot;
+      if (!plot) return;
+      plotSaving.value = true;
+      try {
+        await api.deletePlot(plot.plotId);
+        emit('plot-change', { type: 'delete', plot });
+        deleteConfirm.value = { open: false, plot: null };
+        toast(`${plot.name}已删除，关联页面已同步`);
+      } catch (error) {
+        toast(error.message || '删除地块失败', 'error');
+      } finally {
+        plotSaving.value = false;
+      }
+    };
+    onMounted(() => document.addEventListener('click', closePlotMenu));
+    onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { openCreateTask: true });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
@@ -219,6 +360,21 @@ const DashboardView = {
       metricTone,
       metricStatusIcon,
       openPlotDetail,
+      plotMenuId,
+      plotSaving,
+      plotEditor,
+      plotDraft,
+      deleteConfirm,
+      cropOptions: CROP_OPTIONS,
+      stageOptions: STAGE_OPTIONS,
+      togglePlotMenu,
+      openCreatePlot,
+      openEditPlot,
+      closePlotEditor,
+      submitPlot,
+      requestDeletePlot,
+      cancelDeletePlot,
+      confirmDeletePlot,
       createTask,
       handleAction,
       visibleActions
@@ -440,13 +596,17 @@ const DecisionConsoleView = {
 };
 
 const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, LegacyDecisionConsole: DecisionConsoleView },
+  components: { AdminAlertCenter, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
   props: ['state', 'routeParams'],
-  emits: ['navigate'],
+  emits: ['navigate', 'data-invalidated'],
   setup(props) {
-    const showDiagnosis = ref(Boolean(props.routeParams?.highlight === 'diagnosis'));
+    const showDiagnosis = ref(Boolean(props.routeParams?.highlight === 'diagnosis' || props.routeParams?.section === 'diagnosis'));
     watch(() => props.routeParams?.highlight, (value) => {
       if (value === 'diagnosis') showDiagnosis.value = true;
+    });
+    watch(() => props.routeParams?.section, (value) => {
+      if (value === 'diagnosis') showDiagnosis.value = true;
+      if (value === 'alerts') showDiagnosis.value = false;
     });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     return { showDiagnosis, isFarmAdmin };
@@ -454,11 +614,14 @@ const RoleAwareDecisionConsoleView = {
   template: `
     <div class="role-decision-shell">
       <template v-if="isFarmAdmin">
+        <nav class="admin-decision-tabs" aria-label="告警与诊断功能切换">
+          <button class="g-btn" :class="showDiagnosis ? 'g-btn-outline' : 'g-btn-primary'" type="button" @click="showDiagnosis = false">告警处置</button>
+          <button class="g-btn" :class="showDiagnosis ? 'g-btn-primary' : 'g-btn-outline'" type="button" @click="showDiagnosis = true">智能诊断与灌溉</button>
+        </nav>
         <admin-alert-center v-if="!showDiagnosis" :state="state" @show-diagnosis="showDiagnosis = true" @navigate="(view, params) => $emit('navigate', view, params)"></admin-alert-center>
-        <section v-else>
-          <button class="g-btn g-btn-outline mb-4" type="button" @click="showDiagnosis = false">返回告警处置</button>
-          <legacy-decision-console :state="state" :route-params="routeParams" @navigate="(view, params) => $emit('navigate', view, params)"></legacy-decision-console>
-        </section>
+        <admin-decision v-else :state="state" :route-params="routeParams"
+                        @navigate="(view, params) => $emit('navigate', view, params)"
+                        @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
       </template>
       <legacy-decision-console v-else :state="state" :route-params="routeParams" @navigate="(view, params) => $emit('navigate', view, params)"></legacy-decision-console>
     </div>
@@ -847,7 +1010,7 @@ const app = createApp({
     'decision-console-view': RoleAwareDecisionConsoleView,
     'risk-forecast-view': RiskForecastView,
     'work-orders-view': WorkOrderLifecycleView,
-    'resource-coordination-view': ResourceCoordinationView,
+    'resource-coordination-view': AdminResourcePlanningView,
     'farm-members-view': FarmMembersView,
     'crop-packs-view': CropPacksView,
     'value-ledger-view': ValueLedgerView
@@ -997,6 +1160,44 @@ const app = createApp({
       window.location.hash = targetHash.slice(1);
     };
 
+    const applyPlotChange = ({ type, plot } = {}) => {
+      if (!plot?.plotId) return;
+      const index = state.value.plots.findIndex((item) => item.plotId === plot.plotId);
+      if (type === 'delete') {
+        state.value.plots = state.value.plots.filter((item) => item.plotId !== plot.plotId);
+        state.value.workOrders = state.value.workOrders.filter((item) => item.plotId !== plot.plotId);
+        state.value.farmMembers = state.value.farmMembers.map((member) => ({
+          ...member,
+          plotIds: Array.isArray(member.plotIds) ? member.plotIds.filter((plotId) => plotId !== plot.plotId) : []
+        }));
+        if (selectedPlotId.value === plot.plotId) selectedPlotId.value = '';
+        return;
+      }
+      if (index >= 0) {
+        state.value.plots.splice(index, 1, { ...state.value.plots[index], ...plot });
+      } else {
+        state.value.plots.push(plot);
+      }
+    };
+
+    const handleDataInvalidated = async ({ domains = [], record } = {}) => {
+      if (record?.workOrderId && domains.includes('workOrders')) {
+        state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
+      }
+      if (!(isLive.value && state.value.sessionMode === 'live')) return;
+      const jobs = [];
+      if (domains.includes('plots')) {
+        jobs.push(api.getOverview().then((overview) => {
+          if (Array.isArray(overview?.plots)) state.value.plots = scopePlots(mergeOverviewPlots(overview.plots), state.value.currentUser);
+        }));
+      }
+      if (domains.includes('workOrders')) {
+        jobs.push(api.getWorkOrders().then((items) => { if (Array.isArray(items)) state.value.workOrders = items; }));
+      }
+      const results = await Promise.allSettled(jobs);
+      if (results.some((item) => item.status === 'rejected')) showToast('业务已提交，但关联页面刷新失败，请稍后手动刷新', 'error');
+    };
+
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
       const plot = state.value.plots.find((item) => item.plotId === plotId);
       if (!plot) {
@@ -1124,6 +1325,8 @@ const app = createApp({
       toggleSidebar,
       logout,
       navigate,
+      applyPlotChange,
+      handleDataInvalidated,
       openPlotDetail,
       closePlotDetail,
       navigateFromPlotDetail

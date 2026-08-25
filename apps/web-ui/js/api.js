@@ -271,6 +271,43 @@ export class ApiService {
     return MOCK_DATA.plots;
   }
 
+  async createPlot(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/plots', {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的新增地块结果', { code: 'PLOT_CREATE_INVALID', payload: resp });
+    }
+    return {
+      ...input,
+      plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async updatePlot(plotId, input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(input)
+      });
+      if (resp?.data?.plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块修改结果', { code: 'PLOT_UPDATE_INVALID', payload: resp });
+    }
+    return { ...input, plotId, updatedAt: new Date().toISOString() };
+  }
+
+  async deletePlot(plotId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, { method: 'DELETE' });
+      if (resp?.data?.plotId === plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块删除结果', { code: 'PLOT_DELETE_INVALID', payload: resp });
+    }
+    return { plotId, deleted: true, deletedAt: new Date().toISOString() };
+  }
+
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
     if (this.isLive) {
       const query = new URLSearchParams({ metric, limit: String(Math.max(1, Math.min(Number(limit) || 50, 5000))) });
@@ -664,7 +701,8 @@ export class ApiService {
         method: 'POST',
         body: JSON.stringify(input)
       });
-      return response?.data || response;
+      const plan = response?.data || response;
+      return { ...plan, trialOnly: true, provenance: plan?.provenance || 'DERIVED', sourceMode: 'ESTIMATED' };
     }
     const capacity = Number(MOCK_DATA.resourceProfile?.capacityLitres || 0);
     let remaining = capacity;
@@ -692,7 +730,9 @@ export class ApiService {
       conflicts,
       unmetDemands,
       algorithmVersion: 'capacity-priority-v1',
-      provenance: 'SIMULATED'
+      provenance: 'SIMULATED',
+      sourceMode: 'ESTIMATED',
+      trialOnly: true
     };
   }
 
@@ -836,7 +876,10 @@ export class ApiService {
     }
   }
 
-  async evaluateDiagnosis(plotId = 'plot-a01', input = {}) {
+  async evaluateDiagnosis(plotId, input = {}) {
+    if (!plotId) {
+      throw new ApiError('请选择要诊断的地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     const body = { ...input, plotId };
     if (body.scenarioId === 'live') delete body.scenarioId;
     if (this.isLive) {
@@ -852,7 +895,7 @@ export class ApiService {
 
     const plot = this.mockPlot(plotId);
     const scenario = String(input.scenarioId || 'normal').toLowerCase();
-    const sourceMode = scenario === 'normal' || scenario === 'live' ? 'OBSERVED' : 'SIMULATED';
+    const sourceMode = 'SIMULATED';
     const moisture = scenario === 'drought' ? 12.4 : Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const deviceStatus = scenario === 'device-offline' ? 'OFFLINE' : (plot?.deviceStatus || 'ONLINE');
     const drift = scenario === 'sensor-drift';
@@ -897,6 +940,9 @@ export class ApiService {
   }
 
   async estimateIrrigation(input = {}) {
+    if (!input.plotId) {
+      throw new ApiError('生成灌溉建议前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/irrigation/estimate', {
         method: 'POST',
@@ -908,7 +954,7 @@ export class ApiService {
       return plan;
     }
 
-    const plotId = input.plotId || 'plot-a01';
+    const plotId = input.plotId;
     const plot = this.mockPlot(plotId);
     const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
       || await this.evaluateDiagnosis(plotId, input);
@@ -1057,8 +1103,14 @@ export class ApiService {
   }
 
   async executeIrrigation(planId, plotId, options = {}) {
+    if (!plotId) {
+      throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    }
     if (!roleCan(this.user, 'irrigation:approve')) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
+    if (options.approved !== true) {
+      throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
     }
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/commands/virtual', {
@@ -1067,41 +1119,64 @@ export class ApiService {
           planId,
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
-          approved: options.approved !== false,
+          approved: true,
           source: options.source || 'web-decision-console',
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });
       if (resp && resp.data) {
-        this.decisionCache.commands.set(resp.data.commandId, resp.data);
-        return resp.data;
+        const command = { ...resp.data, executionMode: 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
+        this.decisionCache.commands.set(command.commandId, command);
+        return command;
       }
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
-    // Mock realistic virtual execution sequence
+    const plan = this.decisionCache.plans.get(planId);
+    if (!plan || plan.plotId !== plotId) {
+      throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
+    }
+    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false) {
+      throw new ApiError('处方未通过安全门或尚未人工确认', { status: 409, code: 'IRRIGATION_NOT_READY' });
+    }
+
+    // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
+    const requestedOutcome = String(options.outcome || 'SUCCEEDED').toUpperCase();
+    const outcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const plannedWater = Number(plan.waterLitre || plan.howMuch?.waterLitre || 0);
+    const plannedDuration = Number(plan.durationSeconds || plan.howMuch?.durationSeconds || 0);
+    const actualWater = outcome === 'SUCCEEDED' ? plannedWater : outcome === 'PARTIAL' ? Number((plannedWater * .55).toFixed(1)) : 0;
+    const effectScore = outcome === 'SUCCEEDED' ? .96 : outcome === 'PARTIAL' ? .52 : 0;
+    const evaluationStatus = ['SUCCEEDED', 'PARTIAL'].includes(outcome) ? 'COMPLETED' : outcome;
     const command = {
       commandId: "cmd-" + Math.random().toString(36).substring(2, 9),
       plotId,
       planId,
-      status: "SUCCEEDED",
+      traceId: plan.traceId,
+      status: outcome,
       type: "IRRIGATION_START",
-      waterLitre: 153.0,
-      durationSeconds: 510,
+      waterLitre: plannedWater,
+      durationSeconds: plannedDuration,
       transport: "MQTT_VIRTUAL_ACTUATOR",
+      executionMode: 'SIMULATED',
+      provenance: 'SIMULATED',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
-        status: "SUCCEEDED",
-        actualWaterLitre: 153.0,
-        result: "GOOD",
+        status: outcome,
+        actualWaterLitre: actualWater,
+        result: outcome === 'SUCCEEDED' ? 'GOOD' : outcome,
+        provenance: 'SIMULATED',
         receivedAt: new Date().toISOString()
       },
       evaluation: {
-        effectivenessScore: 0.96,
-        status: "COMPLETED",
-        result: "GOOD",
-        expectedMoisture: "30.0%",
-        actualMoisture: "29.8%"
+        effectivenessScore: effectScore,
+        status: evaluationStatus,
+        result: outcome === 'SUCCEEDED' ? 'GOOD' : outcome,
+        expectedMoisture: `${Number(plan.expectedResult?.to ?? 30).toFixed(1)}%`,
+        actualMoisture: outcome === 'SUCCEEDED'
+          ? `${Number((Number(plan.expectedResult?.to ?? 30) - .2).toFixed(1))}%`
+          : outcome === 'PARTIAL' ? `${Number((Number(plan.expectedResult?.from ?? 20) + 3).toFixed(1))}%` : '未改善',
+        provenance: 'SIMULATED'
       }
     };
     this.decisionCache.commands.set(command.commandId, command);

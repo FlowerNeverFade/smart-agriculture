@@ -17,6 +17,50 @@ class AgriApplicationTest {
     @Autowired AgriEngine engine;
     @Autowired AgriStore store;
     @Autowired JwtService jwtService;
+    @Autowired AgriController controller;
+
+    @Test
+    void farmAdminCanCreateUpdateAndDeletePlotAcrossFarmScope() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        String plotId = "plot-lifecycle-" + System.nanoTime();
+        Map<String, Object> created = responseData(controller.createPlot(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId,
+                "farmId", "farm-demo",
+                "name", "测试番茄田",
+                "cropCode", "tomato",
+                "cropName", "番茄",
+                "cropVariety", "千禧番茄",
+                "stageCode", "vegetative",
+                "stageLabel", "营养生长期",
+                "growthCycleDays", 120,
+                "areaM2", 88
+        )), authentication));
+        assertThat(created.get("plotId")).isEqualTo(plotId);
+        assertThat(engine.canAccessPlot(admin, plotId)).isTrue();
+
+        Map<String, Object> updated = responseData(controller.updatePlot(plotId, Map.of(
+                "cropCode", "cucumber",
+                "cropName", "黄瓜",
+                "cropVariety", "水果黄瓜",
+                "stageCode", "flowering",
+                "stageLabel", "开花期",
+                "growthCycleDays", 95
+        ), authentication));
+        assertThat(updated.get("cropCode")).isEqualTo("cucumber");
+        assertThat(updated.get("growthCycleDays")).isEqualTo(95);
+
+        store.save("work-order", "wo-" + plotId, new java.util.LinkedHashMap<>(Map.of("workOrderId", "wo-" + plotId, "plotId", plotId)));
+        Map<String, Object> deleted = responseData(controller.deletePlot(plotId, authentication));
+        assertThat(deleted.get("deleted")).isEqualTo(true);
+        assertThat(store.find("plot", plotId)).isNull();
+        assertThat(store.find("work-order", "wo-" + plotId)).isNull();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> responseData(org.springframework.http.ResponseEntity<?> response) {
+        return (Map<String, Object>) ((Map<String, Object>) response.getBody()).get("data");
+    }
 
     @Test
     void seededLoginAndCropPacksWork() {
@@ -367,6 +411,43 @@ class AgriApplicationTest {
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_MEMBERS_FORBIDDEN"));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.farmMembers("farm-other", admin))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
+    }
+
+    @Test
+    void resourceTrialDoesNotConsumeCapacityAndNonSuccessAckStaysNonSuccess() {
+        UserPrincipal admin = new UserPrincipal("user-admin-b-round1", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        double capacityBefore = Jsons.number(store.find("resource-profile", "resource-default"), "capacityLitres", 0);
+        Map<String, Object> trial = engine.resourcePlan(Map.of("scope", "farm-demo", "demands", List.of(
+                Map.of("plotId", "plot-a01", "requestedLitres", 700, "priority", "HIGH"),
+                Map.of("plotId", "plot-a02", "requestedLitres", 700, "priority", "LOW")
+        )), admin);
+        double capacityAfter = Jsons.number(store.find("resource-profile", "resource-default"), "capacityLitres", 0);
+        assertThat(trial.get("status")).isEqualTo("INFEASIBLE");
+        assertThat(capacityAfter).isEqualTo(capacityBefore);
+
+        String approvalPlanId = "plan-approval-" + System.nanoTime();
+        store.save("irrigation-plan", approvalPlanId, new java.util.LinkedHashMap<>(Map.of(
+                "planId", approvalPlanId, "plotId", "plot-a01", "readinessStatus", "READY",
+                "executable", true, "durationSeconds", 120, "waterLitre", 40.0)));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(Map.of(
+                        "plotId", "plot-a01", "planId", approvalPlanId,
+                        "idempotencyKey", "approval-required-" + System.nanoTime(), "approved", false), admin))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("人工确认");
+
+        String failedId = "cmd-failed-" + System.nanoTime();
+        Map<String, Object> failed = engine.evaluateCommand(
+                new java.util.LinkedHashMap<>(Map.of("commandId", failedId, "planId", "plan-failed", "plotId", "plot-a01", "waterLitre", 120.0)),
+                Map.of("commandId", failedId, "status", "FAILED", "actualWaterLitre", 0.0));
+        assertThat(failed.get("status")).isEqualTo("INCONCLUSIVE");
+        assertThat(failed.get("result")).isEqualTo("EXECUTION_FAILED");
+
+        String partialId = "cmd-partial-" + System.nanoTime();
+        Map<String, Object> partial = engine.evaluateCommand(
+                new java.util.LinkedHashMap<>(Map.of("commandId", partialId, "planId", "plan-partial", "plotId", "plot-a02", "waterLitre", 120.0)),
+                Map.of("commandId", partialId, "status", "PARTIAL", "actualWaterLitre", 66.0));
+        assertThat(partial.get("status")).isEqualTo("PARTIAL");
+        assertThat(partial.get("result")).isNotEqualTo("GOOD");
     }
 
     @Test

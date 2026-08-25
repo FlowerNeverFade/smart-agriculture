@@ -322,6 +322,42 @@ class AgriStore {
         }
     }
 
+    synchronized boolean delete(String type, String id) {
+        Map<String, Map<String, Object>> byType = records.get(type);
+        boolean removed = byType != null && byType.remove(id) != null;
+        if (!databaseReady) return removed;
+        try {
+            return jdbc.update("DELETE FROM entity_record WHERE entity_type=? AND entity_id=?", type, id) > 0 || removed;
+        } catch (DataAccessException ignored) {
+            databaseReady = false;
+            return removed;
+        }
+    }
+
+    synchronized int deleteWhere(String type, Predicate<Map<String, Object>> predicate) {
+        list(type);
+        Map<String, Map<String, Object>> byType = records.getOrDefault(type, Map.of());
+        List<String> ids = byType.entrySet().stream()
+                .filter(entry -> predicate.test(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .toList();
+        ids.forEach(id -> delete(type, id));
+        return ids.size();
+    }
+
+    synchronized int deleteTelemetryForPlot(String plotId) {
+        int before = telemetry.size();
+        telemetry.removeIf(event -> plotId.equals(Jsons.text(event, "plotId", "")));
+        int removed = before - telemetry.size();
+        if (!databaseReady) return removed;
+        try {
+            return Math.max(removed, jdbc.update("DELETE FROM telemetry WHERE plot_id=?", plotId));
+        } catch (DataAccessException ignored) {
+            databaseReady = false;
+            return removed;
+        }
+    }
+
     Map<String, Object> find(String type, String id) {
         Map<String, Map<String, Object>> byType = records.get(type);
         if (byType != null && byType.containsKey(id)) return Jsons.copy(mapper, byType.get(id));
@@ -1732,7 +1768,7 @@ class AgriEngine {
         if (!"READY".equals(Jsons.text(plan, "readinessStatus", "")) && !"READY".equals(Jsons.text(readiness, "status", ""))) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "READINESS_BLOCKED", "决策就绪度未通过，不能下发命令").withDetails(Map.of("readiness", readiness, "plan", plan));
         }
-        boolean approved = Jsons.bool(request, "approved", false) || principal.isAdmin();
+        boolean approved = Jsons.bool(request, "approved", false);
         if (!approved) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "APPROVAL_REQUIRED", "中高风险灌溉动作需要人工确认");
         long duration = Jsons.whole(plan, "durationSeconds", Jsons.whole(request, "durationSeconds", 0));
         if (duration <= 0 || duration > properties.getMaxIrrigationSeconds()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SAFETY_LIMIT", "灌溉时长超出安全上限");
@@ -3139,7 +3175,14 @@ class AgriEngine {
 
     Map<String, Object> record(String type, String id) { return requireRecord(type, id); }
     List<Map<String, Object>> records(String type) { return store.list(type); }
-    void ensurePlotAccess(UserPrincipal principal, String plotId) { if (principal != null && !principal.canAccessPlot(plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权访问该地块"); }
+    boolean canAccessPlot(UserPrincipal principal, String plotId) {
+        if (principal == null || principal.canAccessPlot(plotId)) return true;
+        if (!principal.isFarmAdmin()) return false;
+        Map<String, Object> plot = store.find("plot", plotId);
+        String farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
+        return principal.farmIds.contains("*") || principal.farmIds.contains(farmId);
+    }
+    void ensurePlotAccess(UserPrincipal principal, String plotId) { if (!canAccessPlot(principal, plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权访问该地块"); }
     private Map<String, Object> requireRecord(String type, String id) { Map<String, Object> value = store.find(type, id); if (value == null) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", type + " " + id + " 不存在"); return value; }
     private int riskRank(String value) { return switch (String.valueOf(value).toUpperCase(Locale.ROOT)) { case "CRITICAL", "EMERGENCY", "HIGH", "SEVERE" -> 4; case "MEDIUM", "GENERAL" -> 3; case "LOW", "INFO" -> 2; default -> 1; }; }
     private record StreamBuilder(List<Map<String, Object>> values) { StreamBuilder() { this(new ArrayList<>()); } void add(Map<String, Object> v) { values.add(v); } }
@@ -3220,16 +3263,67 @@ class AgriController {
     ResponseEntity<?> farms(Authentication a) { UserPrincipal p = principal(a); return ok(filterFarmScope(store.list("farm"), p)); }
 
     @GetMapping("/plots")
-    ResponseEntity<?> plots(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("plot").stream().filter(x -> p.canAccessPlot(Jsons.text(x, "plotId", ""))).toList()); }
+    ResponseEntity<?> plots(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("plot").stream().filter(x -> engine.canAccessPlot(p, Jsons.text(x, "plotId", ""))).toList()); }
 
     @PostMapping("/plots")
-    ResponseEntity<?> createPlot(@RequestBody Map<String, Object> body, Authentication a) { UserPrincipal p = principal(a); if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限"); String id = Jsons.text(body, "plotId", Jsons.id("plot")); body.put("plotId", id); body.putIfAbsent("farmId", "farm-demo"); store.save("plot", id, body); return ok(body); }
+    ResponseEntity<?> createPlot(@RequestBody Map<String, Object> body, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
+        String farmId = Jsons.text(body, "farmId", p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("farm-demo"));
+        if (p.isFarmAdmin() && !p.farmIds.contains("*") && !p.farmIds.contains(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权在该农场新增地块");
+        }
+        validatePlot(body);
+        String id = Jsons.text(body, "plotId", Jsons.id("plot"));
+        if (store.find("plot", id) != null) throw new ApiException(HttpStatus.CONFLICT, "PLOT_EXISTS", "地块编号已存在");
+        Map<String, Object> plot = new LinkedHashMap<>(body);
+        plot.put("plotId", id); plot.put("farmId", farmId); plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", p.userId);
+        store.save("plot", id, plot); events.publish("plot.created", plot); store.logEvent("plot.created", plot);
+        return ok(plot);
+    }
+
+    @PatchMapping("/plots/{plotId}")
+    ResponseEntity<?> updatePlot(@PathVariable String plotId, @RequestBody Map<String, Object> body, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
+        Map<String, Object> current = store.find("plot", plotId);
+        if (current == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在");
+        engine.ensurePlotAccess(p, plotId);
+        Map<String, Object> updated = new LinkedHashMap<>(current);
+        for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
+            if (body.containsKey(field)) updated.put(field, body.get(field));
+        }
+        validatePlot(updated);
+        updated.put("plotId", plotId); updated.put("updatedAt", Instant.now().toString()); updated.put("updatedBy", p.userId);
+        store.save("plot", plotId, updated); events.publish("plot.updated", updated); store.logEvent("plot.updated", updated);
+        return ok(updated);
+    }
+
+    @DeleteMapping("/plots/{plotId}")
+    ResponseEntity<?> deletePlot(@PathVariable String plotId, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
+        Map<String, Object> plot = store.find("plot", plotId);
+        if (plot == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在");
+        engine.ensurePlotAccess(p, plotId);
+        int related = 0;
+        for (String type : List.of("crop-batch", "device", "alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
+            related += store.deleteWhere(type, record -> plotId.equals(Jsons.text(record, "plotId", "")));
+        }
+        related += store.deleteTelemetryForPlot(plotId);
+        store.delete("plot", plotId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId); result.put("name", Jsons.text(plot, "name", plotId)); result.put("deleted", true);
+        result.put("relatedRecordsRemoved", related); result.put("deletedAt", Instant.now().toString()); result.put("deletedBy", p.userId);
+        events.publish("plot.deleted", result); store.logEvent("plot.deleted", result);
+        return ok(result);
+    }
 
     @GetMapping("/plots/{plotId}/resolved-profile")
     ResponseEntity<?> resolvedProfile(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.resolvedProfile(plotId)); }
 
     @GetMapping("/crop-batches")
-    ResponseEntity<?> batches(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("crop-batch").stream().filter(b -> p.canAccessPlot(Jsons.text(b, "plotId", ""))).toList()); }
+    ResponseEntity<?> batches(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("crop-batch").stream().filter(b -> engine.canAccessPlot(p, Jsons.text(b, "plotId", ""))).toList()); }
 
     @GetMapping("/crop-batches/{batchId}/plan")
     ResponseEntity<?> batchPlan(@PathVariable String batchId, Authentication a) { Map<String, Object> b = engine.record("crop-batch", batchId); engine.ensurePlotAccess(principal(a), Jsons.text(b, "plotId", "")); return ok(Map.of("batch", b, "tasks", store.list("work-order").stream().filter(w -> batchId.equals(Jsons.text(w, "cropBatchId", ""))).toList(), "source", "Crop Pack task_templates")); }
@@ -3379,7 +3473,7 @@ class AgriController {
     ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
 
     @GetMapping("/alerts")
-    ResponseEntity<?> alerts(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("alert").stream().filter(x -> p.canAccessPlot(Jsons.text(x, "plotId", ""))).toList()); }
+    ResponseEntity<?> alerts(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("alert").stream().filter(x -> engine.canAccessPlot(p, Jsons.text(x, "plotId", ""))).toList()); }
 
     @PostMapping("/alerts/{alertId}/ack")
     ResponseEntity<?> ackAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "ACKED", principal(a))); }
@@ -3424,7 +3518,7 @@ class AgriController {
     ResponseEntity<?> strategies(Authentication a) { return ok(store.list("strategy-candidate")); }
 
     @GetMapping("/devices")
-    ResponseEntity<?> devices(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("device").stream().filter(d -> p.canAccessPlot(Jsons.text(d, "plotId", ""))).toList()); }
+    ResponseEntity<?> devices(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("device").stream().filter(d -> engine.canAccessPlot(p, Jsons.text(d, "plotId", ""))).toList()); }
 
     @PostMapping("/devices")
     ResponseEntity<?> device(@RequestBody Map<String, Object> body, Authentication a) { if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限"); String id = Jsons.text(body, "deviceId", Jsons.id("device")); body.put("deviceId", id); store.save("device", id, body); return ok(body); }
@@ -3441,6 +3535,13 @@ class AgriController {
     @PostMapping("/strategy-candidates/{id}/offline-validate")
     ResponseEntity<?> offlineValidate(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body, Authentication a) { return ok(engine.offlineValidateStrategy(id, body == null ? Map.of() : body, principal(a))); }
 
+    private void validatePlot(Map<String, Object> plot) {
+        if (Jsons.text(plot, "name", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_NAME_REQUIRED", "请填写地块名称");
+        if (Jsons.text(plot, "cropCode", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CROP_REQUIRED", "请选择作物种类");
+        if (Jsons.text(plot, "cropVariety", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_VARIETY_REQUIRED", "请填写作物品种");
+        if (Jsons.number(plot, "areaM2", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
+        if (Jsons.whole(plot, "growthCycleDays", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
+    }
     private List<Map<String, Object>> filterFarmScope(List<Map<String, Object>> farms, UserPrincipal p) { return farms.stream().filter(f -> p.farmIds.contains("*") || p.farmIds.contains(Jsons.text(f, "farmId", ""))).toList(); }
     private UserPrincipal principal(Authentication a) { if (a == null || !(a.getPrincipal() instanceof UserPrincipal p)) throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要登录"); return p; }
     private ResponseEntity<Map<String, Object>> ok(Object data) { return ResponseEntity.ok(ApiResponses.success(data)); }

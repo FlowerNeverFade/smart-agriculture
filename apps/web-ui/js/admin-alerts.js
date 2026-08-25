@@ -1,5 +1,4 @@
 import { api } from './api.js';
-import '../css/modules/admin-alerts.css';
 
 const { ref, computed, inject } = Vue;
 
