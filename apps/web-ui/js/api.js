@@ -222,8 +222,11 @@ export class ApiService {
       // long-lived SSE request is opened, even though the probe returned 200.
       await resp.text();
       if (resp.ok) {
-        this.isLive = true;
-        return true;
+        // A healthy backend does not turn an unauthenticated demo session
+        // into a live session.  Demo mode must keep using its explicit MOCK
+        // data instead of issuing tokenless requests that return 401.
+        this.isLive = this.sessionMode === 'live' && Boolean(this.token);
+        return this.isLive;
       }
     } catch (e) {
       // Backend not running locally, seamlessly fall back to local mock state
