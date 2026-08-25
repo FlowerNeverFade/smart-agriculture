@@ -217,6 +217,10 @@ export class ApiService {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(1800)
       });
+      // Consume the tiny health response before returning.  Leaving the body
+      // unread makes Chromium report a spurious ERR_ABORTED when the next
+      // long-lived SSE request is opened, even though the probe returned 200.
+      await resp.text();
       if (resp.ok) {
         this.isLive = true;
         return true;
