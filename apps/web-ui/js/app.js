@@ -14,8 +14,17 @@ const ICON_CLASS = Object.freeze({
   warning: 'ph-warning',
   timeline: 'ph-chart-line-up',
   task_alt: 'ph-clipboard-text',
+  task: 'ph-check-square',
   water_drop: 'ph-drop',
   group: 'ph-users',
+  menu_book: 'ph-book-open',
+  arrow_back: 'ph-arrow-left',
+  monitoring: 'ph-monitor',
+  dns: 'ph-hard-drives',
+  gavel: 'ph-gavel',
+  science: 'ph-flask',
+  rule_folder: 'ph-folder-notch',
+  admin_panel_settings: 'ph-user-gear',
   library_books: 'ph-books',
   account_balance_wallet: 'ph-wallet',
   menu: 'ph-list',
@@ -37,7 +46,6 @@ const ICON_CLASS = Object.freeze({
   send: 'ph-paper-plane-tilt',
   analytics: 'ph-chart-line-up',
   fact_check: 'ph-clipboard-text',
-  task: 'ph-check-square',
   record_voice_over: 'ph-user-focus',
   group_off: 'ph-user-minus',
   refresh: 'ph-arrows-clockwise',
@@ -65,6 +73,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
+  { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
   { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
@@ -139,6 +148,21 @@ function parseHashRoute(hash = window.location.hash) {
 function plotDetailHash(plotId) {
   const query = new URLSearchParams({ view: 'plot-detail', plotId: String(plotId || '') });
   return `#${query.toString()}`;
+}
+
+const FARMER_SHARED_CONTEXT_KEY = 'agriloop-farmer-shared-context';
+
+function readFarmerReturnPage() {
+  try {
+    const raw = sessionStorage.getItem(FARMER_SHARED_CONTEXT_KEY);
+    if (!raw) return '';
+    const context = JSON.parse(raw);
+    if (context?.source !== 'farmer') return '';
+    const page = String(context.returnPage || 'farmer.html');
+    return page.endsWith('.html') ? page : 'farmer.html';
+  } catch (error) {
+    return '';
+  }
 }
 
 function scopePlots(plots, user) {
@@ -966,6 +990,105 @@ const CropPacksView = {
   props: ['state', 'routeParams']
 };
 
+const RISK_FOCUS_LABELS = {
+  WATER_DEFICIT: '缺水风险',
+  HEAT_STRESS: '高温胁迫',
+  COLD_STRESS: '低温冷害'
+};
+const TASK_ACTION_LABELS = { INSPECTION: '现场巡田', IRRIGATION_CHECK: '灌溉巡检' };
+const METRIC_AVAILABILITY_LABELS = { SUPPORTED: '已接入', SIMULATION_ONLY: '演示参考', UNAVAILABLE: '不可用' };
+
+function manualEnvMetrics(pack, stage) {
+  const target = stage?.target || {};
+  const samplePlot = (MOCK_DATA.plots || []).find((plot) => plot.cropCode === pack.cropCode);
+  const items = [
+    { code: 'SOIL_MOISTURE', label: samplePlot?.metrics?.SOIL_MOISTURE?.label || '土壤湿度', range: `${target.soilMoistureLow}~${target.soilMoistureHigh}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
+    { code: 'AIR_TEMPERATURE', label: samplePlot?.metrics?.AIR_TEMPERATURE?.label || '空气温度', range: `${target.airTemperatureLow}~${target.airTemperatureHigh}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
+  ];
+  (pack.metrics || []).forEach((metric) => {
+    if (['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'WATER_LEVEL'].includes(metric.code)) return;
+    const sampleMetric = samplePlot?.metrics?.[metric.code];
+    const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
+    items.push({
+      code: metric.code,
+      label: metric.label,
+      range: sampleMetric?.target || fallbackRange,
+      unit: metric.unit || sampleMetric?.unit || '',
+      availability: metric.availability || 'SIMULATION_ONLY',
+      note: metric.availability === 'SUPPORTED' ? '可监测指标' : '演示环境参考区间'
+    });
+  });
+  return items;
+}
+
+function buildStageGuide(pack, stage) {
+  const target = stage?.target || {};
+  const lines = [
+    `${pack.identity.name}（${pack.identity.region || '本地'}）处于「${stage.label}」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。`,
+    `适宜土壤湿度 ${target.soilMoistureLow}%~${target.soilMoistureHigh}%，空气温度 ${target.airTemperatureLow}~${target.airTemperatureHigh}°C。`
+  ];
+  if (stage.riskFocus?.length) {
+    lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);
+  }
+  if (stage.taskTemplates?.length) {
+    const tasks = stage.taskTemplates.map((task) => {
+      const action = TASK_ACTION_LABELS[task.actionType] || task.actionType;
+      return `${action}（每 ${task.intervalDays} 天，优先级 ${task.priority}）`;
+    }).join('；');
+    lines.push(`建议农务节奏：${tasks}。`);
+  }
+  const ruleNotes = (pack.rules || []).map((rule) => {
+    const op = rule.operator === 'LT' ? '低于' : '高于';
+    return `${rule.code}：${rule.metric} ${op} ${rule.threshold} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
+  });
+  if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
+  const knowledgeLines = (pack.knowledge?.content || []).filter((line) => line && !line.startsWith('>') && !line.startsWith('#')).slice(0, 5);
+  return [...lines, ...knowledgeLines];
+}
+
+const CROP_MANUAL_ICONS = {
+  tomato: '🍅',
+  corn: '🌽',
+  cucumber: '🥒',
+  rice: '🌾',
+  sunflower: '🌻',
+  strawberry: '🍓',
+  pepper: '🌶️'
+};
+
+const CropManualView = {
+  template: '#tmpl-crop-manual',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const packs = computed(() => (props.state.cropPackDetails || []).slice().sort((a, b) => a.identity.name.localeCompare(b.identity.name, 'zh-CN')));
+    const cropCode = ref((props.state.plots?.[0]?.cropCode) || packs.value[0]?.cropCode || 'tomato');
+    const stageCode = ref((props.state.plots?.[0]?.stageCode) || packs.value.find((p) => p.cropCode === cropCode.value)?.stages?.[0]?.code || 'seedling');
+
+    const cropOptions = computed(() => packs.value.map((pack) => ({
+      cropCode: pack.cropCode,
+      label: pack.identity.name,
+      region: pack.identity.region || '本地',
+      stageCount: pack.stages?.length || 0,
+      icon: CROP_MANUAL_ICONS[pack.cropCode] || '🌱'
+    })));
+    const cropPack = computed(() => packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null);
+    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => a.sequence - b.sequence));
+    const stage = computed(() => stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
+    const envMetrics = computed(() => cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : []);
+    const guideParagraphs = computed(() => cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : []);
+
+    const selectCrop = (code) => {
+      cropCode.value = code;
+      const pack = packs.value.find((item) => item.cropCode === code);
+      stageCode.value = pack?.stages?.[0]?.code || 'seedling';
+    };
+    const selectStage = (code) => { stageCode.value = code; };
+    const availabilityLabel = (code) => METRIC_AVAILABILITY_LABELS[code] || code || '—';
+
+    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel };
+  }
+};
+
 const ValueLedgerView = {
   template: '#tmpl-value-ledger',
   props: ['state', 'routeParams'],
@@ -1402,6 +1525,7 @@ const app = createApp({
     'work-orders-view': WorkOrderLifecycleView,
     'resource-coordination-view': AdminResourcePlanningView,
     'farm-members-view': FarmMembersView,
+    'crop-manual-view': CropManualView,
     'crop-packs-view': CropPacksView,
     'value-ledger-view': ValueLedgerView,
     'admin-overview-view': AdminOverviewView,
@@ -1446,6 +1570,10 @@ const app = createApp({
       cropPackDetails: MOCK_DATA.cropPackDetails,
       riskForecastConfig: MOCK_DATA.riskForecastConfig,
       valueLedger: MOCK_DATA.valueLedger,
+      farmerMessages: MOCK_DATA.farmer_messages || [],
+      farmerTasks: MOCK_DATA.farmer_tasks || [],
+      farmerProfile: MOCK_DATA.farmer_profile || {},
+      gapCoverage: MOCK_DATA.gapCoverage || {},
       adminOverview: MOCK_DATA.adminOverview || {},
       adminGlobalPlots: MOCK_DATA.adminGlobalPlots || [],
       adminDevices: MOCK_DATA.adminDevices || [],
@@ -1494,6 +1622,20 @@ const app = createApp({
     const logout = () => {
       api.clearSession();
       window.location.replace('login.html');
+    };
+
+    const farmerReturnPage = ref(readFarmerReturnPage());
+    if (farmerReturnPage.value) {
+      isSidebarOpen.value = true;
+    }
+    const returnToFarmer = () => {
+      const page = farmerReturnPage.value || 'farmer.html';
+      try {
+        sessionStorage.removeItem(FARMER_SHARED_CONTEXT_KEY);
+      } catch (error) {
+        // Ignore storage failures; navigation still works.
+      }
+      window.location.assign(page);
     };
 
     let plotDetailReturnHash = initialRoute.view === 'plot-detail' ? '#dashboard' : '';
@@ -1749,7 +1891,9 @@ const app = createApp({
       handleDataInvalidated,
       openPlotDetail,
       closePlotDetail,
-      navigateFromPlotDetail
+      navigateFromPlotDetail,
+      farmerReturnPage,
+      returnToFarmer
     };
   }
 });

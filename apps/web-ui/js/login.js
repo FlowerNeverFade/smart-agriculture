@@ -95,7 +95,8 @@ function beginExit(user, mode) {
   leaving = true;
   document.body.classList.add('is-leaving');
   showToast(mode === 'demo' ? `已进入${user.roleLabel}演示模式` : `欢迎进入${user.roleLabel}工作台`);
-  window.setTimeout(() => window.location.replace('index.html'), 420);
+  const target = user.role === 'FARMER' ? 'farmer.html' : 'index.html';
+  window.setTimeout(() => window.location.replace(target), 420);
 }
 
 function validateUsername(value) {
@@ -355,7 +356,9 @@ recoveryCodeContinue.addEventListener('click', continueAfterRecoveryCode);
 
 const storedSession = api.readSession();
 if (storedSession?.mode === 'live' && storedSession.token) {
-  window.location.replace('index.html');
+  const storedUser = presentRoleUser(storedSession?.user);
+  const target = storedUser?.role === 'FARMER' ? 'farmer.html' : 'index.html';
+  window.location.replace(target);
 } else {
   if (storedSession?.mode === 'demo') api.clearSession();
   backgroundController = createAmbientLiquidField({
