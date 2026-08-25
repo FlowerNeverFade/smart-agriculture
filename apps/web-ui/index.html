@@ -8,6 +8,8 @@
   
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/modules/decision-console.css">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css">
   
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
   
@@ -64,7 +66,7 @@
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
-                     @plot-change="applyPlotChange"></component>
+                     @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"></component>
         </transition>
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"

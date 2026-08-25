@@ -1,10 +1,80 @@
 .dc-root {
+  --text-primary: var(--g-text-primary);
+  --text-secondary: var(--g-text-secondary);
+  --text-muted: var(--g-text-disabled);
+  --bg-base: var(--g-bg-base);
+  --bg-canvas: var(--g-bg-base);
+  --bg-card: var(--g-bg-surface);
+  --bg-input: var(--g-bg-surface);
+  --bg-subtle: var(--g-bg-subtle);
+  --bg-surface: var(--g-bg-surface);
+  --border-default: var(--g-border);
+  --border-muted: var(--g-border-subtle);
+  --border-danger: color-mix(in srgb, var(--g-danger) 45%, var(--g-border));
+  --border-warning: color-mix(in srgb, var(--g-warning) 45%, var(--g-border));
+  --green-primary: var(--g-primary);
+  --green-hover: var(--g-primary-hover);
+  --green-bright: var(--g-success);
+  --green-subtle: var(--g-primary-bg);
+  --blue-primary: #1967d2;
+  --blue-hover: #4285f4;
+  --blue-subtle: rgba(66, 133, 244, .12);
+  --amber-primary: var(--g-warning);
+  --amber-subtle: var(--g-warning-bg);
+  --red-primary: var(--g-danger);
+  --red-subtle: var(--g-danger-bg);
+  --purple-primary: var(--g-purple);
+  --radius-md: var(--g-radius);
+  --radius-lg: var(--g-radius-lg);
+  --radius-xl: 18px;
+  --radius-pill: var(--g-radius-pill);
+  --shadow-sm: var(--g-shadow-1);
+  --font-sans: var(--g-font-family);
+  --font-mono: var(--g-mono);
+  --transition-fast: .18s ease;
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
   color: var(--text-primary);
   isolation: isolate;
+}
+
+.admin-decision .dc-approval-panel.embedded {
+  position: static;
+  margin: 14px 16px;
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+.admin-decision .dc-approval-panel.embedded > label:first-child {
+  flex: 1 1 360px;
+}
+
+.admin-decision .dc-outcome-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.admin-decision .dc-outcome-select select {
+  height: 31px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--bg-input);
+}
+
+.admin-decision .dc-command-warning {
+  margin: 0 16px 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-warning);
+  border-radius: var(--radius-md);
+  color: var(--amber-primary);
+  background: var(--amber-subtle);
+  font-size: 11px;
 }
 
 .dc-root::before {

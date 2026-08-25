@@ -1,6 +1,8 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { AdminDecisionView } from './modules/admin-decision.js';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
@@ -930,10 +932,10 @@ const app = createApp({
   components: {
     'dashboard-view': DashboardView,
     'plot-detail-modal': PlotDetailModal,
-    'decision-console-view': DecisionConsoleView,
+    'decision-console-view': AdminDecisionView,
     'risk-forecast-view': RiskForecastView,
     'work-orders-view': WorkOrdersView,
-    'resource-coordination-view': ResourceCoordinationView,
+    'resource-coordination-view': AdminResourcePlanningView,
     'farm-members-view': FarmMembersView,
     'crop-packs-view': CropPacksView,
     'value-ledger-view': ValueLedgerView
@@ -1102,6 +1104,24 @@ const app = createApp({
       }
     };
 
+    const handleDataInvalidated = async ({ domains = [], record } = {}) => {
+      if (record?.workOrderId && domains.includes('workOrders')) {
+        state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
+      }
+      if (!(isLive.value && state.value.sessionMode === 'live')) return;
+      const jobs = [];
+      if (domains.includes('plots')) {
+        jobs.push(api.getOverview().then((overview) => {
+          if (Array.isArray(overview?.plots)) state.value.plots = scopePlots(mergeOverviewPlots(overview.plots), state.value.currentUser);
+        }));
+      }
+      if (domains.includes('workOrders')) {
+        jobs.push(api.getWorkOrders().then((items) => { if (Array.isArray(items)) state.value.workOrders = items; }));
+      }
+      const results = await Promise.allSettled(jobs);
+      if (results.some((item) => item.status === 'rejected')) showToast('业务已提交，但关联页面刷新失败，请稍后手动刷新', 'error');
+    };
+
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
       const plot = state.value.plots.find((item) => item.plotId === plotId);
       if (!plot) {
@@ -1212,6 +1232,7 @@ const app = createApp({
       logout,
       navigate,
       applyPlotChange,
+      handleDataInvalidated,
       openPlotDetail,
       closePlotDetail,
       navigateFromPlotDetail
