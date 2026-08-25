@@ -345,6 +345,14 @@ class AgriStore {
         return ids.size();
     }
 
+    long countWhere(String type, Predicate<Map<String, Object>> predicate) {
+        return list(type).stream().filter(predicate).count();
+    }
+
+    int telemetryCount(String plotId) {
+        return telemetry(plotId, null, Instant.EPOCH, Instant.now().plus(1, ChronoUnit.DAYS), 10000).size();
+    }
+
     synchronized int deleteTelemetryForPlot(String plotId) {
         int before = telemetry.size();
         telemetry.removeIf(event -> plotId.equals(Jsons.text(event, "plotId", "")));
@@ -554,6 +562,25 @@ class AgriStore {
                 && (int) Jsons.whole(user, "credentialVersion", 1) == credentialVersion;
     }
 
+    synchronized Map<String, Object> updateUserScope(String userId, Collection<String> farmIds, Collection<String> plotIds) {
+        Map<String, Object> user = userById(userId);
+        if (user == null) return null;
+        user.put("farmIds", new ArrayList<>(farmIds));
+        user.put("plotIds", new ArrayList<>(plotIds));
+        if (databaseReady) {
+            try {
+                int updated = jdbc.update("UPDATE user_account SET farm_ids=?,plot_ids=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                        String.join(",", Jsons.strings(user.get("farmIds"))),
+                        String.join(",", Jsons.strings(user.get("plotIds"))), userId);
+                if (updated != 1) return null;
+            } catch (DataAccessException error) {
+                databaseReady = false;
+            }
+        }
+        users.put(userId, Jsons.copy(mapper, user));
+        return safeUser(Jsons.copy(mapper, user));
+    }
+
     private Map<String, Object> userMap(ResultSet rs) throws java.sql.SQLException {
         Map<String, Object> u = new LinkedHashMap<>();
         u.put("userId", rs.getString("user_id")); u.put("username", rs.getString("username"));
@@ -633,11 +660,13 @@ class AgriStore {
             Map<String, Object> plot = new LinkedHashMap<>();
             plot.put("plotId", plots[i]); plot.put("farmId", "farm-demo"); plot.put("name", "温室" + (i + 1));
             plot.put("areaM2", 80 + i * 20); plot.put("riskLevel", i == 2 ? "HIGH" : "MEDIUM"); plot.put("cropCode", crops[i]);
+            plot.put("status", "ACTIVE");
             plot.put("location", Map.of("lat", 29.56 + i * 0.001, "lng", 106.55 + i * 0.001)); save("plot", plots[i], plot);
-            Map<String, Object> batch = new LinkedHashMap<>(); batch.put("batchId", "batch-" + plots[i]); batch.put("plotId", plots[i]);
+            Map<String, Object> batch = new LinkedHashMap<>(); batch.put("batchId", "batch-" + plots[i]); batch.put("farmId", "farm-demo"); batch.put("plotId", plots[i]);
             batch.put("cropCode", crops[i]); batch.put("stageCode", "fruiting"); batch.put("cropPackVersion", "1.0.0");
             batch.put("plantedAt", Instant.now().minus(45, ChronoUnit.DAYS).toString()); save("crop-batch", "batch-" + plots[i], batch);
-            Map<String, Object> device = new LinkedHashMap<>(); device.put("deviceId", "mock-" + plots[i]); device.put("plotId", plots[i]);
+            Map<String, Object> device = new LinkedHashMap<>(); device.put("deviceId", "mock-" + plots[i]); device.put("farmId", "farm-demo"); device.put("plotId", plots[i]);
+            device.put("bindingState", "BOUND");
             device.put("type", "ENVIRONMENTAL_SENSOR"); device.put("status", "ONLINE"); device.put("healthScore", 0.98); device.put("lastSeen", Instant.now().toString());
             save("device", "mock-" + plots[i], device);
         }
@@ -897,8 +926,18 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 UserPrincipal principal = jwtService.parse(header.substring(7));
                 if (!store.credentialVersionMatches(principal.userId, principal.credentialVersion)) throw new IllegalArgumentException("credential version mismatch");
-                List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + principal.role));
-                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(principal, null, authorities));
+                // Scope is deliberately reloaded for every protected request.
+                // Tokens retain the same schema, while a farm manager's scope
+                // revocation becomes effective immediately.
+                Map<String, Object> current = store.userById(principal.userId);
+                if (current == null || !Jsons.bool(current, "enabled", true)) throw new IllegalArgumentException("account disabled");
+                UserPrincipal effective = new UserPrincipal(principal.userId,
+                        Jsons.text(current, "username", principal.username),
+                        Jsons.text(current, "role", principal.role),
+                        Jsons.strings(current.get("farmIds")), Jsons.strings(current.get("plotIds")),
+                        principal.credentialVersion);
+                List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + effective.role));
+                SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(effective, null, authorities));
             } catch (Exception ignored) {
                 // The controller will return the standard 401 generated by Spring Security.
             }
@@ -1086,6 +1125,7 @@ class AgriEngine {
     private final AgriStore store;
     private final AgriEventBus events;
     private final AgriProperties properties;
+    private final CropPackCatalog cropPackCatalog;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final StringRedisTemplate redis;
@@ -1102,6 +1142,7 @@ class AgriEngine {
     private final AtomicLong redisFailures = new AtomicLong();
 
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
+               CropPackCatalog cropPackCatalog,
                PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
@@ -1113,7 +1154,7 @@ class AgriEngine {
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
-        this.store = store; this.events = events; this.properties = properties;
+        this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
     }
 
@@ -1273,12 +1314,22 @@ class AgriEngine {
     }
 
     Map<String, Object> overview() {
-        return overview(null);
+        return overview(null, null);
     }
 
     Map<String, Object> overview(UserPrincipal principal) {
+        String farmId = principal == null ? null : principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null);
+        return overview(farmId, principal);
+    }
+
+    Map<String, Object> overview(String farmId, UserPrincipal principal) {
+        if (principal != null && farmId != null && !principal.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        }
         List<Map<String, Object>> plots = store.list("plot").stream()
-                .filter(plot -> principal == null || principal.canAccessPlot(Jsons.text(plot, "plotId", "")))
+                .filter(plot -> farmId == null || farmId.equals(Jsons.text(plot, "farmId", "")))
+                .filter(plot -> !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> principal == null || canAccessPlot(principal, Jsons.text(plot, "plotId", "")))
                 .toList();
         List<Map<String, Object>> cards = new ArrayList<>();
         int activeAlerts = 0, pendingTasks = 0;
@@ -1296,31 +1347,16 @@ class AgriEngine {
             cards.add(card);
         }
         cards.sort(Comparator.comparingInt((Map<String, Object> c) -> riskRank(Jsons.text(c, "riskLevel", "LOW"))).reversed());
-        return Map.of("farmId", "farm-demo", "plots", cards, "activeAlertCount", activeAlerts, "pendingWorkOrderCount", pendingTasks,
-                "eventCount", store.eventCount(), "dataMode", properties.getMode(), "aiMode", properties.getAiMode(), "generatedAt", Instant.now().toString());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("farmId", farmId); result.put("plots", cards); result.put("activeAlertCount", activeAlerts);
+        result.put("pendingWorkOrderCount", pendingTasks); result.put("eventCount", store.eventCount());
+        result.put("dataMode", properties.getMode()); result.put("aiMode", properties.getAiMode());
+        result.put("generatedAt", Instant.now().toString());
+        return result;
     }
 
     List<Map<String, Object>> cropPacks() {
-        return List.of(cropPack("tomato", "番茄", List.of("seedling", "vegetative", "flowering", "fruiting")),
-                cropPack("cucumber", "黄瓜", List.of("seedling", "vegetative", "flowering", "fruiting")));
-    }
-
-    private Map<String, Object> cropPack(String code, String name, List<String> stages) {
-        Map<String, Object> pack = new LinkedHashMap<>(); pack.put("cropCode", code); pack.put("name", name); pack.put("version", "1.0.0");
-        pack.put("schemaVersion", "1.0"); pack.put("status", "ACTIVE"); pack.put("stages", stages);
-        pack.put("metrics", List.of(metric("SOIL_MOISTURE", "%", "SUPPORTED", 20, 45), metric("AIR_TEMPERATURE", "°C", "SUPPORTED", 18, 32),
-                metric("LIGHT", "lux", "SIMULATION_ONLY", 1000, 70000), metric("CO2", "ppm", "SIMULATION_ONLY", 350, 1200),
-                metric("PH", "pH", "SIMULATION_ONLY", 5.5, 7.2), metric("WATER_LEVEL", "%", "SUPPORTED", 20, 100)));
-        pack.put("rules", List.of(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 20.0, "durationMinutes", 5, "cooldownMinutes", 120),
-                Map.of("code", "HEAT_STRESS", "metric", "AIR_TEMPERATURE", "operator", "GT", "threshold", 35.0, "durationMinutes", 10, "cooldownMinutes", 60)));
-        pack.put("prescriptionConstraints", Map.of("maxDurationSeconds", properties.getMaxIrrigationSeconds(), "cooldownMinutes", 120, "maxDailyWaterLitres", properties.getDailyWaterLimitLitres()));
-        pack.put("forecastProfile", Map.of("algorithm", "robust-trend-v1", "horizonsMinutes", List.of(60, 120, 240), "minValidSamples", 6, "maxStalenessSeconds", 120));
-        pack.put("knowledgeVersion", "kb-1.0.0"); pack.put("ruleVersion", "rule-1.0.0");
-        return pack;
-    }
-
-    private Map<String, Object> metric(String code, String unit, String availability, double low, double high) {
-        return Map.of("code", code, "unit", unit, "availability", availability, "target", Map.of("low", low, "high", high));
+        return cropPackCatalog.all();
     }
 
     Map<String, Object> resolvedProfile(String plotId) {
@@ -1608,12 +1644,75 @@ class AgriEngine {
         }
         if ("DEVICE_FAULT".equals(primary)) supporting.add(Map.of("type", "device", "status", "OFFLINE", "provenance", "OBSERVED"));
         if (waterScore < 0.4) opposing.add(Map.of("type", "rule", "reason", "湿度未持续低于目标", "provenance", "DERIVED"));
+        List<Map<String, Object>> humanObservations = recentHumanObservations(plotId);
+        List<Map<String, Object>> evidenceConflicts = new ArrayList<>();
+        List<Map<String, Object>> humanAssessment = new ArrayList<>();
+        for (Map<String, Object> observation : humanObservations) {
+            String soilSurface = Jsons.text(observation, "soilSurface", "").toUpperCase(Locale.ROOT);
+            String cropCondition = Jsons.text(observation, "cropCondition", "").toUpperCase(Locale.ROOT);
+            String deviceStatus = Jsons.text(observation, "deviceStatus", "").toUpperCase(Locale.ROOT);
+            List<String> supports = new ArrayList<>();
+            List<String> opposes = new ArrayList<>();
+            if (soilSurface.contains("DRY")) supports.add("WATER_DEFICIT");
+            if (Set.of("WET", "NORMAL", "MOIST").contains(soilSurface)) opposes.add("WATER_DEFICIT");
+            if (cropCondition.contains("WILT") || cropCondition.contains("DROOP")) supports.add("WATER_DEFICIT");
+            if (Set.of("NORMAL", "HEALTHY").contains(cropCondition)) opposes.add("WATER_DEFICIT");
+            if (deviceStatus.contains("OFFLINE") || deviceStatus.contains("FAULT") || deviceStatus.contains("LEAK")) supports.add("DEVICE_FAULT");
+            if ("NORMAL".equals(deviceStatus)) opposes.add("DEVICE_FAULT");
+            boolean hasPortable = observation.get("portableSoilMoisture") != null;
+            double portable = Jsons.number(observation, "portableSoilMoisture", Double.NaN);
+            if (hasPortable && !Double.isNaN(portable)) {
+                if (portable < 20) supports.add("WATER_DEFICIT"); else opposes.add("WATER_DEFICIT");
+                if (!Double.isNaN(moisture) && Math.abs(portable - moisture) > 5) {
+                    Map<String, Object> conflict = new LinkedHashMap<>();
+                    conflict.put("type", "PORTABLE_VS_TELEMETRY"); conflict.put("inspectionId", observation.get("inspectionId"));
+                    conflict.put("telemetryValue", moisture); conflict.put("portableValue", portable);
+                    conflict.put("message", "便携仪结果与在线传感器相差较大，需要人工复核");
+                    conflict.put("provenance", "USER_PROVIDED"); evidenceConflicts.add(conflict);
+                }
+            }
+            Map<String, Object> assessment = new LinkedHashMap<>();
+            assessment.put("inspectionId", observation.get("inspectionId")); assessment.put("workOrderId", observation.get("workOrderId"));
+            assessment.put("supports", supports.stream().distinct().toList()); assessment.put("opposes", opposes.stream().distinct().toList());
+            assessment.put("provenance", "USER_PROVIDED"); humanAssessment.add(assessment);
+            if (supports.contains(primary)) supporting.add(humanEvidence(observation, "SUPPORTS", primary));
+            if (opposes.contains(primary)) opposing.add(humanEvidence(observation, "OPPOSES", primary));
+        }
         Map<String, Object> diagnosis = new LinkedHashMap<>(); diagnosis.put("diagnosisId", Jsons.id("diag")); diagnosis.put("plotId", plotId); diagnosis.put("riskType", primary);
         diagnosis.put("primaryCause", primary); diagnosis.put("confidence", Math.round(confidence * 100.0) / 100.0); diagnosis.put("candidateCauses", candidates);
         diagnosis.put("supportingEvidence", supporting); diagnosis.put("opposingEvidence", opposing); diagnosis.put("missingInformation", missing);
+        diagnosis.put("humanObservations", humanObservations); diagnosis.put("humanEvidenceAssessment", humanAssessment);
+        diagnosis.put("evidenceConflicts", evidenceConflicts);
         diagnosis.put("scenarioId", scenario); if (request.containsKey("traceId")) diagnosis.put("traceId", request.get("traceId")); diagnosis.put("ruleVersion", "rule-1.0.0"); diagnosis.put("cropPackVersion", "1.0.0"); diagnosis.put("evaluatedAt", Instant.now().toString());
         store.save("diagnosis", Jsons.text(diagnosis, "diagnosisId", ""), diagnosis); events.publish("diagnosis.created", diagnosis); store.logEvent("diagnosis.created", diagnosis);
         return diagnosis;
+    }
+
+    private List<Map<String, Object>> recentHumanObservations(String plotId) {
+        Instant cutoff = Instant.now().minus(24, ChronoUnit.HOURS);
+        return store.list("inspection").stream()
+                .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> !Jsons.instant(item.get("observedAt"), Jsons.instant(item.get("createdAt"), Instant.EPOCH)).isBefore(cutoff))
+                .sorted(Comparator.comparing((Map<String, Object> item) ->
+                        Jsons.instant(item.get("observedAt"), Jsons.instant(item.get("createdAt"), Instant.EPOCH))).reversed())
+                .limit(3).map(item -> {
+                    Map<String, Object> evidence = new LinkedHashMap<>();
+                    for (String field : List.of("inspectionId", "workOrderId", "plotId", "operatorId", "operatorName", "operatorRole",
+                            "observedAt", "soilSurface", "cropCondition", "deviceStatus", "portableSoilMoisture", "notes")) {
+                        if (item.containsKey(field)) evidence.put(field, item.get(field));
+                    }
+                    evidence.put("evidenceId", Jsons.text(item, "inspectionId", ""));
+                    evidence.put("sourceType", "HUMAN_OBSERVATION"); evidence.put("provenance", "USER_PROVIDED");
+                    return evidence;
+                }).toList();
+    }
+
+    private Map<String, Object> humanEvidence(Map<String, Object> observation, String relation, String cause) {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("type", "human-observation"); evidence.put("relation", relation); evidence.put("cause", cause);
+        evidence.put("inspectionId", observation.get("inspectionId")); evidence.put("workOrderId", observation.get("workOrderId"));
+        evidence.put("observedAt", observation.get("observedAt")); evidence.put("operatorId", observation.get("operatorId"));
+        evidence.put("provenance", "USER_PROVIDED"); return evidence;
     }
 
     private Map<String, Object> candidate(String code, double confidence) {
@@ -1644,8 +1743,9 @@ class AgriEngine {
         double diagnosisConfidence = Jsons.number(diagnosis, "confidence", 0);
         boolean diagnosisHardFail = diagnosis != null && diagnosisConfidence >= .6
                 && Set.of("SENSOR_DRIFT", "DEVICE_FAULT").contains(diagnosisCause);
+        boolean humanEvidenceConflict = diagnosis != null && !Jsons.maps(mapper, diagnosis.get("evidenceConflicts")).isEmpty();
         boolean diagnosisNeedsReview = diagnosis != null && ("INSUFFICIENT_EVIDENCE".equals(diagnosisCause)
-                || ("SENSOR_DRIFT".equals(diagnosisCause) && diagnosisConfidence < .6));
+                || ("SENSOR_DRIFT".equals(diagnosisCause) && diagnosisConfidence < .6) || humanEvidenceConflict);
         boolean diagnosisPass = diagnosis == null || (!diagnosisHardFail && !diagnosisNeedsReview);
         boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(soil, "scenarioId", ""))
                 || "BAD".equals(qualityStatus) || "SENSOR_DRIFT".equals(diagnosisCause);
@@ -1660,6 +1760,7 @@ class AgriEngine {
         if (qualityHardFail) missing.add("GOOD_DATA_QUALITY"); else if (qualityNeedsReview) missing.add("QUALITY_REVIEW");
         if (!devicePass) missing.add("DEVICE_HEALTH"); if (drift) missing.add("FLOW_RATE_CALIBRATION");
         if (diagnosisHardFail) missing.add("DIAGNOSIS_CONFIRMATION"); else if (diagnosisNeedsReview) missing.add("MORE_DIAGNOSIS_EVIDENCE");
+        if (humanEvidenceConflict) missing.add("HUMAN_EVIDENCE_REVIEW");
         if (!permissionPass) missing.add("CONTROL_PERMISSION");
         String status;
         if (!metricPass || !devicePass) status = "UNAVAILABLE";
@@ -1671,7 +1772,10 @@ class AgriEngine {
                 + (permissionPass ? .10 : 0) + (safetyPass ? .12 : 0);
         Map<String, Object> result = new LinkedHashMap<>(); result.put("readinessId", Jsons.id("ready")); result.put("subject", Map.of("type", subjectType, "id", subjectId));
         result.put("plotId", plotId); result.put("status", status); result.put("score", Math.round(score * 100.0) / 100.0); result.put("hardGates", gates);
-        result.put("missingEvidence", missing); result.put("conflicts", drift ? List.of("QUALITY_VS_MOISTURE_CONFLICT") : List.of());
+        List<String> readinessConflicts = new ArrayList<>();
+        if (drift) readinessConflicts.add("QUALITY_VS_MOISTURE_CONFLICT");
+        if (humanEvidenceConflict) readinessConflicts.add("HUMAN_OBSERVATION_CONFLICT");
+        result.put("missingEvidence", missing.stream().distinct().toList()); result.put("conflicts", readinessConflicts);
         result.put("requiredActions", requiredActions(status, missing)); result.put("policyVersion", "readiness-v1"); result.put("evaluatedAt", Instant.now().toString());
         store.save("readiness", Jsons.text(result, "readinessId", ""), result); events.publish("readiness.evaluated", result); store.logEvent("readiness.evaluated", result);
         return result;
@@ -1823,6 +1927,9 @@ class AgriEngine {
         else cooldowns.remove(plotId);
         double expectedWater = Jsons.number(command, "waterLitre", 0); double diff = expectedWater == 0 ? 0 : (actualWater - expectedWater) / expectedWater;
         Map<String, Object> evaluation = new LinkedHashMap<>(); evaluation.put("evaluationId", Jsons.id("eval")); evaluation.put("planId", command.get("planId")); evaluation.put("commandId", commandId);
+        evaluation.put("plotId", plotId);
+        Map<String, Object> evaluationPlot = store.find("plot", plotId);
+        evaluation.put("farmId", evaluationPlot == null ? null : Jsons.text(evaluationPlot, "farmId", ""));
         evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", before + 10, "waterLitre", expectedWater));
         evaluation.put("actual", Map.of("soilMoistureBefore", before, "soilMoistureAfter", after, "waterLitre", actualWater));
         evaluation.put("planActualDiff", Map.of("waterLitrePct", Math.round(diff * 10000.0) / 100.0, "soilMoisturePoint", after - (before + 10)));
@@ -2014,15 +2121,15 @@ class AgriEngine {
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
         StreamBuilder work = new StreamBuilder();
         store.list("work-order").stream()
-                .filter(w -> principal.canAccessPlot(Jsons.text(w, "plotId", "")))
+                .filter(w -> canAccessPlot(principal, Jsons.text(w, "plotId", "")))
                 .filter(w -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(w, "assigneeId", "")))
                 .filter(w -> plotId == null || plotId.equals(Jsons.text(w, "plotId", "")))
                 .map(this::normalizeWorkOrderForRead).forEach(work::add);
-        store.list("alert").stream().filter(a -> principal.canAccessPlot(Jsons.text(a, "plotId", "")) &&
+        store.list("alert").stream().filter(a -> canAccessPlot(principal, Jsons.text(a, "plotId", "")) &&
                 (plotId == null || plotId.equals(Jsons.text(a, "plotId", ""))) && !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).forEach(a -> work.add(Map.of(
                 "workItemId", Jsons.text(a, "alertId", Jsons.id("wi")), "sourceType", "ALERT", "sourceRef", a.get("alertId"), "plotId", a.get("plotId"),
                 "priority", Jsons.text(a, "level", "MEDIUM"), "status", "OPEN", "reason", a.get("source"), "dueAt", Instant.now().plus(2, ChronoUnit.HOURS).toString())));
-        store.list("diagnosis").stream().filter(d -> principal.canAccessPlot(Jsons.text(d, "plotId", "")) &&
+        store.list("diagnosis").stream().filter(d -> canAccessPlot(principal, Jsons.text(d, "plotId", "")) &&
                 (plotId == null || plotId.equals(Jsons.text(d, "plotId", "")))).limit(20).forEach(d -> work.add(Map.of(
                 "workItemId", Jsons.text(d, "diagnosisId", Jsons.id("wi")), "sourceType", "DIAGNOSIS", "sourceRef", d.get("diagnosisId"), "plotId", d.get("plotId"),
                 "priority", Jsons.text(d, "primaryCause", "MEDIUM"), "status", "OPEN", "reason", "待处理根因诊断", "dueAt", Instant.now().plus(4, ChronoUnit.HOURS).toString())));
@@ -2070,7 +2177,7 @@ class AgriEngine {
         if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         if (!plotId.isBlank()) ensurePlotAccess(principal, plotId);
         return store.list("work-order").stream()
-                .filter(work -> principal.canAccessPlot(Jsons.text(work, "plotId", "")))
+                .filter(work -> canAccessPlot(principal, Jsons.text(work, "plotId", "")))
                 .filter(work -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(work, "assigneeId", "")))
                 .filter(work -> farmId.isBlank() || farmId.equals(Jsons.text(work, "farmId", farmIdForPlot(Jsons.text(work, "plotId", "")))))
                 .filter(work -> plotId.isBlank() || plotId.equals(Jsons.text(work, "plotId", "")))
@@ -2332,19 +2439,28 @@ class AgriEngine {
 
     Map<String, Object> resourcePlan(Map<String, Object> input, UserPrincipal principal) {
         if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "只有农场管理员可以安排农场资源");
-        List<Map<String, Object>> demands = Jsons.maps(mapper, input.get("demands")); if (demands.isEmpty()) demands = store.list("irrigation-plan").stream().limit(10).toList();
-        Map<String, Object> resource = store.find("resource-profile", "resource-default"); double capacity = Jsons.number(resource, "capacityLitres", 900); double remaining = capacity;
+        String farmId = Jsons.text(input, "farmId", Jsons.text(input, "scope", "")).trim();
+        if (farmId.isBlank()) farmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
+        if (farmId.isBlank() || !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权安排该农场的水资源");
+        String selectedFarmId = farmId;
+        List<Map<String, Object>> demands = Jsons.maps(mapper, input.get("demands"));
+        if (demands.isEmpty()) demands = store.list("irrigation-plan").stream()
+                .filter(plan -> selectedFarmId.equals(farmIdForPlot(Jsons.text(plan, "plotId", "")))).limit(10).toList();
+        Map<String, Object> resource = store.list("resource-profile").stream()
+                .filter(profile -> selectedFarmId.equals(Jsons.text(profile, "farmId", ""))).findFirst().orElse(null);
+        if (resource == null) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_PROFILE_MISSING", "当前农场没有水资源容量配置");
+        double capacity = Jsons.number(resource, "capacityLitres", 0); double remaining = capacity;
         List<Map<String, Object>> allocations = new ArrayList<>(), conflicts = new ArrayList<>(), unmet = new ArrayList<>();
         demands = new ArrayList<>(demands); demands.sort(Comparator.comparingInt((Map<String, Object> d) -> riskRank(Jsons.text(d, "priority", "MEDIUM"))).reversed());
         for (Map<String, Object> demand : demands) {
             double requested = Jsons.number(demand, "waterLitre", Jsons.number(demand, "requestedLitres", 0)); String plotId = Jsons.text(demand, "plotId", "plot-a01");
-            if (!principal.canAccessPlot(plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权为该地块分配资源");
+            if (!canAccessPlot(principal, plotId) || !selectedFarmId.equals(farmIdForPlot(plotId))) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权为该地块分配资源");
             double allocated = Math.min(remaining, Math.max(0, requested)); remaining -= allocated;
             allocations.add(Map.of("plotId", plotId, "requestedLitres", requested, "allocatedLitres", allocated, "status", allocated >= requested ? "ALLOCATED" : "PARTIAL"));
             if (allocated < requested) { Map<String, Object> reason = new LinkedHashMap<>(); reason.put("plotId", plotId); reason.put("requestedLitres", requested); reason.put("unmetLitres", requested - allocated); reason.put("reason", "WATER_CAPACITY"); unmet.add(reason); conflicts.add(Map.of("type", "CAPACITY", "plotId", plotId)); }
         }
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("resourcePlanId", Jsons.id("rp")); plan.put("status", unmet.isEmpty() ? "FEASIBLE" : "INFEASIBLE");
-        plan.put("scope", Jsons.text(input, "scope", "farm-demo")); plan.put("window", Map.of("from", Instant.now().toString(), "to", Instant.now().plus(6, ChronoUnit.HOURS).toString()));
+        plan.put("farmId", selectedFarmId); plan.put("scope", selectedFarmId); plan.put("window", Map.of("from", Instant.now().toString(), "to", Instant.now().plus(6, ChronoUnit.HOURS).toString()));
         plan.put("constraints", Map.of("waterCapacityLitres", capacity)); plan.put("allocations", allocations); plan.put("conflicts", conflicts); plan.put("unmetDemands", unmet); plan.put("algorithmVersion", "capacity-priority-v1");
         store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.created", plan); return plan;
     }
@@ -3113,9 +3229,12 @@ class AgriEngine {
         Set<String> commandIds = commands.stream().map(c -> Jsons.text(c, "commandId", "")).collect(Collectors.toSet());
         List<Map<String, Object>> evaluations = store.list("evaluation").stream().filter(e -> commandIds.contains(Jsons.text(e, "commandId", ""))).limit(20).toList();
         Map<String, Object> passport = new LinkedHashMap<>(); passport.put("traceId", traceId); passport.put("agentRun", run); passport.put("observations", latestMetrics(passportPlotId));
+        passport.put("humanObservations", recentHumanObservations(passportPlotId));
         passport.put("diagnoses", store.list("diagnosis").stream().filter(d -> Jsons.text(d, "traceId", "").equals(traceId) || passportPlotId.equals(Jsons.text(d, "plotId", ""))).limit(20).toList()); passport.put("readiness", store.list("readiness").stream().filter(r -> passportPlotId.equals(Jsons.text(r, "plotId", ""))).limit(20).toList());
         passport.put("plans", plans); passport.put("commands", commands); passport.put("evaluations", evaluations);
-        passport.put("valueLedgers", store.list("value-ledger").stream().limit(20).toList()); passport.put("provenance", List.of("OBSERVED", "USER_PROVIDED", "DERIVED", "SIMULATED", "ESTIMATED")); passport.put("generatedAt", Instant.now().toString()); return passport;
+        passport.put("valueLedgers", store.list("value-ledger").stream()
+                .filter(ledger -> passportPlotId.equals(Jsons.text(ledger, "plotId", ""))).limit(20).toList());
+        passport.put("provenance", List.of("OBSERVED", "USER_PROVIDED", "DERIVED", "SIMULATED", "ESTIMATED")); passport.put("generatedAt", Instant.now().toString()); return passport;
     }
 
     Map<String, Object> scenarioRun(Map<String, Object> input, UserPrincipal principal) {
@@ -3196,9 +3315,12 @@ class AgriController {
     private final AgriEventBus events;
     private final MqttBridge mqtt;
     private final SimulatorControl simulator;
+    private final AdminManagementService adminManagement;
 
-    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator) {
+    AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator,
+                   AdminManagementService adminManagement) {
         this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
+        this.adminManagement = adminManagement;
     }
 
     @PostMapping("/auth/login")
@@ -3236,7 +3358,12 @@ class AgriController {
     }
 
     @GetMapping("/overview")
-    ResponseEntity<?> overview(Authentication a) { return ok(engine.overview(principal(a))); }
+    ResponseEntity<?> overview(@RequestParam(required = false) String farmId, Authentication a) {
+        UserPrincipal p = principal(a);
+        String selectedFarm = farmId == null || farmId.isBlank()
+                ? p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null) : farmId;
+        return ok(engine.overview(selectedFarm, p));
+    }
 
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }
@@ -3263,21 +3390,34 @@ class AgriController {
     ResponseEntity<?> farms(Authentication a) { UserPrincipal p = principal(a); return ok(filterFarmScope(store.list("farm"), p)); }
 
     @GetMapping("/plots")
-    ResponseEntity<?> plots(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("plot").stream().filter(x -> engine.canAccessPlot(p, Jsons.text(x, "plotId", ""))).toList()); }
+    ResponseEntity<?> plots(@RequestParam(required = false) String farmId,
+                            @RequestParam(required = false) String status,
+                            @RequestParam(defaultValue = "false") boolean includeInactive,
+                            Authentication a) {
+        UserPrincipal p = principal(a);
+        if (farmId != null && !farmId.isBlank() && !p.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        return ok(store.list("plot").stream()
+                .filter(plot -> farmId == null || farmId.isBlank() || farmId.equals(Jsons.text(plot, "farmId", "")))
+                .filter(plot -> includeInactive || !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> status == null || status.isBlank() || status.equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", ""))).toList());
+    }
 
     @PostMapping("/plots")
     ResponseEntity<?> createPlot(@RequestBody Map<String, Object> body, Authentication a) {
         UserPrincipal p = principal(a);
-        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
-        String farmId = Jsons.text(body, "farmId", p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("farm-demo"));
-        if (p.isFarmAdmin() && !p.farmIds.contains("*") && !p.farmIds.contains(farmId)) {
+        if (!p.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以新增地块");
+        String farmId = Jsons.text(body, "farmId", "").trim();
+        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ID_REQUIRED", "请选择地块所属农场");
+        if (!p.farmIds.contains("*") && !p.farmIds.contains(farmId)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权在该农场新增地块");
         }
         validatePlot(body);
         String id = Jsons.text(body, "plotId", Jsons.id("plot"));
         if (store.find("plot", id) != null) throw new ApiException(HttpStatus.CONFLICT, "PLOT_EXISTS", "地块编号已存在");
         Map<String, Object> plot = new LinkedHashMap<>(body);
-        plot.put("plotId", id); plot.put("farmId", farmId); plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", p.userId);
+        plot.put("plotId", id); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
+        plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", p.userId);
         store.save("plot", id, plot); events.publish("plot.created", plot); store.logEvent("plot.created", plot);
         return ok(plot);
     }
@@ -3285,7 +3425,7 @@ class AgriController {
     @PatchMapping("/plots/{plotId}")
     ResponseEntity<?> updatePlot(@PathVariable String plotId, @RequestBody Map<String, Object> body, Authentication a) {
         UserPrincipal p = principal(a);
-        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
+        if (!p.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以编辑地块");
         Map<String, Object> current = store.find("plot", plotId);
         if (current == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在");
         engine.ensurePlotAccess(p, plotId);
@@ -3299,34 +3439,55 @@ class AgriController {
         return ok(updated);
     }
 
+    @PostMapping("/plots/{plotId}/deactivate")
+    ResponseEntity<?> deactivatePlot(@PathVariable String plotId, Authentication a) {
+        return ok(adminManagement.deactivatePlot(plotId, principal(a)));
+    }
+
+    @PostMapping("/plots/{plotId}/restore")
+    ResponseEntity<?> restorePlot(@PathVariable String plotId, Authentication a) {
+        return ok(adminManagement.restorePlot(plotId, principal(a)));
+    }
+
     @DeleteMapping("/plots/{plotId}")
-    ResponseEntity<?> deletePlot(@PathVariable String plotId, Authentication a) {
-        UserPrincipal p = principal(a);
-        if (!p.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限");
-        Map<String, Object> plot = store.find("plot", plotId);
-        if (plot == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在");
-        engine.ensurePlotAccess(p, plotId);
-        int related = 0;
-        for (String type : List.of("crop-batch", "device", "alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            related += store.deleteWhere(type, record -> plotId.equals(Jsons.text(record, "plotId", "")));
-        }
-        related += store.deleteTelemetryForPlot(plotId);
-        store.delete("plot", plotId);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("plotId", plotId); result.put("name", Jsons.text(plot, "name", plotId)); result.put("deleted", true);
-        result.put("relatedRecordsRemoved", related); result.put("deletedAt", Instant.now().toString()); result.put("deletedBy", p.userId);
-        events.publish("plot.deleted", result); store.logEvent("plot.deleted", result);
-        return ok(result);
+    ResponseEntity<?> deletePlot(@PathVariable String plotId, @RequestParam String confirmName, Authentication a) {
+        return ok(adminManagement.deletePlot(plotId, confirmName, principal(a)));
     }
 
     @GetMapping("/plots/{plotId}/resolved-profile")
     ResponseEntity<?> resolvedProfile(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.resolvedProfile(plotId)); }
 
     @GetMapping("/crop-batches")
-    ResponseEntity<?> batches(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("crop-batch").stream().filter(b -> engine.canAccessPlot(p, Jsons.text(b, "plotId", ""))).toList()); }
+    ResponseEntity<?> batches(@RequestParam(required = false) String farmId, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (farmId != null && !farmId.isBlank() && !p.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        return ok(store.list("crop-batch").stream().filter(batch -> {
+            String plotId = Jsons.text(batch, "plotId", "");
+            Map<String, Object> plot = store.find("plot", plotId);
+            String recordFarmId = Jsons.text(batch, "farmId", plot == null ? "" : Jsons.text(plot, "farmId", ""));
+            return (farmId == null || farmId.isBlank() || farmId.equals(recordFarmId)) && engine.canAccessPlot(p, plotId);
+        }).toList());
+    }
+
+    @PostMapping("/crop-batches")
+    ResponseEntity<?> createBatch(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.createCropBatch(body, principal(a)));
+    }
 
     @GetMapping("/crop-batches/{batchId}/plan")
-    ResponseEntity<?> batchPlan(@PathVariable String batchId, Authentication a) { Map<String, Object> b = engine.record("crop-batch", batchId); engine.ensurePlotAccess(principal(a), Jsons.text(b, "plotId", "")); return ok(Map.of("batch", b, "tasks", store.list("work-order").stream().filter(w -> batchId.equals(Jsons.text(w, "cropBatchId", ""))).toList(), "source", "Crop Pack task_templates")); }
+    ResponseEntity<?> batchPlan(@PathVariable String batchId, Authentication a) { return ok(adminManagement.cropBatchPlan(batchId, principal(a))); }
+
+    @PostMapping("/crop-batches/{batchId}/plan/generate")
+    ResponseEntity<?> generateBatchPlan(@PathVariable String batchId,
+                                        @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.generateCropBatchPlan(batchId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/crop-batches/{batchId}/plan/review")
+    ResponseEntity<?> reviewBatchPlan(@PathVariable String batchId,
+                                      @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.reviewCropBatchPlan(batchId, body, principal(a)));
+    }
 
     @GetMapping("/plots/{plotId}/telemetry")
     ResponseEntity<?> telemetry(@PathVariable String plotId, @RequestParam(required = false) String metric, @RequestParam(required = false) String from,
@@ -3386,7 +3547,18 @@ class AgriController {
     ResponseEntity<?> readiness(@PathVariable String subjectType, @PathVariable String subjectId, Authentication a) { return ok(engine.readiness(subjectType, subjectId, principal(a))); }
 
     @PostMapping("/decision-readiness/{readinessId}/evidence-requests")
-    ResponseEntity<?> evidenceRequest(@PathVariable String readinessId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { Map<String, Object> input = body == null ? new LinkedHashMap<>() : body; input.put("sourceType", "READINESS"); input.put("sourceRef", readinessId); input.putIfAbsent("actionType", "INSPECTION"); return ok(engine.createWorkOrder(input, principal(a))); }
+    ResponseEntity<?> evidenceRequest(@PathVariable String readinessId,
+                                      @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        Map<String, Object> readiness = engine.record("readiness", readinessId);
+        String plotId = Jsons.text(readiness, "plotId", "");
+        UserPrincipal p = principal(a); engine.ensurePlotAccess(p, plotId);
+        Map<String, Object> plot = engine.record("plot", plotId);
+        Map<String, Object> input = new LinkedHashMap<>(body == null ? Map.of() : body);
+        input.put("farmId", Jsons.text(plot, "farmId", "")); input.put("plotId", plotId);
+        input.put("sourceType", "READINESS"); input.put("sourceRef", readinessId);
+        input.putIfAbsent("actionType", "INSPECTION");
+        return ok(engine.createWorkOrder(input, p));
+    }
 
     @PostMapping("/inspections")
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
@@ -3435,7 +3607,15 @@ class AgriController {
     ResponseEntity<?> evaluation(@PathVariable String commandId, Authentication a) { return ok(engine.commandEvaluation(commandId)); }
 
     @GetMapping("/work-items/today")
-    ResponseEntity<?> today(@RequestParam(required = false) String plotId, Authentication a) { UserPrincipal p = principal(a); if (plotId != null) engine.ensurePlotAccess(p, plotId); return ok(engine.todayWork(plotId, p)); }
+    ResponseEntity<?> today(@RequestParam(required = false) String farmId,
+                            @RequestParam(required = false) String plotId, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (farmId != null && !farmId.isBlank() && !p.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        if (plotId != null) engine.ensurePlotAccess(p, plotId);
+        List<Map<String, Object>> work = engine.todayWork(plotId, p);
+        return ok(farmId == null || farmId.isBlank() ? work : work.stream()
+                .filter(item -> farmId.equals(Jsons.text(item, "farmId", ""))).toList());
+    }
 
     @PostMapping("/work-orders")
     ResponseEntity<?> workOrder(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createWorkOrder(body, principal(a))); }
@@ -3472,8 +3652,22 @@ class AgriController {
     @GetMapping("/farm-members")
     ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
 
+    @PatchMapping("/farm-members/{userId}/scope")
+    ResponseEntity<?> updateFarmMemberScope(@PathVariable String userId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.updateFarmMemberScope(userId, body, principal(a)));
+    }
+
     @GetMapping("/alerts")
-    ResponseEntity<?> alerts(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("alert").stream().filter(x -> engine.canAccessPlot(p, Jsons.text(x, "plotId", ""))).toList()); }
+    ResponseEntity<?> alerts(@RequestParam(required = false) String farmId, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (farmId != null && !farmId.isBlank() && !p.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        return ok(store.list("alert").stream().filter(alert -> {
+            String plotId = Jsons.text(alert, "plotId", "");
+            Map<String, Object> plot = store.find("plot", plotId);
+            String recordFarmId = Jsons.text(alert, "farmId", plot == null ? "" : Jsons.text(plot, "farmId", ""));
+            return (farmId == null || farmId.isBlank() || farmId.equals(recordFarmId)) && engine.canAccessPlot(p, plotId);
+        }).toList());
+    }
 
     @PostMapping("/alerts/{alertId}/ack")
     ResponseEntity<?> ackAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "ACKED", principal(a))); }
@@ -3500,10 +3694,10 @@ class AgriController {
     ResponseEntity<?> resourcePlanById(@PathVariable String resourcePlanId, Authentication a) { return ok(engine.record("resource-plan", resourcePlanId)); }
 
     @GetMapping("/value-ledgers")
-    ResponseEntity<?> valueLedgers(Authentication a) { return ok(store.list("value-ledger")); }
+    ResponseEntity<?> valueLedgers(@RequestParam String farmId, Authentication a) { return ok(adminManagement.valueLedgers(farmId, principal(a))); }
 
     @PostMapping("/value-ledgers")
-    ResponseEntity<?> valueLedger(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.valueLedger(body, principal(a))); }
+    ResponseEntity<?> valueLedger(@RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.createValueLedger(body, principal(a))); }
 
     @GetMapping("/decision-passports/{traceId}")
     ResponseEntity<?> passport(@PathVariable String traceId, Authentication a) { return ok(engine.passport(traceId, principal(a))); }
@@ -3518,16 +3712,16 @@ class AgriController {
     ResponseEntity<?> strategies(Authentication a) { return ok(store.list("strategy-candidate")); }
 
     @GetMapping("/devices")
-    ResponseEntity<?> devices(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("device").stream().filter(d -> engine.canAccessPlot(p, Jsons.text(d, "plotId", ""))).toList()); }
+    ResponseEntity<?> devices(@RequestParam String farmId, Authentication a) { return ok(adminManagement.devices(farmId, principal(a))); }
 
     @PostMapping("/devices")
-    ResponseEntity<?> device(@RequestBody Map<String, Object> body, Authentication a) { if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限"); String id = Jsons.text(body, "deviceId", Jsons.id("device")); body.put("deviceId", id); store.save("device", id, body); return ok(body); }
+    ResponseEntity<?> device(@RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.registerDevice(body, principal(a))); }
 
     @PostMapping("/devices/{deviceId}/bind")
-    ResponseEntity<?> bindDevice(@PathVariable String deviceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(engine.bindDevice(deviceId, body, principal(a))); }
+    ResponseEntity<?> bindDevice(@PathVariable String deviceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.bindDevice(deviceId, body, principal(a))); }
 
     @PostMapping("/devices/{deviceId}/unbind")
-    ResponseEntity<?> unbindDevice(@PathVariable String deviceId, Authentication a) { return ok(engine.unbindDevice(deviceId, principal(a))); }
+    ResponseEntity<?> unbindDevice(@PathVariable String deviceId, Authentication a) { return ok(adminManagement.unbindDevice(deviceId, principal(a))); }
 
     @PostMapping("/devices/{deviceId}/heartbeat")
     ResponseEntity<?> heartbeat(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { return ok(engine.heartbeat(deviceId, body, principal(a))); }

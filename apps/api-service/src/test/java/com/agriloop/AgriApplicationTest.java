@@ -18,9 +18,10 @@ class AgriApplicationTest {
     @Autowired AgriStore store;
     @Autowired JwtService jwtService;
     @Autowired AgriController controller;
+    @Autowired AdminManagementService adminManagement;
 
     @Test
-    void farmAdminCanCreateUpdateAndDeletePlotAcrossFarmScope() {
+    void farmAdminCanCreateUpdateDeactivateRestoreAndSafelyDeletePlot() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
         String plotId = "plot-lifecycle-" + System.nanoTime();
@@ -50,11 +51,35 @@ class AgriApplicationTest {
         assertThat(updated.get("cropCode")).isEqualTo("cucumber");
         assertThat(updated.get("growthCycleDays")).isEqualTo(95);
 
-        store.save("work-order", "wo-" + plotId, new java.util.LinkedHashMap<>(Map.of("workOrderId", "wo-" + plotId, "plotId", plotId)));
-        Map<String, Object> deleted = responseData(controller.deletePlot(plotId, authentication));
+        Map<String, Object> inactive = responseData(controller.deactivatePlot(plotId, authentication));
+        assertThat(inactive).containsEntry("status", "INACTIVE").containsKeys("deactivatedAt", "deactivatedBy");
+        Map<String, Object> active = responseData(controller.restorePlot(plotId, authentication));
+        assertThat(active).containsEntry("status", "ACTIVE").containsKeys("restoredAt", "restoredBy");
+        responseData(controller.deactivatePlot(plotId, authentication));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.deletePlot(plotId, "错误名称", authentication))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_CONFIRMATION_MISMATCH"));
+        Map<String, Object> deleted = responseData(controller.deletePlot(plotId, "测试番茄田", authentication));
         assertThat(deleted.get("deleted")).isEqualTo(true);
         assertThat(store.find("plot", plotId)).isNull();
-        assertThat(store.find("work-order", "wo-" + plotId)).isNull();
+    }
+
+    @Test
+    void inactivePlotWithHistoryIsNotCascadeDeleted() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String plotId = "plot-protected-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "保留历史测试田", "status", "INACTIVE")));
+        String workId = "wo-" + plotId;
+        store.save("work-order", workId, new java.util.LinkedHashMap<>(Map.of(
+                "workOrderId", workId, "farmId", "farm-demo", "plotId", plotId, "status", "DONE")));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.deletePlot(plotId, "保留历史测试田", admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.code).isEqualTo("PLOT_HAS_DEPENDENCIES");
+                    assertThat(String.valueOf(error.details)).contains("work-order");
+                });
+        assertThat(store.find("plot", plotId)).isNotNull();
+        assertThat(store.find("work-order", workId)).isNotNull();
     }
 
     @SuppressWarnings("unchecked")
@@ -593,5 +618,139 @@ class AgriApplicationTest {
                 .isInstanceOf(ApiException.class);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentRun(String.valueOf(farmerAnswer.get("traceId")), secondFarmer))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    void deviceRegistrationBindingAndUnbindingDoNotFakeAnOnlineHeartbeat() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String deviceId = "device-management-" + System.nanoTime();
+        Map<String, Object> registered = adminManagement.registerDevice(new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "name", "测试采集器", "type", "ENVIRONMENTAL_SENSOR")), admin);
+        assertThat(registered).containsEntry("status", "OFFLINE").containsEntry("bindingState", "UNBOUND").containsEntry("plotId", null);
+
+        Map<String, Object> bound = adminManagement.bindDevice(deviceId, Map.of("plotId", "plot-a01"), admin);
+        assertThat(bound).containsEntry("plotId", "plot-a01").containsEntry("bindingState", "BOUND").containsEntry("status", "OFFLINE");
+        Map<String, Object> unbound = adminManagement.unbindDevice(deviceId, admin);
+        assertThat(unbound).containsEntry("bindingState", "UNBOUND").containsEntry("plotId", null).containsEntry("previousPlotId", "plot-a01");
+    }
+
+    @Test
+    void deviceBindingRejectsCrossFarmAndInactivePlots() {
+        String suffix = String.valueOf(System.nanoTime());
+        String otherFarmId = "farm-device-other-" + suffix;
+        String otherPlotId = "plot-device-other-" + suffix;
+        String inactivePlotId = "plot-device-inactive-" + suffix;
+        store.save("farm", otherFarmId, new java.util.LinkedHashMap<>(Map.of("farmId", otherFarmId, "name", "其他设备农场")));
+        store.save("plot", otherPlotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", otherPlotId, "farmId", otherFarmId, "name", "其他农场地块", "status", "ACTIVE")));
+        store.save("plot", inactivePlotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", inactivePlotId, "farmId", "farm-demo", "name", "停用地块", "status", "INACTIVE")));
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN",
+                List.of("farm-demo", otherFarmId), List.of("plot-a01", otherPlotId, inactivePlotId));
+        String deviceId = "device-cross-farm-" + suffix;
+        adminManagement.registerDevice(new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "name", "边界测试采集器", "type", "ENVIRONMENTAL_SENSOR")), admin);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.bindDevice(deviceId, Map.of("plotId", otherPlotId), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("DEVICE_PLOT_FARM_MISMATCH"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.bindDevice(deviceId, Map.of("plotId", inactivePlotId), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_INACTIVE"));
+    }
+
+    @Test
+    void memberScopeUpdatePreservesOtherFarmAndRejectsRoleMutation() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        String suffix = String.valueOf(System.nanoTime());
+        String farmId = "farm-other-" + suffix;
+        String plotId = "plot-other-" + suffix;
+        String userId = "farmer-scope-" + suffix;
+        store.save("farm", farmId, new java.util.LinkedHashMap<>(Map.of("farmId", farmId, "name", "其他农场")));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of("plotId", plotId, "farmId", farmId, "name", "其他农场地块", "status", "ACTIVE")));
+        assertThat(store.createUser(new java.util.LinkedHashMap<>(Map.of(
+                "userId", userId, "username", userId, "passwordHash", "unused", "role", "FARMER",
+                "farmIds", List.of("farm-demo", farmId), "plotIds", List.of("plot-a01", plotId), "enabled", true, "credentialVersion", 1)))).isTrue();
+
+        Map<String, Object> updated = adminManagement.updateFarmMemberScope(userId,
+                Map.of("farmId", "farm-demo", "plotIds", List.of("plot-a02")), admin);
+        assertThat(updated.get("plotIds")).isEqualTo(List.of("plot-a02"));
+        assertThat(Jsons.strings(store.userById(userId).get("plotIds"))).containsExactlyInAnyOrder("plot-a02", plotId);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.updateFarmMemberScope(userId,
+                        Map.of("farmId", "farm-demo", "plotIds", List.of("plot-a01"), "role", "FARM_ADMIN"), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("MEMBER_ROLE_IMMUTABLE"));
+    }
+
+    @Test
+    void simulatorWithoutSupervisorIsExplicitlyUnavailable() {
+        AgriProperties properties = new AgriProperties();
+        properties.setSimulatorControlEnabled(false);
+        SimulatorControl simulator = new SimulatorControl(properties);
+        assertThat(simulator.status()).containsEntry("available", false)
+                .containsEntry("status", "UNAVAILABLE")
+                .containsEntry("reason", "SIMULATOR_CONTROL_DISABLED");
+        org.assertj.core.api.Assertions.assertThatThrownBy(simulator::start)
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SIMULATOR_CONTROL_DISABLED"));
+    }
+
+    @Test
+    void cropPackPlanKeepsTemplateProvenanceAndApprovalIsIdempotent() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        Map<String, Object> batch = adminManagement.createCropBatch(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a02", "cropCode", "tomato",
+                "plantedAt", java.time.LocalDate.now().toString(), "plannedCycleDays", 8)), admin);
+        String batchId = String.valueOf(batch.get("batchId"));
+        Map<String, Object> plan = adminManagement.generateCropBatchPlan(batchId, Map.of(), admin);
+        List<Map<String, Object>> tasks = Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), plan.get("tasks"));
+        assertThat(plan).containsEntry("sourceMode", "DERIVED").containsEntry("scheduleMethod", "EVEN_STAGE_SPLIT");
+        assertThat(tasks).isNotEmpty().allSatisfy(task -> assertThat(task).containsKeys("templateRef", "stageCode", "scheduleDate", "sourceMode"));
+
+        List<Map<String, Object>> adjusted = tasks.stream().map(java.util.LinkedHashMap::new).map(task -> (Map<String, Object>) task).toList();
+        adjusted.get(0).put("scheduleDate", java.time.LocalDate.parse(String.valueOf(adjusted.get(0).get("scheduleDate"))).plusDays(1).toString());
+        Map<String, Object> approved = adminManagement.reviewCropBatchPlan(batchId,
+                Map.of("decision", "APPROVE", "idempotencyKey", "approve-" + batchId, "tasks", adjusted), admin);
+        List<String> firstIds = Jsons.strings(approved.get("workOrderIds"));
+        assertThat(firstIds).isNotEmpty();
+        assertThat(store.list("work-order").stream().filter(work -> firstIds.contains(Jsons.text(work, "workOrderId", ""))).toList())
+                .allSatisfy(work -> assertThat(work).containsEntry("sourceType", "CROP_PLAN")
+                        .containsEntry("sourceRef", approved.get("planId")).containsEntry("cropBatchId", batchId).containsKey("templateRef"));
+
+        Map<String, Object> repeated = adminManagement.reviewCropBatchPlan(batchId, Map.of("decision", "APPROVE"), admin);
+        assertThat(Jsons.strings(repeated.get("workOrderIds"))).containsExactlyElementsOf(firstIds);
+    }
+
+    @Test
+    void valueLedgerUsesOnlyExplicitOrObservedFacts() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> incomplete = adminManagement.createValueLedger(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "plannedWaterLitres", 100)), admin);
+        assertThat(incomplete).containsEntry("status", "INCOMPLETE");
+        assertThat(Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), incomplete.get("metrics")).get("waterCost")).isNull();
+
+        Map<String, Object> computed = adminManagement.createValueLedger(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "plannedWaterLitres", 100,
+                "actualWaterLitres", 80, "waterPricePerLitre", 0.004, "sourceMode", "USER_PROVIDED")), admin);
+        assertThat(computed).containsEntry("status", "COMPUTED").containsEntry("sourceMode", "USER_PROVIDED");
+        assertThat(Jsons.map(new com.fasterxml.jackson.databind.ObjectMapper(), computed.get("metrics")))
+                .containsEntry("waterSavingLitres", 20.0).containsEntry("waterCost", 0.32);
+    }
+
+    @Test
+    void recentInspectionEvidenceAppearsInDiagnosisAndDecisionPassportWithoutReplacingTelemetry() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        engine.ingest(Map.of("eventId", "human-conflict-" + System.nanoTime(), "farmId", "farm-demo", "plotId", "plot-a01",
+                "deviceId", "mock-plot-a01", "metric", "SOIL_MOISTURE", "value", 31.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> inspection = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().toString(),
+                "soilSurface", "DRY", "cropCondition", "LEAF_SLIGHT_WILT", "deviceStatus", "NORMAL",
+                "portableSoilMoisture", 18.0, "notes", "现场复测与在线值存在差异")), admin);
+        String traceId = "human-passport-" + System.nanoTime();
+        Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("traceId", traceId, "scenarioId", "normal"));
+        assertThat(Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), diagnosis.get("humanObservations")))
+                .anySatisfy(item -> assertThat(item).containsEntry("inspectionId", inspection.get("inspectionId")).containsEntry("provenance", "USER_PROVIDED"));
+        assertThat(Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), diagnosis.get("evidenceConflicts")))
+                .anySatisfy(item -> assertThat(item).containsEntry("type", "PORTABLE_VS_TELEMETRY"));
+        Map<String, Object> passport = engine.passport(traceId, admin);
+        assertThat(Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), passport.get("humanObservations")))
+                .anySatisfy(item -> assertThat(item).containsEntry("inspectionId", inspection.get("inspectionId")));
     }
 }
