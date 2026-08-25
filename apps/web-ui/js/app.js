@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=1787645254016';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
@@ -66,7 +66,13 @@ const NAV_CATALOG = Object.freeze([
   { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } }
+  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
+  { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
+  { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
+  { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
+  { id: 'admin-simulator', label: '仿真验证', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' } },
+  { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
+  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
@@ -167,6 +173,15 @@ function mergeOverviewPlots(plots) {
       lastSeen: plot.device?.lastSeen || plot.lastSeen || null
     };
   });
+}
+
+function presentSystemEvent(event) {
+  const payload = event?.data?.payload || event?.data || {};
+  const type = event?.data?.eventType || event?.type || 'system';
+  const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
+  const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
+  const title = payload.title || payload.summary || payload.message || `${type} 事件已到达`;
+  return { id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`, category, icon, title, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), traceId: payload.traceId };
 }
 
 // 1. Define Components
@@ -1002,6 +1017,381 @@ const ValueLedgerView = {
   }
 };
 
+
+
+// ---- SYSTEM ADMIN COMPONENTS ----
+
+const AdminOverviewView = {
+  template: '#tmpl-admin-overview',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const showEvents = ref(true);
+    const farmFilter = ref('all');
+    const statusFilter = ref('all');
+    const selectedPlot = ref(null);
+    const showPlotModal = ref(false);
+    const plotMetricForm = ref([]);
+    const telemetryLoading = ref(false);
+    const openPlotMetrics = async (plot) => {
+      selectedPlot.value = plot;
+      plotMetricForm.value = [...(plot.monitoredMetrics || TELEMETRY_METRICS.map(metric => metric.code))];
+      showPlotModal.value = true;
+      await refreshPlotMetrics();
+    };
+    const refreshPlotMetrics = async () => {
+      if (!selectedPlot.value) return;
+      telemetryLoading.value = true;
+      try {
+        const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
+          const points = await api.getTelemetry(selectedPlot.value.id, metric, 1);
+          return [metric, points[points.length - 1]];
+        }));
+        results.forEach((result) => {
+          if (result.status !== 'fulfilled') return;
+          const [metric, point] = result.value;
+          if (point) selectedPlot.value.metrics[metric] = `${point.value} ${point.unit || ''}`.trim();
+        });
+      } finally {
+        telemetryLoading.value = false;
+      }
+    };
+    const savePlotMetrics = () => {
+      if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
+      showPlotModal.value = false;
+    };
+    const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
+      const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
+      const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
+      return farmMatches && statusMatches;
+    }));
+    const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
+    const plotSummary = computed(() => {
+      const plots = props.state.adminGlobalPlots || [];
+      return {
+        total: plots.length,
+        healthy: plots.filter(plot => plot.status === 'HEALTHY').length,
+        warning: plots.filter(plot => plot.status === 'WARNING').length,
+        critical: plots.filter(plot => plot.status === 'CRITICAL').length,
+        offline: plots.filter(plot => plot.status === 'OFFLINE').length
+      };
+    });
+    const healthPercent = (plot) => {
+      if (plot.status === 'HEALTHY') return 92;
+      if (plot.status === 'WARNING') return 64;
+      if (plot.status === 'CRITICAL') return 28;
+      return 0;
+    };
+    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
+  }
+};
+
+const TELEMETRY_METRICS = [
+  { code: 'SOIL_MOISTURE', label: '土壤湿度' },
+  { code: 'AIR_TEMPERATURE', label: '空气温度' },
+  { code: 'LIGHT', label: '光照' },
+  { code: 'CO2', label: 'CO2' },
+  { code: 'PH', label: 'PH' },
+  { code: 'WATER_LEVEL', label: '水位' }
+];
+
+const AdminOpsView = {
+  template: '#tmpl-admin-ops',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const activeTab = ref(props.routeParams?.tab || 'services');
+    const deviceFilter = ref('all');
+    const alertFilter = ref('all');
+    const alertLevel = ref('all');
+
+    watch(() => props.routeParams, (p) => {
+      if (p?.tab) activeTab.value = p.tab;
+    });
+
+    const filteredDevices = computed(() => {
+      const devs = props.state.adminDevices || [];
+      if (deviceFilter.value === 'all') return devs;
+      return devs.filter(d => d.status === deviceFilter.value);
+    });
+
+    const filteredAlerts = computed(() => {
+      let alerts = props.state.adminAlerts || [];
+      if (alertFilter.value !== 'all') alerts = alerts.filter(a => a.status === alertFilter.value);
+      if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
+      return alerts;
+    });
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts };
+  }
+};
+
+const AdminAuditView = {
+  template: '#tmpl-admin-audit',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const auditTab = ref('passport');
+    const searchQuery = ref(props.routeParams?.traceId || '');
+    const typeFilter = ref('all');
+    const expandedPassport = ref(props.routeParams?.traceId || null);
+
+    watch(() => props.routeParams, (p) => {
+      if (p?.traceId) {
+        searchQuery.value = p.traceId;
+        expandedPassport.value = p.traceId;
+      }
+    });
+
+    const filteredRecords = computed(() => {
+      let records = props.state.adminAuditRecords || [];
+      if (typeFilter.value !== 'all') records = records.filter(r => r.type === typeFilter.value);
+      if (searchQuery.value) {
+        const q = searchQuery.value.toLowerCase();
+        records = records.filter(r =>
+          r.traceId.toLowerCase().includes(q) ||
+          r.operator.toLowerCase().includes(q) ||
+          r.plotId.toLowerCase().includes(q)
+        );
+      }
+      return records;
+    });
+
+    const togglePassport = (traceId) => {
+      expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
+    };
+
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
+  }
+};
+
+const AdminSimulatorView = {
+  template: '#tmpl-admin-simulator',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
+    const selectedScenario = ref('NORMAL');
+    const adminDualTrackModal = ref(false);
+    const adminReplayModal = ref(false);
+    const replayEvents = ref([]);
+    const selectedReplayScenario = ref('');
+    const selectedDualTrackScenario = ref('');
+
+    const openReplay = (run) => {
+      selectedReplayScenario.value = run.scenarioId;
+      adminReplayModal.value = true;
+      replayEvents.value = [
+        { time: '00:00', action: '初始化推演环境', agent: 'System' },
+        { time: '00:05', action: '注入偏差事件', agent: 'Mock Gateway' },
+        { time: '00:15', action: '诊断异常并下发调整规则', agent: 'Diagnose Agent' },
+        { time: '00:30', action: '执行处方 ACK 确认', agent: 'Actuator Mock' },
+        { time: '01:00', action: '生成推演效果对比报告', agent: 'System' }
+      ];
+    };
+
+    const openDualTrack = (run) => {
+      selectedDualTrackScenario.value = run.scenarioId || 'NORMAL';
+      adminDualTrackModal.value = true;
+      Vue.nextTick(() => {
+        const chartDom = document.getElementById('adminDualTrackChart');
+        if (chartDom && window.echarts) {
+          const myChart = echarts.init(chartDom);
+          const times = Array.from({length: 24}, (_, i) => `${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`);
+          const option = {
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['执行处方 (有干预)', '未执行 (基线漂移)'] },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            xAxis: { type: 'category', boundaryGap: false, data: times },
+            yAxis: { type: 'value', name: '土壤含水率 (%)', min: 10, max: 40 },
+            series: [
+              {
+                name: '执行处方 (有干预)',
+                type: 'line',
+                data: times.map((_, i) => i < 8 ? 22 - (i * 0.5) : (i === 8 ? 35 : 35 - ((i - 8) * 0.4))),
+                itemStyle: { color: '#2ea043' },
+                smooth: true
+              },
+              {
+                name: '未执行 (基线漂移)',
+                type: 'line',
+                data: times.map((_, i) => 22 - (i * 0.5)),
+                itemStyle: { color: '#f85149' },
+                lineStyle: { type: 'dashed' },
+                smooth: true
+              }
+            ]
+          };
+          myChart.setOption(option);
+        }
+      });
+    };
+
+    const scenarios = [
+      { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
+      { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
+      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
+      { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
+    ];
+
+    return { simRunning, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay };
+  }
+};
+
+const AdminRulesView = {
+  template: '#tmpl-admin-rules',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const activeTab = ref('packs');
+    const expandedPacks = ref({});
+    const showPackModal = ref(false);
+    const editingPackId = ref(null);
+    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true });
+    const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
+    const togglePack = (id) => {
+      expandedPacks.value[id] = !expandedPacks.value[id];
+    };
+    const resetPackForm = () => {
+      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true };
+      editingPackId.value = null;
+    };
+    const openCreatePack = () => {
+      resetPackForm();
+      showPackModal.value = true;
+    };
+    const openEditPack = (pack) => {
+      packForm.value = { ...pack, stages: [...pack.stages], knowledgeDocs: pack.knowledgeDocs.map(doc => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }) };
+      editingPackId.value = pack.id;
+      showPackModal.value = true;
+    };
+    const savePack = () => {
+      const form = packForm.value;
+      if (!form.name.trim() || !form.id.trim()) return;
+      const normalized = {
+        ...form,
+        id: form.id.trim(),
+        name: form.name.trim(),
+        stages: form.stages.map(item => item.trim()).filter(Boolean),
+        knowledgeDocs: form.knowledgeDocs.map(doc => ({ title: doc.title.trim(), content: doc.content.trim() })).filter(doc => doc.title)
+      };
+      const packs = props.state.adminCropPacks;
+      if (editingPackId.value) {
+        const index = packs.findIndex(pack => pack.id === editingPackId.value);
+        if (index >= 0) packs.splice(index, 1, normalized);
+      } else if (!packs.some(pack => pack.id === normalized.id)) {
+        packs.push(normalized);
+      }
+      showPackModal.value = false;
+      resetPackForm();
+    };
+    const deletePack = (pack) => {
+      if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
+        const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
+        if (index >= 0) props.state.adminCropPacks.splice(index, 1);
+      }
+    };
+    const togglePackStatus = (pack) => {
+      pack.status = pack.status === 'published' ? 'draft' : 'published';
+    };
+    const addStage = () => packForm.value.stages.push('');
+    const removeStage = (index) => packForm.value.stages.splice(index, 1);
+    const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
+    const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
+    const expandedKnowledge = ref(null);
+    const toggleKnowledge = (packId, index) => {
+      const key = `${packId}:${index}`;
+      expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
+    };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge };
+  }
+};
+
+const AdminSettingsView = {
+  template: '#tmpl-admin-settings',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const toast = inject('toast');
+    const activeTab = ref(props.routeParams?.tab || 'users');
+    const roleFilter = ref('all');
+    const logFilter = ref('all');
+    const showCreateUser = ref(false);
+    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+
+    watch(() => props.routeParams, (params) => {
+      if (params?.tab) activeTab.value = params.tab;
+    });
+
+    const filteredUsers = computed(() => {
+      const users = props.state.adminUsers || [];
+      if (roleFilter.value === 'all') return users;
+      return users.filter(u => u.role === roleFilter.value);
+    });
+
+    const filteredLogs = computed(() => {
+      const logs = props.state.adminAuditLogs || [];
+      if (logFilter.value === 'all') return logs;
+      return logs.filter(l => l.action === logFilter.value);
+    });
+
+    const permissionMatrix = [
+      { module: '地块监测', farmer: '👁 只读 (分配地块)', farmAdmin: '✅ 全部地块', sysAdmin: '👁 只读 (排查)' },
+      { module: '农务工单', farmer: '✅ 接受/完成', farmAdmin: '✅ 创建/分派/验收', sysAdmin: '👁 审计记录' },
+      { module: '告警处理', farmer: '👁 自己地块', farmAdmin: '✅ 确认/关闭/升级', sysAdmin: '✅ 系统级告警' },
+      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断/审批', sysAdmin: '❌ 不提供入口' },
+      { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
+      { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
+      { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
+      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ Crop Pack/版本发布' },
+      { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
+    ];
+
+    const deleteUser = (userId) => {
+      if (confirm('确定要删除该用户吗？')) {
+        const idx = props.state.adminUsers.findIndex(u => u.userId === userId);
+        if (idx > -1) {
+          const u = props.state.adminUsers[idx];
+          props.state.adminUsers.splice(idx, 1);
+          props.state.adminAuditLogs.unshift({
+            id: 'log-' + Date.now(),
+            time: new Date().toLocaleTimeString().substring(0, 5),
+            operator: 'sysadmin',
+            action: 'CONFIG_CHANGE',
+            actionLabel: '删除用户',
+            detail: '删除用户 ' + u.username,
+            ip: '127.0.0.1'
+          });
+          toast('用户已删除');
+        }
+      }
+    };
+
+    const createUser = () => {
+      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+      props.state.adminUsers.push({
+        userId: 'user-' + Date.now(),
+        username: newUser.value.username,
+        role: newUser.value.role,
+        roleLabel: roleLabels[newUser.value.role],
+        farmName: '农智示范农场',
+        plotIds: ['plot-a01'],
+        enabled: true,
+        createdAt: new Date().toISOString().split('T')[0]
+      });
+      props.state.adminAuditLogs.unshift({
+        id: 'log-' + Date.now(),
+        time: new Date().toLocaleTimeString().substring(0, 5),
+        operator: 'sysadmin',
+        action: 'USER_CREATE',
+        actionLabel: '创建用户',
+        detail: '创建用户 ' + newUser.value.username + ' (' + roleLabels[newUser.value.role] + ')',
+        ip: '127.0.0.1'
+      });
+      showCreateUser.value = false;
+      newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+      toast('用户创建成功');
+    };
+
+    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser };
+  }
+};
+
 // 2. Setup App
 const app = createApp({
   components: {
@@ -1013,9 +1403,16 @@ const app = createApp({
     'resource-coordination-view': AdminResourcePlanningView,
     'farm-members-view': FarmMembersView,
     'crop-packs-view': CropPacksView,
-    'value-ledger-view': ValueLedgerView
+    'value-ledger-view': ValueLedgerView,
+    'admin-overview-view': AdminOverviewView,
+    'admin-ops-view': AdminOpsView,
+    'admin-audit-view': AdminAuditView,
+    'admin-simulator-view': AdminSimulatorView,
+    'admin-rules-view': AdminRulesView,
+    'admin-settings-view': AdminSettingsView
   },
   setup() {
+    const selectedFarm = ref('farm-science');
     const isLive = ref(false);
     const isDark = ref(false);
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
@@ -1048,7 +1445,18 @@ const app = createApp({
       resourceProfile: MOCK_DATA.resourceProfile,
       cropPackDetails: MOCK_DATA.cropPackDetails,
       riskForecastConfig: MOCK_DATA.riskForecastConfig,
-      valueLedger: MOCK_DATA.valueLedger
+      valueLedger: MOCK_DATA.valueLedger,
+      adminOverview: MOCK_DATA.adminOverview || {},
+      adminGlobalPlots: MOCK_DATA.adminGlobalPlots || [],
+      adminDevices: MOCK_DATA.adminDevices || [],
+      adminAlerts: MOCK_DATA.adminAlerts || [],
+      adminAuditRecords: MOCK_DATA.adminAuditRecords || [],
+      adminSimHistory: MOCK_DATA.adminSimHistory || [],
+      adminCropPacks: MOCK_DATA.adminCropPacks || [],
+      adminRules: MOCK_DATA.adminRules || [],
+      adminStrategyCandidates: MOCK_DATA.adminStrategyCandidates || [],
+      adminUsers: MOCK_DATA.adminUsers || [],
+      adminAuditLogs: MOCK_DATA.adminAuditLogs || []
     });
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
@@ -1288,6 +1696,17 @@ const app = createApp({
           state.value.farmMembers = [];
           showToast('读取可分配农户失败：' + membersResult.reason.message, 'error');
         }
+        try {
+          await api.subscribeEvents((event) => {
+            if (event.type === 'connected' || event.type === 'heartbeat') return;
+            const systemEvent = presentSystemEvent(event);
+            state.value.adminOverview.recentEvents.unshift(systemEvent);
+            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+            showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+          });
+        } catch (error) {
+          showToast('系统消息暂不可用：' + error.message, 'error');
+        }
       } else if (session.mode === 'demo') {
         state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
         state.value.alerts = (MOCK_DATA.alerts || []).map((item) => ({ ...item }));
@@ -1308,6 +1727,7 @@ const app = createApp({
     app.provide('toast', showToast);
 
     return {
+      selectedFarm,
       isLive,
       isDark,
       isSidebarOpen,

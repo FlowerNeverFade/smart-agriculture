@@ -33,10 +33,10 @@ export const ROLE_DEFINITIONS = Object.freeze({
   SYSTEM_ADMIN: Object.freeze({
     code: 'SYSTEM_ADMIN',
     label: '系统管理员',
-    description: '负责平台配置、数据链路、策略版本与全局审计。',
+    description: '负责平台配置、数据链路、策略版本与全局审计',
     avatar: '⚙️',
-    defaultView: 'dashboard',
-    views: Object.freeze(['dashboard', 'decision-console', 'risk-forecast', 'work-orders', 'crop-packs', 'value-ledger']),
+    defaultView: 'admin-overview',
+    views: Object.freeze(['admin-overview', 'admin-ops', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'work-order:audit', 'simulator:control',
       'strategy:manage', 'value:audit', 'platform:manage', 'irrigation:approve'
