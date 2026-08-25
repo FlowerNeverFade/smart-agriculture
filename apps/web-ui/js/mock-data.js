@@ -742,5 +742,192 @@ export const MOCK_DATA = {
       tags: ["Crop Pack", "Schema 1.0"],
       status: "模块独立路由就绪 · 可单独定制"
     }
+  },
+
+  // ============================================================
+  // 种植农户工作台专用数据
+  // ============================================================
+  farmer_messages: [
+    {
+      id: "msg-001",
+      category: "alert",
+      title: "【紧急】A01 番茄棚土壤湿度持续低于阈值",
+      snippet: "近 3 个采样周期土壤湿度均低于 20%，已触发干旱风险告警，请尽快核实并处理。",
+      body_paragraphs: [
+        "地块 A01 番茄示范田近 3 个采样周期土壤湿度均低于 20% 目标下限，最新读数 16.8%。",
+        "系统已完成干旱与传感器漂移分流校验，置信度 92%，判定为真实缺水。",
+        "建议尽快结合现场巡田核实，并联系农场管理员审批补水处方。"
+      ],
+      sender: "AgriLoop 监测内核",
+      read: false,
+      time_iso: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
+      time_label: "8 分钟前"
+    },
+    {
+      id: "msg-002",
+      category: "task",
+      title: "【新任务】黄瓜棚水肥 EC/pH 便携仪比对",
+      snippet: "农场管理员下达例行核验任务，要求今日 16:30 前完成便携仪与在线传感器读数比对。",
+      body_paragraphs: [
+        "农场管理员下达例行核验任务：温室 3 号棚黄瓜营养生长期 EC/pH 便携仪比对。",
+        "请使用便携式电导度仪在棚内 5 个标准采样点采集读数，并与系统在线传感器读数对比。",
+        "完成后请在任务管理中提交完成，并附上便携仪读数照片与现场备注。"
+      ],
+      sender: "农场管理员",
+      read: false,
+      time_iso: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
+      time_label: "35 分钟前"
+    },
+    {
+      id: "msg-003",
+      category: "notice",
+      title: "【通知】A02 流量计心跳延迟已恢复",
+      snippet: "A02 地块流量计短时心跳延迟已恢复，设备健康度回到 0.98，无需进一步操作。",
+      body_paragraphs: [
+        "A02 玉米高产田流量计此前出现短时心跳延迟，最新一次设备健康检查已通过。",
+        "设备健康度回到 0.98，数据新鲜度恢复正常范围。",
+        "您此前提交的设备复测任务已标记为完成，无需进一步操作。"
+      ],
+      sender: "设备运维中心",
+      read: true,
+      time_iso: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      time_label: "2 小时前"
+    },
+    {
+      id: "msg-004",
+      category: "system",
+      title: "【系统】本周农务计划已生成",
+      snippet: "基于 Crop Pack 作物全周期计划，本周共生成 12 项常规农务任务，已分配至各负责人。",
+      body_paragraphs: [
+        "基于 Crop Pack 作物全周期计划，本周共生成 12 项常规农务任务。",
+        "其中您负责 5 项，包括番茄疏花打杈、黄瓜 EC 比对、设备例行巡检等。",
+        "请在任务管理中查看您负责的任务详情，并按时执行。"
+      ],
+      sender: "农务协同调度中心",
+      read: true,
+      time_iso: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+      time_label: "6 小时前"
+    },
+    {
+      id: "msg-005",
+      category: "alert",
+      title: "【提醒】A01 番茄棚灌溉处方待您确认",
+      snippet: "系统已生成 A01 番茄棚灌溉处方（建议时长 8.5 分钟 / 153 升），等待农场管理员审批。",
+      body_paragraphs: [
+        "系统已针对 A01 番茄棚缺水风险生成结构化灌溉处方。",
+        "建议时长 8.5 分钟，水量 153 升，预计土壤湿度由 16.8% 回升至 30.0%。",
+        "处方已提交农场管理员审批，审批通过后将通知您执行。"
+      ],
+      sender: "处方决策引擎",
+      read: false,
+      time_iso: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+      time_label: "12 分钟前"
+    }
+  ],
+
+  farmer_tasks: [
+    {
+      id: "ft-001",
+      title: "黄瓜棚水肥 EC/pH 便携仪比对",
+      reason: "Crop Pack 营养生长期例行核验",
+      instruction: "在温室 3 号棚 5 个标准采样点采集便携仪读数，与在线传感器对比，误差超过 0.2 mS/cm 需上报。",
+      status: "ASSIGNED",
+      priority: "MEDIUM",
+      plot_id: "plot-b01",
+      plot_name: "A03 黄瓜立体架",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() + 2.2 * 60 * 60 * 1000).toISOString(),
+      created_label: "45 分钟前",
+      due_label: "今日 16:30"
+    },
+    {
+      id: "ft-002",
+      title: "番茄第 4 穗花疏花打杈",
+      reason: "开花坐果期标准农务",
+      instruction: "对 A01 番茄棚第 4 穗花进行疏花打杈，每穗保留 4-5 朵健花，去除多余花蕾与侧枝。",
+      status: "IN_PROGRESS",
+      priority: "LOW",
+      plot_id: "plot-a01",
+      plot_name: "A01 番茄示范田",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() + 4.5 * 60 * 60 * 1000).toISOString(),
+      created_label: "1.5 小时前",
+      due_label: "今日 18:00"
+    },
+    {
+      id: "ft-003",
+      title: "A02 流量计心跳延迟复测",
+      reason: "设备新鲜度短时下降，需完成复测",
+      instruction: "现场检查 A02 流量计电源与通信线路，记录复测后心跳间隔。",
+      status: "DONE",
+      priority: "MEDIUM",
+      plot_id: "plot-a02",
+      plot_name: "A02 玉米高产田",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+      created_label: "3 小时前",
+      due_label: "已完成"
+    },
+    {
+      id: "ft-004",
+      title: "全场设备例行巡检",
+      reason: "每周一例行设备健康巡检",
+      instruction: "巡查所属地块所有在线设备外观、电源、通信状态，填写巡检表并拍照上传。",
+      status: "PENDING",
+      priority: "LOW",
+      plot_id: null,
+      plot_name: "",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      created_label: "20 分钟前",
+      due_label: "本周三前"
+    },
+    {
+      id: "ft-005",
+      title: "A01 番茄棚缺水告警现场核实",
+      reason: "土壤湿度连续低于番茄结果期目标下限",
+      instruction: "现场查看 A01 番茄棚土壤表层与根系层湿度，观察植株萎蔫情况，与传感器读数对比。",
+      status: "PENDING",
+      priority: "HIGH",
+      plot_id: "plot-a01",
+      plot_name: "A01 番茄示范田",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() + 35 * 60 * 1000).toISOString(),
+      created_label: "18 分钟前",
+      due_label: "35 分钟内"
+    },
+    {
+      id: "ft-006",
+      title: "A02 玉米抽雄期田间观察记录",
+      reason: "玉米开花抽雄期长势记录",
+      instruction: "在 A02 玉米田选取 5 个样点，记录抽雄率、株高、病虫害情况。",
+      status: "ASSIGNED",
+      priority: "MEDIUM",
+      plot_id: "plot-a02",
+      plot_name: "A02 玉米高产田",
+      issuer: "农场管理员",
+      created_iso: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+      due_iso: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
+      created_label: "5 小时前",
+      due_label: "明日 18:00"
+    }
+  ],
+
+  farmer_profile: {
+    username: "farmer",
+    role_label: "种植农户",
+    avatar: "🧑‍🌾",
+    joined_at: "2026-03-15",
+    contact: "138****5826",
+    plot_names: ["A01 番茄示范田", "A02 玉米高产田", "A03 黄瓜立体架"],
+    total_done: 86,
+    month_done: 12,
+    inspections: 7,
+    completion_rate: 92
   }
 };
