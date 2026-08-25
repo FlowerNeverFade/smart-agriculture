@@ -1413,8 +1413,10 @@ class AgriEngine {
             Deque<Instant> window = ruleWindows.computeIfAbsent(plotId, ignored -> new ConcurrentLinkedDeque<>()); Instant now = Instant.now(); window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > 5) window.removeFirst();
             Map<String, Object> alert = new LinkedHashMap<>(); alert.put("alertId", Jsons.id("alert")); alert.put("plotId", plotId); alert.put("level", drift ? "HIGH" : "MEDIUM");
             alert.put("source", drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE"); alert.put("status", "ACTIVE"); alert.put("evidence", List.of(event));
+            alert.put("title", drift ? "传感器数据可能不可靠" : "土壤持续偏干");
+            alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。" : "土壤湿度已低于 20%。请尽快现场复测，确认后安排浇水。");
             alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE"); alert.put("durationMinutes", 5); alert.put("hysteresis", 2); alert.put("cooldownMinutes", 120);
-            alert.put("createdAt", Instant.now().toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
+            alert.put("createdAt", now.toString()); alert.put("raisedAt", now.toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
             Map<String, Object> diagnosis = diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal")));
             result.put("alert", alert); result.put("diagnosis", diagnosis);
         }
@@ -1482,14 +1484,18 @@ class AgriEngine {
     }
 
     Map<String, Object> transitionAlert(String alertId, String status, UserPrincipal principal) {
-        if (!principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ALERT_FORBIDDEN", "只有管理员可以变更告警状态");
+        if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ALERT_FORBIDDEN", "只有农场管理员可以处置告警");
         Map<String, Object> alert = requireRecord("alert", alertId); ensurePlotAccess(principal, Jsons.text(alert, "plotId", ""));
         String normalized = status == null ? "" : status.toUpperCase(Locale.ROOT);
         if (!Set.of("ACKED", "CLOSED", "RESOLVED", "ESCALATED", "ACTIVE").contains(normalized)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "ALERT_STATUS_INVALID", "不支持的告警状态");
         }
-        alert.put("status", normalized); alert.put("updatedBy", principal.userId); alert.put("updatedAt", Instant.now().toString());
-        store.save("alert", alertId, alert); events.publish("alert." + normalized.toLowerCase(Locale.ROOT), alert); return alert;
+        Instant now = Instant.now();
+        alert.put("status", normalized); alert.put("updatedBy", principal.userId); alert.put("updatedAt", now.toString());
+        if ("ACKED".equals(normalized)) { alert.put("acknowledgedBy", principal.userId); alert.put("acknowledgedAt", now.toString()); }
+        if ("CLOSED".equals(normalized) || "RESOLVED".equals(normalized)) { alert.put("closedBy", principal.userId); alert.put("closedAt", now.toString()); }
+        if ("ESCALATED".equals(normalized)) { alert.put("escalatedBy", principal.userId); alert.put("escalatedAt", now.toString()); }
+        store.save("alert", alertId, alert); events.publish("alert." + normalized.toLowerCase(Locale.ROOT), alert); store.logEvent("alert." + normalized.toLowerCase(Locale.ROOT), alert); return alert;
     }
 
     Map<String, Object> acknowledgeCommand(String commandId, Map<String, Object> input, UserPrincipal principal) {
@@ -2896,7 +2902,7 @@ class AgriController {
     ResponseEntity<?> alerts(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("alert").stream().filter(x -> p.canAccessPlot(Jsons.text(x, "plotId", ""))).toList()); }
 
     @PostMapping("/alerts/{alertId}/ack")
-    ResponseEntity<?> ackAlert(@PathVariable String alertId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { Map<String, Object> alert = engine.record("alert", alertId); engine.ensurePlotAccess(principal(a), Jsons.text(alert, "plotId", "")); alert.put("status", Jsons.text(body == null ? Map.of() : body, "status", "ACKED")); alert.put("acknowledgedBy", principal(a).userId); alert.put("acknowledgedAt", Instant.now().toString()); store.save("alert", alertId, alert); return ok(alert); }
+    ResponseEntity<?> ackAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "ACKED", principal(a))); }
 
     @PostMapping("/alerts/{alertId}/close")
     ResponseEntity<?> closeAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "CLOSED", principal(a))); }

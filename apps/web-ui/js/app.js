@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { AdminAlertCenter } from './admin-alerts.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
 
@@ -436,6 +437,32 @@ const DecisionConsoleView = {
   }
 };
 
+const RoleAwareDecisionConsoleView = {
+  components: { AdminAlertCenter, LegacyDecisionConsole: DecisionConsoleView },
+  props: ['state', 'routeParams'],
+  emits: ['navigate'],
+  setup(props) {
+    const showDiagnosis = ref(Boolean(props.routeParams?.highlight === 'diagnosis'));
+    watch(() => props.routeParams?.highlight, (value) => {
+      if (value === 'diagnosis') showDiagnosis.value = true;
+    });
+    const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
+    return { showDiagnosis, isFarmAdmin };
+  },
+  template: `
+    <div class="role-decision-shell">
+      <template v-if="isFarmAdmin">
+        <admin-alert-center v-if="!showDiagnosis" :state="state" @show-diagnosis="showDiagnosis = true" @navigate="(view, params) => $emit('navigate', view, params)"></admin-alert-center>
+        <section v-else>
+          <button class="g-btn g-btn-outline mb-4" type="button" @click="showDiagnosis = false">返回告警处置</button>
+          <legacy-decision-console :state="state" :route-params="routeParams" @navigate="(view, params) => $emit('navigate', view, params)"></legacy-decision-console>
+        </section>
+      </template>
+      <legacy-decision-console v-else :state="state" :route-params="routeParams" @navigate="(view, params) => $emit('navigate', view, params)"></legacy-decision-console>
+    </div>
+  `
+};
+
 const RiskForecastView = {
   template: '#tmpl-risk-forecast',
   props: ['state', 'routeParams'],
@@ -776,7 +803,7 @@ const app = createApp({
   components: {
     'dashboard-view': DashboardView,
     'plot-detail-modal': PlotDetailModal,
-    'decision-console-view': DecisionConsoleView,
+    'decision-console-view': RoleAwareDecisionConsoleView,
     'risk-forecast-view': RiskForecastView,
     'work-orders-view': WorkOrdersView,
     'resource-coordination-view': ResourceCoordinationView,
@@ -810,6 +837,7 @@ const app = createApp({
       farms: MOCK_DATA.farms,
       plots: session?.mode === 'demo' ? scopePlots(MOCK_DATA.plots, initialUser) : [],
       feedItems: MOCK_DATA.feedItems,
+      alerts: session?.mode === 'demo' ? (MOCK_DATA.alerts || []).map((item) => ({ ...item })) : [],
       workOrders: session?.mode === 'demo' ? MOCK_DATA.workOrders : [],
       farmMembers: session?.mode === 'demo' ? (MOCK_DATA.farmMembers || []) : [],
       inspections: MOCK_DATA.inspections,
@@ -988,9 +1016,10 @@ const app = createApp({
         state.value.farmMembers = [];
       }
       if (isLive.value && session.mode === 'live') {
-        const [overviewResult, workItemsResult] = await Promise.allSettled([
+        const [overviewResult, workItemsResult, alertsResult] = await Promise.allSettled([
           api.getOverview(),
-          api.getTodayWorkItems()
+          api.getTodayWorkItems(),
+          api.getAlerts()
         ]);
         if (overviewResult.status === 'fulfilled' && Array.isArray(overviewResult.value?.plots)) {
           state.value.plots = scopePlots(mergeOverviewPlots(overviewResult.value.plots), state.value.currentUser);
@@ -1002,12 +1031,19 @@ const app = createApp({
         } else if (workItemsResult.status === 'rejected') {
           showToast('读取今日农务失败：' + workItemsResult.reason.message, 'error');
         }
+        if (alertsResult.status === 'fulfilled' && Array.isArray(alertsResult.value)) {
+          state.value.alerts = alertsResult.value;
+        } else if (alertsResult.status === 'rejected') {
+          showToast('读取告警失败：' + alertsResult.reason.message, 'error');
+        }
       } else if (session.mode === 'demo') {
         state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
+        state.value.alerts = (MOCK_DATA.alerts || []).map((item) => ({ ...item }));
         state.value.workOrders = (MOCK_DATA.workOrders || []).map((item) => ({ ...item }));
         state.value.farmMembers = (MOCK_DATA.farmMembers || []).map((member) => ({ ...member }));
       } else {
         state.value.plots = [];
+        state.value.alerts = [];
         state.value.workOrders = [];
         state.value.farmMembers = [];
         showToast('当前未连接后端服务，正式数据暂不可用', 'error');

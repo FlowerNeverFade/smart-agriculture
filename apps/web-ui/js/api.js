@@ -324,6 +324,43 @@ export class ApiService {
     return { ...workOrder, workOrderId, workItemId: workOrder.workItemId || workOrderId, createdAt: workOrder.createdAt || new Date().toISOString() };
   }
 
+  async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async getAlerts(filters = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
+    });
+    if (this.isLive) {
+      const query = queryParams.size ? `?${queryParams.toString()}` : '';
+      const response = await this._fetch(`/api/v1/alerts${query}`);
+      if (Array.isArray(response?.data)) return response.data;
+      throw new ApiError('后端返回了无效的告警数据', { code: 'ALERTS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.alerts || [])
+      .filter(alert => !filters.plotId || alert.plotId === filters.plotId)
+      .filter(alert => !filters.status || alert.status === filters.status)
+      .map(alert => ({ ...alert }));
+  }
+
+  async transitionAlert(alertId, action) {
+    const operation = String(action || '').toLowerCase();
+    if (!['ack', 'close', 'escalate'].includes(operation)) throw new ApiError('不支持的告警操作', { code: 'ALERT_ACTION_INVALID' });
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/alerts/${encodeURIComponent(alertId)}/${operation}`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      return response?.data || response;
+    }
+    const status = { ack: 'ACKED', close: 'CLOSED', escalate: 'ESCALATED' }[operation];
+    return { alertId, status, updatedAt: new Date().toISOString(), provenance: 'SIMULATED' };
+  }
+
+  async ackAlert(alertId) { return this.transitionAlert(alertId, 'ack'); }
+  async closeAlert(alertId) { return this.transitionAlert(alertId, 'close'); }
+  async escalateAlert(alertId) { return this.transitionAlert(alertId, 'escalate'); }
+
   async getInspections(plotId = '') {
     if (this.isLive) {
       const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);

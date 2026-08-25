@@ -7,6 +7,8 @@
 
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
+> 2026-08-25 管理员 A 线第一步——告警处置（本地已验收）：管理员“告警与诊断”入口先展示真实告警处置页，支持待处理/已关闭筛选、确认、升级、关闭和告警转待分配任务；告警与工单保留 `sourceType=ALERT`、`sourceRef`、`plotId` 和优先级关联。后端确认操作已收口到统一状态权限与审计字段，自动告警增加通俗标题与处置说明。Gradle 测试和 `npx vite build` 通过；应用内浏览器验证确认、升级、转单、关闭、筛选、诊断返回及控制台无错误。未实现或宣称工单分配/执行/验收、正式成员读取和巡田持久化；未推送或部署。
+
 > 2026-08-25 农场管理员二维地块总览（本地已验收）：在 GitHub `main` 基线增量实现农场选择、创建农务、今日任务/逾期/异常地块/待分配/待审批五项动态概况、两列地块六指标卡片及无 3D 的二维详情弹窗；管理员导航收口为农场总览、农务任务、告警与诊断、设备与灌溉、农场成员。任务创建继续使用现有 `saveWorkOrder` 合同，正式会话成员接口缺失或后端离线时显示空状态，不以演示指标代替正式数据；演示成员明确标记 `SIMULATED`。Vite 生产构建通过，应用内浏览器在 1600×1000、1280×800、390×844 完成统计、鼠标/键盘详情、路由/焦点、任务创建、设备、成员、两角色回归、无横向溢出及控制台检查；参考图和最终截图均已用 `view_image` 对照。旧 3D FarmMonitor 验收文档仅保留为历史证据，当前默认地块入口不再加载其样式或画布；未修改后端接口、JWT、Token、会话字段或权限边界。本轮未推送或部署。
 
 > 2026-08-24 main 部署记录：右栏功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已同步到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。

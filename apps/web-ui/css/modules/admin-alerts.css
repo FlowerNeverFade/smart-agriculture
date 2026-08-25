@@ -1,0 +1,139 @@
+.admin-alert-view {
+  display: grid;
+  gap: 18px;
+  color: var(--g-text-primary);
+}
+
+.admin-alert-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--g-border);
+}
+
+.admin-alert-header h2,
+.admin-alert-title-row h3 {
+  margin: 0;
+  color: var(--g-text-primary);
+}
+
+.admin-alert-header h2 { font-size: 26px; font-weight: 600; }
+.admin-alert-header p { margin: 6px 0 0; color: var(--g-text-secondary); font-size: 14px; }
+.admin-alert-eyebrow { font-size: 12px !important; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+
+.admin-alert-tabs {
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid var(--g-border);
+  border-radius: 8px;
+  background: var(--g-bg-surface);
+}
+
+.admin-alert-tabs button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--g-text-secondary);
+  background: transparent;
+  font: 500 13px/1 var(--g-font-family);
+  cursor: pointer;
+}
+
+.admin-alert-tabs button.active {
+  color: var(--g-text-primary);
+  background: var(--g-bg-subtle);
+}
+
+.admin-alert-list { display: grid; gap: 12px; }
+
+.admin-alert-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 22px;
+  padding: 18px 20px;
+  border: 1px solid var(--g-border);
+  border-left: 4px solid #8a641f;
+  border-radius: 8px;
+  background: var(--g-bg-surface);
+  box-shadow: var(--g-shadow-1);
+}
+
+.admin-alert-card.level-critical { border-left-color: var(--g-danger); }
+.admin-alert-card.level-low { border-left-color: var(--g-border); }
+.admin-alert-main { min-width: 0; }
+
+.admin-alert-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-alert-title-row h3 { font-size: 17px; font-weight: 600; }
+.admin-alert-meta,
+.admin-alert-source { margin: 7px 0 0; color: var(--g-text-secondary); font-size: 13px; font-weight: 500; }
+.admin-alert-message { margin: 11px 0 0; color: var(--g-text-primary); font-size: 14px; line-height: 1.65; }
+
+.admin-alert-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--g-border);
+  border-radius: 999px;
+  color: var(--g-text-secondary);
+  background: var(--g-bg-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-alert-chip.state-active,
+.admin-alert-chip.state-escalated,
+.admin-alert-chip.level {
+  color: #76520d;
+  border-color: color-mix(in srgb, #8a641f 42%, var(--g-border));
+  background: color-mix(in srgb, #8a641f 10%, var(--g-bg-surface));
+}
+
+.admin-alert-chip.state-closed,
+.admin-alert-chip.state-resolved { color: var(--g-text-secondary); }
+
+.admin-alert-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 390px;
+}
+
+.admin-alert-empty {
+  padding: 44px 20px;
+  border: 1px dashed var(--g-border);
+  border-radius: 8px;
+  color: var(--g-text-secondary);
+  background: var(--g-bg-surface);
+  text-align: center;
+}
+
+[data-theme="dark"] .admin-alert-chip.state-active,
+[data-theme="dark"] .admin-alert-chip.state-escalated,
+[data-theme="dark"] .admin-alert-chip.level { color: #f3cf87; }
+
+@media (max-width: 900px) {
+  .admin-alert-card { grid-template-columns: 1fr; }
+  .admin-alert-actions { justify-content: flex-start; max-width: none; }
+}
+
+@media (max-width: 640px) {
+  .admin-alert-header { flex-direction: column; }
+  .admin-alert-tabs { width: 100%; }
+  .admin-alert-tabs button { flex: 1; }
+  .admin-alert-card { padding: 15px; }
+  .admin-alert-actions .g-btn { flex: 1 1 42%; }
+}

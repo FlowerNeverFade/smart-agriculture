@@ -353,6 +353,33 @@ export const MOCK_DATA = {
     }
   ],
 
+  alerts: [
+    {
+      alertId: "alert-water-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      level: "HIGH",
+      status: "ACTIVE",
+      source: "SOIL_MOISTURE",
+      title: "A01 土壤偏干",
+      message: "土壤湿度持续低于番茄当前生长阶段的合适范围，请尽快确认是否需要浇水。",
+      raisedAt: new Date(Date.now() - 22 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    },
+    {
+      alertId: "alert-device-a02",
+      farmId: "farm-demo",
+      plotId: "plot-a02",
+      level: "MEDIUM",
+      status: "ACKED",
+      source: "DEVICE_FRESHNESS",
+      title: "A02 流量计上报变慢",
+      message: "流量计最近一次数据到达较慢，已确认，等待现场复查。",
+      raisedAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    }
+  ],
+
   // farm-operations 分支的增量合同：只补充工单/巡田数据，不覆盖 main 的
   // 多作物、预测、Crop Pack 与价值账本演示数据。
   workOrders: [

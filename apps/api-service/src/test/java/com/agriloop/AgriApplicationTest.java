@@ -180,6 +180,45 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmAdminCanHandleAlertAndConvertItToWorkOrder() {
+        String alertId = "alert-operations-test";
+        store.save("alert", alertId, new java.util.LinkedHashMap<>(Map.of(
+                "alertId", alertId,
+                "farmId", "farm-demo",
+                "plotId", "plot-a01",
+                "level", "HIGH",
+                "status", "ACTIVE",
+                "source", "SOIL_MOISTURE",
+                "message", "土壤偏干，请确认是否需要浇水",
+                "raisedAt", Instant.now().toString())));
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("farm-demo"), List.of("*"));
+
+        Map<String, Object> acknowledged = engine.transitionAlert(alertId, "ACKED", admin);
+        assertThat(acknowledged).containsEntry("status", "ACKED").containsEntry("acknowledgedBy", "user-admin");
+        assertThat(acknowledged).containsKeys("acknowledgedAt", "updatedAt");
+
+        Map<String, Object> escalated = engine.transitionAlert(alertId, "ESCALATED", admin);
+        assertThat(escalated).containsEntry("status", "ESCALATED").containsEntry("escalatedBy", "user-admin");
+
+        Map<String, Object> workOrder = engine.createWorkOrder(Map.of(
+                "plotId", "plot-a01",
+                "title", "处理土壤偏干告警",
+                "reason", "现场复测并确认是否浇水",
+                "sourceType", "ALERT",
+                "sourceRef", alertId,
+                "status", "OPEN"), admin);
+        assertThat(workOrder).containsEntry("sourceType", "ALERT").containsEntry("sourceRef", alertId).containsEntry("status", "OPEN");
+
+        Map<String, Object> closed = engine.transitionAlert(alertId, "CLOSED", admin);
+        assertThat(closed).containsEntry("status", "CLOSED").containsEntry("closedBy", "user-admin");
+        assertThat(closed).containsKey("closedAt");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionAlert(alertId, "ACTIVE", farmer)).isInstanceOf(ApiException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionAlert(alertId, "ACTIVE", systemAdmin)).isInstanceOf(ApiException.class);
+    }
+
+    @Test
     void normalLightVariationIsNotMistakenForSensorDegradation() {
         engine.ingest(Map.of("eventId", "light-baseline-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
                 "metric", "LIGHT", "value", 38_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().toString()));
