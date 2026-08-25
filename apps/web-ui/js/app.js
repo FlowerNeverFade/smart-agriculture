@@ -1329,23 +1329,29 @@ class AgriApp {
         this._setFarmEntryOverlayText('正在进入农田动态监测', '视角移向天空…');
         this.riumBackground?.restoreHomeCamera?.();
         this.riumBackground?.setVisible(true);
-        await this.riumBackground?.playFarmEntryDive?.();
-        this._setFarmEntryOverlayText('正在切换数字孪生场景', '衔接到监测界面的天空…');
-      }
+        const divePromise = this.riumBackground?.playFarmEntryDive?.() || Promise.resolve();
 
-      this.riumBackground?.setVisible(false);
-      this.farmMonitor?.setPlots(this.state.plots);
+        // Mid-dive: start building the twin under the overlay so loading is real work
+        await Promise.race([
+          divePromise,
+          new Promise(resolve => setTimeout(resolve, 1400))
+        ]);
+        this._setFarmEntryOverlayText('正在构建数字孪生场景', '田野模型与天空衔接中…');
+        this.farmMonitor?.setPlots(this.state.plots);
+        const openPromise = this.farmMonitor?.open(plotId, { introAnimation });
 
-      const openPromise = this.farmMonitor?.open(plotId, { introAnimation });
-      if (introAnimation) {
-        // 切入天空后稍作停留再收起遮罩，让落回全景更清晰可见
-        await new Promise(resolve => setTimeout(resolve, 640));
+        await divePromise;
+        this.riumBackground?.setVisible(false);
         this._setFarmEntryOverlayText('农田动态监测已就绪', '缓慢落回全景视角…');
-        await new Promise(resolve => setTimeout(resolve, 420));
+        // Short sky bridge — don't wait for the whole intro before clearing overlay
+        await new Promise(resolve => setTimeout(resolve, 280));
         this._hideFarmEntryOverlay();
+        await openPromise;
+      } else {
+        this.riumBackground?.setVisible(false);
+        this.farmMonitor?.setPlots(this.state.plots);
+        await this.farmMonitor?.open(plotId, { introAnimation });
       }
-      await openPromise;
-      this._hideFarmEntryOverlay();
 
       this.dom.headerCurrentView.textContent = '农田监测 (Digital Twin)';
       document.querySelectorAll('.module-nav-item').forEach(item => {
@@ -1355,6 +1361,7 @@ class AgriApp {
         this.navigate('plot-detail', { plotId });
       }
     } finally {
+      this._hideFarmEntryOverlay();
       this._farmEntryBusy = false;
     }
   }

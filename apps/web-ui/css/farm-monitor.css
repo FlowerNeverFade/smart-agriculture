@@ -102,13 +102,13 @@ body.farm-entry-transition > .app-container {
 .farm-entry-overlay {
   position: fixed;
   inset: 0;
-  z-index: 480;
+  z-index: 560;
   display: grid;
   place-items: center;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 420ms ease, visibility 420ms ease;
+  transition: opacity 320ms ease, visibility 320ms ease;
 }
 
 .farm-entry-overlay.active {

@@ -1199,7 +1199,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
       camera.fov = THREE.MathUtils.lerp(32, 46, widen);
       camera.updateProjectionMatrix();
     } else if (entryDiveT >= 0 && entryDiveT < 1) {
-      entryDiveT = Math.min(1, entryDiveT + 0.011);
+      entryDiveT = Math.min(1, entryDiveT + 0.0145);
       const e = 1 - (1 - entryDiveT) ** 3;
       camera.position.lerpVectors(entryDiveFromPos, entryDiveToPos, e);
       lookTarget.lerpVectors(entryDiveFromLook, entryDiveToLook, e);
@@ -1382,7 +1382,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
         const done = entryDiveDone;
         entryDiveDone = null;
         done();
-      }, 2800);
+      }, 2100);
     });
   }
 
