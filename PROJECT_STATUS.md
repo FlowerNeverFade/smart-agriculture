@@ -3,6 +3,8 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-26
 
+> 2026-08-26 BearPi E53_IA1 实时接入适配（本地已验收，待远端部署与板卡固件确认）：新增 `hardware/bearpi_e53_bridge.py`，支持官方 E53 串口文本和 JSON 读数，发布温度/空气湿度/光照并带 `REAL/HARDWARE/OBSERVED` 来源；后端新增来源持久化、120 秒真实优先仲裁和空气湿度指标，模拟器改为平滑温湿度/昼夜光照/水位轨迹并每 5 秒持续发送。Python 解析、Gradle API、前端 Node、Vite、Crop Pack 和语法检查通过。当前 COM5 板卡固件仍是 `StreetLight MQTT` 示例，未输出 E53 传感器读数；需要现场确认后烧录 E53_IA1 固件并按 RESET，不能把这一步尚未完成表述为真实硬件已上线。
+
 > 2026-08-26 AI 问答展示收口（本地已验收，未推送/未部署）：远端当前 Qwen/vLLM 服务和 API 配置正常，三角色正式 JWT 实测 `adapter=openai-compatible`、`degraded=false` 并返回自然语言 `narrative`。前端此前误把卡片用的 `summary` 当作聊天答案，导致模型成功时用户只能看到固定短句；现改为优先展示 `narrative`，并显示 `Qwen 实时回答`/`规则降级回答` 来源标签。聊天改为安全纯文本换行，避免模型文本通过 `v-html` 注入；模型不可用时仍保留规则结果并明确降级。验证：远端 farmer/admin/sysadmin Agent 请求成功；前端 Node 14/14、Vite 构建、Node 语法、Gradle API 全量测试通过。本期 AI 仍以规则/数据库事实为边界，Qwen 只负责解释，不直接执行控制命令。
 
 > 2026-08-26 成员列表字形修补（本地已验收，未推送/未部署）：农场管理员成员卡片中用户名下方的角色与来源文本拆分渲染，显式关闭斜体/变换、统一字重和基线；`ACCOUNT/SIMULATED` 来源使用独立等宽小标签，三角色副文本保持同一视觉规则。Node 14/14、Vite 构建和冲突标记检查通过。
