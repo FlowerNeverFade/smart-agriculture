@@ -67,6 +67,10 @@ export const AdminDecisionView = {
     const evaluation = ref(null);
     const passport = ref(null);
     const evidenceRequest = ref(null);
+    const aiExplanation = ref(null);
+    const aiExplaining = ref(false);
+    const aiExplanationError = ref(null);
+    let aiExplanationRequest = 0;
 
     const plots = computed(() => props.state?.plots || []);
     const selectedPlot = computed(() => plots.value.find((item) => item.plotId === selectedPlotId.value) || null);
@@ -119,6 +123,10 @@ export const AdminDecisionView = {
       evaluation.value = null;
       passport.value = null;
       evidenceRequest.value = null;
+      aiExplanation.value = null;
+      aiExplanationError.value = null;
+      aiExplanationRequest += 1;
+      aiExplaining.value = false;
       confirmed.value = false;
     };
 
@@ -128,6 +136,26 @@ export const AdminDecisionView = {
       contextError.code = 'PLOT_CONTEXT_REQUIRED';
       error.value = contextError;
       return false;
+    };
+
+    const requestAiExplanation = async (force = false) => {
+      const diagnosisRecord = diagnosis.value;
+      const plotId = selectedPlotId.value;
+      const trace = currentTraceId.value;
+      if (!diagnosisRecord?.diagnosisId || !plotId) return;
+      const requestId = ++aiExplanationRequest;
+      aiExplaining.value = true;
+      aiExplanationError.value = null;
+      try {
+        const explained = await api.explainDiagnosis(diagnosisRecord.diagnosisId, plotId, { force });
+        if (requestId !== aiExplanationRequest || trace !== currentTraceId.value || diagnosis.value?.diagnosisId !== diagnosisRecord.diagnosisId) return;
+        diagnosis.value = explained;
+        aiExplanation.value = explained.aiExplanation || null;
+      } catch (caught) {
+        if (requestId === aiExplanationRequest && trace === currentTraceId.value) aiExplanationError.value = caught;
+      } finally {
+        if (requestId === aiExplanationRequest) aiExplaining.value = false;
+      }
     };
 
     const runDecisionChain = async () => {
@@ -156,6 +184,7 @@ export const AdminDecisionView = {
         error.value = caught;
       } finally {
         loading.value = false;
+        if (diagnosis.value && currentTraceId.value) void requestAiExplanation();
       }
     };
 
@@ -244,9 +273,10 @@ export const AdminDecisionView = {
     return {
       selectedPlotId, scenario, loading, executing, evidenceCreating, confirmed, demoOutcome, error,
       diagnosis, plan, readiness, command, evaluation, passport, evidenceRequest, plots, selectedPlot,
+      aiExplanation, aiExplaining, aiExplanationError,
       farmId, isDemo, canApprove, risk, readinessView, gates, missingEvidence, canExecute, commandStatus,
       isCommandSuccess, metrics, dataLabel, metricSource, executionLabel, passportCounts, decisionTraceId, humanTime, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
-      executePlan, refreshPassport, asPercent
+      executePlan, refreshPassport, requestAiExplanation, asPercent
     };
   },
   template: `
@@ -309,6 +339,17 @@ export const AdminDecisionView = {
                   <div><strong>{{ RISK_META?.[candidate.code]?.label || candidate.code }}</strong><em>{{ asPercent(candidate.confidence) }}</em></div>
                   <div class="dc-score-track"><i :style="{width: asPercent(candidate.confidence)}"></i></div>
                 </article>
+              </div>
+              <div v-if="diagnosis" class="dc-ai-explanation" :class="{'is-degraded': aiExplanation?.degraded}">
+                <div class="dc-ai-explanation__head">
+                  <div><span class="dc-kicker">证据解释层</span><strong>{{ aiExplanation?.sourceLabel || 'AI 解释准备中' }}</strong></div>
+                  <button class="dc-button secondary" @click="requestAiExplanation(true)" :disabled="aiExplaining">{{ aiExplaining ? '生成中…' : '重新解释' }}</button>
+                </div>
+                <p v-if="aiExplaining" class="dc-ai-explanation__text is-loading">正在结合当前证据生成简洁解释…</p>
+                <p v-else-if="aiExplanation" class="dc-ai-explanation__text">{{ aiExplanation.text }}</p>
+                <p v-else-if="aiExplanationError" class="dc-ai-explanation__text is-error">规则诊断已保留，AI 解释暂时不可用：{{ aiExplanationError.message || '请稍后重试' }}</p>
+                <p v-else class="dc-ai-explanation__text">正在准备解释，不影响规则诊断和安全检查。</p>
+                <small class="dc-ai-explanation__meta">规则引擎负责主因、置信度和安全门；AI 只解释证据，不改变执行结论。</small>
               </div>
               <div v-if="!diagnosis" class="dc-empty-panel">{{ loading ? '正在读取地块数据并分析…' : '等待开始分析' }}</div>
             </section>

@@ -1180,6 +1180,84 @@ export class ApiService {
     return diagnosis;
   }
 
+  /**
+   * Ask the backend (or the demo rules adapter) to explain an existing,
+   * deterministic diagnosis.  The diagnosis fields remain the source of truth;
+   * this method only enriches the cached record with a readable explanation.
+   */
+  async explainDiagnosis(diagnosisId, plotId, options = {}) {
+    if (!diagnosisId || !plotId) {
+      throw new ApiError('生成诊断解释前必须明确诊断和地块', { status: 400, code: 'DIAGNOSIS_CONTEXT_REQUIRED' });
+    }
+    const force = options?.force === true;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/diagnoses/${encodeURIComponent(diagnosisId)}/explain`, {
+        method: 'POST',
+        body: JSON.stringify({ plotId, force })
+      });
+      const diagnosis = resp?.data || resp;
+      if (!diagnosis?.diagnosisId || !diagnosis?.aiExplanation?.text) {
+        throw new ApiError('诊断解释响应不完整', { code: 'DIAGNOSIS_EXPLANATION_INVALID', payload: resp });
+      }
+      this.decisionCache.diagnoses.set(diagnosis.diagnosisId, diagnosis);
+      return diagnosis;
+    }
+
+    const diagnosis = this.decisionCache.diagnoses.get(diagnosisId);
+    if (!diagnosis) throw new ApiError('找不到待解释的演示诊断', { status: 404, code: 'DIAGNOSIS_NOT_FOUND' });
+    if (!force && diagnosis.aiExplanation?.text) return diagnosis;
+    const labels = {
+      WATER_DEFICIT: '地块缺水',
+      SENSOR_DRIFT: '传感器读数可疑',
+      DEVICE_FAULT: '采集设备异常',
+      HEAT_STRESS: '高温胁迫',
+      INSUFFICIENT_EVIDENCE: '证据不足'
+    };
+    const cause = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE').toUpperCase();
+    const confidence = Math.round(Number(diagnosis.confidence || 0) * 100);
+    const supporting = (diagnosis.supportingEvidence || []).slice(0, 2).map((item) => {
+      if (item.type === 'telemetry') return `${item.metric || '指标'} ${item.value ?? '—'}${item.unit || ''}`;
+      if (item.type === 'quality') return `数据质量 ${item.status || '未知'}`;
+      if (item.type === 'device') return `设备状态 ${item.status || '未知'}`;
+      return item.reason || item.message || '现场证据';
+    });
+    const missing = (diagnosis.missingInformation || []).slice(0, 2).join('、');
+    const next = cause === 'SENSOR_DRIFT'
+      ? '先用便携仪复测并检查探头、供电和流量计。'
+      : cause === 'DEVICE_FAULT'
+        ? '先检查设备供电、网关连接和最后心跳。'
+        : cause === 'WATER_DEFICIT'
+          ? '连续复测根区土壤湿度，确认缺水持续后再查看补水试算。'
+          : '补充连续遥测和现场观察，再决定是否进入处方试算。';
+    const text = [
+      `结论：当前规则诊断更偏向 ${labels[cause] || labels.INSUFFICIENT_EVIDENCE}（置信度约 ${confidence}%，演示规则）。`,
+      supporting.length ? `依据：${supporting.join('；')}` : '',
+      missing ? `还缺：${missing}` : '',
+      `下一步：${next}`,
+      '规则引擎负责主因、置信度和安全门；这段 AI 只解释证据，不会生成或执行控制命令。'
+    ].filter(Boolean).join('\n');
+    const explained = {
+      ...diagnosis,
+      aiExplanation: {
+        text,
+        sourceLabel: '演示规则解释',
+        adapter: 'mock',
+        degraded: true,
+        degradationReason: 'DEMO_RULES_CONFIGURED',
+        provenance: 'DERIVED',
+        version: 'diagnosis-explainer-1.0',
+        cropPackVersion: diagnosis.cropPackVersion || '1.0.0',
+        ruleVersion: diagnosis.ruleVersion || 'rule-1.0.0',
+        knowledgeVersion: 'kb-1.0.0',
+        agentVersion: 'diagnosis-explainer-1.0',
+        generatedAt: new Date().toISOString(),
+        traceId: `run-demo-${Date.now()}`
+      }
+    };
+    this.decisionCache.diagnoses.set(diagnosisId, explained);
+    return explained;
+  }
+
   async estimateIrrigation(input = {}) {
     if (!input.plotId) {
       throw new ApiError('生成灌溉建议前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });

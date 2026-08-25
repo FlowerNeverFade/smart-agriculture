@@ -1,7 +1,7 @@
 # 智慧农业任务看板
 
 > 项目周期：15 天
-> 任务版本：v1.7（2026-08-26）
+> 任务版本：v1.8（2026-08-26）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
 > 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。`rium_dev-v2` 增量与毛玻璃回退另有本地 Chromium 证据。
@@ -89,6 +89,7 @@
 | T-057 | P0 | AI 正式问答展示与模型降级边界修复 | 前后端 | — | 本轮 | 已完成（本地 + 远端验收） | 前端优先展示后端 `narrative`（不再误显卡片 `summary`），显示 `Qwen 实时回答`/`规则降级回答` 来源标签，聊天内容安全纯文本换行；远端 API 实测三角色登录后 Qwen `adapter=openai-compatible`、`degraded=false`，本地前端 14/14、Vite、Node 语法和 Gradle 全量测试通过；本地提交，未推送 |
 | T-058 | P1 | 农场成员副文本字形与基线统一 | 前端 | — | 本轮 | 已完成（本地验收） | 成员列表将角色和 `ACCOUNT/SIMULATED` 来源拆分为独立文本节点，显式使用正常字形、统一基线和来源等宽样式，修正 `admin` 行副文本视觉倾斜；Node 14/14、Vite 构建和冲突标记检查通过；本地提交，未推送 |
 | T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 进行中 | `hardware/bearpi_e53_bridge.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；Python/Gradle/Web/Vite/Crop Pack 回归通过。物理端待 E53 固件烧录、RESET 和远端部署后验收 |
+| T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 待验收 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；待 Gradle、Web 构建和远端黑盒验收 |
 
 ### 2.1 核心八项能力任务映射
 

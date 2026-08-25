@@ -182,6 +182,36 @@ class AgriApplicationTest {
     }
 
     @Test
+    void diagnosisExplanationKeepsRuleFactsAndLeavesAuditableFallback() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("scenarioId", "normal", "traceId", "test-diagnosis-explanation"));
+        String diagnosisId = String.valueOf(diagnosis.get("diagnosisId"));
+        String primaryCause = String.valueOf(diagnosis.get("primaryCause"));
+        Object confidence = diagnosis.get("confidence");
+
+        Map<String, Object> explained = engine.explainDiagnosis(diagnosisId, admin, false);
+        Map<String, Object> explanation = Jsons.map(new ObjectMapper(), explained.get("aiExplanation"));
+        assertThat(explained).containsEntry("diagnosisId", diagnosisId)
+                .containsEntry("primaryCause", primaryCause)
+                .containsEntry("confidence", confidence);
+        assertThat(explanation).containsEntry("adapter", "rules")
+                .containsEntry("degraded", true)
+                .containsEntry("provenance", "DERIVED")
+                .containsKey("text");
+        assertThat(String.valueOf(explanation.get("text"))).contains("规则引擎负责主因");
+
+        Map<String, Object> cached = engine.explainDiagnosis(diagnosisId, admin, false);
+        Map<String, Object> cachedExplanation = Jsons.map(new ObjectMapper(), cached.get("aiExplanation"));
+        assertThat(cachedExplanation.get("traceId")).isEqualTo(explanation.get("traceId"));
+        assertThat(store.find("agent-run", String.valueOf(explanation.get("traceId"))))
+                .containsEntry("intent", "DIAGNOSIS_EXPLANATION");
+
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        Map<String, Object> endpointResult = responseData(controller.diagnosisExplain(diagnosisId, Map.of(), authentication));
+        assertThat(endpointResult.get("aiExplanation")).isEqualTo(cached.get("aiExplanation"));
+    }
+
+    @Test
     void realTelemetryWinsOverRecentSimulatorValueAndHumidityIsNormalised() {
         String plotId = "hardware-plot-" + System.nanoTime();
         String realId = "hardware-real-" + System.nanoTime();

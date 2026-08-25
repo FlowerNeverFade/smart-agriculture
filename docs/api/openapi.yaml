@@ -126,6 +126,8 @@ paths:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 根因与证据}}}
   /api/v1/diagnoses/{diagnosisId}:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], responses: {'200': {description: 根因详情}}}
+  /api/v1/diagnoses/{diagnosisId}/explain:
+    post: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 基于确定性诊断证据的 AI 解释；不改变主因、置信度或安全门}}}
   /api/v1/decisions/{subjectType}/{subjectId}/readiness:
     get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
   /api/v1/decision-readiness/{readinessId}/evidence-requests:

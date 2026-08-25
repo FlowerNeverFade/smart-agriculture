@@ -1809,6 +1809,204 @@ class AgriEngine {
         return diagnosis;
     }
 
+    /**
+     * Adds a user-facing explanation to an already calculated diagnosis.
+     *
+     * The diagnosis itself is deliberately kept deterministic: this method may
+     * only explain the persisted primary cause, confidence and evidence.  It is
+     * a separate, explicitly requested operation so telemetry ingestion and
+     * rule-triggered alerts never cause an LLM call for every event.
+     */
+    Map<String, Object> explainDiagnosis(String diagnosisId, UserPrincipal principal, boolean force) {
+        Map<String, Object> diagnosis = requireRecord("diagnosis", diagnosisId);
+        String plotId = Jsons.text(diagnosis, "plotId", "");
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> existing = Jsons.map(mapper, diagnosis.get("aiExplanation"));
+        if (!force && !Jsons.text(existing, "text", "").isBlank()) return diagnosis;
+
+        String traceId = Jsons.id("run");
+        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
+        Map<String, Object> facts = diagnosisExplanationFacts(diagnosis, plotId);
+        String fallback = rulesDiagnosisExplanation(diagnosis);
+        String text = fallback;
+        String degradationReason = null;
+        String rawNarrative = null;
+        boolean degraded = !openAiCompatible;
+        Map<String, Object> llm = null;
+
+        if (openAiCompatible) {
+            long started = System.nanoTime();
+            try {
+                rawNarrative = callOpenAiCompatible(
+                        "请解释这次农业根因诊断。规则字段 primaryCause 和 confidence 是最终结论，不得改写；只使用给定的支持、反对和缺失证据。用‘结论—证据—下一步’的简洁结构回答，证据不足时明确说明需要复测。不要生成灌溉剂量、控制命令、SQL、MQTT topic 或 HTTP 请求。",
+                        facts, List.of());
+                String modelText = sanitizeDiagnosisExplanation(rawNarrative);
+                if (modelText.isBlank()) throw new IOException("LLM_EMPTY_EXPLANATION");
+                // Always keep the deterministic conclusion visible beside the
+                // model prose.  Even a well-behaved model must not become the
+                // source of truth for primaryCause or confidence.
+                text = diagnosisConclusionLine(diagnosis) + "\nAI 解释：" + modelText;
+                llm = new LinkedHashMap<>();
+                llm.put("provider", "openai-compatible");
+                llm.put("model", configuredLlmModel());
+                llm.put("latencyMs", Duration.ofNanos(System.nanoTime() - started).toMillis());
+            } catch (Exception ex) {
+                degraded = true;
+                degradationReason = "AI_DEPENDENCY_UNAVAILABLE_FALLBACK";
+                store.logEvent("AI_DEGRADED", Map.of("traceId", traceId, "diagnosisId", diagnosisId,
+                        "mode", aiMode, "reason", degradationReason, "error", safeLlmError(ex), "provenance", "DERIVED"));
+            }
+        } else if (aiMode.equals("mock")) {
+            degradationReason = "DEMO_RULES_CONFIGURED";
+        } else {
+            degradationReason = aiMode.equals("maxkb") ? "AI_ADAPTER_UNAVAILABLE_FALLBACK" : "RULES_ONLY_CONFIGURED";
+        }
+
+        // Keep the boundary visible even when the model produces a plausible
+        // action suggestion: this text is explanatory only and cannot alter the
+        // deterministic safety decision shown next to it in the UI.
+        text = text.trim();
+        if (!text.contains("规则引擎负责主因") && !text.contains("不会生成或执行控制命令")) {
+            text = text + "\n\n规则引擎负责主因、置信度和安全门；这段 AI 只解释证据，不会生成或执行控制命令。";
+        }
+
+        Map<String, Object> explanation = new LinkedHashMap<>();
+        explanation.put("text", text);
+        explanation.put("sourceLabel", degraded ? (aiMode.equals("mock") ? "演示规则解释" : "规则降级解释") : "Qwen 实时解释");
+        explanation.put("adapter", adapter);
+        explanation.put("degraded", degraded);
+        explanation.put("provenance", "DERIVED");
+        explanation.put("version", "diagnosis-explainer-1.0");
+        explanation.put("cropPackVersion", Jsons.text(diagnosis, "cropPackVersion", "1.0.0"));
+        explanation.put("ruleVersion", Jsons.text(diagnosis, "ruleVersion", "rule-1.0.0"));
+        explanation.put("knowledgeVersion", "kb-1.0.0");
+        explanation.put("agentVersion", "diagnosis-explainer-1.0");
+        explanation.put("generatedAt", Instant.now().toString());
+        explanation.put("traceId", traceId);
+        if (degradationReason != null) explanation.put("degradationReason", degradationReason);
+        if (llm != null) explanation.put("llm", llm);
+        if (rawNarrative != null && !rawNarrative.isBlank()) explanation.put("rawCaptured", true);
+
+        diagnosis.put("aiExplanation", explanation);
+        diagnosis.put("aiExplainedAt", explanation.get("generatedAt"));
+        store.save("diagnosis", diagnosisId, diagnosis);
+
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("traceId", traceId);
+        audit.put("intent", "DIAGNOSIS_EXPLANATION");
+        audit.put("diagnosisId", diagnosisId);
+        audit.put("plotId", plotId);
+        audit.put("userId", principal.userId);
+        audit.put("username", principal.username);
+        audit.put("adapter", adapter);
+        audit.put("degraded", degraded);
+        audit.put("deterministicFacts", facts);
+        audit.put("aiExplanation", explanation);
+        audit.put("context", Map.of("cropPackVersion", "1.0.0", "ruleVersion", "rule-1.0.0",
+                "knowledgeVersion", "kb-1.0.0", "agentVersion", "diagnosis-explainer-1.0"));
+        audit.put("generatedAt", explanation.get("generatedAt"));
+        if (degradationReason != null) audit.put("degradationReason", degradationReason);
+        if (rawNarrative != null && !rawNarrative.isBlank()) audit.put("narrativeRaw", rawNarrative);
+        store.save("agent-run", traceId, audit);
+        store.logEvent("diagnosis.ai.explained", Map.of("traceId", traceId, "diagnosisId", diagnosisId,
+                "plotId", plotId, "adapter", adapter, "degraded", degraded, "provenance", "DERIVED"));
+        Map<String, Object> event = new LinkedHashMap<>(explanation);
+        event.put("diagnosisId", diagnosisId);
+        event.put("plotId", plotId);
+        events.publish("diagnosis.ai.explained", event);
+        return diagnosis;
+    }
+
+    private Map<String, Object> diagnosisExplanationFacts(Map<String, Object> diagnosis, String plotId) {
+        Map<String, Object> diagnosisFacts = new LinkedHashMap<>(diagnosis);
+        diagnosisFacts.remove("aiExplanation");
+        diagnosisFacts.remove("diagnosisId");
+        Map<String, Object> facts = new LinkedHashMap<>();
+        facts.put("diagnosis", publicProjection(diagnosisFacts));
+        facts.put("latestMetrics", publicProjection(latestMetrics(plotId)));
+        facts.put("device", publicProjection(deviceForPlot(plotId)));
+        facts.put("knowledgeEvidence", knowledgeEvidence(plotId));
+        String snippet = knowledgeSnippet(plotId);
+        if (!snippet.isBlank()) facts.put("retrievedKnowledge", snippet);
+        return facts;
+    }
+
+    private String sanitizeDiagnosisExplanation(String raw) {
+        String text = sanitizeNarrative(raw);
+        if (text.isBlank() || isDirectControlRequest(text)) return "";
+        return text;
+    }
+
+    private String rulesDiagnosisExplanation(Map<String, Object> diagnosis) {
+        String cause = Jsons.text(diagnosis, "primaryCause", "INSUFFICIENT_EVIDENCE").toUpperCase(Locale.ROOT);
+        double confidence = Jsons.number(diagnosis, "confidence", 0);
+        StringBuilder text = new StringBuilder(diagnosisConclusionLine(diagnosis));
+        List<Map<String, Object>> supporting = Jsons.maps(mapper, diagnosis.get("supportingEvidence"));
+        List<Map<String, Object>> opposing = Jsons.maps(mapper, diagnosis.get("opposingEvidence"));
+        List<String> missing = Jsons.strings(diagnosis.get("missingInformation"));
+        if (!supporting.isEmpty()) text.append("\n依据：").append(summariseDiagnosisEvidence(supporting));
+        if (!opposing.isEmpty()) text.append("\n反向信息：").append(summariseDiagnosisEvidence(opposing));
+        if (!missing.isEmpty()) text.append("\n还缺：").append(missing.stream().map(this::diagnosisEvidenceLabel).limit(3).collect(Collectors.joining("、")));
+        text.append("\n下一步：").append(diagnosisNextStep(cause));
+        return text.toString();
+    }
+
+    private String diagnosisConclusionLine(Map<String, Object> diagnosis) {
+        String cause = Jsons.text(diagnosis, "primaryCause", "INSUFFICIENT_EVIDENCE").toUpperCase(Locale.ROOT);
+        double confidence = Jsons.number(diagnosis, "confidence", 0);
+        return "结论：当前规则诊断更偏向 " + diagnosisCauseLabel(cause) + "（置信度约 " + Math.round(confidence * 100) + "%）。";
+    }
+
+    private String summariseDiagnosisEvidence(List<Map<String, Object>> evidence) {
+        return evidence.stream().map(item -> {
+            String type = Jsons.text(item, "type", "");
+            if ("telemetry".equalsIgnoreCase(type)) {
+                String metric = metricDisplayName(Jsons.text(item, "metric", "指标"));
+                String value = Jsons.text(item, "value", "");
+                String unit = Jsons.text(item, "unit", "");
+                return metric + (value.isBlank() ? "" : " " + value + unit);
+            }
+            if ("quality".equalsIgnoreCase(type)) return "数据质量 " + Jsons.text(item, "status", "未知");
+            if ("device".equalsIgnoreCase(type)) return "设备状态 " + Jsons.text(item, "status", "未知");
+            String reason = Jsons.text(item, "reason", Jsons.text(item, "message", "现场证据"));
+            return reason.isBlank() ? "现场证据" : reason;
+        }).filter(item -> !item.isBlank()).limit(3).collect(Collectors.joining("；"));
+    }
+
+    private String diagnosisCauseLabel(String cause) {
+        return switch (String.valueOf(cause).toUpperCase(Locale.ROOT)) {
+            case "WATER_DEFICIT" -> "地块缺水";
+            case "SENSOR_DRIFT" -> "传感器读数可疑";
+            case "DEVICE_FAULT" -> "采集设备异常";
+            case "HEAT_STRESS" -> "高温胁迫";
+            default -> "证据不足";
+        };
+    }
+
+    private String diagnosisEvidenceLabel(String code) {
+        return switch (String.valueOf(code).toUpperCase(Locale.ROOT)) {
+            case "FLOW_RATE_CALIBRATION" -> "检查流量计";
+            case "PORTABLE_METER_COMPARISON" -> "便携仪复测";
+            case "FRESH_TELEMETRY" -> "获取新遥测";
+            case "DEVICE_HEALTH" -> "检查设备心跳";
+            case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
+            case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            default -> code;
+        };
+    }
+
+    private String diagnosisNextStep(String cause) {
+        return switch (String.valueOf(cause).toUpperCase(Locale.ROOT)) {
+            case "WATER_DEFICIT" -> "先连续复测根区土壤湿度，确认缺水持续后再查看补水试算。";
+            case "SENSOR_DRIFT" -> "先用便携仪复测并检查探头、供电和流量计；复测通过前不生成可执行灌溉。";
+            case "DEVICE_FAULT" -> "先检查设备供电、网关连接和最后心跳，恢复新鲜数据后再诊断。";
+            case "HEAT_STRESS" -> "补充温度、湿度和作物现场观察，先做通风/遮阴核验，不直接执行灌溉。";
+            default -> "补充一组连续遥测和现场观察，再决定是否进入处方试算。";
+        };
+    }
+
     private List<Map<String, Object>> recentHumanObservations(String plotId) {
         Instant cutoff = Instant.now().minus(24, ChronoUnit.HOURS);
         return store.list("inspection").stream()
@@ -2715,13 +2913,13 @@ class AgriEngine {
             answer.put("intent", "CAPABILITY_QUERY");
             answer.put("summary", "已读取农智助手能力范围");
             answer.put("result", Map.of(
-                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
+                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "基于证据的诊断解释", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
                     "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过审批执行命令")));
             // Capability questions are a stable contract, not a generative task.
             // Answering them locally avoids a needless 27B round trip and keeps
             // the product boundary concise even when an LLM is enabled.
-            answer.put("narrative", "我可以查询地块状态、解释异常、做 1/2/4 小时风险预测、试算灌溉处方并汇总今日农务。实时事实来自规则、数据库和检索知识；执行控制必须经过权限、安全门和人工确认。");
+            answer.put("narrative", "我可以查询地块状态、诊断并解释异常证据、做 1/2/4 小时风险预测、试算灌溉处方并汇总今日农务。实时事实来自规则、数据库和检索知识；执行控制必须经过权限、安全门和人工确认。");
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
@@ -3678,6 +3876,15 @@ class AgriController {
 
     @GetMapping("/diagnoses/{diagnosisId}")
     ResponseEntity<?> diagnosisById(@PathVariable String diagnosisId, Authentication a) { Map<String, Object> d = engine.record("diagnosis", diagnosisId); engine.ensurePlotAccess(principal(a), Jsons.text(d, "plotId", "")); return ok(d); }
+
+    @PostMapping("/diagnoses/{diagnosisId}/explain")
+    ResponseEntity<?> diagnosisExplain(@PathVariable String diagnosisId,
+                                       @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        UserPrincipal p = principal(a);
+        Map<String, Object> diagnosis = engine.record("diagnosis", diagnosisId);
+        engine.ensurePlotAccess(p, Jsons.text(diagnosis, "plotId", ""));
+        return ok(engine.explainDiagnosis(diagnosisId, p, Jsons.bool(body == null ? Map.of() : body, "force", false)));
+    }
 
     @GetMapping("/decisions/{subjectType}/{subjectId}/readiness")
     ResponseEntity<?> readiness(@PathVariable String subjectType, @PathVariable String subjectId, Authentication a) { return ok(engine.readiness(subjectType, subjectId, principal(a))); }
