@@ -52,9 +52,10 @@
 ## 本地验收
 
 ```powershell
-python -m http.server 4173 --directory apps/web-ui
+cd apps/web-ui
+npx vite --host 127.0.0.1 --port 3000
 ```
 
-打开 `http://127.0.0.1:4173/index.html`。在线联调前需启动 API 服务，并确保 Spring CORS 允许静态页面的来源；也可采用同源反向代理部署。
+打开 `http://127.0.0.1:3000/index.html`。Vite 会按 `vite.config.js` 中的相对代理规则把 `/api` 与 `/actuator` 转发到本地 API 服务；在线联调前仍需启动后端，也可采用同源反向代理部署。
 
 建议合并前完成：四种角色上下文的按钮权限、工单全状态流转、巡田记录入库、水资源容量边界（总需求等于/小于/大于容量）以及 401/403 错误回归。登录页面和登录流程由认证功能分支单独验收。

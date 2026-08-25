@@ -8,6 +8,9 @@ const ROLE_BY_ACCOUNT = {
   sysadmin: { role: 'SYSTEM_ADMIN', roleLabel: '系统管理员', avatar: '⚙️' }
 };
 
+const DEMO_PASSWORD = 'demo123';
+const BACKEND_REQUIRED_MESSAGE = '当前只启动了前端页面，正式登录需要启动后端服务；也可以选择演示身份体验系统。';
+
 const ROLE_PRESENTATION = Object.fromEntries(
   Object.values(ROLE_BY_ACCOUNT).map((value) => [value.role, value])
 );
@@ -51,6 +54,7 @@ let leaving = false;
 let backgroundController = null;
 let pendingRegistration = null;
 let recoveryCodeContext = 'register';
+let selectedDemoAccount = null;
 
 function syncTaskMode() {
   const tasking = document.activeElement?.matches('.auth input, .auth select, .auth [role="combobox"]') ?? false;
@@ -248,6 +252,7 @@ function focusRoleSelect(select) {
 }
 
 function switchView(name, focusTarget = null) {
+  if (name !== 'login') selectedDemoAccount = null;
   closeCustomSelects();
   authViews.forEach((view) => { view.hidden = view.dataset.authView !== name; });
   glassPanel.dataset.view = name;
@@ -274,6 +279,12 @@ function presentUser(user) {
 function demoUserFor(account) {
   const role = ROLE_BY_ACCOUNT[account];
   return role ? { username: account, ...role } : null;
+}
+
+function selectedDemoUserFor(account, secret, selectedRole) {
+  if (!selectedDemoAccount || account !== selectedDemoAccount || secret !== DEMO_PASSWORD) return null;
+  const demoUser = demoUserFor(selectedDemoAccount);
+  return demoUser?.role === selectedRole ? demoUser : null;
 }
 
 function beginExit(user, mode) {
@@ -317,8 +328,17 @@ async function submitLogin(event) {
 
   setFormError(loginForm, loginError, '');
   setLoading(loginButton, true);
+  const explicitDemoUser = selectedDemoUserFor(account, secret, selectedRole);
+  let backendOnline = false;
 
   try {
+    backendOnline = await api.checkHealth();
+    if (explicitDemoUser && !backendOnline) {
+      api.saveSession({ mode: 'demo', user: explicitDemoUser });
+      beginExit(explicitDemoUser, 'demo');
+      return;
+    }
+
     const result = await api.login({ username: account, password: secret, role: selectedRole });
     const user = presentUser(result.user);
     api.saveSession({ mode: 'live', token: result.accessToken, user });
@@ -327,16 +347,8 @@ async function submitLogin(event) {
     if (error instanceof ApiError && (error.status === 401 || error.code === 'AUTH_INVALID')) {
       setFormError(loginForm, loginError, '账号、密码或身份不匹配');
       password.focus();
-    } else if (error instanceof ApiError && error.isNetworkError) {
-      const demoUser = secret === 'demo123' ? demoUserFor(account) : null;
-      if (demoUser && demoUser.role === selectedRole) {
-        api.saveSession({ mode: 'demo', user: demoUser });
-        beginExit(demoUser, 'demo');
-      } else if (demoUser) {
-        setFormError(loginForm, loginError, '账号与所选身份不匹配');
-      } else {
-        setFormError(loginForm, loginError, '后端暂不可用；演示账号需使用 demo123');
-      }
+    } else if (error instanceof ApiError && (error.status === 501 || error.isNetworkError || !backendOnline)) {
+      setFormError(loginForm, loginError, BACKEND_REQUIRED_MESSAGE);
     } else {
       setFormError(loginForm, loginError, error instanceof ApiError ? error.message : '登录服务暂不可用');
     }
@@ -513,12 +525,18 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
     password.value = 'demo123';
     loginRole.value = user.role;
     loginRole.dispatchEvent(new Event('change', { bubbles: true }));
+    selectedDemoAccount = account;
     demoPanel.hidden = true;
     demoToggle.setAttribute('aria-expanded', 'false');
     setFormError(loginForm, loginError, '');
     showToast(`已选择${user.roleLabel}`);
     username.focus();
   });
+});
+
+[username, password, loginRole].forEach((control) => {
+  control.addEventListener('input', () => { selectedDemoAccount = null; });
+  control.addEventListener('change', () => { selectedDemoAccount = null; });
 });
 
 [loginRole, registerRole].forEach((select) => {

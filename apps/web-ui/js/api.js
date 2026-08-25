@@ -156,14 +156,15 @@ export class ApiService {
         headers: { 'Accept': 'application/json' },
         signal: AbortSignal.timeout(1800)
       });
-      if (resp.ok) {
+      const health = resp.ok ? await resp.json().catch(() => null) : null;
+      if (health?.status === 'UP') {
         this.isLive = true;
         return true;
       }
     } catch (e) {
-      // Backend not running locally, seamlessly fall back to local mock state
-      this.isLive = false;
+      // 后端未启动、代理不可达或健康检查超时，统一保持离线状态。
     }
+    this.isLive = false;
     return false;
   }
 
