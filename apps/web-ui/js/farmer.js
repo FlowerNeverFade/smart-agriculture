@@ -233,6 +233,117 @@ const BAND_STATUS_LABELS = {
   ALERT: '低于阈值'
 };
 
+// 综合健康不是后端传来的固定百分比，而是根据当前可见证据重新计算：
+// 指标状态 68% + 设备/新鲜度 14% + 风险等级 18%。这样某一项异常会拉低
+// 评分，但不会让单一土壤湿度值完全替代其他指标。
+const HEALTH_METRIC_WEIGHTS = Object.freeze({
+  SOIL_MOISTURE: 0.25,
+  AIR_TEMPERATURE: 0.16,
+  LIGHT: 0.12,
+  CO2: 0.12,
+  SOIL_EC: 0.17,
+  NPK_RATIO: 0.18
+});
+
+const HEALTH_STATUS_MULTIPLIERS = Object.freeze({
+  NORMAL: 1,
+  WARN: 0.70,
+  ALERT: 0.42,
+  DEGRADED: 0.58,
+  UNKNOWN: 0.60
+});
+
+const HEALTH_RISK_SCORES = Object.freeze({
+  LOW: 0.90,
+  WARN: 0.66,
+  HIGH: 0.35,
+  CRITICAL: 0.22,
+  UNKNOWN: 0.58
+});
+
+function clamp_health_score(value) {
+  return Math.max(0.05, Math.min(0.98, Number(value) || 0));
+}
+
+function parse_target_range(target) {
+  const matches = String(target || '').replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*(k)?/gi) || [];
+  const values = matches.map((raw) => {
+    const match = raw.match(/(\d+(?:\.\d+)?)\s*(k)?/i);
+    return match ? Number(match[1]) * (match[2] ? 1000 : 1) : NaN;
+  }).filter(Number.isFinite);
+  return values.length >= 2 ? [values[0], values[1]] : null;
+}
+
+function parse_npk_values(value) {
+  const values = String(value || '').split(':').map(Number);
+  return values.length === 3 && values.every(Number.isFinite) ? values : null;
+}
+
+function metric_health_alignment(code, metric) {
+  if (!metric) return 0.38;
+  const range = parse_target_range(metric.target);
+  const value = Number(metric.value);
+  let alignment = 0.68;
+
+  if (range && Number.isFinite(value)) {
+    const [low, high] = range;
+    const half = Math.max((high - low) / 2, 0.001);
+    const midpoint = (low + high) / 2;
+    const distance = Math.abs(value - midpoint) / half;
+    alignment = distance <= 1
+      ? 0.72 + (1 - distance) * 0.22
+      : Math.max(0.12, 0.72 - Math.min(1.8, distance - 1) * 0.34);
+  } else if (code === 'NPK_RATIO') {
+    const values = parse_npk_values(metric.value);
+    if (values) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const coverage = Math.min(1, Math.max(0, (min - 60) / 120));
+      const spread = max / Math.max(min, 1);
+      const balance = Math.min(1, Math.max(0, 1 - Math.max(0, spread - 2) / 2));
+      alignment = 0.55 + coverage * 0.25 + balance * 0.16;
+    }
+  }
+
+  const status = String(metric.status || 'UNKNOWN').toUpperCase();
+  return clamp_health_score(alignment * (HEALTH_STATUS_MULTIPLIERS[status] || HEALTH_STATUS_MULTIPLIERS.UNKNOWN));
+}
+
+function device_health_score(plot) {
+  const status = String(plot?.deviceStatus || 'UNKNOWN').toUpperCase();
+  const base = status === 'ONLINE' ? 0.94 : (status === 'DEGRADED' ? 0.62 : (status === 'OFFLINE' ? 0.18 : 0.45));
+  const lastSeen = String(plot?.lastSeen || '');
+  const minuteMatch = lastSeen.match(/(\d+)\s*分钟/);
+  const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
+  const freshness = lastSeen.includes('刚刚') ? 1 : (minutes <= 1 ? 0.98 : (minutes <= 5 ? 0.92 : (minutes <= 15 ? 0.80 : 0.62)));
+  return clamp_health_score(base * freshness);
+}
+
+function health_breakdown(plot) {
+  let weightedTotal = 0;
+  let weightTotal = 0;
+  Object.entries(HEALTH_METRIC_WEIGHTS).forEach(([code, weight]) => {
+    const metric = plot?.metrics?.[code];
+    if (!metric) return;
+    weightedTotal += metric_health_alignment(code, metric) * weight;
+    weightTotal += weight;
+  });
+  const metricScore = weightTotal ? weightedTotal / weightTotal : 0.38;
+  const completenessPenalty = (1 - weightTotal) * 0.12;
+  const riskKey = String(plot?.riskLevel || 'UNKNOWN').toUpperCase();
+  const riskScore = HEALTH_RISK_SCORES[riskKey] || HEALTH_RISK_SCORES.UNKNOWN;
+  const deviceScore = device_health_score(plot);
+  const score = clamp_health_score(metricScore * 0.68 + deviceScore * 0.14 + riskScore * 0.18 - completenessPenalty);
+  return { score, metricScore, deviceScore, riskScore, completeness: weightTotal };
+}
+
+function health_level(score) {
+  if (score < 0.55) return '高风险';
+  if (score < 0.72) return '需要处理';
+  if (score < 0.86) return '关注中';
+  return '状态良好';
+}
+
 const app = createApp({
   setup() {
     const is_live = ref(false);
@@ -327,7 +438,7 @@ const app = createApp({
         moisture: plot.metrics?.SOIL_MOISTURE?.value,
         moistureTarget: plot.metrics?.SOIL_MOISTURE?.target,
         moistureStatus: bandStatus,
-        healthScore: plot.healthScore,
+        healthScore: health_score(plot),
         selected: advice_selected_plot.value?.plotId === plot.plotId
       };
     }));
@@ -433,6 +544,7 @@ const app = createApp({
     const show_inspection_form = ref(false);
     const show_evidence_form = ref(false);
     const show_account_modal = ref(false);
+    const show_profile_menu = ref(false);
     const inspection_form = ref({
       plot_id: plots.value[0]?.plotId || '',
       soil_surface: 'NORMAL',
@@ -465,7 +577,6 @@ const app = createApp({
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'profile', label: '个人中心', icon: 'account_circle' },
         { id: 'more-tools', label: '更多工具', icon: 'apps', is_footer: true, target: 'work-orders' }
       ];
     });
@@ -556,6 +667,8 @@ const app = createApp({
     };
 
     const toggle_sidebar = () => { is_sidebar_open.value = !is_sidebar_open.value; };
+    const toggle_profile_menu = () => { show_profile_menu.value = !show_profile_menu.value; };
+    const close_profile_menu = () => { show_profile_menu.value = false; };
 
     const toggle_theme = () => {
       is_dark.value = !is_dark.value;
@@ -579,8 +692,14 @@ const app = createApp({
     const metric_status_of = (plot, code, metric) => (
       code === 'SOIL_MOISTURE' ? resolve_moisture_band_status(plot) : (metric?.status || 'NORMAL')
     );
+    const health_score = (plot) => health_breakdown(plot).score;
+    const health_level_label = (plot) => health_level(health_score(plot));
+    const health_summary = (plot) => {
+      const breakdown = health_breakdown(plot);
+      return `指标 ${Math.round(breakdown.metricScore * 100)} · 设备 ${Math.round(breakdown.deviceScore * 100)} · 风险 ${Math.round(breakdown.riskScore * 100)}；${health_level_label(plot)}`;
+    };
     const health_ring_style = (plot) => {
-      const score = Math.round((plot?.healthScore || 0) * 100);
+      const score = Math.round(health_score(plot) * 100);
       const band = resolve_moisture_band_status(plot);
       const color = band === 'ALERT'
         ? 'var(--g-danger)'
@@ -797,6 +916,7 @@ const app = createApp({
     };
 
     const open_account_modal = () => {
+      close_profile_menu();
       password_form.value = { current: '', next: '', confirm: '' };
       password_error.value = '';
       show_account_modal.value = true;
@@ -819,6 +939,7 @@ const app = createApp({
     };
 
     const forgot_password = () => {
+      close_profile_menu();
       show_toast(`找回密码指引已发送到 ${user.value.contact}`);
     };
 
@@ -892,6 +1013,7 @@ const app = createApp({
       show_inspection_form,
       show_evidence_form,
       show_account_modal,
+      show_profile_menu,
       inspection_form,
       evidence_form,
       password_form,
@@ -913,6 +1035,8 @@ const app = createApp({
       profile_stats,
       navigate,
       toggle_sidebar,
+      toggle_profile_menu,
+      close_profile_menu,
       toggle_theme,
       logout,
       status_label,
@@ -922,6 +1046,9 @@ const app = createApp({
       plot_band_status,
       plot_band_label,
       metric_status_of,
+      health_score,
+      health_level_label,
+      health_summary,
       health_ring_style,
       format_record_time,
       soil_surface_label,

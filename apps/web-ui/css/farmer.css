@@ -17,6 +17,183 @@
   border-bottom-color: var(--g-success-bg);
 }
 
+/* 个人中心收进头像下方，避免在农户导航中占用一整行 */
+.farmer-account-anchor {
+  position: relative;
+  z-index: 1400;
+}
+.farmer-account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--g-radius-pill);
+  background: transparent;
+  color: var(--g-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.farmer-account-trigger:hover,
+.farmer-account-trigger:focus-visible {
+  background: var(--g-bg-subtle);
+  border-color: var(--g-border-subtle);
+  outline: none;
+}
+.farmer-account-chevron {
+  color: var(--g-text-secondary);
+  font-size: 20px;
+}
+.farmer-profile-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(390px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 78px));
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-lg);
+  background: var(--g-bg-surface);
+  box-shadow: var(--g-shadow-3);
+  color: var(--g-text-primary);
+}
+.farmer-profile-popover::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 30px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: var(--g-bg-surface);
+  border-left: 1px solid var(--g-border);
+  border-top: 1px solid var(--g-border);
+}
+.farmer-profile-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--g-border-subtle);
+}
+.farmer-profile-popover-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.farmer-profile-popover-identity > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.farmer-profile-popover-identity strong {
+  font-size: 16px;
+}
+.farmer-profile-popover-identity > div > span {
+  color: var(--g-success);
+  font-size: 12px;
+}
+.farmer-profile-avatar-small {
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.farmer-profile-avatar-small .material-symbols-outlined {
+  font-size: 28px;
+}
+.farmer-profile-popover-info {
+  display: grid;
+  gap: 0;
+  margin-top: 12px;
+}
+.farmer-profile-popover-info > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--g-border-subtle);
+  font-size: 12px;
+}
+.farmer-profile-popover-info dt {
+  color: var(--g-text-secondary);
+}
+.farmer-profile-popover-info dd {
+  max-width: 68%;
+  color: var(--g-text-primary);
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.farmer-profile-popover-section-title {
+  margin: 14px 0 8px;
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.farmer-profile-popover-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.farmer-profile-popover-stats > div {
+  padding: 9px 7px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+}
+.farmer-profile-popover-stats strong {
+  display: block;
+  color: var(--g-success);
+  font-size: 20px;
+  line-height: 1.1;
+}
+.farmer-profile-popover-stats span {
+  display: block;
+  margin-top: 3px;
+  color: var(--g-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.farmer-profile-popover-stats small {
+  display: block;
+  margin-top: 4px;
+  color: var(--g-text-secondary);
+  font-size: 9px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.farmer-profile-popover-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--g-border-subtle);
+}
+.farmer-profile-popover-footer .g-btn {
+  flex: 1;
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .farmer-account-trigger {
+    padding: 4px;
+  }
+  .farmer-account-trigger .g-user-identity {
+    display: none;
+  }
+  .farmer-profile-popover {
+    right: -6px;
+  }
+}
+
 .farmer-sidebar {
   border-right-color: var(--g-success-bg);
   display: flex;
@@ -929,6 +1106,12 @@
   font-style: normal;
   font-weight: 600;
   color: var(--g-text-primary);
+  line-height: 1.2;
+}
+.farmer-health-row i {
+  color: var(--g-text-secondary);
+  font-size: 10px;
+  font-style: normal;
   line-height: 1.2;
 }
 .farmer-health-ring {
