@@ -367,16 +367,23 @@ const SECTOR_VIEWS = {
   sw_hub: { name: '西南粮仓储运区', icon: 'ph-warehouse', cam: { x: -65, y: 24, z: 70 }, target: { x: -65, y: 0, z: 46 } }
 };
 
+/** 与主页 rium-background 浅色天顶/地平线对齐，保证仰望天空时无缝衔接 */
+const FARM_SKY = {
+  zenith: 0x2f8fd8,
+  horizon: 0xb5dff8,
+  fog: 0x8ec4ea
+};
+
 /** 进入 3D：先仰望天空（与主页天空衔接），再缓慢落回默认全景 */
 const FARM_INTRO_VIEW = {
-  from: { x: 0, y: 38, z: 22 },
-  target: { x: 0, y: 140, z: -55 },
+  from: { x: 0, y: 42, z: 18 },
+  target: { x: 0, y: 160, z: -40 },
   to: { x: 0, y: 32, z: 46 },
   toTarget: { x: 0, y: 0, z: -2 },
-  holdMs: 380,
+  holdMs: 520,
   durationMs: 2800,
   /** 入场动画进度达到该比例时开始淡入界面（加载与演示并行） */
-  uiRevealProgress: 0.18
+  uiRevealProgress: 0.22
 };
 
 const DEFAULT_PLOTS = [
@@ -798,7 +805,9 @@ class FarmWorld3D {
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x82b2d4, 0.0014);
+    this.scene.background = new THREE.Color(FARM_SKY.zenith);
+    this.scene.fog = new THREE.FogExp2(FARM_SKY.fog, 0.0011);
+    this.renderer.setClearColor(FARM_SKY.zenith, 1);
 
     this.camera = new THREE.PerspectiveCamera(50, this.host.clientWidth / Math.max(1, this.host.clientHeight), 0.1, 350);
     this.camera.position.set(0, 32, 46);
@@ -842,8 +851,8 @@ class FarmWorld3D {
 
   buildSky() {
     this.skyUniforms = {
-      uTop: { value: new THREE.Color(0x2b8ece) },
-      uHorizon: { value: new THREE.Color(0xd6eed0) },
+      uTop: { value: new THREE.Color(FARM_SKY.zenith) },
+      uHorizon: { value: new THREE.Color(FARM_SKY.horizon) },
       uSunDirection: { value: new THREE.Vector3(0, 0.6, -0.8).normalize() },
       uSunColor: { value: new THREE.Color(0xfff2be) },
       uSunStrength: { value: 1.2 }
@@ -872,10 +881,10 @@ class FarmWorld3D {
           float heightMix = smoothstep(-0.02, 0.68, direction.y);
           vec3 sky = mix(uHorizon, uTop, heightMix);
           float sunDot = max(dot(direction, normalize(uSunDirection)), 0.0);
-          // Soft light-blob sun (no hard mesh disc / sticker look)
-          float bloom = pow(sunDot, 18.0) * 0.42;
-          float glow = pow(sunDot, 72.0) * 0.55;
-          float core = pow(sunDot, 180.0) * 0.72;
+          // Compact soft sun blob (tight core, short bloom)
+          float bloom = pow(sunDot, 64.0) * 0.18;
+          float glow = pow(sunDot, 220.0) * 0.32;
+          float core = pow(sunDot, 720.0) * 0.85;
           sky += uSunColor * (bloom + glow + core) * uSunStrength;
           gl_FragColor = vec4(sky, 1.0);
         }
@@ -905,7 +914,7 @@ class FarmWorld3D {
     this.scene.add(this.sunLight.target);
 
     // Soft sky-shader sun only — no hard mesh disc (looked like a sticker/texture)
-    this.sunPosition = new THREE.Vector3(0, 38, -65);
+    this.sunPosition = new THREE.Vector3(0, 18, -46);
   }
 
   buildTerrain() {
@@ -2346,10 +2355,10 @@ class FarmWorld3D {
     const day = getDayPhase(hour);
     const daylight = day.daylight;
     const warm = day.warm;
-    const dayTop = new THREE.Color(0x389adb);
-    const dayHorizon = new THREE.Color(0xe2f2db);
-    const nightTop = new THREE.Color(0x061124);
-    const nightHorizon = new THREE.Color(0x162a46);
+    const dayTop = new THREE.Color(FARM_SKY.zenith);
+    const dayHorizon = new THREE.Color(FARM_SKY.horizon);
+    const nightTop = new THREE.Color(0x0a2748);
+    const nightHorizon = new THREE.Color(0x1a3f6e);
     const sunsetTop = new THREE.Color(0x7699c2);
     const sunsetHorizon = new THREE.Color(0xffad5f);
 
@@ -2357,15 +2366,20 @@ class FarmWorld3D {
     this.skyUniforms.uHorizon.value.copy(nightHorizon).lerp(dayHorizon, daylight).lerp(sunsetHorizon, warm * 0.78);
     this.skyUniforms.uSunColor.value.set(daylight > 0.5 ? 0xffefb1 : 0xff9b55);
 
+    // Lower celestial arc so the soft sun blob stays in the field of view
+    // and clearly travels with the time slider (sunrise → noon → sunset).
     const sunProgress = clamp((hour - 5.7) / 13.6, 0, 1);
     const sunAngle = sunProgress * Math.PI;
-    const sunX = lerp(-48, 48, sunProgress);
-    const sunY = Math.sin(sunAngle) * 36.0 + 8.0;
-    const sunZ = -65;
+    const sunX = lerp(-36, 36, sunProgress);
+    const sunY = Math.sin(sunAngle) * 15.5 + 4.2;
+    const sunZ = -46;
 
     this.sunPosition.set(sunX, sunY, sunZ);
-    this.sunLight.position.set(sunX, sunY + 8, sunZ + 25);
-    this.skyUniforms.uSunDirection.value.copy(this.sunPosition).normalize();
+    this.sunLight.position.set(sunX, sunY + 6, sunZ + 18);
+    // Direction from a typical overlook toward the sun — keeps the blob aligned with lighting
+    this.skyUniforms.uSunDirection.value
+      .set(sunX - 0, sunY - 18, sunZ - 28)
+      .normalize();
     this.sunLight.color.set(warm > 0.2 ? 0xffa25d : 0xffedc2);
     this.sunLight.intensity = 0.2 + daylight * 4.4;
     this.hemiLight.color.set(daylight > 0.2 ? 0xeaf5ff : 0x7fa2d8);
@@ -2373,8 +2387,12 @@ class FarmWorld3D {
     this.hemiLight.intensity = 0.85 + daylight * 1.8;
     const sunVisible = hour >= 5.6 && hour <= 19.3;
     this.skyUniforms.uSunStrength.value = sunVisible
-      ? (0.22 + daylight * 1.05 + warm * 0.48)
+      ? (0.16 + daylight * 0.72 + warm * 0.28)
       : 0;
+    if (this.scene?.fog) {
+      this.scene.fog.color.copy(nightHorizon).lerp(new THREE.Color(FARM_SKY.fog), daylight);
+    }
+    this.renderer?.setClearColor(this.skyUniforms.uTop.value, 1);
     this.stars.material.opacity = clamp((0.34 - daylight) * 2.4, 0, 0.86);
 
     const isNight = daylight < 0.42;
@@ -2580,6 +2598,7 @@ export class FarmMonitor {
     this._currentPanelPlot = null;
     this._openToken = 0;
     this._worldInitFrame = 0;
+    this._introStarted = false;
   }
 
   setPlots(plots) {
@@ -2594,9 +2613,10 @@ export class FarmMonitor {
       return Promise.resolve();
     }
     this.isOpen = true;
+    this._introStarted = !introAnimation;
     const openToken = ++this._openToken;
     this.selectedPlotId = plotId || this.plots[0]?.plotId || 'plot-a01';
-    document.body.classList.add('farm-monitor-open');
+    if (!introAnimation) document.body.classList.add('farm-monitor-open');
 
     this.shell = document.createElement('section');
     this.shell.className = `farm-monitor-shell is-world-loading${introAnimation ? ' is-intro-active is-entering' : ''}`;
@@ -2611,38 +2631,30 @@ export class FarmMonitor {
     this.resolveWeather();
 
     return new Promise((resolveOpen) => {
+      this._resolveOpen = resolveOpen;
+      this._introOpenToken = openToken;
+      this._wantsIntro = introAnimation;
+
       const revealUi = () => {
         if (!this.isOpen || openToken !== this._openToken) return;
         this.shell?.classList.remove('is-world-loading', 'is-intro-active', 'is-entering');
         this.shell?.classList.add('is-intro-complete');
         this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
       };
+      this._revealUi = revealUi;
 
-      const finishOpen = async () => {
-        try {
-          // World ready: hide loading immediately, start intro, reveal UI mid-animation
-          this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
-          this.shell?.classList.remove('is-world-loading', 'is-entering');
-          if (introAnimation && this.world?.playIntroAnimation) {
-            await this.world.playIntroAnimation(undefined, { onUiReveal: revealUi });
-          } else {
-            revealUi();
-          }
-        } catch (error) {
-          console.warn('[FarmMonitor] intro animation skipped:', error);
-          revealUi();
-        }
+      const finishPrepare = () => {
         if (!this.isOpen || openToken !== this._openToken) return;
-        revealUi();
+        this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+        if (!introAnimation) revealUi();
         resolveOpen();
       };
 
       // Paint loading shell first, then build the expensive world under the spinner.
       this._worldInitFrame = requestAnimationFrame(() => {
-        this.shell?.classList.add('active');
+        if (!introAnimation) this.shell?.classList.add('active');
         this._worldInitFrame = requestAnimationFrame(() => {
           if (!this.isOpen || openToken !== this._openToken || !this.dom.world) return;
-          // One more frame so the loading HUD can paint before init blocks.
           this._worldInitFrame = requestAnimationFrame(() => {
             if (!this.isOpen || openToken !== this._openToken || !this.dom.world) return;
             try {
@@ -2656,14 +2668,17 @@ export class FarmMonitor {
               });
               this.world.init();
               if (introAnimation) {
-                // 切入瞬间直接对准天空，避免先闪默认全景
                 this.world.camera.position.set(FARM_INTRO_VIEW.from.x, FARM_INTRO_VIEW.from.y, FARM_INTRO_VIEW.from.z);
                 this.world.cameraTarget.set(FARM_INTRO_VIEW.target.x, FARM_INTRO_VIEW.target.y, FARM_INTRO_VIEW.target.z);
                 this.world.camera.lookAt(this.world.cameraTarget);
               }
               this.world.setSelectedPlot(this.selectedPlotId);
               this.world.setWeather(this.weather);
-              void finishOpen();
+              const bootHour = this.simulatedHour == null
+                ? (new Date().getHours() + new Date().getMinutes() / 60)
+                : this.simulatedHour;
+              this.world.updateDaylight(bootHour);
+              finishPrepare();
             } catch (error) {
               console.error('[FarmMonitor] WebGL 启动异常:', error);
               this.showWorldError(error);
@@ -2673,6 +2688,27 @@ export class FarmMonitor {
         });
       });
     });
+  }
+
+  /**
+   * Crossfade onto the farm sky (already looking up) then pull the camera down.
+   * Call after the home-page sky dive has finished so the two skies match.
+   */
+  async startIntroAnimation() {
+    if (!this.isOpen || this._introStarted) return;
+    this._introStarted = true;
+    document.body.classList.add('farm-monitor-open');
+    this.shell?.classList.add('active');
+    this.shell?.classList.remove('is-world-loading', 'is-entering');
+    this.shell?.querySelector('[data-world-loading]')?.classList.add('is-ready');
+    try {
+      if (this._wantsIntro && this.world?.playIntroAnimation) {
+        await this.world.playIntroAnimation(undefined, { onUiReveal: this._revealUi });
+      }
+    } catch (error) {
+      console.warn('[FarmMonitor] intro animation skipped:', error);
+    }
+    this._revealUi?.();
   }
 
   showWorldError(error) {

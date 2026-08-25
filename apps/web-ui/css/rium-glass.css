@@ -72,7 +72,7 @@ body {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: #070b16;
+  background: #0a2748;
   /* Idle: 压低 3D 背景存在感，避免与主界面抢注意力 */
   opacity: .36;
   filter: saturate(0.72) brightness(0.88);

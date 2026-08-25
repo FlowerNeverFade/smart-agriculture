@@ -1259,11 +1259,13 @@ class AgriApp {
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
     el.innerHTML = `
-      <div class="farm-entry-overlay__vignette"></div>
+      <div class="farm-entry-overlay__cinema" aria-hidden="true">
+        <div class="farm-entry-overlay__vignette"></div>
+        <div class="farm-entry-overlay__letterbox"></div>
+      </div>
       <div class="farm-entry-overlay__content">
-        <i class="ph ph-spinner-gap" aria-hidden="true"></i>
         <strong data-farm-entry-title>正在进入农田动态监测</strong>
-        <span data-farm-entry-sub>视角切入田野…</span>
+        <span data-farm-entry-sub>视角移向天空…</span>
       </div>
     `;
     document.body.appendChild(el);
@@ -1282,12 +1284,12 @@ class AgriApp {
 
   _showFarmEntryOverlay() {
     const overlay = this._ensureFarmEntryOverlay();
-    overlay.classList.add('active', 'is-sky-bridge');
+    overlay.classList.add('active');
     document.body.classList.add('farm-entry-transition');
   }
 
   _hideFarmEntryOverlay() {
-    this._farmEntryOverlay?.classList.remove('active', 'is-sky-bridge');
+    this._farmEntryOverlay?.classList.remove('active');
     document.body.classList.remove('farm-entry-transition');
   }
 
@@ -1331,22 +1333,23 @@ class AgriApp {
         this.riumBackground?.setVisible(true);
         const divePromise = this.riumBackground?.playFarmEntryDive?.() || Promise.resolve();
 
-        // Mid-dive: start building the twin under the overlay so loading is real work
         await Promise.race([
           divePromise,
           new Promise(resolve => setTimeout(resolve, 1400))
         ]);
-        this._setFarmEntryOverlayText('正在构建数字孪生场景', '田野模型与天空衔接中…');
+        this._setFarmEntryOverlayText('衔接到农田动态监测', '天空视角缓缓落下…');
         this.farmMonitor?.setPlots(this.state.plots);
         const openPromise = this.farmMonitor?.open(plotId, { introAnimation });
 
         await divePromise;
-        this.riumBackground?.setVisible(false);
-        this._setFarmEntryOverlayText('农田动态监测已就绪', '缓慢落回全景视角…');
-        // Short sky bridge — don't wait for the whole intro before clearing overlay
-        await new Promise(resolve => setTimeout(resolve, 280));
-        this._hideFarmEntryOverlay();
         await openPromise;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+        const introPromise = this.farmMonitor?.startIntroAnimation?.() || Promise.resolve();
+        await new Promise(resolve => setTimeout(resolve, 720));
+        this.riumBackground?.setVisible(false);
+        this._hideFarmEntryOverlay();
+        await introPromise;
       } else {
         this.riumBackground?.setVisible(false);
         this.farmMonitor?.setPlots(this.state.plots);

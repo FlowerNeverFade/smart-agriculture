@@ -11,10 +11,10 @@ const HOME_LOOK = { x: 0, y: 2.55, z: -6 };
 
 const PALETTES = {
   dark: {
-    sky: 0x070b16,
-    zenith: 0x050814,
-    horizon: 0x1c2a4a,
-    fog: 0x0c1220,
+    sky: 0x081528,
+    zenith: 0x0a2748,
+    horizon: 0x1a3f6e,
+    fog: 0x0c1a30,
     fogNear: 22,
     fogFar: 68,
     soil: 0x5a4a30,
@@ -32,7 +32,7 @@ const PALETTES = {
     fillIntensity: 0.32,
     rim: 0xb8d0ff,
     rimIntensity: 0.4,
-    haze: 0x7a8ab8,
+    haze: 0x3d6aa0,
     hemi: 0.38,
     exposure: 0.92,
     skyGlow: 0.0,
@@ -40,10 +40,10 @@ const PALETTES = {
     cloudOpacity: 0,
   },
   light: {
-    sky: 0xe8f1fa,
-    zenith: 0xc5dbf0,
-    horizon: 0xfff3e4,
-    fog: 0xe8f0f6,
+    sky: 0x4fa8e4,
+    zenith: 0x2f8fd8,
+    horizon: 0xb5dff8,
+    fog: 0xc5e6f7,
     fogNear: 38,
     fogFar: 92,
     soil: 0xd2b07a,
@@ -55,15 +55,15 @@ const PALETTES = {
     particle: 0xffe9a0,
     sun: 0xfff1cc,
     moon: 0xffffff,
-    cloud: 0xf7f3ec,
-    cloudOpacity: 0.88,
+    cloud: 0xf4f8fc,
+    cloudOpacity: 0.78,
     ambient: 0.58,
     sunIntensity: 1.48,
-    fill: 0xb8d4f0,
-    fillIntensity: 0.28,
+    fill: 0x9ec8f0,
+    fillIntensity: 0.3,
     rim: 0xffd080,
-    rimIntensity: 0.46,
-    haze: 0xf0b45a,
+    rimIntensity: 0.4,
+    haze: 0x7eb8ea,
     hemi: 0.52,
     exposure: 1.12,
     skyGlow: 1.0,
@@ -149,11 +149,11 @@ const SKY_FRAG = /* glsl */ `
     float heightMix = smoothstep(-0.02, 0.72, dir.y);
     vec3 col = mix(uHorizon, uZenith, heightMix);
 
-    // Cool atmospheric haze only (avoid warm orange wash that desaturates blue)
+    // Cool atmospheric haze — keep azure sky from warming toward orange
     float rayleigh = pow(1.0 - max(dir.y, 0.0), 2.8);
-    col = mix(col, uHaze, rayleigh * mix(0.05, 0.14, uSunGlow));
+    col = mix(col, uHaze, rayleigh * mix(0.04, 0.1, uSunGlow));
     float band = exp(-pow((heightMix - 0.08) / 0.14, 2.0));
-    col = mix(col, mix(uHorizon, uHaze, 0.35), band * mix(0.08, 0.18, uSunGlow));
+    col = mix(col, mix(uHorizon, uHaze, 0.28), band * mix(0.05, 0.12, uSunGlow));
 
     // Smaller constant-size sun + soft glow (no hard outline)
     float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
@@ -699,6 +699,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
   const lookTarget = new THREE.Vector3(0, 1.45, -0.8);
   let revealDone = null;
   let entryDiveT = -1;
+  let entryDiveHold = false;
   let entryDiveDone = null;
   let entryDiveTimeout = 0;
   const entryDiveFromPos = new THREE.Vector3();
@@ -1207,12 +1208,20 @@ export function initRiumBackground(containerId = 'riumBackground') {
       camera.fov = THREE.MathUtils.lerp(48, 54, e);
       camera.updateProjectionMatrix();
       if (entryDiveT >= 1 && entryDiveDone) {
+        entryDiveHold = true;
         clearTimeout(entryDiveTimeout);
         entryDiveTimeout = 0;
         const done = entryDiveDone;
         entryDiveDone = null;
         done();
       }
+    } else if (entryDiveHold) {
+      // Stay locked on sky until the farm scene takes over — do not fall back to wheat field
+      camera.position.copy(entryDiveToPos);
+      lookTarget.copy(entryDiveToLook);
+      camera.lookAt(lookTarget);
+      camera.fov = 54;
+      camera.updateProjectionMatrix();
     } else if (revealT < 1) {
       revealT = Math.min(1, revealT + 0.012);
       const e = 1 - (1 - revealT) ** 3;
@@ -1240,7 +1249,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
   function animate(t) {
     rafId = requestAnimationFrame(animate);
     const revealing = !bootMode && revealT < 1;
-    const diving = entryDiveT >= 0 && entryDiveT < 1;
+    const diving = entryDiveHold || entryDiveT >= 0;
     if ((!visible || !externallyVisible) && !bootMode && !revealing && !diving) return;
     try {
       renderFrame(t);
@@ -1356,6 +1365,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
 
   function restoreHomeCamera() {
     entryDiveT = -1;
+    entryDiveHold = false;
     entryDiveDone = null;
     clearTimeout(entryDiveTimeout);
     entryDiveTimeout = 0;
@@ -1369,6 +1379,7 @@ export function initRiumBackground(containerId = 'riumBackground') {
   function playFarmEntryDive() {
     if (reducedMotion) return Promise.resolve();
     externallyVisible = true;
+    entryDiveHold = false;
     if (!rafId) rafId = requestAnimationFrame(animate);
     entryDiveFromPos.set(camera.position.x, camera.position.y, camera.position.z);
     entryDiveFromLook.copy(lookTarget);
@@ -1377,8 +1388,14 @@ export function initRiumBackground(containerId = 'riumBackground') {
       entryDiveDone = resolve;
       clearTimeout(entryDiveTimeout);
       entryDiveTimeout = window.setTimeout(() => {
-        if (!entryDiveDone) return;
         entryDiveT = 1;
+        entryDiveHold = true;
+        camera.position.copy(entryDiveToPos);
+        lookTarget.copy(entryDiveToLook);
+        camera.lookAt(lookTarget);
+        camera.fov = 54;
+        camera.updateProjectionMatrix();
+        if (!entryDiveDone) return;
         const done = entryDiveDone;
         entryDiveDone = null;
         done();
@@ -1390,6 +1407,8 @@ export function initRiumBackground(containerId = 'riumBackground') {
     setVisible(value) {
       externallyVisible = value !== false;
       if (!externallyVisible) {
+        entryDiveHold = false;
+        entryDiveT = -1;
         cancelAnimationFrame(rafId);
         rafId = 0;
         return;
