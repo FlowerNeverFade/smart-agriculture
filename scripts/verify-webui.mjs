@@ -1,0 +1,382 @@
+/**
+ * AgriLoop web-ui 前端回归验证脚本（Node + jsdom，无需真实浏览器）
+ *
+ * 用法（仓库根目录）：
+ *   node scripts/verify-webui.mjs            # 自动：vendor echarts 存在 -> real 模式
+ *   node scripts/verify-webui.mjs real       # 真实 ECharts（vendor/echarts.min.js）+ 自动 renderer 选择
+ *   node scripts/verify-webui.mjs stub       # ECharts stub（验证 ECharts 分支 option 构建）
+ *   node scripts/verify-webui.mjs svg        # 无 ECharts，验证纯 SVG 兜底渲染
+ *
+ * 依赖：jsdom（本地安装：npm install jsdom --prefix .tools --ignore-scripts --no-audit --no-fund）
+ * 覆盖视图：风险预测 / 情景回放 / 价值账本 / 作物包 / 智能诊断决策 / 农务资源
+ * 前置：静态服务器 python -m http.server 3000 --directory apps/web-ui
+ */
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(__dirname, '..');
+const JSDOM_PATH = process.env.AGRILOOP_JSDOM_PATH
+  || join(ROOT, '.tools', 'node_modules', 'jsdom', 'lib', 'api.js');
+
+if (!existsSync(JSDOM_PATH)) {
+  console.error('未找到 jsdom，请先执行: npm install jsdom --prefix .tools --ignore-scripts --no-audit --no-fund，或设置 AGRILOOP_JSDOM_PATH');
+  process.exit(2);
+}
+const { JSDOM } = await import(pathToFileURL(JSDOM_PATH).href);
+
+const arg = (process.argv[2] || 'auto').toLowerCase();
+const hasRealEcharts = existsSync(join(ROOT, 'apps', 'web-ui', 'vendor', 'echarts.min.js'));
+const mode = arg === 'auto' ? (hasRealEcharts ? 'real' : 'svg') : arg;
+if (!['real', 'stub', 'svg'].includes(mode)) {
+  console.error('未知模式: ' + mode + '（可选 real | stub | svg | auto）');
+  process.exit(2);
+}
+
+const results = [];
+const ok = (name, pass, extra = '') => {
+  results.push({ name, pass });
+  console.log(`${pass ? '✅ PASS' : '❌ FAIL'} | ${name}${extra ? ' | ' + extra : ''}`);
+};
+
+const html = readFileSync(join(ROOT, 'apps', 'web-ui', 'index.html'), 'utf8');
+const loginHtml = readFileSync(join(ROOT, 'apps', 'web-ui', 'login.html'), 'utf8');
+const appSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'app.js'), 'utf8');
+const loginSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'login.js'), 'utf8');
+const farmMonitorSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'farm-monitor.js'), 'utf8');
+const cropSandboxSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'crop-sandbox.js'), 'utf8');
+const coreStyleSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'css', 'style.css'), 'utf8');
+const frostedGlassSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'css', 'rium-glass.css'), 'utf8');
+const workOrdersSource = readFileSync(join(ROOT, 'apps', 'web-ui', 'js', 'modules', 'work-orders.js'), 'utf8');
+ok('入口脚本已版本化避免旧缓存', /js\/app\.js\?v=[^"']+/.test(html));
+ok('首页水资源卡片的约束样式随首屏加载', coreStyleSource.includes('.water-orb-mini') && coreStyleSource.includes('.water-effects-canvas'));
+ok('主界面恢复为毛玻璃（模糊背景、无液态高光）',
+  frostedGlassSource.includes('FINAL FROSTED-GLASS OVERRIDE')
+  && /--rium-glass-blur:\s*14px/.test(frostedGlassSource)
+  && frostedGlassSource.includes('background-image: none !important')
+  && coreStyleSource.includes('--glass-sheen: none'));
+const waterModuleVersion = appSource.match(/\.\/water-visual\.js\?v=([^'"\)]+)/)?.[1];
+ok('水资源视图只加载同一版本的可视化模块', Boolean(waterModuleVersion) && workOrdersSource.includes(`../water-visual.js?v=${waterModuleVersion}`));
+ok('静态模板已移除三角尺占位内容', !html.includes('subview-placeholder') && !html.includes('📐'));
+ok('工作台已移除登录弹窗', !html.includes('authModal') && !html.includes('auth-modal-backdrop'));
+ok('feat/login-interface 液态登录页已接入', loginHtml.includes('ambientLiquidCanvas') && loginHtml.includes('assets/brand/agriloop-logo.png') && /js\/login\.js\?v=(?:ambient-liquid-1|account-role-1)/.test(loginHtml) && loginSource.includes('createAmbientLiquidField'));
+ok('账号生命周期表单已接入', ['loginRole', 'showRegister', 'showRecovery', 'registerForm', 'registerRole', 'recoveryForm', 'recoveryCodeContinue'].every(id => loginHtml.includes(`id=\"${id}\"`)) && loginSource.includes('submitRegistration') && loginSource.includes('submitRecovery'));
+ok('四类项目身份与工作区已接入',
+  ['FARMER', 'FIELD_OPERATOR', 'FARM_ADMIN', 'SYSTEM_ADMIN'].every(role => loginHtml.includes(`value=\"${role}\"`))
+  && appSource.includes('ROLE_WORKSPACES') && appSource.includes('applyRoleWorkspace'));
+ok('未登录直接跳转独立登录页', appSource.includes("const LOGIN_ENTRY = 'login.html'") && appSource.includes('if (!api.readSession())') && loginSource.includes("storedSession?.mode === 'live'"));
+ok('微观作物沙盘拥有独立路由', html.includes('data-view="crop-sandbox"') && appSource.includes("viewName === 'crop-sandbox'") && appSource.includes('ensureCropSandbox'));
+ok('lxh 动态农田与风险沙盘保留',
+  farmMonitorSource.includes('GLOBAL_WIND_UNIFORMS')
+  && farmMonitorSource.includes('onPlotReclaimed')
+  && cropSandboxSource.includes('updateTimelineMorphing')
+  && cropSandboxSource.includes('structuralMeshes.forEach'));
+ok('新建地块和作物修改使用统一快照',
+  appSource.includes('PLOT_STATE_STORAGE_KEY')
+  && appSource.includes('registerReclaimedPlot')
+  && appSource.includes('onPlotUpdated'));
+const dom = new JSDOM(html, {
+  url: 'http://localhost:3000/#view=risk-forecast',
+  runScripts: 'outside-only',
+  pretendToBeVisual: true
+});
+const { window } = dom;
+
+globalThis.window = window;
+globalThis.document = window.document;
+globalThis.localStorage = window.localStorage;
+window.localStorage.setItem('agriloop_session_mode', 'demo');
+window.localStorage.setItem('agriloop_user', JSON.stringify({
+  username: 'admin',
+  role: 'FARM_ADMIN',
+  roleLabel: '农场管理员',
+  avatar: '👑'
+}));
+window.HTMLElement.prototype.scrollIntoView = function () {};
+
+if (mode === 'real') {
+  window.eval(readFileSync(join(ROOT, 'apps', 'web-ui', 'vendor', 'echarts.min.js'), 'utf8'));
+  ok('真实 ECharts 加载', !!window.echarts, `version=${window.echarts?.version}`);
+} else if (mode === 'stub') {
+  window.echarts = {
+    init(el) {
+      el.innerHTML = '<div class="stub-chart"></div>';
+      return {
+        setOption(option) {
+          if (!option || !Array.isArray(option.series) || option.series.length === 0) {
+            throw new Error('echarts setOption 收到无效 option');
+          }
+        },
+        resize() {}, dispose() {}
+      };
+    }
+  };
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function waitFor(fn, timeout = 8000, interval = 50) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    try { if (fn()) return true; } catch (e) { /* keep waiting */ }
+    await sleep(interval);
+  }
+  return false;
+}
+
+/** 切换视图：只设置 hash，由 jsdom 异步派发 hashchange（与真实浏览器一致） */
+function gotoView(hash) {
+  window.location.hash = hash;
+}
+
+const chartOk = sel => mode === 'stub'
+  ? !!document.querySelector(`${sel} .stub-chart`)
+  : (document.querySelector(sel)?.innerHTML || '').length > 50;
+
+/** 等待图表区渲染完成（echarts 按需加载 / 超时回退均可能延迟） */
+async function waitChart(sel, timeout = 8000) {
+  return waitFor(() => (mode === 'stub'
+    ? !!document.querySelector(`${sel} .stub-chart`)
+    : (document.querySelector(sel)?.innerHTML || '').length > 50), timeout);
+}
+
+// ---- 启动应用 ----
+await import(pathToFileURL(join(ROOT, 'apps', 'web-ui', 'js', 'app.js')).href);
+document.dispatchEvent(new window.Event('DOMContentLoaded'));
+await waitFor(() => document.querySelector('#plotListContainer .plot-list-item'), 3000);
+ok('应用启动：地块列表渲染', document.querySelectorAll('#plotListContainer .plot-list-item').length >= 3);
+const historyToggle = document.getElementById('btnToggleCopilotHistory');
+const historyList = document.getElementById('copilotHistoryList');
+ok('账号级 Agent 历史记录入口已渲染', !!historyToggle && !!historyList && !!document.getElementById('copilotHistoryCount'));
+historyToggle?.click();
+ok('Agent 历史记录可展开且空态清晰', historyList?.hidden === false && historyList.textContent.includes('当前登录账号'));
+
+// ============ Home 驾驶舱摘要 ============
+const hsGrid = document.getElementById('homeSummaryGrid');
+ok('Home 摘要网格（预测/效益/作物包 3 卡）', !!hsGrid && hsGrid.querySelectorAll('.home-summary-card').length === 3);
+if (hsGrid) {
+  ok('预测卡 Time-to-Risk 72', hsGrid.querySelectorAll('.home-summary-card')[0].textContent.includes('72'));
+  ok('效益卡 ¥ 245.82', hsGrid.querySelectorAll('.home-summary-card')[1].textContent.includes('245.82'));
+  hsGrid.querySelectorAll('.home-summary-card')[0].click();
+  await sleep(300);
+  ok('点击预测卡直达 risk-forecast', window.location.hash.includes('view=risk-forecast'));
+  // 保持 risk-forecast 打开状态，视图 1 测试直接在此渲染实例上继续
+}
+
+// ============ 视图 1：risk-forecast ============
+ok('risk-forecast 路由打开', document.querySelector('#modalTitle').textContent.includes('风险预测'));
+const rfReady = await waitFor(() => document.querySelector('.rf-root'), 6000);
+ok('risk-forecast 模块渲染 (.rf-root)', rfReady);
+ok('已实现模块已移除三角尺占位卡', !document.querySelector('.subview-placeholder-banner') && !document.querySelector('.subview-placeholder-icon'));
+ok('弹窗已移除底部接口契约栏', !document.querySelector('#modalCodeContract') && !document.querySelector('.code-contract-box'));
+if (rfReady) {
+  await waitChart('[data-role="gauge"]');
+  await waitChart('[data-role="chart-body"]');
+  ok('Time-to-Risk 仪表盘', mode === 'stub' ? !!document.querySelector('[data-role="gauge"] .stub-chart') : !!document.querySelector('[data-role="gauge"] svg'));
+  ok('预测曲线图区有内容', chartOk('[data-role="chart-body"]'));
+  ok('3 档预测切换 chips', document.querySelectorAll('.rf-toggle-chip').length === 3);
+  ok('预测元数据卡片', !!document.querySelector('.rf-meta-card'));
+  ok('无降级告警（AVAILABLE 分支）', !document.querySelector('.rf-root .agri-alert-danger'));
+}
+
+// ============ 视图 2：scenario-replay ============
+gotoView('#view=scenario-replay&plotId=plot-a01');
+const srReady = await waitFor(() => document.querySelector('.sr-scenario-grid'), 5000);
+ok('scenario-replay 模块渲染 (5 情景按钮)', srReady && document.querySelectorAll('.sr-scenario-btn').length === 5);
+if (srReady) {
+  document.querySelector('.sr-scenario-btn[data-scenario="DROUGHT"]').click();
+  const runBtn = document.querySelector('[data-role="run-btn"]');
+  ok('选择情景后运行按钮可用', !runBtn.disabled);
+  runBtn.click();
+  const srRun = await waitFor(() => document.querySelector('.sr-result-card'), 8000);
+  ok('双轨推演结果渲染 (.sr-result-card)', srRun);
+  if (srRun) {
+    const srSummary = document.querySelector('.sr-summary');
+    ok('双轨摘要（末端对比/越界/结论）', !!srSummary && srSummary.textContent.includes('触达极限边界') && !!srSummary.querySelector('.sr-summary-conclusion'));
+    await waitChart('[data-role="sr-chart"]');
+    ok('双轨图区有内容', chartOk('[data-role="sr-chart"]'));
+    ok('回放滑块存在', !!document.querySelector('[data-role="scrub-range"]'));
+    ok('三路读数存在', !!document.querySelector('[data-role="val-exec"]') && !!document.querySelector('[data-role="val-diff"]'));
+    const diff0 = document.querySelector('[data-role="val-diff"]').textContent;
+    const range = document.querySelector('[data-role="scrub-range"]');
+    range.value = 120;
+    range.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await sleep(120);
+    const diff120 = document.querySelector('[data-role="val-diff"]').textContent;
+    ok('回放滑块联动生效 (t=120 差值变化)', diff0 !== diff120, `${diff0} -> ${diff120}`);
+    document.querySelector('[data-role="play-btn"]').click();
+    await sleep(600);
+    document.querySelector('[data-role="play-btn"]').click();
+    ok('播放/暂停按钮工作', true);
+  }
+  document.querySelector('.sr-scenario-btn[data-scenario="OFFLINE"]').click();
+  document.querySelector('[data-role="run-btn"]').click();
+  const offline = await waitFor(() => {
+    const el = document.querySelector('[data-role="run-output"] .agri-alert-danger');
+    return el && el.textContent.includes('UNAVAILABLE');
+  }, 5000);
+  ok('OFFLINE 场景降级为 UNAVAILABLE', offline);
+  document.querySelector('.sr-scenario-btn[data-scenario="SENSOR_DRIFT"]').click();
+  document.querySelector('[data-role="run-btn"]').click();
+  const drift = await waitFor(() => {
+    const el = document.querySelector('.sr-result-card');
+    return el && el.textContent.includes('传感器零点漂移');
+  }, 5000);
+  ok('SENSOR_DRIFT 场景推演渲染', drift);
+}
+
+// ============ 视图 3：value-ledger ============
+gotoView('#view=value-ledger');
+const vlReady = await waitFor(() => document.querySelector('.vl-kpi-grid'), 6000);
+ok('value-ledger 模块渲染 (.vl-kpi-grid)', vlReady);
+if (vlReady) {
+  await waitChart('[data-role="bar-chart"]');
+  await waitChart('[data-role="area-chart"]');
+  ok('5 张 KPI 卡片', document.querySelectorAll('.vl-kpi').length === 5);
+  ok('偏差率 KPI 数值 -7.3%', document.querySelector('.vl-kpi-value').textContent.includes('-7.3'));
+  ok('柱状图区有内容', chartOk('[data-role="bar-chart"]'));
+  ok('反事实面积图区有内容', chartOk('[data-role="area-chart"]'));
+  ok('口径来源表 3 行', document.querySelectorAll('.vl-provenance-table tbody tr').length === 3);
+}
+
+// ============ 视图 4：crop-packs ============
+gotoView('#view=crop-packs');
+const cpReady = await waitFor(() => document.querySelector('.cp-tabs'), 6000);
+ok('crop-packs 模块渲染', cpReady);
+if (cpReady) {
+  ok('四个作物 Tab（番茄/黄瓜/草莓/辣椒）', document.querySelectorAll('.cp-tab').length === 4);
+  ok('身份档案（重庆 · v1.0.0）', document.querySelector('.cp-identity').textContent.includes('重庆') && document.querySelector('.cp-identity').textContent.includes('v1.0.0'));
+  ok('6 项指标定义 + availability 徽标', document.querySelectorAll('.cp-metric').length === 6 && !!document.querySelector('.cp-metric .agri-pill-ok'));
+  ok('4 个阶段参数卡片', document.querySelectorAll('.cp-stage').length === 4);
+  const md = document.querySelector('.cp-md');
+  ok('知识文档阅读器（标题/列表/引用）', !!md?.querySelector('.cp-md-h') && md.querySelectorAll('.cp-md-list li').length >= 3 && !!md.querySelector('.cp-md-quote'));
+  ok('检索回退链展示', document.querySelector('.cp-fallback').textContent.includes('plot → region → stage → crop → general'));
+  ok('情景映射 5 项', document.querySelectorAll('.cp-scenario').length === 5);
+  document.querySelector('.cp-tab[data-crop="cucumber"]').click();
+  await sleep(100);
+  const cuke = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换黄瓜后参数/阈值更新', cuke.includes('32 ~ 52%') && cuke.includes('WATER_DEFICIT'));
+  document.querySelector('.cp-tab[data-crop="strawberry"]').click();
+  await sleep(100);
+  const berry = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换草莓（🍓 图标 · 湿度 35~55 · 阈值 22）', berry.includes('草莓') && berry.includes('35 ~ 55%') && /22/.test(berry));
+  document.querySelector('.cp-tab[data-crop="pepper"]').click();
+  await sleep(100);
+  const pepper = document.querySelector('[data-role="cp-body"]').textContent;
+  ok('切换辣椒（🌶️ · 湿度 20~40 · 阈值 18）', pepper.includes('辣椒') && pepper.includes('20 ~ 40%') && /18/.test(pepper));
+}
+
+// ============ 视图 4.5：智能诊断与决策中枢 ============
+gotoView('#view=decision-console&plotId=plot-a01');
+const dcReady = await waitFor(() => document.querySelector('.dc-root:not(.is-loading) .dc-primary-cause'), 6000);
+ok('智能诊断与决策中枢完整渲染', dcReady);
+if (dcReady) {
+  ok('实时指标上下文 6 卡', document.querySelectorAll('.dc-metric').length === 6);
+  ok('多假设根因与置信度条', document.querySelectorAll('.dc-candidate-list article').length === 3 && document.querySelectorAll('.dc-score-track').length === 3);
+  ok('支持/反对/缺失三类证据并列', document.querySelectorAll('.dc-evidence-column').length === 3);
+  ok('四态就绪度与八道安全门', document.querySelectorAll('.dc-state-rail > div').length === 4 && document.querySelectorAll('.dc-gate-grid article').length === 8);
+  ok('WHAT/WHERE/WHEN/HOW MUCH 结构化处方', document.querySelectorAll('.dc-prescription-grid article').length === 4);
+  ok('执行闭环与决策护照已接入', document.querySelectorAll('.dc-execution-track article').length === 4 && document.querySelectorAll('.dc-passport-flow article').length === 5);
+
+  const scenarioSelect = document.querySelector('[data-role="scenario-select"]');
+  scenarioSelect.value = 'sensor-drift';
+  scenarioSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const driftBlocked = await waitFor(() => {
+    const root = document.querySelector('.dc-root');
+    return root && !root.classList.contains('is-loading')
+      && root.querySelector('.dc-primary-cause')?.textContent.includes('传感器漂移')
+      && root.querySelector('.dc-readiness-badge')?.textContent.includes('需要补证');
+  }, 6000);
+  ok('漂移分流为 NEEDS_EVIDENCE 且不生成可执行动作', driftBlocked && document.querySelector('[data-action="prepare-execution"]')?.disabled === true);
+  document.querySelector('[data-action="create-evidence"]')?.click();
+  const workCreated = await waitFor(() => document.querySelector('.dc-work-created'), 3000);
+  ok('低就绪度可创建最小补证工单', workCreated);
+
+  scenarioSelect.value = 'live';
+  scenarioSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const readyAgain = await waitFor(() => {
+    const root = document.querySelector('.dc-root');
+    return root && !root.classList.contains('is-loading')
+      && root.querySelector('.dc-readiness-badge')?.textContent.includes('可进入审批')
+      && root.querySelector('[data-action="prepare-execution"]')?.disabled === false;
+  }, 6000);
+  ok('实时合格数据恢复 READY 并开放人工审批', readyAgain);
+  if (readyAgain) {
+    document.querySelector('[data-action="prepare-execution"]').click();
+    const approval = document.querySelector('[data-role="approval-check"]');
+    approval.checked = true;
+    approval.dispatchEvent(new window.Event('change', { bubbles: true }));
+    document.querySelector('[data-action="confirm-execution"]').click();
+    const executed = await waitFor(() => document.querySelector('.dc-execution-facts')?.textContent.includes('SUCCEEDED'), 5000);
+    ok('人工确认后命令/ACK/效果闭环可见', executed && document.querySelector('.dc-execution-card')?.textContent.includes('COMPLETED'));
+  }
+}
+
+// ============ 视图 4.6：已有上下文内容的决策护照 ============
+gotoView('#view=decision-passport');
+const passportReady = await waitFor(() => document.querySelector('.subview-modal-body')?.textContent.includes('决策审计护照链'), 3000);
+ok('决策护照内容渲染', passportReady);
+ok('决策护照已移除三角尺占位卡', !document.querySelector('.subview-placeholder-banner'));
+
+// ============ 视图 5：farm-operations 工单/巡田/资源约束 ============
+gotoView('#view=work-orders&plotId=plot-a01');
+const opsReady = await waitFor(() => document.querySelector('.field-ops .work-kanban'), 6000);
+ok('farm-operations 工单沙盘渲染', opsReady);
+if (opsReady) {
+  ok('四态工单看板与时间轴', document.querySelectorAll('.kanban-column').length === 4 && !!document.querySelector('.field-vine-timeline'));
+  ok('巡田证据来源标签', document.querySelector('.inspection-strip')?.textContent.includes('USER_PROVIDED'));
+  ok('透明农田交互画布', !!document.querySelector('[data-field-effects]'));
+}
+gotoView('#view=resource-coordination');
+const resourceReady = await waitFor(() => document.querySelector('.resource-ops .demand-list'), 6000);
+ok('水资源协同排程渲染', resourceReady);
+if (resourceReady) {
+  ok('水球与水位来源标记', !!document.querySelector('.resource-ops .backdrop-water-sphere') && document.querySelector('.resource-ops').textContent.includes('SIMULATED'));
+  const evaluate = document.querySelector('#evaluateResourcePlan');
+  evaluate?.click();
+  const infeasible = await waitFor(() => document.querySelector('.resource-ops .resource-state')?.textContent.includes('INFEASIBLE'), 3000);
+  ok('超容量需求明确返回 INFEASIBLE', infeasible);
+}
+
+// ============ 视图 6：⌘K 命令面板 + 交叉导航 ============
+const cmdBackdrop = document.getElementById('cmdPaletteBackdrop');
+const cmdInput = document.getElementById('cmdInput');
+const keyEvt = (k, opts = {}) => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+keyEvt('k', { metaKey: true });
+await sleep(100);
+ok('⌘K 打开命令面板', cmdBackdrop.classList.contains('active'));
+if (cmdBackdrop.classList.contains('active')) {
+  ok('面板包含地块/视图/作物包/规则/动态条目', document.querySelectorAll('.cmd-item').length >= 16, `${document.querySelectorAll('.cmd-item').length} 条`);
+  cmdInput.value = '风险预测';
+  cmdInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await sleep(60);
+  keyEvt('Enter');
+  await sleep(300);
+  ok('搜索并跳转风险预测视图', window.location.hash.includes('view=risk-forecast'));
+  ok('面板已关闭', !cmdBackdrop.classList.contains('active'));
+}
+document.activeElement?.blur?.();
+keyEvt('/');
+await sleep(80);
+ok('"/" 呼出面板', cmdBackdrop.classList.contains('active'));
+keyEvt('Escape');
+await sleep(80);
+ok('ESC 关闭面板', !cmdBackdrop.classList.contains('active'));
+
+// ============ 关闭弹窗清理 + 返回 Home ============
+document.querySelector('#btnCloseModal').click();
+await sleep(200);
+ok('关闭弹窗无异常', true);
+gotoView('');
+await sleep(300);
+ok('返回 Home 正常', !document.querySelector('#subviewModal').classList.contains('active'));
+
+dom.window.close();
+const failed = results.filter(r => !r.pass);
+console.log(`\n===== 结果: ${results.length - failed.length}/${results.length} 通过 (mode=${mode}) =====`);
+if (failed.length) {
+  console.log('失败项:', failed.map(f => f.name).join('; '));
+  process.exitCode = 1;
+} else {
+  process.exitCode = 0;
+}

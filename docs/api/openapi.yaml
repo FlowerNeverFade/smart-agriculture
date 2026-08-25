@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and approval.
@@ -29,10 +29,41 @@ paths:
       responses:
         '200': {description: JWT 登录成功, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      security: []
+      description: 创建普通种植用户；恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/RegisterRequest'}}}
+      responses:
+        '201': {description: 账号创建成功，返回 JWT、用户与一次性展示的恢复码, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
+        '400': {description: 账号格式或密码强度不符合要求}
+        '409': {description: 账号已存在}
+  /api/v1/auth/password/reset:
+    post:
+      tags: [auth]
+      security: []
+      description: 使用账户恢复码重设密码；成功后轮换恢复码并使旧 JWT 失效。
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/PasswordResetRequest'}}}
+      responses:
+        '200': {description: 密码已更新，返回新的一次性恢复码, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
+        '400': {description: 请求字段或新密码不符合要求}
+        '401': {description: 账号或恢复码无效}
+        '429': {description: 15 分钟内失败次数过多}
   /api/v1/auth/me:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/simulator/status:
+    get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
+  /api/v1/simulator/start:
+    post: {tags: [management], description: 仅农场管理员或系统管理员可启动默认 normal 情景模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/simulator/stop:
+    post: {tags: [management], description: 仅农场管理员或系统管理员可停止遥测模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/overview:
     get: {tags: [farm], responses: {'200': {description: 多地块风险总览}}}
   /api/v1/farms:
@@ -193,6 +224,19 @@ components:
       properties:
         username: {type: string, minLength: 1}
         password: {type: string, format: password, minLength: 1}
+    RegisterRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string, minLength: 4, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$'}
+        password: {type: string, format: password, minLength: 8, maxLength: 64}
+    PasswordResetRequest:
+      type: object
+      required: [username, recoveryCode, newPassword]
+      properties:
+        username: {type: string, minLength: 4, maxLength: 32}
+        recoveryCode: {type: string, example: ABCD-EFGH-JKLM-NPQR}
+        newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
     TelemetryEvent:
       type: object
       required: [eventId, plotId, deviceId, metric, value, ts]

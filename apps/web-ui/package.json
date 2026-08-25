@@ -1,0 +1,10 @@
+{
+  "name": "agriloop-web-ui",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AgriLoop static web interface and WebGL login experience",
+  "type": "module",
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}

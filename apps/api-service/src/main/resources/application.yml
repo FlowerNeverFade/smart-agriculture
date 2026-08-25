@@ -33,6 +33,15 @@ spring:
 agriloop:
   mode: ${APP_MODE:standalone}
   ai-mode: ${AI_MODE:rules-only}
+  llm-base-url: ${LLM_BASE_URL:http://127.0.0.1:8000/v1}
+  llm-model: ${LLM_MODEL:Qwen3.8-27B}
+  llm-api-key: ${LLM_API_KEY:}
+  llm-timeout-ms: ${LLM_TIMEOUT_MS:60000}
+  llm-max-tokens: ${LLM_MAX_TOKENS:512}
+  llm-enable-thinking: ${LLM_ENABLE_THINKING:false}
+  llm-preserve-thinking: ${LLM_PRESERVE_THINKING:false}
+  llm-reasoning-effort: ${LLM_REASONING_EFFORT:low}
+  llm-history-messages: ${LLM_HISTORY_MESSAGES:8}
   command-mode: ${COMMAND_MODE:virtual}
   forecast-mode: ${FORECAST_MODE:deterministic}
   learning-mode: ${LEARNING_MODE:case-only}
@@ -50,6 +59,9 @@ agriloop:
   max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}
   daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
   crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
+  simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
+  supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
+  simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
 
 management:
   endpoints:
@@ -59,10 +71,27 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+  health:
+    # Standalone demos often run without Redis; do not mark the whole app DOWN.
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:false}
 
 logging:
   level:
     com.agriloop: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: standalone
+
+# Redis/MQTT are optional in standalone mode.  The API must remain discoverable
+# as UP so the Web UI can use the explicit in-memory degradation path.
+management:
+  health:
+    redis:
+      enabled: false
 
 ---
 spring:
