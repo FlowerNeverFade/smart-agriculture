@@ -742,5 +742,178 @@ export const MOCK_DATA = {
       tags: ["Crop Pack", "Schema 1.0"],
       status: "模块独立路由就绪 · 可单独定制"
     }
-  }
+  },
+
+
+  // ============================================================
+  // SYSTEM_ADMIN mock data — used exclusively by admin views
+  // ============================================================
+  adminOverview: {
+    uptime: '72h 34m',
+    apiVersion: '1.4.0',
+    aiMode: 'full',
+    llmModel: 'Qwen-2.5-72B',
+    alerts: { open: 3, acknowledged: 1, closedToday: 7 },
+    devices: { total: 12, online: 10, offline: 2 },
+    simulator: { running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00' },
+    services: [
+      { name: 'PostgreSQL', status: 'UP', latency: '3ms', version: '15.4' },
+      { name: 'Redis Streams', status: 'UP', pending: 12, lag: '0.2s' },
+      { name: 'MQTT Broker', status: 'UP', connections: 8, messagesPerSec: 45 },
+      { name: 'SSE Gateway', status: 'UP', activeSessions: 3 },
+      { name: 'API Service', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
+      { name: 'Qwen LLM', status: 'DEGRADED', mode: 'rules-only', lastCall: '2026-08-25 11:23' }
+    ],
+    recentEvents: [
+      { id: 'ev-01', category: 'alert', icon: 'warning', title: 'plot-a01 土壤湿度低于阈值 (14%)', time: '11:45', traceId: 'trace-001' },
+      { id: 'ev-02', category: 'agent', icon: 'psychology', title: 'Agent 生成灌溉处方 trace-001', time: '11:46', traceId: 'trace-001' },
+      { id: 'ev-03', category: 'system', icon: 'check_circle', title: '灌溉命令执行完成 (45L)', time: '11:52', traceId: 'trace-001' },
+      { id: 'ev-04', category: 'login', icon: 'login', title: '用户 admin 登录 (农场管理员)', time: '11:30' },
+      { id: 'ev-05', category: 'simulator', icon: 'science', title: '模拟器启动 场景: NORMAL', time: '08:00' },
+      { id: 'ev-06', category: 'config', icon: 'settings', title: '系统配置更新: AI模式 → full', time: '07:55' },
+      { id: 'ev-07', category: 'alert', icon: 'warning', title: 'plot-b01 设备 dev-b01-th 心跳超时', time: '07:20' },
+      { id: 'ev-08', category: 'agent', icon: 'psychology', title: 'Agent 诊断完成 trace-002 (传感器漂移)', time: '07:15', traceId: 'trace-002' },
+      { id: 'ev-09', category: 'login', icon: 'login', title: '用户 farmer 登录 (种植农户)', time: '06:45' },
+      { id: 'ev-10', category: 'system', icon: 'update', title: 'Crop Pack tomato 更新至 v2.1', time: '06:30' }
+    ]
+  },
+
+  adminDevices: [
+    { deviceId: 'dev-a01-soil', plotId: 'plot-a01', type: '土壤传感器', lastHeartbeat: '11:58', status: 'ONLINE' },
+    { deviceId: 'dev-a01-th', plotId: 'plot-a01', type: '温湿度传感器', lastHeartbeat: '11:57', status: 'ONLINE' },
+    { deviceId: 'dev-a01-pump', plotId: 'plot-a01', type: '灌溉执行器', lastHeartbeat: '11:55', status: 'ONLINE' },
+    { deviceId: 'dev-a02-soil', plotId: 'plot-a02', type: '土壤传感器', lastHeartbeat: '11:56', status: 'ONLINE' },
+    { deviceId: 'dev-a02-th', plotId: 'plot-a02', type: '温湿度传感器', lastHeartbeat: '11:56', status: 'ONLINE' },
+    { deviceId: 'dev-a02-pump', plotId: 'plot-a02', type: '灌溉执行器', lastHeartbeat: '11:54', status: 'ONLINE' },
+    { deviceId: 'dev-a03-soil', plotId: 'plot-a03', type: '土壤传感器', lastHeartbeat: '11:55', status: 'ONLINE' },
+    { deviceId: 'dev-a03-th', plotId: 'plot-a03', type: '温湿度传感器', lastHeartbeat: '11:55', status: 'ONLINE' },
+    { deviceId: 'dev-a03-pump', plotId: 'plot-a03', type: '灌溉执行器', lastHeartbeat: '11:53', status: 'ONLINE' },
+    { deviceId: 'dev-b01-soil', plotId: 'plot-b01', type: '土壤传感器', lastHeartbeat: '11:50', status: 'ONLINE' },
+    { deviceId: 'dev-b01-th', plotId: 'plot-b01', type: '温湿度传感器', lastHeartbeat: '07:10', status: 'OFFLINE' },
+    { deviceId: 'dev-b03-soil', plotId: 'plot-b03', type: '土壤传感器', lastHeartbeat: '06:30', status: 'OFFLINE' }
+  ],
+
+  adminAlerts: [
+    { id: 'alrt-01', time: '11:45', level: 'CRITICAL', source: 'plot-a01', summary: '土壤湿度持续低于安全阈值 14%，已触发干旱告警', status: 'OPEN' },
+    { id: 'alrt-02', time: '07:20', level: 'WARNING', source: 'plot-b01', summary: '设备 dev-b01-th 心跳超时 >120s', status: 'OPEN' },
+    { id: 'alrt-03', time: '07:15', level: 'WARNING', source: 'plot-b01', summary: 'Agent 检测到传感器漂移 (温度读数偏差 >3°C)', status: 'OPEN' },
+    { id: 'alrt-04', time: '06:30', level: 'INFO', source: 'system', summary: 'Crop Pack tomato 已更新至 v2.1', status: 'ACK' },
+    { id: 'alrt-05', time: '前日 22:10', level: 'CRITICAL', source: 'plot-a02', summary: '灌溉执行超时 (命令 cmd-042 未收到 ACK)', status: 'CLOSED' },
+    { id: 'alrt-06', time: '前日 18:00', level: 'WARNING', source: 'system', summary: 'Redis Streams 消费延迟 >5s', status: 'CLOSED' },
+    { id: 'alrt-07', time: '前日 15:30', level: 'INFO', source: 'system', summary: 'API Service 重启完成 (版本升级 1.3→1.4)', status: 'CLOSED' }
+  ],
+
+  adminAuditRecords: [
+    {
+      traceId: 'trace-001', time: '11:45', operator: 'Agent', plotId: 'plot-a01',
+      type: 'DIAGNOSIS', typeLabel: '诊断→处方→执行', summary: '干旱根因诊断 → 灌溉处方 45L → 执行完成',
+      result: 'PASS',
+      passport: {
+        trigger: 'SOIL_MOISTURE < 14% 持续 15min (plot-a01)',
+        cropPack: 'tomato v2.1', ruleVersion: 'rules v1.3',
+        ragRef: 'irrigation.md §3.2 "番茄开花期灌溉量"',
+        similarCase: 'case-042 (相似度 0.87, 前次灌溉后 3h 恢复)',
+        diagnosis: '根因=持续干旱, 置信度=0.82, 支持证据: 遥测+气象',
+        prescription: '灌溉 45L, 分 3 次, 间隔 20min, 预期恢复至 22%',
+        toolCall: 'estimateIrrigation({plotId:"plot-a01",volume:45,splits:3})',
+        safetyGates: '✅ 全部通过 (5/5)', riskLevel: 'MEDIUM',
+        execution: { status: 'COMPLETED', evaluation: '含水率 14%→19%, 评价=EFFECTIVE (3h后达标)' }
+      }
+    },
+    {
+      traceId: 'trace-002', time: '07:15', operator: 'Agent', plotId: 'plot-b01',
+      type: 'DIAGNOSIS', typeLabel: '诊断 (传感器漂移)', summary: '温度传感器漂移 → 阻止灌溉处方生成',
+      result: 'REJECT',
+      passport: {
+        trigger: 'AIR_TEMPERATURE 读数偏差 >3°C vs 相邻传感器',
+        cropPack: 'strawberry v1.0', ruleVersion: 'rules v1.3',
+        ragRef: 'sensor-calibration.md §2.1',
+        similarCase: '无匹配案例',
+        diagnosis: '根因=传感器漂移(非真实干旱), 置信度=0.91',
+        prescription: '❌ 拒绝生成灌溉处方 (数据质量不达标)',
+        toolCall: 'N/A (安全门阻断)',
+        safetyGates: '❌ 数据质量门未通过 (传感器漂移)', riskLevel: 'HIGH',
+        execution: null
+      }
+    },
+    {
+      traceId: 'trace-003', time: '前日 16:00', operator: 'admin', plotId: 'plot-a02',
+      type: 'COMMAND', typeLabel: '手动灌溉命令', summary: '农场管理员手动下发灌溉 30L',
+      result: 'PASS',
+      passport: {
+        trigger: '管理员手动操作',
+        cropPack: 'cucumber v1.2', ruleVersion: 'rules v1.3',
+        ragRef: 'N/A (手动操作)', similarCase: 'N/A',
+        diagnosis: 'N/A (人工决策)', prescription: '灌溉 30L, 一次性',
+        toolCall: 'executeIrrigation({planId:"plan-manual-001",plotId:"plot-a02"})',
+        safetyGates: '✅ 全部通过 (权限+上限+冷却)', riskLevel: 'LOW',
+        execution: { status: 'COMPLETED', evaluation: '含水率 18%→24%, 评价=EFFECTIVE' }
+      }
+    },
+    {
+      traceId: 'trace-004', time: '前日 14:30', operator: 'Agent', plotId: 'plot-a01',
+      type: 'EVALUATION', typeLabel: '效果评价', summary: '历史灌溉效果回顾: 7次中5次有效',
+      result: 'PASS',
+      passport: {
+        trigger: '定时效果评价任务',
+        cropPack: 'tomato v2.1', ruleVersion: 'rules v1.3',
+        ragRef: 'evaluation.md §1.3', similarCase: 'case-038, case-039',
+        diagnosis: '统计: 有效率 71.4%, 平均恢复时间 2.8h',
+        prescription: '建议: 保持当前策略, 关注第4阶段灌溉频次',
+        toolCall: 'getCommandEvaluation({batchSize:7})',
+        safetyGates: '✅ 通过', riskLevel: 'LOW',
+        execution: null
+      }
+    }
+  ],
+
+  adminSimHistory: [
+    { scenarioId: 'sim-20260825-001', type: '正常运行', startTime: '08:00', endTime: null, events: 1847, status: 'RUNNING' },
+    { scenarioId: 'sim-20260824-003', type: '干旱场景', startTime: '前日 14:00', endTime: '前日 16:30', events: 892, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-002', type: '暴雨场景', startTime: '前日 10:00', endTime: '前日 12:15', events: 1203, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-001', type: '传感器漂移', startTime: '前日 07:00', endTime: '前日 08:30', events: 456, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260823-001', type: '设备离线恢复', startTime: '前2日 15:00', endTime: '前2日 16:00', events: 312, status: 'COMPLETED' }
+  ],
+
+  adminCropPacks: [
+    { id: 'cp-tomato', icon: '🍅', name: '番茄', version: '2.1', status: 'published', stages: 5, metrics: 8, knowledgeDocs: 3 },
+    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', version: '1.2', status: 'published', stages: 4, metrics: 7, knowledgeDocs: 2 },
+    { id: 'cp-strawberry', icon: '🍓', name: '草莓', version: '1.0', status: 'draft', stages: 6, metrics: 9, knowledgeDocs: 1 }
+  ],
+
+  adminRules: [
+    { id: 'RULE-SAFETY-001', description: '灌溉上限检查 (每次不超过 100L)', type: '安全门', version: '1.3', status: 'published' },
+    { id: 'RULE-SAFETY-002', description: '命令冷却窗口 (同一设备 60s 内不重复)', type: '安全门', version: '1.3', status: 'published' },
+    { id: 'RULE-DIAG-001', description: '干旱 vs 传感器漂移分流规则', type: '诊断', version: '1.3', status: 'published' },
+    { id: 'RULE-DIAG-002', description: '多源证据融合置信度计算', type: '诊断', version: '1.2', status: 'published' },
+    { id: 'RULE-THRESH-001', description: '土壤湿度告警阈值 (按作物阶段)', type: '阈值', version: '1.3', status: 'published' },
+    { id: 'RULE-THRESH-002', description: '温湿度异常范围 (全局)', type: '阈值', version: '1.1', status: 'published' },
+    { id: 'RULE-EVAL-001', description: '灌溉效果评价标准 (3h内恢复率)', type: '评价', version: '1.0', status: 'draft' }
+  ],
+
+  adminStrategyCandidates: [
+    { id: 'SC-001', source: 'learning', description: '番茄开花期分段灌溉: 3次×15L 优于 1次×45L (基于 case-038~042)', status: 'verified' },
+    { id: 'SC-002', source: 'manual', description: '高温天气 (>35°C) 自动增加灌溉频次 20%', status: 'pending' },
+    { id: 'SC-003', source: 'learning', description: '黄瓜挂果期降低土壤湿度告警阈值至 16%', status: 'approved' }
+  ],
+
+  adminUsers: [
+    { userId: 'user-sysadmin', username: 'sysadmin', role: 'SYSTEM_ADMIN', roleLabel: '系统管理员', farmName: '全局', plotIds: ['*'], enabled: true, createdAt: '2026-08-20' },
+    { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', farmName: '农智示范农场', plotIds: ['plot-a01','plot-a02','plot-a03','plot-b01','plot-b03'], enabled: true, createdAt: '2026-08-20' },
+    { userId: 'user-farmer', username: 'farmer', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-a01','plot-a02'], enabled: true, createdAt: '2026-08-21' },
+    { userId: 'user-worker1', username: 'worker1', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-a03','plot-b01'], enabled: true, createdAt: '2026-08-22' },
+    { userId: 'user-op1', username: 'operator1', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-b03'], enabled: false, createdAt: '2026-08-22' }
+  ],
+
+  adminAuditLogs: [
+    { id: 'log-01', time: '11:30', operator: 'admin', action: 'LOGIN', actionLabel: '登录', detail: '农场管理员登录成功', ip: '192.168.1.100' },
+    { id: 'log-02', time: '08:00', operator: 'sysadmin', action: 'CONFIG_CHANGE', actionLabel: '修改配置', detail: '启动模拟器: 场景 NORMAL, seed=42', ip: '192.168.1.50' },
+    { id: 'log-03', time: '07:55', operator: 'sysadmin', action: 'CONFIG_CHANGE', actionLabel: '修改配置', detail: 'AI 模式切换: rules-only → full', ip: '192.168.1.50' },
+    { id: 'log-04', time: '前日 22:00', operator: 'sysadmin', action: 'RULE_PUBLISH', actionLabel: '发布规则', detail: '发布 Crop Pack tomato v2.1', ip: '192.168.1.50' },
+    { id: 'log-05', time: '前日 20:00', operator: 'sysadmin', action: 'USER_CREATE', actionLabel: '创建用户', detail: '创建用户 worker1 (种植农户)', ip: '192.168.1.50' },
+    { id: 'log-06', time: '前日 18:30', operator: 'admin', action: 'LOGIN', actionLabel: '登录', detail: '农场管理员登录成功', ip: '10.0.0.15' },
+    { id: 'log-07', time: '前日 15:00', operator: 'farmer', action: 'LOGIN', actionLabel: '登录', detail: '种植农户登录成功', ip: '10.0.0.22' },
+    { id: 'log-08', time: '前日 10:00', operator: 'sysadmin', action: 'CONFIG_CHANGE', actionLabel: '修改配置', detail: '启动暴雨场景模拟', ip: '192.168.1.50' }
+  ],
+
 };

@@ -10,7 +10,13 @@ const NAV_CATALOG = Object.freeze([
   { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
   { id: 'work-orders', label: '农务工单', icon: 'task', labels: { FARMER: '农务记录', FARM_ADMIN: '任务调度', SYSTEM_ADMIN: '工单审计' } },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } }
+  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
+  { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
+  { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
+  { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
+  { id: 'admin-simulator', label: '仿真验证', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' } },
+  { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
+  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
 ]);
 
 function scopePlots(plots, user) {
@@ -442,6 +448,175 @@ const ValueLedgerView = {
   }
 };
 
+
+
+// ---- SYSTEM ADMIN COMPONENTS ----
+
+const AdminOverviewView = {
+  template: '#tmpl-admin-overview',
+  props: ['state', 'routeParams']
+};
+
+const AdminOpsView = {
+  template: '#tmpl-admin-ops',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const activeTab = ref(props.routeParams?.tab || 'services');
+    const deviceFilter = ref('all');
+    const alertFilter = ref('all');
+    const alertLevel = ref('all');
+
+    watch(() => props.routeParams, (p) => {
+      if (p?.tab) activeTab.value = p.tab;
+    });
+
+    const filteredDevices = computed(() => {
+      const devs = props.state.adminDevices || [];
+      if (deviceFilter.value === 'all') return devs;
+      return devs.filter(d => d.status === deviceFilter.value);
+    });
+
+    const filteredAlerts = computed(() => {
+      let alerts = props.state.adminAlerts || [];
+      if (alertFilter.value !== 'all') alerts = alerts.filter(a => a.status === alertFilter.value);
+      if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
+      return alerts;
+    });
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts };
+  }
+};
+
+const AdminAuditView = {
+  template: '#tmpl-admin-audit',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const searchQuery = ref(props.routeParams?.traceId || '');
+    const typeFilter = ref('all');
+    const expandedPassport = ref(props.routeParams?.traceId || null);
+
+    watch(() => props.routeParams, (p) => {
+      if (p?.traceId) {
+        searchQuery.value = p.traceId;
+        expandedPassport.value = p.traceId;
+      }
+    });
+
+    const filteredRecords = computed(() => {
+      let records = props.state.adminAuditRecords || [];
+      if (typeFilter.value !== 'all') records = records.filter(r => r.type === typeFilter.value);
+      if (searchQuery.value) {
+        const q = searchQuery.value.toLowerCase();
+        records = records.filter(r =>
+          r.traceId.toLowerCase().includes(q) ||
+          r.operator.toLowerCase().includes(q) ||
+          r.plotId.toLowerCase().includes(q)
+        );
+      }
+      return records;
+    });
+
+    const togglePassport = (traceId) => {
+      expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
+    };
+
+    return { searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
+  }
+};
+
+const AdminSimulatorView = {
+  template: '#tmpl-admin-simulator',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
+    const selectedScenario = ref('NORMAL');
+    const scenarios = [
+      { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
+      { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
+      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
+      { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
+    ];
+
+    return { simRunning, selectedScenario, scenarios };
+  }
+};
+
+const AdminRulesView = {
+  template: '#tmpl-admin-rules',
+  props: ['state', 'routeParams'],
+  setup() {
+    const activeTab = ref('packs');
+    const expandedPack = ref(null);
+    return { activeTab, expandedPack };
+  }
+};
+
+const AdminSettingsView = {
+  template: '#tmpl-admin-settings',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const toast = inject('toast');
+    const activeTab = ref('users');
+    const roleFilter = ref('all');
+    const logFilter = ref('all');
+    const showCreateUser = ref(false);
+    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+
+    const filteredUsers = computed(() => {
+      const users = props.state.adminUsers || [];
+      if (roleFilter.value === 'all') return users;
+      return users.filter(u => u.role === roleFilter.value);
+    });
+
+    const filteredLogs = computed(() => {
+      const logs = props.state.adminAuditLogs || [];
+      if (logFilter.value === 'all') return logs;
+      return logs.filter(l => l.action === logFilter.value);
+    });
+
+    const permissionMatrix = [
+      { module: '地块监测', farmer: '👁 只读 (分配地块)', farmAdmin: '✅ 全部地块', sysAdmin: '👁 只读 (排查)' },
+      { module: '农务工单', farmer: '✅ 接受/完成', farmAdmin: '✅ 创建/分派/验收', sysAdmin: '👁 审计记录' },
+      { module: '告警处理', farmer: '👁 自己地块', farmAdmin: '✅ 确认/关闭/升级', sysAdmin: '✅ 系统级告警' },
+      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断/审批', sysAdmin: '❌ 不提供入口' },
+      { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
+      { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
+      { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
+      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ Crop Pack/版本发布' },
+      { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
+    ];
+
+    const createUser = () => {
+      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+      props.state.adminUsers.push({
+        userId: 'user-' + Date.now(),
+        username: newUser.value.username,
+        role: newUser.value.role,
+        roleLabel: roleLabels[newUser.value.role],
+        farmName: '农智示范农场',
+        plotIds: ['plot-a01'],
+        enabled: true,
+        createdAt: new Date().toISOString().split('T')[0]
+      });
+      props.state.adminAuditLogs.unshift({
+        id: 'log-' + Date.now(),
+        time: new Date().toLocaleTimeString().substring(0, 5),
+        operator: 'sysadmin',
+        action: 'USER_CREATE',
+        actionLabel: '创建用户',
+        detail: '创建用户 ' + newUser.value.username + ' (' + roleLabels[newUser.value.role] + ')',
+        ip: '127.0.0.1'
+      });
+      showCreateUser.value = false;
+      newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+      toast('用户创建成功');
+    };
+
+    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser };
+  }
+};
+
 // 2. Setup App
 const app = createApp({
   components: {
@@ -450,7 +625,13 @@ const app = createApp({
     'risk-forecast-view': RiskForecastView,
     'work-orders-view': WorkOrdersView,
     'crop-packs-view': CropPacksView,
-    'value-ledger-view': ValueLedgerView
+    'value-ledger-view': ValueLedgerView,
+    'admin-overview-view': AdminOverviewView,
+    'admin-ops-view': AdminOpsView,
+    'admin-audit-view': AdminAuditView,
+    'admin-simulator-view': AdminSimulatorView,
+    'admin-rules-view': AdminRulesView,
+    'admin-settings-view': AdminSettingsView
   },
   setup() {
     const isLive = ref(false);
@@ -482,7 +663,17 @@ const app = createApp({
       resourceProfile: MOCK_DATA.resourceProfile,
       cropPackDetails: MOCK_DATA.cropPackDetails,
       riskForecastConfig: MOCK_DATA.riskForecastConfig,
-      valueLedger: MOCK_DATA.valueLedger
+      valueLedger: MOCK_DATA.valueLedger,
+      adminOverview: MOCK_DATA.adminOverview || {},
+      adminDevices: MOCK_DATA.adminDevices || [],
+      adminAlerts: MOCK_DATA.adminAlerts || [],
+      adminAuditRecords: MOCK_DATA.adminAuditRecords || [],
+      adminSimHistory: MOCK_DATA.adminSimHistory || [],
+      adminCropPacks: MOCK_DATA.adminCropPacks || [],
+      adminRules: MOCK_DATA.adminRules || [],
+      adminStrategyCandidates: MOCK_DATA.adminStrategyCandidates || [],
+      adminUsers: MOCK_DATA.adminUsers || [],
+      adminAuditLogs: MOCK_DATA.adminAuditLogs || []
     });
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
