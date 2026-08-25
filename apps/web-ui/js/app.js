@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { AdminAlertCenter } from './admin-alerts.js';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
 
@@ -805,7 +806,7 @@ const app = createApp({
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'risk-forecast-view': RiskForecastView,
-    'work-orders-view': WorkOrdersView,
+    'work-orders-view': WorkOrderLifecycleView,
     'resource-coordination-view': ResourceCoordinationView,
     'farm-members-view': FarmMembersView,
     'crop-packs-view': CropPacksView,
@@ -1016,30 +1017,40 @@ const app = createApp({
         state.value.farmMembers = [];
       }
       if (isLive.value && session.mode === 'live') {
-        const [overviewResult, workItemsResult, alertsResult] = await Promise.allSettled([
+        const farmId = state.value.currentUser?.farmIds?.find((id) => id !== '*') || '';
+        const [overviewResult, workOrdersResult, alertsResult, membersResult] = await Promise.allSettled([
           api.getOverview(),
-          api.getTodayWorkItems(),
-          api.getAlerts()
+          api.getWorkOrders(farmId ? { farmId } : {}),
+          api.getAlerts(farmId ? { farmId } : {}),
+          (['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role) && farmId)
+            ? api.getFarmMembers({ farmId })
+            : Promise.resolve([])
         ]);
         if (overviewResult.status === 'fulfilled' && Array.isArray(overviewResult.value?.plots)) {
           state.value.plots = scopePlots(mergeOverviewPlots(overviewResult.value.plots), state.value.currentUser);
         } else if (overviewResult.status === 'rejected') {
           showToast('读取角色范围内的地块失败：' + overviewResult.reason.message, 'error');
         }
-        if (workItemsResult.status === 'fulfilled' && Array.isArray(workItemsResult.value)) {
-          state.value.workOrders = workItemsResult.value;
-        } else if (workItemsResult.status === 'rejected') {
-          showToast('读取今日农务失败：' + workItemsResult.reason.message, 'error');
+        if (workOrdersResult.status === 'fulfilled' && Array.isArray(workOrdersResult.value)) {
+          state.value.workOrders = workOrdersResult.value;
+        } else if (workOrdersResult.status === 'rejected') {
+          showToast('读取农务任务失败：' + workOrdersResult.reason.message, 'error');
         }
         if (alertsResult.status === 'fulfilled' && Array.isArray(alertsResult.value)) {
           state.value.alerts = alertsResult.value;
         } else if (alertsResult.status === 'rejected') {
           showToast('读取告警失败：' + alertsResult.reason.message, 'error');
         }
+        if (membersResult.status === 'fulfilled' && Array.isArray(membersResult.value)) {
+          state.value.farmMembers = membersResult.value;
+        } else if (membersResult.status === 'rejected') {
+          state.value.farmMembers = [];
+          showToast('读取可分配农户失败：' + membersResult.reason.message, 'error');
+        }
       } else if (session.mode === 'demo') {
         state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
         state.value.alerts = (MOCK_DATA.alerts || []).map((item) => ({ ...item }));
-        state.value.workOrders = (MOCK_DATA.workOrders || []).map((item) => ({ ...item }));
+        state.value.workOrders = await api.getWorkOrders({ farmId: 'farm-demo' });
         state.value.farmMembers = (MOCK_DATA.farmMembers || []).map((member) => ({ ...member }));
       } else {
         state.value.plots = [];

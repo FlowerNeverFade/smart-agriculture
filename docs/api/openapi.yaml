@@ -160,7 +160,15 @@ paths:
     get: {tags: [management], parameters: [{name: plotId, in: query, schema: {type: string}}], responses: {'200': {description: 今日农务}}}
   /api/v1/work-orders:
     post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 工单}}}
-    get: {tags: [management], responses: {'200': {description: 授权工单}}}
+    get: {tags: [management], parameters: [{name: farmId, in: query, schema: {type: string}}, {name: plotId, in: query, schema: {type: string}}, {name: status, in: query, schema: {type: string}}, {name: assigneeId, in: query, schema: {type: string}}], responses: {'200': {description: 按角色和农场地块范围过滤的工单}}}
+  /api/v1/work-orders/{workOrderId}/assign:
+    post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员分配或重新分配任务}}}
+  /api/v1/work-orders/{workOrderId}/transition:
+    post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农户开始、重新处理、提交结果或管理员取消任务}}}
+  /api/v1/work-orders/{workOrderId}/review:
+    post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
+  /api/v1/farm-members:
+    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场可用于任务分配的正式成员}}}
   /api/v1/alerts:
     get: {tags: [management], responses: {'200': {description: 告警列表}}}
   /api/v1/alerts/{alertId}/ack:

@@ -487,6 +487,31 @@ class AgriStore {
         } catch (DataAccessException ignored) { return null; }
     }
 
+    List<Map<String, Object>> listUsers() {
+        List<Map<String, Object>> result = users.values().stream()
+                .map(user -> safeUser(Jsons.copy(mapper, user)))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (!databaseReady) return result;
+        try {
+            List<Map<String, Object>> persisted = jdbc.query(
+                    "SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account ORDER BY username",
+                    (rs, rowNum) -> userMap(rs));
+            persisted.forEach(user -> users.put(Jsons.text(user, "userId", ""), Jsons.copy(mapper, user)));
+            return persisted.stream().map(this::safeUser).collect(Collectors.toCollection(ArrayList::new));
+        } catch (DataAccessException ignored) {
+            databaseReady = false;
+            return result;
+        }
+    }
+
+    private Map<String, Object> safeUser(Map<String, Object> user) {
+        Map<String, Object> safe = Jsons.copy(mapper, user);
+        safe.remove("passwordHash");
+        safe.remove("recoveryCodeHash");
+        safe.remove("credentialVersion");
+        return safe;
+    }
+
     boolean credentialVersionMatches(String userId, int credentialVersion) {
         Map<String, Object> user = userById(userId);
         return user != null && Jsons.bool(user, "enabled", true)
@@ -779,6 +804,7 @@ final class UserPrincipal {
         this.credentialVersion = Math.max(1, credentialVersion);
     }
     boolean canAccessPlot(String plotId) { return "SYSTEM_ADMIN".equals(role) || plotIds.contains("*") || plotIds.contains(plotId); }
+    boolean canAccessFarm(String farmId) { return "SYSTEM_ADMIN".equals(role) || farmIds.contains("*") || farmIds.contains(farmId); }
     boolean canControl() { return RolePolicy.canControl(role); }
     boolean canInspect() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
     boolean canRequestIrrigation() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
@@ -1016,6 +1042,8 @@ class AgriEngine {
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
+    private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
+    private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -1819,13 +1847,19 @@ class AgriEngine {
 
     List<Map<String, Object>> inspections(String plotId) { return store.list("inspection").stream().filter(i -> plotId.equals(Jsons.text(i, "plotId", ""))).toList(); }
 
-    List<Map<String, Object>> todayWork(String plotId) {
+    List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
         StreamBuilder work = new StreamBuilder();
-        store.list("work-order").stream().filter(w -> plotId == null || plotId.equals(Jsons.text(w, "plotId", ""))).forEach(work::add);
-        store.list("alert").stream().filter(a -> (plotId == null || plotId.equals(Jsons.text(a, "plotId", ""))) && !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).forEach(a -> work.add(Map.of(
+        store.list("work-order").stream()
+                .filter(w -> principal.canAccessPlot(Jsons.text(w, "plotId", "")))
+                .filter(w -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(w, "assigneeId", "")))
+                .filter(w -> plotId == null || plotId.equals(Jsons.text(w, "plotId", "")))
+                .map(this::normalizeWorkOrderForRead).forEach(work::add);
+        store.list("alert").stream().filter(a -> principal.canAccessPlot(Jsons.text(a, "plotId", "")) &&
+                (plotId == null || plotId.equals(Jsons.text(a, "plotId", ""))) && !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).forEach(a -> work.add(Map.of(
                 "workItemId", Jsons.text(a, "alertId", Jsons.id("wi")), "sourceType", "ALERT", "sourceRef", a.get("alertId"), "plotId", a.get("plotId"),
                 "priority", Jsons.text(a, "level", "MEDIUM"), "status", "OPEN", "reason", a.get("source"), "dueAt", Instant.now().plus(2, ChronoUnit.HOURS).toString())));
-        store.list("diagnosis").stream().filter(d -> (plotId == null || plotId.equals(Jsons.text(d, "plotId", "")))).limit(20).forEach(d -> work.add(Map.of(
+        store.list("diagnosis").stream().filter(d -> principal.canAccessPlot(Jsons.text(d, "plotId", "")) &&
+                (plotId == null || plotId.equals(Jsons.text(d, "plotId", "")))).limit(20).forEach(d -> work.add(Map.of(
                 "workItemId", Jsons.text(d, "diagnosisId", Jsons.id("wi")), "sourceType", "DIAGNOSIS", "sourceRef", d.get("diagnosisId"), "plotId", d.get("plotId"),
                 "priority", Jsons.text(d, "primaryCause", "MEDIUM"), "status", "OPEN", "reason", "待处理根因诊断", "dueAt", Instant.now().plus(4, ChronoUnit.HOURS).toString())));
         return work.values.stream().sorted(Comparator.comparingInt((Map<String, Object> w) -> riskRank(Jsons.text(w, "priority", "LOW"))).reversed()).toList();
@@ -1837,10 +1871,288 @@ class AgriEngine {
         if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以派发工单");
         }
-        String plotId = Jsons.text(input, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
-        Map<String, Object> work = new LinkedHashMap<>(input); work.put("workOrderId", Jsons.text(input, "workOrderId", Jsons.id("wo"))); work.put("plotId", plotId);
-        work.putIfAbsent("status", "OPEN"); work.putIfAbsent("priority", "MEDIUM"); work.putIfAbsent("createdAt", Instant.now().toString()); work.put("createdBy", principal.userId);
-        store.save("work-order", Jsons.text(work, "workOrderId", ""), work); events.publish("workorder.created", work); return work;
+        String plotId = Jsons.text(input, "plotId", "").trim();
+        if (plotId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CONTEXT_REQUIRED", "请先选择地块");
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        String farmId = Jsons.text(plot, "farmId", "");
+        String requestedFarmId = Jsons.text(input, "farmId", farmId);
+        if (!farmId.equals(requestedFarmId)) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_MISMATCH", "任务农场与地块不一致");
+        Instant now = Instant.now();
+        Map<String, Object> work = new LinkedHashMap<>(input);
+        work.put("workOrderId", Jsons.id("wo"));
+        work.put("farmId", farmId);
+        work.put("plotId", plotId);
+        work.put("title", Jsons.text(input, "title", evidenceRequest ? "完成现场补证" : "未命名农务任务"));
+        work.put("reason", Jsons.text(input, "reason", evidenceRequest ? "补充现场核验信息" : "请按任务要求完成处理"));
+        work.put("status", "OPEN");
+        work.put("priority", normalizePriority(Jsons.text(input, "priority", "MEDIUM")));
+        work.put("assigneeId", null);
+        work.put("assigneeName", null);
+        work.put("createdAt", now.toString());
+        work.put("updatedAt", now.toString());
+        work.put("createdBy", principal.userId);
+        work.put("updatedBy", principal.userId);
+        appendWorkOrderHistory(work, "CREATE", null, "OPEN", principal, Jsons.text(input, "reason", "创建任务"), List.of());
+        saveWorkOrder(work, "created");
+        return work;
+    }
+
+    List<Map<String, Object>> workOrders(Map<String, String> filters, UserPrincipal principal) {
+        String farmId = filters == null ? "" : String.valueOf(filters.getOrDefault("farmId", "")).trim();
+        String plotId = filters == null ? "" : String.valueOf(filters.getOrDefault("plotId", "")).trim();
+        String status = filters == null ? "" : normalizeWorkStatus(filters.get("status"));
+        String assigneeId = filters == null ? "" : String.valueOf(filters.getOrDefault("assigneeId", "")).trim();
+        if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        if (!plotId.isBlank()) ensurePlotAccess(principal, plotId);
+        return store.list("work-order").stream()
+                .filter(work -> principal.canAccessPlot(Jsons.text(work, "plotId", "")))
+                .filter(work -> !"FARMER".equals(principal.role) || principal.userId.equals(Jsons.text(work, "assigneeId", "")))
+                .filter(work -> farmId.isBlank() || farmId.equals(Jsons.text(work, "farmId", farmIdForPlot(Jsons.text(work, "plotId", "")))))
+                .filter(work -> plotId.isBlank() || plotId.equals(Jsons.text(work, "plotId", "")))
+                .filter(work -> status.isBlank() || status.equals(normalizeWorkStatus(work.get("status"))))
+                .filter(work -> assigneeId.isBlank() || assigneeId.equals(Jsons.text(work, "assigneeId", "")))
+                .map(this::normalizeWorkOrderForRead)
+                .sorted(Comparator.comparing(work -> Jsons.instant(work.get("dueAt"), Instant.MAX)))
+                .toList();
+    }
+
+    Map<String, Object> assignWorkOrder(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> work = scopedWorkOrder(workOrderId, principal);
+        String current = normalizeWorkStatus(work.get("status"));
+        ensureWorkOrderState(current);
+        if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能重新分配");
+        String assigneeId = Jsons.text(input, "assigneeId", "").trim();
+        if (assigneeId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "ASSIGNEE_REQUIRED", "请选择种植农户");
+        Map<String, Object> assignee = requireEligibleFarmer(assigneeId, work);
+        Instant now = Instant.now();
+        work.put("status", "ASSIGNED");
+        work.put("assigneeId", assigneeId);
+        work.put("assigneeName", Jsons.text(assignee, "displayName", Jsons.text(assignee, "username", assigneeId)));
+        work.put("assignedBy", principal.userId);
+        work.put("assignedAt", now.toString());
+        clearAttemptResult(work);
+        updateWorkOrderAudit(work, principal, now);
+        appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,
+                Jsons.text(input, "note", "任务已分配"), List.of());
+        saveWorkOrder(work, "assigned");
+        return work;
+    }
+
+    Map<String, Object> transitionWorkOrder(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> work = scopedWorkOrder(workOrderId, principal);
+        String current = normalizeWorkStatus(work.get("status"));
+        ensureWorkOrderState(current);
+        String action = Jsons.text(input, "action", Jsons.text(input, "status", "")).trim().toUpperCase(Locale.ROOT);
+        if ("IN_PROGRESS".equals(action)) action = "REJECTED".equals(current) ? "RESTART" : "START";
+        if ("SUBMITTED".equals(action)) action = "SUBMIT";
+        if ("CANCELLED".equals(action)) action = "CANCEL";
+        Instant now = Instant.now();
+        String target;
+        switch (action) {
+            case "START" -> {
+                requireAssignedFarmer(work, principal);
+                if (!"ASSIGNED".equals(current)) throw invalidWorkTransition(current, "开始执行");
+                target = "IN_PROGRESS";
+                work.put("startedAt", now.toString());
+                work.put("startedBy", principal.userId);
+            }
+            case "RESTART", "RESUME" -> {
+                requireAssignedFarmer(work, principal);
+                if (!"REJECTED".equals(current)) throw invalidWorkTransition(current, "重新处理");
+                target = "IN_PROGRESS";
+                work.put("restartedAt", now.toString());
+                work.put("restartedBy", principal.userId);
+                clearAttemptResult(work);
+            }
+            case "SUBMIT" -> {
+                requireAssignedFarmer(work, principal);
+                if (!"IN_PROGRESS".equals(current)) throw invalidWorkTransition(current, "提交结果");
+                String resultSummary = Jsons.text(input, "resultSummary", Jsons.text(input, "note", "")).trim();
+                if (resultSummary.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_RESULT_REQUIRED", "请填写处理结果");
+                target = "SUBMITTED";
+                work.put("resultSummary", resultSummary);
+                work.put("evidenceRefs", Jsons.strings(input.get("evidenceRefs")));
+                work.put("submittedAt", now.toString());
+                work.put("submittedBy", principal.userId);
+            }
+            case "CANCEL" -> {
+                requireFarmAdmin(principal);
+                if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能取消");
+                target = "CANCELLED";
+                work.put("cancelledAt", now.toString());
+                work.put("cancelledBy", principal.userId);
+                work.put("cancelReason", Jsons.text(input, "note", "管理员取消任务"));
+            }
+            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_ORDER_ACTION_INVALID", "不支持的任务操作");
+        }
+        work.put("status", target);
+        updateWorkOrderAudit(work, principal, now);
+        String note = "SUBMIT".equals(action) ? Jsons.text(work, "resultSummary", "已提交处理结果") : Jsons.text(input, "note", workActionLabel(action));
+        appendWorkOrderHistory(work, action, current, target, principal, note, Jsons.strings(input.get("evidenceRefs")));
+        saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
+        return work;
+    }
+
+    Map<String, Object> reviewWorkOrder(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> work = scopedWorkOrder(workOrderId, principal);
+        String current = normalizeWorkStatus(work.get("status"));
+        if (!"SUBMITTED".equals(current)) throw invalidWorkTransition(current, "验收");
+        String action = Jsons.text(input, "action", Jsons.text(input, "status", "")).trim().toUpperCase(Locale.ROOT);
+        String note = Jsons.text(input, "note", "").trim();
+        boolean approved = Set.of("APPROVE", "ACCEPT", "DONE").contains(action);
+        boolean rejected = Set.of("REJECT", "REJECTED").contains(action);
+        if (!approved && !rejected) throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_REVIEW_ACTION_INVALID", "请选择验收通过或退回处理");
+        if (rejected && note.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_REVIEW_NOTE_REQUIRED", "退回任务时请填写原因");
+        Instant now = Instant.now();
+        String target = approved ? "DONE" : "REJECTED";
+        work.put("status", target);
+        work.put("reviewedAt", now.toString());
+        work.put("reviewedBy", principal.userId);
+        work.put("reviewNote", note);
+        if (approved) {
+            work.put("completedAt", now.toString());
+            work.put("completedBy", principal.userId);
+        } else {
+            work.put("rejectedAt", now.toString());
+            work.put("rejectedBy", principal.userId);
+            work.put("rejectionReason", note);
+        }
+        updateWorkOrderAudit(work, principal, now);
+        appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
+                note.isBlank() ? "验收通过" : note, List.of());
+        saveWorkOrder(work, approved ? "completed" : "rejected");
+        return work;
+    }
+
+    List<Map<String, Object>> farmMembers(String farmId, UserPrincipal principal) {
+        if (!principal.isFarmAdmin() && !principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_MEMBERS_FORBIDDEN", "当前身份不能查看农场成员");
+        String normalizedFarmId = String.valueOf(farmId == null ? "" : farmId).trim();
+        if (normalizedFarmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
+        if (!principal.canAccessFarm(normalizedFarmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        return store.listUsers().stream()
+                .filter(user -> Jsons.strings(user.get("farmIds")).contains(normalizedFarmId) || Jsons.strings(user.get("farmIds")).contains("*"))
+                .map(user -> {
+                    Map<String, Object> member = new LinkedHashMap<>(user);
+                    String role = RolePolicy.canonical(Jsons.text(user, "role", "FARMER"));
+                    member.put("role", role);
+                    member.put("roleLabel", RolePolicy.label(role));
+                    member.put("displayName", Jsons.text(user, "displayName", Jsons.text(user, "username", "未命名成员")));
+                    member.put("status", Jsons.bool(user, "enabled", true) ? "ACTIVE" : "INACTIVE");
+                    return member;
+                })
+                .sorted(Comparator.comparing(member -> Jsons.text(member, "username", "")))
+                .toList();
+    }
+
+    private Map<String, Object> scopedWorkOrder(String workOrderId, UserPrincipal principal) {
+        Map<String, Object> work = requireRecord("work-order", workOrderId);
+        ensurePlotAccess(principal, Jsons.text(work, "plotId", ""));
+        return normalizeWorkOrderForRead(work);
+    }
+
+    private Map<String, Object> normalizeWorkOrderForRead(Map<String, Object> source) {
+        Map<String, Object> work = new LinkedHashMap<>(source);
+        work.put("status", normalizeWorkStatus(work.get("status")));
+        work.putIfAbsent("farmId", farmIdForPlot(Jsons.text(work, "plotId", "")));
+        return work;
+    }
+
+    private String normalizeWorkStatus(Object value) {
+        String status = String.valueOf(value == null ? "" : value).trim().toUpperCase(Locale.ROOT);
+        return switch (status) {
+            case "PENDING", "NEW" -> "OPEN";
+            case "CLAIMED" -> "ASSIGNED";
+            case "COMPLETED" -> "DONE";
+            default -> status;
+        };
+    }
+
+    private void ensureWorkOrderState(String status) {
+        if (!WORK_ORDER_STATUSES.contains(status)) throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_STATUS_INVALID", "当前任务状态无法流转");
+    }
+
+    private String normalizePriority(String value) {
+        String priority = String.valueOf(value == null ? "MEDIUM" : value).trim().toUpperCase(Locale.ROOT);
+        return Set.of("HIGH", "MEDIUM", "LOW").contains(priority) ? priority : "MEDIUM";
+    }
+
+    private void requireFarmAdmin(UserPrincipal principal) {
+        if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以安排和验收任务");
+    }
+
+    private void requireAssignedFarmer(Map<String, Object> work, UserPrincipal principal) {
+        if (!"FARMER".equals(principal.role) || !principal.userId.equals(Jsons.text(work, "assigneeId", ""))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_ASSIGNEE_REQUIRED", "只有这项任务的执行农户可以操作");
+        }
+    }
+
+    private Map<String, Object> requireEligibleFarmer(String assigneeId, Map<String, Object> work) {
+        Map<String, Object> assignee = store.userById(assigneeId);
+        if (assignee == null || !"FARMER".equals(RolePolicy.canonical(Jsons.text(assignee, "role", ""))) || !Jsons.bool(assignee, "enabled", true)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ASSIGNEE_INVALID", "请选择当前农场的有效种植农户");
+        }
+        String farmId = Jsons.text(work, "farmId", farmIdForPlot(Jsons.text(work, "plotId", "")));
+        String plotId = Jsons.text(work, "plotId", "");
+        List<String> farmIds = Jsons.strings(assignee.get("farmIds"));
+        List<String> plotIds = Jsons.strings(assignee.get("plotIds"));
+        if ((!farmIds.contains(farmId) && !farmIds.contains("*")) || (!plotIds.contains(plotId) && !plotIds.contains("*"))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ASSIGNEE_SCOPE_MISMATCH", "该农户没有这块地的任务权限");
+        }
+        return assignee;
+    }
+
+    private String farmIdForPlot(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        return plot == null ? "" : Jsons.text(plot, "farmId", "");
+    }
+
+    private void updateWorkOrderAudit(Map<String, Object> work, UserPrincipal principal, Instant now) {
+        work.put("updatedAt", now.toString());
+        work.put("updatedBy", principal.userId);
+    }
+
+    private void appendWorkOrderHistory(Map<String, Object> work, String action, String fromStatus, String toStatus,
+                                        UserPrincipal principal, String note, List<String> evidenceRefs) {
+        List<Map<String, Object>> history = new ArrayList<>(Jsons.maps(mapper, work.get("history")));
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("action", action);
+        entry.put("fromStatus", fromStatus);
+        entry.put("toStatus", toStatus);
+        entry.put("actorId", principal.userId);
+        entry.put("actorName", principal.username);
+        entry.put("actorRole", principal.role);
+        entry.put("at", Instant.now().toString());
+        entry.put("note", String.valueOf(note == null ? "" : note));
+        entry.put("evidenceRefs", evidenceRefs == null ? List.of() : evidenceRefs);
+        history.add(entry);
+        work.put("history", history);
+    }
+
+    private void clearAttemptResult(Map<String, Object> work) {
+        for (String field : List.of("resultSummary", "evidenceRefs", "submittedAt", "submittedBy", "reviewedAt", "reviewedBy", "reviewNote", "rejectedAt", "rejectedBy", "rejectionReason")) work.remove(field);
+    }
+
+    private ApiException invalidWorkTransition(String current, String actionLabel) {
+        return new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TRANSITION_INVALID", "任务当前为“" + current + "”，不能" + actionLabel);
+    }
+
+    private String workActionLabel(String action) {
+        return switch (action) {
+            case "START" -> "开始执行";
+            case "RESTART", "RESUME" -> "重新处理";
+            case "CANCEL" -> "取消任务";
+            default -> "更新任务";
+        };
+    }
+
+    private void saveWorkOrder(Map<String, Object> work, String eventSuffix) {
+        String workOrderId = Jsons.text(work, "workOrderId", "");
+        store.save("work-order", workOrderId, work);
+        events.publish("workorder." + eventSuffix, work);
+        store.logEvent("workorder." + eventSuffix, work);
     }
 
     Map<String, Object> resourcePlan(Map<String, Object> input, UserPrincipal principal) {
@@ -2021,7 +2333,7 @@ class AgriEngine {
             answer.put("diagnosis", diagnosis);
             answer.put("result", Map.of("diagnosis", diagnosis, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId)));
         } else if (message.contains("任务") || message.contains("农务")) {
-            List<Map<String, Object>> work = todayWork(plotId);
+            List<Map<String, Object>> work = todayWork(plotId, principal);
             tools.add(tool("get_today_work_items", Map.of("plotId", plotId), work));
             answer.put("intent", "TODAY_WORK");
             answer.put("summary", "已汇总今日农务");
@@ -2890,13 +3202,42 @@ class AgriController {
     ResponseEntity<?> evaluation(@PathVariable String commandId, Authentication a) { return ok(engine.commandEvaluation(commandId)); }
 
     @GetMapping("/work-items/today")
-    ResponseEntity<?> today(@RequestParam(required = false) String plotId, Authentication a) { UserPrincipal p = principal(a); if (plotId != null) engine.ensurePlotAccess(p, plotId); return ok(engine.todayWork(plotId)); }
+    ResponseEntity<?> today(@RequestParam(required = false) String plotId, Authentication a) { UserPrincipal p = principal(a); if (plotId != null) engine.ensurePlotAccess(p, plotId); return ok(engine.todayWork(plotId, p)); }
 
     @PostMapping("/work-orders")
     ResponseEntity<?> workOrder(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createWorkOrder(body, principal(a))); }
 
     @GetMapping("/work-orders")
-    ResponseEntity<?> workOrders(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("work-order").stream().filter(w -> p.canAccessPlot(Jsons.text(w, "plotId", ""))).toList()); }
+    ResponseEntity<?> workOrders(@RequestParam(required = false) String farmId,
+                                 @RequestParam(required = false) String plotId,
+                                 @RequestParam(required = false) String status,
+                                 @RequestParam(required = false) String assigneeId,
+                                 Authentication a) {
+        Map<String, String> filters = new LinkedHashMap<>();
+        if (farmId != null) filters.put("farmId", farmId);
+        if (plotId != null) filters.put("plotId", plotId);
+        if (status != null) filters.put("status", status);
+        if (assigneeId != null) filters.put("assigneeId", assigneeId);
+        return ok(engine.workOrders(filters, principal(a)));
+    }
+
+    @PostMapping("/work-orders/{workOrderId}/assign")
+    ResponseEntity<?> assignWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.assignWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @PostMapping("/work-orders/{workOrderId}/transition")
+    ResponseEntity<?> transitionWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.transitionWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @PostMapping("/work-orders/{workOrderId}/review")
+    ResponseEntity<?> reviewWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.reviewWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @GetMapping("/farm-members")
+    ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
 
     @GetMapping("/alerts")
     ResponseEntity<?> alerts(Authentication a) { UserPrincipal p = principal(a); return ok(store.list("alert").stream().filter(x -> p.canAccessPlot(Jsons.text(x, "plotId", ""))).toList()); }

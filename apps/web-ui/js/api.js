@@ -9,6 +9,37 @@
 import { MOCK_DATA } from './mock-data.js';
 import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
+const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
+const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+
+function normalizeWorkOrderStatus(value) {
+  const status = String(value || 'OPEN').trim().toUpperCase();
+  return WORK_ORDER_STATUS_ALIASES[status] || status;
+}
+
+function cloneWorkOrder(item) {
+  const status = normalizeWorkOrderStatus(item?.status);
+  const history = Array.isArray(item?.history) ? item.history.map((entry) => ({ ...entry })) : [];
+  if (!history.length && item?.workOrderId) {
+    history.push({
+      action: 'CREATE',
+      fromStatus: null,
+      toStatus: status,
+      actorId: item.createdBy || 'demo-seed',
+      actorName: '演示数据',
+      actorRole: 'SYSTEM',
+      at: item.createdAt || new Date().toISOString(),
+      note: '演示任务初始记录',
+      evidenceRefs: []
+    });
+  }
+  return {
+    ...(item || {}),
+    status,
+    history
+  };
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -36,6 +67,7 @@ export class ApiService {
       commands: new Map(),
       evaluations: new Map()
     };
+    this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
   }
 
   readStoredUser() {
@@ -287,29 +319,42 @@ export class ApiService {
   }
 
   /** farm-operations 增量合同：在线走后端，离线只使用显式标记的模拟数据。 */
-  async getTodayWorkItems(plotId = '') {
+  async getTodayWorkItems(filters = '') {
+    const normalizedFilters = typeof filters === 'object' && filters !== null ? filters : { plotId: filters };
+    const plotId = normalizedFilters.plotId || '';
     if (this.isLive) {
       const query = plotId ? `?plotId=${encodeURIComponent(plotId)}` : '';
       try {
         const response = await this._fetch(`/api/v1/work-items/today${query}`);
         if (Array.isArray(response?.data)) return response.data;
       } catch (error) {
-        if (error.status === 401 || error.status === 403) throw error;
-        console.warn('Falling back to simulated work items:', error);
+        throw error;
       }
     }
-    return (MOCK_DATA.workOrders || [])
+    return Array.from(this.demoWorkOrders.values())
       .filter(item => !plotId || item.plotId === plotId)
-      .map(item => ({ ...item }));
+      .map(cloneWorkOrder);
   }
 
-  async getWorkOrders() {
+  async getWorkOrders(filters = {}) {
+    const queryParams = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
+    });
     if (this.isLive) {
-      const response = await this._fetch('/api/v1/work-orders');
+      const query = queryParams.size ? `?${queryParams.toString()}` : '';
+      const response = await this._fetch(`/api/v1/work-orders${query}`);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的工单数据', { code: 'WORK_ORDERS_INVALID', payload: response });
     }
-    return (MOCK_DATA.workOrders || []).map(item => ({ ...item }));
+    const currentActorId = this._demoActorId();
+    return Array.from(this.demoWorkOrders.values())
+      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId)
+      .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
+      .filter((item) => !filters.plotId || item.plotId === filters.plotId)
+      .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
+      .filter((item) => !filters.assigneeId || item.assigneeId === filters.assigneeId)
+      .map(cloneWorkOrder);
   }
 
   async saveWorkOrder(workOrder) {
@@ -321,10 +366,180 @@ export class ApiService {
       return response?.data || response;
     }
     const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
-    return { ...workOrder, workOrderId, workItemId: workOrder.workItemId || workOrderId, createdAt: workOrder.createdAt || new Date().toISOString() };
+    const now = new Date().toISOString();
+    const saved = cloneWorkOrder({
+      ...workOrder,
+      workOrderId,
+      workItemId: workOrder.workItemId || workOrderId,
+      farmId: workOrder.farmId || 'farm-demo',
+      status: normalizeWorkOrderStatus(workOrder.status || 'OPEN'),
+      assigneeId: workOrder.assigneeId || null,
+      assigneeName: workOrder.assigneeName || null,
+      createdAt: workOrder.createdAt || now,
+      updatedAt: now,
+      createdBy: workOrder.createdBy || this._demoActorId(),
+      updatedBy: this._demoActorId(),
+      history: [{
+        action: 'CREATE',
+        fromStatus: null,
+        toStatus: normalizeWorkOrderStatus(workOrder.status || 'OPEN'),
+        actorId: this._demoActorId(),
+        actorName: this.user?.username || 'demo',
+        actorRole: this.user?.role || 'FARM_ADMIN',
+        at: now,
+        note: workOrder.reason || '创建任务',
+        evidenceRefs: []
+      }]
+    });
+    this.demoWorkOrders.set(workOrderId, saved);
+    return cloneWorkOrder(saved);
   }
 
   async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async assignWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/assign`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以分配任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+    const work = this._demoWorkOrder(workOrderId);
+    if (TERMINAL_WORK_ORDER_STATUSES.has(normalizeWorkOrderStatus(work.status))) throw new ApiError('已结束的任务不能重新分配', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+    const member = (MOCK_DATA.farmMembers || []).find((item) => item.userId === input.assigneeId && item.role === 'FARMER' && item.status === 'ACTIVE');
+    if (!member || (!member.plotIds?.includes(work.plotId) && !member.plotIds?.includes('*'))) {
+      throw new ApiError('请选择有权处理这块地的种植农户', { status: 400, code: 'ASSIGNEE_SCOPE_MISMATCH' });
+    }
+    return this._saveDemoTransition(work, {
+      status: 'ASSIGNED',
+      assigneeId: member.userId,
+      assigneeName: member.displayName || member.username,
+      assignedAt: new Date().toISOString(),
+      assignedBy: this._demoActorId()
+    }, work.status === 'OPEN' ? 'ASSIGN' : 'REASSIGN', input.note || `分配给${member.displayName || member.username}`);
+  }
+
+  async transitionWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/transition`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    const work = this._demoWorkOrder(workOrderId);
+    const current = normalizeWorkOrderStatus(work.status);
+    let action = String(input.action || input.status || '').trim().toUpperCase();
+    if (action === 'IN_PROGRESS') action = current === 'REJECTED' ? 'RESTART' : 'START';
+    if (action === 'SUBMITTED') action = 'SUBMIT';
+    if (action === 'CANCELLED') action = 'CANCEL';
+    if (action === 'CANCEL') {
+      if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以取消任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+      if (TERMINAL_WORK_ORDER_STATUSES.has(current)) throw new ApiError('已结束的任务不能取消', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+      return this._saveDemoTransition(work, { status: 'CANCELLED', cancelledAt: new Date().toISOString(), cancelledBy: this._demoActorId(), cancelReason: input.note || '管理员取消任务' }, 'CANCEL', input.note || '管理员取消任务');
+    }
+    this._requireDemoAssignee(work);
+    if (action === 'START' && current === 'ASSIGNED') {
+      return this._saveDemoTransition(work, { status: 'IN_PROGRESS', startedAt: new Date().toISOString(), startedBy: this._demoActorId() }, 'START', input.note || '开始执行');
+    }
+    if (['RESTART', 'RESUME'].includes(action) && current === 'REJECTED') {
+      return this._saveDemoTransition(work, {
+        status: 'IN_PROGRESS',
+        restartedAt: new Date().toISOString(),
+        restartedBy: this._demoActorId(),
+        resultSummary: null,
+        evidenceRefs: [],
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNote: null,
+        rejectedAt: null,
+        rejectedBy: null,
+        rejectionReason: null
+      }, 'RESTART', input.note || '按退回意见重新处理');
+    }
+    if (action === 'SUBMIT' && current === 'IN_PROGRESS') {
+      const resultSummary = String(input.resultSummary || input.note || '').trim();
+      if (!resultSummary) throw new ApiError('请填写处理结果', { status: 400, code: 'WORK_RESULT_REQUIRED' });
+      return this._saveDemoTransition(work, { status: 'SUBMITTED', resultSummary, evidenceRefs: input.evidenceRefs || [], submittedAt: new Date().toISOString(), submittedBy: this._demoActorId() }, 'SUBMIT', resultSummary, input.evidenceRefs || []);
+    }
+    throw new ApiError('当前任务不能执行这个操作', { status: 409, code: 'WORK_ORDER_TRANSITION_INVALID' });
+  }
+
+  async reviewWorkOrder(workOrderId, input = {}) {
+    if (this.isLive) {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/review`, {
+        method: 'POST',
+        body: JSON.stringify(input)
+      });
+      return response?.data || response;
+    }
+    if (this.user?.role !== 'FARM_ADMIN') throw new ApiError('只有农场管理员可以验收任务', { status: 403, code: 'WORK_ORDER_FORBIDDEN' });
+    const work = this._demoWorkOrder(workOrderId);
+    if (normalizeWorkOrderStatus(work.status) !== 'SUBMITTED') throw new ApiError('只有等待验收的任务可以处理', { status: 409, code: 'WORK_ORDER_TRANSITION_INVALID' });
+    const action = String(input.action || input.status || '').trim().toUpperCase();
+    const approved = ['APPROVE', 'ACCEPT', 'DONE'].includes(action);
+    const rejected = ['REJECT', 'REJECTED'].includes(action);
+    const note = String(input.note || '').trim();
+    if (!approved && !rejected) throw new ApiError('请选择验收通过或退回处理', { status: 400, code: 'WORK_REVIEW_ACTION_INVALID' });
+    if (rejected && !note) throw new ApiError('退回任务时请填写原因', { status: 400, code: 'WORK_REVIEW_NOTE_REQUIRED' });
+    const now = new Date().toISOString();
+    return this._saveDemoTransition(work, approved
+      ? { status: 'DONE', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, completedAt: now, completedBy: this._demoActorId() }
+      : { status: 'REJECTED', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, rejectedAt: now, rejectedBy: this._demoActorId(), rejectionReason: note },
+    approved ? 'APPROVE' : 'REJECT', note || '验收通过');
+  }
+
+  async getFarmMembers({ farmId } = {}) {
+    if (this.isLive) {
+      if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
+      const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
+      if (Array.isArray(response?.data)) return response.data;
+      throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
+    }
+    return (MOCK_DATA.farmMembers || []).map((member) => ({ ...member, farmIds: member.farmIds || ['farm-demo'], provenance: 'SIMULATED' }));
+  }
+
+  _demoActorId() {
+    if (this.user?.userId) return this.user.userId;
+    if (this.user?.username === 'farmer') return 'user-farmer';
+    if (this.user?.username === 'admin') return 'user-admin';
+    if (this.user?.username === 'sysadmin') return 'user-system';
+    return this.user?.username || 'demo-user';
+  }
+
+  _demoWorkOrder(workOrderId) {
+    const work = this.demoWorkOrders.get(workOrderId);
+    if (!work) throw new ApiError('没有找到这项任务', { status: 404, code: 'NOT_FOUND' });
+    return cloneWorkOrder(work);
+  }
+
+  _requireDemoAssignee(work) {
+    if (this.user?.role !== 'FARMER' || work.assigneeId !== this._demoActorId()) {
+      throw new ApiError('只有这项任务的执行农户可以操作', { status: 403, code: 'WORK_ORDER_ASSIGNEE_REQUIRED' });
+    }
+  }
+
+  _saveDemoTransition(work, changes, action, note, evidenceRefs = []) {
+    const now = new Date().toISOString();
+    const previousStatus = normalizeWorkOrderStatus(work.status);
+    const nextStatus = normalizeWorkOrderStatus(changes.status || previousStatus);
+    const history = [...(work.history || []), {
+      action,
+      fromStatus: previousStatus,
+      toStatus: nextStatus,
+      actorId: this._demoActorId(),
+      actorName: this.user?.username || 'demo',
+      actorRole: this.user?.role || 'FARMER',
+      at: now,
+      note: note || '',
+      evidenceRefs: Array.isArray(evidenceRefs) ? evidenceRefs : []
+    }];
+    const saved = cloneWorkOrder({ ...work, ...changes, status: nextStatus, updatedAt: now, updatedBy: this._demoActorId(), history });
+    this.demoWorkOrders.set(work.workOrderId, saved);
+    return cloneWorkOrder(saved);
+  }
 
   async getAlerts(filters = {}) {
     const queryParams = new URLSearchParams();

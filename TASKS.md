@@ -8,7 +8,7 @@
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
 
-> 2026-08-25 管理员 A 线按步骤推进：告警列表、筛选、确认、升级、关闭及告警转工单已完成本地实现与交互验收；工单全生命周期、正式成员、巡田持久化等后续步骤仍为待实现，未随本步骤提前标记完成。
+> 2026-08-25 管理员 A 线按步骤推进：告警处置与工单全生命周期已完成本地实现和交互验收；正式成员权限维护、设备/地块维护、巡田证据增强和生产计划仍为后续步骤。本轮工单范围包含正式成员只读选择，不提前标记成员管理完成。
 
 > 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，交付提交为 `85155db1f184e8a2c1b6806af2a7cd34f3e67193`；提交链已进入 GitHub `main` 并发布到 `/srv/agriloop`。Flyway v4、三角色登录与 `/auth/me`、身份错配、角色目录、透明 Logo、Supervisor 服务及健康检查均已通过服务器本机黑盒；旧应用保留为带时间戳的回滚目录。
 
