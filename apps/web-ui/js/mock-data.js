@@ -900,9 +900,9 @@ export const MOCK_DATA = {
   ],
 
   adminCropPacks: [
-    { id: 'cp-tomato', icon: '🍅', name: '番茄', version: '2.1', status: 'published', stages: 5, metrics: 8, knowledgeDocs: 3 },
-    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', version: '1.2', status: 'published', stages: 4, metrics: 7, knowledgeDocs: 2 },
-    { id: 'cp-strawberry', icon: '🍓', name: '草莓', version: '1.0', status: 'draft', stages: 6, metrics: 9, knowledgeDocs: 1 }
+    { id: 'cp-tomato', icon: '🍅', name: '番茄', version: '2.1', status: 'published', stages: 5, metrics: 8, knowledgeDocs: 3, availableForPlanting: true },
+    { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', version: '1.2', status: 'published', stages: 4, metrics: 7, knowledgeDocs: 2, availableForPlanting: true },
+    { id: 'cp-strawberry', icon: '🍓', name: '草莓', version: '1.0', status: 'draft', stages: 6, metrics: 9, knowledgeDocs: 1, availableForPlanting: false }
   ],
 
   adminRules: [

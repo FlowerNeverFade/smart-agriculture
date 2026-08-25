@@ -153,6 +153,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </template>
 
@@ -394,6 +395,8 @@
           </div>
         </div>
       </div>
+    </div>
+
     </div>
   </template>
 
@@ -785,6 +788,57 @@
     </div>
   </template>
 
+      <!-- Global plot landscape -->
+      <section class="admin-plot-landscape">
+        <div class="admin-section-head">
+          <div>
+            <div class="admin-section-title"><span class="material-symbols-outlined">grid_view</span> 全局地块态势</div>
+            <div class="admin-section-caption">跨农场查看作物、环境指标与设备健康</div>
+          </div>
+          <div class="admin-landscape-actions">
+            <select v-model="farmFilter" aria-label="按农场筛选">
+              <option value="all">全部农场</option>
+              <option v-for="farm in plotFarms" :key="farm" :value="farm">{{ farm }}</option>
+            </select>
+            <select v-model="statusFilter" aria-label="按健康状态筛选">
+              <option value="all">全部状态</option>
+              <option value="HEALTHY">健康 {{ plotSummary.healthy }}</option>
+              <option value="WARNING">预警 {{ plotSummary.warning }}</option>
+              <option value="CRITICAL">告警 {{ plotSummary.critical }}</option>
+              <option value="OFFLINE">离线 {{ plotSummary.offline }}</option>
+            </select>
+            <span class="admin-landscape-count">{{ filteredPlots.length }} / {{ plotSummary.total }} 个地块</span>
+          </div>
+        </div>
+        <div class="admin-plot-summary">
+          <span class="healthy"><i></i>健康 {{ plotSummary.healthy }}</span>
+          <span class="warning"><i></i>预警 {{ plotSummary.warning }}</span>
+          <span class="critical"><i></i>告警 {{ plotSummary.critical }}</span>
+          <span class="offline"><i></i>离线 {{ plotSummary.offline }}</span>
+        </div>
+        <div class="admin-plot-grid">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
+            <div class="admin-plot-card-head">
+              <span class="admin-plot-status-dot"></span>
+              <span class="admin-plot-id">{{ plot.id }}</span>
+              <span class="admin-plot-updated">{{ plot.updated }}</span>
+            </div>
+            <div class="admin-plot-crop">{{ plot.crop }}</div>
+            <div class="admin-plot-farm">{{ plot.farm }}</div>
+            <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) }}%</strong><b><i :style="{width: healthPercent(plot) + '%'}"></i></b></div>
+            <div class="admin-plot-metrics">
+              <span><strong>{{ plot.moisture }}</strong> 湿度</span>
+              <span><strong>{{ plot.temp }}</strong> 温度</span>
+            </div>
+            <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
+            <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
+          </article>
+          <div v-if="!filteredPlots.length" class="admin-plot-empty">没有符合当前筛选条件的地块</div>
+        </div>
+      </section>
+    </div>
+  </template>
+
   <!-- ADMIN: Operations Monitor -->
   <template id="tmpl-admin-ops">
     <div>
@@ -819,33 +873,6 @@
           </div>
         </div>
 
-        <!-- Global plot landscape -->
-        <section class="admin-plot-landscape">
-          <div class="admin-section-head">
-            <div>
-              <div class="admin-section-title"><span class="material-symbols-outlined">grid_view</span> 全局地块态势</div>
-              <div class="admin-section-caption">跨农场查看作物、环境指标与设备健康</div>
-            </div>
-            <span class="admin-landscape-count">{{ state.adminGlobalPlots.length }} 个地块</span>
-          </div>
-          <div class="admin-plot-grid">
-            <article v-for="plot in state.adminGlobalPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
-              <div class="admin-plot-card-head">
-                <span class="admin-plot-status-dot"></span>
-                <span class="admin-plot-id">{{ plot.id }}</span>
-                <span class="admin-plot-updated">{{ plot.updated }}</span>
-              </div>
-              <div class="admin-plot-crop">{{ plot.crop }}</div>
-              <div class="admin-plot-farm">{{ plot.farm }}</div>
-              <div class="admin-plot-metrics">
-                <span><strong>{{ plot.moisture }}</strong> 湿度</span>
-                <span><strong>{{ plot.temp }}</strong> 温度</span>
-              </div>
-              <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
-              <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
-            </article>
-          </div>
-        </section>
       </div>
 
       <!-- Tab: Devices -->
@@ -1113,6 +1140,10 @@
 
       <!-- Tab: Crop Packs -->
       <div v-if="activeTab === 'packs'">
+        <div class="admin-pack-toolbar">
+          <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中</div>
+          <button class="g-btn primary" @click="openCreatePack"><span class="material-symbols-outlined">add</span> 新增作物包</button>
+        </div>
         <div class="pack-grid">
           <div class="pack-card" v-for="pack in state.adminCropPacks" :key="pack.id" @click="togglePack(pack.id)">
             <div class="pack-card-head">
@@ -1138,9 +1169,40 @@
                 <li>知识文档：病虫害防治指南、灌溉基准表</li>
               </ul>
               <div style="margin-top: 12px; display: flex; gap: 8px;">
-                <button class="g-btn text sm" style="padding: 4px 8px">编辑配置</button>
-                <button class="g-btn text sm" style="padding: 4px 8px">查看依赖</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" @click="openEditPack(pack)"><span class="material-symbols-outlined">edit</span>编辑</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
+                <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><span class="material-symbols-outlined">delete</span>删除</button>
               </div>
+              <div class="admin-pack-availability" :class="{enabled: pack.availableForPlanting && pack.status === 'published'}">
+                <span class="material-symbols-outlined">{{ pack.availableForPlanting && pack.status === 'published' ? 'check_circle' : 'block' }}</span>
+                {{ pack.availableForPlanting && pack.status === 'published' ? '可供新地块选择' : '暂不可用于新地块' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-modal-overlay" v-if="showPackModal" @click.self="showPackModal = false">
+          <div class="admin-modal">
+            <div class="admin-modal-header">
+              <h3>{{ editingPackId ? '编辑作物包' : '新增作物包' }}</h3>
+              <button class="g-btn icon-only" @click="showPackModal = false"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <div class="admin-modal-body admin-pack-form">
+              <label>作物包 ID</label><input v-model="packForm.id" :disabled="!!editingPackId" placeholder="例如 cp-lettuce">
+              <label>作物名称</label><input v-model="packForm.name" placeholder="例如 生菜">
+              <label>图标</label><input v-model="packForm.icon" maxlength="2" placeholder="🌱">
+              <label>版本</label><input v-model="packForm.version" placeholder="1.0">
+              <div class="admin-form-grid">
+                <div><label>生长阶段数</label><input type="number" min="1" v-model="packForm.stages"></div>
+                <div><label>指标数</label><input type="number" min="1" v-model="packForm.metrics"></div>
+                <div><label>知识文档数</label><input type="number" min="0" v-model="packForm.knowledgeDocs"></div>
+                <div><label>发布状态</label><select v-model="packForm.status"><option value="draft">草稿</option><option value="published">已发布</option></select></div>
+              </div>
+              <label class="admin-checkbox"><input type="checkbox" v-model="packForm.availableForPlanting"> 允许新地块选择此作物</label>
+            </div>
+            <div class="admin-modal-footer">
+              <button class="g-btn" @click="showPackModal = false">取消</button>
+              <button class="g-btn primary" :disabled="!packForm.id || !packForm.name" @click="savePack">保存</button>
             </div>
           </div>
         </div>

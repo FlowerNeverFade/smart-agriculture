@@ -463,7 +463,34 @@ const ValueLedgerView = {
 
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
-  props: ['state', 'routeParams']
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const farmFilter = ref('all');
+    const statusFilter = ref('all');
+    const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
+      const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
+      const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
+      return farmMatches && statusMatches;
+    }));
+    const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
+    const plotSummary = computed(() => {
+      const plots = props.state.adminGlobalPlots || [];
+      return {
+        total: plots.length,
+        healthy: plots.filter(plot => plot.status === 'HEALTHY').length,
+        warning: plots.filter(plot => plot.status === 'WARNING').length,
+        critical: plots.filter(plot => plot.status === 'CRITICAL').length,
+        offline: plots.filter(plot => plot.status === 'OFFLINE').length
+      };
+    });
+    const healthPercent = (plot) => {
+      if (plot.status === 'HEALTHY') return 92;
+      if (plot.status === 'WARNING') return 64;
+      if (plot.status === 'CRITICAL') return 28;
+      return 0;
+    };
+    return { farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent };
+  }
 };
 
 const AdminOpsView = {
@@ -610,13 +637,59 @@ const AdminSimulatorView = {
 const AdminRulesView = {
   template: '#tmpl-admin-rules',
   props: ['state', 'routeParams'],
-  setup() {
+  setup(props) {
     const activeTab = ref('packs');
     const expandedPacks = ref({});
+    const showPackModal = ref(false);
+    const editingPackId = ref(null);
+    const packForm = ref({ id: '', icon: '🌱', name: '', version: '1.0', status: 'draft', stages: 4, metrics: 6, knowledgeDocs: 1, availableForPlanting: true });
     const togglePack = (id) => {
       expandedPacks.value[id] = !expandedPacks.value[id];
     };
-    return { activeTab, expandedPacks, togglePack };
+    const resetPackForm = () => {
+      packForm.value = { id: '', icon: '🌱', name: '', version: '1.0', status: 'draft', stages: 4, metrics: 6, knowledgeDocs: 1, availableForPlanting: true };
+      editingPackId.value = null;
+    };
+    const openCreatePack = () => {
+      resetPackForm();
+      showPackModal.value = true;
+    };
+    const openEditPack = (pack) => {
+      packForm.value = { ...pack };
+      editingPackId.value = pack.id;
+      showPackModal.value = true;
+    };
+    const savePack = () => {
+      const form = packForm.value;
+      if (!form.name.trim() || !form.id.trim()) return;
+      const normalized = {
+        ...form,
+        id: form.id.trim(),
+        name: form.name.trim(),
+        stages: Number(form.stages) || 0,
+        metrics: Number(form.metrics) || 0,
+        knowledgeDocs: Number(form.knowledgeDocs) || 0
+      };
+      const packs = props.state.adminCropPacks;
+      if (editingPackId.value) {
+        const index = packs.findIndex(pack => pack.id === editingPackId.value);
+        if (index >= 0) packs.splice(index, 1, normalized);
+      } else if (!packs.some(pack => pack.id === normalized.id)) {
+        packs.push(normalized);
+      }
+      showPackModal.value = false;
+      resetPackForm();
+    };
+    const deletePack = (pack) => {
+      if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
+        const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
+        if (index >= 0) props.state.adminCropPacks.splice(index, 1);
+      }
+    };
+    const togglePackStatus = (pack) => {
+      pack.status = pack.status === 'published' ? 'draft' : 'published';
+    };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus };
   }
 };
 

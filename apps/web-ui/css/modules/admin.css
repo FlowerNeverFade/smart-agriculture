@@ -500,6 +500,15 @@
 .admin-plot-landscape { grid-column: 1 / -1; margin-top: 24px; padding-top: 4px; }
 .admin-section-caption { margin-top: 4px; font-size: 12px; color: var(--g-text-secondary); }
 .admin-landscape-count { font-size: 12px; color: var(--g-text-secondary); }
+.admin-landscape-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-landscape-actions select { padding: 7px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font-size: 12px; }
+.admin-plot-summary { display: flex; gap: 18px; margin: -4px 0 14px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-plot-summary span { display: inline-flex; align-items: center; gap: 6px; }
+.admin-plot-summary i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.admin-plot-summary .healthy { color: var(--g-success); }
+.admin-plot-summary .warning { color: var(--g-warning); }
+.admin-plot-summary .critical { color: var(--g-danger); }
+.admin-plot-summary .offline { color: var(--g-text-disabled); }
 .admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
 .admin-plot-card { padding: 16px; background: var(--g-bg-surface); border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); transition: transform 0.2s, box-shadow 0.2s; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
@@ -515,11 +524,28 @@
 .admin-plot-updated { margin-left: auto; font-size: 11px; color: var(--g-text-disabled); }
 .admin-plot-crop { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--g-text-primary); }
 .admin-plot-farm { margin-top: 2px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-plot-health { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--g-text-secondary); }
+.admin-plot-health strong { color: var(--g-text-primary); font-size: 12px; }
+.admin-plot-health b { height: 5px; overflow: hidden; border-radius: 5px; background: var(--g-bg-subtle); }
+.admin-plot-health b i { display: block; height: 100%; border-radius: inherit; background: var(--g-success); }
+.warning .admin-plot-health b i { background: var(--g-warning); }
+.critical .admin-plot-health b i { background: var(--g-danger); }
+.offline .admin-plot-health b i { background: var(--g-text-disabled); }
 .admin-plot-metrics { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--g-border-subtle); font-size: 11px; color: var(--g-text-secondary); }
 .admin-plot-metrics strong { margin-right: 2px; color: var(--g-text-primary); font-size: 14px; }
 .admin-plot-issue { display: flex; align-items: center; gap: 4px; margin-top: 12px; font-size: 11px; color: var(--g-danger); }
 .admin-plot-issue.quiet { color: var(--g-success); }
 .admin-plot-issue .material-symbols-outlined { font-size: 15px; }
+.admin-plot-empty { grid-column: 1 / -1; padding: 32px; text-align: center; color: var(--g-text-secondary); border: 1px dashed var(--g-border); border-radius: var(--g-radius); }
+.admin-pack-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.admin-pack-hint { font-size: 12px; color: var(--g-text-secondary); }
+.admin-pack-availability { display: flex; align-items: center; gap: 4px; margin-top: 12px; color: var(--g-text-disabled); font-size: 11px; }
+.admin-pack-availability.enabled { color: var(--g-success); }
+.admin-pack-availability .material-symbols-outlined { font-size: 15px; }
+.danger-text { color: var(--g-danger) !important; }
+.admin-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.admin-checkbox { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
+.admin-checkbox input { width: auto; }
 .admin-action-cell { white-space: nowrap; }
 .admin-action-cell .g-btn { display: inline-flex; align-items: center; gap: 3px; }
 .admin-action-cell .material-symbols-outlined { font-size: 16px; }
@@ -547,4 +573,8 @@
   .admin-action-cell { white-space: normal; }
   .admin-modal-wide { width: 90vw; }
   .admin-dual-chart { height: 280px; }
+  .admin-landscape-actions { width: 100%; }
+  .admin-landscape-actions select { flex: 1; min-width: 0; }
+  .admin-plot-summary { gap: 10px; flex-wrap: wrap; }
+  .admin-pack-toolbar { align-items: flex-start; flex-direction: column; }
 }
