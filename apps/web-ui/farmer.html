@@ -114,7 +114,17 @@
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('plots')">查看全部</button>
               </div>
               <div class="farmer-plot-grid">
-                <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" @click="open_plot(plot)">
+                <button
+                  type="button"
+                  v-for="plot in plots"
+                  :key="plot.plotId"
+                  class="farmer-plot-overview-card"
+                  :class="{
+                    'is-warn': plot_band_status(plot) === 'WARN',
+                    'is-alert': plot_band_status(plot) === 'ALERT'
+                  }"
+                  @click="open_plot(plot)"
+                >
                   <div class="farmer-plot-overview-head">
                     <div class="farmer-plot-overview-head-left">
                       <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
@@ -126,15 +136,20 @@
                         <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
                         <span class="farmer-health-copy"><small>综合健康</small><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
                       </div>
-                      <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
-                        {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
-                      </span>
+                      <span
+                        class="farmer-plot-status"
+                        :class="{
+                          normal: plot_band_status(plot) === 'NORMAL',
+                          warn: plot_band_status(plot) === 'WARN',
+                          risk: plot_band_status(plot) === 'ALERT'
+                        }"
+                      >{{ plot_band_label(plot) }}</span>
                     </div>
                   </div>
                   <dl class="farmer-plot-overview-metrics">
                     <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
                       <dt>{{ metric.label }}</dt>
-                      <dd :class="'metric-' + metric.status">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                      <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
                     </div>
                   </dl>
                 </button>
@@ -213,7 +228,18 @@
             </div>
 
             <div class="farmer-plot-grid farmer-plot-grid-page">
-              <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" :class="{selected: selected_plot && selected_plot.plotId === plot.plotId}" @click="open_plot(plot)">
+              <button
+                type="button"
+                v-for="plot in plots"
+                :key="plot.plotId"
+                class="farmer-plot-overview-card"
+                :class="{
+                  selected: selected_plot && selected_plot.plotId === plot.plotId,
+                  'is-warn': plot_band_status(plot) === 'WARN',
+                  'is-alert': plot_band_status(plot) === 'ALERT'
+                }"
+                @click="open_plot(plot)"
+              >
                 <div class="farmer-plot-overview-head">
                   <div class="farmer-plot-overview-head-left">
                     <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
@@ -225,15 +251,20 @@
                       <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
                       <span class="farmer-health-copy"><small>综合健康</small><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
                     </div>
-                    <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
-                      {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
-                    </span>
+                    <span
+                      class="farmer-plot-status"
+                      :class="{
+                        normal: plot_band_status(plot) === 'NORMAL',
+                        warn: plot_band_status(plot) === 'WARN',
+                        risk: plot_band_status(plot) === 'ALERT'
+                      }"
+                    >{{ plot_band_label(plot) }}</span>
                   </div>
                 </div>
                 <dl class="farmer-plot-overview-metrics">
                   <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
                     <dt>{{ metric.label }}</dt>
-                    <dd :class="'metric-' + metric.status">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                    <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
               </button>
@@ -295,8 +326,8 @@
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
             <div class="farmer-page-header">
               <div>
-                <h2>灌溉与农事建议</h2>
-                <p class="role-summary">把风险、诊断、浇水建议和农户问答放在一起，先看结论再决定操作。</p>
+                <h2>灌溉系统</h2>
+                <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
               </div>
               <div class="farmer-page-actions">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('decision-console', advice_plot && advice_plot.plotId)">
@@ -309,29 +340,80 @@
               </div>
             </div>
 
+            <div class="farmer-risk-cards" aria-label="各地块风险提醒">
+              <button
+                type="button"
+                v-for="card in risk_plot_cards"
+                :key="card.plotId"
+                class="farmer-risk-mini-card"
+                :class="{
+                  'is-warn': card.isWarn,
+                  'is-alert': card.isAlert,
+                  'is-selected': card.selected
+                }"
+                @click="select_advice_plot(card.plotId)"
+              >
+                <div class="farmer-risk-mini-head">
+                  <span class="farmer-risk-mini-name">{{ card.name }}</span>
+                  <span class="farmer-risk-mini-tag" :class="{
+                    normal: card.bandStatus === 'NORMAL',
+                    warn: card.isWarn,
+                    risk: card.isAlert
+                  }">{{ card.bandLabel }}</span>
+                </div>
+                <div class="farmer-risk-mini-body">
+                  <span class="farmer-risk-mini-moist" :class="'metric-' + card.moistureStatus">{{ card.moisture }}<small>%</small></span>
+                  <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.moistureTarget }}</span>
+                </div>
+              </button>
+            </div>
+
             <div class="farmer-advice-grid">
-              <article class="g-card farmer-advice-card farmer-risk-card">
+              <article
+                class="g-card farmer-advice-card farmer-moisture-chart-card"
+                :class="{
+                  'is-warn': advice_moisture_chart && advice_moisture_chart.bandStatus === 'WARN',
+                  'is-alert': advice_moisture_chart && advice_moisture_chart.bandStatus === 'ALERT'
+                }"
+              >
                 <div class="farmer-panel-header">
                   <div>
-                    <span class="farmer-section-kicker">风险提醒 · A01</span>
-                    <h3>番茄田可能缺水</h3>
+                    <span class="farmer-section-kicker">土壤湿度趋势</span>
+                    <h3>{{ advice_moisture_chart ? advice_moisture_chart.plotName : '' }} · 湿度-时间曲线</h3>
                   </div>
-                  <span class="farmer-risk-score">高风险</span>
+                  <div class="farmer-chart-range" role="group" aria-label="横坐标时间范围">
+                    <button
+                      type="button"
+                      v-for="option in moisture_range_options"
+                      :key="option.id"
+                      class="farmer-chart-range-btn"
+                      :class="{active: moisture_range === option.id}"
+                      @click="moisture_range = option.id"
+                    >{{ option.label }}</button>
+                  </div>
                 </div>
-                <p class="farmer-advice-summary">土壤湿度 {{ plots[0].metrics.SOIL_MOISTURE.value }}% ，低于结果期下限 {{ plots[0].metrics.SOIL_MOISTURE.target }}；系统已排除明显传感器漂移。</p>
-                <div class="farmer-forecast-row">
-                  <div><strong>1 小时</strong><span>15.2%</span></div>
-                  <div><strong>2 小时</strong><span>13.8%</span></div>
-                  <div><strong>4 小时</strong><span>11.5%</span></div>
-                </div>
-                <div class="farmer-readiness-list">
-                  <div><span class="material-symbols-outlined">check_circle</span>数据新鲜，质量良好</div>
-                  <div><span class="material-symbols-outlined">check_circle</span>设备在线，水量充足</div>
-                  <div><span class="material-symbols-outlined">info</span>建议先现场核实，再申请浇水</div>
-                </div>
-                <div class="farmer-advice-actions">
-                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_inspection_form('plot-a01')">申请巡田核验</button>
-                  <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('plots'); open_plot(plots[0])">查看地块数据</button>
+                <div v-if="advice_moisture_chart" class="farmer-moisture-chart-wrap">
+                  <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'">
+                    <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
+                    <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
+                    <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
+                      <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
+                      <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
+                    </g>
+                    <g v-if="advice_moisture_chart.alertLine">
+                      <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
+                    </g>
+                    <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
+                  </svg>
+                  <div class="farmer-chart-x-labels"><span>{{ advice_moisture_chart.labels[0] }}</span><span>{{ advice_moisture_chart.labels[3] }}</span><span>{{ advice_moisture_chart.labels[6] }}</span></div>
+                  <div class="farmer-threshold-legend">
+                    <span v-if="advice_moisture_chart.targetBands.length"><i class="legend-target"></i>{{ advice_moisture_chart.cropLabel }} {{ advice_moisture_chart.stageLabel }} 目标值带 {{ advice_moisture_chart.currentTarget }}</span>
+                    <span v-if="advice_moisture_chart.alertLine"><i class="legend-alert"></i>{{ advice_moisture_chart.alertLine.label }}（干旱规则）</span>
+                  </div>
+                  <p class="farmer-chart-target">
+                    当前 {{ advice_moisture_chart.currentMoisture }}% · 目标 {{ advice_moisture_chart.currentTarget }} · 时间范围：{{ advice_moisture_chart.rangeLabel }}
+                    <span class="farmer-band-status-hint" :class="'status-' + advice_moisture_chart.bandStatus">{{ advice_moisture_chart.bandLabel }}</span>
+                  </p>
                 </div>
               </article>
 

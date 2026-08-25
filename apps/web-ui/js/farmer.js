@@ -200,6 +200,39 @@ function find_plot_by_id(plots, plot_id) {
   return plots.find((plot) => plot.plotId === plot_id);
 }
 
+/** 土壤湿度相对目标值带 / 告警阈值的分级：NORMAL | WARN | ALERT */
+function resolve_moisture_band_status(plot) {
+  const value = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+  if (!Number.isFinite(value)) return 'NORMAL';
+  const pack = (MOCK_DATA.cropPackDetails || []).find((p) => p.cropCode === plot.cropCode);
+  let low = null;
+  let high = null;
+  let alertThreshold = null;
+  if (pack) {
+    const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
+    low = stage?.target?.soilMoistureLow;
+    high = stage?.target?.soilMoistureHigh;
+    const deficit = (pack.rules || []).find((r) => r.code === 'WATER_DEFICIT' && r.metric === 'SOIL_MOISTURE');
+    if (deficit && Number.isFinite(deficit.threshold)) alertThreshold = deficit.threshold;
+  } else {
+    const nums = String(plot.metrics?.SOIL_MOISTURE?.target || '').match(/(\d+(?:\.\d+)?)/g);
+    if (nums && nums.length >= 2) {
+      low = Number(nums[0]);
+      high = Number(nums[1]);
+    }
+  }
+  if (Number.isFinite(alertThreshold) && value < alertThreshold) return 'ALERT';
+  if (Number.isFinite(low) && value < low) return 'WARN';
+  if (Number.isFinite(high) && value > high) return 'WARN';
+  return 'NORMAL';
+}
+
+const BAND_STATUS_LABELS = {
+  NORMAL: '正常',
+  WARN: '偏离目标',
+  ALERT: '低于阈值'
+};
+
 const app = createApp({
   setup() {
     const is_live = ref(false);
@@ -254,10 +287,144 @@ const app = createApp({
     const chart_range = ref('7d');
     const chart_range_options = CHART_RANGE_OPTIONS;
     const plot_charts = computed(() => PLOT_CHART_SPECS
-      .map((spec) => metric_chart(selected_plot.value, spec.code, chart_range.value))
+      .map((spec) => {
+        const chart = metric_chart(selected_plot.value, spec.code, chart_range.value);
+        if (!chart) return null;
+        if (spec.code !== 'SOIL_MOISTURE' || !selected_plot.value) return chart;
+        const status = resolve_moisture_band_status(selected_plot.value);
+        const is_risk = status === 'WARN' || status === 'ALERT';
+        const risk_color = status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
+        return {
+          ...chart,
+          status,
+          is_risk,
+          risk_label: status === 'ALERT' ? '低于阈值' : (status === 'WARN' ? '偏离目标' : ''),
+          series: chart.series.map((item) => ({ ...item, color: is_risk ? risk_color : item.color }))
+        };
+      })
       .filter(Boolean));
     const advice_plot = computed(() => plots.value[0] || null);
+    const advice_selected_plot = ref(plots.value[0] || null);
+    const select_advice_plot = (plot_id) => {
+      const plot = plots.value.find((p) => p.plotId === plot_id);
+      if (plot) advice_selected_plot.value = plot;
+    };
     const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '7d'));
+
+    // 灌溉系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
+    const risk_plot_cards = computed(() => plots.value.map((plot) => {
+      const bandStatus = resolve_moisture_band_status(plot);
+      return {
+        plotId: plot.plotId,
+        name: plot.name,
+        cropName: plot.cropName,
+        stageLabel: plot.stageLabel,
+        riskLevel: plot.riskLevel,
+        bandStatus,
+        bandLabel: BAND_STATUS_LABELS[bandStatus] || '正常',
+        isWarn: bandStatus === 'WARN',
+        isAlert: bandStatus === 'ALERT',
+        moisture: plot.metrics?.SOIL_MOISTURE?.value,
+        moistureTarget: plot.metrics?.SOIL_MOISTURE?.target,
+        moistureStatus: bandStatus,
+        healthScore: plot.healthScore,
+        selected: advice_selected_plot.value?.plotId === plot.plotId
+      };
+    }));
+
+    // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
+    const moisture_range = ref('7d');
+    const moisture_range_options = CHART_RANGE_OPTIONS;
+    const selected_crop_band = computed(() => {
+      const plot = advice_selected_plot.value;
+      if (!plot) return null;
+      const pack = (MOCK_DATA.cropPackDetails || []).find((p) => p.cropCode === plot.cropCode);
+      let low = 0;
+      let high = 0;
+      let cropLabel = plot.cropName;
+      let stageLabel = plot.stageLabel;
+      let alertThreshold = null;
+      if (pack) {
+        const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
+        low = stage?.target?.soilMoistureLow ?? 0;
+        high = stage?.target?.soilMoistureHigh ?? 0;
+        cropLabel = pack.identity?.name || plot.cropName;
+        stageLabel = stage?.label || plot.stageLabel;
+        const deficit = (pack.rules || []).find((r) => r.code === 'WATER_DEFICIT' && r.metric === 'SOIL_MOISTURE');
+        if (deficit && Number.isFinite(deficit.threshold)) alertThreshold = deficit.threshold;
+      } else {
+        const targetText = plot.metrics?.SOIL_MOISTURE?.target || '';
+        const nums = String(targetText).match(/(\d+(?:\.\d+)?)/g);
+        if (nums && nums.length >= 2) {
+          low = Number(nums[0]);
+          high = Number(nums[1]);
+        }
+      }
+      if (!low && !high) return null;
+      return {
+        cropCode: plot.cropCode,
+        cropLabel,
+        stageLabel,
+        low,
+        high,
+        targetText: `${low}~${high}%`,
+        alertThreshold
+      };
+    });
+    const advice_moisture_chart = computed(() => {
+      const plot = advice_selected_plot.value;
+      if (!plot) return null;
+      const base = metric_chart(plot, 'SOIL_MOISTURE', moisture_range.value);
+      if (!base) return null;
+      const scale = { min: 0, max: 60, label: '自适应' };
+      const width = 360;
+      const height = 132;
+      const pad = { left: 32, right: 10, top: 12, bottom: 20 };
+      const innerW = width - pad.left - pad.right;
+      const innerH = height - pad.top - pad.bottom;
+      const span = Math.max(1, scale.max - scale.min);
+      const toY = (v) => pad.top + (1 - (Math.min(scale.max, Math.max(scale.min, v)) - scale.min) / span) * innerH;
+      const toX = (i, n) => pad.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      const series = base.series.map((s) => ({
+        ...s,
+        points: s.values.map((v, i) => `${toX(i, s.values.length).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+      }));
+      const band = selected_crop_band.value;
+      const bandStatus = resolve_moisture_band_status(plot);
+      const lineColor = bandStatus === 'ALERT'
+        ? 'var(--g-danger)'
+        : (bandStatus === 'WARN' ? 'var(--g-warning)' : (series[0]?.color || 'var(--g-success)'));
+      const tintedSeries = series.map((s) => ({ ...s, color: lineColor }));
+      const targetBands = band ? [{
+        ...band,
+        yLow: toY(band.low),
+        yHigh: toY(band.high)
+      }] : [];
+      const alertLine = band && Number.isFinite(band.alertThreshold)
+        ? { value: band.alertThreshold, y: toY(band.alertThreshold), label: `告警阈值 ${band.alertThreshold}%` }
+        : null;
+      const grid = [
+        { y: pad.top, label: String(scale.max) },
+        { y: pad.top + innerH / 2, label: String(Math.round((scale.max + scale.min) / 2)) },
+        { y: pad.top + innerH, label: String(scale.min) }
+      ];
+      return {
+        ...base,
+        rangeId: moisture_range.value,
+        rangeLabel: (moisture_range_options.find((o) => o.id === moisture_range.value) || {}).title || '',
+        series: tintedSeries,
+        targetBands,
+        alertLine,
+        grid,
+        bandStatus,
+        bandLabel: BAND_STATUS_LABELS[bandStatus] || '正常',
+        plotName: plot.name,
+        cropLabel: band?.cropLabel || plot.cropName,
+        stageLabel: band?.stageLabel || plot.stageLabel,
+        currentMoisture: plot.metrics?.SOIL_MOISTURE?.value,
+        currentTarget: band?.targetText || plot.metrics?.SOIL_MOISTURE?.target
+      };
+    });
     const selected_message = ref(null);
     const selected_task = ref(null);
     const analyzing = ref(false);
@@ -295,7 +462,7 @@ const app = createApp({
         { id: 'dashboard', label: '主面板', icon: 'dashboard' },
         { id: 'plots', label: '我的地块', icon: 'grass' },
         { id: 'tasks', label: '今日农务', icon: 'task', badge: pending || undefined },
-        { id: 'advice', label: '灌溉建议', icon: 'water_drop', badge: risks || undefined },
+        { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
         { id: 'profile', label: '个人中心', icon: 'account_circle' }
       ];
@@ -405,9 +572,17 @@ const app = createApp({
     const priority_label = (priority) => PRIORITY_LABELS[priority] || priority;
     const category_label = (category) => CATEGORY_LABELS[category] || category;
     const crop_icon = (crop_code) => CROP_ICONS[crop_code] || '🌱';
+    const plot_band_status = (plot) => resolve_moisture_band_status(plot);
+    const plot_band_label = (plot) => BAND_STATUS_LABELS[resolve_moisture_band_status(plot)] || '正常';
+    const metric_status_of = (plot, code, metric) => (
+      code === 'SOIL_MOISTURE' ? resolve_moisture_band_status(plot) : (metric?.status || 'NORMAL')
+    );
     const health_ring_style = (plot) => {
       const score = Math.round((plot?.healthScore || 0) * 100);
-      const color = plot?.riskLevel === 'LOW' ? 'var(--g-success)' : 'var(--g-warning)';
+      const band = resolve_moisture_band_status(plot);
+      const color = band === 'ALERT'
+        ? 'var(--g-danger)'
+        : (band === 'WARN' ? 'var(--g-warning)' : 'var(--g-success)');
       return { background: `conic-gradient(${color} ${score}%, var(--g-border-subtle) 0)` };
     };
     const format_record_time = (iso) => format_relative_label(iso) || '刚刚';
@@ -685,7 +860,14 @@ const app = createApp({
       chart_range_options,
       plot_charts,
       advice_plot,
+      advice_selected_plot,
+      select_advice_plot,
       advice_soil_chart,
+      risk_plot_cards,
+      moisture_range,
+      moisture_range_options,
+      selected_crop_band,
+      advice_moisture_chart,
       selected_message,
       selected_task,
       analyzing,
@@ -723,6 +905,9 @@ const app = createApp({
       priority_label,
       category_label,
       crop_icon,
+      plot_band_status,
+      plot_band_label,
+      metric_status_of,
       health_ring_style,
       format_record_time,
       open_message,

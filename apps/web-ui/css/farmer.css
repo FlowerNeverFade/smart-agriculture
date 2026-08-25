@@ -840,6 +840,20 @@
   box-shadow: var(--g-shadow-1);
   transform: translateY(-1px);
 }
+.farmer-plot-overview-card.is-warn {
+  border-color: color-mix(in srgb, var(--g-warning) 55%, var(--g-border-subtle));
+}
+.farmer-plot-overview-card.is-warn:hover,
+.farmer-plot-overview-card.is-warn.selected {
+  border-color: var(--g-warning);
+}
+.farmer-plot-overview-card.is-alert {
+  border-color: color-mix(in srgb, var(--g-danger) 55%, var(--g-border-subtle));
+}
+.farmer-plot-overview-card.is-alert:hover,
+.farmer-plot-overview-card.is-alert.selected {
+  border-color: var(--g-danger);
+}
 .farmer-plot-overview-head {
   display: flex;
   align-items: stretch;
@@ -871,6 +885,7 @@
   font-weight: 600;
 }
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-plot-status.warn { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
 .farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
 .farmer-plot-overview-meta {
@@ -1231,6 +1246,145 @@
 .farmer-shared-tool-copy strong { font-size: 13px; }
 .farmer-shared-tool-copy small { color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
 .farmer-shared-tool-arrow { margin-left: auto; color: var(--g-text-secondary); font-size: 18px; }
+
+/* 灌溉系统页：按地块的风险小卡片 */
+.farmer-risk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.farmer-risk-mini-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid var(--g-border-subtle);
+  border-left: 4px solid var(--g-success);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-surface);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.farmer-risk-mini-card.is-warn {
+  border-left-color: var(--g-warning);
+  background: color-mix(in srgb, var(--g-warning-bg) 55%, var(--g-bg-surface));
+}
+.farmer-risk-mini-card.is-alert {
+  border-left-color: var(--g-danger);
+  background: color-mix(in srgb, var(--g-danger-bg) 50%, var(--g-bg-surface));
+}
+.farmer-risk-mini-card:hover { box-shadow: var(--g-shadow-1); transform: translateY(-1px); }
+.farmer-risk-mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.farmer-risk-mini-name { font-size: 13px; font-weight: 600; color: var(--g-text-primary); }
+.farmer-risk-mini-tag {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--g-radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+}
+.farmer-risk-mini-tag.normal { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-risk-mini-tag.warn { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-risk-mini-tag.risk { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-risk-mini-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.farmer-risk-mini-moist {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--g-text-primary);
+}
+.farmer-risk-mini-moist small { font-size: 11px; font-weight: 500; color: var(--g-text-secondary); }
+.farmer-risk-mini-moist.metric-WARN { color: var(--g-warning); }
+.farmer-risk-mini-moist.metric-ALERT { color: var(--g-danger); }
+.farmer-risk-mini-meta {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--g-text-secondary);
+}
+
+/* 灌溉系统页：土壤湿度-时间曲线图（含作物阈值线） */
+.farmer-moisture-chart-card { min-width: 0; }
+.farmer-moisture-chart-wrap { margin-top: 6px; }
+.farmer-moisture-svg { height: 220px; }
+.farmer-chart-line.is-moisture { stroke-width: 3; }
+.farmer-target-band-line {
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  stroke: var(--g-success);
+  opacity: 0.7;
+}
+.farmer-alert-threshold-line {
+  stroke-width: 1.6;
+  stroke-dasharray: 2 3;
+  stroke: var(--g-warning);
+  opacity: 0.9;
+}
+.farmer-threshold-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--g-text-secondary);
+}
+.farmer-threshold-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.farmer-threshold-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--g-success);
+}
+.farmer-threshold-legend i.legend-alert {
+  border-top-color: var(--g-warning);
+  border-top-style: dotted;
+}
+.farmer-moisture-chart-card.is-warn {
+  border-color: var(--g-warning);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-warning) 30%, transparent);
+}
+.farmer-moisture-chart-card.is-alert {
+  border-color: var(--g-danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-danger) 30%, transparent);
+}
+.farmer-chart-line.is-warn-line,
+.farmer-chart-line.is-alert-line { stroke-width: 3; }
+.farmer-band-status-hint {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--g-radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+}
+.farmer-band-status-hint.status-NORMAL { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-band-status-hint.status-WARN { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-band-status-hint.status-ALERT { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-risk-mini-card.is-selected {
+  border-color: var(--g-success);
+  border-left-width: 4px;
+  box-shadow: inset 0 0 0 1px var(--g-success), var(--g-shadow-1);
+}
+.farmer-risk-mini-card.is-selected.is-warn {
+  border-color: var(--g-warning);
+  box-shadow: inset 0 0 0 1px var(--g-warning), var(--g-shadow-1);
+}
+.farmer-risk-mini-card.is-selected.is-alert {
+  border-color: var(--g-danger);
+  box-shadow: inset 0 0 0 1px var(--g-danger), var(--g-shadow-1);
+}
 
 @media (max-width: 1100px) {
   .farmer-plot-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
