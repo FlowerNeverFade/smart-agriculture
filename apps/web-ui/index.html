@@ -37,8 +37,10 @@
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar"><span class="material-symbols-outlined">menu</span></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
-        <span class="g-header-title" style="margin-right:24px">AgriLoop Console</span>
-        
+        <span class="g-header-title">AgriLoop Console</span>
+      </div>
+      
+      <div class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
         <select v-model="selectedFarm" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
           <option value="farm-demo">农智示范农场</option>
           <option value="farm-science">科学城数字农业基地</option>

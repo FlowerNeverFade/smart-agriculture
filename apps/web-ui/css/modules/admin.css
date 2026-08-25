@@ -307,7 +307,7 @@
 .sim-info-value { font-size: 16px; font-weight: 500; color: var(--g-text-primary); }
 
 /* ---- Pack Cards ---- */
-.pack-grid {
+.pack-grid { align-items: start;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
