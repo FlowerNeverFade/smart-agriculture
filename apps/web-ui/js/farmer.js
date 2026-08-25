@@ -233,6 +233,29 @@ const BAND_STATUS_LABELS = {
   ALERT: '低于阈值'
 };
 
+/**
+ * 综合健康分（0~1）：满分约 0.88，按指标状态扣分。
+ * 土壤湿度权重大于其他指标；告警地块应明显低于「优秀」区间，与徽章语义一致。
+ */
+function compute_plot_health_score(plot) {
+  let score = 0.88;
+  const metrics = plot?.metrics || {};
+  Object.keys(metrics).forEach((code) => {
+    const status = code === 'SOIL_MOISTURE'
+      ? resolve_moisture_band_status(plot)
+      : (metrics[code]?.status || 'NORMAL');
+    if (status === 'ALERT') {
+      score -= code === 'SOIL_MOISTURE' ? 0.32 : 0.14;
+    } else if (status === 'WARN') {
+      score -= code === 'SOIL_MOISTURE' ? 0.16 : 0.08;
+    }
+  });
+  if (plot?.deviceStatus && plot.deviceStatus !== 'ONLINE') score -= 0.18;
+  if (plot?.riskLevel === 'HIGH') score -= 0.04;
+  else if (plot?.riskLevel === 'MEDIUM') score -= 0.02;
+  return Math.round(Math.min(0.88, Math.max(0.25, score)) * 100) / 100;
+}
+
 const app = createApp({
   setup() {
     const is_live = ref(false);
@@ -265,11 +288,17 @@ const app = createApp({
 
     const farm = ref(MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
-    const assigned_plots = MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({ ...plot }));
+    const assigned_plots = MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
+      ...plot,
+      healthScore: compute_plot_health_score(plot)
+    }));
     if (assigned_plot_names.size > assigned_plots.length) {
       const cucumber_plot = MOCK_DATA.plots.find((plot) => plot.cropCode === 'cucumber');
       const missing_name = [...assigned_plot_names].find((name) => !assigned_plots.some((plot) => plot.name === name));
-      if (cucumber_plot && missing_name) assigned_plots.push({ ...cucumber_plot, name: missing_name });
+      if (cucumber_plot && missing_name) {
+        const patched = { ...cucumber_plot, name: missing_name };
+        assigned_plots.push({ ...patched, healthScore: compute_plot_health_score(patched) });
+      }
     }
     const plots = ref(assigned_plots);
 

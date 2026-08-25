@@ -141,6 +141,19 @@ body {
 }
 .g-nav-item:hover { background-color: var(--g-bg-hover); }
 .g-nav-item.active { background-color: var(--g-primary-bg); color: var(--g-primary); }
+.g-sidebar-main { flex: 1; }
+.g-sidebar-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--g-border-subtle);
+}
+.g-nav-return-farmer {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+}
 
 .g-main {
   flex: 1;
