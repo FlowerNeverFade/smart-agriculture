@@ -231,7 +231,7 @@ const RiskForecastView = {
       currentScenario.value = scenario.code;
       renderChart();
       if (pot3d) {
-         const cls = scenario.code === 'DROUGHT' ? 'drought' : (scenario.code === 'STORM' ? 'flood' : 'normal');
+         const cls = scenario.code === 'DROUGHT' ? 'drought' : (scenario.code === 'STORM' ? 'storm' : (scenario.code === 'DRIFT' ? 'drift' : 'normal'));
          pot3d.setScenario(cls);
       }
     };
@@ -249,7 +249,7 @@ const RiskForecastView = {
             createPotScene(canvas, { cropCode: 'CORN' }).then(p => {
                 pot3d = p;
                 if (pot3d) {
-                    const cls = currentScenario.value === 'DROUGHT' ? 'drought' : 'normal';
+                    const cls = currentScenario.value === 'DROUGHT' ? 'drought' : (currentScenario.value === 'STORM' ? 'storm' : (currentScenario.value === 'DRIFT' ? 'drift' : 'normal'));
                     pot3d.setScenario(cls);
                 }
             }).catch(e => console.warn('WebGL init failed:', e));

@@ -320,7 +320,7 @@
         <h2 style="margin: 0;">未来风险确定性推演 (Time-to-Risk)</h2>
         <div style="position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;">
           <span class="text-muted" style="font-size:14px; font-weight:500">推演目标:</span>
-          <select class="g-select" style="width:200px" v-model="selectedPlotId" @change="changePlot">
+          <select class="g-select" style="width:400px" v-model="selectedPlotId" @change="changePlot">
             <option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">
               {{ plot.name }} ({{ plot.cropVariety }})
             </option>
@@ -334,7 +334,7 @@
             <canvas id="riskPotCanvas" style="width:100%; aspect-ratio: 21/9; display:block; cursor: crosshair;"></canvas>
             <div style="position:absolute; top:16px; left:16px; display:flex; gap:12px; align-items:center;">
                <h3 style="color:#fff; margin:0; text-shadow: 0 2px 4px rgba(0,0,0,0.8);">物理仿真 (WebGL)</h3>
-               <span class="g-badge" style="background: rgba(255,255,255,0.2); color: #fff; backdrop-filter: blur(4px); border:1px solid rgba(255,255,255,0.3);">实时演算</span>
+               
             </div>
           </div>
           <div class="g-card" :class="{'highlight-pulse': highlightChart}">
