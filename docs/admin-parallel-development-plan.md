@@ -236,7 +236,9 @@ git show 447c495:apps/web-ui/js/plot-telemetry-view.js
 
 ## 6. 共同前置合同
 
-两人开始并行编码前，先共同冻结以下内容：
+具体冻结内容以 [《农场管理员双人开发接口冻结合同》](./admin-interface-freeze.md) 为准。本节保留开发分工所需的摘要；冻结合同中的硬冻结项优先于本节的概括性描述。
+
+`ADMIN-IFACE-1` 已将以下内容作为双方共同基线冻结：
 
 | 合同 | 必须确定的内容 |
 | --- | --- |
@@ -252,9 +254,10 @@ git show 447c495:apps/web-ui/js/plot-telemetry-view.js
 
 ### 第 0 轮：公共合同与安全修正
 
+- 以 `admin` 分支中包含 `ADMIN-IFACE-1` 合同的提交作为双方共同基线。
 - 修正 `/work-items/today` 未传 `plotId` 时的农场范围过滤。
 - 修正农场选择器与 `/overview` 的范围合同。
-- 冻结工单、成员、生产计划和数据来源字段。
+- 按冻结合同落地工单、成员、生产计划和数据来源字段。
 - 建立前端业务模块接线方式，避免两人同时修改单体文件。
 
 ### 第 1 轮：核心业务并行
@@ -285,7 +288,9 @@ git show 447c495:apps/web-ui/js/plot-telemetry-view.js
 
 ## 8. Git 与文件所有权建议
 
-建议从同一 `admin` 基线创建两条开发分支：
+两位开发者均从包含 `ADMIN-IFACE-1` 的同一个 `admin` 提交开始。是否创建短期个人分支由开发者自行决定；即使直接在 `admin` 上协作，也必须遵守文件所有权和高冲突文件串行修改规则。
+
+如需短期个人分支，建议命名为：
 
 ```text
 admin/operations       # 开发者 A
