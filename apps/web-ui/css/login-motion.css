@@ -2,8 +2,8 @@
   color-scheme: light;
   --background: #f2f8ee;
   --ink: #173327;
-  --ink-soft: #2f4e3f;
-  --ink-faint: #3d5b4d;
+  --ink-soft: #244536;
+  --ink-faint: #355345;
   --line: rgba(35, 80, 55, .26);
   --line-soft: rgba(35, 80, 55, .15);
   --green: #246849;
@@ -207,7 +207,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .intro__support {
   margin: 28px 0 0;
-  color: rgba(23, 51, 39, .74);
+  color: rgba(23, 51, 39, .86);
   font-size: clamp(15px, 1.05vw, 18px);
   font-weight: 400;
   letter-spacing: .015em;
@@ -217,7 +217,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .intro__capabilities {
   margin: 38px 0 0;
-  color: rgba(23, 51, 39, .76);
+  color: rgba(23, 51, 39, .84);
   font-size: 14px;
   letter-spacing: .04em;
   transition-delay: 330ms;
@@ -778,7 +778,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .auth__note {
   margin: 13px 4px 0;
-  color: #3d5b4d;
+  color: #2d4c3d;
   font-size: 11px;
   font-weight: 560;
   line-height: 1.55;
@@ -787,7 +787,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .auth__note--warning {
   margin: 18px 2px 22px;
-  color: #3d5b4d;
+  color: #2d4c3d;
   text-align: left;
 }
 
@@ -871,7 +871,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .demo-panel__roles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -882,6 +882,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   background: rgba(255, 255, 255, .16);
   color: var(--ink);
   font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: border-color 180ms ease, background-color 180ms ease;
 }
@@ -1070,7 +1072,15 @@ body.is-leaving .environment {
   .submit { min-height: 52px; }
   .auth__actions--login { gap: 7px; }
   .auth__actions--login .text-action { font-size: 12px; }
-  .demo-panel__roles { grid-template-columns: 1fr; }
+  .demo-panel__roles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .demo-panel__roles button {
+    padding: 0 4px;
+    font-size: 11px;
+  }
   .toast { bottom: 18px; }
 }
 
