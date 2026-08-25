@@ -46,6 +46,12 @@
 | Qwen LoRA 微调与安全回归 | PASS | 双 GPU BF16、LoRA q/k/v/o、rank=8、18 步保守训练；适配器只影响表达，离线/质量降级/控制命令仍由后端硬门拦截 |
 | 数据服务隔离 | PASS | PostgreSQL/MQTT/vLLM 仅内部访问；Spring API 绑定 `127.0.0.1`，公网仅经 Nginx 代理 |
 
+## 本轮 GitHub 仓库交付（非公网部署）
+
+- 本轮三角色收口提交：`ce98679ca3a6d0ba47b69eed54de9926b27664b6`。
+- `https://github.com/FlowerNeverFade/smart-agriculture` 的 `refs/heads/main` 已由旧提交替换为该提交，并通过 `git ls-remote` 核对。
+- 该记录只证明仓库分支已更新；不会把 GitHub 推送描述为 `/srv/agriloop` 公网服务已部署。公网验收记录仍以对应部署提交和单独复跑为准。
+
 ## 自动化测试
 
 远端执行：

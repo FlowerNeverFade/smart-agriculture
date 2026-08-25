@@ -41,4 +41,9 @@
 - 公网黑盒：三类演示账号登录和 `/auth/me` 为 HTTP 200；选择错误身份为 HTTP 401 `AUTH_INVALID`；`FARMER` 自助注册为 HTTP 201 且恢复码仅返回一次；管理员身份自助注册返回 `403 ACCOUNT_ROLE_REQUIRES_ADMIN`；登录页三类账户表单从公网入口加载。
 - 公网入口：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。
 
+## 本轮仓库交付（2026-08-25）
+
+- 三角色收口、V4 迁移、角色权限与透明 Logo 已包含在提交 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`。
+- GitHub `main` 已核对指向该提交；本轮未执行公网服务发布，公网服务需单独部署后再复跑 V4 迁移与黑盒验收。
+
 生产部署若要求邮件找回，应在现有恢复码哈希与凭据版本机制之上接入受信任的邮件发送、分布式限流和管理员审核，不应由前端伪造“已发送邮件”。
