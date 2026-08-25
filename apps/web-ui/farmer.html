@@ -32,8 +32,9 @@
         <button class="g-btn icon-only" @click="logout" title="退出登录">
           <span class="material-symbols-outlined">logout</span>
         </button>
-        <span class="g-badge" :class="is_live ? 'success' : 'warning'">
-          {{ is_live ? '系统在线 (UP)' : '仿真态 (MOCK)' }}
+        <span class="farmer-data-freshness" title="数据更新时间">
+          <span class="farmer-freshness-dot" :class="{live: is_live}"></span>
+          数据更新于 {{ data_updated_label }}
         </span>
         <div class="flex items-center gap-2 ml-2">
           <span class="g-user-avatar" aria-hidden="true">{{ user.avatar }}</span>
@@ -70,47 +71,63 @@
             </div>
 
             <div class="farmer-stats-grid">
-              <div class="farmer-stat-card stat-todo">
+              <button type="button" class="farmer-stat-card stat-todo" @click="navigate('tasks')">
                 <span class="material-symbols-outlined farmer-stat-icon">event_available</span>
                 <div class="farmer-stat-body">
                   <span class="farmer-stat-value">{{ stats.today_todo }}</span>
                   <span class="farmer-stat-label">今日待办</span>
                 </div>
-              </div>
-              <div class="farmer-stat-card stat-dispatched">
-                <span class="material-symbols-outlined farmer-stat-icon">assignment</span>
-                <div class="farmer-stat-body">
-                  <span class="farmer-stat-value">{{ stats.dispatched }}</span>
-                  <span class="farmer-stat-label">下发任务数量</span>
-                </div>
-              </div>
-              <div class="farmer-stat-card stat-done">
-                <span class="material-symbols-outlined farmer-stat-icon">task_alt</span>
-                <div class="farmer-stat-body">
-                  <span class="farmer-stat-value">{{ stats.done }}</span>
-                  <span class="farmer-stat-label">已完成</span>
-                </div>
-              </div>
-              <div class="farmer-stat-card stat-pending">
-                <span class="material-symbols-outlined farmer-stat-icon">hourglass_top</span>
-                <div class="farmer-stat-body">
-                  <span class="farmer-stat-value">{{ stats.pending }}</span>
-                  <span class="farmer-stat-label">未完成</span>
-                </div>
-              </div>
-              <div class="farmer-stat-card stat-progress">
+                <span class="material-symbols-outlined farmer-stat-arrow">arrow_forward</span>
+              </button>
+              <button type="button" class="farmer-stat-card stat-progress" @click="navigate('tasks')">
                 <span class="material-symbols-outlined farmer-stat-icon">sync</span>
                 <div class="farmer-stat-body">
                   <span class="farmer-stat-value">{{ stats.in_progress }}</span>
                   <span class="farmer-stat-label">执行中</span>
                 </div>
-              </div>
-              <div class="farmer-stat-card stat-message">
+                <span class="material-symbols-outlined farmer-stat-arrow">arrow_forward</span>
+              </button>
+              <button type="button" class="farmer-stat-card stat-risk" @click="navigate('advice')">
+                <span class="material-symbols-outlined farmer-stat-icon">warning</span>
+                <div class="farmer-stat-body">
+                  <span class="farmer-stat-value">{{ stats.risk_alerts }}</span>
+                  <span class="farmer-stat-label">风险提醒</span>
+                </div>
+                <span class="material-symbols-outlined farmer-stat-arrow">arrow_forward</span>
+              </button>
+              <button type="button" class="farmer-stat-card stat-message" @click="navigate('messages')">
                 <span class="material-symbols-outlined farmer-stat-icon">forum</span>
                 <div class="farmer-stat-body">
                   <span class="farmer-stat-value">{{ stats.unread_messages }}</span>
                   <span class="farmer-stat-label">未读消息</span>
                 </div>
+                <span class="material-symbols-outlined farmer-stat-arrow">arrow_forward</span>
+              </button>
+            </div>
+
+            <div class="g-card farmer-plots-panel">
+              <div class="farmer-panel-header">
+                <div>
+                  <h3>我的地块</h3>
+                  <p class="farmer-panel-hint">点击地块查看实时指标和近 7 天趋势</p>
+                </div>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('plots')">查看全部</button>
+              </div>
+              <div class="farmer-plot-grid">
+                <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" @click="open_plot(plot)">
+                  <div class="farmer-plot-overview-head">
+                    <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
+                    <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
+                      {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
+                    </span>
+                  </div>
+                  <strong>{{ plot.name }}</strong>
+                  <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
+                  <div class="farmer-health-row">
+                    <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
+                    <span><small>综合健康</small><br><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
+                  </div>
+                </button>
               </div>
             </div>
 
@@ -121,11 +138,11 @@
                   <button class="g-btn secondary farmer-btn-light" @click="navigate('tasks')">查看全部</button>
                 </div>
                 <div class="farmer-mini-list">
-                  <div v-for="task in recent_tasks" :key="task.id" class="farmer-mini-item" @click="open_task(task)">
+                  <button type="button" v-for="task in recent_tasks" :key="task.id" class="farmer-mini-item" @click="open_task_from_dashboard(task)">
                     <span class="farmer-mini-status" :class="'status-' + task.status">{{ status_label(task.status) }}</span>
                     <span class="farmer-mini-title">{{ task.title }}</span>
                     <span class="farmer-mini-time">{{ task.due_label }}</span>
-                  </div>
+                  </button>
                   <div v-if="!recent_tasks.length" class="farmer-empty">暂无近期任务</div>
                 </div>
               </div>
@@ -136,14 +153,183 @@
                   <button class="g-btn secondary farmer-btn-light" @click="navigate('messages')">进入消息中心</button>
                 </div>
                 <div class="farmer-mini-list">
-                  <div v-for="msg in recent_messages" :key="msg.id" class="farmer-mini-item" @click="open_message(msg)">
+                  <button type="button" v-for="msg in recent_messages" :key="msg.id" class="farmer-mini-item" @click="open_message_from_dashboard(msg)">
                     <span class="farmer-mini-dot" :class="{unread: !msg.read}"></span>
                     <span class="farmer-mini-title">{{ msg.title }}</span>
                     <span class="farmer-mini-time">{{ msg.time_label }}</span>
-                  </div>
+                  </button>
                   <div v-if="!recent_messages.length" class="farmer-empty">暂无消息</div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section v-else-if="current_view === 'plots'" class="farmer-workspace" key="plots">
+            <div class="farmer-page-header">
+              <div>
+                <h2>我的地块</h2>
+                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化。</p>
+              </div>
+              <button type="button" class="g-btn primary farmer-btn-analyze" @click="navigate('tasks')">
+                <span class="material-symbols-outlined">event_available</span>
+                查看今日农务
+              </button>
+            </div>
+
+            <div class="farmer-plot-grid farmer-plot-grid-page">
+              <button type="button" v-for="plot in plots" :key="plot.plotId" class="farmer-plot-overview-card" :class="{selected: selected_plot && selected_plot.plotId === plot.plotId}" @click="open_plot(plot)">
+                <div class="farmer-plot-overview-head">
+                  <span class="farmer-plot-crop-icon">{{ crop_icon(plot.cropCode) }}</span>
+                  <span class="farmer-plot-status" :class="plot.riskLevel === 'LOW' ? 'normal' : 'risk'">
+                    {{ plot.riskLevel === 'LOW' ? '正常' : '需关注' }}
+                  </span>
+                </div>
+                <strong>{{ plot.name }}</strong>
+                <span class="farmer-plot-overview-meta">{{ plot.cropName }} · {{ plot.stageLabel }}</span>
+                <div class="farmer-health-row">
+                  <span class="farmer-health-ring" :style="health_ring_style(plot)"><b>{{ Math.round(plot.healthScore * 100) }}</b></span>
+                  <span><small>综合健康</small><br><em>{{ plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}</em></span>
+                </div>
+              </button>
+            </div>
+
+            <div v-if="selected_plot" class="farmer-plot-detail-layout">
+              <div class="g-card farmer-plot-detail-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <h3>{{ selected_plot.name }}</h3>
+                    <p class="farmer-panel-hint">{{ selected_plot.cropVariety }} · {{ selected_plot.stageLabel }} · {{ selected_plot.areaM2 }}㎡</p>
+                  </div>
+                  <span class="g-badge" :class="selected_plot.deviceStatus === 'ONLINE' ? 'success' : 'danger'">
+                    {{ selected_plot.deviceStatus === 'ONLINE' ? '设备在线' : '设备离线' }}
+                  </span>
+                </div>
+                <div class="farmer-plot-metrics farmer-plot-metrics-compact">
+                  <div v-for="(metric, code) in plot_metrics(selected_plot)" :key="code" class="farmer-metric-item">
+                    <span class="farmer-metric-label">{{ metric.label }}</span>
+                    <span class="farmer-metric-value" :class="'metric-' + metric.status">{{ metric.value }} {{ metric.unit }}</span>
+                    <span class="farmer-metric-target">目标 {{ metric.target }}</span>
+                  </div>
+                </div>
+                <div class="farmer-plot-detail-actions">
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('advice')">查看风险与建议</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_plot.plotId)">录入巡田记录</button>
+                </div>
+              </div>
+
+              <div class="g-card farmer-history-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <h3>近 7 天变化</h3>
+                    <p class="farmer-panel-hint">以土壤湿度为主的趋势参考</p>
+                  </div>
+                  <span class="g-badge primary">历史趋势</span>
+                </div>
+                <div class="farmer-history-bars" role="img" :aria-label="selected_plot.name + '近7天土壤湿度趋势'">
+                  <span v-for="point in plot_history(selected_plot)" :key="point.label" class="farmer-history-bar-wrap">
+                    <span class="farmer-history-bar" :style="{height: point.height + '%'}" :class="{warning: point.warning}"></span>
+                    <small>{{ point.label }}</small>
+                  </span>
+                </div>
+                <p class="farmer-history-caption">最新土壤湿度 {{ selected_plot.metrics.SOIL_MOISTURE.value }}{{ selected_plot.metrics.SOIL_MOISTURE.unit }}，目标 {{ selected_plot.metrics.SOIL_MOISTURE.target }}</p>
+              </div>
+            </div>
+          </section>
+
+          <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
+            <div class="farmer-page-header">
+              <div>
+                <h2>灌溉与农事建议</h2>
+                <p class="role-summary">把风险、诊断、浇水建议和农户问答放在一起，先看结论再决定操作。</p>
+              </div>
+              <span class="g-badge warning">{{ stats.risk_alerts }} 条风险提醒</span>
+            </div>
+
+            <div class="farmer-advice-grid">
+              <article class="g-card farmer-advice-card farmer-risk-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">风险提醒 · A01</span>
+                    <h3>番茄田可能缺水</h3>
+                  </div>
+                  <span class="farmer-risk-score">高风险</span>
+                </div>
+                <p class="farmer-advice-summary">土壤湿度 {{ plots[0].metrics.SOIL_MOISTURE.value }}% ，低于结果期下限 {{ plots[0].metrics.SOIL_MOISTURE.target }}；系统已排除明显传感器漂移。</p>
+                <div class="farmer-forecast-row">
+                  <div><strong>1 小时</strong><span>15.2%</span></div>
+                  <div><strong>2 小时</strong><span>13.8%</span></div>
+                  <div><strong>4 小时</strong><span>11.5%</span></div>
+                </div>
+                <div class="farmer-readiness-list">
+                  <div><span class="material-symbols-outlined">check_circle</span>数据新鲜，质量良好</div>
+                  <div><span class="material-symbols-outlined">check_circle</span>设备在线，水量充足</div>
+                  <div><span class="material-symbols-outlined">info</span>建议先现场核实，再申请浇水</div>
+                </div>
+                <div class="farmer-advice-actions">
+                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_inspection_form('plot-a01')">申请巡田核验</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('plots'); open_plot(plots[0])">查看地块数据</button>
+                </div>
+              </article>
+
+              <article class="g-card farmer-advice-card farmer-irrigation-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">灌溉建议</span>
+                    <h3>A01 番茄田补水方案</h3>
+                  </div>
+                  <span class="g-badge success">就绪度 {{ irrigation_readiness }}%</span>
+                </div>
+                <div class="farmer-irrigation-amount"><strong>153</strong><span>升</span><small>建议补水量 · 约 8 分 30 秒</small></div>
+                <div class="farmer-irrigation-progress"><span :style="{width: irrigation_progress + '%'}"></span></div>
+                <p class="farmer-panel-hint">目标：土壤湿度从 16.8% 回到 30%；当前为演示操作，不会控制真实水泵。</p>
+                <div class="farmer-advice-actions">
+                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation">
+                    <span class="material-symbols-outlined">{{ irrigation_running ? 'stop_circle' : 'water_drop' }}</span>
+                    {{ irrigation_running ? '停止演示灌溉' : '开始演示灌溉' }}
+                  </button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
+                </div>
+                <p v-if="irrigation_running" class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>演示灌溉执行中，已完成 {{ irrigation_progress }}%</p>
+              </article>
+            </div>
+
+            <div class="farmer-advice-grid farmer-advice-grid-lower">
+              <article class="g-card farmer-advice-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">智能问答</span>
+                    <h3>问问农事助手</h3>
+                  </div>
+                  <span class="g-badge primary">规则 + 知识</span>
+                </div>
+                <form class="farmer-question-form" @submit.prevent="ask_question">
+                  <input v-model="qa_input" type="text" placeholder="例如：番茄现在需要浇多少水？" aria-label="农事问题">
+                  <button type="submit" class="g-btn primary farmer-btn-analyze">提问</button>
+                </form>
+                <div class="farmer-qa-answer" v-if="latest_answer">
+                  <span class="material-symbols-outlined">smart_toy</span>
+                  <p>{{ latest_answer }}</p>
+                </div>
+                <div class="farmer-qa-history" v-if="qa_history.length">
+                  <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer">{{ item.question }}</button>
+                </div>
+              </article>
+
+              <article class="g-card farmer-advice-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">建议反馈</span>
+                    <h3>这条建议有帮助吗？</h3>
+                  </div>
+                  <span class="g-badge" :class="suggestion_feedback ? 'success' : 'primary'">{{ suggestion_feedback || '待反馈' }}</span>
+                </div>
+                <p class="farmer-advice-summary">你的反馈会帮助管理员复核建议是否适合现场情况，并保留为可审计记录。</p>
+                <div class="farmer-feedback-actions">
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('采纳建议')"><span class="material-symbols-outlined">thumb_up</span>采纳建议</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('需要调整')"><span class="material-symbols-outlined">edit_note</span>需要调整</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('暂不处理')"><span class="material-symbols-outlined">schedule</span>暂不处理</button>
+                </div>
+              </article>
             </div>
           </section>
 
@@ -224,10 +410,13 @@
           <section v-else-if="current_view === 'tasks'" class="farmer-workspace" key="tasks">
             <div class="farmer-page-header">
               <div>
-                <h2>任务管理</h2>
-                <p class="role-summary">任务由农场管理员下达，按状态分栏展示。点击任务查看详情，涉及农田时同步展示农田基本指标。</p>
+                <h2>今日农务</h2>
+                <p class="role-summary">查看待办、执行巡田和提交现场记录；任务由农场管理员下达。</p>
               </div>
-              <span class="g-badge success">合计 {{ tasks.length }} 项</span>
+              <div class="farmer-page-actions">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()"><span class="material-symbols-outlined">edit_note</span>录入巡田记录</button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_evidence_form()"><span class="material-symbols-outlined">add_task</span>申请补证</button>
+              </div>
             </div>
 
             <div class="farmer-task-board">
@@ -254,6 +443,34 @@
                   </div>
                   <div v-if="!column.items.length" class="farmer-empty">暂无{{ column.label }}任务</div>
                 </div>
+              </div>
+            </div>
+
+            <div class="farmer-task-tools">
+              <article class="g-card farmer-task-tool-card">
+                <span class="material-symbols-outlined">fact_check</span>
+                <div><h3>巡田记录</h3><p>把现场看到的土壤、作物和设备情况记录下来，作为诊断依据。</p></div>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form()">开始记录</button>
+              </article>
+              <article class="g-card farmer-task-tool-card">
+                <span class="material-symbols-outlined">assignment_late</span>
+                <div><h3>缺少证据？</h3><p>申请复测、巡田或设备检查，提交后由管理员安排。</p></div>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_evidence_form()">申请补证</button>
+              </article>
+            </div>
+
+            <div class="g-card farmer-record-panel">
+              <div class="farmer-panel-header">
+                <div><h3>最近巡田记录</h3><p class="farmer-panel-hint">人工观察不会覆盖传感器数据</p></div>
+                <span class="g-badge success">{{ inspection_records.length }} 条</span>
+              </div>
+              <div class="farmer-record-list">
+                <div v-for="record in inspection_records.slice(0, 3)" :key="record.inspectionId" class="farmer-record-item">
+                  <span class="material-symbols-outlined">grass</span>
+                  <div><strong>{{ record.plotName || record.plotId }}</strong><p>{{ record.notes }}</p></div>
+                  <time>{{ format_record_time(record.observedAt) }}</time>
+                </div>
+                <p v-if="!inspection_records.length" class="farmer-empty">还没有巡田记录</p>
               </div>
             </div>
 
@@ -315,6 +532,36 @@
                 </div>
               </div>
             </transition>
+
+            <div v-if="show_inspection_form" class="farmer-form-overlay" @click.self="close_inspection_form">
+              <form class="farmer-form-card" @submit.prevent="submit_inspection">
+                <div class="farmer-detail-header">
+                  <div><span class="farmer-section-kicker">人工观察</span><h3>录入巡田记录</h3><p class="farmer-detail-meta">记录现场情况，供后续诊断和管理员复核。</p></div>
+                  <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_inspection_form" title="关闭"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <label>地块<select v-model="inspection_form.plot_id" required><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+                <div class="farmer-form-grid">
+                  <label>土壤表层<select v-model="inspection_form.soil_surface"><option value="DRY">偏干</option><option value="NORMAL">正常</option><option value="WET">偏湿</option></select></label>
+                  <label>作物状态<select v-model="inspection_form.crop_condition"><option value="HEALTHY">长势正常</option><option value="LEAF_SLIGHT_WILT">叶片轻微萎蔫</option><option value="PEST_SUSPECTED">疑似病虫害</option></select></label>
+                </div>
+                <label>便携仪实测含水率（%）<input v-model.number="inspection_form.moisture" type="number" min="0" max="100" step="0.1" required></label>
+                <label>现场说明<textarea v-model.trim="inspection_form.notes" rows="3" placeholder="例如：表层略干，无明显渗漏。" required></textarea></label>
+                <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_inspection_form">取消</button><button type="submit" class="g-btn primary farmer-btn-analyze">保存记录</button></div>
+              </form>
+            </div>
+
+            <div v-if="show_evidence_form" class="farmer-form-overlay" @click.self="close_evidence_form">
+              <form class="farmer-form-card" @submit.prevent="submit_evidence_request">
+                <div class="farmer-detail-header">
+                  <div><span class="farmer-section-kicker">补充证据</span><h3>申请巡田 / 复测</h3><p class="farmer-detail-meta">数据不足或设备异常时，先补证再做决定。</p></div>
+                  <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_evidence_form" title="关闭"><span class="material-symbols-outlined">close</span></button>
+                </div>
+                <label>关联地块<select v-model="evidence_form.plot_id" required><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+                <label>补证类型<select v-model="evidence_form.type"><option value="FIELD_INSPECTION">现场巡田</option><option value="RETEST">传感器复测</option><option value="DEVICE_CHECK">设备检查</option></select></label>
+                <label>申请原因<textarea v-model.trim="evidence_form.reason" rows="3" placeholder="请说明需要补充什么证据" required></textarea></label>
+                <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_evidence_form">取消</button><button type="submit" class="g-btn primary farmer-btn-analyze">提交申请</button></div>
+              </form>
+            </div>
           </section>
 
           <section v-else-if="current_view === 'profile'" class="farmer-workspace" key="profile">
@@ -375,8 +622,34 @@
                 </div>
               </div>
             </div>
+
+            <div class="g-card farmer-security-panel">
+              <div>
+                <span class="farmer-section-kicker">账户自助</span>
+                <h3>账户安全</h3>
+                <p class="farmer-panel-hint">手机号 {{ user.contact }} · 演示环境不会保存真实密码</p>
+              </div>
+              <div class="farmer-security-actions">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_account_modal"><span class="material-symbols-outlined">lock_reset</span>修改密码</button>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="forgot_password"><span class="material-symbols-outlined">help</span>找回密码</button>
+              </div>
+            </div>
           </section>
         </transition>
+
+        <div v-if="show_account_modal" class="farmer-form-overlay" @click.self="close_account_modal">
+          <form class="farmer-form-card farmer-account-form" @submit.prevent="change_password">
+            <div class="farmer-detail-header">
+              <div><span class="farmer-section-kicker">账户安全</span><h3>修改密码</h3><p class="farmer-detail-meta">演示模式仅校验填写内容，接入后端后再提交到账号服务。</p></div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_account_modal" title="关闭"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <label>当前密码<input v-model="password_form.current" type="password" autocomplete="current-password" required></label>
+            <label>新密码<input v-model="password_form.next" type="password" minlength="6" autocomplete="new-password" required></label>
+            <label>确认新密码<input v-model="password_form.confirm" type="password" minlength="6" autocomplete="new-password" required></label>
+            <p v-if="password_error" class="farmer-form-error">{{ password_error }}</p>
+            <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_account_modal">取消</button><button type="submit" class="g-btn primary farmer-btn-analyze">确认修改</button></div>
+          </form>
+        </div>
 
         <div class="g-toast-container">
           <transition-group name="toast">

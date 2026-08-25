@@ -833,7 +833,7 @@ export const MOCK_DATA = {
       instruction: "在温室 3 号棚 5 个标准采样点采集便携仪读数，与在线传感器对比，误差超过 0.2 mS/cm 需上报。",
       status: "ASSIGNED",
       priority: "MEDIUM",
-      plot_id: "plot-b01",
+      plot_id: "plot-a03",
       plot_name: "A03 黄瓜立体架",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 45 * 60 * 1000).toISOString(),

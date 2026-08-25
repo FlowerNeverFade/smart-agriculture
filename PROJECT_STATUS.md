@@ -5,6 +5,8 @@
 > 当前周期：15 天软件仿真交付
 > 当前总状态：**v1.0 后端已实现并完成远端验收；指定前端分支与 `rium_dev-v2` 的监测、折叠栏、中心模块和背景修补已合并验证；本轮三角色账户与工作台权限已实现、测试并替换 GitHub `main`；旧公网服务仍按历史验收记录，不因 GitHub 推送自动部署；最终视觉采用毛玻璃；真实硬件和生产级视觉/语音仍按范围不实现**
 
+> 2026-08-25 `farmer-ui` 农户工作台增量：首页收敛为“今日待办/执行中/风险提醒/未读消息”四项可点击指标，新增受权限范围约束的“我的地块”网格、实时指标与近 7 天趋势；任务/消息首页入口直达对应详情；新增灌溉与农事建议（风险预测、诊断就绪度、演示灌溉、问答与反馈）、巡田记录、补证申请和账户自助。顶部改为“数据更新于刚刚”，所有执行器明确为演示/模拟；已通过本地静态页面、Vue 运行时无错误、桌面/552px 窄屏和主要交互回归。
+
 > 本次实现工作区：Spring Boot 3 + Java 17 模块化单体、PostgreSQL/Flyway、Redis Streams、MQTT、SSE、JWT/RBAC、规则优先 Agent、两个后端 Crop Pack（前端演示注册表扩展到四个）、确定性模拟器、P0/P1/P2 后端合同、自动化测试和 Supervisor 远端部署。远端复现证据见 [`docs/acceptance/REMOTE_ACCEPTANCE.md`](docs/acceptance/REMOTE_ACCEPTANCE.md)；农田监测前端证据见 [`docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`](docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md)。
 
 > 2026-08-24 main 部署记录：右栏功能修复提交 `7d33092` 随发布提交 `3cdf4b7` 已同步到公网；本轮合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev`，明确不处理 `quhl`、`docs/multi-crop-agri-design` 和 `task5`。远端 OpenAI-compatible Qwen3.8-27B + `agriloop-qwen38-agri` 实测 `degraded=false`；规则、数据库和 RAG 仍是事实与安全边界。公网 Web：`https://u558871-7873be733236.westd.seetacloud.com:8443/agriloop/`；健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。PostgreSQL、Redis、MQTT 和 vLLM 保持内部访问。
@@ -45,6 +47,7 @@
 | 农务执行前端（独立功能分支） | 已完成（前端集成验收） | 100%（演示切片） | 四态工单、巡田证据、农田动态画布和 WebGL2 水务 Shader 已合入并发布；资源/效果明确标记 SIMULATED；Node 三模式回归、真实 Chromium 和公网 JWT 浏览器复核均通过，不计作真实现场效果 |
 | Web 等画质性能 | 已完成（公网验收） | 100%（本轮范围） | 等画质按需加载、空间分块剔除、隐藏停帧与分级缓存；Dashboard 可用时间中位数约 355 ms；首页水资源卡片的首屏样式/Canvas 尺寸反馈回路已修复，提交 `e9dc042`、`b08c664` 均已发布，见 `WEB_PERFORMANCE_ACCEPTANCE.md` |
 | 三主线联调 | 已完成（后端闭环） | 100% | 告警 -> 诊断 -> 就绪度 -> 处方 -> 命令 -> ACK -> 效果 -> 回放 |
+| 农户工作台（`farmer-ui`） | 已完成（本地演示切片） | 100%（本轮范围） | 四项首页指标跳转、权限范围内地块指标/历史、风险与灌溉建议、问答/反馈、今日农务巡田与补证、账户自助；本地浏览器桌面/窄屏回归通过，真实设备控制仍不在本期 |
 | 测试与性能 | 已完成（后端验收） | 100% | Gradle 测试、黑盒 smoke、RBAC/SSE/1,000+ 事件、Redis/MQTT/ACK 证据；专项压测可按部署规格扩展 |
 | 答辩材料 | 设计素材已具备 | 30% | 还需截图、录屏、指标和演示实录 |
 
