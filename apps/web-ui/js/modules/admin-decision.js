@@ -70,7 +70,7 @@ export const AdminDecisionView = {
 
     const plots = computed(() => props.state?.plots || []);
     const selectedPlot = computed(() => plots.value.find((item) => item.plotId === selectedPlotId.value) || null);
-    const farmId = computed(() => selectedPlot.value?.farmId || props.routeParams?.farmId || props.state?.farms?.[0]?.farmId || '');
+    const farmId = computed(() => props.state?.adminContext?.farmId || selectedPlot.value?.farmId || props.routeParams?.farmId || '');
     const isDemo = computed(() => props.state?.sessionMode === 'demo');
     const canApprove = computed(() => roleCan(props.state?.currentUser, 'irrigation:approve'));
     const risk = computed(() => RISK_META[String(diagnosis.value?.primaryCause || '').toUpperCase()] || RISK_META.INSUFFICIENT_EVIDENCE);
@@ -82,12 +82,20 @@ export const AdminDecisionView = {
     const isCommandSuccess = computed(() => commandStatus.value === 'SUCCEEDED');
     const metrics = computed(() => Object.entries(selectedPlot.value?.metrics || {}).slice(0, 6).map(([code, metric]) => ({ code, ...metric })));
     const passportCounts = computed(() => ({
-      observations: passport.value?.observations?.length || 0,
+      observations: Array.isArray(passport.value?.observations)
+        ? passport.value.observations.length
+        : Object.keys(passport.value?.observations || {}).length,
+      humanObservations: passport.value?.humanObservations?.length || 0,
       diagnoses: passport.value?.diagnoses?.length || (diagnosis.value ? 1 : 0),
       plans: passport.value?.plans?.length || (plan.value ? 1 : 0),
       commands: passport.value?.commands?.length || (command.value ? 1 : 0),
       evaluations: passport.value?.evaluations?.length || (evaluation.value ? 1 : 0)
     }));
+    const decisionTraceId = computed(() => passport.value?.traceId || diagnosis.value?.traceId || currentTraceId.value || '—');
+    const humanTime = value => {
+      const date = new Date(value || 0);
+      return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    };
 
     const clearResult = () => {
       diagnosis.value = null;
@@ -223,7 +231,7 @@ export const AdminDecisionView = {
       selectedPlotId, scenario, loading, executing, evidenceCreating, confirmed, demoOutcome, error,
       diagnosis, plan, readiness, command, evaluation, passport, evidenceRequest, plots, selectedPlot,
       farmId, isDemo, canApprove, risk, readinessView, gates, missingEvidence, canExecute, commandStatus,
-      isCommandSuccess, metrics, passportCounts, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
+      isCommandSuccess, metrics, passportCounts, decisionTraceId, humanTime, RISK_META, runDecisionChain, choosePlot, createEvidenceRequest,
       executePlan, refreshPassport, asPercent
     };
   },
@@ -335,8 +343,15 @@ export const AdminDecisionView = {
 
             <section class="dc-card dc-passport-card">
               <div class="dc-card-heading"><div><span class="dc-kicker">全程留痕</span><h3>本次决策记录</h3></div><button class="dc-button secondary" @click="refreshPassport">刷新</button></div>
-              <div class="dc-trace"><span>追踪编号</span><code>{{ currentTraceId || '—' }}</code></div>
-              <div class="dc-passport-flow"><article><strong>{{ passportCounts.observations }}</strong><span>数据</span></article><i>→</i><article><strong>{{ passportCounts.diagnoses }}</strong><span>诊断</span></article><i>→</i><article><strong>{{ passportCounts.plans }}</strong><span>建议</span></article><i>→</i><article><strong>{{ passportCounts.commands }}</strong><span>命令</span></article><i>→</i><article><strong>{{ passportCounts.evaluations }}</strong><span>评价</span></article></div>
+              <div class="dc-trace"><span>追踪编号</span><code>{{ decisionTraceId }}</code></div>
+              <div class="dc-passport-flow"><article><strong>{{ passportCounts.observations }}</strong><span>数据</span></article><i>→</i><article><strong>{{ passportCounts.humanObservations }}</strong><span>巡田</span></article><i>→</i><article><strong>{{ passportCounts.diagnoses }}</strong><span>诊断</span></article><i>→</i><article><strong>{{ passportCounts.plans }}</strong><span>建议</span></article><i>→</i><article><strong>{{ passportCounts.commands }}</strong><span>命令</span></article><i>→</i><article><strong>{{ passportCounts.evaluations }}</strong><span>评价</span></article></div>
+              <div v-if="passport?.humanObservations?.length" class="dc-human-evidence">
+                <article v-for="observation in passport.humanObservations" :key="observation.inspectionId">
+                  <strong>{{ observation.operatorName || observation.operatorId || '现场人员' }} · {{ observation.provenance || 'USER_PROVIDED' }}</strong>
+                  <span>{{ humanTime(observation.observedAt || observation.createdAt) }} · {{ observation.inspectionId }}</span>
+                  <small>{{ observation.workOrderId ? '关联任务 ' + observation.workOrderId : '未关联任务' }}</small>
+                </article>
+              </div>
               <div class="dc-provenance-row"><span v-for="source in (passport?.provenance || ['DERIVED','SIMULATED','ESTIMATED'])" :key="source">{{ source }}</span></div>
             </section>
           </aside>

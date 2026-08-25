@@ -34,7 +34,7 @@ export const AdminResourcePlanningView = {
     const priorities = PRIORITIES;
 
     const plots = computed(() => props.state?.plots || []);
-    const farmId = computed(() => props.routeParams?.farmId || props.state?.farms?.[0]?.farmId || plots.value[0]?.farmId || '');
+    const farmId = computed(() => props.state?.adminContext?.farmId || props.routeParams?.farmId || plots.value[0]?.farmId || '');
     const isDemo = computed(() => props.state?.sessionMode === 'demo');
     const canManage = computed(() => roleCan(props.state?.currentUser, 'resource:manage'));
     const selectedRows = computed(() => rows.value.filter((row) => row.included));

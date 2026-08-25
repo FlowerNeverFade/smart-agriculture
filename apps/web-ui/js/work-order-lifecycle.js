@@ -70,7 +70,7 @@ export const WorkOrderLifecycleView = {
     const toast = inject('toast');
     const role = computed(() => props.state.currentUser?.role || '');
     const currentActorId = computed(() => actorId(props.state.currentUser));
-    const currentFarmId = computed(() => props.state.currentUser?.farmIds?.find((farmId) => farmId !== '*') ||
+    const currentFarmId = computed(() => props.state.adminContext?.farmId || props.routeParams?.farmId || props.state.currentUser?.farmIds?.find((farmId) => farmId !== '*') ||
       (props.state.sessionMode === 'demo' ? 'farm-demo' : props.state.farms?.[0]?.farmId || ''));
     const canManage = computed(() => roleCan(props.state.currentUser, 'work-order:manage'));
     const canInspect = computed(() => roleCan(props.state.currentUser, 'inspection:create'));

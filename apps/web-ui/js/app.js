@@ -5,6 +5,10 @@ import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 import { AdminDecisionView } from './modules/admin-decision.js';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
+import { AdminWorkManagementView } from './modules/admin-work-management.js';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js';
+import { AdminMemberManagementView } from './modules/admin-member-management.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
@@ -49,6 +53,7 @@ const ICON_CLASS = Object.freeze({
   record_voice_over: 'ph-user-focus',
   group_off: 'ph-user-minus',
   refresh: 'ph-arrows-clockwise',
+  block: 'ph-prohibit',
   psychiatry: 'ph-leaf',
   info: 'ph-info',
   more_vertical: 'ph-dots-three-vertical',
@@ -130,12 +135,6 @@ function formatMetricValue(metric) {
   return String(metric.value);
 }
 
-function formatHealthScore(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return '—';
-  return String(Math.round(numeric <= 1 ? numeric * 100 : numeric));
-}
-
 function parseHashRoute(hash = window.location.hash) {
   const raw = String(hash || '').replace(/^#/, '');
   if (!raw) return { view: '', params: {} };
@@ -145,8 +144,9 @@ function parseHashRoute(hash = window.location.hash) {
   return { view: params.view || '', params };
 }
 
-function plotDetailHash(plotId) {
+function plotDetailHash(plotId, farmId = '') {
   const query = new URLSearchParams({ view: 'plot-detail', plotId: String(plotId || '') });
+  if (farmId) query.set('farmId', farmId);
   return `#${query.toString()}`;
 }
 
@@ -212,14 +212,21 @@ function presentSystemEvent(event) {
 const DashboardView = {
   template: '#tmpl-dashboard',
   props: ['state', 'routeParams'],
+  emits: ['navigate', 'open-plot-detail', 'plot-change', 'data-invalidated', 'context-changed'],
   setup(props, { emit }) {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const selectedFarmId = ref(props.state.farms[0]?.farmId || '');
+    const activeTab = ref(normalizeAdminTab('dashboard', props.routeParams?.tab));
+    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('dashboard', tab); });
+    const selectedFarmId = computed({
+      get: () => props.state.adminContext?.farmId || '',
+      set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
+    });
+    const visiblePlots = computed(() => activeTab.value === 'plots' ? (props.state.allPlots || []) : (props.state.plots || []));
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
-    const deleteConfirm = ref({ open: false, plot: null });
+    const deleteConfirm = ref({ open: false, plot: null, confirmation: '' });
     const emptyPlotDraft = () => ({
       plotId: '',
       name: '',
@@ -231,22 +238,13 @@ const DashboardView = {
     });
     const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
-      const workItems = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
-      const activeItems = workItems.filter((item) => !isFinishedWork(item));
-      const now = Date.now();
+      const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: workItems.length },
-        {
-          id: 'overdue',
-          label: '已逾期',
-          value: activeItems.filter((item) => {
-            const dueAt = new Date(item.dueAt || 0).getTime();
-            return Number.isFinite(dueAt) && dueAt > 0 && dueAt < now;
-          }).length
-        },
-        { id: 'abnormal', label: '异常地块', value: props.state.plots.filter(isAbnormalPlot).length },
-        { id: 'unassigned', label: '待分配', value: activeItems.filter((item) => !item.assigneeId).length },
-        { id: 'approval', label: '待审批', value: activeItems.filter((item) => normalizedStatus(item.actionType) === 'IRRIGATION_REVIEW').length }
+        { id: 'today', label: '今日任务', value: summary.today },
+        { id: 'overdue', label: '已逾期', value: summary.overdue },
+        { id: 'abnormal', label: '异常地块', value: summary.abnormal },
+        { id: 'unassigned', label: '待分配', value: summary.unassigned },
+        { id: 'approval', label: '待审批', value: summary.approval }
       ];
     });
 
@@ -310,11 +308,11 @@ const DashboardView = {
       }
       const crop = CROP_OPTIONS.find((item) => item.code === draft.cropCode) || CROP_OPTIONS[0];
       const stage = STAGE_OPTIONS.find((item) => item.code === draft.stageCode) || STAGE_OPTIONS[1];
-      const current = props.state.plots.find((plot) => plot.plotId === draft.plotId);
+      const current = (props.state.allPlots || props.state.plots).find((plot) => plot.plotId === draft.plotId);
       const cropChanged = Boolean(current && current.cropCode !== crop.code);
       const payload = {
         ...(current || {}),
-        farmId: selectedFarmId.value || current?.farmId || props.state.farms[0]?.farmId || 'farm-demo',
+        farmId: selectedFarmId.value || current?.farmId || '',
         name: draft.name.trim(),
         cropCode: crop.code,
         cropName: crop.name,
@@ -334,10 +332,12 @@ const DashboardView = {
         if (plotEditor.value.mode === 'edit') {
           const saved = await api.updatePlot(draft.plotId, payload);
           emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
           toast(`${payload.name}已更新，其他模块已同步`);
         } else {
           const saved = await api.createPlot(payload);
           emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
+          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
           toast(`${payload.name}已添加到农场`);
         }
         plotEditor.value.open = false;
@@ -349,21 +349,45 @@ const DashboardView = {
     };
     const requestDeletePlot = (plot) => {
       closePlotMenu();
-      deleteConfirm.value = { open: true, plot };
+      deleteConfirm.value = { open: true, plot, confirmation: '' };
     };
     const cancelDeletePlot = () => {
       if (plotSaving.value) return;
-      deleteConfirm.value = { open: false, plot: null };
+      deleteConfirm.value = { open: false, plot: null, confirmation: '' };
+    };
+    const deactivatePlot = async (plot) => {
+      closePlotMenu(); plotSaving.value = true;
+      try {
+        const saved = await api.deactivatePlot(plot.plotId);
+        emit('plot-change', { type: 'update', plot: saved });
+        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: saved });
+        toast(`${plot.name}已停用，活跃业务页面将不再显示`);
+      } catch (error) { toast(error.message || '停用地块失败', 'error'); }
+      finally { plotSaving.value = false; }
+    };
+    const restorePlot = async (plot) => {
+      closePlotMenu(); plotSaving.value = true;
+      try {
+        const saved = await api.restorePlot(plot.plotId);
+        emit('plot-change', { type: 'update', plot: saved });
+        emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
+        toast(`${plot.name}已恢复使用`);
+      } catch (error) { toast(error.message || '恢复地块失败', 'error'); }
+      finally { plotSaving.value = false; }
     };
     const confirmDeletePlot = async () => {
       const plot = deleteConfirm.value.plot;
       if (!plot) return;
+      if (String(deleteConfirm.value.confirmation || '').trim() !== String(plot.name || '').trim()) {
+        toast('请输入完整地块名称进行确认', 'error'); return;
+      }
       plotSaving.value = true;
       try {
-        await api.deletePlot(plot.plotId);
+        await api.deletePlot(plot.plotId, deleteConfirm.value.confirmation);
         emit('plot-change', { type: 'delete', plot });
-        deleteConfirm.value = { open: false, plot: null };
-        toast(`${plot.name}已删除，关联页面已同步`);
+        emit('data-invalidated', { domains: ['plots', 'overview'], record: { ...plot, deleted: true } });
+        deleteConfirm.value = { open: false, plot: null, confirmation: '' };
+        toast(`${plot.name}已永久删除`);
       } catch (error) {
         toast(error.message || '删除地块失败', 'error');
       } finally {
@@ -372,7 +396,8 @@ const DashboardView = {
     };
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
-    const createTask = () => emit('navigate', 'work-orders', { openCreateTask: true });
+    const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
+    const setTab = tab => emit('navigate', 'dashboard', { tab, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
@@ -390,7 +415,9 @@ const DashboardView = {
     };
     return {
       isFarmAdmin,
+      activeTab,
       selectedFarmId,
+      visiblePlots,
       managerSummary,
       plotMetrics,
       formatMetric,
@@ -412,9 +439,12 @@ const DashboardView = {
       closePlotEditor,
       submitPlot,
       requestDeletePlot,
+      deactivatePlot,
+      restorePlot,
       cancelDeletePlot,
       confirmDeletePlot,
       createTask,
+      setTab,
       handleAction,
       visibleActions
     };
@@ -985,6 +1015,23 @@ const FarmMembersView = {
   }
 };
 
+const RoleAwareWorkOrdersView = {
+  components: {
+    'admin-work-management': AdminWorkManagementView,
+    'work-order-lifecycle': WorkOrderLifecycleView
+  },
+  props: ['state', 'routeParams'],
+  emits: ['navigate', 'data-invalidated'],
+  template: `
+    <admin-work-management v-if="state.currentUser?.role === 'FARM_ADMIN'" :state="state" :route-params="routeParams"
+      @navigate="(view, params) => $emit('navigate', view, params)"
+      @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-work-management>
+    <work-order-lifecycle v-else :state="state" :route-params="routeParams"
+      @navigate="(view, params) => $emit('navigate', view, params)"
+      @data-invalidated="payload => $emit('data-invalidated', payload)"></work-order-lifecycle>
+  `
+};
+
 const CropPacksView = {
   template: '#tmpl-crop-packs',
   props: ['state', 'routeParams']
@@ -1522,9 +1569,9 @@ const app = createApp({
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'risk-forecast-view': RiskForecastView,
-    'work-orders-view': WorkOrderLifecycleView,
-    'resource-coordination-view': AdminResourcePlanningView,
-    'farm-members-view': FarmMembersView,
+    'work-orders-view': RoleAwareWorkOrdersView,
+    'resource-coordination-view': AdminResourceCenterView,
+    'farm-members-view': AdminMemberManagementView,
     'crop-manual-view': CropManualView,
     'crop-packs-view': CropPacksView,
     'value-ledger-view': ValueLedgerView,
@@ -1536,7 +1583,6 @@ const app = createApp({
     'admin-settings-view': AdminSettingsView
   },
   setup() {
-    const selectedFarm = ref('farm-science');
     const isLive = ref(false);
     const isDark = ref(false);
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
@@ -1559,12 +1605,20 @@ const app = createApp({
       currentUser: initialUser,
       allowedViews: roleViews(initialUser),
       sessionMode: session?.mode || 'demo',
-      farms: MOCK_DATA.farms,
+      adminContext: { farmId: '', plotId: null, sessionMode: session?.mode || 'demo' },
+      farms: session?.mode === 'demo' ? MOCK_DATA.farms.map(farm => ({ ...farm, sourceMode: 'SIMULATED' })) : [],
       plots: session?.mode === 'demo' ? scopePlots(MOCK_DATA.plots, initialUser) : [],
+      allPlots: session?.mode === 'demo' ? scopePlots(MOCK_DATA.plots, initialUser).map(plot => ({ ...plot, status: plot.status || 'ACTIVE' })) : [],
+      overview: {},
       feedItems: MOCK_DATA.feedItems,
       alerts: session?.mode === 'demo' ? (MOCK_DATA.alerts || []).map((item) => ({ ...item })) : [],
       workOrders: session?.mode === 'demo' ? MOCK_DATA.workOrders : [],
       farmMembers: session?.mode === 'demo' ? (MOCK_DATA.farmMembers || []) : [],
+      devices: [],
+      cropBatches: [],
+      cropPacks: session?.mode === 'demo' ? (MOCK_DATA.cropPackDetails || []) : [],
+      valueLedgers: [],
+      simulatorStatus: { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: session?.mode === 'demo' ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: MOCK_DATA.resourceProfile,
       cropPackDetails: MOCK_DATA.cropPackDetails,
@@ -1587,6 +1641,16 @@ const app = createApp({
       adminAuditLogs: MOCK_DATA.adminAuditLogs || []
     });
 
+    let contextRequestVersion = 0;
+    let requestContextChange = async () => {};
+    const selectedFarmId = computed({
+      get: () => state.value.adminContext.farmId || state.value.farms[0]?.farmId || '',
+      set: farmId => {
+        if (state.value.currentUser?.role === 'FARM_ADMIN') requestContextChange({ farmId, plotId: null, sessionMode: state.value.sessionMode });
+        else state.value.adminContext = { ...state.value.adminContext, farmId };
+      }
+    });
+
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
     const navItems = computed(() => {
       return state.value.allowedViews
@@ -1601,7 +1665,7 @@ const app = createApp({
     const selectedPlotId = ref(initialRoute.view === 'plot-detail' ? initialRoute.params.plotId || '' : '');
 
     const currentViewComponent = computed(() => `${currentView.value}-view`);
-    const selectedPlot = computed(() => state.value.plots.find((plot) => plot.plotId === selectedPlotId.value) || null);
+    const selectedPlot = computed(() => (state.value.allPlots || state.value.plots).find((plot) => plot.plotId === selectedPlotId.value) || null);
     const roleClass = computed(() => `role-${String(state.value.currentUser?.role || 'unknown').toLowerCase().replaceAll('_', '-')}`);
     watch(roleClass, (className) => {
       document.getElementById('app')?.setAttribute('class', className);
@@ -1638,6 +1702,85 @@ const app = createApp({
       window.location.assign(page);
     };
 
+    const refreshFarmData = async (farmId, domains = ['all'], { announceErrors = true } = {}) => {
+      if (!farmId || state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      const version = ++contextRequestVersion;
+      const requested = new Set(domains || []);
+      const all = requested.has('all');
+      const wants = domain => all || requested.has(domain);
+      const jobs = {};
+      if (wants('overview') || wants('plots')) {
+        jobs.overview = api.getOverview({ farmId });
+        jobs.plots = api.getPlots({ farmId, includeInactive: true });
+      }
+      if (wants('workOrders') || wants('overview')) jobs.workOrders = api.getWorkOrders({ farmId });
+      if (wants('alerts') || wants('overview')) jobs.alerts = api.getAlerts({ farmId });
+      if (wants('devices')) jobs.devices = api.getDevices({ farmId });
+      if (wants('members')) jobs.members = api.getFarmMembers({ farmId });
+      if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
+      if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
+      if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
+      if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
+      const entries = Object.entries(jobs);
+      const settled = await Promise.all(entries.map(async ([key, promise]) => {
+        try { return [key, { status: 'fulfilled', value: await promise }]; }
+        catch (reason) { return [key, { status: 'rejected', reason }]; }
+      }));
+      if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
+      const results = Object.fromEntries(settled);
+      const failed = [];
+      Object.entries(results).forEach(([key, result]) => {
+        if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
+      });
+      const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
+      const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
+      if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
+      if (hasFarmPlotRefresh(results)) {
+        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || []);
+        state.value.allPlots = merged;
+        state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      }
+      if (results.workOrders?.status === 'fulfilled') state.value.workOrders = results.workOrders.value || [];
+      if (results.alerts?.status === 'fulfilled') state.value.alerts = results.alerts.value || [];
+      if (results.devices?.status === 'fulfilled') state.value.devices = results.devices.value || [];
+      if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
+      if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
+      if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
+      if (results.cropPacks?.status === 'fulfilled') state.value.cropPacks = results.cropPacks.value || [];
+      if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
+      if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
+      if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
+    };
+
+    const handleContextChanged = async ({ farmId, plotId = null, sessionMode = state.value.sessionMode } = {}, options = {}) => {
+      const selected = selectAuthorizedFarm(state.value.farms, farmId);
+      if (!selected) {
+        showToast('当前账户没有可用农场', 'error');
+        return;
+      }
+      const changed = selected !== state.value.adminContext.farmId;
+      state.value.adminContext = { farmId: selected, plotId, sessionMode };
+      if (changed) {
+        selectedPlotId.value = '';
+        state.value.overview = {};
+        state.value.plots = [];
+        state.value.allPlots = [];
+        state.value.workOrders = [];
+        state.value.alerts = [];
+        state.value.devices = [];
+        state.value.farmMembers = [];
+        state.value.cropBatches = [];
+        state.value.valueLedgers = [];
+      }
+      await refreshFarmData(selected, ['all']);
+      if (options.updateRoute === false) return;
+      const params = { ...routeParams.value, farmId: selected };
+      delete params.view;
+      routeParams.value = params;
+      window.history.replaceState(null, '', routeHash(currentView.value, params));
+    };
+    requestContextChange = handleContextChanged;
+
     let plotDetailReturnHash = initialRoute.view === 'plot-detail' ? '#dashboard' : '';
     let lastPlotTrigger = null;
 
@@ -1654,17 +1797,20 @@ const app = createApp({
 
     const applyHashRoute = async () => {
       const route = parseHashRoute();
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && route.params?.farmId && route.params.farmId !== state.value.adminContext.farmId) {
+        await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
+      }
       if (route.view === 'plot-detail') {
-        const plot = state.value.plots.find((item) => item.plotId === route.params.plotId);
+        const plot = (state.value.allPlots || state.value.plots).find((item) => item.plotId === route.params.plotId);
         if (!plot || !roleCan(state.value.currentUser, 'plots:read')) {
           selectedPlotId.value = '';
-          window.history.replaceState(null, '', '#dashboard');
+          window.history.replaceState(null, '', routeHash('dashboard', { farmId: state.value.adminContext.farmId }));
           currentView.value = 'dashboard';
           routeParams.value = {};
           showToast('没有找到该地块，已返回农场总览', 'error');
           return;
         }
-        if (!plotDetailReturnHash) plotDetailReturnHash = '#dashboard';
+        if (!plotDetailReturnHash) plotDetailReturnHash = routeHash('dashboard', { farmId: state.value.adminContext.farmId });
         currentView.value = 'dashboard';
         selectedPlotId.value = plot.plotId;
         routeParams.value = route.params;
@@ -1689,7 +1835,7 @@ const app = createApp({
         return;
       }
       const fallback = state.value.allowedViews[0] || 'dashboard';
-      window.history.replaceState(null, '', `#${fallback}`);
+      window.history.replaceState(null, '', routeHash(fallback, state.value.currentUser?.role === 'FARM_ADMIN' ? { farmId: state.value.adminContext.farmId } : {}));
       currentView.value = fallback;
       routeParams.value = {};
     };
@@ -1699,65 +1845,56 @@ const app = createApp({
         showToast(`“${NAV_CATALOG.find((item) => item.id === viewId)?.label || viewId}”不在${currentRole.value?.label || '当前身份'}的权限范围内`, 'error');
         return;
       }
+      const nextParams = state.value.currentUser?.role === 'FARM_ADMIN'
+        ? { ...params, farmId: params.farmId || state.value.adminContext.farmId }
+        : { ...params };
       selectedPlotId.value = '';
       currentView.value = viewId;
-      routeParams.value = params;
-      const routeEntries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
-      const targetHash = routeEntries.length
-        ? `#${new URLSearchParams({ view: viewId, ...Object.fromEntries(routeEntries) }).toString()}`
-        : `#${viewId}`;
+      routeParams.value = nextParams;
+      const targetHash = routeHash(viewId, nextParams);
       if (window.location.hash === targetHash) return;
       window.location.hash = targetHash.slice(1);
     };
 
     const applyPlotChange = ({ type, plot } = {}) => {
       if (!plot?.plotId) return;
-      const index = state.value.plots.findIndex((item) => item.plotId === plot.plotId);
       if (type === 'delete') {
+        state.value.allPlots = state.value.allPlots.filter((item) => item.plotId !== plot.plotId);
         state.value.plots = state.value.plots.filter((item) => item.plotId !== plot.plotId);
-        state.value.workOrders = state.value.workOrders.filter((item) => item.plotId !== plot.plotId);
-        state.value.farmMembers = state.value.farmMembers.map((member) => ({
-          ...member,
-          plotIds: Array.isArray(member.plotIds) ? member.plotIds.filter((plotId) => plotId !== plot.plotId) : []
-        }));
         if (selectedPlotId.value === plot.plotId) selectedPlotId.value = '';
         return;
       }
-      if (index >= 0) {
-        state.value.plots.splice(index, 1, { ...state.value.plots[index], ...plot });
+      const allIndex = state.value.allPlots.findIndex((item) => item.plotId === plot.plotId);
+      if (allIndex >= 0) {
+        state.value.allPlots.splice(allIndex, 1, { ...state.value.allPlots[allIndex], ...plot });
       } else {
-        state.value.plots.push(plot);
+        state.value.allPlots.push(plot);
       }
+      state.value.plots = state.value.allPlots.filter(item => String(item.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
     };
 
     const handleDataInvalidated = async ({ domains = [], record } = {}) => {
       if (record?.workOrderId && domains.includes('workOrders')) {
         state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
       }
-      if (!(isLive.value && state.value.sessionMode === 'live')) return;
-      const jobs = [];
-      if (domains.includes('plots')) {
-        jobs.push(api.getOverview().then((overview) => {
-          if (Array.isArray(overview?.plots)) state.value.plots = scopePlots(mergeOverviewPlots(overview.plots), state.value.currentUser);
-        }));
-      }
-      if (domains.includes('workOrders')) {
-        jobs.push(api.getWorkOrders().then((items) => { if (Array.isArray(items)) state.value.workOrders = items; }));
-      }
-      const results = await Promise.allSettled(jobs);
-      if (results.some((item) => item.status === 'rejected')) showToast('业务已提交，但关联页面刷新失败，请稍后手动刷新', 'error');
+      if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      const normalized = [...new Set(domains.flatMap(domain => {
+        if (domain === 'resourcePlans') return ['overview'];
+        return [domain];
+      }))];
+      await refreshFarmData(state.value.adminContext.farmId, normalized.length ? normalized : ['all']);
     };
 
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
-      const plot = state.value.plots.find((item) => item.plotId === plotId);
+      const plot = (state.value.allPlots || state.value.plots).find((item) => item.plotId === plotId);
       if (!plot) {
         showToast('没有找到该地块', 'error');
         return;
       }
       const activeRoute = parseHashRoute();
-      if (activeRoute.view !== 'plot-detail') plotDetailReturnHash = window.location.hash || `#${currentView.value}`;
+      if (activeRoute.view !== 'plot-detail') plotDetailReturnHash = window.location.hash || routeHash(currentView.value, { farmId: state.value.adminContext.farmId });
       lastPlotTrigger = trigger || document.activeElement;
-      const targetHash = plotDetailHash(plotId);
+      const targetHash = plotDetailHash(plotId, state.value.adminContext.farmId);
       if (window.location.hash === targetHash) {
         selectedPlotId.value = plotId;
         await focusPlotDialog();
@@ -1768,7 +1905,8 @@ const app = createApp({
 
     const closePlotDetail = async () => {
       selectedPlotId.value = '';
-      const targetHash = plotDetailReturnHash && plotDetailReturnHash !== '#view=plot-detail' ? plotDetailReturnHash : '#dashboard';
+      const targetHash = plotDetailReturnHash && plotDetailReturnHash !== '#view=plot-detail'
+        ? plotDetailReturnHash : routeHash('dashboard', { farmId: state.value.adminContext.farmId });
       plotDetailReturnHash = '';
       if (window.location.hash === targetHash) await applyHashRoute();
       else window.location.hash = targetHash.slice(1);
@@ -1807,61 +1945,66 @@ const app = createApp({
         state.value.sessionMode = 'live';
         state.value.farmMembers = [];
       }
-      if (isLive.value && session.mode === 'live') {
-        const farmId = state.value.currentUser?.farmIds?.find((id) => id !== '*') || '';
-        const [overviewResult, workOrdersResult, alertsResult, membersResult] = await Promise.allSettled([
-          api.getOverview(),
-          api.getWorkOrders(farmId ? { farmId } : {}),
-          api.getAlerts(farmId ? { farmId } : {}),
-          (['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role) && farmId)
-            ? api.getFarmMembers({ farmId })
-            : Promise.resolve([])
+      state.value.adminContext.sessionMode = state.value.sessionMode;
+      if (state.value.currentUser?.role === 'FARM_ADMIN') {
+        try {
+          state.value.farms = await api.getFarms();
+          const requestedFarm = initialRoute.params?.farmId || '';
+          const farmId = selectAuthorizedFarm(state.value.farms, requestedFarm);
+          if (!farmId) throw new Error('当前账户没有授权农场');
+          state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+          await refreshFarmData(farmId, ['all']);
+        } catch (error) {
+          state.value.farms = [];
+          state.value.plots = [];
+          state.value.allPlots = [];
+          showToast(`读取管理员农场上下文失败：${error.message}`, 'error');
+        }
+      } else if (isLive.value && session.mode === 'live') {
+        const [farmsResult, overviewResult, workOrdersResult, alertsResult] = await Promise.allSettled([
+          api.getFarms(), api.getOverview(), api.getWorkOrders(), api.getAlerts()
         ]);
+        if (farmsResult.status === 'fulfilled') state.value.farms = farmsResult.value || [];
         if (overviewResult.status === 'fulfilled' && Array.isArray(overviewResult.value?.plots)) {
           state.value.plots = scopePlots(mergeOverviewPlots(overviewResult.value.plots), state.value.currentUser);
-        } else if (overviewResult.status === 'rejected') {
-          showToast('读取角色范围内的地块失败：' + overviewResult.reason.message, 'error');
-        }
-        if (workOrdersResult.status === 'fulfilled' && Array.isArray(workOrdersResult.value)) {
-          state.value.workOrders = workOrdersResult.value;
-        } else if (workOrdersResult.status === 'rejected') {
-          showToast('读取农务任务失败：' + workOrdersResult.reason.message, 'error');
-        }
-        if (alertsResult.status === 'fulfilled' && Array.isArray(alertsResult.value)) {
-          state.value.alerts = alertsResult.value;
-        } else if (alertsResult.status === 'rejected') {
-          showToast('读取告警失败：' + alertsResult.reason.message, 'error');
-        }
-        if (membersResult.status === 'fulfilled' && Array.isArray(membersResult.value)) {
-          state.value.farmMembers = membersResult.value;
-        } else if (membersResult.status === 'rejected') {
-          state.value.farmMembers = [];
-          showToast('读取可分配农户失败：' + membersResult.reason.message, 'error');
-        }
+          state.value.allPlots = [...state.value.plots];
+        } else if (overviewResult.status === 'rejected') showToast('读取角色范围内的地块失败：' + overviewResult.reason.message, 'error');
+        if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
+        if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
+      } else if (session.mode === 'demo') {
+        state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
+        state.value.allPlots = state.value.plots.map(plot => ({ ...plot, status: plot.status || 'ACTIVE' }));
+        state.value.alerts = (MOCK_DATA.alerts || []).map((item) => ({ ...item }));
+        state.value.workOrders = await api.getWorkOrders();
+      } else {
+        state.value.plots = [];
+        state.value.allPlots = [];
+        state.value.alerts = [];
+        state.value.workOrders = [];
+        state.value.farmMembers = [];
+        showToast('当前未连接后端服务，正式数据暂不可用', 'error');
+      }
+      if (isLive.value && session.mode === 'live') {
         try {
           await api.subscribeEvents((event) => {
             if (event.type === 'connected' || event.type === 'heartbeat') return;
             const systemEvent = presentSystemEvent(event);
             state.value.adminOverview.recentEvents.unshift(systemEvent);
             state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+            const domains = domainsForEventType(event.type);
+            if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
+              refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
+            }
             showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
           });
-        } catch (error) {
-          showToast('系统消息暂不可用：' + error.message, 'error');
-        }
-      } else if (session.mode === 'demo') {
-        state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
-        state.value.alerts = (MOCK_DATA.alerts || []).map((item) => ({ ...item }));
-        state.value.workOrders = await api.getWorkOrders({ farmId: 'farm-demo' });
-        state.value.farmMembers = (MOCK_DATA.farmMembers || []).map((member) => ({ ...member }));
-      } else {
-        state.value.plots = [];
-        state.value.alerts = [];
-        state.value.workOrders = [];
-        state.value.farmMembers = [];
-        showToast('当前未连接后端服务，正式数据暂不可用', 'error');
+        } catch (error) { showToast('系统消息暂不可用：' + error.message, 'error'); }
       }
       await applyHashRoute();
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
+        const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
+        routeParams.value = params;
+        window.history.replaceState(null, '', routeHash(currentView.value, params));
+      }
       if (!state.value.allowedViews.includes(currentView.value)) navigate(currentRole.value.defaultView);
     });
 
@@ -1869,7 +2012,7 @@ const app = createApp({
     app.provide('toast', showToast);
 
     return {
-      selectedFarm,
+      selectedFarmId,
       isLive,
       isDark,
       isSidebarOpen,
@@ -1889,6 +2032,7 @@ const app = createApp({
       navigate,
       applyPlotChange,
       handleDataInvalidated,
+      handleContextChanged,
       openPlotDetail,
       closePlotDetail,
       navigateFromPlotDetail,

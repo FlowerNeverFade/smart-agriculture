@@ -418,6 +418,11 @@
 .dc-passport-flow strong { font: 700 15px var(--font-mono); }
 .dc-passport-flow span { color: var(--text-muted); font-size: 8px; }
 .dc-passport-flow > i { color: var(--border-default); font-style: normal; }
+.dc-human-evidence { display: grid; gap: 6px; padding: 0 14px 10px; }
+.dc-human-evidence article { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--border-muted); border-radius: var(--radius-md); background: var(--bg-subtle); }
+.dc-human-evidence strong, .dc-human-evidence span, .dc-human-evidence small { overflow-wrap: anywhere; }
+.dc-human-evidence strong { color: var(--text-primary); font-size: 9px; }
+.dc-human-evidence span, .dc-human-evidence small { color: var(--text-muted); font-size: 8px; }
 .dc-provenance-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 14px; }
 .dc-provenance-row span { padding: 2px 5px; border: 1px solid var(--border-muted); border-radius: var(--radius-pill); color: var(--text-muted); background: var(--bg-canvas); font: 7px var(--font-mono); }
 .dc-provenance-row .source-observed { color: var(--green-bright); }

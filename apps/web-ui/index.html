@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css">
   <link rel="stylesheet" href="css/modules/decision-console.css">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css">
+  <link rel="stylesheet" href="css/modules/admin-management.css">
   <link rel="stylesheet" href="css/modules/admin.css">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -75,16 +76,15 @@
       </div>
 
       <div class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
-        <select v-model="selectedFarm" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
-          <option value="farm-demo">农智示范农场</option>
-          <option value="farm-science">科学城数字农业基地</option>
+        <select v-model="selectedFarmId" aria-label="选择当前农场" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
+          <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}</option>
         </select>
       </div>
       <div class="g-header-right">
         <button class="g-btn icon-only" @click="toggleTheme" title="切换主题" aria-label="切换主题"><app-icon :name="isDark ? 'light_mode' : 'dark_mode'"></app-icon></button>
         <button class="g-btn icon-only" @click="logout" title="退出登录" aria-label="退出登录"><app-icon name="logout"></app-icon></button>
-        <span class="g-badge" :class="isLive ? 'success' : 'warning'">
-          {{ isLive ? '系统在线 (UP)' : '仿真态 (MOCK)' }}
+        <span class="g-badge" :class="state.sessionMode === 'demo' ? 'warning' : (isLive ? 'success' : 'danger')">
+          {{ state.sessionMode === 'demo' ? '仿真态 (MOCK)' : (isLive ? '系统在线 (UP)' : '后端离线') }}
         </span>
         <div class="flex items-center gap-2 ml-2">
           <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
@@ -119,7 +119,8 @@
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
-                     @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"></component>
+                     @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
+                     @context-changed="handleContextChanged"></component>
         </transition>
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
@@ -159,7 +160,12 @@
         </div>
       </header>
 
-      <div class="manager-summary-strip" aria-label="今日农场概况">
+      <nav class="admin-local-tabs manager-dashboard-tabs" aria-label="农场总览页签">
+        <button :class="{active: activeTab === 'overview'}" @click="setTab('overview')">总览</button>
+        <button :class="{active: activeTab === 'plots'}" @click="setTab('plots')">地块管理</button>
+      </nav>
+
+      <div v-if="activeTab === 'overview'" class="manager-summary-strip" aria-label="今日农场概况">
         <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
@@ -167,7 +173,7 @@
       </div>
 
       <div class="manager-plot-grid" aria-label="地块状态列表">
-        <article v-for="plot in state.plots" :key="plot.plotId"
+        <article v-for="plot in visiblePlots" :key="plot.plotId"
                  class="manager-plot-card" :class="`is-${cardTone(plot)}`"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
                  :aria-label="`查看${plot.name}二维详情`"
@@ -180,6 +186,7 @@
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
             <div class="manager-plot-card-tools">
+              <span v-if="activeTab === 'plots'" class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
               <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
@@ -190,8 +197,14 @@
                   <button type="button" role="menuitem" @click="openEditPlot(plot)">
                     <app-icon name="edit"></app-icon><span>修改地块</span>
                   </button>
-                  <button type="button" class="is-danger" role="menuitem" @click="requestDeletePlot(plot)">
-                    <app-icon name="delete"></app-icon><span>删除地块</span>
+                  <button v-if="String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'" type="button" role="menuitem" @click="deactivatePlot(plot)">
+                    <app-icon name="block"></app-icon><span>停用地块</span>
+                  </button>
+                  <button v-else type="button" role="menuitem" @click="restorePlot(plot)">
+                    <app-icon name="refresh"></app-icon><span>恢复地块</span>
+                  </button>
+                  <button v-if="String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE'" type="button" class="is-danger" role="menuitem" @click="requestDeletePlot(plot)">
+                    <app-icon name="delete"></app-icon><span>永久删除</span>
                   </button>
                 </div>
               </div>
@@ -216,13 +229,13 @@
             </div>
           </div>
         </article>
-        <button type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
+        <button v-if="activeTab === 'plots'" type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
           <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
           <strong>添加新地块</strong>
           <small>录入作物种类、生长周期和地块面积</small>
         </button>
       </div>
-      <div v-if="!state.plots.length" class="simple-empty-state manager-plot-empty">
+      <div v-if="!visiblePlots.length" class="simple-empty-state manager-plot-empty">
         <app-icon name="info"></app-icon>
         <h2>暂无可显示的地块</h2>
         <p>请确认后端服务和当前账户的地块权限；系统不会用演示指标代替正式数据。</p>
@@ -278,11 +291,12 @@
       <div v-if="deleteConfirm.open" class="g-modal-overlay manager-plot-editor-overlay" @click.self="cancelDeletePlot">
         <section class="g-modal manager-delete-dialog" role="alertdialog" aria-modal="true">
           <div class="manager-delete-icon"><app-icon name="delete"></app-icon></div>
-          <h2>确定删除这个地块？</h2>
-          <p>“{{ deleteConfirm.plot?.name }}”将从农场总览和所有地块选择列表中移除，此操作不能撤销。</p>
+          <h2>永久删除已停用地块？</h2>
+          <p>只有没有遥测、设备、批次、告警、任务、诊断和审计记录的地块才允许删除。系统不会级联清理历史。</p>
+          <label class="g-form-group"><span class="g-form-label">输入“{{ deleteConfirm.plot?.name }}”确认</span><input class="g-input" v-model="deleteConfirm.confirmation" autocomplete="off"></label>
           <div class="g-modal-footer">
             <button type="button" class="g-btn secondary" :disabled="plotSaving" @click="cancelDeletePlot">取消</button>
-            <button type="button" class="g-btn danger" :disabled="plotSaving" @click="confirmDeletePlot">{{ plotSaving ? '删除中…' : '确认删除' }}</button>
+            <button type="button" class="g-btn danger" :disabled="plotSaving || deleteConfirm.confirmation !== deleteConfirm.plot?.name" @click="confirmDeletePlot">{{ plotSaving ? '删除中…' : '永久删除' }}</button>
           </div>
         </section>
       </div>
@@ -294,7 +308,7 @@
           <h2>{{ state.currentUser.roleLabel }} · 工作台</h2>
           <p class="role-summary">{{ state.currentUser.roleDescription }}</p>
         </div>
-        <span class="g-badge primary">{{ state.farms[0].name }} · {{ state.farms[0].region }}</span>
+        <span class="g-badge primary">{{ state.farms[0]?.name || '未选择农场' }}<template v-if="state.farms[0]?.region"> · {{ state.farms[0].region }}</template></span>
       </div>
       <div class="g-grid g-grid-2 mb-4">
         <div class="g-card" v-for="plot in state.plots" :key="plot.plotId">

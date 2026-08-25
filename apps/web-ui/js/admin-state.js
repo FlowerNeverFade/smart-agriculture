@@ -1,0 +1,98 @@
+export const ADMIN_TABS = Object.freeze({
+  dashboard: ['overview', 'plots'],
+  'work-orders': ['tasks', 'plans', 'crop-packs'],
+  'resource-coordination': ['devices', 'irrigation', 'value', 'simulator'],
+  'farm-members': ['members', 'permissions']
+});
+
+export function selectAuthorizedFarm(farms = [], requestedFarmId = '') {
+  const list = Array.isArray(farms) ? farms.filter(farm => farm?.farmId) : [];
+  return list.find(farm => farm.farmId === requestedFarmId)?.farmId || list[0]?.farmId || '';
+}
+
+export function isLatestFarmResponse(requestVersion, currentVersion, farmId, currentFarmId) {
+  return requestVersion === currentVersion && Boolean(farmId) && farmId === currentFarmId;
+}
+
+export function hasFarmPlotRefresh(results = {}) {
+  return ['overview', 'plots'].some(key => results?.[key]?.status === 'fulfilled');
+}
+
+export function formatHealthScore(value) {
+  if (value === undefined || value === null || value === '') return '—';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '—';
+  return String(Math.round(numeric <= 1 ? numeric * 100 : numeric));
+}
+
+export function normalizeAdminTab(view, tab) {
+  const allowed = ADMIN_TABS[view] || [];
+  return allowed.includes(tab) ? tab : (allowed[0] || '');
+}
+
+export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.now()) {
+  const activePlots = (plots || []).filter(plot => String(plot?.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+  const activeWork = (workOrders || []).filter(item => !['DONE', 'COMPLETED', 'CANCELLED'].includes(String(item?.status || '').toUpperCase()));
+  const abnormal = activePlots.filter(plot => {
+    if (['OFFLINE', 'ERROR', 'FATAL', 'BAD'].includes(String(plot?.deviceStatus || '').toUpperCase())) return true;
+    if (['WARN', 'WARNING', 'HIGH', 'CRITICAL', 'DANGER'].includes(String(plot?.riskLevel || '').toUpperCase())) return true;
+    return Object.values(plot?.metrics || {}).some(metric => ['WARN', 'WARNING', 'DEGRADED', 'LOW', 'HIGH', 'ERROR', 'DANGER', 'CRITICAL', 'BAD', 'OFFLINE']
+      .includes(String(metric?.status || '').toUpperCase()));
+  }).length;
+  return {
+    today: workOrders.length,
+    overdue: activeWork.filter(item => {
+      const due = new Date(item?.dueAt || 0).getTime();
+      return Number.isFinite(due) && due > 0 && due < now;
+    }).length,
+    abnormal,
+    unassigned: activeWork.filter(item => !item?.assigneeId).length,
+    approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length
+  };
+}
+
+export function domainsForEventType(type = '') {
+  const value = String(type).toLowerCase();
+  const domains = new Set();
+  if (value.includes('plot.')) { domains.add('plots'); domains.add('overview'); }
+  if (value.includes('workorder') || value.includes('work-order') || value.includes('cropplan')) { domains.add('workOrders'); domains.add('overview'); }
+  if (value.includes('alert')) { domains.add('alerts'); domains.add('overview'); }
+  if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
+  if (value.includes('member')) domains.add('members');
+  if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
+  if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
+  return [...domains];
+}
+
+export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
+  const cards = new Map((overviewCards || []).map(card => [String(card.plotId), card]));
+  return (plotFacts || []).map(fact => {
+    const card = cards.get(String(fact.plotId)) || {};
+    const metrics = { ...(fact.metrics || {}), ...(card.metrics || {}) };
+    Object.entries(card.latest || {}).forEach(([code, event]) => {
+      if (!event || event.value === undefined) return;
+      metrics[code] = {
+        ...(metrics[code] || { label: code, target: '—' }),
+        value: event.value,
+        unit: event.unit || metrics[code]?.unit || '',
+        status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || metrics[code]?.status || 'NORMAL')
+      };
+    });
+    return {
+      ...fact,
+      ...card,
+      metrics,
+      deviceId: card.device?.deviceId || card.deviceId || fact.deviceId || null,
+      deviceStatus: card.device?.status || card.deviceStatus || fact.deviceStatus || 'UNKNOWN',
+      healthScore: card.device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
+      lastSeen: card.device?.lastSeen || card.lastSeen || fact.lastSeen || null
+    };
+  });
+}
+
+export function routeHash(view, params = {}) {
+  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  return entries.length
+    ? `#${new URLSearchParams({ view, ...Object.fromEntries(entries) }).toString()}`
+    : `#${view}`;
+}

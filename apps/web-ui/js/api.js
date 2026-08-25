@@ -86,6 +86,27 @@ export class ApiService {
     };
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
+    this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => [item.plotId, { ...item, farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }]));
+    this.demoDevices = new Map((MOCK_DATA.adminDevices || []).map((item, index) => {
+      const plot = MOCK_DATA.plots?.[index % Math.max(1, MOCK_DATA.plots.length)];
+      const deviceId = item.deviceId || item.id || `device-demo-${index + 1}`;
+      return [deviceId, {
+        ...item,
+        deviceId,
+        farmId: item.farmId || plot?.farmId || 'farm-demo',
+        plotId: item.plotId || plot?.plotId || null,
+        status: item.status || 'OFFLINE',
+        bindingState: (item.plotId || plot?.plotId) ? 'BOUND' : 'UNBOUND',
+        sourceMode: 'SIMULATED'
+      }];
+    }));
+    this.demoCropBatches = new Map();
+    this.demoCropPlans = new Map();
+    this.demoValueLedgers = [];
+    this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
+      ...member,
+      farmIds: member.farmIds || ['farm-demo']
+    }, 'SIMULATED')]));
   }
 
   readStoredUser() {
@@ -279,15 +300,26 @@ export class ApiService {
     return () => controller.abort();
   }
 
-  async getOverview() {
-    if (this.isLive) {
-      const resp = await this._fetch('/api/v1/overview');
+  async getFarms() {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/farms');
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的农场数据', { code: 'FARMS_INVALID', payload: resp });
+    }
+    return (MOCK_DATA.farms || []).map(farm => ({ ...farm, sourceMode: 'SIMULATED' }));
+  }
+
+  async getOverview(filters = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      if (filters?.farmId) query.set('farmId', filters.farmId);
+      const resp = await this._fetch(`/api/v1/overview${query.size ? `?${query}` : ''}`);
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的总览数据', { code: 'OVERVIEW_INVALID', payload: resp });
     }
     return {
-      farmId: "farm-demo",
-      plots: MOCK_DATA.plots,
+      farmId: filters?.farmId || "farm-demo",
+      plots: Array.from(this.demoPlots.values()).filter(plot => !filters?.farmId || plot.farmId === filters.farmId),
       activeAlertCount: 1,
       pendingWorkOrderCount: 2,
       eventCount: 1080,
@@ -298,7 +330,7 @@ export class ApiService {
   }
 
   async getSimulatorStatus() {
-    if (!this.isLive) return { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' };
+    if (!this.isLive || this.sessionMode !== 'live') return { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' };
     const resp = await this._fetch('/api/v1/simulator/status');
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器状态', { code: 'SIMULATOR_STATUS_INVALID', payload: resp });
@@ -316,13 +348,21 @@ export class ApiService {
     throw new ApiError('后端返回了无效的模拟器停止结果', { code: 'SIMULATOR_STOP_INVALID', payload: resp });
   }
 
-  async getPlots() {
-    if (this.isLive) {
-      const resp = await this._fetch('/api/v1/plots');
+  async getPlots(filters = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/plots${query.size ? `?${query}` : ''}`);
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的地块数据', { code: 'PLOTS_INVALID', payload: resp });
     }
-    return MOCK_DATA.plots;
+    return Array.from(this.demoPlots.values())
+      .filter(plot => !filters.farmId || plot.farmId === filters.farmId)
+      .filter(plot => filters.includeInactive || String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+      .filter(plot => !filters.status || String(plot.status || 'ACTIVE').toUpperCase() === String(filters.status).toUpperCase())
+      .map(plot => ({ ...plot }));
   }
 
   async createPlot(input = {}) {
@@ -334,11 +374,15 @@ export class ApiService {
       if (resp?.data?.plotId) return resp.data;
       throw new ApiError('后端返回了无效的新增地块结果', { code: 'PLOT_CREATE_INVALID', payload: resp });
     }
-    return {
+    const saved = {
       ...input,
       plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
+      status: 'ACTIVE',
+      sourceMode: 'SIMULATED',
       createdAt: new Date().toISOString()
     };
+    this.demoPlots.set(saved.plotId, saved);
+    return { ...saved };
   }
 
   async updatePlot(plotId, input = {}) {
@@ -350,16 +394,50 @@ export class ApiService {
       if (resp?.data?.plotId) return resp.data;
       throw new ApiError('后端返回了无效的地块修改结果', { code: 'PLOT_UPDATE_INVALID', payload: resp });
     }
-    return { ...input, plotId, updatedAt: new Date().toISOString() };
+    const saved = { ...(this.demoPlots.get(plotId) || {}), ...input, plotId, updatedAt: new Date().toISOString() };
+    this.demoPlots.set(plotId, saved);
+    return { ...saved };
   }
 
-  async deletePlot(plotId) {
+  async deactivatePlot(plotId) {
     if (this.isLive && this.sessionMode === 'live') {
-      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}`, { method: 'DELETE' });
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/deactivate`, { method: 'POST', body: '{}' });
+      if (resp?.data?.plotId === plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块停用结果', { code: 'PLOT_DEACTIVATE_INVALID', payload: resp });
+    }
+    const plot = this.demoPlots.get(plotId);
+    if (!plot) throw new ApiError('没有找到该地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const saved = { ...plot, status: 'INACTIVE', deactivatedAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoPlots.set(plotId, saved);
+    return { ...saved };
+  }
+
+  async restorePlot(plotId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/restore`, { method: 'POST', body: '{}' });
+      if (resp?.data?.plotId === plotId) return resp.data;
+      throw new ApiError('后端返回了无效的地块恢复结果', { code: 'PLOT_RESTORE_INVALID', payload: resp });
+    }
+    const plot = this.demoPlots.get(plotId);
+    if (!plot) throw new ApiError('没有找到该地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const saved = { ...plot, status: 'ACTIVE', restoredAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoPlots.set(plotId, saved);
+    return { ...saved };
+  }
+
+  async deletePlot(plotId, confirmName = '') {
+    if (this.isLive && this.sessionMode === 'live') {
+      const query = new URLSearchParams({ confirmName });
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}?${query}`, { method: 'DELETE' });
       if (resp?.data?.plotId === plotId) return resp.data;
       throw new ApiError('后端返回了无效的地块删除结果', { code: 'PLOT_DELETE_INVALID', payload: resp });
     }
-    return { plotId, deleted: true, deletedAt: new Date().toISOString() };
+    const plot = this.demoPlots.get(plotId);
+    if (!plot) throw new ApiError('没有找到该地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    if (String(plot.status).toUpperCase() !== 'INACTIVE') throw new ApiError('请先停用地块，再执行永久删除', { status: 409, code: 'PLOT_MUST_BE_INACTIVE' });
+    if (String(confirmName).trim() !== String(plot.name).trim()) throw new ApiError('请输入完整地块名称进行确认', { status: 400, code: 'PLOT_CONFIRMATION_MISMATCH' });
+    this.demoPlots.delete(plotId);
+    return { plotId, deleted: true, deletedAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
   }
 
   async getTelemetry(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', limit = 50, options = {}) {
@@ -430,8 +508,12 @@ export class ApiService {
   async getTodayWorkItems(filters = '') {
     const normalizedFilters = typeof filters === 'object' && filters !== null ? filters : { plotId: filters };
     const plotId = normalizedFilters.plotId || '';
-    if (this.isLive) {
-      const query = plotId ? `?plotId=${encodeURIComponent(plotId)}` : '';
+    const farmId = normalizedFilters.farmId || '';
+    if (this.isLive && this.sessionMode === 'live') {
+      const queryParams = new URLSearchParams();
+      if (farmId) queryParams.set('farmId', farmId);
+      if (plotId) queryParams.set('plotId', plotId);
+      const query = queryParams.size ? `?${queryParams}` : '';
       try {
         const response = await this._fetch(`/api/v1/work-items/today${query}`);
         if (Array.isArray(response?.data)) return response.data;
@@ -440,6 +522,7 @@ export class ApiService {
       }
     }
     return Array.from(this.demoWorkOrders.values())
+      .filter(item => !farmId || item.farmId === farmId || (!item.farmId && farmId === 'farm-demo'))
       .filter(item => !plotId || item.plotId === plotId)
       .map(cloneWorkOrder);
   }
@@ -449,7 +532,7 @@ export class ApiService {
     Object.entries(filters || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
     });
-    if (this.isLive) {
+    if (this.isLive && this.sessionMode === 'live') {
       const query = queryParams.size ? `?${queryParams.toString()}` : '';
       const response = await this._fetch(`/api/v1/work-orders${query}`);
       if (Array.isArray(response?.data)) return response.data;
@@ -616,10 +699,28 @@ export class ApiService {
       }
       throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
     }
-    return (MOCK_DATA.farmMembers || []).map((member) => normalizeFarmMember({
-      ...member,
-      farmIds: member.farmIds || ['farm-demo']
-    }, 'SIMULATED'));
+    return Array.from(this.demoFarmMembers.values())
+      .filter(member => !farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId))
+      .map(member => ({ ...member, plotIds: [...member.plotIds], farmIds: [...member.farmIds] }));
+  }
+
+  async updateFarmMemberScope(userId, { farmId, plotIds = [] } = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}/scope`, {
+        method: 'PATCH',
+        body: JSON.stringify({ farmId, plotIds })
+      });
+      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的成员权限结果', { code: 'MEMBER_SCOPE_INVALID', payload: response });
+    }
+    const current = this.demoFarmMembers.get(userId);
+    if (!current) throw new ApiError('没有找到该成员', { status: 404, code: 'FARM_MEMBER_NOT_FOUND' });
+    if (current.role !== 'FARMER') throw new ApiError('这里只能维护种植农户的地块范围', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
+    const farmPlotIds = new Set(Array.from(this.demoPlots.values()).filter(plot => plot.farmId === farmId).map(plot => plot.plotId));
+    const preserved = current.plotIds.filter(plotId => !farmPlotIds.has(plotId));
+    const updated = { ...current, plotIds: [...new Set([...preserved, ...plotIds])], sourceMode: 'SIMULATED' };
+    this.demoFarmMembers.set(userId, updated);
+    return { ...updated, plotIds: [...updated.plotIds] };
   }
 
   _demoActorId() {
@@ -667,7 +768,7 @@ export class ApiService {
     Object.entries(filters || {}).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') queryParams.set(key, String(value));
     });
-    if (this.isLive) {
+    if (this.isLive && this.sessionMode === 'live') {
       const query = queryParams.size ? `?${queryParams.toString()}` : '';
       const response = await this._fetch(`/api/v1/alerts${query}`);
       if (Array.isArray(response?.data)) return response.data;
@@ -1418,21 +1519,182 @@ export class ApiService {
     return MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   }
 
-  async getValueLedgers() {
-    if (this.isLive) {
-      const resp = await this._fetch('/api/v1/value-ledgers');
-      const records = resp?.data || resp;
-      if (records && !Array.isArray(records) && records.summary) return records;
-      const fallback = JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
-      fallback.serverRecords = Array.isArray(records) ? records : [];
-      fallback.provenance = fallback.provenance.map(p => ({ ...p, tag: `${p.tag}；在线记录 ${fallback.serverRecords.length} 条` }));
-      return fallback;
+  async getDevices(filters = {}) {
+    const farmId = filters?.farmId || '';
+    if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices?farmId=${encodeURIComponent(farmId)}`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的设备数据', { code: 'DEVICES_INVALID', payload: resp });
     }
-    return JSON.parse(JSON.stringify(MOCK_DATA.valueLedger));
+    return Array.from(this.demoDevices.values()).filter(device => device.farmId === farmId).map(device => ({ ...device }));
+  }
+
+  async registerDevice(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/devices', { method: 'POST', body: JSON.stringify(input) });
+      if (resp?.data?.deviceId) return resp.data;
+      throw new ApiError('后端返回了无效的设备注册结果', { code: 'DEVICE_REGISTER_INVALID', payload: resp });
+    }
+    const deviceId = input.deviceId || `device-demo-${Date.now().toString(36)}`;
+    if (this.demoDevices.has(deviceId)) throw new ApiError('设备编号已存在', { status: 409, code: 'DEVICE_EXISTS' });
+    const device = { ...input, deviceId, plotId: null, status: 'OFFLINE', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoDevices.set(deviceId, device);
+    return { ...device };
+  }
+
+  async bindDevice(deviceId, plotId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/bind`, { method: 'POST', body: JSON.stringify({ plotId }) });
+      if (resp?.data?.deviceId) return resp.data;
+      throw new ApiError('后端返回了无效的设备绑定结果', { code: 'DEVICE_BIND_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(deviceId);
+    const plot = this.demoPlots.get(plotId);
+    if (!device || !plot) throw new ApiError('没有找到设备或地块', { status: 404, code: 'DEVICE_OR_PLOT_NOT_FOUND' });
+    if (device.farmId !== plot.farmId) throw new ApiError('设备和地块不属于同一农场', { status: 409, code: 'DEVICE_PLOT_FARM_MISMATCH' });
+    if (String(plot.status).toUpperCase() === 'INACTIVE') throw new ApiError('停用地块不能绑定设备', { status: 409, code: 'PLOT_INACTIVE' });
+    const saved = { ...device, plotId, bindingState: 'BOUND', boundAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoDevices.set(deviceId, saved);
+    return { ...saved };
+  }
+
+  async unbindDevice(deviceId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/unbind`, { method: 'POST', body: '{}' });
+      if (resp?.data?.deviceId) return resp.data;
+      throw new ApiError('后端返回了无效的设备解绑结果', { code: 'DEVICE_UNBIND_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(deviceId);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    const saved = { ...device, previousPlotId: device.plotId, plotId: null, bindingState: 'UNBOUND', status: 'OFFLINE', unboundAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoDevices.set(deviceId, saved);
+    return { ...saved };
+  }
+
+  async getCropBatches(filters = {}) {
+    const query = new URLSearchParams();
+    if (filters?.farmId) query.set('farmId', filters.farmId);
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-batches${query.size ? `?${query}` : ''}`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的种植批次数据', { code: 'CROP_BATCHES_INVALID', payload: resp });
+    }
+    return Array.from(this.demoCropBatches.values()).filter(batch => !filters.farmId || batch.farmId === filters.farmId).map(batch => ({ ...batch }));
+  }
+
+  async createCropBatch(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/crop-batches', { method: 'POST', body: JSON.stringify(input) });
+      if (resp?.data?.batchId) return resp.data;
+      throw new ApiError('后端返回了无效的种植批次结果', { code: 'CROP_BATCH_CREATE_INVALID', payload: resp });
+    }
+    if (!Number(input.plannedCycleDays)) throw new ApiError('请填写计划周期', { status: 422, code: 'PLAN_CYCLE_REQUIRED' });
+    const batchId = input.batchId || `batch-demo-${Date.now().toString(36)}`;
+    const batch = { ...input, batchId, cropPackVersion: input.cropPackVersion || '1.0.0', status: 'ACTIVE', createdAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    this.demoCropBatches.set(batchId, batch);
+    return { ...batch };
+  }
+
+  async getCropBatchPlan(batchId) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan`);
+      return resp?.data || resp;
+    }
+    return { batch: this.demoCropBatches.get(batchId) || null, plan: this.demoCropPlans.get(batchId) || null, tasks: Array.from(this.demoWorkOrders.values()).filter(work => work.cropBatchId === batchId) };
+  }
+
+  async generateCropBatchPlan(batchId, input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan/generate`, { method: 'POST', body: JSON.stringify(input) });
+      if (resp?.data?.planId) return resp.data;
+      throw new ApiError('后端返回了无效的生产计划预览', { code: 'CROP_PLAN_INVALID', payload: resp });
+    }
+    const batch = this.demoCropBatches.get(batchId);
+    if (!batch) throw new ApiError('没有找到种植批次', { status: 404, code: 'CROP_BATCH_NOT_FOUND' });
+    const packs = await this.getCropPacks();
+    const pack = packs.find(item => item.cropCode === batch.cropCode && (!batch.cropPackVersion || item.version === batch.cropPackVersion));
+    if (!pack) throw new ApiError('没有找到该作物对应的 Crop Pack', { status: 422, code: 'CROP_PACK_NOT_FOUND' });
+    const cycleDays = Number(input.plannedCycleDays || batch.plannedCycleDays || 0);
+    if (!cycleDays) throw new ApiError('请填写计划周期', { status: 422, code: 'PLAN_CYCLE_REQUIRED' });
+    const start = new Date(`${String(input.startDate || batch.plantedAt || new Date().toISOString()).slice(0, 10)}T00:00:00Z`);
+    const stages = [...(pack.stages || [])].sort((a, b) => Number(a.sequence || 999) - Number(b.sequence || 999));
+    const tasks = [];
+    stages.forEach((stage, stageIndex) => {
+      const stageStart = new Date(start.getTime() + Math.floor(cycleDays * stageIndex / stages.length) * 86400000);
+      const stageEnd = new Date(start.getTime() + Math.floor(cycleDays * (stageIndex + 1) / stages.length) * 86400000);
+      (stage.taskTemplates || []).forEach((template, templateIndex) => {
+        const interval = Math.max(1, Number(template.intervalDays || 1));
+        let occurrence = 0;
+        for (let date = new Date(stageStart); date < stageEnd; date = new Date(date.getTime() + interval * 86400000)) {
+          const templateRef = `${pack.cropCode}@${pack.version}/${stage.code}/${template.actionType}/${templateIndex}`;
+          tasks.push({ taskKey: `${templateRef}/${occurrence++}`, templateRef, stageCode: stage.code, actionType: template.actionType, priority: template.priority || 'MEDIUM', scheduleDate: date.toISOString().slice(0, 10), sourceMode: 'DERIVED', removed: false });
+        }
+      });
+    });
+    const plan = { planId: `plan-${batchId}`, batchId, farmId: batch.farmId, plotId: batch.plotId, cropCode: batch.cropCode, cropPackVersion: pack.version, status: 'DRAFT', sourceMode: 'DERIVED', scheduleMethod: 'EVEN_STAGE_SPLIT', plannedCycleDays: cycleDays, tasks, generatedAt: new Date().toISOString() };
+    this.demoCropPlans.set(batchId, plan);
+    this.demoCropBatches.set(batchId, { ...batch, planId: plan.planId });
+    return JSON.parse(JSON.stringify(plan));
+  }
+
+  async reviewCropBatchPlan(batchId, input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-batches/${encodeURIComponent(batchId)}/plan/review`, { method: 'POST', body: JSON.stringify(input) });
+      if (resp?.data?.planId) return resp.data;
+      throw new ApiError('后端返回了无效的计划审批结果', { code: 'CROP_PLAN_REVIEW_INVALID', payload: resp });
+    }
+    const plan = this.demoCropPlans.get(batchId);
+    if (!plan) throw new ApiError('请先生成生产计划预览', { status: 404, code: 'CROP_PLAN_NOT_FOUND' });
+    if (plan.status === 'APPROVED') return JSON.parse(JSON.stringify(plan));
+    const decision = String(input.decision || '').toUpperCase();
+    if (decision === 'REJECT') {
+      if (!String(input.note || '').trim()) throw new ApiError('驳回时请填写原因', { status: 400, code: 'NOTE_REQUIRED' });
+      const rejected = { ...plan, status: 'REJECTED', reviewNote: input.note, reviewedAt: new Date().toISOString() };
+      this.demoCropPlans.set(batchId, rejected);
+      return JSON.parse(JSON.stringify(rejected));
+    }
+    if (decision !== 'APPROVE') throw new ApiError('请选择审批通过或驳回', { status: 400, code: 'PLAN_DECISION_INVALID' });
+    const tasks = Array.isArray(input.tasks) ? input.tasks : plan.tasks;
+    const workOrderIds = [];
+    for (const task of tasks.filter(item => !item.removed)) {
+      const saved = await this.saveWorkOrder({ farmId: plan.farmId, plotId: plan.plotId, title: task.actionType === 'IRRIGATION_CHECK' ? '检查灌溉需要' : '完成阶段巡田检查', reason: '来自已审批生产计划', actionType: task.actionType, priority: task.priority, dueAt: `${task.scheduleDate}T17:00:00Z`, sourceType: 'CROP_PLAN', sourceRef: plan.planId, cropBatchId: batchId, stageCode: task.stageCode, cropPackVersion: plan.cropPackVersion, templateRef: task.templateRef });
+      workOrderIds.push(saved.workOrderId);
+    }
+    const approved = { ...plan, tasks, status: 'APPROVED', workOrderIds, reviewedAt: new Date().toISOString(), idempotencyKey: input.idempotencyKey || plan.planId };
+    this.demoCropPlans.set(batchId, approved);
+    return JSON.parse(JSON.stringify(approved));
+  }
+
+  async getValueLedgers(filters = {}) {
+    const farmId = filters?.farmId || '';
+    if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/value-ledgers?farmId=${encodeURIComponent(farmId)}`);
+      const records = resp?.data || resp;
+      if (Array.isArray(records)) return records;
+      throw new ApiError('后端返回了无效的价值对账数据', { code: 'VALUE_LEDGERS_INVALID', payload: resp });
+    }
+    return this.demoValueLedgers.filter(ledger => ledger.farmId === farmId).map(ledger => JSON.parse(JSON.stringify(ledger)));
+  }
+
+  async createValueLedger(input = {}) {
+    if (this.isLive && this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/value-ledgers', { method: 'POST', body: JSON.stringify(input) });
+      if (resp?.data?.valueLedgerId) return resp.data;
+      throw new ApiError('后端返回了无效的价值对账结果', { code: 'VALUE_LEDGER_CREATE_INVALID', payload: resp });
+    }
+    const planned = input.plannedWaterLitres === '' || input.plannedWaterLitres == null ? null : Number(input.plannedWaterLitres);
+    const actual = input.actualWaterLitres === '' || input.actualWaterLitres == null ? null : Number(input.actualWaterLitres);
+    const price = input.waterPricePerLitre === '' || input.waterPricePerLitre == null ? null : Number(input.waterPricePerLitre);
+    const complete = planned > 0 && actual >= 0 && price >= 0;
+    const ledger = { valueLedgerId: `value-demo-${Date.now().toString(36)}`, ...input, status: complete ? 'COMPUTED' : 'INCOMPLETE', sourceMode: input.sourceMode || 'USER_PROVIDED', plannedSource: planned == null ? null : 'USER_PROVIDED', actualSource: actual == null ? null : 'USER_PROVIDED', priceSource: price == null ? null : 'USER_PROVIDED', metrics: { plannedWaterLitres: planned, actualWaterLitres: actual, waterDeviationRate: complete ? (actual - planned) / planned : null, waterSavingLitres: complete ? planned - actual : null, waterCost: complete ? actual * price : null }, createdAt: new Date().toISOString(), provenance: 'SIMULATED' };
+    this.demoValueLedgers.unshift(ledger);
+    return JSON.parse(JSON.stringify(ledger));
   }
 
   async getCropPacks() {
-    if (this.isLive) {
+    if (this.isLive && this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/crop-packs');
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
@@ -1443,31 +1705,12 @@ export class ApiService {
   }
 
   normalizeCropPack(pack) {
-    const fallback = MOCK_DATA.cropPackDetails.find(p => p.cropCode === pack?.cropCode) || MOCK_DATA.cropPackDetails[0];
-    const stages = (pack?.stages || fallback.stages).map((stage, index) => {
-      if (typeof stage === 'object') return stage;
-      const base = fallback.stages[index] || fallback.stages[fallback.stages.length - 1];
-      return { ...base, code: String(stage).split(' ')[0] || base.code, label: base.label };
-    });
-    const metrics = (pack?.metrics || fallback.metrics).map(metric => {
-      if (metric.range) return metric;
-      const target = metric.target || {};
-      return { ...metric, label: metric.label || metric.code, range: { min: target.low ?? target.min ?? 0, max: target.high ?? target.max ?? 100 } };
-    });
     return {
-      ...fallback, ...pack,
-      identity: pack?.identity || { name: pack?.name || fallback.identity.name, variety: 'demonstration', region: '重庆' },
-      schemaVersion: pack?.schemaVersion || fallback.schemaVersion,
-      stages, metrics,
-      rules: pack?.rules || fallback.rules,
-      prescriptionConstraints: pack?.prescriptionConstraints || fallback.prescriptionConstraints,
-      forecastProfile: pack?.forecastProfile || fallback.forecastProfile,
-      coordinationProfile: pack?.coordinationProfile || fallback.coordinationProfile,
-      knowledgeVersion: pack?.knowledgeVersion || fallback.knowledgeVersion,
-      ruleVersion: pack?.ruleVersion || fallback.ruleVersion,
-      knowledge: pack?.knowledge || fallback.knowledge,
-      scenarios: pack?.scenarios || fallback.scenarios,
-      testCases: pack?.testCases || fallback.testCases
+      ...(pack || {}),
+      identity: pack?.identity || null,
+      stages: Array.isArray(pack?.stages) ? pack.stages.map(stage => typeof stage === 'object' ? { ...stage } : { code: String(stage) }) : [],
+      metrics: Array.isArray(pack?.metrics) ? pack.metrics.map(metric => ({ ...metric })) : [],
+      rules: Array.isArray(pack?.rules) ? pack.rules.map(rule => ({ ...rule })) : []
     };
   }
 
@@ -1506,7 +1749,7 @@ export class ApiService {
       payload = null;
     }
     if (!response.ok) {
-      if ([404, 405, 501].includes(response.status)) {
+      if ([502, 503, 504].includes(response.status)) {
         throw new ApiError(`后端服务未运行: ${response.status}`, {
           code: 'NETWORK_ERROR',
           isNetworkError: true
