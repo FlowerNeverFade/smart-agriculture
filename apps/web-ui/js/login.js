@@ -1,16 +1,6 @@
 import { ApiError, api } from './api.js';
 import { createAmbientLiquidField } from './login-webgl.js';
-
-const ROLE_BY_ACCOUNT = {
-  admin: { role: 'FARM_ADMIN', roleLabel: '农场管理员', avatar: '👑' },
-  farmer: { role: 'FARMER', roleLabel: '种植农户', avatar: '🧑‍🌾' },
-  operator: { role: 'FIELD_OPERATOR', roleLabel: '田间操作员', avatar: '🔧' },
-  sysadmin: { role: 'SYSTEM_ADMIN', roleLabel: '系统管理员', avatar: '⚙️' }
-};
-
-const ROLE_PRESENTATION = Object.fromEntries(
-  Object.values(ROLE_BY_ACCOUNT).map((value) => [value.role, value])
-);
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -93,16 +83,11 @@ function switchView(name, focusTarget = null) {
 }
 
 function presentUser(user) {
-  const presentation = ROLE_PRESENTATION[user.role] || ROLE_BY_ACCOUNT[user.username] || {};
-  return {
-    ...user,
-    roleLabel: presentation.roleLabel || user.role,
-    avatar: presentation.avatar || ''
-  };
+  return presentRoleUser(user);
 }
 
 function demoUserFor(account) {
-  const role = ROLE_BY_ACCOUNT[account];
+  const role = DEMO_ACCOUNTS[account];
   return role ? { username: account, ...role } : null;
 }
 

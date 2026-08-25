@@ -13,7 +13,7 @@
 
 > 2026-08-24 Agent 连续对话优化：提交 `17c8b1e`、`191dc6b` 已部署公网。复测清单/上下文追问路由、非动作问答不再被统一安全模板覆盖、Qwen 最近对话上下文、JWT 用户隔离的 PostgreSQL 持久化历史和网页“我的对话记录”均已验收。证据：Spring Boot 12/12、Web 68/68；公网连续三问均为 `openai-compatible`、`degraded=false` 且回答互不相同；API 重启后同一用户 6 条消息仍可读取，跨用户读取返回 HTTP 403；输出上限已调整为 512 tokens，清单不再截断。
 
-> 2026-08-24 账号管理公网部署：合并提交 `0151405935815d8300613434f82e7ac8a9a3c36d` 已构建并发布到 `/srv/agriloop`，API 重启后 Supervisor、PostgreSQL、Redis、MQTT、模拟器和 Qwen 服务均保持运行；Flyway v2/v3 已成功迁移。公网黑盒验证通过：管理员登录与 `/auth/me` 返回 200，身份不匹配返回 401 `AUTH_INVALID`，普通操作员注册返回 201 并仅一次返回恢复码；登录页的登录、注册、恢复表单已从公网入口加载。健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。
+> 2026-08-24 账号管理公网部署：合并提交 `0151405935815d8300613434f82e7ac8a9a3c36d` 已构建并发布到 `/srv/agriloop`，API 重启后 Supervisor、PostgreSQL、Redis、MQTT、模拟器和 Qwen 服务均保持运行；Flyway v2/v3 已成功迁移。公网黑盒验证通过：管理员登录与 `/auth/me` 返回 200，身份不匹配返回 401 `AUTH_INVALID`，种植农户注册返回 201 并仅一次返回恢复码；登录页的登录、注册、恢复表单已从公网入口加载。三角色收口与 V4 迁移将在本轮提交推送后复核。健康检查：`https://u558871-7873be733236.westd.seetacloud.com:8443/actuator/health`。
 
 > 2026-08-24 智能诊断与决策中枢：页面与闭环实现提交 `b0aefa9`、遥测跳变校准提交 `405930d` 已发布到公网。页面接入诊断、三类证据、四态就绪度、八道安全门、结构化处方、补证工单、人工审批、幂等虚拟命令、ACK/效果和决策护照；后端同时修复诊断安全门/角色权限一致性，以及正常光照波动被通用阈值误判为 `DEGRADED` 的问题。验收：Spring Boot 14/14，Web real 79/79、stub/svg 78/78；公网 smoke 返回 `WATER_DEFICIT -> READY`、重复事件幂等、失败命令效果 `INCONCLUSIVE`，专项反例返回 `SENSOR_DRIFT -> NEEDS_EVIDENCE / diagnosisSafety=FAIL / executable=false`。Qwen 返回 `adapter=openai-compatible`、`model=agriloop-qwen38-agri`、`degraded=false`；详见 [`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`](docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md)。
 
@@ -80,7 +80,7 @@
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
 - `feat/login-interface` 的独立登录页、`rium_dev` 的麦田/地形背景、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现、`lxh-frontend` 的农田监测/独立作物沙盘以及 `rium_dev-v2` 的时序、折叠栏和中心模块已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`；主界面最终采用毛玻璃，不启用液态高光层。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - “智能诊断与决策中枢”已从通用占位预览升级为真实接口驱动页面：相反证据与缺失证据不会被隐藏，安全门只阻断执行而不阻断解释和参考试算，漂移可直接生成补证工单，READY 处方经人工确认后显示 ACK 与效果状态。
-- 当前 `feat/login-interface` 已原位扩展账户生命周期：登录强制选择并校验四级身份；自助注册可选择种植农户或田间操作员，管理员身份继续要求系统授权；注册时一次性展示恢复码，密码重设会轮换恢复码并使旧 JWT 失效。身份选择改动已通过本地自动化、Web 三模式探针和远端黑盒验证，并已发布公网。
+- 当前 `yyx2` 已将账户生命周期收敛为三类身份：农场管理员、种植农户、系统管理员。登录强制选择并校验角色；自助注册仅创建种植农户，管理员身份继续要求系统授权；注册时一次性展示恢复码，密码重设会轮换恢复码并使旧 JWT 失效。旧 `FIELD_OPERATOR/operator` 数据在迁移时兼容转换为种植农户，登录页不再展示第四类身份。本地回归证据以本次三角色测试和 Web 探针为准；远程 `main` 推送完成后再记录远程提交哈希，GitHub 推送不等同于公网服务部署。
 - 可选后续工作：补充完整业务前端页面、答辩 PPT/录屏、专项压测和真实硬件适配；这些不计入本期后端完成声明。
 
 ## 3. 阶段门

@@ -287,7 +287,7 @@ python simulator/runner.py --scenario drought --seed 42 --mqtt --mqtt-host 127.0
 # 默认 60 个采样点 × 3 个地块 × 6 个指标 = 1,080 条可重复事件
 ```
 
-默认演示用户为 `farmer`、`operator`、`admin`、`sysadmin`；演示密码只在受控环境配置，不进入 Git。API 默认端口为 `8080`，登录后可使用 `/api/v1/overview`、`/api/v1/plots/{plotId}/telemetry`、`/api/v1/diagnoses/evaluate`、`/api/v1/irrigation/estimate`、`/api/v1/commands/virtual`、`/api/v1/events/stream` 等接口。
+默认演示用户为 `farmer`（种植农户）、`admin`（农场管理员）和 `sysadmin`（系统管理员）；演示密码只在受控环境配置，不进入 Git。API 默认端口为 `8080`，登录后可使用 `/api/v1/overview`、`/api/v1/plots/{plotId}/telemetry`、`/api/v1/diagnoses/evaluate`、`/api/v1/irrigation/estimate`、`/api/v1/commands/virtual`、`/api/v1/events/stream` 等接口。
 
 远端无 Docker/systemd 时，目标目录为 `/srv/agriloop`，使用 Supervisor：
 

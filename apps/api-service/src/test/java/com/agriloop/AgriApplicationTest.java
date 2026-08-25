@@ -28,15 +28,29 @@ class AgriApplicationTest {
 
     @Test
     void accountRoleSelectionIsVerifiedAndAdminSelfRegistrationIsBlocked() {
-        assertThat(engine.login("operator", "demo123", "FIELD_OPERATOR")).containsKey("accessToken");
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login("operator", "demo123", "FARM_ADMIN"))
+        assertThat(RolePolicy.canonical("FIELD_OPERATOR")).isEqualTo("FARMER");
+        assertThat(RolePolicy.canonical("operator")).isEqualTo("FARMER");
+        Map<String, Object> farmerLogin = engine.login("farmer", "demo123", "FARMER");
+        Map<String, Object> farmAdminLogin = engine.login("admin", "demo123", "FARM_ADMIN");
+        Map<String, Object> systemAdminLogin = engine.login("sysadmin", "demo123", "SYSTEM_ADMIN");
+        assertThat(farmerLogin).containsKey("accessToken");
+        assertThat(farmAdminLogin).containsKey("accessToken");
+        assertThat(systemAdminLogin).containsKey("accessToken");
+        assertThat(((Map<?, ?>) farmerLogin.get("user")).get("role")).isEqualTo("FARMER");
+        assertThat(((Map<?, ?>) farmAdminLogin.get("user")).get("role")).isEqualTo("FARM_ADMIN");
+        assertThat(((Map<?, ?>) systemAdminLogin.get("user")).get("role")).isEqualTo("SYSTEM_ADMIN");
+        assertThat(((Map<?, ?>) systemAdminLogin.get("user")).get("permissions").toString()).contains("platform:manage");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login("farmer", "demo123", "FARM_ADMIN"))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AUTH_INVALID"));
 
-        String username = "field" + System.nanoTime();
-        Map<String, Object> registration = engine.register(username, "FieldPass2026", "FIELD_OPERATOR");
-        assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FIELD_OPERATOR");
-        assertThat(engine.login(username, "FieldPass2026", "FIELD_OPERATOR")).containsKey("accessToken");
+        String username = "grower" + System.nanoTime();
+        Map<String, Object> registration = engine.register(username, "FieldPass2026", "FARMER");
+        assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FARMER");
+        assertThat(engine.login(username, "FieldPass2026", "FARMER")).containsKey("accessToken");
 
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("farmadmin" + System.nanoTime(), "AdminPass2026", "FARM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("admin" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("other" + System.nanoTime(), "OtherPass2026", "UNKNOWN"))
@@ -185,14 +199,14 @@ class AgriApplicationTest {
 
     @Test
     void strategyCannotSkipOfflineValidation() {
-        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
-        Map<String, Object> draft = engine.strategyCandidate(Map.of("name", "safe-threshold"), admin);
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("farm-demo"), List.of("*"));
+        Map<String, Object> draft = engine.strategyCandidate(Map.of("name", "safe-threshold"), systemAdmin);
         String id = String.valueOf(draft.get("candidateId"));
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionStrategy(id, "OFFLINE_VALIDATED", admin))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionStrategy(id, "OFFLINE_VALIDATED", systemAdmin))
                 .isInstanceOf(ApiException.class);
-        Map<String, Object> validated = engine.offlineValidateStrategy(id, Map.of("scenarioId", "drought", "seed", 7), admin);
+        Map<String, Object> validated = engine.offlineValidateStrategy(id, Map.of("scenarioId", "drought", "seed", 7), systemAdmin);
         assertThat(validated.get("status")).isEqualTo("OFFLINE_VALIDATED");
-        assertThat(engine.transitionStrategy(id, "APPROVED", admin).get("status")).isEqualTo("APPROVED");
+        assertThat(engine.transitionStrategy(id, "APPROVED", systemAdmin).get("status")).isEqualTo("APPROVED");
     }
 
     @Test
@@ -208,11 +222,12 @@ class AgriApplicationTest {
     @Test
     void scenarioSnapshotAndValueLedgerExposeExplicitUncertainty() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
-        Map<String, Object> run = engine.scenarioRun(Map.of("scenario", "drought", "scenarioId", "test-branch-snapshot", "seed", 9, "branchId", "NO_ACTION", "generateSample", true), admin);
-        Map<String, Object> snapshot = engine.scenarioSnapshot(String.valueOf(run.get("runId")), admin);
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("farm-demo"), List.of("*"));
+        Map<String, Object> run = engine.scenarioRun(Map.of("scenario", "drought", "scenarioId", "test-branch-snapshot", "seed", 9, "branchId", "NO_ACTION", "generateSample", true), systemAdmin);
+        Map<String, Object> snapshot = engine.scenarioSnapshot(String.valueOf(run.get("runId")), systemAdmin);
         assertThat(snapshot.get("readOnly")).isEqualTo(true);
         assertThat(((List<?>) snapshot.get("branchEvents")).size()).isGreaterThan(0);
-        Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "test-branch-snapshot", "leftBranch", "NO_ACTION", "rightBranch", "EXECUTE"), admin);
+        Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "test-branch-snapshot", "leftBranch", "NO_ACTION", "rightBranch", "EXECUTE"), systemAdmin);
         assertThat(compare.get("readOnly")).isEqualTo(true);
         assertThat(engine.valueLedger(Map.of("actualWaterLitres", 10), admin).get("status")).isEqualTo("INCOMPLETE");
     }
@@ -288,24 +303,24 @@ class AgriApplicationTest {
     @Test
     void agentHistoryIsPersistedAndStrictlyIsolatedByUser() {
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
-        UserPrincipal operator = new UserPrincipal("user-operator", "operator", "FIELD_OPERATOR", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal secondFarmer = new UserPrincipal("user-farmer-b", "farmer-b", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         String farmerConversation = "conversation-farmer-private";
-        String operatorConversation = "conversation-operator-private";
+        String secondFarmerConversation = "conversation-farmer-b-private";
 
         Map<String, Object> farmerAnswer = engine.agentChat(Map.of(
                 "message", "番茄现在需要关注什么", "plotId", "plot-a01", "conversationId", farmerConversation), farmer);
         engine.agentChat(Map.of(
-                "message", "今天有哪些农务", "plotId", "plot-a01", "conversationId", operatorConversation), operator);
+                "message", "今天有哪些农务", "plotId", "plot-a01", "conversationId", secondFarmerConversation), secondFarmer);
 
         List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
         assertThat(farmerMessages).hasSize(2);
         assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
         assertThat(engine.agentConversations(20, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
-        assertThat(engine.agentConversations(20, operator)).allMatch(item -> "user-operator".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, operator))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, secondFarmer))
                 .isInstanceOf(ApiException.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentRun(String.valueOf(farmerAnswer.get("traceId")), operator))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentRun(String.valueOf(farmerAnswer.get("traceId")), secondFarmer))
                 .isInstanceOf(ApiException.class);
     }
 }

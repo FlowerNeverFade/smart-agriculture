@@ -350,7 +350,7 @@ export const MOCK_DATA = {
       reason: "Crop Pack 营养生长期例行核验",
       priority: "MEDIUM",
       status: "ASSIGNED",
-      assigneeId: "user-operator",
+      assigneeId: "user-farmer",
       dueAt: new Date(Date.now() + 2.2 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
       provenance: "DERIVED"
@@ -366,7 +366,7 @@ export const MOCK_DATA = {
       reason: "开花坐果期标准农务",
       priority: "LOW",
       status: "IN_PROGRESS",
-      assigneeId: "user-operator",
+      assigneeId: "user-farmer",
       dueAt: new Date(Date.now() + 4.5 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
       provenance: "DERIVED"
@@ -382,7 +382,7 @@ export const MOCK_DATA = {
       reason: "设备新鲜度短时下降，需完成复测",
       priority: "MEDIUM",
       status: "DONE",
-      assigneeId: "user-operator",
+      assigneeId: "user-farmer",
       dueAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
       completedAt: new Date(Date.now() - 31 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
@@ -394,7 +394,7 @@ export const MOCK_DATA = {
     {
       inspectionId: "ins-demo-a01",
       plotId: "plot-a01",
-      operatorId: "user-operator",
+      operatorId: "user-farmer",
       observedAt: new Date(Date.now() - 70 * 60 * 1000).toISOString(),
       soilSurface: "DRY",
       cropCondition: "LEAF_SLIGHT_WILT",
@@ -683,7 +683,7 @@ export const MOCK_DATA = {
       time: "2026-08-20 10:15",
       tag: "Security",
       title: "RBAC 细粒度权限与决策护照全链路审计",
-      content: "提供系统管理员、农场主管、田间操作员三级隔离；每次建议保留完整 TraceId。"
+      content: "提供系统管理员、农场管理员、种植农户三级隔离；每次建议保留完整 TraceId。"
     }
   ],
 

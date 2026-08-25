@@ -9,7 +9,7 @@
 - 依赖：PostgreSQL 14、Redis 6、Mosquitto 2
 - API：`127.0.0.1:8080`，由 Nginx 6006 自定义服务代理
 - AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 优先，虚拟执行器：`virtual`
-- 演示账号：`farmer`、`operator`、`admin`、`sysadmin`，统一演示密码在受控环境中维护，不写入仓库。
+- 演示账号：`farmer`（种植农户）、`admin`（农场管理员）、`sysadmin`（系统管理员），统一演示密码在受控环境中维护，不写入仓库。
 
 ## 已复现证据
 

@@ -1,7 +1,53 @@
 import { api } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
+import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 
 const { createApp, ref, computed, onMounted, nextTick, watch, inject } = Vue;
+
+const NAV_CATALOG = Object.freeze([
+  { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
+  { id: 'decision-console', label: '智能决策', icon: 'psychology', labels: { FARMER: '智能建议', FARM_ADMIN: '决策审批', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
+  { id: 'work-orders', label: '农务工单', icon: 'task', labels: { FARMER: '农务记录', FARM_ADMIN: '任务调度', SYSTEM_ADMIN: '工单审计' } },
+  { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
+  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } }
+]);
+
+function scopePlots(plots, user) {
+  const catalog = Array.isArray(plots) ? plots : [];
+  const assigned = Array.isArray(user?.plotIds) ? user.plotIds.map(String) : [];
+  if (assigned.includes('*')) return catalog;
+  if (assigned.length) {
+    const allowed = new Set(assigned);
+    return catalog.filter((plot) => allowed.has(String(plot.plotId)));
+  }
+  return user?.role === 'FARMER' ? catalog.slice(0, 2) : catalog;
+}
+
+function mergeOverviewPlots(plots) {
+  return (Array.isArray(plots) ? plots : []).map((plot) => {
+    const fallback = MOCK_DATA.plots.find((item) => item.plotId === plot.plotId) || {};
+    const metrics = { ...(fallback.metrics || {}) };
+    Object.entries(plot.latest || {}).forEach(([code, event]) => {
+      if (!event || event.value === undefined) return;
+      metrics[code] = {
+        ...(metrics[code] || { label: code, target: '—' }),
+        value: event.value,
+        unit: event.unit || metrics[code]?.unit || '',
+        status: event.quality?.status === 'GOOD' ? 'NORMAL' : (event.quality?.status || metrics[code]?.status || 'NORMAL')
+      };
+    });
+    return {
+      ...fallback,
+      ...plot,
+      metrics,
+      deviceId: plot.device?.deviceId || fallback.deviceId,
+      deviceStatus: plot.device?.status || fallback.deviceStatus || 'UNKNOWN',
+      healthScore: plot.device?.healthScore ?? fallback.healthScore ?? 0,
+      lastSeen: plot.device?.lastSeen || fallback.lastSeen || '暂无心跳'
+    };
+  });
+}
 
 // 1. Define Components
 const DashboardView = {
@@ -9,15 +55,22 @@ const DashboardView = {
   props: ['state', 'routeParams'],
   setup(props, { emit }) {
     const toast = inject('toast');
+    const visibleActions = (actions = []) => actions.filter((action) => {
+      if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
+      if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
+      return true;
+    });
     const handleAction = (action) => {
       if (action.action === 'open-subview') {
         // [INTERCONNECTIVITY] Navigate with context payload
         emit('navigate', action.view, { highlight: 'diagnosis' });
+      } else if (action.action === 'execute-irrigation' && !roleCan(props.state.currentUser, 'irrigation:approve')) {
+        toast('当前身份只能提交建议，灌溉执行需由农场管理员审批', 'error');
       } else {
         toast('执行成功: ' + action.label);
       }
     };
-    return { handleAction };
+    return { handleAction, visibleActions };
   }
 };
 
@@ -81,7 +134,17 @@ const DecisionConsoleView = {
     // Modals
     const showPassportModal = ref(false);
     const showDualTrackModal = ref(false);
+    const canApproveIrrigation = computed(() => roleCan(props.state.currentUser, 'irrigation:approve'));
     let dualChart = null;
+
+    const openExecution = () => {
+      if (canApproveIrrigation.value) {
+        showDualTrackModal.value = true;
+        return;
+      }
+      toast('灌溉建议已提交给农场管理员审批');
+      emit('navigate', 'work-orders', { highlight: 'approval-request' });
+    };
 
     watch(showDualTrackModal, async (newVal) => {
       if (newVal) {
@@ -121,6 +184,11 @@ const DecisionConsoleView = {
     });
 
     const confirmExecution = () => {
+      if (!canApproveIrrigation.value) {
+        showDualTrackModal.value = false;
+        toast('当前身份没有灌溉执行权限', 'error');
+        return;
+      }
       showDualTrackModal.value = false;
       toast('下行控制指令已下发执行');
       
@@ -140,7 +208,7 @@ const DecisionConsoleView = {
     return { 
       diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, confirmExecution 
+      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution
     };
   }
 };
@@ -252,6 +320,7 @@ const WorkOrdersView = {
   props: ['state', 'routeParams'],
   setup(props, { emit }) {
     const toast = inject('toast');
+    const canRecordInspection = computed(() => roleCan(props.state.currentUser, 'inspection:create'));
     
     // [INTERCONNECTIVITY] Highlight logic for new order
     const highlightNewOrder = ref(false);
@@ -272,6 +341,10 @@ const WorkOrdersView = {
     });
 
     const submitInspection = () => {
+      if (!canRecordInspection.value) {
+        toast('当前身份只能查看工单，不能提交巡田记录', 'error');
+        return;
+      }
       if (!form.value.soilSurface || !form.value.portableSoilMoisture) {
         toast('请填写必填项', 'error');
         return;
@@ -309,7 +382,7 @@ const WorkOrdersView = {
       form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
     };
 
-    return { showFormModal, form, submitInspection, highlightNewOrder };
+    return { showFormModal, form, submitInspection, highlightNewOrder, canRecordInspection };
   }
 };
 
@@ -393,26 +466,16 @@ const app = createApp({
         toasts.value = toasts.value.filter(t => t.id !== id);
       }, 3000);
     };
-    const navItems = [
-      { id: 'dashboard', label: '农智总览', icon: 'dashboard' },
-      { id: 'decision-console', label: '决策沙盘', icon: 'psychology' },
-      { id: 'risk-forecast', label: '风险推演', icon: 'timeline' },
-      { id: 'work-orders', label: '农务工单', icon: 'task' },
-      { id: 'crop-packs', label: '作物模型', icon: 'library_books' },
-      { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet' }
-    ];
-
-    const initialView = window.location.hash ? window.location.hash.substring(1) : 'dashboard';
-    const currentView = ref(navItems.some(n => n.id === initialView) ? initialView : 'dashboard');
-    const routeParams = ref({}); // [INTERCONNECTIVITY] Global route state
-
-    const currentViewComponent = computed(() => `${currentView.value}-view`);
+    const session = api.readSession();
+    const sessionUser = presentRoleUser(session?.user);
+    const initialUser = sessionUser || presentRoleUser(MOCK_DATA.currentUser);
 
     // Reactive State representing all the data originally rendered manually
     const state = ref({
-      currentUser: MOCK_DATA.currentUser,
+      currentUser: initialUser,
+      allowedViews: roleViews(initialUser),
       farms: MOCK_DATA.farms,
-      plots: MOCK_DATA.plots,
+      plots: scopePlots(MOCK_DATA.plots, initialUser),
       feedItems: MOCK_DATA.feedItems,
       workOrders: MOCK_DATA.workOrders,
       inspections: MOCK_DATA.inspections,
@@ -421,6 +484,19 @@ const app = createApp({
       riskForecastConfig: MOCK_DATA.riskForecastConfig,
       valueLedger: MOCK_DATA.valueLedger
     });
+
+    const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
+    const navItems = computed(() => {
+      const allowed = new Set(state.value.allowedViews);
+      return NAV_CATALOG
+        .filter((item) => allowed.has(item.id))
+        .map((item) => ({ ...item, label: item.labels?.[currentRole.value.code] || item.label }));
+    });
+    const initialView = window.location.hash ? window.location.hash.substring(1) : currentRole.value.defaultView;
+    const currentView = ref(state.value.allowedViews.includes(initialView) ? initialView : currentRole.value.defaultView);
+    const routeParams = ref({}); // [INTERCONNECTIVITY] Global route state
+
+    const currentViewComponent = computed(() => `${currentView.value}-view`);
 
     const toggleTheme = () => {
       isDark.value = !isDark.value;
@@ -440,6 +516,10 @@ const app = createApp({
     };
 
     const navigate = (viewId, params = {}) => {
+      if (!state.value.allowedViews.includes(viewId)) {
+        showToast(`“${NAV_CATALOG.find((item) => item.id === viewId)?.label || viewId}”不在${currentRole.value.label}的权限范围内`, 'error');
+        return;
+      }
       currentView.value = viewId;
       routeParams.value = params;
       window.location.hash = viewId;
@@ -447,13 +527,14 @@ const app = createApp({
 
     window.addEventListener('hashchange', () => {
       const hash = window.location.hash.substring(1);
-      if (hash && navItems.some(n => n.id === hash)) {
+      if (hash && state.value.allowedViews.includes(hash)) {
         currentView.value = hash;
+      } else if (hash) {
+        window.location.hash = state.value.allowedViews[0] || 'dashboard';
       }
     });
 
     onMounted(async () => {
-      const session = api.readSession();
       if (!session) {
         window.location.replace('login.html');
         return;
@@ -465,6 +546,25 @@ const app = createApp({
         document.documentElement.style.colorScheme = 'dark';
       }
       isLive.value = await api.checkHealth();
+      if (isLive.value && session.mode === 'live') {
+        const restoredUser = await api.restoreSession();
+        if (!restoredUser) {
+          window.location.replace('login.html');
+          return;
+        }
+        state.value.currentUser = presentRoleUser(restoredUser);
+        state.value.allowedViews = roleViews(state.value.currentUser);
+      }
+      state.value.plots = scopePlots(MOCK_DATA.plots, state.value.currentUser);
+      if (isLive.value && session.mode === 'live') {
+        try {
+          const overview = await api.getOverview();
+          if (Array.isArray(overview?.plots)) state.value.plots = scopePlots(mergeOverviewPlots(overview.plots), state.value.currentUser);
+        } catch (error) {
+          showToast('读取角色范围内的地块失败：' + error.message, 'error');
+        }
+      }
+      if (!state.value.allowedViews.includes(currentView.value)) navigate(currentRole.value.defaultView);
     });
 
     // Provide toast globally
@@ -474,6 +574,7 @@ const app = createApp({
       isLive,
       isDark,
       isSidebarOpen,
+      currentRole,
       navItems,
       currentView,
       currentViewComponent,

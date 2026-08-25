@@ -149,6 +149,11 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   height: auto;
 }
 
+.brand-logo--transparent {
+  background: transparent;
+  object-fit: contain;
+}
+
 .topbar__meta {
   color: rgba(23, 51, 39, .84);
   font-size: 12px;

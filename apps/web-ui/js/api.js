@@ -7,6 +7,7 @@
  * UI instead of being silently presented as real data.
  */
 import { MOCK_DATA } from './mock-data.js';
+import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
@@ -40,7 +41,7 @@ export class ApiService {
   readStoredUser() {
     try {
       const raw = localStorage.getItem('agriloop_user');
-      return raw ? JSON.parse(raw) : null;
+      return raw ? presentRoleUser(JSON.parse(raw)) : null;
     } catch (e) {
       localStorage.removeItem('agriloop_user');
       return null;
@@ -100,14 +101,15 @@ export class ApiService {
     const resp = await this._fetch('/api/v1/auth/me');
     const user = resp?.data || resp;
     if (user) {
-      this.user = user;
-      localStorage.setItem('agriloop_user', JSON.stringify(user));
+      this.user = presentRoleUser(user);
+      localStorage.setItem('agriloop_user', JSON.stringify(this.user));
     }
     return user;
   }
 
   saveSession({ mode, token = '', user }) {
-    if (!user?.username || !user?.role || !['live', 'demo'].includes(mode)) {
+    const normalizedUser = presentRoleUser(user);
+    if (!normalizedUser?.username || !normalizedUser?.role || !isPublicRole(normalizedUser.role) || !['live', 'demo'].includes(mode)) {
       throw new ApiError('会话数据无效', { code: 'SESSION_INVALID' });
     }
     if (mode === 'live' && !token) {
@@ -115,8 +117,8 @@ export class ApiService {
     }
     this.sessionMode = mode;
     this.token = mode === 'live' ? token : '';
-    this.user = user;
-    localStorage.setItem('agriloop_user', JSON.stringify(user));
+    this.user = normalizedUser;
+    localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
     localStorage.setItem('agriloop_session_mode', mode);
     if (this.token) localStorage.setItem('agriloop_token', this.token);
     else localStorage.removeItem('agriloop_token');
@@ -125,8 +127,8 @@ export class ApiService {
   readSession() {
     const mode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     const token = localStorage.getItem('agriloop_token') || '';
-    const user = this.readStoredUser();
-    if (!user?.username || !user?.role) return null;
+    const user = presentRoleUser(this.readStoredUser());
+    if (!user?.username || !user?.role || !isPublicRole(user.role)) return null;
     if (mode === 'live' && token) return { mode, token, user };
     if (mode === 'demo' && !token) return { mode, token: '', user };
     return null;
@@ -342,7 +344,7 @@ export class ApiService {
     return {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
-      operatorId: this.user?.userId || 'demo-operator',
+      operatorId: this.user?.userId || 'demo-farmer',
       observedAt: inspection.observedAt || new Date().toISOString(),
       provenance: 'USER_PROVIDED',
       sourceType: 'HUMAN_OBSERVATION'
@@ -606,7 +608,7 @@ export class ApiService {
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
     const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
     const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
-    const canControl = ['FARM_ADMIN', 'SYSTEM_ADMIN', 'FIELD_OPERATOR'].includes(this.user?.role);
+    const canControl = roleCan(this.user, 'irrigation:approve');
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
@@ -667,7 +669,7 @@ export class ApiService {
     const status = plan.readinessStatus || 'HUMAN_REVIEW';
     const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
     const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
-    const canControl = ['FARM_ADMIN', 'SYSTEM_ADMIN', 'FIELD_OPERATOR'].includes(this.user?.role);
+    const canControl = roleCan(this.user, 'irrigation:approve');
     const hardGates = {
       requiredMetrics: 'PASS',
       freshness: deviceOffline ? 'FAIL' : 'PASS',
@@ -748,6 +750,9 @@ export class ApiService {
   }
 
   async executeIrrigation(planId, plotId, options = {}) {
+    if (!roleCan(this.user, 'irrigation:approve')) {
+      throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
     if (this.isLive) {
       const resp = await this._fetch('/api/v1/commands/virtual', {
         method: 'POST',

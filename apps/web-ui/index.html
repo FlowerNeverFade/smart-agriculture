@@ -35,7 +35,7 @@
     <header class="g-header">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar"><span class="material-symbols-outlined">menu</span></button>
-        <img src="assets/brand/logo.png" height="32" alt="AgriLoop" style="border-radius:4px">
+        <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
         <span class="g-header-title">AgriLoop Console</span>
       </div>
       <div class="g-header-right">
@@ -45,8 +45,11 @@
           {{ isLive ? '系统在线 (UP)' : '仿真态 (MOCK)' }}
         </span>
         <div class="flex items-center gap-2 ml-2">
-          <img :src="state.currentUser.avatar" style="width:32px; height:32px; border-radius:50%; background:var(--g-bg-subtle)">
-          <span style="font-weight:500">{{ state.currentUser.username }}</span>
+          <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
+          <span class="g-user-identity">
+            <strong>{{ state.currentUser.username }}</strong>
+            <small>{{ state.currentUser.roleLabel }}</small>
+          </span>
         </div>
       </div>
     </header>
@@ -82,7 +85,10 @@
   <template id="tmpl-dashboard">
     <div>
       <div class="flex justify-between items-center mb-4">
-        <h2>农智总览 Dashboard</h2>
+        <div>
+          <h2>{{ state.currentUser.roleLabel }} · 工作台</h2>
+          <p class="role-summary">{{ state.currentUser.roleDescription }}</p>
+        </div>
         <span class="g-badge primary">{{ state.farms[0].name }} · {{ state.farms[0].region }}</span>
       </div>
       
@@ -130,7 +136,7 @@
             <p class="text-muted mt-2" style="font-size:13px">{{ feed.summary }}</p>
             
             <div class="feed-actions">
-              <button v-for="(act, idx) in feed.actions" :key="idx" 
+              <button v-for="(act, idx) in visibleActions(feed.actions)" :key="idx"
                       class="g-btn" :class="act.type === 'primary' ? 'primary' : 'secondary'"
                       @click="handleAction(act)">
                 {{ act.label }}
@@ -212,7 +218,7 @@
             </ul>
 
             <div class="flex gap-2">
-              <button class="g-btn primary" style="flex:1" @click="showDualTrackModal = true">
+              <button class="g-btn primary" style="flex:1" @click="openExecution">
                 <span class="material-symbols-outlined">bolt</span> 虚拟执行 (What-if)
               </button>
               <button class="g-btn secondary" @click="showPassportModal = true">
@@ -388,7 +394,8 @@
     <div>
       <div class="flex justify-between items-center mb-4">
         <h2>工单流转与人机协同 (Work Orders & Inspections)</h2>
-        <button class="g-btn primary" @click="showFormModal = true">+ 录入巡田记录</button>
+        <button v-if="canRecordInspection" class="g-btn primary" @click="showFormModal = true">+ 录入巡田记录</button>
+        <span v-else class="text-muted">当前身份可查看工单，巡田记录由授权人员提交</span>
       </div>
       
       <div class="g-grid g-grid-3 mb-4">

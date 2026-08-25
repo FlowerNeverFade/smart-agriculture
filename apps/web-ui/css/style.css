@@ -97,8 +97,13 @@ body {
   z-index: 100;
 }
 .g-header-left { display: flex; align-items: center; gap: 12px; }
+.g-brand-logo { width: 92px; height: 28px; object-fit: contain; object-position: left center; }
 .g-header-title { font-size: 20px; color: var(--g-text-secondary); font-weight: 500; }
 .g-header-right { display: flex; align-items: center; gap: 16px; }
+.g-user-avatar { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--g-bg-subtle); font-size: 18px; }
+.g-user-identity { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
+.g-user-identity strong { font-size: 13px; font-weight: 500; }
+.g-user-identity small { color: var(--g-text-secondary); font-size: 11px; }
 
 .g-body { display: flex; flex: 1; overflow: hidden; }
 
@@ -191,6 +196,7 @@ body {
 /* Typography */
 h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .text-muted { color: var(--g-text-secondary); font-size: 13px; }
+.role-summary { margin-top: 6px; color: var(--g-text-secondary); font-size: 13px; line-height: 1.5; }
 
 /* Grids */
 .g-grid { display: grid; gap: 24px; }
