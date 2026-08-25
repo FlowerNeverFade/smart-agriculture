@@ -199,13 +199,36 @@ function mergeOverviewPlots(plots) {
   });
 }
 
+// Telemetry and device heartbeats are useful to live data views, but they are
+// intentionally not user notifications.  The simulator emits a batch of
+// these events every second, so surfacing each one as a toast makes the admin
+// workbench unusable while adding no actionable information.
+const SILENT_SYSTEM_EVENT_TYPES = new Set([
+  'telemetry.received',
+  'device.heartbeat',
+  'scenario.telemetry'
+]);
+
+function systemEventType(event) {
+  return String(event?.data?.eventType || event?.type || 'system').trim().toLowerCase();
+}
+
 function presentSystemEvent(event) {
   const payload = event?.data?.payload || event?.data || {};
-  const type = event?.data?.eventType || event?.type || 'system';
+  const type = systemEventType(event);
   const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
   const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
-  const title = payload.title || payload.summary || payload.message || `${type} 事件已到达`;
-  return { id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`, category, icon, title, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), traceId: payload.traceId };
+  const title = payload.title || payload.summary || payload.message || (SILENT_SYSTEM_EVENT_TYPES.has(type) ? '实时数据已更新' : `${type} 事件已到达`);
+  return {
+    id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`,
+    type,
+    category,
+    icon,
+    title,
+    silent: SILENT_SYSTEM_EVENT_TYPES.has(type),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    traceId: payload.traceId
+  };
 }
 
 // 1. Define Components
@@ -1542,6 +1565,7 @@ const app = createApp({
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     
     const toasts = ref([]);
+    const seenSystemEventIds = new Set();
     
     const showToast = (message, type = 'success') => {
       const id = Date.now() + Math.random();
@@ -1842,6 +1866,18 @@ const app = createApp({
           await api.subscribeEvents((event) => {
             if (event.type === 'connected' || event.type === 'heartbeat') return;
             const systemEvent = presentSystemEvent(event);
+            const eventId = String(event?.data?.eventId || '').trim();
+            if (eventId) {
+              if (seenSystemEventIds.has(eventId)) return;
+              seenSystemEventIds.add(eventId);
+              // Keep the dedupe set bounded during a long-running dashboard
+              // session; event IDs are only needed for the recent window.
+              if (seenSystemEventIds.size > 256) {
+                const oldest = seenSystemEventIds.values().next().value;
+                if (oldest) seenSystemEventIds.delete(oldest);
+              }
+            }
+            if (systemEvent.silent) return;
             state.value.adminOverview.recentEvents.unshift(systemEvent);
             state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
             showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
