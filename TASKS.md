@@ -60,7 +60,7 @@
 | T-038 | P1 | 完整决策护照：来源、预测、就绪度、工具、安全、人工动作、执行、效果、价值 | 项目组 | — | D12/D13 | 已完成（后端） | `/decision-passports/{traceId}` |
 | T-039 | P2 | 策略候选 DRAFT->OFFLINE_VALIDATED->APPROVED->ACTIVE/ROLLBACK 工作流 | 项目组 | — | D15+ | 已完成（后端） | 离线验证接口、状态机、禁止跳过验证 |
 | T-040 | P0 | main 版本公网部署与 OpenAI-compatible Qwen 接入 | 项目组 | — | D15+ | 已完成（远端验收） | `08a7b90` 代码整合、AutoDL 6006 自定义服务 `/agriloop/`、`degraded=false` Qwen Agent 黑盒证据、LoRA v3 回归 |
-| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 与 `rium_dev-v2` 已逐项比较并合入；2026-08-25 农务功能分支再次同步 `origin/main@095e256`，真实浏览器验证最新 Home、浅色农务沙盘、水资源入口且无控制台错误；旧分支冲突取舍、`quhl`/设计文档分支/`task5` 排除均有记录 |
+| T-041 | P0 | 分支前端对比、合并与回归验收 | 项目组 | — | D15+ | 已完成 | `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 与 `rium_dev-v2` 已逐项比较并合入；2026-08-25 农务功能分支再次同步 `origin/main@095e256`，真实浏览器验证最新 Home、浅色农务沙盘和水资源入口，无运行时错误，仅有非阻断的 Three.js `Clock` 弃用提示；旧分支冲突取舍、`quhl`/设计文档分支/`task5` 排除均有记录 |
 | T-042 | P1 | 增量合并农务执行、水务 Shader、透明农田沙盘与巡田交互 | 前端 | — | D15+ | 已完成 | `apps/web-ui/FARM_OPERATIONS.md`；透明农田沙盘结构和动画保持不变，浅色主题使用浅绿色底面及浅色任务面板；水球已移入余量卡片资源位，网格背景按昼夜主题移动，效果和资源数据明确标记为 SIMULATED；本地 Chromium、Node 三模式和公网发布验证通过 |
 | T-043 | P0 | 优化 Agent 连续问答并增加账号级持久化对话历史 | 项目组 | — | D15+ | 已完成 | `17c8b1e`/`191dc6b`；本地 Spring 12/12、Web 68/68；公网三问回答互异且无降级，API 重启后 6 条历史仍在，跨用户读取 403 |
 | T-044 | P0 | 完成智能诊断与决策中枢前端闭环及就绪度一致性修复 | 项目组 | — | D15+ | 已完成（公网验收） | `b0aefa9`/`405930d`、`docs/acceptance/DECISION_CONSOLE_ACCEPTANCE.md`；Spring 14/14，Web real 79/79、stub/svg 78/78；公网 READY/漂移阻断/命令幂等/护照/Qwen 对话均通过 |
