@@ -2,12 +2,9 @@
 -- The old operator account is retained as a farmer account by this
 -- non-destructive migration; the login UI no longer exposes the old role.
 UPDATE user_account
-SET role_code = 'FARMER'
-WHERE UPPER(TRIM(role_code)) IN ('FIELD_OPERATOR', 'OPERATOR');
-
-UPDATE user_account
-SET plot_ids = 'plot-a01,plot-a02'
-WHERE LOWER(username) = 'operator';
+SET role_code = 'FARMER', plot_ids = 'plot-a01,plot-a02'
+WHERE UPPER(TRIM(role_code)) IN ('FIELD_OPERATOR', 'OPERATOR')
+   OR (LOWER(username) = 'operator' AND UPPER(TRIM(role_code)) = 'FARMER');
 
 UPDATE user_account
 SET role_code = 'FARMER', plot_ids = 'plot-a01,plot-a02'
