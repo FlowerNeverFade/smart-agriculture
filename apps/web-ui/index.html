@@ -687,7 +687,7 @@
             <div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div>
           </div>
         </div>
-        <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
+        <div class="admin-metric-card">
           <div class="admin-metric-icon green">
             <span class="material-symbols-outlined">schedule</span>
           </div>
@@ -697,7 +697,7 @@
             <div class="admin-metric-sub">API v{{ state.adminOverview.apiVersion }}</div>
           </div>
         </div>
-        <div class="admin-metric-card">
+        <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'">
             <span class="material-symbols-outlined">smart_toy</span>
           </div>
