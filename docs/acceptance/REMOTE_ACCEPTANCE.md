@@ -48,8 +48,8 @@
 
 ## 本轮 GitHub 仓库交付（非公网部署）
 
-- 本轮三角色收口提交：`ce98679ca3a6d0ba47b69eed54de9926b27664b6`。
-- `https://github.com/FlowerNeverFade/smart-agriculture` 的 `refs/heads/main` 已由旧提交替换为该提交，并通过 `git ls-remote` 核对。
+- 本轮三角色收口实现提交：`ce98679ca3a6d0ba47b69eed54de9926b27664b6`；迁移加固提交：`6e0b1db`。
+- `https://github.com/FlowerNeverFade/smart-agriculture` 的 `refs/heads/main` 已包含上述提交，并在迁移加固后通过 `git ls-remote` 核对。
 - 该记录只证明仓库分支已更新；不会把 GitHub 推送描述为 `/srv/agriloop` 公网服务已部署。公网验收记录仍以对应部署提交和单独复跑为准。
 
 ## 自动化测试
