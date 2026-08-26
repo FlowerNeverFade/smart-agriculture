@@ -171,8 +171,9 @@
                      @context-changed="handleContextChanged"></component>
         </transition>
 
-        <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
-                           @close="closePlotDetail" @navigate="navigateFromPlotDetail"></plot-detail-modal>
+        <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders" :state="state"
+                           @close="closePlotDetail" @navigate="navigateFromPlotDetail"
+                           @data-invalidated="handleDataInvalidated"></plot-detail-modal>
 
         <div v-if="showAccountModal" class="account-security-overlay" @click.self="closeAccountModal">
           <form class="account-security-card" @submit.prevent="changePassword">
@@ -456,6 +457,50 @@
               </div>
             </section>
 
+            <section class="plot-detail-section plot-simulation-section" aria-labelledby="plot-simulation-title">
+              <div class="plot-detail-section-heading">
+                <div>
+                  <h3 id="plot-simulation-title">地块模拟策略</h3>
+                  <p class="plot-section-hint">每块地独立生效；参数调整会立即刷新预测预览，保存后由服务器模拟器热加载。</p>
+                </div>
+                <span class="plot-simulation-badge" :class="simulationDeviceTone">{{ simulationDeviceLabel }}</span>
+              </div>
+              <div class="plot-device-binding-row">
+                <span><i :class="hardwareTone"></i>硬件：{{ hardwareLabel }}</span>
+                <span><i :class="simulatorTone"></i>模拟器：{{ simulatorDeviceLabel }}</span>
+                <small v-if="hardwareLastSeen">最近硬件数据 {{ hardwareLastSeen }}</small>
+              </div>
+              <div class="plot-simulation-scenarios" role="group" aria-label="选择地块模拟场景">
+                <button v-for="scenario in simulationScenarioOptions" :key="scenario.code" type="button"
+                        class="plot-simulation-scenario" :class="{active: simulationForm.scenario === scenario.code}"
+                        @click="selectSimulationScenario(scenario.code)" :disabled="!canConfigureSimulation">
+                  <span class="plot-simulation-emoji">{{ scenario.emoji }}</span>
+                  <span><strong>{{ scenario.label }}</strong><small>{{ scenario.description || scenario.desc }}</small></span>
+                </button>
+              </div>
+              <div class="plot-simulation-parameters" v-if="simulationFields.length">
+                <label v-for="field in simulationFields" :key="field.key" class="plot-simulation-field">
+                  <span><b>{{ field.label }}</b><small>{{ field.help }}</small></span>
+                  <span class="plot-simulation-control">
+                    <input type="range" :min="field.min" :max="field.max" :step="field.step" v-model.number="simulationForm.parameters[field.key]" :disabled="!canConfigureSimulation">
+                    <input type="number" :min="field.min" :max="field.max" :step="field.step" v-model.number="simulationForm.parameters[field.key]" :aria-label="field.label" :disabled="!canConfigureSimulation">
+                    <em>{{ field.unit }}</em>
+                  </span>
+                </label>
+              </div>
+              <div class="plot-simulation-chart-wrap">
+                <div class="plot-simulation-chart-head"><span>土壤湿度：历史 + 策略预测</span><small>鼠标悬停查看局部数据</small></div>
+                <div ref="simulationChartEl" class="plot-simulation-chart" role="img" aria-label="地块模拟策略曲线"></div>
+                <p class="plot-simulation-note">{{ simulationPreviewMessage }}</p>
+              </div>
+              <div class="plot-simulation-actions" v-if="canConfigureSimulation">
+                <button type="button" class="g-btn secondary" :disabled="simulationBusy" @click="resetSimulation('HISTORY')">重置历史曲线</button>
+                <button type="button" class="g-btn secondary" :disabled="simulationBusy" @click="resetSimulation('FORECAST')">重置预测曲线</button>
+                <button type="button" class="g-btn primary" :disabled="simulationBusy" @click="saveSimulation">{{ simulationBusy ? '正在同步…' : '保存到此地块' }}</button>
+              </div>
+              <p v-else class="plot-simulation-readonly">当前身份可查看策略和曲线；策略修改由农场管理员或系统管理员执行。</p>
+            </section>
+
             <section class="plot-plain-issue" :class="`is-${issueSummary.tone}`" aria-labelledby="plot-detail-issue-title">
               <app-icon :name="issueSummary.tone === 'normal' ? 'check_circle' : 'warning_amber'"></app-icon>
               <div><h3 id="plot-detail-issue-title">{{ issueSummary.title }}</h3><p>{{ issueSummary.detail }}</p></div>
@@ -681,6 +726,11 @@
               综合地块含水率推演模型
             </h3>
             <span class="g-badge primary">初始基线：{{ currentPlotBaseMoisture }}%</span>
+            <div class="risk-forecast-actions">
+              <button v-if="canConfigureSimulation && forecast?.status === 'RESET'" type="button" class="g-btn text" @click="loadForecast" :disabled="loading">重新生成预测</button>
+              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="resetForecast('FORECAST')" :disabled="loading">重置预测曲线</button>
+              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="openPlotSettings">调整地块策略</button>
+            </div>
           </div>
           <div id="riskChart" style="width: 100%; height: 450px;"></div>
         </div>
@@ -697,7 +747,7 @@
               <div class="text-muted" style="font-size:12px; margin-bottom:8px">{{ scenario.desc }}</div>
               <div class="flex justify-between items-center">
                 <span class="g-badge" style="background:var(--g-bg-base); border:1px solid var(--g-border-subtle)">
-                  衰减倍率: {{ scenario.decayFactor }}x
+                  {{ scenario.description || scenario.desc }}
                 </span>
                 <span v-if="scenario.ttrMinutes" class="g-badge" :style="{backgroundColor: scenario.color, color:'#fff'}">
                   TTR: {{ scenario.ttrMinutes }}m

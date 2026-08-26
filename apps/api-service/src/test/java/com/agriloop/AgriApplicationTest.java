@@ -984,6 +984,148 @@ class AgriApplicationTest {
     }
 
     @Test
+    void plotSimulationStrategiesAreIndependentAndResetKeepsHardwareTelemetry() {
+        String suffix = String.valueOf(System.nanoTime());
+        String droughtPlot = "plot-sim-drought-" + suffix;
+        String rainPlot = "plot-sim-rain-" + suffix;
+        for (String plotId : List.of(droughtPlot, rainPlot)) {
+            store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                    "plotId", plotId, "farmId", "farm-demo", "name", plotId,
+                    "status", "ACTIVE", "cropCode", "tomato", "cropName", "番茄",
+                    "stageCode", "fruiting", "stageLabel", "结果期", "cropPackVersion", "1.0.0")));
+        }
+        UserPrincipal systemAdmin = new UserPrincipal("user-system-simulation", "sysadmin", "SYSTEM_ADMIN",
+                List.of("farm-demo"), List.of("*"));
+
+        Map<String, Object> drought = engine.updatePlotSimulation(droughtPlot, Map.of(
+                "scenario", "DROUGHT", "parameters", Map.of("volatility", 2.4, "soilMoistureTrendPerHour", -5.0)), systemAdmin);
+        Map<String, Object> heavyRain = engine.updatePlotSimulation(rainPlot, Map.of(
+                "scenario", "HEAVY_RAIN", "parameters", Map.of("rainfallRate", 55.0)), systemAdmin);
+        assertThat(drought).containsEntry("scenario", "DROUGHT");
+        assertThat(heavyRain).containsEntry("scenario", "HEAVY_RAIN");
+        assertThat(Jsons.number(Jsons.map(new ObjectMapper(), drought.get("parameters")), "soilMoistureTrendPerHour", 0))
+                .isEqualTo(-5.0);
+        assertThat(Jsons.number(Jsons.map(new ObjectMapper(), heavyRain.get("parameters")), "rainfallRate", 0))
+                .isEqualTo(55.0);
+        assertThat(engine.plotSimulation(droughtPlot, systemAdmin).get("scenario")).isEqualTo("DROUGHT");
+        assertThat(engine.plotSimulation(rainPlot, systemAdmin).get("scenario")).isEqualTo("HEAVY_RAIN");
+
+        String simulatedEvent = "sim-reset-" + suffix;
+        String realEvent = "real-preserve-" + suffix;
+        engine.ingest(Map.ofEntries(Map.entry("eventId", simulatedEvent), Map.entry("farmId", "farm-demo"), Map.entry("plotId", droughtPlot),
+                Map.entry("deviceId", "mock-" + droughtPlot), Map.entry("metric", "SOIL_MOISTURE"), Map.entry("value", 41.0), Map.entry("unit", "%"),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("dataOrigin", "SIMULATOR"), Map.entry("scenarioId", "drought"), Map.entry("ts", Instant.now().toString())));
+        engine.ingest(Map.ofEntries(Map.entry("eventId", realEvent), Map.entry("farmId", "farm-demo"), Map.entry("plotId", droughtPlot),
+                Map.entry("deviceId", "bearpi-e53"), Map.entry("metric", "SOIL_MOISTURE"), Map.entry("value", 40.5), Map.entry("unit", "%"),
+                Map.entry("sourceMode", "REAL"), Map.entry("dataOrigin", "HARDWARE"), Map.entry("scenarioId", "hardware"), Map.entry("ts", Instant.now().plusMillis(10).toString())));
+
+        Map<String, Object> reset = engine.resetPlotSimulation(droughtPlot, "HISTORY", systemAdmin);
+        assertThat(reset).containsEntry("hardwareTelemetryPreserved", true).containsEntry("resetTarget", "HISTORY");
+        assertThat(store.telemetry(droughtPlot, "SOIL_MOISTURE", Instant.EPOCH, Instant.now().plusSeconds(5), 100))
+                .anySatisfy(event -> assertThat(event).containsEntry("eventId", realEvent)
+                        .containsEntry("sourceMode", "REAL"))
+                .noneMatch(event -> simulatedEvent.equals(event.get("eventId")));
+    }
+
+    @Test
+    void strategyAwareForecastCurvesMoveInOppositeDirections() {
+        String plotId = "plot-sim-forecast-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期",
+                "cropPackVersion", "1.0.0", "metrics", Map.of("SOIL_MOISTURE", Map.of("value", 45.0, "unit", "%")))));
+        Instant start = Instant.now().minusSeconds(8 * 60L);
+        for (int i = 0; i < 8; i++) {
+            engine.ingest(Map.of("eventId", "sim-forecast-" + plotId + "-" + i, "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 45.0, "unit", "%",
+                    "sourceMode", "SIMULATION", "scenarioId", "normal", "ts", start.plusSeconds(i * 60L).toString()));
+        }
+        UserPrincipal admin = new UserPrincipal("user-system-forecast", "sysadmin", "SYSTEM_ADMIN",
+                List.of("farm-demo"), List.of("*"));
+        engine.updatePlotSimulation(plotId, Map.of("scenario", "DROUGHT"), admin);
+        Map<String, Object> drought = engine.forecast(plotId, "SOIL_MOISTURE");
+        engine.updatePlotSimulation(plotId, Map.of("scenario", "HEAVY_RAIN"), admin);
+        Map<String, Object> rain = engine.forecast(plotId, "SOIL_MOISTURE");
+        List<Map<String, Object>> droughtCurve = Jsons.maps(new ObjectMapper(), drought.get("curve"));
+        List<Map<String, Object>> rainCurve = Jsons.maps(new ObjectMapper(), rain.get("curve"));
+        assertThat(drought).containsEntry("status", "AVAILABLE");
+        assertThat(rain).containsEntry("status", "AVAILABLE");
+        assertThat(Jsons.text(Jsons.map(new ObjectMapper(), drought.get("riskBoundary")), "operator", ""))
+                .isEqualTo("LT");
+        assertThat(Jsons.text(Jsons.map(new ObjectMapper(), rain.get("riskBoundary")), "operator", ""))
+                .isEqualTo("GT");
+        assertThat(Jsons.number(droughtCurve.get(droughtCurve.size() - 1), "expected", 0))
+                .isLessThan(Jsons.number(droughtCurve.get(0), "expected", 0));
+        assertThat(Jsons.number(rainCurve.get(rainCurve.size() - 1), "expected", 0))
+                .isGreaterThan(Jsons.number(rainCurve.get(0), "expected", 0));
+    }
+
+    @Test
+    void forecastWithSingleRealSensorSampleDoesNotFail() {
+        String plotId = "plot-single-real-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期",
+                "cropPackVersion", "1.0.0")));
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "single-real-" + plotId), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", "e53-ia1"),
+                Map.entry("metric", "SOIL_MOISTURE"), Map.entry("value", 64.0), Map.entry("unit", "%"),
+                Map.entry("sourceMode", "REAL"), Map.entry("dataOrigin", "HARDWARE"),
+                Map.entry("scenarioId", "hardware"), Map.entry("ts", Instant.now().toString())));
+
+        Map<String, Object> forecast = engine.forecast(plotId, "SOIL_MOISTURE");
+        assertThat(forecast).containsEntry("status", "AVAILABLE");
+        assertThat(Jsons.maps(new ObjectMapper(), forecast.get("curve"))).isNotEmpty();
+        assertThat(Jsons.map(new ObjectMapper(), forecast.get("inputWindow"))).containsEntry("validSamples", 1);
+    }
+
+    @Test
+    void hardwareBindingIsPlotScopedAndOverridesSimulatorStatus() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-hardware-scope-" + suffix;
+        String deviceId = "e53-ia1-" + suffix;
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期")));
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN",
+                List.of("farm-demo"), List.of(plotId));
+        Map<String, Object> registered = adminManagement.registerDevice(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "name", "E53 IA1", "type", "ENVIRONMENTAL_SENSOR"), admin);
+        assertThat(registered).containsEntry("bindingState", "UNBOUND");
+        Map<String, Object> bound = adminManagement.bindDevice(deviceId, Map.of("plotId", plotId), admin);
+        assertThat(bound).containsEntry("bindingState", "BOUND");
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "hardware-scope-" + suffix), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "AIR_TEMPERATURE"),
+                Map.entry("value", 26.0), Map.entry("unit", "°C"), Map.entry("sourceMode", "REAL"),
+                Map.entry("dataOrigin", "HARDWARE"), Map.entry("provenance", "OBSERVED"),
+                Map.entry("ts", Instant.now().toString())));
+
+        Map<String, Object> online = engine.plotSimulation(plotId, admin);
+        assertThat(Jsons.map(new ObjectMapper(), online.get("hardware")))
+                .containsEntry("bindingState", "BOUND")
+                .containsEntry("status", "ONLINE")
+                .containsEntry("usability", "AVAILABLE")
+                .containsEntry("deviceId", deviceId);
+
+        Map<String, Object> device = store.find("device", deviceId);
+        device.put("status", "OFFLINE");
+        device.put("lastSeen", Instant.now().minusSeconds(600).toString());
+        store.save("device", deviceId, device);
+        Map<String, Object> offline = engine.plotSimulation(plotId, admin);
+        assertThat(Jsons.map(new ObjectMapper(), offline.get("hardware")))
+                .containsEntry("bindingState", "BOUND")
+                .containsEntry("status", "OFFLINE")
+                .containsEntry("usability", "UNAVAILABLE");
+
+        Map<String, Object> unbound = adminManagement.unbindDevice(deviceId, admin);
+        assertThat(unbound).containsEntry("bindingState", "UNBOUND");
+        assertThat(Jsons.map(new ObjectMapper(), engine.plotSimulation(plotId, admin).get("hardware")))
+                .containsEntry("bindingState", "UNBOUND");
+    }
+
+    @Test
     void ruleAlertsReuseActiveRecordDuringCooldownAndHeatStressCreatesAlert() {
         String plotId = "plot-alert-" + System.nanoTime();
         store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(

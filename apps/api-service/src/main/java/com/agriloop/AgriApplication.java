@@ -132,6 +132,8 @@ class AgriProperties {
     private boolean simulatorControlEnabled = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
+    /** Shared JSON hand-off reloaded by the Python simulator while it runs. */
+    private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";
 
@@ -199,6 +201,8 @@ class AgriProperties {
     public void setSupervisorConfig(String supervisorConfig) { this.supervisorConfig = supervisorConfig; }
     public String getSimulatorProgram() { return simulatorProgram; }
     public void setSimulatorProgram(String simulatorProgram) { this.simulatorProgram = simulatorProgram; }
+    public String getSimulationConfigPath() { return simulationConfigPath; }
+    public void setSimulationConfigPath(String simulationConfigPath) { this.simulationConfigPath = simulationConfigPath; }
     public String getAttachmentDir() { return attachmentDir; }
     public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
 }
@@ -235,9 +239,18 @@ final class Jsons {
     }
     static double number(Map<String, Object> map, String key, double fallback) {
         Object v = map == null ? null : map.get(key);
-        if (v instanceof Number n) return n.doubleValue();
-        try { return v == null ? fallback : Double.parseDouble(String.valueOf(v)); }
-        catch (Exception ignored) { return fallback; }
+        return numberValue(v, fallback);
+    }
+    static double numberValue(Object value, double fallback) {
+        if (value instanceof Number n) {
+            double parsed = n.doubleValue();
+            return Double.isFinite(parsed) ? parsed : fallback;
+        }
+        try {
+            if (value == null) return fallback;
+            double parsed = Double.parseDouble(String.valueOf(value));
+            return Double.isFinite(parsed) ? parsed : fallback;
+        } catch (Exception ignored) { return fallback; }
     }
     static long whole(Map<String, Object> map, String key, long fallback) {
         return Math.round(number(map, key, fallback));
@@ -369,6 +382,21 @@ class AgriStore {
         if (!databaseReady) return removed;
         try {
             return Math.max(removed, jdbc.update("DELETE FROM telemetry WHERE plot_id=?", plotId));
+        } catch (DataAccessException ignored) {
+            databaseReady = false;
+            return removed;
+        }
+    }
+
+    /** Reset only synthetic history; physical observations remain immutable. */
+    synchronized int deleteSimulatedTelemetryForPlot(String plotId) {
+        int before = telemetry.size();
+        telemetry.removeIf(event -> plotId.equals(Jsons.text(event, "plotId", ""))
+                && !"REAL".equalsIgnoreCase(Jsons.text(event, "sourceMode", "SIMULATION")));
+        int removed = before - telemetry.size();
+        if (!databaseReady) return removed;
+        try {
+            return Math.max(removed, jdbc.update("DELETE FROM telemetry WHERE plot_id=? AND COALESCE(source_mode,'SIMULATION')<>'REAL'", plotId));
         } catch (DataAccessException ignored) {
             databaseReady = false;
             return removed;
@@ -1190,6 +1218,20 @@ class AgriEngine {
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
+    private static final Set<String> PLOT_SIMULATION_SCENARIOS = Set.of(
+            "NORMAL", "DROUGHT", "HEAVY_RAIN", "SENSOR_DRIFT", "DEVICE_OFFLINE");
+    private static final Map<String, double[]> SIMULATION_PARAMETER_LIMITS = Map.ofEntries(
+            Map.entry("volatility", new double[]{.2, 3.0}),
+            Map.entry("timeScale", new double[]{1, 180}),
+            Map.entry("temperatureBias", new double[]{-15, 15}),
+            Map.entry("humidityBias", new double[]{-40, 40}),
+            Map.entry("rainfallRate", new double[]{0, 120}),
+            Map.entry("soilMoistureTrendPerHour", new double[]{-12, 12}),
+            Map.entry("driftRatePerHour", new double[]{0, 10}),
+            Map.entry("offlineRatio", new double[]{0, 1}),
+            Map.entry("riskThreshold", new double[]{1, 99}),
+            Map.entry("waterloggingThreshold", new double[]{40, 99}),
+            Map.entry("forecastHours", new double[]{1, 12}));
     private static final Set<String> OPEN_ALERT_STATUSES = Set.of("ACTIVE", "ACKED", "ESCALATED");
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
@@ -1216,6 +1258,7 @@ class AgriEngine {
     private final AtomicBoolean redisAvailable = new AtomicBoolean(false);
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
+    private final Object simulationConfigLock = new Object();
 
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                CropPackCatalog cropPackCatalog,
@@ -1232,6 +1275,13 @@ class AgriEngine {
                 .build();
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
+    }
+
+    @PostConstruct
+    void initialisePlotSimulationConfiguration() {
+        // The standalone/test profile has no long-running Python consumer and
+        // must not create workspace files merely by starting Spring tests.
+        if ("simulation".equalsIgnoreCase(properties.getMode())) syncSimulationConfiguration();
     }
 
     Map<String, Object> login(String username, String password) {
@@ -1343,6 +1393,263 @@ class AgriEngine {
         return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request");
     }
 
+    List<Map<String, Object>> simulationScenarioCatalog() {
+        return List.of(
+                simulationScenario("NORMAL", "☀️", "正常运行", "标准环境参数运行", "#1e8e3e"),
+                simulationScenario("DROUGHT", "🏜️", "干旱场景", "持续高温、低湿和土壤失水", "#d97706"),
+                simulationScenario("HEAVY_RAIN", "🌧️", "暴雨场景", "强降雨、低温和土壤快速增湿", "#2563eb"),
+                simulationScenario("SENSOR_DRIFT", "📡", "传感器漂移", "物理环境正常，读数随时间偏移", "#7c3aed"),
+                simulationScenario("DEVICE_OFFLINE", "🔌", "设备离线", "按比例模拟采集设备间歇断连", "#6b7280"));
+    }
+
+    private Map<String, Object> simulationScenario(String code, String emoji, String label, String description, String color) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("code", code); item.put("emoji", emoji); item.put("label", label);
+        item.put("description", description); item.put("desc", description); item.put("color", color);
+        item.put("defaultParameters", simulationDefaults(code, "plot-a01"));
+        return item;
+    }
+
+    Map<String, Object> plotSimulation(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        requireRecord("plot", plotId);
+        return plotSimulationView(plotId);
+    }
+
+    private Map<String, Object> plotSimulationView(String plotId) {
+        Map<String, Object> record = simulationRecord(plotId);
+        Map<String, Object> view = Jsons.copy(mapper, record);
+        view.put("scenarioCatalog", simulationScenarioCatalog());
+        Map<String, Object> limits = new LinkedHashMap<>();
+        SIMULATION_PARAMETER_LIMITS.forEach((key, value) -> limits.put(key, Map.of("min", value[0], "max", value[1])));
+        view.put("parameterLimits", limits);
+        view.put("hardware", hardwareBindingForPlot(plotId));
+        view.put("simulatorDevice", simulatorDeviceForPlot(plotId));
+        view.put("configDelivery", "simulation".equalsIgnoreCase(properties.getMode()) ? "FILE_SYNC" : "STANDALONE_PREVIEW");
+        return view;
+    }
+
+    synchronized Map<String, Object> updatePlotSimulation(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        requireRecord("plot", plotId);
+        if (!principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SIMULATION_CONTROL_FORBIDDEN", "只有管理员可以修改地块模拟策略");
+        Map<String, Object> current = simulationRecord(plotId);
+        String requested = Jsons.text(input, "scenario", Jsons.text(current, "scenario", "NORMAL"));
+        String scenario = canonicalSimulationScenario(requested);
+        boolean scenarioChanged = !scenario.equals(Jsons.text(current, "scenario", "NORMAL"));
+        Map<String, Object> parameters = scenarioChanged
+                ? simulationDefaults(scenario, plotId)
+                : Jsons.map(mapper, current.get("parameters"));
+        Map<String, Object> supplied = Jsons.map(mapper, input.get("parameters"));
+        for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+            String key = entry.getKey();
+            if (!supplied.containsKey(key)) continue;
+            double[] range = entry.getValue();
+            double fallback = Jsons.number(parameters, key, (range[0] + range[1]) / 2.0);
+            double candidate = Jsons.number(supplied, key, fallback);
+            parameters.put(key, round(clamp(candidate, fallback, range[0], range[1])));
+        }
+        if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
+        Map<String, Object> saved = new LinkedHashMap<>(current);
+        saved.put("plotId", plotId); saved.put("scenario", scenario); saved.put("parameters", parameters);
+        saved.put("revision", Jsons.whole(current, "revision", 0) + 1);
+        saved.put("updatedAt", Instant.now().toString()); saved.put("updatedBy", principal.userId);
+        saved.put("sourceMode", "SIMULATION");
+        store.save("plot-simulation", plotId, saved);
+        boolean delivered = syncSimulationConfiguration();
+        Map<String, Object> event = new LinkedHashMap<>(saved); event.put("configDelivered", delivered);
+        events.publish("plot.simulation.updated", event); store.logEvent("plot.simulation.updated", event);
+        Map<String, Object> view = plotSimulationView(plotId); view.put("configDelivered", delivered);
+        return view;
+    }
+
+    synchronized Map<String, Object> resetPlotSimulation(String plotId, String requestedTarget, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        requireRecord("plot", plotId);
+        if (!principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SIMULATION_CONTROL_FORBIDDEN", "只有管理员可以重置模拟曲线");
+        String target = String.valueOf(requestedTarget == null ? "ALL" : requestedTarget).trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("HISTORY", "FORECAST", "ALL").contains(target)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_RESET_TARGET_INVALID", "重置目标只能是 HISTORY、FORECAST 或 ALL");
+        }
+        int removedTelemetry = 0, removedForecasts = 0;
+        Instant now = Instant.now();
+        Map<String, Object> saved = simulationRecord(plotId);
+        if (Set.of("HISTORY", "ALL").contains(target)) {
+            removedTelemetry = store.deleteSimulatedTelemetryForPlot(plotId);
+            saved.put("historyResetAt", now.toString());
+            saved.put("historyRevision", Jsons.whole(saved, "historyRevision", 0) + 1);
+        }
+        if (Set.of("FORECAST", "ALL").contains(target)) {
+            removedForecasts = store.deleteWhere("forecast", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            saved.put("forecastResetAt", now.toString());
+            saved.put("forecastRevision", Jsons.whole(saved, "forecastRevision", 0) + 1);
+        }
+        saved.put("revision", Jsons.whole(saved, "revision", 0) + 1);
+        saved.put("updatedAt", now.toString()); saved.put("updatedBy", principal.userId);
+        store.save("plot-simulation", plotId, saved);
+        boolean delivered = syncSimulationConfiguration();
+        Map<String, Object> result = plotSimulationView(plotId);
+        result.put("resetTarget", target); result.put("removedSimulationTelemetry", removedTelemetry);
+        result.put("removedForecasts", removedForecasts); result.put("hardwareTelemetryPreserved", true);
+        result.put("configDelivered", delivered);
+        events.publish("plot.simulation.reset", result); store.logEvent("plot.simulation.reset", result);
+        return result;
+    }
+
+    private Map<String, Object> simulationRecord(String plotId) {
+        Map<String, Object> persisted = store.find("plot-simulation", plotId);
+        String scenario = canonicalSimulationScenario(Jsons.text(persisted, "scenario", "NORMAL"));
+        Map<String, Object> defaults = simulationDefaults(scenario, plotId);
+        Map<String, Object> supplied = Jsons.map(mapper, persisted == null ? null : persisted.get("parameters"));
+        supplied.forEach((key, value) -> {
+            double[] range = SIMULATION_PARAMETER_LIMITS.get(key);
+            if (range == null) return;
+            double fallback = Jsons.number(defaults, key, (range[0] + range[1]) / 2.0);
+            defaults.put(key, round(clamp(Jsons.numberValue(value, fallback), fallback, range[0], range[1])));
+        });
+        Map<String, Object> result = persisted == null ? new LinkedHashMap<>() : Jsons.copy(mapper, persisted);
+        result.put("plotId", plotId); result.put("scenario", scenario); result.put("parameters", defaults);
+        result.putIfAbsent("revision", 1); result.putIfAbsent("sourceMode", "SIMULATION");
+        result.putIfAbsent("updatedAt", Instant.EPOCH.toString());
+        return result;
+    }
+
+    private Map<String, Object> simulationDefaults(String scenarioValue, String plotId) {
+        String scenario = canonicalSimulationScenario(scenarioValue);
+        Map<String, Object> params = new LinkedHashMap<>();
+        switch (scenario) {
+            case "DROUGHT" -> {
+                params.put("volatility", 1.75); params.put("temperatureBias", 7.0); params.put("humidityBias", -20.0);
+                params.put("rainfallRate", 0.0); params.put("soilMoistureTrendPerHour", -3.6); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+            }
+            case "HEAVY_RAIN" -> {
+                params.put("volatility", 1.9); params.put("temperatureBias", -4.5); params.put("humidityBias", 20.0);
+                params.put("rainfallRate", 32.0); params.put("soilMoistureTrendPerHour", 7.2); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+            }
+            case "SENSOR_DRIFT" -> {
+                params.put("volatility", 1.45); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 2.4); params.put("offlineRatio", 0.0);
+            }
+            case "DEVICE_OFFLINE" -> {
+                params.put("volatility", 1.3); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", .55);
+            }
+            default -> {
+                params.put("volatility", 1.25); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+            }
+        }
+        Map<String, Object> context = plotId == null || store.find("plot", plotId) == null ? Map.of() : plotCropContext(plotId);
+        params.put("riskThreshold", Jsons.number(cropPackCatalog.rule(context, "WATER_DEFICIT"), "threshold", 20));
+        params.put("waterloggingThreshold", 82.0); params.put("forecastHours", 4.0); params.put("timeScale", 60.0);
+        return params;
+    }
+
+    private String canonicalSimulationScenario(String raw) {
+        String normalized = String.valueOf(raw == null ? "NORMAL" : raw).trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        normalized = switch (normalized) { case "STORM", "HEAVYRAIN" -> "HEAVY_RAIN"; case "OFFLINE" -> "DEVICE_OFFLINE"; default -> normalized; };
+        if (!PLOT_SIMULATION_SCENARIOS.contains(normalized)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_SCENARIO_INVALID", "不支持的地块模拟场景");
+        }
+        return normalized;
+    }
+
+    /**
+     * The scenario replay API predates per-plot strategies and still accepts
+     * the documented validation/evaluation cases.  Project those legacy cases
+     * onto the closest physical strategy for a curve while keeping the replay
+     * endpoint backwards compatible.
+     */
+    private String canonicalScenarioForRun(String raw) {
+        String normalized = String.valueOf(raw == null ? "NORMAL" : raw).trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        return switch (normalized) {
+            case "HEAT_WAVE", "GRADUAL_DRYDOWN" -> "DROUGHT";
+            case "FORECAST_MISS", "LIMITED_WATER", "REPEATED_CASE", "COST_SHIFT" -> "NORMAL";
+            default -> canonicalSimulationScenario(normalized);
+        };
+    }
+
+    private Map<String, Object> hardwareBindingForPlot(String plotId) {
+        List<Map<String, Object>> hardware = store.list("device").stream()
+                .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
+                .filter(device -> "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
+                        || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+                        || !Jsons.text(device, "deviceId", "mock-").toLowerCase(Locale.ROOT).startsWith("mock-"))
+                .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
+                .toList();
+        if (hardware.isEmpty()) return Map.of("bindingState", "UNBOUND", "status", "NOT_BOUND", "usability", "NOT_BOUND", "label", "未绑定硬件");
+        Map<String, Object> device = hardware.get(0);
+        Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
+        boolean fresh = Duration.between(lastSeen, Instant.now()).getSeconds() <= properties.getDeviceTimeoutSeconds();
+        boolean online = fresh && "ONLINE".equalsIgnoreCase(Jsons.text(device, "status", ""));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("bindingState", "BOUND"); result.put("deviceId", Jsons.text(device, "deviceId", ""));
+        result.put("status", online ? "ONLINE" : "OFFLINE"); result.put("usability", online ? "AVAILABLE" : "UNAVAILABLE");
+        result.put("label", online ? "硬件在线，可使用" : "硬件离线"); result.put("lastSeen", device.get("lastSeen"));
+        result.put("deviceCount", hardware.size()); return result;
+    }
+
+    private Map<String, Object> simulatorDeviceForPlot(String plotId) {
+        Map<String, Object> device = store.list("device").stream()
+                .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> Jsons.text(item, "deviceId", "").toLowerCase(Locale.ROOT).startsWith("mock-")
+                        || "SIMULATOR".equalsIgnoreCase(Jsons.text(item, "dataOrigin", "")))
+                .sorted(Comparator
+                        .comparing((Map<String, Object> item) -> "ONLINE".equalsIgnoreCase(Jsons.text(item, "status", "")))
+                                .reversed()
+                        .thenComparing(item -> Jsons.instant(item.get("lastSeen"), Instant.EPOCH), Comparator.reverseOrder()))
+                .findFirst().orElse(Map.of());
+        if (device.isEmpty()) return Map.of("status", "WAITING", "label", "等待模拟器数据");
+        Map<String, Object> result = new LinkedHashMap<>(device);
+        result.put("label", "ONLINE".equalsIgnoreCase(Jsons.text(device, "status", "")) ? "模拟数据运行中" : "模拟设备离线");
+        return result;
+    }
+
+    boolean syncSimulationConfiguration() {
+        if (!"simulation".equalsIgnoreCase(properties.getMode())) return false;
+        synchronized (simulationConfigLock) {
+            try {
+                Path target = Path.of(properties.getSimulationConfigPath()).toAbsolutePath().normalize();
+                Path parent = target.getParent();
+                if (parent != null) Files.createDirectories(parent);
+                Map<String, Object> plots = new LinkedHashMap<>();
+                for (Map<String, Object> plot : store.list("plot")) {
+                    if ("INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE"))) continue;
+                    String plotId = Jsons.text(plot, "plotId", "");
+                    if (plotId.isBlank()) continue;
+                    Map<String, Object> record = simulationRecord(plotId);
+                    Map<String, Object> compact = new LinkedHashMap<>();
+                    compact.put("scenario", Jsons.text(record, "scenario", "NORMAL").toLowerCase(Locale.ROOT).replace('_', '-'));
+                    compact.put("revision", Jsons.whole(record, "revision", 1)); compact.put("parameters", record.get("parameters"));
+                    plots.put(plotId, compact);
+                }
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("schemaVersion", "plot-simulation-1.0"); payload.put("generatedAt", Instant.now().toString()); payload.put("plots", plots);
+                Path temporary = target.resolveSibling(target.getFileName() + ".tmp");
+                Files.writeString(temporary, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload), StandardCharsets.UTF_8);
+                try {
+                    Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                    Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+                return true;
+            } catch (Exception error) {
+                return false;
+            }
+        }
+    }
+
+    private double clamp(double value, double low, double high) {
+        return clamp(value, (low + high) / 2.0, low, high);
+    }
+
+    private double clamp(double value, double fallback, double low, double high) {
+        if (!Double.isFinite(value)) return fallback;
+        return Math.max(low, Math.min(high, value));
+    }
+
     private String normalizeUsername(String username) {
         return String.valueOf(username == null ? "" : username).trim().toLowerCase(Locale.ROOT);
     }
@@ -1443,6 +1750,12 @@ class AgriEngine {
             Map<String, Object> card = new LinkedHashMap<>(); card.put("plotId", plotId); card.put("name", plot.get("name"));
             card.put("cropCode", plot.get("cropCode")); card.put("riskLevel", plot.get("riskLevel")); card.put("latest", latest); card.put("alerts", alerts.size());
             Map<String, Object> device = deviceForPlot(plotId); card.put("device", device);
+            Map<String, Object> simulation = plotSimulationView(plotId);
+            card.put("simulation", Map.of(
+                    "scenario", simulation.get("scenario"),
+                    "parameters", simulation.get("parameters"),
+                    "revision", simulation.get("revision")));
+            card.put("hardware", simulation.get("hardware"));
             Map<String, Object> cropContext = plotCropContext(plotId);
             Map<String, Object> health = cropPackCatalog.scoreHealth(cropContext, latest, device, Jsons.text(plot, "riskLevel", "UNKNOWN"));
             card.put("stageCode", cropContext.get("stageCode"));
@@ -1694,6 +2007,7 @@ class AgriEngine {
             case "AIR_TEMPERATURE" -> 15;
             case "AIR_HUMIDITY" -> 25;
             case "LIGHT" -> 12_000;
+            case "RAINFALL" -> 100;
             case "CO2" -> 500;
             case "PH" -> 2;
             case "WATER_LEVEL" -> 25;
@@ -1703,7 +2017,7 @@ class AgriEngine {
 
     private String validateQuality(String metric, double value, Instant ts, Map<String, Object> quality) {
         double low = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL", "AIR_HUMIDITY" -> 0; case "AIR_TEMPERATURE" -> -40; case "PH" -> 0; default -> 0; };
-        double high = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL", "AIR_HUMIDITY" -> 100; case "AIR_TEMPERATURE" -> 80; case "PH" -> 14; case "CO2" -> 10000; default -> 1_000_000; };
+        double high = switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL", "AIR_HUMIDITY" -> 100; case "AIR_TEMPERATURE" -> 80; case "PH" -> 14; case "CO2" -> 10000; case "RAINFALL" -> 250; default -> 1_000_000; };
         if (value < low || value > high) return "BAD";
         long age = Math.max(0, Duration.between(ts, Instant.now()).toSeconds());
         if (ts.isAfter(Instant.now().plusSeconds(30)) || age > 300 || "BAD".equalsIgnoreCase(Jsons.text(quality, "status", ""))) return "BAD";
@@ -1712,7 +2026,7 @@ class AgriEngine {
     }
 
     private String unitFor(String metric) {
-        return switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_HUMIDITY" -> "%RH"; case "AIR_TEMPERATURE" -> "°C"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; default -> "unit"; };
+        return switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_HUMIDITY" -> "%RH"; case "AIR_TEMPERATURE" -> "°C"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; case "RAINFALL" -> "mm/h"; default -> "unit"; };
     }
 
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
@@ -1898,20 +2212,26 @@ class AgriEngine {
                 .filter(d -> plotId.equals(Jsons.text(d, "plotId", "")))
                 .map(d -> Jsons.copy(mapper, d)).collect(Collectors.toCollection(ArrayList::new));
         // A plot can briefly have an old device record and a newly bound or
-        // reconnected device record. Prefer the online record and then the
-        // newest heartbeat deterministically; never let map iteration order
-        // turn a healthy plot into a false DEVICE_FAULT diagnosis.
+        // reconnected device record. A bound REAL device is authoritative even
+        // when it is offline; otherwise a healthy simulator could mask a
+        // physical disconnect in the UI and in irrigation safety gates.
         candidates.sort((left, right) -> {
+            int real = Boolean.compare(isHardwareDevice(left), isHardwareDevice(right));
+            if (real != 0) return -real;
             int online = Boolean.compare("ONLINE".equals(Jsons.text(left, "status", "")),
                     "ONLINE".equals(Jsons.text(right, "status", "")));
             if (online != 0) return -online;
-            int real = Boolean.compare("REAL".equalsIgnoreCase(Jsons.text(left, "sourceMode", "")),
-                    "REAL".equalsIgnoreCase(Jsons.text(right, "sourceMode", "")));
-            if (real != 0) return -real;
             return Jsons.instant(Jsons.text(right, "lastSeen", ""), Instant.EPOCH)
                     .compareTo(Jsons.instant(Jsons.text(left, "lastSeen", ""), Instant.EPOCH));
         });
         return candidates.isEmpty() ? new LinkedHashMap<>() : candidates.get(0);
+    }
+
+    private boolean isHardwareDevice(Map<String, Object> device) {
+        String id = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
+        return "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
+                || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+                || ("BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "")) && !id.startsWith("mock-"));
     }
 
     Map<String, Object> bindDevice(String deviceId, Map<String, Object> input, UserPrincipal principal) {
@@ -2374,17 +2694,31 @@ class AgriEngine {
             Map<String, Object> metric = Jsons.map(mapper, metricValue);
             return "BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, metric.get("quality")), "status", "GOOD"));
         });
+        Map<String, Object> simulation = plotSimulationView(plotId);
+        String simulationScenario = Jsons.text(simulation, "scenario", "NORMAL");
+        Map<String, Object> simulationParameters = Jsons.map(mapper, simulation.get("parameters"));
+        boolean activeHeavyRain = "HEAVY_RAIN".equalsIgnoreCase(simulationScenario)
+                && Jsons.number(simulationParameters, "rainfallRate", 0) > 0;
+        boolean configuredOffline = "DEVICE_OFFLINE".equalsIgnoreCase(simulationScenario)
+                && "OFFLINE".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, simulation.get("simulatorDevice")), "status", ""));
         boolean hardDataBlock = soil.isEmpty()
                 || "BAD".equals(qualityStatus)
                 || anyMetricBad
                 || "OFFLINE".equals(Jsons.text(device, "status", "OFFLINE"))
+                || configuredOffline
                 || ("SENSOR_DRIFT".equals(primary) && diagnosisConfidence >= 0.6);
         boolean reviewOnly = !hardDataBlock
                 && (anyMetricDegraded || "DEGRADED".equals(qualityStatus) || "SENSOR_DRIFT".equals(primary) || "INSUFFICIENT_EVIDENCE".equals(primary));
+        // A heavy-rain strategy keeps the recommendation advisory while rain
+        // is active; the user can still inspect the amount but cannot mistake
+        // it for an automatic watering order.
+        reviewOnly = reviewOnly || activeHeavyRain;
         Map<String, Object> cropContext = plotCropContext(plotId);
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("planId", Jsons.id("plan")); plan.put("plotId", plotId); plan.put("diagnosisId", diagnosis.get("diagnosisId")); if (request.containsKey("traceId")) plan.put("traceId", request.get("traceId"));
         plan.put("cropPackVersion", cropContext.get("cropPackVersion")); plan.put("ruleVersion", cropContext.get("ruleVersion"));
         plan.put("knowledgeVersion", cropContext.get("knowledgeVersion")); plan.put("agentVersion", cropContext.get("agentVersion"));
+        plan.put("simulation", Map.of("scenario", simulationScenario, "revision", Jsons.whole(simulation, "revision", 1),
+                "sourceMode", "SIMULATION", "hardware", simulation.get("hardware")));
         plan.put("stageCode", cropContext.get("stageCode")); plan.put("stageLabel", cropContext.get("stageLabel"));
         plan.put("recommendedWindow", Map.of("start", Instant.now().plus(5, ChronoUnit.MINUTES).toString(), "end", Instant.now().plus(35, ChronoUnit.MINUTES).toString()));
         double current = Jsons.number(soil, "value", 18); Map<String, Object> plot = requireRecord("plot", plotId); double area = Jsons.number(plot, "areaM2", 80);
@@ -2405,9 +2739,11 @@ class AgriEngine {
         boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
         String why = hardDataBlock
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
+                : activeHeavyRain
+                    ? "当前地块处于暴雨模拟场景，先观察积水和排水状态"
                 : reviewOnly
                     ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
-                    : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+                : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
         boolean executable = !hardDataBlock && !reviewOnly && !noWaterNeeded && "READY".equals(readinessStatus) && duration > 0;
         plan.put("readinessId", readinessResult.get("readinessId"));
@@ -2511,46 +2847,150 @@ class AgriEngine {
 
     Map<String, Object> forecast(String plotId, String metric) {
         requireRecord("plot", plotId);
+        return forecastForSimulation(plotId, metric, plotSimulationView(plotId), true);
+    }
+
+    /**
+     * Forecasts are strategy-aware projections rather than a straight line
+     * through a tiny, stable sample window.  Observed telemetry still anchors
+     * the starting point, while the selected plot strategy contributes bounded
+     * trend, volatility and uncertainty.  The same method is used by read-only
+     * what-if runs so the UI and the live simulator share one shape of curve.
+     */
+    private Map<String, Object> forecastForSimulation(String plotId, String metric,
+                                                       Map<String, Object> simulation, boolean persist) {
         Map<String, Object> context = plotCropContext(plotId);
         String usedMetric = metric == null ? "SOIL_MOISTURE" : metric.toUpperCase(Locale.ROOT);
-        if (!Jsons.bool(context, "stageMatched", true)) {
-            return forecastUnavailable(plotId, usedMetric, "STAGE_UNKNOWN", 0, context);
+        if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE", "AIR_HUMIDITY", "LIGHT", "CO2", "PH", "WATER_LEVEL", "RAINFALL").contains(usedMetric)) {
+            usedMetric = "SOIL_MOISTURE";
         }
+        if (!Jsons.bool(context, "stageMatched", true)) return forecastUnavailable(plotId, usedMetric, "STAGE_UNKNOWN", 0, context, simulation, persist);
         Map<String, Object> forecastProfile = Jsons.map(mapper, context.get("forecastProfile"));
         int minSamples = Math.max(3, (int) Jsons.whole(forecastProfile, "minValidSamples", 6));
-        List<Integer> horizonMinutes = horizonMinutes(forecastProfile);
         List<Map<String, Object>> points = telemetry(plotId, usedMetric, null, null, 500).stream()
                 .filter(p -> "GOOD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD")))
                 .toList();
-        if (points.size() < minSamples) return forecastUnavailable(plotId, usedMetric, "INSUFFICIENT_SAMPLES", points.size(), context);
-        Map<String, Object> last = points.get(points.size() - 1); Map<String, Object> first = points.get(Math.max(0, points.size() - Math.min(points.size() - 1, 12)));
-        double current = Jsons.number(last, "value", 0); double slope = (current - Jsons.number(first, "value", current)) /
-                Math.max(1, Duration.between(Jsons.instant(first.get("ts"), Instant.EPOCH), Jsons.instant(last.get("ts"), Instant.EPOCH)).toMinutes());
-        double mean = points.stream().mapToDouble(p -> Jsons.number(p, "value", 0)).average().orElse(current);
-        double mad = points.stream().mapToDouble(p -> Math.abs(Jsons.number(p, "value", 0) - mean)).average().orElse(1.0);
-        List<Map<String, Object>> horizons = new ArrayList<>();
-        for (int minute : horizonMinutes) {
-            double value = current + slope * minute; double spread = Math.max(0.8, mad * (1 + minute / 240.0));
-            horizons.add(Map.of("minutes", minute, "value", round(value), "lower", round(value - spread), "upper", round(value + spread)));
+        String scenario = Jsons.text(simulation, "scenario", "NORMAL").toUpperCase(Locale.ROOT);
+        Map<String, Object> parameters = Jsons.map(mapper, simulation.get("parameters"));
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> latestMetric = latest.get(usedMetric) instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        boolean offlineScenario = "DEVICE_OFFLINE".equals(scenario);
+        if (offlineScenario && latestMetric.isEmpty()) {
+            return forecastUnavailable(plotId, usedMetric, "DEVICE_OFFLINE", points.size(), context, simulation, persist);
+        }
+        if (points.size() < minSamples && points.isEmpty()
+                && !"simulation".equalsIgnoreCase(properties.getMode())) {
+            return forecastUnavailable(plotId, usedMetric, "INSUFFICIENT_SAMPLES", points.size(), context, simulation, persist);
+        }
+        Map<String, Object> last = points.isEmpty() ? latestMetric : points.get(points.size() - 1);
+        // Keep the first point inside the list even when only one valid sample
+        // is available.  The previous expression subtracted the window from
+        // the list size, which produced index 1 for a one-point list and made
+        // the risk-forecast endpoint return HTTP 500 for a fresh real sensor.
+        int firstIndex = Math.max(0, points.size() - 1 - Math.min(points.size() - 1, 12));
+        Map<String, Object> first = points.isEmpty() ? last : points.get(firstIndex);
+        double current = Jsons.number(last, "value", baselineMetricValue(plotId, usedMetric));
+        double observedSlopePerHour = 0.0;
+        if (!points.isEmpty()) {
+            long durationMinutes = Math.max(1, Duration.between(Jsons.instant(first.get("ts"), Instant.EPOCH), Jsons.instant(last.get("ts"), Instant.EPOCH)).toMinutes());
+            observedSlopePerHour = (Jsons.number(last, "value", current) - Jsons.number(first, "value", current)) * 60.0 / durationMinutes;
+            observedSlopePerHour = clamp(observedSlopePerHour, -30, 30);
+        }
+        double mean = points.stream().mapToDouble(p -> Jsons.number(p, "value", current)).average().orElse(current);
+        double mad = points.stream().mapToDouble(p -> Math.abs(Jsons.number(p, "value", current) - mean)).average().orElse(.8);
+        double volatility = clamp(Jsons.number(parameters, "volatility", 1.25), .2, 3.0);
+        double forecastHours = clamp(Jsons.number(parameters, "forecastHours", 4), 1, 12);
+        int maxHorizon = Math.max(60, (int) Math.round(forecastHours * 60));
+        double strategyTrend = strategyTrendPerHour(usedMetric, scenario, parameters, observedSlopePerHour, points.size() >= minSamples);
+        double driftRate = "SENSOR_DRIFT".equals(scenario) ? Jsons.number(parameters, "driftRatePerHour", 2.4) : 0;
+        List<Map<String, Object>> curve = new ArrayList<>();
+        for (int minute = 0; minute <= maxHorizon; minute += 5) {
+            double hours = minute / 60.0;
+            double value = projectMetric(usedMetric, current, hours, strategyTrend, driftRate, scenario, parameters, plotId);
+            double spread = Math.max(.35, mad * (1 + minute / 240.0) + volatility * .22 * Math.sqrt(Math.max(1, minute / 5.0)));
+            double lower = clamp(value - spread, metricRange(usedMetric)[0], metricRange(usedMetric)[1]);
+            double upper = clamp(value + spread, metricRange(usedMetric)[0], metricRange(usedMetric)[1]);
+            Map<String, Object> point = new LinkedHashMap<>(); point.put("minute", minute); point.put("expected", round(clamp(value, metricRange(usedMetric)[0], metricRange(usedMetric)[1])));
+            point.put("lower", round(lower)); point.put("upper", round(upper)); point.put("scenario", scenario); curve.add(point);
         }
         String ruleCode = "AIR_TEMPERATURE".equals(usedMetric) ? "HEAT_STRESS" : "WATER_DEFICIT";
         Map<String, Object> boundRule = cropPackCatalog.rule(context, ruleCode);
         String operator = Jsons.text(boundRule, "operator", "SOIL_MOISTURE".equals(usedMetric) ? "LT" : "GT");
         double boundary = Jsons.number(boundRule, "threshold", "SOIL_MOISTURE".equals(usedMetric) ? 20 : 35);
+        if ("SOIL_MOISTURE".equals(usedMetric)) {
+            boundary = Jsons.number(parameters, "riskThreshold", boundary);
+            if ("HEAVY_RAIN".equals(scenario)) { operator = "GT"; boundary = Jsons.number(parameters, "waterloggingThreshold", 82); }
+        }
         Integer timeToRisk = null;
-        if ("LT".equals(operator) && slope < 0 && current > boundary) timeToRisk = (int) Math.ceil((current - boundary) / -slope);
-        if ("GT".equals(operator) && slope > 0 && current < boundary) timeToRisk = (int) Math.ceil((boundary - current) / slope);
+        for (Map<String, Object> point : curve) {
+            double value = Jsons.number(point, "expected", current);
+            if (("LT".equals(operator) && value <= boundary) || ("GT".equals(operator) && value >= boundary)) {
+                timeToRisk = (int) Jsons.whole(point, "minute", 0); break;
+            }
+        }
+        List<Integer> requestedHorizons = horizonMinutes(forecastProfile);
+        requestedHorizons = requestedHorizons.stream().filter(value -> value <= maxHorizon).toList();
+        if (requestedHorizons.isEmpty()) requestedHorizons = List.of(Math.min(60, maxHorizon), Math.min(120, maxHorizon), maxHorizon).stream().distinct().toList();
+        List<Map<String, Object>> horizons = requestedHorizons.stream().map(minute -> {
+            Map<String, Object> point = curve.get(Math.min(curve.size() - 1, Math.max(0, minute / 5)));
+            Map<String, Object> item = new LinkedHashMap<>(); item.put("minutes", minute); item.put("value", point.get("expected")); item.put("expected", point.get("expected")); item.put("lower", point.get("lower")); item.put("upper", point.get("upper")); return item;
+        }).toList();
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", usedMetric);
-        result.put("issuedAt", Instant.now().toString()); result.put("status", "AVAILABLE"); result.put("horizons", horizons); result.put("timeToRiskMinutes", timeToRisk);
+        result.put("issuedAt", Instant.now().toString()); result.put("status", "AVAILABLE"); result.put("scenario", scenario); result.put("simulation", simulation);
+        result.put("curve", curve); result.put("horizons", horizons); result.put("timeToRiskMinutes", timeToRisk);
         result.put("riskBoundary", Map.of("operator", operator, "value", boundary, "unit", unitFor(usedMetric), "ruleCode", ruleCode));
-        result.put("inputWindow", Map.of("from", first.get("ts"), "to", last.get("ts"), "validSamples", points.size()));
-        result.put("quality", Map.of("coverage", points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", "RESIDUAL_MAD"));
-        result.put("assumptions", List.of("NO_IRRIGATION", "MOCK_WEATHER_STABLE", "STAGE=" + context.get("stageCode")));
-        result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "robust-trend-v1"));
+        Map<String, Object> inputWindow = new LinkedHashMap<>(); inputWindow.put("validSamples", points.size()); inputWindow.put("mode", points.size() >= minSamples ? "OBSERVED_PLUS_STRATEGY" : "SIMULATION_STRATEGY");
+        if (!points.isEmpty()) { inputWindow.put("from", first.get("ts")); inputWindow.put("to", last.get("ts")); }
+        result.put("inputWindow", inputWindow);
+        result.put("quality", Map.of("coverage", points.isEmpty() ? .35 : points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", points.size() >= minSamples ? "RESIDUAL_MAD_PLUS_STRATEGY_VOLATILITY" : "STRATEGY_PRIOR"));
+        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", 60), "STAGE=" + context.get("stageCode")));
+        result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "strategy-aware-trend-v2"));
         result.put("cropPackVersion", context.get("cropPackVersion")); result.put("ruleVersion", context.get("ruleVersion"));
         result.put("stageCode", context.get("stageCode")); result.put("stageLabel", context.get("stageLabel"));
         result.put("expiresAt", Instant.now().plus(10, ChronoUnit.MINUTES).toString());
-        store.save("forecast", Jsons.text(result, "forecastId", ""), result); events.publish("forecast.created", result); store.logEvent("forecast.created", result); return result;
+        if (persist) { store.save("forecast", Jsons.text(result, "forecastId", ""), result); events.publish("forecast.created", result); store.logEvent("forecast.created", result); }
+        return result;
+    }
+
+    private double strategyTrendPerHour(String metric, String scenario, Map<String, Object> params,
+                                        double observedSlopePerHour, boolean enoughSamples) {
+        if ("SOIL_MOISTURE".equals(metric)) {
+            double configured = Jsons.number(params, "soilMoistureTrendPerHour", 0);
+            return "NORMAL".equals(scenario) && enoughSamples ? clamp(observedSlopePerHour * .65 + configured * .35, -12, 12) : configured;
+        }
+        if ("AIR_TEMPERATURE".equals(metric)) return Jsons.number(params, "temperatureBias", 0) * .75 + (enoughSamples ? observedSlopePerHour * .25 : 0);
+        if ("AIR_HUMIDITY".equals(metric)) return Jsons.number(params, "humidityBias", 0) * .65 + (enoughSamples ? observedSlopePerHour * .25 : 0);
+        if ("RAINFALL".equals(metric)) return Jsons.number(params, "rainfallRate", 0);
+        return enoughSamples ? observedSlopePerHour * .35 : 0;
+    }
+
+    private double projectMetric(String metric, double current, double hours, double trend, double driftRate,
+                                 String scenario, Map<String, Object> params, String plotId) {
+        double volatility = Jsons.number(params, "volatility", 1.25);
+        double wave = Math.sin((hours * 2.6) + Math.abs(plotId.hashCode() % 17)) * volatility;
+        double value;
+        if ("AIR_TEMPERATURE".equals(metric) || "AIR_HUMIDITY".equals(metric)) {
+            value = current + trend * (1 - Math.exp(-hours / 2.0)) + wave * ("AIR_HUMIDITY".equals(metric) ? 1.4 : .55);
+        } else if ("RAINFALL".equals(metric)) {
+            double rate = Math.max(0, Jsons.number(params, "rainfallRate", 0));
+            value = rate * (0.72 + .28 * Math.max(0, Math.sin(hours * 3.1 + 1.2))) + wave * .5;
+        } else {
+            value = current + trend * hours + wave * ("LIGHT".equals(metric) ? 900 : "CO2".equals(metric) ? 18 : .35);
+            if ("SENSOR_DRIFT".equals(scenario)) value += driftRate * hours;
+        }
+        double[] range = metricRange(metric);
+        return clamp(value, range[0], range[1]);
+    }
+
+    private double baselineMetricValue(String plotId, String metric) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        Map<String, Object> metrics = Jsons.map(mapper, plot == null ? null : plot.get("metrics"));
+        Map<String, Object> item = Jsons.map(mapper, metrics.get(metric));
+        return Jsons.number(item, "value", switch (metric) { case "AIR_TEMPERATURE" -> 24; case "AIR_HUMIDITY" -> 68; case "LIGHT" -> 30_000; case "CO2" -> 520; case "PH" -> 6.25; case "WATER_LEVEL" -> 78; case "RAINFALL" -> 0; default -> 35; });
+    }
+
+    private double[] metricRange(String metric) {
+        return switch (metric) { case "AIR_TEMPERATURE" -> new double[]{-40, 80}; case "AIR_HUMIDITY", "SOIL_MOISTURE", "WATER_LEVEL" -> new double[]{0, 100}; case "PH" -> new double[]{0, 14}; case "CO2" -> new double[]{0, 10_000}; case "RAINFALL" -> new double[]{0, 250}; default -> new double[]{0, 100_000}; };
     }
 
     private List<Integer> horizonMinutes(Map<String, Object> forecastProfile) {
@@ -2565,15 +3005,27 @@ class AgriEngine {
     }
 
     private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples) {
-        return forecastUnavailable(plotId, metric, reason, samples, Map.of());
+        return forecastUnavailable(plotId, metric, reason, samples, Map.of(), Map.of());
     }
 
     private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples, Map<String, Object> context) {
+        return forecastUnavailable(plotId, metric, reason, samples, context, Map.of());
+    }
+
+    private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples,
+                                                    Map<String, Object> context, Map<String, Object> simulation) {
+        return forecastUnavailable(plotId, metric, reason, samples, context, simulation, true);
+    }
+
+    private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples,
+                                                    Map<String, Object> context, Map<String, Object> simulation, boolean persist) {
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", metric); result.put("status", "UNAVAILABLE");
-        result.put("reason", reason); result.put("inputWindow", Map.of("validSamples", samples)); result.put("horizons", List.of()); result.put("timeToRiskMinutes", null);
+        result.put("reason", reason); result.put("inputWindow", Map.of("validSamples", samples)); result.put("horizons", List.of()); result.put("curve", List.of()); result.put("timeToRiskMinutes", null);
+        if (!simulation.isEmpty()) { result.put("scenario", simulation.get("scenario")); result.put("simulation", simulation); }
         result.put("algorithmVersion", Jsons.text(Jsons.map(mapper, context.get("forecastProfile")), "algorithm", "robust-trend-v1"));
         result.put("stageCode", context.get("stageCode")); result.put("cropPackVersion", context.get("cropPackVersion"));
-        store.save("forecast", Jsons.text(result, "forecastId", ""), result); return result;
+        if (persist) store.save("forecast", Jsons.text(result, "forecastId", ""), result);
+        return result;
     }
 
     private double round(double value) { return Math.round(value * 100.0) / 100.0; }
@@ -4059,10 +4511,41 @@ class AgriEngine {
     }
 
     Map<String, Object> scenarioRun(Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SCENARIO_FORBIDDEN", "只有管理员可以运行情景模拟");
-        String scenario = Jsons.text(input, "scenario", Jsons.text(input, "scenarioId", "normal")); String scenarioId = Jsons.text(input, "scenarioId", scenario + "-" + UUID.randomUUID().toString().substring(0, 8));
+        String plotId = Jsons.text(input, "plotId", "plot-a01");
+        ensurePlotAccess(principal, plotId);
+        boolean writesSample = Jsons.bool(input, "generateSample", false);
+        if (writesSample && !principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SCENARIO_FORBIDDEN", "只有管理员可以写入情景样本");
+        String requestedScenario = Jsons.text(input, "scenario", "");
+        String scenario = requestedScenario.isBlank() ? "normal" : requestedScenario;
+        String canonical = canonicalScenarioForRun(scenario);
+        String scenarioId = Jsons.text(input, "scenarioId", canonical.toLowerCase(Locale.ROOT) + "-" + UUID.randomUUID().toString().substring(0, 8));
         Map<String, Object> run = new LinkedHashMap<>(input); run.put("runId", Jsons.id("scenario-run")); run.put("scenarioId", scenarioId); run.put("scenario", scenario); run.put("seed", Jsons.whole(input, "seed", 42)); run.put("status", "RUNNING"); run.put("startedAt", Instant.now().toString()); run.put("startedBy", principal.userId); run.putIfAbsent("branchId", "MAIN"); store.save("scenario-run", Jsons.text(run, "runId", ""), run); events.publish("scenario.started", run);
-        if (Jsons.bool(input, "generateSample", false)) generateSampleScenario(scenario, scenarioId, Jsons.whole(input, "seed", 42), Jsons.text(input, "branchId", "MAIN"), principal);
+        if (writesSample) generateSampleScenario(canonical, scenarioId, Jsons.whole(input, "seed", 42), Jsons.text(input, "branchId", "MAIN"), principal);
+        Map<String, Object> persistedSimulation = simulationRecord(plotId);
+        Map<String, Object> whatIf = persistedSimulation;
+        whatIf.put("scenario", canonical);
+        if (!canonical.equals(Jsons.text(persistedSimulation, "scenario", "NORMAL"))) {
+            whatIf.put("parameters", simulationDefaults(canonical, plotId));
+        }
+        Map<String, Object> supplied = Jsons.map(mapper, input.get("parameters"));
+        if (!supplied.isEmpty()) {
+            Map<String, Object> merged = Jsons.map(mapper, whatIf.get("parameters"));
+            for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+                String key = entry.getKey();
+                if (!supplied.containsKey(key)) continue;
+                double[] range = entry.getValue();
+                double fallback = Jsons.number(merged, key, (range[0] + range[1]) / 2.0);
+                merged.put(key, round(clamp(Jsons.number(supplied, key, fallback), fallback, range[0], range[1])));
+            }
+            whatIf.put("parameters", merged);
+        }
+        Map<String, Object> whatIfParameters = Jsons.map(mapper, whatIf.get("parameters"));
+        if (Jsons.number(whatIfParameters, "riskThreshold", 20) >= Jsons.number(whatIfParameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
+        Map<String, Object> projection = forecastForSimulation(plotId, "SOIL_MOISTURE", whatIf, false);
+        run.put("plotId", plotId); run.put("scenario", canonical); run.put("scenarioLabel", simulationScenarioCatalog().stream().filter(item -> canonical.equals(item.get("code"))).findFirst().map(item -> item.get("label")).orElse(canonical));
+        run.put("curve", projection.get("curve")); run.put("horizons", projection.get("horizons")); run.put("riskBoundary", projection.get("riskBoundary")); run.put("timeToRiskMinutes", projection.get("timeToRiskMinutes"));
         run.put("status", "COMPLETED"); run.put("completedAt", Instant.now().toString());
         run.put("replayEvents", store.list("scenario-event").stream().filter(e -> scenarioId.equals(Jsons.text(e, "scenarioId", ""))).count());
         run.put("mainEvents", store.telemetry(null, null, Instant.EPOCH, Instant.now().plusSeconds(1), 10000).stream().filter(e -> scenarioId.equals(Jsons.text(e, "scenarioId", ""))).count());
@@ -4103,11 +4586,12 @@ class AgriEngine {
     }
 
     private void generateSampleScenario(String scenario, String scenarioId, long seed, String branch, UserPrincipal principal) {
+        String normalizedScenario = String.valueOf(scenario == null ? "normal" : scenario).toLowerCase(Locale.ROOT).replace('_', '-');
         Random random = new Random(seed); Instant base = Instant.now().minus(10, ChronoUnit.MINUTES);
         for (int i = 0; i < 30; i++) for (String plot : List.of("plot-a01", "plot-a02", "plot-b01")) {
             if (principal != null && !principal.canAccessPlot(plot)) continue;
-            double moisture = 32 - i * ("drought".equalsIgnoreCase(scenario) ? .65 : "sensor-drift".equalsIgnoreCase(scenario) ? .1 : .05) + random.nextDouble();
-            if ("heavy-rain".equalsIgnoreCase(scenario)) moisture += i * .4;
+            double moisture = 32 - i * ("drought".equalsIgnoreCase(normalizedScenario) ? .65 : "sensor-drift".equalsIgnoreCase(normalizedScenario) ? .1 : .05) + random.nextDouble();
+            if ("heavy-rain".equalsIgnoreCase(normalizedScenario)) moisture += i * .4;
             ingest(Map.of("eventId", scenarioId + "-" + branch + "-" + i + "-" + plot, "farmId", "farm-demo", "plotId", plot, "deviceId", "mock-" + plot,
                     "metric", "SOIL_MOISTURE", "value", moisture, "unit", "%", "ts", base.plus(i * 20L, ChronoUnit.SECONDS).toString(), "scenarioId", scenarioId, "branchId", branch));
         }
@@ -4258,7 +4742,7 @@ class AgriController {
         Map<String, Object> plot = new LinkedHashMap<>(body);
         plot.put("plotId", id); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
         plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", p.userId);
-        store.save("plot", id, plot); events.publish("plot.created", plot); store.logEvent("plot.created", plot);
+        store.save("plot", id, plot); engine.syncSimulationConfiguration(); events.publish("plot.created", plot); store.logEvent("plot.created", plot);
         return ok(plot);
     }
 
@@ -4307,6 +4791,23 @@ class AgriController {
     ResponseEntity<?> plotHealth(@PathVariable String plotId, Authentication a) {
         engine.ensurePlotAccess(principal(a), plotId);
         return ok(engine.plotHealth(plotId));
+    }
+
+    @GetMapping("/plots/{plotId}/simulation")
+    ResponseEntity<?> plotSimulation(@PathVariable String plotId, Authentication a) {
+        return ok(engine.plotSimulation(plotId, principal(a)));
+    }
+
+    @PutMapping("/plots/{plotId}/simulation")
+    ResponseEntity<?> updatePlotSimulation(@PathVariable String plotId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.updatePlotSimulation(plotId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/plots/{plotId}/simulation/reset")
+    ResponseEntity<?> resetPlotSimulation(@PathVariable String plotId,
+                                          @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        String target = Jsons.text(body == null ? Map.of() : body, "target", "ALL");
+        return ok(engine.resetPlotSimulation(plotId, target, principal(a)));
     }
 
     @GetMapping("/crop-batches")

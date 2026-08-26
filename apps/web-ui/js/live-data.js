@@ -136,6 +136,15 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     metrics[code] = metricFromLatest(code, event, metrics[code]);
   });
   const device = overviewCard.device || plot.device || {};
+  // A physical binding has precedence over the simulator device for the
+  // plot's operational status.  Synthetic values may continue to exist as a
+  // fallback, but the UI must never call a plot usable while its bound
+  // hardware is offline.
+  const hardware = overviewCard.hardware || plot.hardware || {};
+  const hardwareBound = String(hardware.bindingState || '').toUpperCase() === 'BOUND';
+  const effectiveDevice = hardwareBound
+    ? { ...device, ...hardware, deviceId: hardware.deviceId || device.deviceId, sourceMode: 'REAL', dataOrigin: 'HARDWARE' }
+    : device;
   const cropCode = text(plot.cropCode || overviewCard.cropCode, '');
   return {
     ...plot,
@@ -148,11 +157,13 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     stageLabel: text(plot.stageLabel, '—'),
     metrics,
     history,
-    deviceId: text(device.deviceId || plot.deviceId, ''),
-    deviceStatus: text(device.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
-    healthScore: overviewCard.health?.score ?? plot.healthScore ?? device.healthScore ?? null,
+    deviceId: text(effectiveDevice.deviceId || plot.deviceId, ''),
+    deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
+    hardware,
+    hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
+    healthScore: overviewCard.health?.score ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
-    lastSeen: device.lastSeen || plot.lastSeen || null,
+    lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };

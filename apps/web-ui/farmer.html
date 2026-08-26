@@ -429,11 +429,19 @@
                     </div>
                     <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'">
-                    <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
-                    <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                    <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
+                         @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                      <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                      <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === chart.code" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} {{ chart.unit }}</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
                   <div v-if="chart.is_multi" class="farmer-chart-legend">
                     <span v-for="series in chart.series" :key="'legend-' + series.label"><i :style="{background: series.color}"></i>{{ series.label }}</span>
@@ -514,18 +522,26 @@
                   </div>
                 </div>
                 <div v-if="advice_moisture_chart" class="farmer-moisture-chart-wrap">
-                  <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'">
-                    <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
-                    <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
-                    <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
-                      <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
-                      <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
-                    </g>
-                    <g v-if="advice_moisture_chart.alertLine">
-                      <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
-                    </g>
-                    <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'"
+                         @mousemove="show_chart_tooltip($event, advice_moisture_chart, 'advice-moisture')" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
+                      <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
+                      <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
+                        <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
+                        <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
+                      </g>
+                      <g v-if="advice_moisture_chart.alertLine">
+                        <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
+                      </g>
+                      <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === 'advice-moisture'" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} %</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_moisture_chart.labels[0] }}</span><span>{{ advice_moisture_chart.labels[3] }}</span><span>{{ advice_moisture_chart.labels[6] }}</span></div>
                   <div class="farmer-threshold-legend">
                     <span v-if="advice_moisture_chart.targetBands.length"><i class="legend-target"></i>{{ advice_moisture_chart.cropLabel }} {{ advice_moisture_chart.stageLabel }} 目标值带 {{ advice_moisture_chart.currentTarget }}</span>
@@ -553,10 +569,18 @@
                     <span>{{ advice_plot.name }} · 土壤湿度趋势</span>
                     <strong>{{ advice_soil_chart.current_label }}</strong>
                   </div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'">
-                    <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
-                    <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
+                         @mousemove="show_chart_tooltip($event, advice_soil_chart, 'advice-compact')" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                      <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === 'advice-compact'" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} %</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
                 <p class="farmer-panel-hint">{{ irrigation_target_label }}；正式会话只创建后端审批工单，不直接控制水泵。</p>
