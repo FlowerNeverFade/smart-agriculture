@@ -77,7 +77,7 @@
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
       </div>
 
-      <div class="g-header-center" style="position: relative;">
+      <div class="g-header-center">
         <button type="button" class="g-header-farm-select-btn" @click.stop="showFarmMenu = !showFarmMenu">
           <span>{{ selectedFarm.name || '选择农场' }}{{ selectedFarm.region ? ' · ' + selectedFarm.region : '' }}</span>
           <app-icon name="arrow_drop_down" style="font-size: 20px; color: var(--g-text-secondary);"></app-icon>
