@@ -1672,6 +1672,10 @@
   box-shadow: none;
 }
 
+.role-farm-admin .work-summary.is-lifecycle-summary {
+  grid-template-columns: repeat(6, minmax(105px, 1fr));
+}
+
 .role-farm-admin .work-summary button {
   --summary-accent: var(--admin-blue);
   --summary-tint: var(--admin-blue-bg);
@@ -1684,24 +1688,34 @@
   backdrop-filter: none;
 }
 
-.role-farm-admin .work-summary button:nth-child(2) {
-  --summary-accent: var(--admin-purple);
-  --summary-tint: var(--admin-purple-bg);
-}
-
-.role-farm-admin .work-summary button:nth-child(3) {
-  --summary-accent: var(--admin-mint);
-  --summary-tint: var(--admin-mint-bg);
-}
-
-.role-farm-admin .work-summary button:nth-child(4) {
+.role-farm-admin .work-summary button[data-status="open"] {
   --summary-accent: var(--admin-orange);
   --summary-tint: var(--admin-orange-bg);
 }
 
-.role-farm-admin .work-summary button:nth-child(5) {
+.role-farm-admin .work-summary button[data-status="assigned"] {
+  --summary-accent: var(--admin-purple);
+  --summary-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="in-progress"] {
+  --summary-accent: var(--admin-blue);
+  --summary-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="submitted"] {
+  --summary-accent: var(--admin-mint);
+  --summary-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="rejected"] {
   --summary-accent: var(--admin-red);
   --summary-tint: var(--admin-red-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="finished"] {
+  --summary-accent: var(--admin-teal);
+  --summary-tint: var(--admin-teal-bg);
 }
 
 .role-farm-admin .work-summary button strong,
@@ -1723,17 +1737,32 @@
   border-radius: 16px;
 }
 
-.role-farm-admin .work-order-card.status-open,
-.role-farm-admin .work-order-card.status-rejected {
+.role-farm-admin .work-order-card.status-open {
   border-left-color: var(--admin-orange);
 }
 
-.role-farm-admin .work-order-card.status-submitted {
+.role-farm-admin .work-order-card.status-assigned {
   border-left-color: var(--admin-purple);
 }
 
-.role-farm-admin .work-order-card.status-done {
+.role-farm-admin .work-order-card.status-in_progress {
+  border-left-color: var(--admin-blue);
+}
+
+.role-farm-admin .work-order-card.status-submitted {
   border-left-color: var(--admin-mint);
+}
+
+.role-farm-admin .work-order-card.status-rejected {
+  border-left-color: var(--admin-red);
+}
+
+.role-farm-admin .work-order-card.status-done {
+  border-left-color: var(--admin-teal);
+}
+
+.role-farm-admin .work-order-card.status-cancelled {
+  border-left-color: var(--g-text-secondary);
 }
 
 .role-farm-admin .work-order-card.is-overdue {
@@ -1742,6 +1771,25 @@
 
 .role-farm-admin :is(.work-summary-card-footer, .admin-alert-card-footer, .admin-device-card > footer) {
   background: color-mix(in srgb, var(--g-bg-subtle) 78%, var(--g-bg-surface));
+}
+
+.role-farm-admin .work-manager-filters {
+  border-color: color-mix(in srgb, var(--g-border) 86%, #ffffff);
+  border-radius: 16px;
+  background: var(--g-bg-surface);
+  box-shadow: 0 10px 28px rgba(31, 53, 42, .075);
+}
+
+.role-farm-admin .work-filters.is-manager-controls {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.role-farm-admin .work-filter-chip,
+.role-farm-admin .work-all-tasks {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .72);
 }
 
 .role-farm-admin .admin-alert-card {
@@ -1896,6 +1944,12 @@
 }
 
 @media (max-width: 1180px) {
+  .role-farm-admin .work-summary.is-lifecycle-summary {
+    grid-template-columns: repeat(6, minmax(122px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
   .role-farm-admin .manager-summary-item {
     min-height: 70px;
     padding: 11px 12px;

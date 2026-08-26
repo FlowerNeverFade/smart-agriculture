@@ -42,6 +42,25 @@ const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   FLOW_METER: '流量计'
 });
 
+const ADMIN_WORK_ACTION_META = Object.freeze({
+  INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
+  FIELD_INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
+  FIELD_OPERATION: { label: '田间作业', icon: 'eco', tone: 'field' },
+  IRRIGATION_REVIEW: { label: '灌溉审批', icon: 'water_drop', tone: 'irrigation' },
+  IRRIGATION_CHECK: { label: '灌溉巡检', icon: 'water_drop', tone: 'irrigation' },
+  DEVICE_CHECK: { label: '设备检查', icon: 'monitoring', tone: 'device' },
+  FERTILIZATION: { label: '施肥检查', icon: 'nutrition', tone: 'fertilization' }
+});
+
+const ADMIN_WORK_STATUS_ALIASES = Object.freeze({
+  PENDING: 'OPEN',
+  NEW: 'OPEN',
+  CLAIMED: 'ASSIGNED',
+  COMPLETED: 'DONE'
+});
+
+const ADMIN_TERMINAL_WORK_STATUSES = new Set(['DONE', 'CANCELLED']);
+
 function metricKey(value) {
   return String(value || '')
     .trim()
@@ -63,6 +82,82 @@ export function adminDeviceTypeLabel(type) {
   const value = String(type || '').trim();
   if (!value) return '类型未知';
   return ADMIN_DEVICE_TYPE_LABELS[metricKey(value)] || value;
+}
+
+export function normalizeAdminWorkStatus(status) {
+  const normalized = metricKey(status || 'OPEN');
+  return ADMIN_WORK_STATUS_ALIASES[normalized] || normalized;
+}
+
+export function normalizeAdminWorkActionType(actionType) {
+  return metricKey(actionType);
+}
+
+export function adminWorkActionMeta(actionType) {
+  const value = String(actionType || '').trim();
+  const code = normalizeAdminWorkActionType(value);
+  const known = ADMIN_WORK_ACTION_META[code];
+  return {
+    code: code || 'UNKNOWN',
+    key: (code || 'UNKNOWN').toLowerCase().replaceAll('_', '-'),
+    label: known?.label || value || '类型未知',
+    icon: known?.icon || 'task_alt',
+    tone: known?.tone || 'neutral'
+  };
+}
+
+export function adminWorkLifecycleSummary(workOrders = []) {
+  const summary = { all: 0, open: 0, assigned: 0, inProgress: 0, submitted: 0, rejected: 0, finished: 0 };
+  for (const order of Array.isArray(workOrders) ? workOrders : []) {
+    const status = normalizeAdminWorkStatus(order?.status);
+    summary.all += 1;
+    if (status === 'OPEN') summary.open += 1;
+    else if (status === 'ASSIGNED') summary.assigned += 1;
+    else if (status === 'IN_PROGRESS') summary.inProgress += 1;
+    else if (status === 'SUBMITTED') summary.submitted += 1;
+    else if (status === 'REJECTED') summary.rejected += 1;
+    else if (ADMIN_TERMINAL_WORK_STATUSES.has(status)) summary.finished += 1;
+  }
+  return summary;
+}
+
+function localDayWindow(now = Date.now()) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setMilliseconds(-1);
+  return { start: start.getTime(), end: end.getTime() };
+}
+
+export function workOrderMatchesAttention(order, attention, now = Date.now()) {
+  const normalized = metricKey(attention);
+  if (!normalized) return true;
+  if (ADMIN_TERMINAL_WORK_STATUSES.has(normalizeAdminWorkStatus(order?.status))) return false;
+  if (normalized === 'HIGH') return metricKey(order?.priority) === 'HIGH';
+
+  const dueAt = new Date(order?.dueAt || 0).getTime();
+  if (!Number.isFinite(dueAt) || dueAt <= 0) return false;
+  if (normalized === 'OVERDUE') return dueAt < now;
+
+  const { end } = localDayWindow(now);
+  if (normalized === 'DUE_TODAY') return dueAt >= now && dueAt <= end;
+  if (normalized === 'UPCOMING') {
+    const upcomingEnd = new Date(end);
+    upcomingEnd.setDate(upcomingEnd.getDate() + 7);
+    return dueAt > end && dueAt <= upcomingEnd.getTime();
+  }
+  return true;
+}
+
+export function adminWorkAttentionSummary(workOrders = [], now = Date.now()) {
+  const orders = Array.isArray(workOrders) ? workOrders : [];
+  return {
+    overdue: orders.filter(order => workOrderMatchesAttention(order, 'OVERDUE', now)).length,
+    dueToday: orders.filter(order => workOrderMatchesAttention(order, 'DUE_TODAY', now)).length,
+    upcoming: orders.filter(order => workOrderMatchesAttention(order, 'UPCOMING', now)).length,
+    high: orders.filter(order => workOrderMatchesAttention(order, 'HIGH', now)).length
+  };
 }
 
 export function alertAcknowledgementAction(status) {

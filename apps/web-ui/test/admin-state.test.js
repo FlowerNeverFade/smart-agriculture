@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminDeviceTypeLabel, adminMetricLabel, adminSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
+import { adminDeviceTypeLabel, adminMetricLabel, adminSummary, adminWorkActionMeta, adminWorkAttentionSummary, adminWorkLifecycleSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesAttention, workOrderMatchesSummaryScope } from '../js/admin-state.js';
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -85,6 +85,44 @@ test('farm admin device cards translate known types without guessing unknown val
   assert.equal(adminDeviceTypeLabel('土壤传感器'), '土壤传感器');
   assert.equal(adminDeviceTypeLabel('CUSTOM_SENSOR'), 'CUSTOM_SENSOR');
   assert.equal(adminDeviceTypeLabel(''), '类型未知');
+});
+
+test('farm admin task types use agricultural labels and preserve unknown backend values', () => {
+  assert.deepEqual(adminWorkActionMeta('INSPECTION'), {
+    code: 'INSPECTION', key: 'inspection', label: '巡田核验', icon: 'fact_check', tone: 'inspection'
+  });
+  assert.equal(adminWorkActionMeta('IRRIGATION_CHECK').label, '灌溉巡检');
+  assert.equal(adminWorkActionMeta('FERTILIZATION').label, '施肥检查');
+  assert.equal(adminWorkActionMeta('CUSTOM_FIELD_JOB').label, 'CUSTOM_FIELD_JOB');
+});
+
+test('farm admin lifecycle summary keeps every task in one explicit stage', () => {
+  const summary = adminWorkLifecycleSummary([
+    { status: 'OPEN' },
+    { status: 'ASSIGNED' },
+    { status: 'IN_PROGRESS' },
+    { status: 'SUBMITTED' },
+    { status: 'REJECTED' },
+    { status: 'DONE' },
+    { status: 'COMPLETED' },
+    { status: 'CANCELLED' }
+  ]);
+  assert.deepEqual(summary, { all: 8, open: 1, assigned: 1, inProgress: 1, submitted: 1, rejected: 1, finished: 3 });
+});
+
+test('farm admin attention filters stay independent from lifecycle status', () => {
+  const now = Date.parse('2026-08-26T12:00:00Z');
+  const orders = [
+    { status: 'ASSIGNED', priority: 'MEDIUM', dueAt: '2026-08-26T10:00:00Z' },
+    { status: 'IN_PROGRESS', priority: 'HIGH', dueAt: '2026-08-26T13:00:00Z' },
+    { status: 'SUBMITTED', priority: 'LOW', dueAt: '2026-08-29T09:00:00Z' },
+    { status: 'DONE', priority: 'HIGH', dueAt: '2026-08-25T09:00:00Z' }
+  ];
+  assert.equal(workOrderMatchesAttention(orders[0], 'OVERDUE', now), true);
+  assert.equal(workOrderMatchesAttention(orders[1], 'DUE_TODAY', now), true);
+  assert.equal(workOrderMatchesAttention(orders[2], 'UPCOMING', now), true);
+  assert.equal(workOrderMatchesAttention(orders[3], 'HIGH', now), false);
+  assert.deepEqual(adminWorkAttentionSummary(orders, now), { overdue: 1, dueToday: 1, upcoming: 1, high: 1 });
 });
 
 test('escalated alerts expose the existing acknowledgement action as downgrade', () => {
