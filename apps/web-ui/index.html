@@ -146,6 +146,7 @@
         <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
           <button v-for="nav in navItems" :key="nav.id" type="button"
                class="g-nav-item"
+               :data-nav="nav.id"
                :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
                :aria-current="currentView === nav.id ? 'page' : null"
                @click="navigate(nav.id)">
@@ -229,10 +230,14 @@
 
       <div class="manager-summary-strip" aria-label="今日农场概况">
         <button type="button" class="manager-summary-item" v-for="item in managerSummary" :key="item.id"
+                :data-summary="item.id"
                 :title="item.hint" :aria-label="`${item.label} ${item.value}，${item.hint}`"
                 @click="openManagerSummary(item)">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
+          <span class="manager-summary-icon"><app-icon :name="item.icon"></app-icon></span>
+          <span class="manager-summary-copy">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
         </button>
       </div>
 
@@ -281,10 +286,13 @@
             <span>生长周期：{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</span>
           </p>
           <div class="manager-metric-grid">
-            <div class="manager-metric" :class="`is-${metricTone(metric)}`" v-for="metric in plotMetrics(plot)" :key="metric.code">
+            <div class="manager-metric" :class="`is-${metricTone(metric)}`" :data-metric="metric.code" v-for="metric in plotMetrics(plot)" :key="metric.code">
               <div class="manager-metric-label">
-                <span>{{ metric.label }}</span>
-                <app-icon :name="metricStatusIcon(metric)"></app-icon>
+                <span class="manager-metric-name">
+                  <span class="manager-metric-glyph"><app-icon :name="metricVisualIcon(metric)"></app-icon></span>
+                  <span>{{ metric.label }}</span>
+                </span>
+                <app-icon class="manager-metric-state" :name="metricStatusIcon(metric)"></app-icon>
               </div>
               <div class="manager-metric-value">
                 {{ formatMetric(metric) }} <small v-if="formatMetric(metric) !== '—'">{{ metric.unit }}</small>

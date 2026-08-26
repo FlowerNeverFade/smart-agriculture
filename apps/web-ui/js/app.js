@@ -53,6 +53,15 @@ const ICON_CLASS = Object.freeze({
   error: 'ph-x-circle',
   check_circle: 'ph-check-circle',
   add_task: 'ph-note-pencil',
+  calendar_today: 'ph-calendar-check',
+  schedule: 'ph-clock',
+  person_add: 'ph-user-plus',
+  thermometer: 'ph-thermometer-simple',
+  humidity: 'ph-drop-half-bottom',
+  eco: 'ph-leaf',
+  rainy: 'ph-cloud-rain',
+  soil_ec: 'ph-wave-sine',
+  nutrition: 'ph-plant',
   remove_circle_outline: 'ph-minus-circle',
   close: 'ph-x',
   psychology: 'ph-brain',
@@ -105,6 +114,16 @@ const NAV_CATALOG = Object.freeze([
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ICONS = Object.freeze({
+  SOIL_MOISTURE: 'water_drop',
+  AIR_TEMPERATURE: 'thermometer',
+  AIR_HUMIDITY: 'humidity',
+  LIGHT: 'light_mode',
+  CO2: 'eco',
+  RAINFALL: 'rainy',
+  SOIL_EC: 'soil_ec',
+  NPK_RATIO: 'nutrition'
+});
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
   { code: 'tomato', name: '番茄' },
@@ -362,11 +381,11 @@ const DashboardView = {
     const managerSummary = computed(() => {
       const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
-        { id: 'overdue', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
-        { id: 'abnormal', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
-        { id: 'unassigned', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
+        { id: 'today', icon: 'calendar_today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
+        { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
+        { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
+        { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
+        { id: 'approval', icon: 'task_alt', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
       ];
     });
 
@@ -385,7 +404,8 @@ const DashboardView = {
     }));
     const formatMetric = (metric) => formatMetricValue(metric);
     const healthScore = (plot) => formatHealthScore(plot?.healthScore);
-    const cardTone = (plot) => isAbnormalPlot(plot) ? 'attention' : 'normal';
+    const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
+    const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
     const openPlotDetail = (plot, event) => emit('open-plot-detail', {
       plotId: plot.plotId,
@@ -550,6 +570,7 @@ const DashboardView = {
       healthScore,
       cardTone,
       metricTone,
+      metricVisualIcon,
       metricStatusIcon,
       openPlotDetail,
       plotMenuId,
