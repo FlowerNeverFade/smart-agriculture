@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminMetricLabel, adminSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
+import { adminDeviceTypeLabel, adminMetricLabel, adminSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -76,6 +76,15 @@ test('farm admin metrics prefer concise Chinese names for known backend codes', 
   assert.equal(adminMetricLabel('custom', 'Air Temperature'), '空气温度');
   assert.equal(adminMetricLabel('DEVICE_FRESHNESS', ''), '设备数据新鲜度');
   assert.equal(adminMetricLabel('CUSTOM_INDEX', '自定义指标'), '自定义指标');
+});
+
+test('farm admin device cards translate known types without guessing unknown values', () => {
+  assert.equal(adminDeviceTypeLabel('ENVIRONMENTAL_SENSOR'), '环境传感器');
+  assert.equal(adminDeviceTypeLabel('irrigation-controller'), '灌溉控制器');
+  assert.equal(adminDeviceTypeLabel('FLOW_METER'), '流量计');
+  assert.equal(adminDeviceTypeLabel('土壤传感器'), '土壤传感器');
+  assert.equal(adminDeviceTypeLabel('CUSTOM_SENSOR'), 'CUSTOM_SENSOR');
+  assert.equal(adminDeviceTypeLabel(''), '类型未知');
 });
 
 test('escalated alerts expose the existing acknowledgement action as downgrade', () => {

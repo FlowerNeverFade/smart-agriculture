@@ -36,6 +36,12 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_HEALTH: '设备健康'
 });
 
+const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
+  ENVIRONMENTAL_SENSOR: '环境传感器',
+  IRRIGATION_CONTROLLER: '灌溉控制器',
+  FLOW_METER: '流量计'
+});
+
 function metricKey(value) {
   return String(value || '')
     .trim()
@@ -51,6 +57,12 @@ export function adminMetricLabel(code, fallbackLabel = '') {
   const fallbackKey = metricKey(fallback);
   if (ADMIN_METRIC_LABELS[fallbackKey]) return ADMIN_METRIC_LABELS[fallbackKey];
   return fallback || normalized.replaceAll('_', ' ') || '未知指标';
+}
+
+export function adminDeviceTypeLabel(type) {
+  const value = String(type || '').trim();
+  if (!value) return '类型未知';
+  return ADMIN_DEVICE_TYPE_LABELS[metricKey(value)] || value;
 }
 
 export function alertAcknowledgementAction(status) {
