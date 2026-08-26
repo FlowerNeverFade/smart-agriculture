@@ -27,7 +27,7 @@
 
 ## 自动化结果
 
-- Node 前端测试：32/32 通过。
+- Node 前端测试：34/34 通过，包含本地预览直达演示会话回归。
 - Vite 生产构建：通过；只有项目既有 Vue/ECharts vendor 非模块提示。
 - WebUI 挂载回归：real 24/24、stub 24/24、svg 23/23 通过。
 - `git diff --check`：通过。

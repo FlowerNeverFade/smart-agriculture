@@ -35,6 +35,12 @@ const toast = document.getElementById('toast');
 const liquidCanvas = document.getElementById('ambientLiquidCanvas');
 const liquidFallback = document.getElementById('liquidFieldFallback');
 const customSelectControllers = new Map();
+const LOCAL_PREVIEW_ACCOUNTS = Object.freeze({
+  admin: 'admin',
+  'farm-admin': 'admin',
+  farmer: 'farmer',
+  sysadmin: 'sysadmin'
+});
 
 let toastTimer;
 let leaving = false;
@@ -536,18 +542,31 @@ recoveryCodeContinue.addEventListener('click', continueAfterRecoveryCode);
   form.addEventListener('focusout', handleTaskModeFocusOut);
 });
 
-const storedSession = api.readSession();
-if (storedSession?.mode === 'live' && storedSession.token) {
-  const storedUser = presentRoleUser(storedSession?.user);
-  const target = storedUser?.role === 'FARMER' ? 'farmer.html' : 'index.html';
+const previewParams = new URLSearchParams(window.location.search);
+const previewAccount = LOCAL_PREVIEW_ACCOUNTS[String(previewParams.get('preview') || '').toLowerCase()];
+const isLocalPreviewHost = ['127.0.0.1', 'localhost', '::1'].includes(window.location.hostname);
+const previewUser = isLocalPreviewHost && previewAccount ? demoUserFor(previewAccount) : null;
+
+if (previewUser) {
+  api.saveSession({ mode: 'demo', user: previewUser });
+  const target = previewUser.role === 'FARMER'
+    ? 'farmer.html'
+    : 'index.html#view=decision-console&farmId=farm-demo';
   window.location.replace(target);
 } else {
-  if (storedSession?.mode === 'demo') api.clearSession();
-  backgroundController = createAmbientLiquidField({
-    canvas: liquidCanvas,
-    fallback: liquidFallback,
-    glassPanel
-  });
-  syncTaskMode();
-  requestAnimationFrame(() => document.body.classList.add('is-mounted'));
+  const storedSession = api.readSession();
+  if (storedSession?.mode === 'live' && storedSession.token) {
+    const storedUser = presentRoleUser(storedSession?.user);
+    const target = storedUser?.role === 'FARMER' ? 'farmer.html' : 'index.html';
+    window.location.replace(target);
+  } else {
+    if (storedSession?.mode === 'demo') api.clearSession();
+    backgroundController = createAmbientLiquidField({
+      canvas: liquidCanvas,
+      fallback: liquidFallback,
+      glassPanel
+    });
+    syncTaskMode();
+    requestAnimationFrame(() => document.body.classList.add('is-mounted'));
+  }
 }

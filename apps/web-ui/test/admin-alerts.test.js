@@ -102,3 +102,11 @@ test('管理员入口使用新名称且 AI 对话正文字号不小于 16px', ()
   assert.match(chatCss, /\.admin-ai-bubble p\s*\{[^}]*font-size:\s*16px/s);
   assert.match(chatCss, /grid-template-rows:\s*auto auto minmax\(300px, 1fr\)/);
 });
+
+test('本地预览参数可直接进入农场管理员演示态', () => {
+  const loginSource = readFileSync(new URL('../js/login.js', import.meta.url), 'utf8');
+  assert.match(loginSource, /LOCAL_PREVIEW_ACCOUNTS/);
+  assert.match(loginSource, /\['127\.0\.0\.1', 'localhost', '::1'\]/);
+  assert.match(loginSource, /api\.saveSession\(\{ mode: 'demo', user: previewUser \}\)/);
+  assert.match(loginSource, /index\.html#view=decision-console&farmId=farm-demo/);
+});
