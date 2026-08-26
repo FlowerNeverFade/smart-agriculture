@@ -168,6 +168,22 @@ export class ApiService {
     return result;
   }
 
+  async changePassword({ currentPassword, newPassword }) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const session = resp?.data || resp;
+      if (!session?.accessToken || !session?.user?.username) {
+        throw new ApiError('改密响应缺少新的登录令牌', { code: 'ACCOUNT_PASSWORD_RESPONSE_INVALID', payload: resp });
+      }
+      this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
+      return session;
+    }
+    return { username: this.user?.username, demo: true };
+  }
+
   async getCurrentUser() {
     const resp = await this._fetch('/api/v1/auth/me');
     const user = resp?.data || resp;
@@ -809,13 +825,15 @@ export class ApiService {
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
-  async createFarmMember({ farmId, username, password, plotIds = [] } = {}) {
+  async createFarmMember({ farmId, username, password, displayName = '', plotIds = [] } = {}) {
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/farm-members', {
         method: 'POST',
-        body: JSON.stringify({ farmId, username, password, plotIds })
+        body: JSON.stringify({ farmId, username, password, displayName, plotIds })
       });
-      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      if (response?.data?.userId) {
+        return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
+      }
       throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
@@ -825,9 +843,36 @@ export class ApiService {
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
-    const member = normalizeFarmMember({ userId, username: normalized, role: 'FARMER', roleLabel: '种植农户', farmIds: [farmId], plotIds, status: 'ACTIVE' }, 'SIMULATED');
+    const member = normalizeFarmMember({
+      userId,
+      username: normalized,
+      displayName: displayName || normalized,
+      role: 'FARMER',
+      roleLabel: '种植农户',
+      farmIds: [farmId],
+      plotIds,
+      status: 'ACTIVE'
+    }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
-    return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds] };
+    return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateFarmMemberStatus(userId, { farmId, status, enabled } = {}) {
+    const nextEnabled = typeof enabled === 'boolean' ? enabled : String(status || '').toUpperCase() !== 'INACTIVE' && String(status || '').toUpperCase() !== 'DISABLED';
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ farmId, status: nextEnabled ? 'ACTIVE' : 'INACTIVE', enabled: nextEnabled })
+      });
+      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的成员状态结果', { code: 'FARM_MEMBER_STATUS_INVALID', payload: response });
+    }
+    const current = this.demoFarmMembers.get(userId);
+    if (!current) throw new ApiError('没有找到该成员', { status: 404, code: 'FARM_MEMBER_NOT_FOUND' });
+    if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
+    const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
+    this.demoFarmMembers.set(userId, updated);
+    return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
   }
 
   async deleteFarmMember(userId, { farmId } = {}) {
@@ -930,15 +975,20 @@ export class ApiService {
     return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
   }
 
-  async createInspection(inspection) {
+  async createInspection(inspection, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/inspections', {
         method: 'POST',
         body: JSON.stringify(inspection)
       });
-      return response?.data || response;
+      const saved = response?.data || response;
+      if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
+      if (!uploads.length) return saved;
+      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
     }
     const now = new Date().toISOString();
+    const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
@@ -951,6 +1001,7 @@ export class ApiService {
       revision: 1,
       provenance: 'USER_PROVIDED',
       sourceType: 'HUMAN_OBSERVATION',
+      photos,
       quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
     this.demoInspections.set(saved.inspectionId, saved);
@@ -970,6 +1021,26 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    return { ...saved };
+  }
+
+  async uploadInspectionPhotos(inspectionId, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
+    if (!uploads.length) throw new ApiError('请选择至少一张现场照片', { status: 400, code: 'INSPECTION_PHOTO_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const body = new FormData();
+      uploads.forEach((file) => body.append('files', file));
+      const response = await this._fetch(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/photos`, {
+        method: 'POST',
+        body
+      });
+      return response?.data || response;
+    }
+    const current = this.demoInspections.get(inspectionId);
+    if (!current) throw new ApiError('没有找到该巡田记录', { status: 404, code: 'NOT_FOUND' });
+    const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
+    const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
+    this.demoInspections.set(inspectionId, saved);
     return { ...saved };
   }
 
@@ -1937,17 +2008,28 @@ export class ApiService {
     const pack = (MOCK_DATA.cropPackDetails || []).find((item) => item.cropCode === cropCode) || MOCK_DATA.cropPackDetails?.[0];
     if (!pack) throw new ApiError('演示作物培养手册不存在', { code: 'CROP_MANUAL_NOT_FOUND' });
     const stage = (pack.stages || []).find((item) => item.code === stageCode) || pack.stages?.[0];
+    const stageKnowledge = pack.knowledge?.byStage?.[stage?.code] || [];
     return {
       cropCode: pack.cropCode,
       version: pack.version,
+      ruleVersion: pack.ruleVersion,
+      knowledgeVersion: pack.knowledgeVersion,
       identity: pack.identity,
       stages: pack.stages,
       stage,
       envMetrics: [],
       guideParagraphs: [],
       rules: pack.rules,
-      knowledge: pack.knowledge,
-      provenance: 'SIMULATED'
+      riskFocus: stage?.riskFocus || [],
+      taskTemplates: stage?.taskTemplates || [],
+      knowledge: {
+        ...(pack.knowledge || {}),
+        documents: pack.knowledge?.documents || [],
+        stageDocuments: stage?.knowledgeRef ? [stage.knowledgeRef] : [],
+        content: stageKnowledge.length ? stageKnowledge : (pack.knowledge?.content || [])
+      },
+      provenance: 'SIMULATED',
+      sourceMode: 'CROP_PACK'
     };
   }
 
@@ -1995,12 +2077,14 @@ export class ApiService {
 
   async _fetch(path, options = {}, { auth = true } = {}) {
     const { auth: optionAuth = auth, ...fetchOptions } = options;
+    const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(optionAuth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
+    if (isFormData) delete headers['Content-Type'];
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
@@ -2042,6 +2126,23 @@ export class ApiService {
 }
 
 export const api = new ApiService();
+
+function fileToInspectionPhoto(file, index = 0) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      photoId: `photo-demo-${Date.now()}-${index}`,
+      fileName: file.name || `field-${index + 1}.jpg`,
+      contentType: file.type || 'image/jpeg',
+      sizeBytes: file.size || 0,
+      provenance: 'USER_PROVIDED',
+      sourceType: 'HUMAN_OBSERVATION',
+      previewUrl: reader.result
+    });
+    reader.onerror = () => reject(new ApiError('现场照片读取失败', { code: 'INSPECTION_PHOTO_READ_FAILED' }));
+    reader.readAsDataURL(file);
+  });
+}
 
 // 确定性伪随机数：同一 scenario + seed 的双轨回放必须完全可复现。
 function mulberry32(seed) {

@@ -50,6 +50,18 @@ test('farmer messages are rebuilt from backend alerts, tasks and inspections', (
   assert.ok(messages.every((item) => item.dataOrigin === 'BACKEND'));
 });
 
+test('farmer inbox collapses duplicate active alerts for the same plot and source', () => {
+  const messages = buildFarmerMessages({
+    plots: [{ plotId: 'plot-a01', name: '温室1' }],
+    alerts: [
+      { alertId: 'alert-1', plotId: 'plot-a01', source: 'WATER_DEFICIT_RULE', title: '土壤持续偏干', status: 'ACTIVE', raisedAt: '2026-08-26T10:01:00Z' },
+      { alertId: 'alert-2', plotId: 'plot-a01', source: 'WATER_DEFICIT_RULE', title: '土壤持续偏干', status: 'ACTIVE', raisedAt: '2026-08-26T10:02:00Z' },
+      { alertId: 'alert-3', plotId: 'plot-a01', source: 'SENSOR_DRIFT_RULE', title: '传感器数据可能不可靠', status: 'ACTIVE', raisedAt: '2026-08-26T10:03:00Z' }
+    ]
+  });
+  assert.deepEqual(messages.map((item) => item.id), ['alert:alert-3', 'alert:alert-2']);
+});
+
 test('system-admin records preserve backend strategy and audit states', () => {
   assert.equal(mapStrategyCandidate({ candidateId: 'c-1', status: 'ROLLED_BACK' }).status, 'rolled_back');
   const timeline = mapTimelineRecord({
