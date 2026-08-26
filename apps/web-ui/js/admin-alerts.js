@@ -13,7 +13,13 @@ function normalized(value, fallback = 'UNKNOWN') {
 }
 
 function replaceById(list, key, update) {
-  const index = list.findIndex(item => item?.[key] === update?.[key]);
+  const identity = item => {
+    if (key === 'alertId') return item?.alertId || item?.id || '';
+    if (key === 'workOrderId') return item?.workOrderId || item?.workItemId || '';
+    return item?.[key] || '';
+  };
+  const targetId = String(identity(update));
+  const index = list.findIndex(item => String(identity(item)) === targetId);
   if (index < 0) list.unshift(update);
   else list.splice(index, 1, { ...list[index], ...update });
 }
@@ -394,6 +400,7 @@ export const AdminAlertCenter = {
       busyKey,
       selectedIds,
       visibleAlerts,
+      alertKey,
       selectableAlerts,
       selectedAlerts,
       allVisibleSelected,
@@ -459,14 +466,14 @@ export const AdminAlertCenter = {
 
       <div class="admin-alert-empty" v-if="!visibleAlerts.length">当前列表没有告警。</div>
       <div class="admin-alert-list" v-else>
-        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alert.alertId"
-          :class="['level-' + normalized(alert.level, 'MEDIUM').toLowerCase(), { 'is-selected': selectedIds.includes(alert.alertId) }]"
+        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alertKey(alert)"
+          :class="['level-' + normalized(alert.level, 'MEDIUM').toLowerCase(), { 'is-selected': selectedIds.includes(alertKey(alert)) }]"
           role="button" tabindex="0" :aria-label="'查看告警详情：' + (alert.title || '地块需要处理')"
           @click="openDetail(alert)" @keydown="openDetailFromKeyboard($event, alert)">
           <div class="admin-alert-main">
             <div class="admin-alert-card-top">
               <label class="admin-alert-card-select" v-if="!isClosed(alert)" @click.stop>
-                <input type="checkbox" v-model="selectedIds" :value="alert.alertId" :disabled="busyKey !== ''" @click.stop>
+                <input type="checkbox" v-model="selectedIds" :value="alertKey(alert)" :disabled="busyKey !== ''" @click.stop>
                 <span>选择</span>
               </label>
               <div class="admin-alert-title-row">

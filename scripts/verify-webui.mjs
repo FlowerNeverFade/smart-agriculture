@@ -161,13 +161,14 @@ async function mountIndex() {
   }
   ok('农场管理员完整 AI 对话页可切换', chatReady
     && window.document.body.textContent.includes('新对话')
-    && window.document.body.textContent.includes('关键操作仍需遵守现场确认'));
+    && window.document.body.textContent.includes('AI 可能会出错，请核对重要信息'));
   await waitFor(() => chatReady && !window.document.querySelector('.admin-ai-history-loading'), 1500);
   const newConversationButton = window.document.querySelector('.admin-ai-chat-tools .g-btn');
   newConversationButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const suggestionsReady = await waitFor(() => window.document.querySelectorAll('.admin-ai-suggestions button').length === 4, 1500);
-  ok('新对话后快捷问题在输入区上方可见', suggestionsReady
-    && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-suggestions + .admin-ai-composer'))
+  ok('新对话后经典空白页快捷问题和底部输入框可见', suggestionsReady
+    && Boolean(window.document.querySelector('.admin-ai-message-list.is-empty .admin-ai-empty-state .admin-ai-suggestions'))
+    && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
     && !window.document.querySelector('.admin-ai-chat h2'));
 
   window.location.hash = '#view=plot-detail&plotId=plot-a01';

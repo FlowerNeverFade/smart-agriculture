@@ -109,8 +109,10 @@ test('管理员入口使用新名称且 AI 对话正文字号不小于 16px', ()
   assert.match(appSource, /FARM_ADMIN: 'AI告警分析与智能处理'/);
   assert.doesNotMatch(appSource, /FARM_ADMIN: 'AI 告警处置'/);
   assert.match(chatCss, /\.admin-ai-bubble p\s*\{[^}]*font-size:\s*16px/s);
-  assert.match(chatCss, /grid-template-rows:\s*auto minmax\(220px, 1fr\) auto/);
-  assert.match(chatSource, /admin-ai-compose-area[\s\S]*admin-ai-suggestions[\s\S]*admin-ai-composer/);
+  assert.match(chatCss, /grid-template-rows:\s*auto minmax\(260px, 1fr\) auto/);
+  assert.match(chatSource, /admin-ai-empty-state[\s\S]*admin-ai-suggestions[\s\S]*admin-ai-compose-area[\s\S]*admin-ai-composer/);
+  assert.match(chatCss, /\.admin-ai-suggestions\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
+  assert.match(chatCss, /\.admin-ai-composer\s*\{[^}]*border-radius:\s*24px/s);
   assert.doesNotMatch(chatSource, /<h2/);
 });
 
@@ -138,7 +140,7 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     closeAlert: api.closeAlert
   };
   const alertToDispatch = { alertId: 'alert-dispatch', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'HIGH', ruleState: 'CONFIRMED' };
-  const alertToClose = { alertId: 'alert-close', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'MEDIUM' };
+  const alertToClose = { id: 'alert-close', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'MEDIUM' };
   const state = {
     sessionMode: 'demo',
     adminContext: { farmId: 'farm-demo' },
@@ -162,7 +164,8 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     assert.equal(state.workOrders[0].sourceRef, 'alert-dispatch');
 
     await view.closeAlerts([alertToClose]);
-    assert.equal(state.alerts.find(item => item.alertId === 'alert-close').status, 'CLOSED');
+    assert.equal(state.alerts.length, 2);
+    assert.equal(state.alerts.find(item => (item.alertId || item.id) === 'alert-close').status, 'CLOSED');
     assert.equal(view.reviewCount.value, 0);
     assert.equal(view.closedCount.value, 1);
   } finally {
