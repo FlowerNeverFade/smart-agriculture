@@ -5,6 +5,7 @@
 }
 
 .work-lifecycle.is-embedded-manager {
+  position: relative;
   width: 100%;
   margin: 0;
 }
@@ -20,6 +21,15 @@
 .work-lifecycle-header.is-actions-only {
   justify-content: flex-end;
   margin-bottom: 14px;
+}
+
+.work-lifecycle.is-embedded-manager .work-lifecycle-header.is-actions-only {
+  position: absolute;
+  z-index: 2;
+  top: -62px;
+  right: 0;
+  width: auto;
+  margin: 0;
 }
 
 .work-lifecycle-kicker {
@@ -607,6 +617,14 @@
   .work-order-facts { grid-template-columns: repeat(2, 1fr); }
   .work-order-facts > div:nth-child(2) { border-right: 0; }
   .work-order-facts > div:nth-child(-n+2) { border-bottom: 1px solid var(--g-border-subtle); }
+}
+
+@media (max-width: 760px) {
+  .work-lifecycle.is-embedded-manager .work-lifecycle-header.is-actions-only {
+    position: static;
+    width: 100%;
+    margin-bottom: 14px;
+  }
 }
 
 @media (max-width: 700px) {
