@@ -1778,6 +1778,10 @@ class AgriEngine {
         return cropPackCatalog.all();
     }
 
+    void updateCropPackStatus(String cropCode, String version, String status) {
+        cropPackCatalog.updateStatus(cropCode, version, status);
+    }
+
     Map<String, Object> resolvedProfile(String plotId) {
         Map<String, Object> plot = requireRecord("plot", plotId);
         Map<String, Object> context = plotCropContext(plotId);
@@ -4700,7 +4704,7 @@ class AgriController {
     @PatchMapping("/crop-packs/{cropCode}/{version}/status")
     ResponseEntity<?> updateCropPackStatus(@PathVariable String cropCode, @PathVariable String version, @RequestBody Map<String, Object> body, Authentication a) {
         if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "只有系统管理员可以修改作物包状态");
-        cropPackCatalog.updateStatus(cropCode, version, Jsons.text(body, "status", "DRAFT"));
+        engine.updateCropPackStatus(cropCode, version, Jsons.text(body, "status", "DRAFT"));
         return ok(Map.of("success", true));
     }
 
