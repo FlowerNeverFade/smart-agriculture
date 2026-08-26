@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
 import { roleCan } from './roles.js';
 
 const { ref, computed, watch, inject, nextTick } = Vue;
@@ -83,6 +84,7 @@ export const WorkOrderLifecycleView = {
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
     const statusFilter = ref('ACTIVE');
+    const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
     const plotFilter = ref('');
     const assigneeFilter = ref('');
     const keyword = ref('');
@@ -137,6 +139,7 @@ export const WorkOrderLifecycleView = {
     const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
 
     const filteredOrders = computed(() => scopedOrders.value
+      .filter((order) => workOrderMatchesSummaryScope(order, scopeFilter.value))
       .filter((order) => {
         const status = workStatus(order.status);
         if (statusFilter.value === 'ACTIVE') return !TERMINAL_STATUSES.has(status);
@@ -184,6 +187,14 @@ export const WorkOrderLifecycleView = {
     const pageHint = computed(() => canManage.value
       ? '先分配无人负责的任务，再处理等待验收的结果。'
       : isFarmer.value ? '这里显示分配给你的任务，以及你提交的补证请求。按顺序开始、提交或返工。' : '查看任务状态和操作记录，系统管理员不参与日常执行。');
+    const scopeLabel = computed(() => ({
+      today: '今日任务',
+      overdue: '已逾期',
+      unassigned: '待分配',
+      approval: '待审批'
+    }[scopeFilter.value] || ''));
+    const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', farmId: currentFarmId.value });
+    const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
@@ -429,9 +440,13 @@ export const WorkOrderLifecycleView = {
     };
 
     watch(() => props.routeParams, (params) => {
+      const nextScope = normalizeWorkSummaryScope(params?.scope);
+      scopeFilter.value = nextScope;
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
         statusFilter.value = String(params.status).toUpperCase();
+      } else {
+        statusFilter.value = nextScope === 'today' ? '' : 'ACTIVE';
       }
       if (params?.highlight) focusHighlightedTask(params.highlight);
     }, { immediate: true, deep: true });
@@ -451,13 +466,14 @@ export const WorkOrderLifecycleView = {
 
     return {
       role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
-      statusFilter, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
+      statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
       showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
+      clearSummaryScope, applyStatusFilter,
       loadInspections, openInspection, submitInspection
     };
   },
@@ -476,11 +492,16 @@ export const WorkOrderLifecycleView = {
       </header>
 
       <div class="work-summary" aria-label="任务概况">
-        <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' }" @click="statusFilter = 'ACTIVE'"><span>未结束</span><strong>{{ summary.total }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' }" @click="statusFilter = 'OPEN'"><span>待分配</span><strong>{{ summary.open }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' }" @click="statusFilter = 'SUBMITTED'"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' }" @click="statusFilter = 'PROGRESSING'"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' }" @click="statusFilter = 'OVERDUE'"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' && !scopeFilter }" @click="applyStatusFilter('ACTIVE')"><span>未结束</span><strong>{{ summary.total }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' && !scopeFilter }" @click="applyStatusFilter('PROGRESSING')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
+        <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' && !scopeFilter }" @click="applyStatusFilter('OVERDUE')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+      </div>
+
+      <div v-if="scopeFilter" class="work-route-filter" role="status">
+        <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
+        <button type="button" @click="clearSummaryScope">查看全部任务</button>
       </div>
 
       <div class="work-filters">

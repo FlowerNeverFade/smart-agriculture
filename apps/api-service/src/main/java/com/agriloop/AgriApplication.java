@@ -4174,9 +4174,19 @@ class AgriController {
     @GetMapping("/farm-members")
     ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
 
+    @PostMapping("/farm-members")
+    ResponseEntity<?> createFarmMember(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(adminManagement.createFarmMember(body, principal(a))));
+    }
+
     @PatchMapping("/farm-members/{userId}/scope")
     ResponseEntity<?> updateFarmMemberScope(@PathVariable String userId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(adminManagement.updateFarmMemberScope(userId, body, principal(a)));
+    }
+
+    @DeleteMapping("/farm-members/{userId}")
+    ResponseEntity<?> deleteFarmMember(@PathVariable String userId, @RequestParam String farmId, Authentication a) {
+        return ok(adminManagement.deleteFarmMember(userId, farmId, principal(a)));
     }
 
     @GetMapping("/alerts")

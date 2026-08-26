@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -338,13 +338,15 @@ const DashboardView = {
   setup(props, { emit }) {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const activeTab = ref(normalizeAdminTab('dashboard', props.routeParams?.tab));
-    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('dashboard', tab); });
     const selectedFarmId = computed({
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
-    const visiblePlots = computed(() => activeTab.value === 'plots' ? (props.state.allPlots || []) : (props.state.plots || []));
+    const visiblePlots = computed(() => (
+      Array.isArray(props.state.allPlots) && props.state.allPlots.length
+        ? props.state.allPlots
+        : (props.state.plots || [])
+    ));
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -362,13 +364,18 @@ const DashboardView = {
     const managerSummary = computed(() => {
       const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: summary.today },
-        { id: 'overdue', label: '已逾期', value: summary.overdue },
-        { id: 'abnormal', label: '异常地块', value: summary.abnormal },
-        { id: 'unassigned', label: '待分配', value: summary.unassigned },
-        { id: 'approval', label: '待审批', value: summary.approval }
+        { id: 'today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
+        { id: 'overdue', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
+        { id: 'abnormal', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
+        { id: 'unassigned', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
+        { id: 'approval', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
       ];
     });
+
+    const openManagerSummary = (item) => {
+      const target = managerSummaryTarget(item?.id, selectedFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
 
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
@@ -519,7 +526,6 @@ const DashboardView = {
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
-    const setTab = tab => emit('navigate', 'dashboard', { tab, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
@@ -537,10 +543,10 @@ const DashboardView = {
     };
     return {
       isFarmAdmin,
-      activeTab,
       selectedFarmId,
       visiblePlots,
       managerSummary,
+      openManagerSummary,
       plotMetrics,
       formatMetric,
       healthScore,
@@ -566,7 +572,6 @@ const DashboardView = {
       cancelDeletePlot,
       confirmDeletePlot,
       createTask,
-      setTab,
       handleAction,
       visibleActions
     };
@@ -2264,7 +2269,8 @@ const app = createApp({
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || []);
+        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
+        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }
