@@ -982,4 +982,131 @@ class AgriApplicationTest {
         assertThat(Jsons.maps(new ObjectMapper(), Jsons.map(new ObjectMapper(), cucumberProfile.get("cropPack")).get("effectiveRules")))
                 .anySatisfy(rule -> assertThat(rule).containsEntry("code", "WATER_DEFICIT").containsEntry("threshold", 24.0));
     }
+
+    @Test
+    void ruleAlertsReuseActiveRecordDuringCooldownAndHeatStressCreatesAlert() {
+        String plotId = "plot-alert-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "冷却测试田", "status", "ACTIVE",
+                "cropCode", "tomato", "stageCode", "fruiting")));
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId, "plot-a01"));
+
+        Map<String, Object> first = engine.ingest(Map.of(
+                "eventId", "cool-a-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 12.0, "unit", "%",
+                "scenarioId", "drought", "ts", Instant.now().toString()));
+        Map<String, Object> firstAlert = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), first.get("ruleResult")).get("alert"));
+        String alertId = Jsons.text(firstAlert, "alertId", "");
+        assertThat(alertId).startsWith("alert-");
+        assertThat(firstAlert).containsEntry("source", "WATER_DEFICIT_RULE").containsEntry("status", "ACTIVE");
+
+        Map<String, Object> second = engine.ingest(Map.of(
+                "eventId", "cool-b-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 11.0, "unit", "%",
+                "scenarioId", "drought", "ts", Instant.now().toString()));
+        Map<String, Object> secondAlert = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), second.get("ruleResult")).get("alert"));
+        assertThat(secondAlert).containsEntry("alertId", alertId).containsEntry("reused", true);
+        assertThat(Jsons.whole(secondAlert, "occurrenceCount", 0)).isEqualTo(2);
+        assertThat(store.list("alert").stream().filter(alert -> plotId.equals(Jsons.text(alert, "plotId", ""))
+                && "WATER_DEFICIT_RULE".equals(Jsons.text(alert, "source", ""))).count()).isEqualTo(1);
+
+        engine.transitionAlert(alertId, "CLOSED", admin);
+        Map<String, Object> suppressed = engine.ingest(Map.of(
+                "eventId", "cool-c-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 10.0, "unit", "%",
+                "scenarioId", "drought", "ts", Instant.now().toString()));
+        Map<String, Object> suppressedAlert = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), suppressed.get("ruleResult")).get("alert"));
+        assertThat(suppressedAlert).containsEntry("alertId", alertId).containsEntry("suppressedByCooldown", true);
+        assertThat(store.list("alert").stream().filter(alert -> plotId.equals(Jsons.text(alert, "plotId", ""))
+                && "WATER_DEFICIT_RULE".equals(Jsons.text(alert, "source", ""))).count()).isEqualTo(1);
+
+        Map<String, Object> heat = engine.ingest(Map.of(
+                "eventId", "heat-a-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "AIR_TEMPERATURE", "value", 41.0, "unit", "°C",
+                "scenarioId", "heat-wave", "ts", Instant.now().toString()));
+        Map<String, Object> heatResult = Jsons.map(new ObjectMapper(), heat.get("ruleResult"));
+        Map<String, Object> heatAlert = Jsons.map(new ObjectMapper(), heatResult.get("alert"));
+        assertThat(heatResult).containsEntry("risk", "HEAT_STRESS");
+        assertThat(heatAlert).containsEntry("source", "HEAT_STRESS_RULE").containsEntry("status", "ACTIVE")
+                .containsEntry("title", "高温胁迫");
+        Map<String, Object> heatAgain = engine.ingest(Map.of(
+                "eventId", "heat-b-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "AIR_TEMPERATURE", "value", 42.0, "unit", "°C",
+                "scenarioId", "heat-wave", "ts", Instant.now().toString()));
+        assertThat(Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), heatAgain.get("ruleResult")).get("alert")))
+                .containsEntry("alertId", heatAlert.get("alertId")).containsEntry("reused", true);
+    }
+
+    @Test
+    void livePasswordChangeRotatesCredentialVersionAndInvalidatesPreviousJwt() {
+        String username = "changer" + System.nanoTime();
+        Map<String, Object> registration = engine.register(username, "FieldPass2026");
+        UserPrincipal original = jwtService.parse(String.valueOf(registration.get("accessToken")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.changePassword("wrong-pass", "NextPass2027", original))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PASSWORD_MISMATCH"));
+        Map<String, Object> changed = engine.changePassword("FieldPass2026", "NextPass2027", original);
+        assertThat(changed).containsKey("accessToken");
+        assertThat(store.credentialVersionMatches(original.userId, original.credentialVersion)).isFalse();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login(username, "FieldPass2026"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AUTH_INVALID"));
+        assertThat(engine.login(username, "NextPass2027")).containsKey("accessToken");
+        UserPrincipal rotated = jwtService.parse(String.valueOf(changed.get("accessToken")));
+        assertThat(store.credentialVersionMatches(rotated.userId, rotated.credentialVersion)).isTrue();
+    }
+
+    @Test
+    void farmAdminCanCreateEnableAndDisableFarmerMembers() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String username = "member" + System.nanoTime();
+        Map<String, Object> created = engine.createFarmMember(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "username", username, "password", "MemberPass2026",
+                "displayName", "测试农户", "plotIds", List.of("plot-a01"))), admin);
+        assertThat(created).containsEntry("role", "FARMER").containsEntry("status", "ACTIVE")
+                .containsEntry("username", username).containsKey("recoveryCode");
+        assertThat(Jsons.strings(created.get("plotIds"))).containsExactly("plot-a01");
+        assertThat(engine.login(username, "MemberPass2026", "FARMER")).containsKey("accessToken");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createFarmMember(Map.of(
+                "farmId", "farm-demo", "username", username, "password", "MemberPass2026"), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_MEMBERS_FORBIDDEN"));
+
+        String userId = Jsons.text(created, "userId", "");
+        Map<String, Object> disabled = engine.updateFarmMemberStatus(userId, Map.of("farmId", "farm-demo", "status", "INACTIVE"), admin);
+        assertThat(disabled).containsEntry("status", "INACTIVE");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login(username, "MemberPass2026"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AUTH_INVALID"));
+        Map<String, Object> enabled = engine.updateFarmMemberStatus(userId, Map.of("farmId", "farm-demo", "enabled", true), admin);
+        assertThat(enabled).containsEntry("status", "ACTIVE");
+        assertThat(engine.login(username, "MemberPass2026")).containsKey("accessToken");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.updateFarmMemberStatus("user-admin",
+                Map.of("farmId", "farm-demo", "status", "INACTIVE"), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("MEMBER_ROLE_IMMUTABLE"));
+    }
+
+    @Test
+    void inspectionPhotosPersistAsUserProvidedAttachments() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> inspection = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().toString(),
+                "soilSurface", "DRY", "notes", "现场拍照核验")), farmer);
+        String inspectionId = String.valueOf(inspection.get("inspectionId"));
+        assertThat(Jsons.maps(new ObjectMapper(), inspection.get("photos"))).isEmpty();
+
+        org.springframework.mock.web.MockMultipartFile photo = new org.springframework.mock.web.MockMultipartFile(
+                "files", "field.jpg", "image/jpeg", new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xD9});
+        Map<String, Object> updated = engine.uploadInspectionPhotos(inspectionId, List.of(photo), farmer);
+        List<Map<String, Object>> photos = Jsons.maps(new ObjectMapper(), updated.get("photos"));
+        assertThat(photos).hasSize(1);
+        assertThat(photos.get(0)).containsEntry("provenance", "USER_PROVIDED")
+                .containsEntry("sourceType", "HUMAN_OBSERVATION")
+                .containsEntry("contentType", "image/jpeg")
+                .containsEntry("fileName", "field.jpg");
+        String photoId = Jsons.text(photos.get(0), "photoId", "");
+        Map<String, Object> stored = engine.inspectionPhoto(inspectionId, photoId, farmer);
+        assertThat((byte[]) stored.get("bytes")).startsWith((byte) 0xFF, (byte) 0xD8);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.uploadInspectionPhotos(inspectionId,
+                        List.of(new org.springframework.mock.web.MockMultipartFile("files", "notes.txt", "text/plain", "x".getBytes())), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("INSPECTION_PHOTO_TYPE_INVALID"));
+    }
 }

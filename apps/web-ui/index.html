@@ -187,8 +187,8 @@
             </div>
             <div class="account-security-card-body">
               <label>当前密码<input v-model="passwordForm.current" type="password" autocomplete="current-password" required></label>
-              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="6" required></label>
-              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="6" required></label>
+              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="8" required></label>
+              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="8" required></label>
               <p v-if="passwordError" class="account-security-error">{{ passwordError }}</p>
             </div>
             <div class="account-security-card-footer">

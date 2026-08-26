@@ -60,7 +60,8 @@ function emptyInspectionForm(plots, plotId = '', workOrderId = '') {
     cropCondition: 'NORMAL',
     deviceStatus: 'NORMAL',
     portableSoilMoisture: '',
-    notes: ''
+    notes: '',
+    photos: []
   };
 }
 
@@ -386,6 +387,10 @@ export const WorkOrderLifecycleView = {
       showInspectionModal.value = true;
     };
 
+    const onInspectionPhotos = (event) => {
+      inspectionForm.value = { ...inspectionForm.value, photos: Array.from(event.target.files || []).slice(0, 6) };
+    };
+
     const submitInspection = async () => {
       const draft = inspectionForm.value;
       if (!draft.plotId || !draft.observedAt || !draft.soilSurface || !draft.cropCondition || !draft.deviceStatus || !draft.notes.trim()) {
@@ -405,7 +410,7 @@ export const WorkOrderLifecycleView = {
           deviceStatus: draft.deviceStatus,
           portableSoilMoisture: draft.portableSoilMoisture === '' ? null : Number(draft.portableSoilMoisture),
           notes: draft.notes.trim()
-        });
+        }, draft.photos);
         const oldIndex = props.state.inspections.findIndex((record) => record.inspectionId === saved.inspectionId);
         if (oldIndex >= 0) props.state.inspections.splice(oldIndex, 1, saved);
         else props.state.inspections.unshift(saved);
@@ -474,7 +479,7 @@ export const WorkOrderLifecycleView = {
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       clearSummaryScope, applyStatusFilter,
-      loadInspections, openInspection, submitInspection
+      loadInspections, openInspection, onInspectionPhotos, submitInspection
     };
   },
   template: `
@@ -575,6 +580,7 @@ export const WorkOrderLifecycleView = {
               <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
               <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
               <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
+              <span>现场照片：{{ (record.photos || []).length }} 张 · USER_PROVIDED</span>
             </div>
             <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
           </article>
@@ -653,6 +659,7 @@ export const WorkOrderLifecycleView = {
             <label><span>设备外观</span><select class="g-select" v-model="inspectionForm.deviceStatus" required><option value="NORMAL">外观完好</option><option value="LOOSE">接头松动</option><option value="LEAKING">管线渗漏</option><option value="OFFLINE">离线或无显示</option></select></label>
             <label><span>便携仪实测含水率（选填）</span><div class="inspection-number"><input type="number" min="0" max="100" step="0.1" class="g-input" v-model="inspectionForm.portableSoilMoisture" placeholder="未测量"><b>%</b></div></label>
             <label class="span-2"><span>现场说明</span><textarea class="g-input" rows="3" v-model="inspectionForm.notes" required placeholder="例如：西侧两垄表层开裂，番茄叶片轻微下垂，阀门外观正常"></textarea></label>
+            <label class="span-2"><span>现场照片（选填，最多 6 张）</span><input type="file" class="g-input" accept="image/jpeg,image/png,image/webp" multiple @change="onInspectionPhotos"><small>按人工提供证据保存，不覆盖遥测。{{ inspectionForm.photos?.length ? '已选 ' + inspectionForm.photos.length + ' 张。' : '' }}</small></label>
           </div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showInspectionModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy">{{ isBusy ? '正在保存' : '保存巡田证据' }}</button></div>
         </form>
