@@ -134,11 +134,15 @@ export const WorkOrderLifecycleView = {
       });
     });
 
+    const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
+
     const filteredOrders = computed(() => scopedOrders.value
       .filter((order) => {
         const status = workStatus(order.status);
         if (statusFilter.value === 'ACTIVE') return !TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'FINISHED') return TERMINAL_STATUSES.has(status);
+        if (statusFilter.value === 'OVERDUE') return isOverdue(order);
+        if (statusFilter.value === 'PROGRESSING') return ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(status);
         return !statusFilter.value || status === statusFilter.value;
       })
       .filter((order) => !plotFilter.value || order.plotId === plotFilter.value)
@@ -168,7 +172,6 @@ export const WorkOrderLifecycleView = {
       return !isFarmer.value || (order.assigneeId === currentActorId.value && status === 'IN_PROGRESS');
     }));
 
-    const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
     const summary = computed(() => ({
       total: scopedOrders.value.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
       open: scopedOrders.value.filter((order) => workStatus(order.status) === 'OPEN').length,
@@ -427,7 +430,7 @@ export const WorkOrderLifecycleView = {
 
     watch(() => props.routeParams, (params) => {
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
-      if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED'].includes(String(params.status).toUpperCase())) {
+      if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
         statusFilter.value = String(params.status).toUpperCase();
       }
       if (params?.highlight) focusHighlightedTask(params.highlight);
@@ -476,13 +479,13 @@ export const WorkOrderLifecycleView = {
         <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' }" @click="statusFilter = 'ACTIVE'"><span>未结束</span><strong>{{ summary.total }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' }" @click="statusFilter = 'OPEN'"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' }" @click="statusFilter = 'SUBMITTED'"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
-        <button type="button" @click="statusFilter = 'ACTIVE'"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" class="summary-danger" @click="statusFilter = 'ACTIVE'"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' }" @click="statusFilter = 'PROGRESSING'"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
+        <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' }" @click="statusFilter = 'OVERDUE'"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
       </div>
 
       <div class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter">
-          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="FINISHED">已结束</option>
+          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
         <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>

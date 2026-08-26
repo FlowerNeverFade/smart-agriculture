@@ -243,6 +243,19 @@ function crop_stage_for(plot) {
   return pack.stages.find((stage) => stage.code === plot?.stageCode) || pack.stages[pack.stages.length - 1];
 }
 
+/** Crop Pack 规则常不内嵌 threshold，正式解析顺序与后端一致：规则显式值 -> 阶段 soilMoistureLow。 */
+function water_deficit_rule(pack) {
+  return (pack?.rules || []).find((rule) => rule.code === 'WATER_DEFICIT' && (!rule.metric || rule.metric === 'SOIL_MOISTURE')) || null;
+}
+
+function resolve_water_deficit_threshold(pack, stage) {
+  const deficit = water_deficit_rule(pack);
+  const fromRule = Number(deficit?.threshold);
+  if (Number.isFinite(fromRule)) return fromRule;
+  const fromStage = Number(stage?.target?.soilMoistureLow);
+  return Number.isFinite(fromStage) ? fromStage : null;
+}
+
 function resolve_moisture_band_status(plot) {
   const value = Number(plot?.metrics?.SOIL_MOISTURE?.value);
   if (!Number.isFinite(value)) return 'NORMAL';
@@ -250,21 +263,28 @@ function resolve_moisture_band_status(plot) {
   let low = null;
   let high = null;
   let alertThreshold = null;
+  let hysteresis = 2;
   if (pack) {
     const stage = crop_stage_for(plot);
-    low = stage?.target?.soilMoistureLow;
-    high = stage?.target?.soilMoistureHigh;
-    const deficit = (pack.rules || []).find((r) => r.code === 'WATER_DEFICIT' && r.metric === 'SOIL_MOISTURE');
-    if (deficit && Number.isFinite(Number(deficit.threshold))) alertThreshold = Number(deficit.threshold);
-    if (!Number.isFinite(alertThreshold) && Number.isFinite(Number(low))) alertThreshold = Number(low);
+    low = Number(stage?.target?.soilMoistureLow);
+    high = Number(stage?.target?.soilMoistureHigh);
+    alertThreshold = resolve_water_deficit_threshold(pack, stage);
+    const deficit = water_deficit_rule(pack);
+    const fromHysteresis = Number(deficit?.hysteresis);
+    if (Number.isFinite(fromHysteresis)) hysteresis = fromHysteresis;
   } else {
     const nums = String(plot.metrics?.SOIL_MOISTURE?.target || '').match(/(\d+(?:\.\d+)?)/g);
     if (nums && nums.length >= 2) {
       low = Number(nums[0]);
       high = Number(nums[1]);
+      alertThreshold = low;
     }
   }
+  if (!Number.isFinite(low)) low = null;
+  if (!Number.isFinite(high)) high = null;
   if (Number.isFinite(alertThreshold) && value < alertThreshold) return 'ALERT';
+  // 接近下限（含阈值等于阶段下限的作物）给出偏离提示，避免只有玉米因 mock 写了 threshold 才有告警感。
+  if (Number.isFinite(alertThreshold) && value < alertThreshold + Math.max(0, hysteresis)) return 'WARN';
   if (Number.isFinite(low) && value < low) return 'WARN';
   if (Number.isFinite(high) && value > high) return 'WARN';
   return 'NORMAL';
@@ -543,18 +563,18 @@ const app = createApp({
       let alertThreshold = null;
       if (pack) {
         const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
-        low = stage?.target?.soilMoistureLow ?? 0;
-        high = stage?.target?.soilMoistureHigh ?? 0;
+        low = Number(stage?.target?.soilMoistureLow ?? 0);
+        high = Number(stage?.target?.soilMoistureHigh ?? 0);
         cropLabel = pack.identity?.name || plot.cropName;
         stageLabel = stage?.label || plot.stageLabel;
-        const deficit = (pack.rules || []).find((r) => r.code === 'WATER_DEFICIT' && r.metric === 'SOIL_MOISTURE');
-        if (deficit && Number.isFinite(deficit.threshold)) alertThreshold = deficit.threshold;
+        alertThreshold = resolve_water_deficit_threshold(pack, stage);
       } else {
         const targetText = plot.metrics?.SOIL_MOISTURE?.target || '';
         const nums = String(targetText).match(/(\d+(?:\.\d+)?)/g);
         if (nums && nums.length >= 2) {
           low = Number(nums[0]);
           high = Number(nums[1]);
+          alertThreshold = low;
         }
       }
       if (!low && !high) return null;
@@ -841,6 +861,56 @@ const app = createApp({
       target.value.splice(0, target.value.length, ...(Array.isArray(values) ? values : []));
     };
 
+    const message_fingerprint = (list) => (Array.isArray(list) ? list : [])
+      .map((message) => [message.id, message.read ? 1 : 0, message.title, message.snippet, message.time_iso].join('\u0001'))
+      .join('\n');
+
+    const apply_messages = (nextMessages) => {
+      const incoming = Array.isArray(nextMessages) ? nextMessages : [];
+      const readState = new Map(messages.value.map((message) => [message.id, Boolean(message.read)]));
+      incoming.forEach((message) => {
+        if (readState.has(message.id)) message.read = readState.get(message.id);
+      });
+      if (message_fingerprint(messages.value) === message_fingerprint(incoming)) {
+        // Keep object identity so the message center does not flicker while
+        // telemetry keeps the rest of the workspace fresh.
+        return false;
+      }
+      replace_ref_array(messages, incoming);
+      if (selected_message.value?.id) {
+        selected_message.value = messages.value.find((message) => message.id === selected_message.value.id) || null;
+      }
+      return true;
+    };
+
+    const refresh_plot_telemetry = async () => {
+      if (!is_formal_session || !plots.value.length) return false;
+      const snapshot = plots.value.slice();
+      const telemetryResults = await Promise.allSettled(snapshot.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+      if (!plots.value.length) return false;
+      const nextPlots = snapshot.map((plot, index) => {
+        const result = telemetryResults[index];
+        if (result?.status !== 'fulfilled') return plot;
+        const history = {};
+        (result.value || []).forEach((point) => {
+          const metric = String(point?.metric || '').trim();
+          if (!metric) return;
+          (history[metric] ||= []).push(point);
+        });
+        const metrics = { ...plot.metrics };
+        Object.entries(history).forEach(([code, points]) => {
+          metrics[code] = { ...(metrics[code] || {}), history: points };
+        });
+        return { ...plot, metrics, history, healthScore: compute_plot_health_score({ ...plot, metrics }) };
+      });
+      // Preserve references when the farmer is reading messages; only swap plots.
+      replace_ref_array(plots, nextPlots);
+      selected_plot.value = nextPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || nextPlots[0] || null;
+      advice_selected_plot.value = nextPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || nextPlots[0] || null;
+      data_updated_label.value = '刚刚';
+      return true;
+    };
+
     const load_live_workspace = async ({ announce = false } = {}) => {
       if (!is_formal_session) return false;
       const version = ++workspace_request_version;
@@ -907,13 +977,11 @@ const app = createApp({
           plotName: plotMap.get(String(record.plotId))?.name || record.plotId
         }])).values()).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
         const nextMessages = buildFarmerMessages({ alerts: rawAlerts, tasks: normalizedTasks, inspections: records, plots: normalizedPlots });
-        const readState = new Map(messages.value.map((message) => [message.id, Boolean(message.read)]));
-        nextMessages.forEach((message) => { if (readState.has(message.id)) message.read = readState.get(message.id); });
         const profile = buildFarmerProfile({ user: user.value, farm: selectedFarm, plots: normalizedPlots, tasks: normalizedTasks, inspections: records, messages: nextMessages });
         farm.value = selectedFarm;
         replace_ref_array(plots, normalizedPlots);
         replace_ref_array(tasks, normalizedTasks);
-        replace_ref_array(messages, nextMessages);
+        apply_messages(nextMessages);
         replace_ref_array(inspection_records, records);
         evidence_requests.value = normalizedTasks.filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS').map((task) => ({
           id: task.workOrderId || task.id,
@@ -957,13 +1025,25 @@ const app = createApp({
       }
     };
 
-    let refresh_timer = null;
-    const schedule_live_refresh = () => {
-      if (refresh_timer || !is_formal_session) return;
-      refresh_timer = window.setTimeout(async () => {
-        refresh_timer = null;
+    let workspace_refresh_timer = null;
+    let telemetry_refresh_timer = null;
+    const schedule_live_refresh = (scope = 'workspace') => {
+      if (!is_formal_session) return;
+      if (scope === 'telemetry') {
+        if (telemetry_refresh_timer) return;
+        telemetry_refresh_timer = window.setTimeout(async () => {
+          telemetry_refresh_timer = null;
+          // Skip heavy plot refreshes while the farmer is reading messages.
+          if (current_view.value === 'messages') return;
+          await refresh_plot_telemetry();
+        }, 2500);
+        return;
+      }
+      if (workspace_refresh_timer) return;
+      workspace_refresh_timer = window.setTimeout(async () => {
+        workspace_refresh_timer = null;
         await load_live_workspace({ announce: false });
-      }, 500);
+      }, 800);
     };
 
     const open_message = (msg) => {
@@ -1340,11 +1420,15 @@ const app = createApp({
           await api.subscribeEvents((event) => {
             const type = String(event?.data?.eventType || event?.type || '').toLowerCase();
             if (['connected', 'heartbeat'].includes(type)) return;
-            // Telemetry is intentionally not shown as a toast.  It still
-            // invalidates the farmer workspace so the same backend reading
-            // appears here after the simulator stores it.
-            if (type.includes('telemetry') || type.includes('device.heartbeat') || type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
-              schedule_live_refresh();
+            // Telemetry only refreshes plot metrics.  Rebuilding the whole
+            // workspace on every sample made the message center flicker as if
+            // the same notice were arriving again and again.
+            if (type.includes('telemetry') || type.includes('device.heartbeat')) {
+              schedule_live_refresh('telemetry');
+              return;
+            }
+            if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
+              schedule_live_refresh('workspace');
             }
           });
         } catch (error) {

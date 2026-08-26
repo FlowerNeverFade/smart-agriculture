@@ -1675,18 +1675,45 @@ class AgriEngine {
         if ("SOIL_MOISTURE".equals(metric) && value < waterThreshold) {
             boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(event, "scenarioId", "")) || "BAD".equals(Jsons.text(Jsons.map(mapper, event.get("quality")), "status", "GOOD"));
             Deque<Instant> window = ruleWindows.computeIfAbsent(plotId, ignored -> new ConcurrentLinkedDeque<>()); Instant now = Instant.now(); window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > durationMinutes) window.removeFirst();
-            Map<String, Object> alert = new LinkedHashMap<>(); alert.put("alertId", Jsons.id("alert")); alert.put("plotId", plotId); alert.put("level", drift ? "HIGH" : "MEDIUM");
-            alert.put("source", drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE"); alert.put("status", "ACTIVE"); alert.put("evidence", List.of(event));
-            alert.put("title", drift ? "传感器数据可能不可靠" : "土壤持续偏干");
-            alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。"
-                    : "当前阶段「" + context.get("stageLabel") + "」土壤湿度已低于 " + waterThreshold + "%。请尽快现场复测，确认后安排浇水。");
-            alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
-            alert.put("durationMinutes", durationMinutes);
-            alert.put("hysteresis", Jsons.number(waterRule, "hysteresis", 2));
-            alert.put("cooldownMinutes", Jsons.whole(waterRule, "cooldownMinutes", 120));
-            alert.put("threshold", waterThreshold); alert.put("stageCode", context.get("stageCode"));
-            alert.put("cropPackVersion", context.get("cropPackVersion")); alert.put("ruleVersion", context.get("ruleVersion"));
-            alert.put("createdAt", now.toString()); alert.put("raisedAt", now.toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
+            String source = drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE";
+            long cooldownMinutes = Jsons.whole(waterRule, "cooldownMinutes", 120);
+            Map<String, Object> existingAlert = store.list("alert").stream()
+                    .filter(a -> plotId.equals(Jsons.text(a, "plotId", "")))
+                    .filter(a -> source.equalsIgnoreCase(Jsons.text(a, "source", "")))
+                    .filter(a -> {
+                        String status = Jsons.text(a, "status", "ACTIVE").toUpperCase(Locale.ROOT);
+                        return "ACTIVE".equals(status) || "ACKNOWLEDGED".equals(status) || "OPEN".equals(status);
+                    })
+                    .filter(a -> {
+                        Instant raised = Jsons.instant(a.get("raisedAt"), Jsons.instant(a.get("createdAt"), Instant.EPOCH));
+                        return !raised.isBefore(now.minus(Math.max(1, cooldownMinutes), ChronoUnit.MINUTES));
+                    })
+                    .findFirst()
+                    .orElse(null);
+            Map<String, Object> alert;
+            if (existingAlert != null) {
+                alert = new LinkedHashMap<>(existingAlert);
+                alert.put("evidence", List.of(event));
+                alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+                alert.put("updatedAt", now.toString());
+                alert.put("threshold", waterThreshold);
+                alert.put("stageCode", context.get("stageCode"));
+                store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+                events.publish("alert.updated", alert);
+            } else {
+                alert = new LinkedHashMap<>(); alert.put("alertId", Jsons.id("alert")); alert.put("plotId", plotId); alert.put("level", drift ? "HIGH" : "MEDIUM");
+                alert.put("source", source); alert.put("status", "ACTIVE"); alert.put("evidence", List.of(event));
+                alert.put("title", drift ? "传感器数据可能不可靠" : "土壤持续偏干");
+                alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。"
+                        : "当前阶段「" + context.get("stageLabel") + "」土壤湿度已低于 " + waterThreshold + "%。请尽快现场复测，确认后安排浇水。");
+                alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+                alert.put("durationMinutes", durationMinutes);
+                alert.put("hysteresis", Jsons.number(waterRule, "hysteresis", 2));
+                alert.put("cooldownMinutes", cooldownMinutes);
+                alert.put("threshold", waterThreshold); alert.put("stageCode", context.get("stageCode"));
+                alert.put("cropPackVersion", context.get("cropPackVersion")); alert.put("ruleVersion", context.get("ruleVersion"));
+                alert.put("createdAt", now.toString()); alert.put("raisedAt", now.toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
+            }
             Map<String, Object> diagnosis = diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal")));
             result.put("alert", alert); result.put("diagnosis", diagnosis);
         }

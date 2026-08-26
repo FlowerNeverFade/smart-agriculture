@@ -1900,17 +1900,28 @@ export class ApiService {
     const pack = (MOCK_DATA.cropPackDetails || []).find((item) => item.cropCode === cropCode) || MOCK_DATA.cropPackDetails?.[0];
     if (!pack) throw new ApiError('演示作物培养手册不存在', { code: 'CROP_MANUAL_NOT_FOUND' });
     const stage = (pack.stages || []).find((item) => item.code === stageCode) || pack.stages?.[0];
+    const stageKnowledge = pack.knowledge?.byStage?.[stage?.code] || [];
     return {
       cropCode: pack.cropCode,
       version: pack.version,
+      ruleVersion: pack.ruleVersion,
+      knowledgeVersion: pack.knowledgeVersion,
       identity: pack.identity,
       stages: pack.stages,
       stage,
       envMetrics: [],
       guideParagraphs: [],
       rules: pack.rules,
-      knowledge: pack.knowledge,
-      provenance: 'SIMULATED'
+      riskFocus: stage?.riskFocus || [],
+      taskTemplates: stage?.taskTemplates || [],
+      knowledge: {
+        ...(pack.knowledge || {}),
+        documents: pack.knowledge?.documents || [],
+        stageDocuments: stage?.knowledgeRef ? [stage.knowledgeRef] : [],
+        content: stageKnowledge.length ? stageKnowledge : (pack.knowledge?.content || [])
+      },
+      provenance: 'SIMULATED',
+      sourceMode: 'CROP_PACK'
     };
   }
 
