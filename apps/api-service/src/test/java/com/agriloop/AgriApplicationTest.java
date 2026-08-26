@@ -564,6 +564,18 @@ class AgriApplicationTest {
         assertThat(trial.get("status")).isEqualTo("INFEASIBLE");
         assertThat(capacityAfter).isEqualTo(capacityBefore);
 
+        UserPrincipal farmer = new UserPrincipal("user-farmer-preview", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> preview = engine.resourcePlan(Map.of("scope", "farm-demo", "demands", List.of(
+                Map.of("plotId", "plot-a01", "requestedLitres", 80, "priority", "HIGH")
+        )), farmer);
+        assertThat(preview).containsEntry("trialOnly", true).containsEntry("readOnly", true)
+                .containsEntry("provenance", "DERIVED").containsEntry("sourceMode", "ESTIMATED");
+        assertThat(store.find("resource-plan", String.valueOf(preview.get("resourcePlanId")))).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.resourcePlan(Map.of("scope", "farm-demo", "demands", List.of(
+                        Map.of("plotId", "plot-a02", "requestedLitres", 80, "priority", "HIGH")
+                )), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
+
         String approvalPlanId = "plan-approval-" + System.nanoTime();
         store.save("irrigation-plan", approvalPlanId, new java.util.LinkedHashMap<>(Map.of(
                 "planId", approvalPlanId, "plotId", "plot-a01", "readinessStatus", "READY",
