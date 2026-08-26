@@ -1360,31 +1360,70 @@ const CropManualView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const packs = computed(() => (props.state.cropPackDetails || []).slice().sort((a, b) => a.identity.name.localeCompare(b.identity.name, 'zh-CN')));
+    const manuals = ref([]);
+    const liveManual = ref(null);
+    const loadError = ref('');
     const cropCode = ref((props.state.plots?.[0]?.cropCode) || packs.value[0]?.cropCode || 'tomato');
     const stageCode = ref((props.state.plots?.[0]?.stageCode) || packs.value.find((p) => p.cropCode === cropCode.value)?.stages?.[0]?.code || 'seedling');
 
-    const cropOptions = computed(() => packs.value.map((pack) => ({
-      cropCode: pack.cropCode,
-      label: pack.identity.name,
-      region: pack.identity.region || '本地',
-      stageCount: pack.stages?.length || 0,
-      icon: CROP_MANUAL_ICONS[pack.cropCode] || '🌱'
-    })));
-    const cropPack = computed(() => packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null);
-    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => a.sequence - b.sequence));
-    const stage = computed(() => stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
-    const envMetrics = computed(() => cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : []);
-    const guideParagraphs = computed(() => cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : []);
+    const cropOptions = computed(() => {
+      const source = manuals.value.length ? manuals.value : packs.value.map((pack) => ({
+        cropCode: pack.cropCode,
+        name: pack.identity?.name,
+        region: pack.identity?.region,
+        stageCount: pack.stages?.length || 0
+      }));
+      return source.map((item) => ({
+        cropCode: item.cropCode,
+        label: item.name || item.label,
+        region: item.region || '本地',
+        stageCount: item.stageCount || item.stages?.length || 0,
+        icon: CROP_MANUAL_ICONS[item.cropCode] || '🌱'
+      }));
+    });
+    const cropPack = computed(() => {
+      if (liveManual.value) return liveManual.value;
+      return packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null;
+    });
+    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
+    const stage = computed(() => liveManual.value?.stage || stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
+    const envMetrics = computed(() => {
+      if (liveManual.value?.envMetrics?.length) return liveManual.value.envMetrics;
+      return cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : [];
+    });
+    const guideParagraphs = computed(() => {
+      if (liveManual.value?.guideParagraphs?.length) return liveManual.value.guideParagraphs;
+      return cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : [];
+    });
 
     const selectCrop = (code) => {
       cropCode.value = code;
+      const listed = manuals.value.find((item) => item.cropCode === code);
       const pack = packs.value.find((item) => item.cropCode === code);
-      stageCode.value = pack?.stages?.[0]?.code || 'seedling';
+      stageCode.value = listed?.stages?.[0]?.code || pack?.stages?.[0]?.code || 'seedling';
     };
     const selectStage = (code) => { stageCode.value = code; };
     const availabilityLabel = (code) => METRIC_AVAILABILITY_LABELS[code] || code || '—';
 
-    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel };
+    const loadManual = async () => {
+      if (props.state.sessionMode !== 'live') {
+        liveManual.value = null;
+        return;
+      }
+      try {
+        if (!manuals.value.length) manuals.value = await api.getCropManuals();
+        liveManual.value = await api.getCropManual(cropCode.value, stageCode.value);
+        loadError.value = '';
+      } catch (error) {
+        loadError.value = error.message || '培养手册读取失败';
+        liveManual.value = null;
+      }
+    };
+
+    watch([cropCode, stageCode], loadManual);
+    onMounted(loadManual);
+
+    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel, loadError };
   }
 };
 
@@ -2053,6 +2092,7 @@ const app = createApp({
     }));
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
+    const isFarmer = computed(() => state.value.currentUser?.role === 'FARMER');
     const navItems = computed(() => {
       return state.value.allowedViews
         .map((viewId) => NAV_CATALOG.find((item) => item.id === viewId))
@@ -2682,6 +2722,7 @@ const app = createApp({
       accountProfile,
       roleClass,
       currentRole,
+      isFarmer,
       navItems,
       currentView,
       currentViewComponent,

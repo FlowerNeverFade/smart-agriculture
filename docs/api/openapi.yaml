@@ -82,6 +82,31 @@ paths:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 参数解析结果}}}
   /api/v1/crop-packs:
     get: {tags: [farm], responses: {'200': {description: 后端实际 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+  /api/v1/crop-manuals:
+    get: {tags: [farm], responses: {'200': {description: 作物培养手册目录，来自当前发布的 Crop Pack}}}
+  /api/v1/crop-manuals/{cropCode}:
+    get:
+      tags: [farm]
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: stageCode, in: query, schema: {type: string}}
+      responses:
+        '200': {description: 指定作物/生长阶段的培养手册}
+        '404': {description: 生长阶段不存在}
+        '422': {description: Crop Pack 不存在}
+  /api/v1/crop-manuals/{cropCode}/stages/{stageCode}:
+    get:
+      tags: [farm]
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: stageCode, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 指定生长阶段培养手册}
+        '404': {description: 生长阶段不存在}
+  /api/v1/plots/{plotId}/crop-manual:
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 当前地块作物与生长阶段的培养手册}}}
+  /api/v1/plots/{plotId}/health:
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按 Crop Pack 阶段目标计算的综合健康分}}}
   /api/v1/crop-batches:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前农场有权查看的种植批次}, '403': {$ref: '#/components/responses/Forbidden'}}}
     post: {tags: [farm], description: 创建种植批次并锁定 Crop Pack 版本；Crop Pack 未给出时长时 plannedCycleDays 必填, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 批次已创建}, '403': {$ref: '#/components/responses/Forbidden'}, '422': {description: 缺少计划周期或 Crop Pack}}}

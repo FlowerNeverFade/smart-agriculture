@@ -1907,6 +1907,60 @@ export class ApiService {
     return JSON.parse(JSON.stringify(MOCK_DATA.cropPackDetails));
   }
 
+  async getCropManuals() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/crop-manuals');
+      const raw = resp?.data || resp;
+      if (Array.isArray(raw)) return raw;
+      throw new ApiError('后端返回了无效的培养手册目录', { code: 'CROP_MANUALS_INVALID', payload: resp });
+    }
+    return (MOCK_DATA.cropPackDetails || []).map((pack) => ({
+      cropCode: pack.cropCode,
+      version: pack.version,
+      name: pack.identity?.name,
+      region: pack.identity?.region,
+      stageCount: pack.stages?.length || 0,
+      stages: (pack.stages || []).map((stage) => ({ code: stage.code, label: stage.label, sequence: stage.sequence }))
+    }));
+  }
+
+  async getCropManual(cropCode, stageCode) {
+    if (this.sessionMode === 'live') {
+      const path = stageCode
+        ? `/api/v1/crop-manuals/${encodeURIComponent(cropCode)}/stages/${encodeURIComponent(stageCode)}`
+        : `/api/v1/crop-manuals/${encodeURIComponent(cropCode)}`;
+      const resp = await this._fetch(path);
+      const raw = resp?.data || resp;
+      if (raw?.cropCode) return raw;
+      throw new ApiError('后端返回了无效的培养手册', { code: 'CROP_MANUAL_INVALID', payload: resp });
+    }
+    const pack = (MOCK_DATA.cropPackDetails || []).find((item) => item.cropCode === cropCode) || MOCK_DATA.cropPackDetails?.[0];
+    if (!pack) throw new ApiError('演示作物培养手册不存在', { code: 'CROP_MANUAL_NOT_FOUND' });
+    const stage = (pack.stages || []).find((item) => item.code === stageCode) || pack.stages?.[0];
+    return {
+      cropCode: pack.cropCode,
+      version: pack.version,
+      identity: pack.identity,
+      stages: pack.stages,
+      stage,
+      envMetrics: [],
+      guideParagraphs: [],
+      rules: pack.rules,
+      knowledge: pack.knowledge,
+      provenance: 'SIMULATED'
+    };
+  }
+
+  async getPlotHealth(plotId) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/health`);
+      const raw = resp?.data || resp;
+      if (raw && typeof raw.score === 'number') return raw;
+      throw new ApiError('后端返回了无效的健康分', { code: 'PLOT_HEALTH_INVALID', payload: resp });
+    }
+    return null;
+  }
+
   normalizeCropPack(pack) {
     return {
       ...(pack || {}),

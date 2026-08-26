@@ -889,4 +889,97 @@ class AgriApplicationTest {
         assertThat(Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), passport.get("humanObservations")))
                 .anySatisfy(item -> assertThat(item).containsEntry("inspectionId", inspection.get("inspectionId")));
     }
+
+    @Test
+    void cropPacksExposeStageTemplatesAndHandbook() {
+        assertThat(engine.cropPacks()).hasSize(2).allSatisfy(pack -> {
+            assertThat(pack).containsKeys("identity", "stages", "metrics", "rules", "healthProfile", "knowledge");
+            assertThat(Jsons.maps(new ObjectMapper(), pack.get("stages"))).isNotEmpty().allSatisfy(stage -> {
+                assertThat(stage).containsKeys("code", "label", "target", "riskFocus", "taskTemplates");
+                assertThat(Jsons.maps(new ObjectMapper(), stage.get("taskTemplates"))).isNotEmpty();
+            });
+        });
+        Map<String, Object> manuals = Map.of("index", engine.cropManuals());
+        assertThat(Jsons.maps(new ObjectMapper(), manuals.get("index"))).extracting(item -> item.get("cropCode"))
+                .containsExactly("cucumber", "tomato");
+
+        Map<String, Object> seedling = engine.cropManual("tomato", "seedling");
+        Map<String, Object> fruiting = engine.cropManual("tomato", "fruiting");
+        assertThat(Jsons.text(Jsons.map(new ObjectMapper(), seedling.get("stage")), "label", "")).isEqualTo("苗期");
+        assertThat(Jsons.maps(new ObjectMapper(), seedling.get("rules")))
+                .anySatisfy(rule -> assertThat(rule).containsEntry("code", "WATER_DEFICIT").containsEntry("threshold", 30.0));
+        assertThat(Jsons.maps(new ObjectMapper(), fruiting.get("rules")))
+                .anySatisfy(rule -> assertThat(rule).containsEntry("code", "WATER_DEFICIT").containsEntry("threshold", 20.0));
+        assertThat((List<?>) seedling.get("guideParagraphs")).isNotEmpty();
+        assertThat(Jsons.map(new ObjectMapper(), seedling.get("knowledge")).get("content")).asList().isNotEmpty();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.cropManual("tomato", "unknown-stage"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("CROP_STAGE_NOT_FOUND"));
+    }
+
+    @Test
+    void rulesDiagnosisForecastAndHealthFollowGrowthStage() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
+        String plotId = "plot-stage-" + System.nanoTime();
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        responseData(controller.createPlot(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "阶段解析试验田",
+                "cropCode", "tomato", "cropName", "番茄", "cropVariety", "demonstration",
+                "stageCode", "seedling", "areaM2", 80, "growthCycleDays", 90
+        )), authentication));
+        Map<String, Object> batch = store.find("crop-batch", "batch-" + plotId);
+        if (batch == null) {
+            batch = new java.util.LinkedHashMap<>();
+            batch.put("batchId", "batch-" + plotId); batch.put("farmId", "farm-demo"); batch.put("plotId", plotId);
+            batch.put("cropCode", "tomato"); batch.put("stageCode", "seedling"); batch.put("cropPackVersion", "1.0.0");
+            store.save("crop-batch", "batch-" + plotId, batch);
+        } else {
+            batch.put("stageCode", "seedling");
+            store.save("crop-batch", Jsons.text(batch, "batchId", "batch-" + plotId), batch);
+        }
+
+        Instant now = Instant.now();
+        engine.ingest(Map.of("eventId", "stage-moist-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 25.0, "unit", "%",
+                "scenarioId", "normal", "ts", now.toString()));
+        Map<String, Object> seedlingDiagnosis = engine.diagnose(plotId, Map.of("scenarioId", "normal"));
+        assertThat(seedlingDiagnosis).containsEntry("primaryCause", "WATER_DEFICIT").containsEntry("stageCode", "seedling");
+        assertThat(Jsons.map(new ObjectMapper(), seedlingDiagnosis.get("thresholds"))).containsEntry("WATER_DEFICIT", 30.0);
+
+        Map<String, Object> plot = store.find("plot", plotId);
+        plot.put("stageCode", "fruiting");
+        store.save("plot", plotId, plot);
+        batch.put("stageCode", "fruiting");
+        store.save("crop-batch", Jsons.text(batch, "batchId", "batch-" + plotId), batch);
+        Map<String, Object> fruitingDiagnosis = engine.diagnose(plotId, Map.of("scenarioId", "normal"));
+        assertThat(fruitingDiagnosis).containsEntry("primaryCause", "INSUFFICIENT_EVIDENCE").containsEntry("stageCode", "fruiting");
+
+        Instant forecastAt = Instant.now();
+        for (int i = 0; i < 8; i++) {
+            engine.ingest(Map.of("eventId", "stage-fc-" + i + "-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 28.0 - i, "unit", "%",
+                    "scenarioId", "normal", "ts", forecastAt.minusSeconds(8L - i).toString()));
+        }
+        Map<String, Object> fruitingForecast = engine.forecast(plotId, "SOIL_MOISTURE");
+        assertThat(fruitingForecast).containsEntry("status", "AVAILABLE").containsEntry("stageCode", "fruiting");
+        assertThat(Jsons.map(new ObjectMapper(), fruitingForecast.get("riskBoundary"))).containsEntry("value", 20.0);
+
+        plot.put("stageCode", "seedling");
+        store.save("plot", plotId, plot);
+        batch.put("stageCode", "seedling");
+        store.save("crop-batch", Jsons.text(batch, "batchId", "batch-" + plotId), batch);
+        Map<String, Object> seedlingForecast = engine.forecast(plotId, "SOIL_MOISTURE");
+        assertThat(Jsons.map(new ObjectMapper(), seedlingForecast.get("riskBoundary"))).containsEntry("value", 30.0);
+
+        Map<String, Object> health = engine.plotHealth(plotId);
+        assertThat(health).containsKeys("score", "level", "metricScore", "deviceScore", "algorithmVersion", "stageCode");
+        assertThat((Double) health.get("score")).isBetween(0.05, 0.98);
+        Map<String, Object> handbook = engine.plotCropManual(plotId);
+        assertThat(handbook).containsEntry("cropCode", "tomato").containsEntry("plotId", plotId);
+        assertThat(Jsons.text(Jsons.map(new ObjectMapper(), handbook.get("stage")), "code", "")).isEqualTo("seedling");
+
+        Map<String, Object> cucumberProfile = engine.resolvedProfile("plot-b01");
+        assertThat(cucumberProfile).containsEntry("cropCode", "cucumber").containsEntry("stageCode", "fruiting");
+        assertThat(Jsons.maps(new ObjectMapper(), Jsons.map(new ObjectMapper(), cucumberProfile.get("cropPack")).get("effectiveRules")))
+                .anySatisfy(rule -> assertThat(rule).containsEntry("code", "WATER_DEFICIT").containsEntry("threshold", 24.0));
+    }
 }
