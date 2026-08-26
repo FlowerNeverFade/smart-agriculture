@@ -80,6 +80,32 @@ paths:
     post: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 将停用地块恢复为 ACTIVE}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/resolved-profile:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 参数解析结果}}}
+  /api/v1/plots/{plotId}/simulation:
+    get:
+      tags: [scenario]
+      parameters: [{$ref: '#/components/parameters/PlotId'}]
+      responses:
+        '200': {description: 当前地块独立模拟策略、参数边界、硬件绑定和模拟器状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [scenario]
+      description: 仅管理员可修改单个地块的场景；保存后 API 原子写入模拟器配置文件，运行中的模拟器会热加载。
+      parameters: [{$ref: '#/components/parameters/PlotId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlotSimulationUpdateRequest'}}}}
+      responses:
+        '200': {description: 策略已保存}
+        '400': {description: 场景或阈值参数无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/plots/{plotId}/simulation/reset:
+    post:
+      tags: [scenario]
+      description: 重置 HISTORY、FORECAST 或 ALL；只删除模拟遥测/预测记录，明确保留 sourceMode=REAL 的硬件数据。
+      parameters: [{$ref: '#/components/parameters/PlotId'}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, properties: {target: {type: string, enum: [HISTORY, FORECAST, ALL], default: ALL}}}}}}
+      responses:
+        '200': {description: 重置结果与硬件数据保留标记}
+        '400': {description: 重置目标无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/crop-packs:
     get: {tags: [farm], responses: {'200': {description: 后端实际 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
   /api/v1/crop-manuals:
@@ -299,7 +325,7 @@ components:
         farmId: {type: string}
         plotId: {type: string}
         deviceId: {type: string}
-        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL]}
+        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL, RAINFALL]}
         value: {type: number}
         unit: {type: string}
         ts: {type: string, format: date-time}
@@ -309,6 +335,15 @@ components:
         sourceMode: {type: string, enum: [REAL, SIMULATION]}
         provenance: {type: string, enum: [OBSERVED, USER_PROVIDED, DERIVED, SIMULATED, ESTIMATED]}
         dataOrigin: {type: string}
+    PlotSimulationUpdateRequest:
+      type: object
+      required: [scenario]
+      properties:
+        scenario: {type: string, enum: [NORMAL, DROUGHT, HEAVY_RAIN, SENSOR_DRIFT, DEVICE_OFFLINE]}
+        parameters:
+          type: object
+          description: 地块专属参数；服务端按参数边界裁剪并拒绝干旱阈值不小于积水阈值。
+          additionalProperties: {type: number}
     VirtualCommandRequest:
       type: object
       required: [plotId, idempotencyKey, approved]

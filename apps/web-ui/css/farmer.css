@@ -1378,6 +1378,29 @@
   margin-top: 8px;
   overflow: visible;
 }
+.farmer-chart-interactive { position: relative; }
+.farmer-chart-interactive .farmer-chart-svg { cursor: crosshair; }
+.farmer-chart-tooltip {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  min-width: 126px;
+  max-width: 190px;
+  padding: 7px 9px;
+  border: 1px solid var(--g-border);
+  border-radius: 7px;
+  background: var(--g-bg-surface);
+  box-shadow: var(--g-shadow-md);
+  color: var(--g-text-primary);
+  font-size: 10px;
+  line-height: 1.35;
+  pointer-events: none;
+  transform: translate(-50%, -105%);
+}
+.farmer-chart-tooltip strong { font-size: 11px; font-weight: 600; }
+.farmer-chart-tooltip span { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.farmer-chart-tooltip i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
 .farmer-chart-grid-line { stroke: var(--g-border-subtle); stroke-width: 1; stroke-dasharray: 3 4; }
 .farmer-chart-axis-label { fill: var(--g-text-secondary); font-size: 9px; }
 .farmer-chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }

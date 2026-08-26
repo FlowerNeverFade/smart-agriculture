@@ -91,6 +91,7 @@
 | T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 已完成（硬件与远端链路验收） | `hardware/bearpi_e53_bridge.py`、`hardware/connect_bearpi.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；COM5 E53 固件刷写日志全分区 `Execution Successful`，串口实时变化读数，SSH 隧道 + 服务器 MQTT + `/api/v1/plots/plot-a01/telemetry` 黑盒验证通过；Python/Gradle/Web/Vite/Crop Pack 回归通过 |
 | T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 已完成 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；修正证据不足候选误高亮并补齐高温胁迫文案。功能提交链已部署；Gradle 全量测试、Web 14/14、Vite 构建、Node 语法和服务器三角色黑盒（Qwen `degraded=false`、共享解释 trace）通过 |
 | T-061 | P0 | Crop Pack 阶段解析、综合健康分与作物培养手册接口 | 前后端 | — | 本轮 | 待验收 | 番茄/黄瓜 Pack 补齐阶段标签、任务模板、阶段知识与 healthProfile；规则/诊断/预测/处方按当前生长阶段阈值解析；新增培养手册与健康分接口。Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；页面手册切换与农户健康分仍待浏览器复核 |
+| T-062 | P1 | 地块独立模拟策略、随机波动、曲线重置与局部浮窗 | 前后端 | — | 本轮 | 进行中 | 每个地块独立保存 NORMAL/DROUGHT/HEAVY_RAIN/SENSOR_DRIFT/DEVICE_OFFLINE 场景和参数；模拟器热加载 JSON、风险/灌溉复用策略、硬件 REAL 优先；地块详情可调参数/重置历史与预测，农户和风险曲线支持悬浮数据。Gradle、Python simulator、Node/Vite 已通过；三角色浏览器与远端部署待验收 |
 
 ### 2.1 核心八项能力任务映射
 

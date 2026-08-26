@@ -55,6 +55,7 @@ const PLOT_CHART_SPECS = [
   { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
   { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
   { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
+  { code: 'RAINFALL', label: '降雨强度', unit: 'mm/h', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
   { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
 ];
@@ -192,6 +193,7 @@ function metric_chart(plot, code, range_id = '7d') {
     risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
     range_title: range.title,
     labels: range.labels,
+    sample_labels: range.labels,
     grid,
     is_multi: Boolean(spec.multi),
     history_source: hasObservedHistory ? 'BACKEND' : (allowDerived ? 'DERIVED' : 'UNAVAILABLE'),
@@ -483,6 +485,32 @@ const app = createApp({
     const shared_module_links = SHARED_MODULE_LINKS;
     const chart_range = ref('7d');
     const chart_range_options = CHART_RANGE_OPTIONS;
+    const chart_tooltip = ref(null);
+    const show_chart_tooltip = (event, chart, key = chart?.code) => {
+      const svg = event?.currentTarget;
+      const series = Array.isArray(chart?.series) ? chart.series : [];
+      const pointCount = series.reduce((count, item) => Math.max(count, item?.values?.length || 0), 0);
+      if (!svg || !pointCount) {
+        chart_tooltip.value = null;
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      const index = Math.round(ratio * Math.max(0, pointCount - 1));
+      const labels = chart.sample_labels || chart.labels || [];
+      const values = series
+        .map((item) => ({ label: item.label, color: item.color, value: item.values?.[index] }))
+        .filter((item) => Number.isFinite(Number(item.value)));
+      chart_tooltip.value = {
+        key,
+        label: labels[index] || `第 ${index + 1} 个采样点`,
+        values,
+        left: Math.max(9, Math.min(91, ratio * 100)),
+        top: Math.max(18, Math.min(82, ((event.clientY - rect.top) / rect.height) * 100))
+      };
+    };
+    const hide_chart_tooltip = () => { chart_tooltip.value = null; };
     const plot_charts = computed(() => PLOT_CHART_SPECS
       .map((spec) => {
         const chart = metric_chart(selected_plot.value, spec.code, chart_range.value);
@@ -1370,6 +1398,9 @@ const app = createApp({
       selected_plot,
       chart_range,
       chart_range_options,
+      chart_tooltip,
+      show_chart_tooltip,
+      hide_chart_tooltip,
       plot_charts,
       advice_plot,
       advice_selected_plot,

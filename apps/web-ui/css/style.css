@@ -609,6 +609,51 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .plot-empty-work { padding: 14px; border: 1px dashed var(--g-border); border-radius: 7px; color: var(--g-text-secondary); font-size: 12px; text-align: center; }
 .plot-detail-footer { background: var(--g-bg-surface); }
 
+/* Per-plot simulation controls and curve preview. */
+.plot-simulation-section { padding: 14px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-surface); }
+.plot-section-hint { margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.45; }
+.plot-simulation-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; background: var(--g-success-bg); color: var(--g-success); font-size: 11px; white-space: nowrap; }
+.plot-simulation-badge.is-offline { background: var(--g-warning-bg); color: var(--g-warning); }
+.plot-device-binding-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 11px 0; padding: 9px 10px; border-radius: 7px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 11px; }
+.plot-device-binding-row span { display: inline-flex; align-items: center; gap: 6px; }
+.plot-device-binding-row i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-text-disabled); }
+.plot-device-binding-row i.is-online { background: var(--g-success); }
+.plot-device-binding-row i.is-offline { background: var(--g-warning); }
+.plot-device-binding-row small { margin-left: auto; color: var(--g-text-disabled); }
+.plot-simulation-scenarios { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.plot-simulation-scenario { display: flex; align-items: flex-start; gap: 7px; min-height: 66px; padding: 9px 8px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.plot-simulation-scenario:hover { border-color: var(--g-primary); transform: translateY(-1px); }
+.plot-simulation-scenario:disabled { cursor: not-allowed; opacity: .72; }
+.plot-simulation-scenario:disabled:hover { border-color: var(--g-border-subtle); transform: none; }
+.plot-simulation-scenario.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--g-primary) 25%, transparent); }
+.plot-simulation-emoji { font-size: 18px; line-height: 1; }
+.plot-simulation-scenario span:last-child { display: grid; gap: 3px; min-width: 0; }
+.plot-simulation-scenario strong { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.plot-simulation-scenario small { color: var(--g-text-secondary); font-size: 9px; line-height: 1.35; }
+.plot-simulation-parameters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin-top: 11px; }
+.plot-simulation-field { display: grid; gap: 5px; padding: 8px 9px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
+.plot-simulation-field > span:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.plot-simulation-field b { color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.plot-simulation-field small { color: var(--g-text-secondary); font-size: 9px; }
+.plot-simulation-control { display: grid; grid-template-columns: minmax(80px, 1fr) 64px auto; align-items: center; gap: 7px; }
+.plot-simulation-control input[type=range] { width: 100%; accent-color: var(--g-primary); }
+.plot-simulation-control input[type=number] { width: 100%; min-height: 26px; padding: 3px 5px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-mono); }
+.plot-simulation-control em { color: var(--g-text-secondary); font-size: 10px; font-style: normal; white-space: nowrap; }
+.plot-simulation-chart-wrap { margin-top: 12px; padding: 9px 10px 5px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
+.plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.plot-simulation-chart-head small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; }
+.plot-simulation-chart { width: 100%; height: 220px; }
+.plot-simulation-note, .plot-simulation-readonly { margin-top: 4px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
+.plot-simulation-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.risk-forecast-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.risk-forecast-actions .g-btn { min-height: 28px; padding: 0 8px; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .plot-simulation-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plot-simulation-parameters { grid-template-columns: 1fr; }
+  .plot-device-binding-row small { width: 100%; margin-left: 0; }
+}
+
 /* Task creation and compact operational views. */
 .work-order-header-actions { display: flex; gap: 8px; }
 .work-order-header-actions .material-symbols-outlined { font-size: 17px; }
