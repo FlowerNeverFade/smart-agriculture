@@ -668,8 +668,13 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .plot-simulation-control input[type=number] { width: 100%; min-height: 26px; padding: 3px 5px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-mono); }
 .plot-simulation-control em { color: var(--g-text-secondary); font-size: 10px; font-style: normal; white-space: nowrap; }
 .plot-simulation-chart-wrap { margin-top: 12px; padding: 9px 10px 5px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
-.plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
-.plot-simulation-chart-head small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; }
+.plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.plot-simulation-chart-title { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.plot-simulation-chart-title strong { font-size: 12px; font-weight: 650; white-space: nowrap; }
+.plot-simulation-chart-title small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.plot-simulation-metric-picker { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; }
+.plot-simulation-metric-picker select { min-height: 27px; padding: 3px 24px 3px 8px; border: 1px solid var(--g-border); border-radius: 6px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-font-sans, system-ui, sans-serif); }
+.plot-simulation-metric-picker select:focus-visible { outline: 2px solid color-mix(in srgb, var(--g-primary) 45%, transparent); outline-offset: 1px; }
 .plot-simulation-chart { width: 100%; height: 220px; }
 .plot-simulation-note, .plot-simulation-readonly { margin-top: 4px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
 .plot-simulation-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
@@ -679,6 +684,10 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 @media (max-width: 760px) {
   .plot-simulation-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plot-simulation-parameters { grid-template-columns: 1fr; }
+  .plot-simulation-chart-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .plot-simulation-chart-title { flex-wrap: wrap; gap: 3px 8px; }
+  .plot-simulation-metric-picker { width: 100%; justify-content: space-between; }
+  .plot-simulation-metric-picker select { flex: 1; }
   .plot-device-binding-row small { width: 100%; margin-left: 0; }
 }
 

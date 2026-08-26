@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-multimetric-curve-fix';
 import { MOCK_DATA } from './mock-data.js?v=1787649000001';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -125,6 +125,23 @@ const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_EC: 'soil_ec',
   NPK_RATIO: 'nutrition'
 });
+
+// The plot-detail simulator uses one axis at a time.  Keeping the unit and
+// physical range beside the label prevents a temperature/CO₂ curve from
+// being rendered with the soil-moisture 0–100% axis.
+const SIMULATION_METRIC_OPTIONS = Object.freeze([
+  { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 35, icon: 'water_drop' },
+  { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: -40, max: 80, decimals: 1, defaultValue: 25, icon: 'thermometer' },
+  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, decimals: 1, defaultValue: 68, icon: 'humidity' },
+  { code: 'LIGHT', label: '光照', unit: 'lux', min: 0, max: 100000, decimals: 0, defaultValue: 42000, icon: 'light_mode' },
+  { code: 'CO2', label: '二氧化碳', unit: 'ppm', min: 0, max: 10000, decimals: 0, defaultValue: 520, icon: 'eco' },
+  { code: 'PH', label: '酸碱度', unit: 'pH', min: 0, max: 14, decimals: 2, defaultValue: 6.25, icon: 'soil_ec' },
+  { code: 'WATER_LEVEL', label: '水位', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 78, icon: 'water_drop' },
+  { code: 'RAINFALL', label: '降雨量', unit: 'mm/h', min: 0, max: 250, decimals: 1, defaultValue: 0.2, icon: 'rainy' }
+]);
+const SIMULATION_METRIC_BY_CODE = Object.freeze(Object.fromEntries(
+  SIMULATION_METRIC_OPTIONS.map((item) => [item.code, item])
+));
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
   { code: 'tomato', name: '番茄' },
@@ -168,6 +185,109 @@ function isAbnormalPlot(plot) {
 function formatMetricValue(metric) {
   if (!metric || metric.value === null || metric.value === undefined || metric.value === '') return '—';
   return String(metric.value);
+}
+
+function simulationMetricDefinition(code = 'SOIL_MOISTURE') {
+  return SIMULATION_METRIC_BY_CODE[String(code || '').toUpperCase()] || SIMULATION_METRIC_BY_CODE.SOIL_MOISTURE;
+}
+
+function finiteNumber(value, fallback = null) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function telemetryTimestamp(item) {
+  return new Date(item?.ts || item?.timestamp || item?.eventTs || 0).getTime();
+}
+
+function normalizedTelemetryPoints(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      ...item,
+      ts: item?.ts || item?.timestamp || item?.eventTs,
+      value: finiteNumber(item?.value)
+    }))
+    .filter((item) => telemetryTimestamp(item) > 0 && Number.isFinite(item.value))
+    .sort((left, right) => telemetryTimestamp(left) - telemetryTimestamp(right));
+}
+
+function normalizedForecastPoints(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      minute: finiteNumber(item?.minute ?? item?.minutes, 0),
+      expected: finiteNumber(item?.expected ?? item?.value),
+      lower: finiteNumber(item?.lower ?? item?.expected ?? item?.value),
+      upper: finiteNumber(item?.upper ?? item?.expected ?? item?.value)
+    }))
+    .filter((item) => Number.isFinite(item.minute) && Number.isFinite(item.expected))
+    .sort((left, right) => left.minute - right.minute);
+}
+
+/**
+ * Join a forecast to the last observed sample.  A server may generate a
+ * forecast a few milliseconds after the telemetry request (or use a slightly
+ * different rounding path); shifting the whole curve by that tiny delta keeps
+ * the first point physically continuous while preserving its shape.
+ */
+function alignForecastToHistory(curve, anchorValue, definition) {
+  const points = normalizedForecastPoints(curve);
+  const anchor = finiteNumber(anchorValue);
+  if (!points.length || !Number.isFinite(anchor)) return points;
+  const delta = anchor - points[0].expected;
+  const mapped = points.map((point, index) => {
+    const expected = clampNumber(point.expected + delta, definition.min, definition.max);
+    const lower = clampNumber(point.lower + delta, definition.min, definition.max);
+    const upper = clampNumber(point.upper + delta, definition.min, definition.max);
+    return {
+      ...point,
+      minute: Math.max(0, point.minute),
+      expected: index === 0 ? anchor : expected,
+      lower: Math.min(expected, lower),
+      upper: Math.max(expected, upper)
+    };
+  });
+  if (mapped[0].minute > 0) {
+    mapped.unshift({ minute: 0, expected: anchor, lower: anchor, upper: anchor });
+  } else {
+    mapped[0] = { ...mapped[0], minute: 0, expected: anchor, lower: Math.min(anchor, mapped[0].lower), upper: Math.max(anchor, mapped[0].upper) };
+  }
+  return mapped;
+}
+
+function chartAxisRange(definition, values = []) {
+  const finiteValues = values.map((value) => finiteNumber(value)).filter((value) => Number.isFinite(value));
+  if (definition.code === 'SOIL_MOISTURE' || definition.code === 'AIR_HUMIDITY' || definition.code === 'WATER_LEVEL') {
+    return { min: 0, max: 100 };
+  }
+  if (definition.code === 'PH') return { min: 0, max: 14 };
+  const observedMin = finiteValues.length ? Math.min(...finiteValues) : definition.min;
+  const observedMax = finiteValues.length ? Math.max(...finiteValues) : definition.max;
+  const span = Math.max(definition.code === 'AIR_TEMPERATURE' ? 4 : 1, observedMax - observedMin);
+  let min = observedMin - span * .12;
+  let max = observedMax + span * .12;
+  if (definition.min === 0) min = Math.max(0, min);
+  min = Math.max(definition.min, min);
+  max = Math.min(definition.max, max);
+  if (max - min < span * .45) {
+    const center = (min + max) / 2;
+    min = Math.max(definition.min, center - span * .3);
+    max = Math.min(definition.max, center + span * .3);
+  }
+  const step = definition.code === 'LIGHT' ? 1000 : definition.code === 'CO2' ? 50 : definition.code === 'RAINFALL' ? 5 : .5;
+  return {
+    min: Math.max(definition.min, Math.floor(min / step) * step),
+    max: Math.min(definition.max, Math.ceil(max / step) * step)
+  };
+}
+
+function formatCurveValue(value, definition) {
+  const number = finiteNumber(value);
+  if (!Number.isFinite(number)) return '—';
+  return number.toLocaleString('zh-CN', { maximumFractionDigits: definition.decimals, minimumFractionDigits: definition.decimals > 1 ? 1 : 0 });
 }
 
 function parseHashRoute(hash = window.location.hash) {
@@ -619,13 +739,20 @@ const PlotDetailModal = {
     const simulationHistory = ref([]);
     const simulationForecast = ref(null);
     const simulationBusy = ref(false);
+    const simulationMetric = ref('SOIL_MOISTURE');
+    const simulationMetricLoading = ref(false);
     const simulationChartEl = ref(null);
     const simulationChart = ref(null);
     const simulationPreviewDirty = ref(false);
+    let metricRequestSerial = 0;
+    let hydratingSimulation = false;
     const simulationScenarioOptions = computed(() => {
       const configured = simulation.value?.scenarioCatalog;
       return Array.isArray(configured) && configured.length ? configured : PLOT_SIMULATION_SCENARIOS;
     });
+    const simulationMetricOptions = computed(() => SIMULATION_METRIC_OPTIONS);
+    const selectedSimulationMetric = computed(() => simulationMetricDefinition(simulationMetric.value));
+    const simulationMetricLabel = computed(() => selectedSimulationMetric.value.label);
     const canConfigureSimulation = computed(() => roleCan(props.state?.currentUser, 'strategy:manage') || roleCan(props.state?.currentUser, 'simulator:control'));
     const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
     const parameterMeta = Object.freeze({
@@ -670,6 +797,10 @@ const PlotDetailModal = {
       const scenario = selectedSimulationScenario.value;
       if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
       if (simulationPreviewDirty.value) return '参数尚未保存，曲线为即时预览；点击“保存到此地块”后服务器模拟器会热加载。';
+      if (simulationForecast.value && String(simulationForecast.value.status || '').toUpperCase() !== 'AVAILABLE') {
+        const reason = simulationForecast.value.reason || '当前样本或设备状态未满足预测条件';
+        return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
+      }
       return `${scenario.label}已绑定到 ${props.plot?.name || props.plot?.plotId}，历史数据只清除模拟样本，硬件实测数据始终保留。`;
     });
 
@@ -677,76 +808,185 @@ const PlotDetailModal = {
       scenario: String(record?.scenario || 'NORMAL').toUpperCase(),
       parameters: { ...(record?.parameters || {}) }
     });
+
+    const plotMetricFallback = (metric) => {
+      const definition = simulationMetricDefinition(metric);
+      const configured = finiteNumber(props.plot?.metrics?.[metric]?.value);
+      return Number.isFinite(configured) ? configured : definition.defaultValue;
+    };
+
     const localPreviewCurve = () => {
-      const start = Number(props.plot?.metrics?.SOIL_MOISTURE?.value ?? 35);
+      const definition = selectedSimulationMetric.value;
+      const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
+      const start = historicalPoints.length ? historicalPoints.at(-1).value : plotMetricFallback(definition.code);
       const params = simulationForm.value.parameters || {};
-      const scenario = simulationForm.value.scenario;
-      const trend = Number(params.soilMoistureTrendPerHour || 0);
-      const volatility = Number(params.volatility || 1.25);
-      const drift = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
-      const rain = scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0;
+      const scenario = String(simulationForm.value.scenario || 'NORMAL').toUpperCase();
+      const volatility = Math.max(.2, Number(params.volatility || 1.25));
       const requestedHours = Number(params.forecastHours);
       const hours = Math.min(12, Math.max(1, Number.isFinite(requestedHours) ? requestedHours : 4));
       if (scenario === 'DEVICE_OFFLINE') return [];
+      const soilTrend = Number(params.soilMoistureTrendPerHour || 0)
+        + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0);
+      const drift = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
+      const trendByMetric = {
+        SOIL_MOISTURE: soilTrend + drift,
+        AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .75,
+        AIR_HUMIDITY: Number(params.humidityBias || 0) * .65,
+        LIGHT: scenario === 'DROUGHT' ? 900 : scenario === 'HEAVY_RAIN' ? -650 : 0,
+        CO2: scenario === 'HEAVY_RAIN' ? -22 : scenario === 'DROUGHT' ? 16 : 0,
+        PH: scenario === 'SENSOR_DRIFT' ? drift * .035 : 0,
+        WATER_LEVEL: scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .035 : scenario === 'DROUGHT' ? -1.2 : 0,
+        RAINFALL: 0
+      };
+      const trend = Number(trendByMetric[definition.code] || 0);
+      const waveAmplitude = {
+        SOIL_MOISTURE: .7,
+        AIR_TEMPERATURE: .28,
+        AIR_HUMIDITY: .85,
+        LIGHT: 850,
+        CO2: 14,
+        PH: .035,
+        WATER_LEVEL: .65,
+        RAINFALL: .7
+      }[definition.code] || .5;
+      const id = `${props.plot?.plotId || 'plot'}:${definition.code}:${scenario}`;
+      let hash = 0;
+      for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+      const phase = (hash % 628) / 100;
+      const initialWave = Math.sin(phase);
+      const rainfallRate = Math.max(0, Number(params.rainfallRate || 0));
+      const initialRainWave = .72 + .28 * Math.max(0, Math.sin(1.2));
       return Array.from({ length: hours * 12 + 1 }, (_, index) => {
         const minute = index * 5;
-        const expected = Math.max(0, Math.min(100, start + (trend + rain + drift) * minute / 60 + Math.sin(index / 2.7 + String(props.plot?.plotId || '').length) * volatility));
-        const spread = .6 + index * .04 * volatility;
-        return { minute, expected: Number(expected.toFixed(2)), lower: Number(Math.max(0, expected - spread).toFixed(2)), upper: Number(Math.min(100, expected + spread).toFixed(2)) };
+        const hoursFromStart = minute / 60;
+        const wave = (Math.sin(index / 2.7 + phase) - initialWave) * waveAmplitude * volatility;
+        const rainWave = definition.code === 'RAINFALL'
+          ? rainfallRate * ((.72 + .28 * Math.max(0, Math.sin(hoursFromStart * 3.1 + 1.2))) - initialRainWave)
+          : 0;
+        const expected = clampNumber(start + trend * hoursFromStart + rainWave + wave, definition.min, definition.max);
+        const spread = Math.max(definition.code === 'PH' ? .03 : definition.code === 'LIGHT' ? 120 : .45, (index ? index * .035 : 0) * volatility + (definition.code === 'LIGHT' ? 120 : 0));
+        return {
+          minute,
+          expected: Number(expected.toFixed(definition.decimals)),
+          lower: Number(clampNumber(expected - spread, definition.min, definition.max).toFixed(definition.decimals)),
+          upper: Number(clampNumber(expected + spread, definition.min, definition.max).toFixed(definition.decimals))
+        };
       });
     };
+
     const renderSimulationChart = async () => {
       await nextTick();
       if (!simulationChartEl.value || typeof echarts === 'undefined') return;
       if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
-      const historical = (simulationHistory.value || []).map((item) => [new Date(item?.ts).getTime(), Number(item?.value)])
-        .filter(([ts, value]) => Number.isFinite(ts) && Number.isFinite(value));
-      const now = Date.now();
-      const forecastPoints = simulationPreviewDirty.value || !simulationForecast.value?.curve?.length ? localPreviewCurve() : simulationForecast.value.curve;
-      const predicted = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.expected ?? item.value)]);
-      const lower = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.lower ?? item.expected ?? item.value)]);
-      const upper = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.upper ?? item.expected ?? item.value)]);
+      const definition = selectedSimulationMetric.value;
+      const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
+      const historical = historicalPoints.map((item) => [telemetryTimestamp(item), item.value]);
+      const fallback = plotMetricFallback(definition.code);
+      const anchorPoint = historicalPoints.at(-1);
+      const anchorValue = anchorPoint?.value ?? fallback;
+      // telemetryTimestamp(undefined) intentionally returns epoch 0 for normalisation,
+      // but an empty history must use the current time instead of rendering at 1970.
+      const anchorTimestamp = anchorPoint ? telemetryTimestamp(anchorPoint) : NaN;
+      const forecastAvailable = String(simulationForecast.value?.status || '').toUpperCase() === 'AVAILABLE'
+        && Array.isArray(simulationForecast.value?.curve) && simulationForecast.value.curve.length > 0;
+      // A local curve is an explicit what-if preview only.  Never replace an
+      // authoritative UNAVAILABLE response (or a failed live request) with
+      // invented data that could look like a real forecast.
+      const forecastSource = simulationPreviewDirty.value
+        ? localPreviewCurve()
+        : forecastAvailable ? simulationForecast.value.curve : [];
+      const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
+      const forecastStart = Number.isFinite(anchorTimestamp) ? anchorTimestamp : Date.now();
+      const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
+      const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
+      const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      const axis = chartAxisRange(definition, [
+        ...historical.map((item) => item[1]),
+        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
+      ]);
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
       const textColor = dark ? '#e8eaed' : '#3c4043';
       simulationChart.value.setOption({
         backgroundColor: 'transparent', animation: false,
         tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
           const list = Array.isArray(items) ? items : [items];
-          const time = list[0]?.axisValue ? new Date(Number(list[0].axisValue)).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
-          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${Number(item.value[1]).toFixed(2)}%`).join('<br>')}`;
+          const axisValue = finiteNumber(list[0]?.axisValue);
+          const time = Number.isFinite(axisValue) ? new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
         legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
         grid: { left: 42, right: 18, top: 32, bottom: 30 },
         xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
-        yAxis: { type: 'value', min: 0, max: 100, name: '%', nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10 } },
+        yAxis: {
+          type: 'value', min: axis.min, max: axis.max, name: definition.unit,
+          nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => formatCurveValue(value, definition) }
+        },
         series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
+          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
         ]
       }, true);
     };
+
+    const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false } = {}) => {
+      const normalized = simulationMetricDefinition(metric).code;
+      const requestId = ++metricRequestSerial;
+      simulationMetricLoading.value = true;
+      try {
+        const [historyResult, forecastResult] = await Promise.allSettled([
+          api.getTelemetry(props.plot?.plotId, normalized, 120),
+          api.getRiskForecast(props.plot?.plotId, normalized)
+        ]);
+        if (requestId !== metricRequestSerial) return;
+        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+        else simulationHistory.value = [];
+        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+        else simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        if (resetPreview) simulationPreviewDirty.value = false;
+        await nextTick();
+        renderSimulationChart();
+      } finally {
+        if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
+      }
+    };
+
     const loadSimulation = async () => {
+      const metric = simulationMetric.value;
+      hydratingSimulation = true;
       try {
         const [configResult, historyResult, forecastResult] = await Promise.allSettled([
           api.getPlotSimulation(props.plot?.plotId),
-          api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120),
-          api.getRiskForecast(props.plot?.plotId, 'SOIL_MOISTURE')
+          api.getTelemetry(props.plot?.plotId, metric, 120),
+          api.getRiskForecast(props.plot?.plotId, metric)
         ]);
         if (configResult.status === 'fulfilled') {
           simulation.value = configResult.value;
           simulationForm.value = cloneForm(configResult.value);
         }
         if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value;
+        else simulationHistory.value = [];
+        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+        else simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         await nextTick();
         simulationPreviewDirty.value = false;
         renderSimulationChart();
       } catch (error) {
         toast?.(error.message || '地块模拟策略读取失败', 'error');
+      } finally {
+        hydratingSimulation = false;
       }
     };
+
+    const selectSimulationMetric = (eventOrCode) => {
+      const requested = typeof eventOrCode === 'string' ? eventOrCode : eventOrCode?.target?.value;
+      const normalized = simulationMetricDefinition(requested).code;
+      if (normalized === simulationMetric.value && !simulationMetricLoading.value) return;
+      simulationMetric.value = normalized;
+      loadMetricSeries(normalized);
+    };
+
     const selectSimulationScenario = (code) => {
       const normalized = String(code || 'NORMAL').toUpperCase();
       const scenario = simulationScenarioOptions.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
@@ -759,32 +999,55 @@ const PlotDetailModal = {
       simulationBusy.value = true;
       try {
         const saved = await api.updatePlotSimulation(props.plot.plotId, simulationForm.value);
+        hydratingSimulation = true;
         simulation.value = saved; simulationForm.value = cloneForm(saved); simulationPreviewDirty.value = false;
+        hydratingSimulation = false;
         await loadSimulation();
         toast?.('该地块模拟策略已保存，服务器将从下一采样点应用', 'success');
         emit('data-invalidated', { domains: ['overview', 'plots'], plotId: props.plot.plotId, record: saved });
-      } catch (error) { toast?.(error.message || '模拟策略保存失败', 'error'); }
+      } catch (error) { hydratingSimulation = false; toast?.(error.message || '模拟策略保存失败', 'error'); }
       finally { simulationBusy.value = false; }
     };
     const resetSimulation = async (target) => {
       simulationBusy.value = true;
+      const metric = simulationMetric.value;
       try {
         const resetResult = await api.resetPlotSimulation(props.plot.plotId, target);
+        hydratingSimulation = true;
         simulation.value = resetResult;
         simulationForm.value = cloneForm(resetResult);
         simulationPreviewDirty.value = false;
+        hydratingSimulation = false;
+        const refreshes = [];
         if (target === 'HISTORY' || target === 'ALL') {
-          const refreshed = await api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120);
-          simulationHistory.value = refreshed || [];
+          refreshes.push(api.getTelemetry(props.plot?.plotId, metric, 120));
         }
-        if (target === 'FORECAST' || target === 'ALL') simulationForecast.value = null;
+        if (target === 'FORECAST' || target === 'ALL') refreshes.push(api.getRiskForecast(props.plot?.plotId, metric));
+        const refreshed = await Promise.allSettled(refreshes);
+        let resultIndex = 0;
+        if (target === 'HISTORY' || target === 'ALL') {
+          const historyResult = refreshed[resultIndex++];
+          if (historyResult?.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+          else simulationHistory.value = [];
+        }
+        if (target === 'FORECAST' || target === 'ALL') {
+          const forecastResult = refreshed[resultIndex++];
+          simulationForecast.value = forecastResult?.status === 'fulfilled'
+            ? (forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' })
+            : { status: 'UNAVAILABLE', reason: forecastResult?.reason?.message || '预测服务暂不可用' };
+        }
         await nextTick();
         renderSimulationChart();
+        emit('data-invalidated', { domains: ['overview', 'plots', 'telemetry'], plotId: props.plot.plotId, metric, resetTarget: target });
         toast?.(`${target === 'HISTORY' ? '历史' : target === 'FORECAST' ? '预测' : '历史与预测'}曲线已重置（硬件实测数据未删除）`, 'success');
-      } catch (error) { toast?.(error.message || '曲线重置失败', 'error'); }
+      } catch (error) { hydratingSimulation = false; toast?.(error.message || '曲线重置失败', 'error'); }
       finally { simulationBusy.value = false; }
     };
-    watch(simulationForm, () => { simulationPreviewDirty.value = true; renderSimulationChart(); }, { deep: true });
+    watch(simulationForm, () => {
+      if (hydratingSimulation || simulationBusy.value) return;
+      simulationPreviewDirty.value = true;
+      renderSimulationChart();
+    }, { deep: true });
     onMounted(loadSimulation);
     onBeforeUnmount(() => { simulationChart.value?.dispose(); simulationChart.value = null; });
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
@@ -823,7 +1086,7 @@ const PlotDetailModal = {
       return {
         tone: 'normal',
         title: '当前没有需要立即处理的问题',
-        detail: '六项关键数据和采集设备目前都在可用范围内，按计划巡田即可。'
+        detail: '关键环境数据和采集设备目前都在可用范围内，按计划巡田即可。'
       };
     });
     const statusLabel = (item) => {
@@ -850,6 +1113,10 @@ const PlotDetailModal = {
       simulationScenarioOptions,
       simulationFields,
       simulationBusy,
+      simulationMetric,
+      simulationMetricOptions,
+      simulationMetricLabel,
+      simulationMetricLoading,
       simulationChartEl,
       canConfigureSimulation,
       simulationDeviceLabel,
@@ -859,6 +1126,7 @@ const PlotDetailModal = {
       hardwareLastSeen,
       simulatorTone,
       simulationPreviewMessage,
+      selectSimulationMetric,
       selectSimulationScenario,
       saveSimulation,
       resetSimulation,
@@ -1860,15 +2128,7 @@ const AdminOverviewView = {
   }
 };
 
-const TELEMETRY_METRICS = [
-  { code: 'SOIL_MOISTURE', label: '土壤湿度' },
-  { code: 'AIR_TEMPERATURE', label: '空气温度' },
-  { code: 'AIR_HUMIDITY', label: '空气湿度' },
-  { code: 'LIGHT', label: '光照' },
-  { code: 'CO2', label: 'CO2' },
-  { code: 'PH', label: 'PH' },
-  { code: 'WATER_LEVEL', label: '水位' }
-];
+const TELEMETRY_METRICS = SIMULATION_METRIC_OPTIONS.map(({ code, label }) => ({ code, label }));
 
 const AdminOpsView = {
   template: '#tmpl-admin-ops',

@@ -51,6 +51,7 @@ ok('模拟策略 REST 与重置接口已接线', ['/simulation`', '/simulation/r
 ok('降雨指标贯通前端', appSource.includes('RAINFALL') && apiSource.includes("'RAINFALL'") && farmerSource.includes("code: 'RAINFALL'"));
 ok('参数预览与保存控件存在', indexHtml.includes('simulationFields') && indexHtml.includes('保存到此地块') && appSource.includes('localPreviewCurve'));
 ok('历史/预测重置按钮存在', indexHtml.includes('重置历史曲线') && indexHtml.includes('重置预测曲线') && apiSource.includes('resetPlotSimulation'));
+ok('地块详情支持八类曲线并与历史锚点连续', indexHtml.includes('simulationMetricOptions') && appSource.includes('alignForecastToHistory') && appSource.includes('forecastStart + item.minute * 60000'));
 ok('三类曲线支持局部浮窗', appSource.includes("trigger: 'axis'") && farmerHtml.includes('show_chart_tooltip') && farmerStyle.includes('.farmer-chart-tooltip'));
 ok('硬件 REAL 状态优先', liveDataSource.includes('hardwareBound') && appSource.includes('hardwareLabel'));
 ok('系统管理员总览指标循环作用域安全', !indexHtml.includes('v-for="metric in telemetryMetrics" v-if='));
@@ -143,6 +144,14 @@ async function mountIndex() {
   ok('地块详情显示独立策略设置', detail);
   ok('地块详情显示五个场景', detail && window.document.querySelectorAll('.plot-simulation-scenario').length === 5);
   ok('地块详情显示曲线悬浮提示文案', detail && window.document.body.textContent.includes('鼠标悬停查看局部数据'));
+  const metricSelector = window.document.querySelector('.plot-simulation-metric-picker select');
+  ok('地块详情显示八个曲线指标', detail && metricSelector?.querySelectorAll('option').length === 8);
+  if (metricSelector) {
+    metricSelector.value = 'AIR_TEMPERATURE';
+    metricSelector.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const switched = await waitFor(() => window.document.body.textContent.includes('空气温度：历史 + 策略预测'), 1500);
+    ok('曲线指标切换可刷新标题', switched);
+  }
 
   if (mode !== 'svg') {
     window.location.hash = '#view=risk-forecast';

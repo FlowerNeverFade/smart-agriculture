@@ -8,7 +8,7 @@
 
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/style.css?v=20260826-multimetric-curve-fix">
   <link rel="stylesheet" href="css/farmer.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
 
@@ -394,7 +394,7 @@
             <div v-if="selected_plot && plot_charts.length" class="g-card farmer-plot-charts-panel">
               <div class="farmer-panel-header">
                 <div>
-                  <h3>六项指标趋势</h3>
+                  <h3>环境与肥力指标趋势</h3>
                   <p class="farmer-panel-hint">按时间查看 {{ selected_plot.name }} 的环境与肥力变化；历史曲线优先来自后端遥测。</p>
                 </div>
                 <div class="farmer-chart-range" role="group" aria-label="趋势时间范围">
@@ -966,6 +966,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260826-sysadmin-overview-fix"></script>
+  <script type="module" src="js/farmer.js?v=20260826-multimetric-curve-fix"></script>
 </body>
 </html>

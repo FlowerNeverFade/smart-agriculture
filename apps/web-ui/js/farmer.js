@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api } from './api.js?v=20260826-multimetric-curve-fix';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
