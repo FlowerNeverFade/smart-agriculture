@@ -4,6 +4,8 @@
 > 任务版本：v1.8（2026-08-26）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
+> 2026-08-26 告警冷却、在线改密、成员生命周期、巡田照片与高温告警：后端补齐冷却期内复用 ACTIVE 告警、`HEAT_STRESS` 告警状态机、`POST /auth/change-password`、创建/启用/停用农户，以及本地巡田照片附件（USER_PROVIDED）。本轮只创建本地改动，不推送或部署。
+
 > 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。`rium_dev-v2` 增量与毛玻璃回退另有本地 Chromium 证据。
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
@@ -91,6 +93,7 @@
 | T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 进行中 | `hardware/bearpi_e53_bridge.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；Python/Gradle/Web/Vite/Crop Pack 回归通过。物理端待 E53 固件烧录、RESET 和远端部署后验收 |
 | T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 已完成 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；修正证据不足候选误高亮并补齐高温胁迫文案。功能提交链已部署；Gradle 全量测试、Web 14/14、Vite 构建、Node 语法和服务器三角色黑盒（Qwen `degraded=false`、共享解释 trace）通过 |
 | T-061 | P0 | Crop Pack 阶段解析、综合健康分与作物培养手册接口 | 前后端 | — | 本轮 | 待验收 | 番茄/黄瓜 Pack 补齐阶段标签、任务模板、阶段知识与 healthProfile；规则/诊断/预测/处方按当前生长阶段阈值解析；新增培养手册与健康分接口。Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；页面手册切换与农户健康分仍待浏览器复核 |
+| T-062 | P0 | 告警冷却生效、高温告警、在线改密、成员创建/停用与巡田照片附件 | 前后端 | — | 本轮 | 待验收 | 同地块同规则冷却期内复用/更新 ACTIVE 告警；HEAT_STRESS 进入告警状态机；`POST /auth/change-password` 轮换凭据版本；`POST /farm-members` 与 `PATCH .../status`；巡田照片本地附件 `USER_PROVIDED`。Gradle API 43/43、前端 Node 14/14、Vite 构建通过；应用内浏览器未复核 |
 
 ### 2.1 核心八项能力任务映射
 

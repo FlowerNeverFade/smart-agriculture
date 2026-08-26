@@ -3,6 +3,8 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-26
 
+> 2026-08-26 告警冷却、在线改密、成员生命周期、巡田照片与高温告警（本地实现，待测试验收）：`evaluateRuleForEvent` 对同地块同规则的 ACTIVE/ACKED/ESCALATED 告警在冷却期内复用并发布 `alert.updated`；关闭后冷却期内不再新建。气温超阈对称落 `HEAT_STRESS_RULE` 告警。新增 `POST /auth/change-password`（校验旧密码、轮换 `credentialVersion`、签发新 JWT）。农场管理员可 `POST /farm-members` 创建农户、`PATCH .../status` 启用/停用。巡田照片以本地附件引用保存，`provenance=USER_PROVIDED`，不是生产级对象存储。真实硬件仍不在本期范围。
+
 > 2026-08-26 Crop Pack 阶段解析与培养手册（本地已实现，接口已测）：番茄/黄瓜 Crop Pack 补齐阶段标签、任务模板、阶段知识和 healthProfile；规则、诊断、预测和灌溉目标按当前生长阶段解析，不再写死 20%/35°C。新增培养手册接口 `GET /api/v1/crop-manuals`、`/crop-manuals/{cropCode}/stages/{stageCode}`、`/plots/{plotId}/crop-manual`，以及按阶段目标计算的综合健康分 `GET /plots/{plotId}/health`；总览卡片带出 `health` 分解。农户页优先使用后端健康分，演示模式用同一套阶段权重回退。验证：Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；培养手册页与农户健康分尚未做浏览器复核。真实硬件仍不在本期范围。
 
 > 2026-08-26 决策台 AI 解释层（远端已验收）：诊断仍由确定性规则计算主因、置信度、支持/反对/缺失证据和安全门；新增按需 `POST /api/v1/diagnoses/{diagnosisId}/explain`，在 Qwen 可用时只生成基于冻结证据的“结论—依据—下一步”说明，失败时返回可见的规则降级解释并写入 Agent 审计记录。农场管理员与农户共享决策台新增 AI 解释卡和重新解释按钮，系统管理员可从 Agent 运行记录追溯；不会让模型改写诊断、剂量或控制命令。同时修正“证据不足”时误高亮第一候选，以及高温胁迫缺少角色化文案的问题。功能提交链已部署，Gradle 全量测试、Web 14/14、Vite 构建和语法检查通过；服务器本机实测管理员 `openai-compatible/degraded=false`，农户与系统管理员复用同一诊断解释 trace，主因和置信度未被改写。

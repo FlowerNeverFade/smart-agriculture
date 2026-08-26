@@ -168,6 +168,22 @@ export class ApiService {
     return result;
   }
 
+  async changePassword({ currentPassword, newPassword }) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const session = resp?.data || resp;
+      if (!session?.accessToken || !session?.user?.username) {
+        throw new ApiError('改密响应缺少新的登录令牌', { code: 'ACCOUNT_PASSWORD_RESPONSE_INVALID', payload: resp });
+      }
+      this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
+      return session;
+    }
+    return { username: this.user?.username, demo: true };
+  }
+
   async getCurrentUser() {
     const resp = await this._fetch('/api/v1/auth/me');
     const user = resp?.data || resp;
@@ -809,6 +825,52 @@ export class ApiService {
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
+  async createFarmMember({ farmId, username, password, displayName = '', plotIds = [] } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/farm-members', {
+        method: 'POST',
+        body: JSON.stringify({ farmId, username, password, displayName, plotIds })
+      });
+      if (response?.data?.userId) {
+        return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
+      }
+      throw new ApiError('后端返回了无效的成员创建结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
+    }
+    const normalized = String(username || '').trim().toLowerCase();
+    if (!normalized) throw new ApiError('请填写账号', { status: 400, code: 'ACCOUNT_USERNAME_INVALID' });
+    const existing = Array.from(this.demoFarmMembers.values()).find((member) => member.username === normalized);
+    if (existing) throw new ApiError('该账号已存在', { status: 409, code: 'ACCOUNT_EXISTS' });
+    const created = normalizeFarmMember({
+      userId: `user-demo-${Date.now()}`,
+      username: normalized,
+      displayName: displayName || normalized,
+      role: 'FARMER',
+      farmIds: [farmId],
+      plotIds: [...plotIds],
+      status: 'ACTIVE'
+    }, 'SIMULATED');
+    this.demoFarmMembers.set(created.userId, created);
+    return { ...created, plotIds: [...created.plotIds], farmIds: [...created.farmIds], recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateFarmMemberStatus(userId, { farmId, status, enabled } = {}) {
+    const nextEnabled = typeof enabled === 'boolean' ? enabled : String(status || '').toUpperCase() !== 'INACTIVE' && String(status || '').toUpperCase() !== 'DISABLED';
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ farmId, status: nextEnabled ? 'ACTIVE' : 'INACTIVE', enabled: nextEnabled })
+      });
+      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的成员状态结果', { code: 'FARM_MEMBER_STATUS_INVALID', payload: response });
+    }
+    const current = this.demoFarmMembers.get(userId);
+    if (!current) throw new ApiError('没有找到该成员', { status: 404, code: 'FARM_MEMBER_NOT_FOUND' });
+    if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
+    const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
+    this.demoFarmMembers.set(userId, updated);
+    return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
+  }
+
   _demoActorId() {
     if (this.user?.userId) return this.user.userId;
     if (this.user?.username === 'farmer') return 'user-farmer';
@@ -893,15 +955,20 @@ export class ApiService {
     return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
   }
 
-  async createInspection(inspection) {
+  async createInspection(inspection, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/inspections', {
         method: 'POST',
         body: JSON.stringify(inspection)
       });
-      return response?.data || response;
+      const saved = response?.data || response;
+      if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
+      if (!uploads.length) return saved;
+      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
     }
     const now = new Date().toISOString();
+    const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
@@ -914,6 +981,7 @@ export class ApiService {
       revision: 1,
       provenance: 'USER_PROVIDED',
       sourceType: 'HUMAN_OBSERVATION',
+      photos,
       quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
     this.demoInspections.set(saved.inspectionId, saved);
@@ -933,6 +1001,26 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    return { ...saved };
+  }
+
+  async uploadInspectionPhotos(inspectionId, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
+    if (!uploads.length) throw new ApiError('请选择至少一张现场照片', { status: 400, code: 'INSPECTION_PHOTO_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const body = new FormData();
+      uploads.forEach((file) => body.append('files', file));
+      const response = await this._fetch(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/photos`, {
+        method: 'POST',
+        body
+      });
+      return response?.data || response;
+    }
+    const current = this.demoInspections.get(inspectionId);
+    if (!current) throw new ApiError('没有找到该巡田记录', { status: 404, code: 'NOT_FOUND' });
+    const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
+    const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
+    this.demoInspections.set(inspectionId, saved);
     return { ...saved };
   }
 
@@ -1958,12 +2046,14 @@ export class ApiService {
 
   async _fetch(path, options = {}, { auth = true } = {}) {
     const { auth: optionAuth = auth, ...fetchOptions } = options;
+    const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(optionAuth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
+    if (isFormData) delete headers['Content-Type'];
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
@@ -2005,6 +2095,23 @@ export class ApiService {
 }
 
 export const api = new ApiService();
+
+function fileToInspectionPhoto(file, index = 0) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      photoId: `photo-demo-${Date.now()}-${index}`,
+      fileName: file.name || `field-${index + 1}.jpg`,
+      contentType: file.type || 'image/jpeg',
+      sizeBytes: file.size || 0,
+      provenance: 'USER_PROVIDED',
+      sourceType: 'HUMAN_OBSERVATION',
+      previewUrl: reader.result
+    });
+    reader.onerror = () => reject(new ApiError('现场照片读取失败', { code: 'INSPECTION_PHOTO_READ_FAILED' }));
+    reader.readAsDataURL(file);
+  });
+}
 
 // 确定性伪随机数：同一 scenario + seed 的双轨回放必须完全可复现。
 function mulberry32(seed) {

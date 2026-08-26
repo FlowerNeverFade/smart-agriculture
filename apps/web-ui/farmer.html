@@ -750,7 +750,7 @@
                   <div>
                     <strong>{{ record.plotName || record.plotId }}</strong>
                     <p>{{ record.notes }}</p>
-                    <p class="farmer-record-meta">表层 {{ soil_surface_label(record.soilSurface) }} · 作物 {{ crop_condition_label(record.cropCondition) }} · 便携仪 {{ record.portableSoilMoisture }}%</p>
+                    <p class="farmer-record-meta">表层 {{ soil_surface_label(record.soilSurface) }} · 作物 {{ crop_condition_label(record.cropCondition) }} · 便携仪 {{ record.portableSoilMoisture }}% · {{ (record.photos || []).length }} 张现场照片</p>
                   </div>
                   <time>{{ format_record_time(record.observedAt) }}</time>
                 </div>
@@ -790,6 +790,7 @@
                 </div>
                 <label>便携仪实测含水率（%）<input v-model.number="inspection_form.moisture" type="number" min="0" max="100" step="0.1" required></label>
                 <label>现场说明<textarea v-model.trim="inspection_form.notes" rows="3" placeholder="例如：表层略干，无明显渗漏。" required></textarea></label>
+                <label>现场照片（选填，最多 6 张，JPEG/PNG/WebP）<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="on_inspection_photos"><small class="farmer-form-hint">照片按人工提供证据保存，不会覆盖传感器读数。{{ inspection_form.photos.length ? '已选 ' + inspection_form.photos.length + ' 张。' : '' }}</small></label>
                 <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_inspection_form">取消</button><button type="submit" class="g-btn primary farmer-btn-analyze">保存记录</button></div>
               </form>
             </div>
@@ -813,7 +814,7 @@
         <div v-if="show_account_modal" class="farmer-form-overlay" @click.self="close_account_modal">
           <form class="farmer-form-card farmer-account-form" @submit.prevent="change_password">
             <div class="farmer-detail-header">
-              <div><span class="farmer-section-kicker">账户安全</span><h3>修改密码</h3><p class="farmer-detail-meta">{{ is_live ? '正式账号请使用登录页的恢复码重设密码。' : '演示模式仅校验填写内容。' }}</p></div>
+              <div><span class="farmer-section-kicker">账户安全</span><h3>修改密码</h3><p class="farmer-detail-meta">{{ is_live ? '校验当前密码后立即生效，旧登录令牌会失效。' : '演示模式仅校验填写内容。' }}</p></div>
               <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_account_modal" title="关闭"><span class="material-symbols-outlined">close</span></button>
             </div>
             <label>当前密码<input v-model="password_form.current" type="password" autocomplete="current-password" required></label>

@@ -48,6 +48,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
@@ -131,6 +132,8 @@ class AgriProperties {
     private boolean simulatorControlEnabled = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
+    /** Local directory for USER_PROVIDED inspection photos; not object storage. */
+    private String attachmentDir = "data/attachments";
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -196,6 +199,8 @@ class AgriProperties {
     public void setSupervisorConfig(String supervisorConfig) { this.supervisorConfig = supervisorConfig; }
     public String getSimulatorProgram() { return simulatorProgram; }
     public void setSimulatorProgram(String simulatorProgram) { this.simulatorProgram = simulatorProgram; }
+    public String getAttachmentDir() { return attachmentDir; }
+    public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
 }
 
 @Configuration
@@ -625,6 +630,26 @@ class AgriStore {
         return safeUser(Jsons.copy(mapper, user));
     }
 
+    synchronized Map<String, Object> updateUserEnabled(String userId, boolean enabled, boolean rotateCredentials) {
+        Map<String, Object> user = userById(userId);
+        if (user == null) return null;
+        user.put("enabled", enabled);
+        if (rotateCredentials) {
+            user.put("credentialVersion", (int) Jsons.whole(user, "credentialVersion", 1) + 1);
+        }
+        if (databaseReady) {
+            try {
+                int updated = jdbc.update("UPDATE user_account SET enabled=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                        enabled, Jsons.whole(user, "credentialVersion", 1), userId);
+                if (updated != 1) return null;
+            } catch (DataAccessException error) {
+                databaseReady = false;
+            }
+        }
+        users.put(userId, Jsons.copy(mapper, user));
+        return Jsons.copy(mapper, user);
+    }
+
     private Map<String, Object> userMap(ResultSet rs) throws java.sql.SQLException {
         Map<String, Object> u = new LinkedHashMap<>();
         u.put("userId", rs.getString("user_id")); u.put("username", rs.getString("username"));
@@ -1006,7 +1031,9 @@ class SecurityConfig {
                         .authenticationEntryPoint((request, response, ignored) -> writeError(response, HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要有效的登录令牌"))
                         .accessDeniedHandler((request, response, ignored) -> writeError(response, HttpStatus.FORBIDDEN, "FORBIDDEN", "权限不足")))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/**", "/actuator/health", "/actuator/info", "/error", "/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                        .requestMatchers("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/password/reset",
+                                "/api/v1/auth/roles", "/actuator/health", "/actuator/info", "/error",
+                                "/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
@@ -1163,6 +1190,11 @@ class AgriEngine {
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
+    private static final Set<String> OPEN_ALERT_STATUSES = Set.of("ACTIVE", "ACKED", "ESCALATED");
+    private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
+    private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
+    private static final int INSPECTION_PHOTO_MAX_COUNT = 6;
+    private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -1267,6 +1299,29 @@ class AgriEngine {
         result.put("username", normalized); result.put("recoveryCode", nextRecoveryCode);
         result.put("recoveryCodeShownOnce", true); result.put("credentialVersion", Jsons.whole(updated, "credentialVersion", 1));
         return result;
+    }
+
+    Map<String, Object> changePassword(String currentPassword, String newPassword, UserPrincipal principal) {
+        if (principal == null) throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要登录");
+        Map<String, Object> user = store.userById(principal.userId);
+        if (user == null || !Jsons.bool(user, "enabled", true)) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要有效的登录令牌");
+        }
+        String presented = String.valueOf(currentPassword == null ? "" : currentPassword);
+        if (presented.isBlank() || !passwordEncoder.matches(presented, Jsons.text(user, "passwordHash", ""))) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "ACCOUNT_PASSWORD_MISMATCH", "当前密码不正确");
+        }
+        String next = String.valueOf(newPassword == null ? "" : newPassword);
+        if (passwordEncoder.matches(next, Jsons.text(user, "passwordHash", ""))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_PASSWORD_UNCHANGED", "新密码不能与当前密码相同");
+        }
+        validatePassword(Jsons.text(user, "username", principal.username), next);
+        Map<String, Object> updated = store.updatePassword(Jsons.text(user, "username", principal.username),
+                passwordEncoder.encode(next), Jsons.text(user, "recoveryCodeHash", ""));
+        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_UPDATE_FAILED", "密码更新失败，请稍后重试");
+        store.logEvent("ACCOUNT_PASSWORD_CHANGED", Map.of("userId", updated.get("userId"), "username", updated.get("username"),
+                "credentialVersion", Jsons.whole(updated, "credentialVersion", 1)));
+        return authenticatedSession(updated);
     }
 
     private Map<String, Object> authenticatedSession(Map<String, Object> user) {
@@ -1674,24 +1729,128 @@ class AgriEngine {
         result.put("ruleVersion", context.get("ruleVersion"));
         if ("SOIL_MOISTURE".equals(metric) && value < waterThreshold) {
             boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(event, "scenarioId", "")) || "BAD".equals(Jsons.text(Jsons.map(mapper, event.get("quality")), "status", "GOOD"));
-            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId, ignored -> new ConcurrentLinkedDeque<>()); Instant now = Instant.now(); window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > durationMinutes) window.removeFirst();
-            Map<String, Object> alert = new LinkedHashMap<>(); alert.put("alertId", Jsons.id("alert")); alert.put("plotId", plotId); alert.put("level", drift ? "HIGH" : "MEDIUM");
-            alert.put("source", drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE"); alert.put("status", "ACTIVE"); alert.put("evidence", List.of(event));
-            alert.put("title", drift ? "传感器数据可能不可靠" : "土壤持续偏干");
-            alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。"
-                    : "当前阶段「" + context.get("stageLabel") + "」土壤湿度已低于 " + waterThreshold + "%。请尽快现场复测，确认后安排浇水。");
-            alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
-            alert.put("durationMinutes", durationMinutes);
-            alert.put("hysteresis", Jsons.number(waterRule, "hysteresis", 2));
-            alert.put("cooldownMinutes", Jsons.whole(waterRule, "cooldownMinutes", 120));
-            alert.put("threshold", waterThreshold); alert.put("stageCode", context.get("stageCode"));
-            alert.put("cropPackVersion", context.get("cropPackVersion")); alert.put("ruleVersion", context.get("ruleVersion"));
-            alert.put("createdAt", now.toString()); alert.put("raisedAt", now.toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
-            Map<String, Object> diagnosis = diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal")));
-            result.put("alert", alert); result.put("diagnosis", diagnosis);
+            Instant now = Instant.now();
+            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|WATER_DEFICIT", ignored -> new ConcurrentLinkedDeque<>());
+            window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > durationMinutes) window.removeFirst();
+            String source = drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE";
+            String title = drift ? "传感器数据可能不可靠" : "土壤持续偏干";
+            String message = drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。"
+                    : "当前阶段「" + context.get("stageLabel") + "」土壤湿度已低于 " + waterThreshold + "%。请尽快现场复测，确认后安排浇水。";
+            Map<String, Object> alert = upsertRuleAlert(plotId, source, drift ? "HIGH" : "MEDIUM", title, message, event, waterRule,
+                    waterThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+            result.put("alert", alert);
+            if (!Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
+                result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
+            }
         }
-        if ("AIR_TEMPERATURE".equals(metric) && value > heatThreshold) result.put("risk", "HEAT_STRESS");
+        if ("AIR_TEMPERATURE".equals(metric) && value > heatThreshold) {
+            Instant now = Instant.now();
+            int heatDuration = (int) Jsons.whole(heatRule, "durationMinutes", 10);
+            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|HEAT_STRESS", ignored -> new ConcurrentLinkedDeque<>());
+            window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > heatDuration) window.removeFirst();
+            String message = "当前阶段「" + context.get("stageLabel") + "」空气温度已高于 " + heatThreshold
+                    + "°C。请先通风或遮阴核验，不要直接按缺水处理。";
+            Map<String, Object> alert = upsertRuleAlert(plotId, "HEAT_STRESS_RULE", "MEDIUM", "高温胁迫", message, event, heatRule,
+                    heatThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+            result.put("risk", "HEAT_STRESS");
+            result.put("alert", alert);
+            if (!Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
+                result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
+            }
+        }
         return result;
+    }
+
+    private Map<String, Object> upsertRuleAlert(String plotId, String source, String level, String title, String message,
+                                                Map<String, Object> event, Map<String, Object> rule, double threshold,
+                                                Map<String, Object> context, Instant now, String ruleState) {
+        int cooldownMinutes = (int) Math.max(1, Jsons.whole(rule, "cooldownMinutes", 120));
+        Map<String, Object> existing = findLatestMatchingAlert(plotId, source);
+        String status = existing == null ? "" : Jsons.text(existing, "status", "");
+        if (existing != null && OPEN_ALERT_STATUSES.contains(status)) {
+            return updateExistingAlert(existing, event, now, title, message, level, ruleState, cooldownMinutes, threshold, context, rule);
+        }
+        if (existing != null && TERMINAL_ALERT_STATUSES.contains(status)) {
+            Instant closedAt = Jsons.instant(existing.get("closedAt"), Jsons.instant(existing.get("raisedAt"), Instant.EPOCH));
+            if (Duration.between(closedAt, now).toMinutes() < cooldownMinutes) {
+                Map<String, Object> suppressed = Jsons.copy(mapper, existing);
+                suppressed.put("suppressedByCooldown", true);
+                suppressed.put("cooldownMinutes", cooldownMinutes);
+                return suppressed;
+            }
+        }
+        Map<String, Object> plot = store.find("plot", plotId);
+        Map<String, Object> alert = new LinkedHashMap<>();
+        alert.put("alertId", Jsons.id("alert"));
+        alert.put("farmId", plot == null ? Jsons.text(event, "farmId", "") : Jsons.text(plot, "farmId", ""));
+        alert.put("plotId", plotId);
+        alert.put("level", level);
+        alert.put("source", source);
+        alert.put("status", "ACTIVE");
+        alert.put("evidence", List.of(event));
+        alert.put("title", title);
+        alert.put("message", message);
+        alert.put("ruleState", ruleState);
+        alert.put("durationMinutes", Jsons.whole(rule, "durationMinutes", 5));
+        alert.put("hysteresis", Jsons.number(rule, "hysteresis", 2));
+        alert.put("cooldownMinutes", cooldownMinutes);
+        alert.put("threshold", threshold);
+        alert.put("stageCode", context.get("stageCode"));
+        alert.put("cropPackVersion", context.get("cropPackVersion"));
+        alert.put("ruleVersion", context.get("ruleVersion"));
+        alert.put("occurrenceCount", 1);
+        alert.put("createdAt", now.toString());
+        alert.put("raisedAt", now.toString());
+        alert.put("lastObservedAt", now.toString());
+        alert.put("updatedAt", now.toString());
+        store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+        events.publish("alert.created", alert);
+        store.logEvent("alert.created", alert);
+        Map<String, Object> created = Jsons.copy(mapper, alert);
+        created.put("reused", false);
+        return created;
+    }
+
+    private Map<String, Object> updateExistingAlert(Map<String, Object> alert, Map<String, Object> event, Instant now,
+                                                    String title, String message, String level, String ruleState,
+                                                    int cooldownMinutes, double threshold, Map<String, Object> context,
+                                                    Map<String, Object> rule) {
+        List<Map<String, Object>> evidence = new ArrayList<>(Jsons.maps(mapper, alert.get("evidence")));
+        evidence.add(event);
+        if (evidence.size() > 8) evidence = new ArrayList<>(evidence.subList(evidence.size() - 8, evidence.size()));
+        alert.put("evidence", evidence);
+        alert.put("title", title);
+        alert.put("message", message);
+        alert.put("level", level);
+        alert.put("ruleState", ruleState);
+        alert.put("status", Jsons.text(alert, "status", "ACTIVE"));
+        alert.put("durationMinutes", Jsons.whole(rule, "durationMinutes", Jsons.whole(alert, "durationMinutes", 5)));
+        alert.put("hysteresis", Jsons.number(rule, "hysteresis", Jsons.number(alert, "hysteresis", 2)));
+        alert.put("cooldownMinutes", cooldownMinutes);
+        alert.put("threshold", threshold);
+        alert.put("stageCode", context.get("stageCode"));
+        alert.put("cropPackVersion", context.get("cropPackVersion"));
+        alert.put("ruleVersion", context.get("ruleVersion"));
+        alert.put("occurrenceCount", Jsons.whole(alert, "occurrenceCount", 1) + 1);
+        alert.put("lastObservedAt", now.toString());
+        alert.put("updatedAt", now.toString());
+        String alertId = Jsons.text(alert, "alertId", "");
+        store.save("alert", alertId, alert);
+        events.publish("alert.updated", alert);
+        store.logEvent("alert.updated", alert);
+        Map<String, Object> reused = Jsons.copy(mapper, alert);
+        reused.put("reused", true);
+        return reused;
+    }
+
+    private Map<String, Object> findLatestMatchingAlert(String plotId, String source) {
+        return store.list("alert").stream()
+                .filter(alert -> plotId.equals(Jsons.text(alert, "plotId", "")))
+                .filter(alert -> source.equals(Jsons.text(alert, "source", "")))
+                .max(Comparator.comparing(alert -> Jsons.instant(alert.get("lastObservedAt"),
+                        Jsons.instant(alert.get("raisedAt"), Jsons.instant(alert.get("createdAt"), Instant.EPOCH)))))
+                .map(alert -> Jsons.copy(mapper, alert))
+                .orElse(null);
     }
 
     Map<String, Object> latestMetrics(String plotId) {
@@ -2501,6 +2660,7 @@ class AgriEngine {
         record.put("evidenceSummary", summary);
         record.put("provenance", "USER_PROVIDED");
         record.put("sourceType", "HUMAN_OBSERVATION");
+        record.put("photos", new ArrayList<>());
         long completedFields = List.of(soilSurface, cropCondition, deviceStatus, notes).stream().filter(value -> !value.isBlank()).count();
         record.put("quality", Map.of("status", completedFields == 4 ? "GOOD" : "INCOMPLETE", "completeness", round(completedFields / 4.0)));
 
@@ -2517,6 +2677,108 @@ class AgriEngine {
         events.publish("inspection.created", record);
         store.logEvent("inspection.created", record);
         return record;
+    }
+
+    Map<String, Object> uploadInspectionPhotos(String inspectionId, List<MultipartFile> files, UserPrincipal principal) {
+        Map<String, Object> record = requireInspectionForPhoto(inspectionId, principal);
+        if (!principal.canInspect()) throw new ApiException(HttpStatus.FORBIDDEN, "INSPECTION_FORBIDDEN", "当前角色不能补充巡田照片");
+        List<MultipartFile> uploads = files == null ? List.of() : files.stream().filter(file -> file != null && !file.isEmpty()).toList();
+        if (uploads.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_PHOTO_REQUIRED", "请选择至少一张现场照片");
+        List<Map<String, Object>> photos = new ArrayList<>(Jsons.maps(mapper, record.get("photos")));
+        if (photos.size() + uploads.size() > INSPECTION_PHOTO_MAX_COUNT) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_PHOTO_LIMIT", "每条巡田记录最多保存 " + INSPECTION_PHOTO_MAX_COUNT + " 张照片");
+        }
+        Instant now = Instant.now();
+        Path directory = inspectionPhotoDirectory(inspectionId);
+        try { Files.createDirectories(directory); }
+        catch (IOException error) { throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ATTACHMENT_STORE_UNAVAILABLE", "现场照片存储不可用"); }
+        for (MultipartFile file : uploads) {
+            if (file.getSize() > INSPECTION_PHOTO_MAX_BYTES) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_PHOTO_TOO_LARGE", "单张照片不能超过 2MB");
+            }
+            String contentType = inspectPhotoType(file);
+            String photoId = Jsons.id("photo");
+            String extension = photoExtension(contentType);
+            Path stored = directory.resolve(photoId + extension).normalize();
+            if (!stored.startsWith(directory)) throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_PHOTO_INVALID", "照片路径无效");
+            try { Files.write(stored, file.getBytes()); }
+            catch (IOException error) { throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ATTACHMENT_STORE_UNAVAILABLE", "现场照片保存失败"); }
+            Map<String, Object> photo = new LinkedHashMap<>();
+            photo.put("photoId", photoId);
+            photo.put("fileName", sanitizePhotoName(file.getOriginalFilename(), photoId + extension));
+            photo.put("contentType", contentType);
+            photo.put("sizeBytes", file.getSize());
+            photo.put("provenance", "USER_PROVIDED");
+            photo.put("sourceType", "HUMAN_OBSERVATION");
+            photo.put("uploadedAt", now.toString());
+            photo.put("uploadedBy", principal.userId);
+            photos.add(photo);
+        }
+        record.put("photos", photos);
+        record.put("updatedAt", now.toString());
+        record.put("revision", Jsons.whole(record, "revision", 1) + 1);
+        store.save("inspection", inspectionId, record);
+        events.publish("inspection.photos.updated", record);
+        store.logEvent("inspection.photos.updated", Map.of("inspectionId", inspectionId, "photoCount", photos.size(), "uploadedBy", principal.userId));
+        return record;
+    }
+
+    Map<String, Object> inspectionPhoto(String inspectionId, String photoId, UserPrincipal principal) {
+        Map<String, Object> record = requireInspectionForPhoto(inspectionId, principal);
+        Map<String, Object> photo = Jsons.maps(mapper, record.get("photos")).stream()
+                .filter(item -> photoId.equals(Jsons.text(item, "photoId", "")))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "INSPECTION_PHOTO_NOT_FOUND", "现场照片不存在"));
+        Path stored = inspectionPhotoDirectory(inspectionId).resolve(photoId + photoExtension(Jsons.text(photo, "contentType", "image/jpeg"))).normalize();
+        if (!Files.isRegularFile(stored)) throw new ApiException(HttpStatus.NOT_FOUND, "INSPECTION_PHOTO_NOT_FOUND", "现场照片文件不存在");
+        try {
+            Map<String, Object> result = new LinkedHashMap<>(photo);
+            result.put("bytes", Files.readAllBytes(stored));
+            return result;
+        } catch (IOException error) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ATTACHMENT_STORE_UNAVAILABLE", "现场照片读取失败");
+        }
+    }
+
+    private Map<String, Object> requireInspectionForPhoto(String inspectionId, UserPrincipal principal) {
+        Map<String, Object> record = requireRecord("inspection", inspectionId);
+        ensurePlotAccess(principal, Jsons.text(record, "plotId", ""));
+        return record;
+    }
+
+    private Path inspectionPhotoDirectory(String inspectionId) {
+        String configured = properties.getAttachmentDir();
+        Path root = Path.of(configured == null || configured.isBlank() ? "data/attachments" : configured).toAbsolutePath().normalize();
+        return root.resolve("inspections").resolve(inspectionId);
+    }
+
+    private String inspectPhotoType(MultipartFile file) {
+        String contentType = String.valueOf(file.getContentType() == null ? "" : file.getContentType()).trim().toLowerCase(Locale.ROOT);
+        String name = String.valueOf(file.getOriginalFilename() == null ? "" : file.getOriginalFilename()).toLowerCase(Locale.ROOT);
+        if (contentType.isBlank() || "application/octet-stream".equals(contentType)) {
+            if (name.endsWith(".png")) contentType = "image/png";
+            else if (name.endsWith(".webp")) contentType = "image/webp";
+            else if (name.endsWith(".jpg") || name.endsWith(".jpeg")) contentType = "image/jpeg";
+        }
+        if ("image/jpg".equals(contentType)) contentType = "image/jpeg";
+        if (!INSPECTION_PHOTO_TYPES.contains(contentType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INSPECTION_PHOTO_TYPE_INVALID", "仅支持 JPEG、PNG 或 WebP 现场照片");
+        }
+        return contentType;
+    }
+
+    private String photoExtension(String contentType) {
+        return switch (contentType) {
+            case "image/png" -> ".png";
+            case "image/webp" -> ".webp";
+            default -> ".jpg";
+        };
+    }
+
+    private String sanitizePhotoName(String original, String fallback) {
+        String name = String.valueOf(original == null ? "" : original).replace("\\", "/");
+        name = name.substring(name.lastIndexOf('/') + 1).replaceAll("[^A-Za-z0-9._-]", "_");
+        return name.isBlank() ? fallback : name.substring(0, Math.min(name.length(), 80));
     }
 
     private String validatedInspectionReference(Map<String, Object> input, String field, String type, String plotId) {
@@ -2768,6 +3030,113 @@ class AgriEngine {
                 })
                 .sorted(Comparator.comparing(member -> Jsons.text(member, "username", "")))
                 .toList();
+    }
+
+    Map<String, Object> createFarmMember(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmMemberAdmin(principal);
+        String farmId = Jsons.text(input, "farmId", "").trim();
+        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
+        if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        if (store.find("farm", farmId) == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在");
+        if (input.containsKey("role") && !"FARMER".equalsIgnoreCase(Jsons.text(input, "role", "FARMER"))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "这里只能创建种植农户账号");
+        }
+        String username = normalizeUsername(Jsons.text(input, "username", ""));
+        validateUsername(username);
+        String password = Jsons.text(input, "password", "");
+        validatePassword(username, password);
+        List<String> requestedPlots = Jsons.strings(input.get("plotIds"));
+        LinkedHashSet<String> plotIds = new LinkedHashSet<>();
+        for (String plotId : requestedPlots) {
+            Map<String, Object> plot = requireRecord("plot", plotId);
+            if (!farmId.equals(Jsons.text(plot, "farmId", "")) || !canAccessPlot(principal, plotId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_SCOPE_FORBIDDEN", "只能授予当前农场内可管理的地块");
+            }
+            plotIds.add(plotId);
+        }
+        String recoveryCode = generateRecoveryCode();
+        String displayName = Jsons.text(input, "displayName", username).trim();
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("userId", Jsons.id("user"));
+        user.put("username", username);
+        user.put("displayName", displayName.isBlank() ? username : displayName);
+        user.put("passwordHash", passwordEncoder.encode(password));
+        user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
+        user.put("role", "FARMER");
+        user.put("farmIds", List.of(farmId));
+        user.put("plotIds", new ArrayList<>(plotIds));
+        user.put("enabled", true);
+        user.put("credentialVersion", 1);
+        if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        store.logEvent("FARM_MEMBER_CREATED", Map.of("userId", user.get("userId"), "username", username,
+                "farmId", farmId, "createdBy", principal.userId));
+        events.publish("member.created", Map.of("userId", user.get("userId"), "username", username, "farmId", farmId));
+        Map<String, Object> result = farmMemberView(user, farmId);
+        result.put("recoveryCode", recoveryCode);
+        result.put("recoveryCodeShownOnce", true);
+        result.put("createdAt", Instant.now().toString());
+        result.put("createdBy", principal.userId);
+        return result;
+    }
+
+    Map<String, Object> updateFarmMemberStatus(String userId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmMemberAdmin(principal);
+        String farmId = Jsons.text(input, "farmId", "").trim();
+        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
+        if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        Map<String, Object> member = store.userById(userId);
+        if (member == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "农场成员不存在");
+        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "这里只能启用或停用种植农户");
+        }
+        List<String> memberFarms = Jsons.strings(member.get("farmIds"));
+        if (!memberFarms.contains(farmId) && !memberFarms.contains("*")) {
+            throw new ApiException(HttpStatus.CONFLICT, "MEMBER_NOT_IN_FARM", "该成员不属于当前农场");
+        }
+        if (principal.userId.equals(userId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_SELF_STATUS_FORBIDDEN", "不能停用或启用自己的账号");
+        }
+        Boolean explicit = input.get("enabled") instanceof Boolean b ? b : null;
+        String status = Jsons.text(input, "status", "").trim().toUpperCase(Locale.ROOT);
+        boolean enabled;
+        if (explicit != null) enabled = explicit;
+        else if ("ACTIVE".equals(status) || "ENABLED".equals(status)) enabled = true;
+        else if ("INACTIVE".equals(status) || "DISABLED".equals(status)) enabled = false;
+        else throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_STATUS_INVALID", "请指定启用或停用");
+        boolean currentlyEnabled = Jsons.bool(member, "enabled", true);
+        Map<String, Object> updated = currentlyEnabled == enabled ? member
+                : store.updateUserEnabled(userId, enabled, !enabled);
+        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_STATUS_UPDATE_FAILED", "成员状态更新失败");
+        store.logEvent(enabled ? "FARM_MEMBER_ENABLED" : "FARM_MEMBER_DISABLED",
+                Map.of("userId", userId, "farmId", farmId, "updatedBy", principal.userId));
+        events.publish(enabled ? "member.enabled" : "member.disabled", Map.of("userId", userId, "farmId", farmId));
+        Map<String, Object> result = farmMemberView(updated, farmId);
+        result.put("updatedAt", Instant.now().toString());
+        result.put("updatedBy", principal.userId);
+        return result;
+    }
+
+    private void requireFarmMemberAdmin(UserPrincipal principal) {
+        if (!principal.isFarmAdmin() && !principal.isSystemAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_MEMBERS_FORBIDDEN", "当前身份不能管理农场成员");
+        }
+    }
+
+    private Map<String, Object> farmMemberView(Map<String, Object> user, String farmId) {
+        Map<String, Object> member = new LinkedHashMap<>();
+        String role = RolePolicy.canonical(Jsons.text(user, "role", "FARMER"));
+        member.put("userId", Jsons.text(user, "userId", ""));
+        member.put("username", Jsons.text(user, "username", ""));
+        member.put("displayName", Jsons.text(user, "displayName", Jsons.text(user, "username", "未命名成员")));
+        member.put("role", role);
+        member.put("roleLabel", RolePolicy.label(role));
+        member.put("farmIds", List.of(farmId));
+        List<String> assignedPlotIds = Jsons.strings(user.get("plotIds"));
+        member.put("plotIds", assignedPlotIds.contains("*") ? List.of("*") : assignedPlotIds.stream()
+                .filter(plotId -> farmId.equals(farmIdForPlot(plotId)))
+                .toList());
+        member.put("status", Jsons.bool(user, "enabled", true) ? "ACTIVE" : "INACTIVE");
+        return member;
     }
 
     private Map<String, Object> scopedWorkOrder(String workOrderId, UserPrincipal principal) {
@@ -3792,6 +4161,12 @@ class AgriController {
                 Jsons.text(body, "newPassword", "")));
     }
 
+    @PostMapping("/auth/change-password")
+    ResponseEntity<?> changePassword(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.changePassword(Jsons.text(body, "currentPassword", Jsons.text(body, "oldPassword", "")),
+                Jsons.text(body, "newPassword", ""), principal(a)));
+    }
+
     @GetMapping("/auth/me")
     ResponseEntity<?> me(Authentication authentication) {
         UserPrincipal p = principal(authentication);
@@ -4058,6 +4433,24 @@ class AgriController {
     @PostMapping("/inspections")
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
 
+    @PostMapping(value = "/inspections/{inspectionId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    ResponseEntity<?> inspectionPhotos(@PathVariable String inspectionId,
+                                       @RequestParam("files") List<MultipartFile> files, Authentication a) {
+        return ok(engine.uploadInspectionPhotos(inspectionId, files, principal(a)));
+    }
+
+    @GetMapping("/inspections/{inspectionId}/photos/{photoId}")
+    ResponseEntity<byte[]> inspectionPhoto(@PathVariable String inspectionId, @PathVariable String photoId, Authentication a) {
+        Map<String, Object> photo = engine.inspectionPhoto(inspectionId, photoId, principal(a));
+        byte[] bytes = (byte[]) photo.get("bytes");
+        String fileName = Jsons.text(photo, "fileName", photoId + ".jpg");
+        String contentType = Jsons.text(photo, "contentType", MediaType.IMAGE_JPEG_VALUE);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + fileName.replace("\"", "") + "\"")
+                .body(bytes);
+    }
+
     @GetMapping("/plots/{plotId}/inspections")
     ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.inspections(plotId)); }
 
@@ -4146,6 +4539,16 @@ class AgriController {
 
     @GetMapping("/farm-members")
     ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
+
+    @PostMapping("/farm-members")
+    ResponseEntity<?> createFarmMember(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(engine.createFarmMember(body, principal(a))));
+    }
+
+    @PatchMapping("/farm-members/{userId}/status")
+    ResponseEntity<?> updateFarmMemberStatus(@PathVariable String userId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.updateFarmMemberStatus(userId, body, principal(a)));
+    }
 
     @PatchMapping("/farm-members/{userId}/scope")
     ResponseEntity<?> updateFarmMemberScope(@PathVariable String userId, @RequestBody Map<String, Object> body, Authentication a) {

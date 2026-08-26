@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.3.0
+  version: 1.3.1
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and approval.
@@ -54,6 +54,17 @@ paths:
         '400': {description: 请求字段或新密码不符合要求}
         '401': {description: 账号或恢复码无效}
         '429': {description: 15 分钟内失败次数过多}
+  /api/v1/auth/change-password:
+    post:
+      tags: [auth]
+      description: 已登录账号校验当前密码后改密；成功后轮换 credentialVersion，使旧 JWT 失效，并返回新令牌。
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/ChangePasswordRequest'}}}
+      responses:
+        '200': {description: 密码已更新，返回新的 JWT 会话}
+        '400': {description: 新密码不符合强度要求或与当前密码相同}
+        '401': {description: 未登录或当前密码不正确}
   /api/v1/auth/me:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
@@ -159,6 +170,32 @@ paths:
     post: {tags: [decision], parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 补证工单}}}
   /api/v1/inspections:
     post: {tags: [decision], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}, responses: {'200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}}}
+  /api/v1/inspections/{inspectionId}/photos:
+    post:
+      tags: [decision]
+      description: 为已保存的巡田记录追加现场照片。文件落本地附件目录，元数据标记 provenance=USER_PROVIDED，不覆盖遥测。
+      parameters: [{name: inspectionId, in: path, required: true, schema: {type: string}}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files: {type: array, items: {type: string, format: binary}, maxItems: 6}
+      responses:
+        '200': {description: 含 photos[] 的巡田记录}
+        '400': {description: 类型、大小或数量不符合要求}
+  /api/v1/inspections/{inspectionId}/photos/{photoId}:
+    get:
+      tags: [decision]
+      parameters:
+        - {name: inspectionId, in: path, required: true, schema: {type: string}}
+        - {name: photoId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 现场照片二进制; content: {image/jpeg: {}, image/png: {}, image/webp: {}}}
+        '404': {description: 照片不存在}
   /api/v1/plots/{plotId}/inspections:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
   /api/v1/irrigation/estimate:
@@ -208,6 +245,23 @@ paths:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:
     get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场正式成员；只返回 FARMER/FARM_ADMIN 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
+    post:
+      tags: [management]
+      description: 农场管理员或系统管理员在当前农场创建种植农户，返回一次性恢复码
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '201': {description: 农户已创建}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 账号已存在}
+  /api/v1/farm-members/{userId}/status:
+    patch:
+      tags: [management]
+      description: 启用或停用当前农场的种植农户；停用后立即拒绝旧 JWT
+      parameters: [{name: userId, in: path, required: true, schema: {type: string}}]
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: 更新后的成员视图}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
   /api/v1/alerts:
@@ -290,6 +344,12 @@ components:
       properties:
         username: {type: string, minLength: 4, maxLength: 32}
         recoveryCode: {type: string, example: ABCD-EFGH-JKLM-NPQR}
+        newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: {type: string, format: password}
         newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
     TelemetryEvent:
       type: object
@@ -375,4 +435,15 @@ components:
             evidenceSummary: {type: string}
             provenance: {type: string, enum: [USER_PROVIDED]}
             sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
+            photos:
+              type: array
+              items:
+                type: object
+                properties:
+                  photoId: {type: string}
+                  fileName: {type: string}
+                  contentType: {type: string}
+                  sizeBytes: {type: integer}
+                  provenance: {type: string, enum: [USER_PROVIDED]}
+                  sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
             quality: {type: object, properties: {status: {type: string, enum: [GOOD, INCOMPLETE]}, completeness: {type: number, minimum: 0, maximum: 1}}}

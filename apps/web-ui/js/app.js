@@ -2151,14 +2151,14 @@ const app = createApp({
       passwordError.value = '';
     };
 
-    const changePassword = () => {
+    const changePassword = async () => {
       passwordError.value = '';
       if (!passwordForm.value.current) {
         passwordError.value = '请输入当前密码';
         return;
       }
-      if (passwordForm.value.next.length < 6) {
-        passwordError.value = '新密码至少需要 6 位';
+      if (passwordForm.value.next.length < 8) {
+        passwordError.value = '新密码至少需要 8 位，并同时包含字母和数字';
         return;
       }
       if (passwordForm.value.next !== passwordForm.value.confirm) {
@@ -2166,11 +2166,17 @@ const app = createApp({
         return;
       }
       if (state.value.sessionMode === 'live') {
-        passwordError.value = '正式账号暂未开放在线改密，请退出后在登录页使用恢复码重设密码';
+        try {
+          await api.changePassword({ currentPassword: passwordForm.value.current, newPassword: passwordForm.value.next });
+          closeAccountModal();
+          showToast('密码已更新，当前登录仍然有效，旧令牌已失效');
+        } catch (error) {
+          passwordError.value = error.message || '密码修改失败';
+        }
         return;
       }
       closeAccountModal();
-      showToast('演示密码修改成功，接入账号服务后将正式生效');
+      showToast('演示密码修改成功');
     };
 
     const forgotPassword = () => {

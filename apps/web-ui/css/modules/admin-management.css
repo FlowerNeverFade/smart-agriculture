@@ -360,6 +360,10 @@
 }
 .admin-status-pill { padding: 4px 7px; border: 1px solid var(--g-border); border-radius: 999px; font-size: 11px; text-align: center; }
 .admin-status-pill.active { color: #1b6540; border-color: #b9d7c5; }
+.admin-status-pill.inactive, .admin-status-pill.disabled { color: #8a3b32; border-color: #e2b4ae; background: #fff6f4; }
+.admin-member-create { display: grid; gap: 10px; margin: 0 0 16px; padding: 14px; border: 1px dashed var(--g-border); border-radius: 8px; }
+.admin-member-create-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.admin-member-create code { font-family: var(--g-mono); }
 
 .admin-permission-table article { padding: 13px; border: 1px solid var(--g-border); border-radius: 8px; }
 .admin-permission-table header > div { display: grid; gap: 2px; }

@@ -673,7 +673,8 @@ const app = createApp({
       soil_surface: 'NORMAL',
       crop_condition: 'HEALTHY',
       moisture: plots.value[0]?.metrics?.SOIL_MOISTURE?.value ?? '',
-      notes: ''
+      notes: '',
+      photos: []
     });
     const evidence_form = ref({
       plot_id: plots.value[0]?.plotId || '',
@@ -1166,12 +1167,17 @@ const app = createApp({
         soil_surface: 'NORMAL',
         crop_condition: 'HEALTHY',
         moisture: find_plot_by_id(plots.value, plot_id)?.metrics?.SOIL_MOISTURE?.value ?? '',
-        notes: ''
+        notes: '',
+        photos: []
       };
       show_inspection_form.value = true;
     };
 
     const close_inspection_form = () => { show_inspection_form.value = false; };
+
+    const on_inspection_photos = (event) => {
+      inspection_form.value.photos = Array.from(event.target.files || []).slice(0, 6);
+    };
 
     const submit_inspection = async () => {
       const plot = find_plot_by_id(plots.value, inspection_form.value.plot_id);
@@ -1196,7 +1202,7 @@ const app = createApp({
             cropCondition: inspection_form.value.crop_condition,
             portableSoilMoisture: portable_moisture,
             notes: inspection_form.value.notes.trim()
-          });
+          }, inspection_form.value.photos);
           close_inspection_form();
           await load_live_workspace({ announce: false });
           show_toast('巡田记录已保存，管理员和诊断模块可读取');
@@ -1205,22 +1211,23 @@ const app = createApp({
         }
         return;
       }
-      inspection_records.value.unshift({
-        inspectionId: `ins-${Date.now()}`,
-        plotId: plot.plotId,
-        plotName: plot.name,
-        operatorId: user.value.userId || 'user-farmer',
-        observedAt: new Date().toISOString(),
-        soilSurface: inspection_form.value.soil_surface,
-        cropCondition: inspection_form.value.crop_condition,
-        portableSoilMoisture: inspection_form.value.moisture,
-        notes: inspection_form.value.notes,
-        provenance: 'USER_PROVIDED',
-        sourceType: 'HUMAN_OBSERVATION',
-        quality: { status: 'GOOD', completeness: 1.0 }
-      });
-      close_inspection_form();
-      show_toast('演示巡田记录已保存');
+      try {
+        const saved = await api.createInspection({
+          farmId: farm.value.farmId || 'farm-demo',
+          plotId: plot.plotId,
+          workOrderId: inspection_form.value.work_order_id || undefined,
+          observedAt: new Date().toISOString(),
+          soilSurface: inspection_form.value.soil_surface,
+          cropCondition: inspection_form.value.crop_condition,
+          portableSoilMoisture: portable_moisture,
+          notes: inspection_form.value.notes.trim()
+        }, inspection_form.value.photos);
+        inspection_records.value.unshift({ ...saved, plotName: plot.name });
+        close_inspection_form();
+        show_toast('演示巡田记录已保存');
+      } catch (error) {
+        show_toast(error.message || '巡田记录保存失败', 'error');
+      }
     };
 
     const open_evidence_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId) => {
@@ -1281,18 +1288,32 @@ const app = createApp({
 
     const close_account_modal = () => { show_account_modal.value = false; };
 
-    const change_password = () => {
+    const change_password = async () => {
       password_error.value = '';
-      if (password_form.value.next.length < 6) {
-        password_error.value = '新密码至少需要 6 位';
+      if (!password_form.value.current) {
+        password_error.value = '请输入当前密码';
+        return;
+      }
+      if (password_form.value.next.length < 8) {
+        password_error.value = '新密码至少需要 8 位，并同时包含字母和数字';
         return;
       }
       if (password_form.value.next !== password_form.value.confirm) {
         password_error.value = '两次输入的新密码不一致';
         return;
       }
+      if (is_formal_session) {
+        try {
+          await api.changePassword({ currentPassword: password_form.value.current, newPassword: password_form.value.next });
+          close_account_modal();
+          show_toast('密码已更新，当前登录仍然有效，旧令牌已失效');
+        } catch (error) {
+          password_error.value = error.message || '密码修改失败';
+        }
+        return;
+      }
       close_account_modal();
-      show_toast(is_formal_session ? '当前账号服务暂未开放密码修改接口，请使用登录页的找回密码' : '演示密码修改成功');
+      show_toast('演示密码修改成功');
     };
 
     const forgot_password = () => {
@@ -1495,6 +1516,7 @@ const app = createApp({
       ask_question,
       open_inspection_form,
       close_inspection_form,
+      on_inspection_photos,
       submit_inspection,
       open_evidence_form,
       close_evidence_form,
