@@ -76,3 +76,13 @@ test('demo device binding and farmer membership mutations remain visible on rere
   await service.deleteFarmMember(member.userId, { farmId: 'farm-demo' });
   assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), false);
 });
+
+test('escalated demo alerts can return to acknowledged through the frozen ack contract', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+
+  const escalated = await service.escalateAlert('alert-contract-1');
+  assert.equal(escalated.status, 'ESCALATED');
+  const downgraded = await service.ackAlert('alert-contract-1');
+  assert.equal(downgraded.status, 'ACKED');
+});

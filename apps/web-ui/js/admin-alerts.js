@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { adminMetricLabel, alertAcknowledgementAction } from './admin-state.js';
 
 const { ref, computed, inject } = Vue;
 
@@ -41,15 +42,19 @@ export const AdminAlertCenter = {
     const plotName = plotId => props.state.plots.find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
     const statusLabel = status => STATUS_LABELS[normalized(status)] || '状态未知';
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
+    const sourceLabel = source => adminMetricLabel(source, source || '系统规则');
     const existingTask = alert => props.state.workOrders.find(order => order.sourceType === 'ALERT' && order.sourceRef === alert.alertId);
+    const acknowledgementAction = alert => alertAcknowledgementAction(alert?.status);
 
     const act = async (alert, action) => {
       busyKey.value = `${alert.alertId}:${action}`;
       try {
         const handler = { ack: api.ackAlert.bind(api), escalate: api.escalateAlert.bind(api), close: api.closeAlert.bind(api) }[action];
+        if (!handler) throw new Error('不支持的告警操作');
+        const acknowledgement = action === 'ack' ? acknowledgementAction(alert) : null;
         const saved = await handler(alert.alertId);
         replaceById(props.state.alerts, 'alertId', saved);
-        toast(action === 'ack' ? '已确认收到，告警继续保留，方便后续处理' : action === 'escalate' ? '告警已升级，请优先安排处理' : '告警已关闭');
+        toast(acknowledgement?.successMessage || (action === 'escalate' ? '告警已升级，请优先安排处理' : '告警已关闭'));
       } catch (error) {
         toast(error.message || '告警处理失败', 'error');
       } finally {
@@ -88,8 +93,8 @@ export const AdminAlertCenter = {
     };
 
     return {
-      filter, busyKey, visibleAlerts, openCount, closedCount, isClosed, plotName, statusLabel, levelLabel,
-      existingTask, readableTime, normalized, act, convertToTask, showDiagnosis: () => emit('show-diagnosis')
+      filter, busyKey, visibleAlerts, openCount, closedCount, isClosed, plotName, statusLabel, levelLabel, sourceLabel,
+      existingTask, acknowledgementAction, readableTime, normalized, act, convertToTask, showDiagnosis: () => emit('show-diagnosis')
     };
   },
   template: `
@@ -120,11 +125,11 @@ export const AdminAlertCenter = {
             </div>
             <p class="admin-alert-meta">{{ plotName(alert.plotId) }} · {{ readableTime(alert.raisedAt || alert.createdAt) }}</p>
             <p class="admin-alert-message">{{ alert.message || '该地块存在需要人工确认的问题。' }}</p>
-            <p class="admin-alert-source">来源：{{ alert.source || '系统规则' }}</p>
+            <p class="admin-alert-source">来源：{{ sourceLabel(alert.source) }}</p>
           </div>
 
           <div class="admin-alert-actions" v-if="!isClosed(alert)">
-            <button class="g-btn g-btn-outline" type="button" v-if="normalized(alert.status) === 'ACTIVE'" :disabled="busyKey !== ''" @click="act(alert, 'ack')">确认收到</button>
+            <button class="g-btn g-btn-outline" type="button" v-if="acknowledgementAction(alert)" :disabled="busyKey !== ''" @click="act(alert, 'ack')">{{ acknowledgementAction(alert).label }}</button>
             <button class="g-btn g-btn-outline" type="button" v-if="normalized(alert.status) !== 'ESCALATED'" :disabled="busyKey !== ''" @click="act(alert, 'escalate')">升级处理</button>
             <button class="g-btn g-btn-tonal" type="button" :disabled="busyKey !== ''" @click="convertToTask(alert)">{{ existingTask(alert) ? '查看关联任务' : '转成任务' }}</button>
             <button class="g-btn g-btn-ghost" type="button" :disabled="busyKey !== ''" @click="act(alert, 'close')">关闭告警</button>

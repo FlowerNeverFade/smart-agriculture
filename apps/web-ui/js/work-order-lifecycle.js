@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
 import { roleCan } from './roles.js';
 
 const { ref, computed, watch, inject, nextTick } = Vue;
@@ -192,6 +192,10 @@ export const WorkOrderLifecycleView = {
     }[scopeFilter.value] || ''));
     const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', farmId: currentFarmId.value });
     const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
+    const applySummaryScope = (scope) => {
+      const target = managerSummaryTarget(scope, currentFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
@@ -470,7 +474,7 @@ export const WorkOrderLifecycleView = {
       showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
-      clearSummaryScope, applyStatusFilter,
+      clearSummaryScope, applyStatusFilter, applySummaryScope,
       loadInspections, openInspection, submitInspection
     };
   },
@@ -493,7 +497,7 @@ export const WorkOrderLifecycleView = {
         <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
         <button type="button" @click="applyStatusFilter('ACTIVE')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" class="summary-danger" @click="applyStatusFilter('ACTIVE')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+        <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
       </div>
 
       <div v-if="scopeFilter" class="work-route-filter" role="status">
