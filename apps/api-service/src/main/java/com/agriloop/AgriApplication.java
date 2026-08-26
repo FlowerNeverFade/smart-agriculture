@@ -970,6 +970,7 @@ final class UserPrincipal {
     boolean canControl() { return RolePolicy.canControl(role); }
     boolean canInspect() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
     boolean canRequestIrrigation() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
+    boolean isFarmer() { return "FARMER".equals(role); }
     boolean isFarmAdmin() { return "FARM_ADMIN".equals(role); }
     boolean isSystemAdmin() { return "SYSTEM_ADMIN".equals(role); }
     boolean isAdmin() { return RolePolicy.isAdmin(role); }
@@ -3740,7 +3741,8 @@ class AgriEngine {
     }
 
     Map<String, Object> resourcePlan(Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "只有农场管理员可以安排农场资源");
+        boolean farmerPreview = principal.isFarmer();
+        if (!principal.isFarmAdmin() && !farmerPreview) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "当前身份不能试算或安排农场资源");
         String farmId = Jsons.text(input, "farmId", Jsons.text(input, "scope", "")).trim();
         if (farmId.isBlank()) farmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
         if (farmId.isBlank() || !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权安排该农场的水资源");
@@ -3764,7 +3766,15 @@ class AgriEngine {
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("resourcePlanId", Jsons.id("rp")); plan.put("status", unmet.isEmpty() ? "FEASIBLE" : "INFEASIBLE");
         plan.put("farmId", selectedFarmId); plan.put("scope", selectedFarmId); plan.put("window", Map.of("from", Instant.now().toString(), "to", Instant.now().plus(6, ChronoUnit.HOURS).toString()));
         plan.put("constraints", Map.of("waterCapacityLitres", capacity)); plan.put("allocations", allocations); plan.put("conflicts", conflicts); plan.put("unmetDemands", unmet); plan.put("algorithmVersion", "capacity-priority-v1");
-        store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.created", plan); return plan;
+        plan.put("trialOnly", farmerPreview); plan.put("readOnly", farmerPreview); plan.put("provenance", "DERIVED"); plan.put("sourceMode", "ESTIMATED");
+        // Farmers may inspect a capacity-constrained preview for their own
+        // plots, but a preview must never create a schedulable resource plan
+        // or publish an event that looks like an administrator decision.
+        if (!farmerPreview) {
+            store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan);
+            events.publish("resource.plan.created", plan);
+        }
+        return plan;
     }
 
     Map<String, Object> valueLedger(Map<String, Object> input, UserPrincipal principal) {

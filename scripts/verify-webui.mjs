@@ -53,7 +53,7 @@ ok('参数预览与保存控件存在', indexHtml.includes('simulationFields') &
 ok('历史/预测重置按钮存在', indexHtml.includes('重置历史曲线') && indexHtml.includes('重置预测曲线') && apiSource.includes('resetPlotSimulation'));
 ok('地块详情支持八类曲线并与历史锚点连续', indexHtml.includes('simulationMetricOptions') && appSource.includes('alignForecastToHistory') && appSource.includes('forecastStart + item.minute * 60000'));
 ok('三类曲线支持局部浮窗', appSource.includes("trigger: 'axis'") && farmerHtml.includes('show_chart_tooltip') && farmerStyle.includes('.farmer-chart-tooltip'));
-ok('正式会话具备实时刷新与事件流重连', appSource.includes('LIVE_FARM_REFRESH_DOMAINS') && appSource.includes('setInterval(runLivePoll') && farmerSource.includes('setInterval(poll_live_telemetry, 5000)') && apiSource.includes('system event stream reconnect failed'));
+ok('正式会话具备实时刷新与事件流重连', appSource.includes('LIVE_FARM_REFRESH_DOMAINS') && appSource.includes('setInterval(runLivePoll') && farmerSource.includes('setInterval(poll_live_telemetry, 5000)') && farmerSource.includes('if (refreshed) await load_farmer_enhancements()') && apiSource.includes('system event stream reconnect failed'));
 ok('硬件 REAL 状态优先', liveDataSource.includes('hardwareBound') && appSource.includes('hardwareLabel'));
 ok('系统管理员总览指标循环作用域安全', !indexHtml.includes('v-for="metric in telemetryMetrics" v-if='));
 ok('无冲突标记', ![indexHtml, appSource, apiSource, farmerHtml, farmerSource].some((source) => /^(?:<<<<<<<|=======|>>>>>>>)(?: |$)/m.test(source)));
