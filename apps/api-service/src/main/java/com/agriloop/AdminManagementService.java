@@ -2,6 +2,7 @@ package com.agriloop;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,14 +37,16 @@ class AdminManagementService {
     private final AgriEventBus events;
     private final CropPackCatalog cropPacks;
     private final ObjectMapper mapper;
+    private final PasswordEncoder passwordEncoder;
 
     AdminManagementService(AgriStore store, AgriEngine engine, AgriEventBus events,
-                           CropPackCatalog cropPacks, ObjectMapper mapper) {
+                           CropPackCatalog cropPacks, ObjectMapper mapper, PasswordEncoder passwordEncoder) {
         this.store = store;
         this.engine = engine;
         this.events = events;
         this.cropPacks = cropPacks;
         this.mapper = mapper;
+        this.passwordEncoder = passwordEncoder;
     }
 
     List<Map<String, Object>> devices(String farmId, UserPrincipal principal) {
@@ -217,6 +220,67 @@ class AdminManagementService {
         result.put("updatedAt", Instant.now().toString());
         result.put("updatedBy", principal.userId);
         publish("member.scope.updated", result);
+        return result;
+    }
+
+    Map<String, Object> createFarmMember(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        String farmId = requiredText(input, "farmId", "请选择农场");
+        requireManagedFarm(farmId, principal);
+        String username = requiredText(input, "username", "请填写成员账号").toLowerCase(Locale.ROOT);
+        if (!username.matches("^[a-z0-9][a-z0-9._-]{3,31}$")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_USERNAME_INVALID", "账号需为 4～32 位字母、数字、点、下划线或短横线");
+        }
+        String password = requiredText(input, "password", "请设置成员初始密码");
+        if (password.length() < 8 || password.length() > 64 || !password.matches(".*[A-Za-z].*") || !password.matches(".*\\d.*")
+                || password.toLowerCase(Locale.ROOT).contains(username)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_PASSWORD_WEAK", "初始密码需为 8～64 位并包含字母和数字，且不能包含账号");
+        }
+        List<String> plotIds = validateMemberPlots(farmId, input.get("plotIds"), principal);
+        Map<String, Object> member = new LinkedHashMap<>();
+        member.put("userId", Jsons.id("user"));
+        member.put("username", username);
+        member.put("passwordHash", passwordEncoder.encode(password));
+        member.put("role", "FARMER");
+        member.put("farmIds", List.of(farmId));
+        member.put("plotIds", plotIds);
+        member.put("enabled", true);
+        member.put("credentialVersion", 1);
+        if (!store.createUser(member)) {
+            throw new ApiException(HttpStatus.CONFLICT, "MEMBER_EXISTS", "该成员账号已存在");
+        }
+        Map<String, Object> result = memberView(member, farmId);
+        result.put("createdAt", Instant.now().toString());
+        result.put("createdBy", principal.userId);
+        publish("member.created", result);
+        return result;
+    }
+
+    Map<String, Object> deleteFarmMember(String userId, String farmId, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        requireManagedFarm(farmId, principal);
+        Map<String, Object> member = store.userById(userId);
+        if (member == null || !"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "没有找到可移除的种植农户");
+        }
+        LinkedHashSet<String> farmIds = new LinkedHashSet<>(Jsons.strings(member.get("farmIds")));
+        if (!farmIds.remove(farmId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "该农户不属于当前农场");
+        }
+        List<String> plotIds = Jsons.strings(member.get("plotIds")).stream().filter(plotId -> {
+            Map<String, Object> plot = store.find("plot", plotId);
+            return plot == null || !farmId.equals(Jsons.text(plot, "farmId", ""));
+        }).toList();
+        Map<String, Object> updated = store.updateUserScope(userId, farmIds, plotIds);
+        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FARM_MEMBER_DELETE_FAILED", "成员移除失败");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", userId);
+        result.put("username", Jsons.text(member, "username", userId));
+        result.put("farmId", farmId);
+        result.put("removed", true);
+        result.put("removedAt", Instant.now().toString());
+        result.put("removedBy", principal.userId);
+        publish("member.removed", result);
         return result;
     }
 
@@ -494,6 +558,20 @@ class AdminManagementService {
         }).toList());
         view.put("status", Jsons.bool(member, "enabled", true) ? "ACTIVE" : "DISABLED");
         return view;
+    }
+
+    private List<String> validateMemberPlots(String farmId, Object rawPlotIds, UserPrincipal principal) {
+        LinkedHashSet<String> requested = new LinkedHashSet<>(Jsons.strings(rawPlotIds));
+        for (String plotId : requested) {
+            Map<String, Object> plot = require("plot", plotId, "存在无效地块");
+            if (!farmId.equals(Jsons.text(plot, "farmId", "")) || !engine.canAccessPlot(principal, plotId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_SCOPE_FORBIDDEN", "只能分配当前农场内可管理的地块");
+            }
+            if ("INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE"))) {
+                throw new ApiException(HttpStatus.CONFLICT, "PLOT_INACTIVE", "停用地块不能分配给成员");
+            }
+        }
+        return new ArrayList<>(requested);
     }
 
     private Map<String, Object> managedPlot(String plotId, UserPrincipal principal) {

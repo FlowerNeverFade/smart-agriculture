@@ -383,6 +383,116 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .role-farm-admin .g-nav-item.active { background: var(--g-primary-bg); color: var(--g-primary); }
 .role-farm-admin .g-btn.primary { border-radius: 7px; box-shadow: none; }
 
+/* Farmer-only shared workbench: match farmer.html green rail and light buttons. */
+.role-farmer {
+  --g-primary: #1e8e3e;
+  --g-primary-hover: #155e2a;
+  --g-primary-bg: #e6f4ea;
+}
+.role-farmer .g-header {
+  border-bottom-color: var(--g-success-bg);
+}
+.role-farmer .g-header-title {
+  color: var(--g-text-primary);
+}
+.role-farmer .g-sidebar {
+  border-right-color: var(--g-success-bg);
+  padding: 12px 10px;
+}
+.role-farmer .g-nav-item,
+.role-farmer .farmer-nav-item {
+  position: relative;
+  height: 46px;
+  border-radius: 12px;
+  gap: 12px;
+  padding: 0 14px 0 16px;
+  margin-bottom: 6px;
+  color: var(--g-text-primary);
+  background: transparent;
+}
+.role-farmer .g-nav-item .material-symbols-outlined {
+  font-size: 22px;
+  color: inherit;
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+.role-farmer .g-nav-item:hover,
+.role-farmer .farmer-nav-item:hover {
+  background-color: var(--g-success-bg);
+  color: var(--g-success);
+}
+.role-farmer .g-nav-item.active,
+.role-farmer .farmer-nav-item.active {
+  background-color: var(--g-success-bg);
+  color: var(--g-success);
+  font-weight: 600;
+}
+.role-farmer .g-nav-item.active::before,
+.role-farmer .farmer-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 24px;
+  background: var(--g-success);
+  border-radius: 0 4px 4px 0;
+}
+.role-farmer .g-nav-return-farmer {
+  color: var(--g-success);
+  font-weight: 600;
+}
+.role-farmer .g-nav-return-farmer:hover {
+  background-color: var(--g-success-bg);
+}
+.role-farmer .g-btn.secondary {
+  background-color: var(--g-bg-surface);
+  color: var(--g-success);
+  border: 1px solid var(--g-success-bg);
+}
+.role-farmer .g-btn.secondary:hover {
+  background-color: var(--g-success-bg);
+  border-color: var(--g-success);
+  color: var(--g-success);
+}
+.role-farmer .g-btn.primary {
+  background-color: var(--g-success);
+  color: #fff;
+}
+.role-farmer .g-btn.primary:hover {
+  background-color: #155e2a;
+}
+.role-farmer .g-btn.icon-only:hover {
+  background-color: var(--g-success-bg);
+  color: var(--g-success);
+}
+.role-farmer .account-profile-popover-footer .g-btn.secondary {
+  background-color: var(--g-bg-surface);
+  color: var(--g-success);
+  border: 1px solid var(--g-success-bg);
+}
+.role-farmer .g-sidebar-footer,
+.role-farmer .farmer-nav-footer {
+  border-top-color: var(--g-success-bg);
+}
+.role-farmer .cm-pick-card:hover {
+  border-color: var(--g-success);
+  background: var(--g-success-bg);
+}
+.role-farmer .cm-pick-card.active {
+  border-color: var(--g-success);
+  background: var(--g-success-bg);
+  box-shadow: inset 0 0 0 1px var(--g-success);
+  color: var(--g-success);
+}
+.role-farmer .cm-pick-card.active .cm-pick-seq { background: var(--g-success); color: #fff; }
+.role-farmer .cm-pick-card.active .cm-pick-meta { color: var(--g-success); }
+[data-theme="dark"] .role-farmer {
+  --g-primary: #72d39b;
+  --g-primary-hover: #9be8bb;
+  --g-primary-bg: #254533;
+}
+
 .manager-dashboard { width: 100%; }
 .manager-dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
 .manager-dashboard-heading { display: flex; align-items: baseline; gap: 16px; min-width: 0; }

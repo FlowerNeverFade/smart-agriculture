@@ -13,8 +13,10 @@ except Exception:  # pragma: no cover - clean fallback environment
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK_ROOTS = [ROOT / "crop-packs", ROOT / "apps" / "api-service" / "src" / "main" / "resources" / "crop-packs"]
+REQUIRED_PACK_KEYS = ("cropCode", "version", "identity", "stages", "metrics", "rules", "knowledgeVersion", "prescriptionConstraints", "forecastProfile", "scenarios")
 REQUIRED_SCENARIOS = {"normal", "drought", "heavy-rain", "sensor-drift", "device-offline"}
 REQUIRED_METRICS = {"SOIL_MOISTURE", "AIR_TEMPERATURE", "AIR_HUMIDITY", "LIGHT", "CO2", "PH", "WATER_LEVEL"}
+REQUIRED_STAGE_KEYS = ("code", "sequence", "target", "riskFocus", "taskTemplates")
 
 
 def load_yaml(path: Path) -> dict:
@@ -46,13 +48,23 @@ def load_yaml(path: Path) -> dict:
 def validate(pack: dict, path: Path) -> list[str]:
     errors: list[str] = []
     raw = str(pack.get("_raw", ""))
-    for key in ("cropCode", "version", "stages", "metrics", "rules", "scenarios"):
+    for key in REQUIRED_PACK_KEYS:
         if key not in pack:
             if f"\n{key}:" not in raw and not raw.startswith(f"{key}:"):
                 errors.append(f"{path}: missing {key}")
     if not isinstance(pack.get("stages"), list) or not pack["stages"]:
         if "stages:" not in raw:
             errors.append(f"{path}: stages must be non-empty")
+    elif isinstance(pack.get("stages"), list):
+        for stage in pack["stages"]:
+            if not isinstance(stage, dict):
+                continue
+            missing_stage = [key for key in REQUIRED_STAGE_KEYS if key not in stage]
+            if missing_stage:
+                errors.append(f"{path}: stage {stage.get('code')} missing {missing_stage}")
+            templates = stage.get("taskTemplates")
+            if isinstance(templates, list) and not templates:
+                errors.append(f"{path}: stage {stage.get('code')} has empty taskTemplates")
     if not pack.get("metrics") and "metrics:" not in raw:
         errors.append(f"{path}: metrics must be non-empty")
     if not pack.get("rules") and "rules:" not in raw:
@@ -86,7 +98,7 @@ def main() -> int:
         for error in errors:
             print(error)
         return 1
-    print("crop packs: PASS (tomato, cucumber; 7 metrics; required scenarios)")
+    print("crop packs: PASS (tomato, cucumber; 8-part packs; stage templates; 7 metrics; required scenarios)")
     return 0
 
 

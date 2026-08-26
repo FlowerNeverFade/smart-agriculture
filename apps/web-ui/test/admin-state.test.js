@@ -10,9 +10,22 @@ test('authorized farm selection never invents a live farm', () => {
 });
 
 test('admin tabs and hash routes retain the shared farm context', () => {
+  assert.equal(normalizeAdminTab('dashboard', 'plots'), 'overview');
+  assert.equal(normalizeAdminTab('farm-members', 'permissions'), 'members');
   assert.equal(normalizeAdminTab('work-orders', 'plans'), 'plans');
   assert.equal(normalizeAdminTab('work-orders', 'unknown'), 'tasks');
   assert.equal(routeHash('resource-coordination', { tab: 'devices', farmId: 'farm-a' }), '#view=resource-coordination&tab=devices&farmId=farm-a');
+});
+
+test('bound device without heartbeat is reflected on its plot immediately', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-new', name: '新地块', lastSeen: '等待设备接入', deviceStatus: 'UNBOUND' }],
+    [{ plotId: 'p-new', device: {} }],
+    [{ deviceId: 'sensor-new', plotId: 'p-new', bindingState: 'BOUND', status: 'OFFLINE', lastSeen: null }]
+  );
+  assert.equal(plots[0].deviceId, 'sensor-new');
+  assert.equal(plots[0].deviceStatus, 'OFFLINE');
+  assert.equal(plots[0].lastSeen, '设备已绑定，等待首次数据');
 });
 
 test('farm summary and merged plot facts use current records', () => {

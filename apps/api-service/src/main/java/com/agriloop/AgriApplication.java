@@ -1388,6 +1388,13 @@ class AgriEngine {
             Map<String, Object> card = new LinkedHashMap<>(); card.put("plotId", plotId); card.put("name", plot.get("name"));
             card.put("cropCode", plot.get("cropCode")); card.put("riskLevel", plot.get("riskLevel")); card.put("latest", latest); card.put("alerts", alerts.size());
             Map<String, Object> device = deviceForPlot(plotId); card.put("device", device);
+            Map<String, Object> cropContext = plotCropContext(plotId);
+            Map<String, Object> health = cropPackCatalog.scoreHealth(cropContext, latest, device, Jsons.text(plot, "riskLevel", "UNKNOWN"));
+            card.put("stageCode", cropContext.get("stageCode"));
+            card.put("stageLabel", cropContext.get("stageLabel"));
+            card.put("cropPackVersion", cropContext.get("cropPackVersion"));
+            card.put("health", health);
+            card.put("healthScore", health.get("score"));
             cards.add(card);
         }
         cards.sort(Comparator.comparingInt((Map<String, Object> c) -> riskRank(Jsons.text(c, "riskLevel", "LOW"))).reversed());
@@ -1405,19 +1412,74 @@ class AgriEngine {
 
     Map<String, Object> resolvedProfile(String plotId) {
         Map<String, Object> plot = requireRecord("plot", plotId);
-        String crop = Jsons.text(plot, "cropCode", "tomato");
-        Map<String, Object> pack = cropPacks().stream().filter(p -> crop.equals(p.get("cropCode"))).findFirst().orElse(cropPacks().get(0));
-        Map<String, Object> batch = store.list("crop-batch").stream().filter(b -> plotId.equals(Jsons.text(b, "plotId", ""))).findFirst().orElse(Map.of());
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> pack = Jsons.map(mapper, context.get("pack"));
         Map<String, Object> farm = store.find("farm", Jsons.text(plot, "farmId", "farm-demo"));
         Map<String, Object> resolvedPack = Jsons.copy(mapper, pack);
         Map<String, Object> resolvedParameters = new LinkedHashMap<>();
         resolvedParameters.put("systemDefaults", Map.of("waterPricePerLitre", 0.004, "maxIrrigationSeconds", properties.getMaxIrrigationSeconds()));
-        resolvedParameters.put("cropPack", Map.of("version", pack.get("version"), "ruleVersion", pack.get("ruleVersion"), "forecastProfile", pack.get("forecastProfile")));
+        resolvedParameters.put("cropPack", Map.of(
+                "version", context.get("cropPackVersion"),
+                "ruleVersion", context.get("ruleVersion"),
+                "forecastProfile", context.get("forecastProfile"),
+                "effectiveRules", context.get("effectiveRules")));
+        resolvedParameters.put("stage", Map.of(
+                "stageCode", context.get("stageCode"),
+                "stageLabel", context.get("stageLabel"),
+                "target", context.get("target")));
         resolvedParameters.put("farm", farm == null ? Map.of() : farm.getOrDefault("defaults", Map.of()));
         resolvedParameters.put("plot", plot.getOrDefault("overrides", Map.of()));
         resolvedPack.put("resolvedParameters", resolvedParameters);
-        return Map.of("plotId", plotId, "farmId", Jsons.text(plot, "farmId", "farm-demo"), "cropCode", crop,
-                "stageCode", Jsons.text(batch, "stageCode", "fruiting"), "cropPack", resolvedPack, "parameterResolution", List.of("SYSTEM_DEFAULT", "CROP_PACK", "FARM", "PLOT"));
+        resolvedPack.put("effectiveRules", context.get("effectiveRules"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("farmId", Jsons.text(plot, "farmId", "farm-demo"));
+        result.put("cropCode", context.get("cropCode"));
+        result.put("stageCode", context.get("stageCode"));
+        result.put("stageLabel", context.get("stageLabel"));
+        result.put("cropPackVersion", context.get("cropPackVersion"));
+        result.put("ruleVersion", context.get("ruleVersion"));
+        result.put("cropPack", resolvedPack);
+        result.put("parameterResolution", List.of("SYSTEM_DEFAULT", "CROP_PACK", "STAGE", "FARM", "PLOT"));
+        return result;
+    }
+
+    List<Map<String, Object>> cropManuals() {
+        return cropPackCatalog.manualIndex();
+    }
+
+    Map<String, Object> cropManual(String cropCode, String stageCode) {
+        return cropPackCatalog.handbook(cropCode, stageCode);
+    }
+
+    Map<String, Object> plotCropManual(String plotId) {
+        requireRecord("plot", plotId);
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> handbook = cropPackCatalog.handbook(
+                Jsons.text(context, "cropCode", "tomato"), Jsons.text(context, "stageCode", ""));
+        handbook.put("plotId", plotId);
+        return handbook;
+    }
+
+    Map<String, Object> plotHealth(String plotId) {
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> health = cropPackCatalog.scoreHealth(
+                context, latestMetrics(plotId), deviceForPlot(plotId), Jsons.text(plot, "riskLevel", "UNKNOWN"));
+        health.put("plotId", plotId);
+        return health;
+    }
+
+    private Map<String, Object> plotCropContext(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        Map<String, Object> plotMap = plot == null ? Map.of() : plot;
+        Map<String, Object> batch = store.list("crop-batch").stream()
+                .filter(b -> plotId.equals(Jsons.text(b, "plotId", "")))
+                .findFirst().orElse(Map.of());
+        String crop = Jsons.text(plotMap, "cropCode", Jsons.text(batch, "cropCode", "tomato"));
+        String version = Jsons.text(batch, "cropPackVersion", Jsons.text(plotMap, "cropPackVersion", ""));
+        String stage = Jsons.text(plotMap, "stageCode", Jsons.text(batch, "stageCode", ""));
+        return cropPackCatalog.resolve(crop, version, stage);
     }
 
     Map<String, Object> ingest(Map<String, Object> input) {
@@ -1601,19 +1663,34 @@ class AgriEngine {
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
         String metric = Jsons.text(event, "metric", ""); double value = Jsons.number(event, "value", 0); String plotId = Jsons.text(event, "plotId", "");
         Map<String, Object> result = new LinkedHashMap<>(); result.put("metric", metric); result.put("value", value); result.put("evaluatedAt", Instant.now().toString());
-        if ("SOIL_MOISTURE".equals(metric) && value < 20) {
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> waterRule = cropPackCatalog.rule(context, "WATER_DEFICIT");
+        Map<String, Object> heatRule = cropPackCatalog.rule(context, "HEAT_STRESS");
+        double waterThreshold = Jsons.number(waterRule, "threshold", 20);
+        double heatThreshold = Jsons.number(heatRule, "threshold", 35);
+        int durationMinutes = (int) Jsons.whole(waterRule, "durationMinutes", 5);
+        result.put("stageCode", context.get("stageCode"));
+        result.put("cropPackVersion", context.get("cropPackVersion"));
+        result.put("ruleVersion", context.get("ruleVersion"));
+        if ("SOIL_MOISTURE".equals(metric) && value < waterThreshold) {
             boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(event, "scenarioId", "")) || "BAD".equals(Jsons.text(Jsons.map(mapper, event.get("quality")), "status", "GOOD"));
-            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId, ignored -> new ConcurrentLinkedDeque<>()); Instant now = Instant.now(); window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > 5) window.removeFirst();
+            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId, ignored -> new ConcurrentLinkedDeque<>()); Instant now = Instant.now(); window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > durationMinutes) window.removeFirst();
             Map<String, Object> alert = new LinkedHashMap<>(); alert.put("alertId", Jsons.id("alert")); alert.put("plotId", plotId); alert.put("level", drift ? "HIGH" : "MEDIUM");
             alert.put("source", drift ? "SENSOR_DRIFT_RULE" : "WATER_DEFICIT_RULE"); alert.put("status", "ACTIVE"); alert.put("evidence", List.of(event));
             alert.put("title", drift ? "传感器数据可能不可靠" : "土壤持续偏干");
-            alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。" : "土壤湿度已低于 20%。请尽快现场复测，确认后安排浇水。");
-            alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE"); alert.put("durationMinutes", 5); alert.put("hysteresis", 2); alert.put("cooldownMinutes", 120);
+            alert.put("message", drift ? "土壤湿度读数偏低，但数据质量也有异常。请先检查传感器，再决定是否浇水。"
+                    : "当前阶段「" + context.get("stageLabel") + "」土壤湿度已低于 " + waterThreshold + "%。请尽快现场复测，确认后安排浇水。");
+            alert.put("ruleState", window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+            alert.put("durationMinutes", durationMinutes);
+            alert.put("hysteresis", Jsons.number(waterRule, "hysteresis", 2));
+            alert.put("cooldownMinutes", Jsons.whole(waterRule, "cooldownMinutes", 120));
+            alert.put("threshold", waterThreshold); alert.put("stageCode", context.get("stageCode"));
+            alert.put("cropPackVersion", context.get("cropPackVersion")); alert.put("ruleVersion", context.get("ruleVersion"));
             alert.put("createdAt", now.toString()); alert.put("raisedAt", now.toString()); store.save("alert", Jsons.text(alert, "alertId", ""), alert); events.publish("alert.created", alert); store.logEvent("alert.created", alert);
             Map<String, Object> diagnosis = diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal")));
             result.put("alert", alert); result.put("diagnosis", diagnosis);
         }
-        if ("AIR_TEMPERATURE".equals(metric) && value > 35) result.put("risk", "HEAT_STRESS");
+        if ("AIR_TEMPERATURE".equals(metric) && value > heatThreshold) result.put("risk", "HEAT_STRESS");
         return result;
     }
 
@@ -1741,11 +1818,14 @@ class AgriEngine {
         String qualityStatus = Jsons.text(quality, "status", "GOOD").toUpperCase(Locale.ROOT);
         boolean explicitDrift = "sensor-drift".equalsIgnoreCase(scenario) || "BAD".equals(qualityStatus);
         Map<String, Object> device = deviceForPlot(plotId);
-        double waterScore = Double.isNaN(moisture) ? 0.15 : Math.max(0, Math.min(0.95, (20 - moisture) / 20 + 0.35));
+        Map<String, Object> cropContext = plotCropContext(plotId);
+        double waterThreshold = cropPackCatalog.threshold(cropContext, "WATER_DEFICIT", 20);
+        double heatThreshold = cropPackCatalog.threshold(cropContext, "HEAT_STRESS", 35);
+        double waterScore = Double.isNaN(moisture) ? 0.15 : Math.max(0, Math.min(0.95, (waterThreshold - moisture) / Math.max(1.0, waterThreshold) + 0.35));
         double driftScore = explicitDrift ? 0.92 : 0.08;
         double deviceScore = "OFFLINE".equals(Jsons.text(device, "status", "ONLINE")) ? 0.9 : 0.05;
         candidates.add(candidate("WATER_DEFICIT", waterScore)); candidates.add(candidate("SENSOR_DRIFT", driftScore)); candidates.add(candidate("DEVICE_FAULT", deviceScore));
-        if (Jsons.number(Jsons.map(mapper, latest.get("AIR_TEMPERATURE")), "value", 0) > 35) candidates.add(candidate("HEAT_STRESS", 0.76));
+        if (Jsons.number(Jsons.map(mapper, latest.get("AIR_TEMPERATURE")), "value", 0) > heatThreshold) candidates.add(candidate("HEAT_STRESS", 0.76));
         candidates.sort(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "confidence", 0)).reversed());
         String primary = Jsons.text(candidates.get(0), "code", "INSUFFICIENT_EVIDENCE");
         double confidence = Jsons.number(candidates.get(0), "confidence", 0.1);
@@ -1783,7 +1863,7 @@ class AgriEngine {
             boolean hasPortable = observation.get("portableSoilMoisture") != null;
             double portable = Jsons.number(observation, "portableSoilMoisture", Double.NaN);
             if (hasPortable && !Double.isNaN(portable)) {
-                if (portable < 20) supports.add("WATER_DEFICIT"); else opposes.add("WATER_DEFICIT");
+                if (portable < waterThreshold) supports.add("WATER_DEFICIT"); else opposes.add("WATER_DEFICIT");
                 if (!Double.isNaN(moisture) && Math.abs(portable - moisture) > 5) {
                     Map<String, Object> conflict = new LinkedHashMap<>();
                     conflict.put("type", "PORTABLE_VS_TELEMETRY"); conflict.put("inspectionId", observation.get("inspectionId"));
@@ -1804,7 +1884,11 @@ class AgriEngine {
         diagnosis.put("supportingEvidence", supporting); diagnosis.put("opposingEvidence", opposing); diagnosis.put("missingInformation", missing);
         diagnosis.put("humanObservations", humanObservations); diagnosis.put("humanEvidenceAssessment", humanAssessment);
         diagnosis.put("evidenceConflicts", evidenceConflicts);
-        diagnosis.put("scenarioId", scenario); if (request.containsKey("traceId")) diagnosis.put("traceId", request.get("traceId")); diagnosis.put("ruleVersion", "rule-1.0.0"); diagnosis.put("cropPackVersion", "1.0.0"); diagnosis.put("evaluatedAt", Instant.now().toString());
+        diagnosis.put("scenarioId", scenario); if (request.containsKey("traceId")) diagnosis.put("traceId", request.get("traceId"));
+        diagnosis.put("ruleVersion", cropContext.get("ruleVersion")); diagnosis.put("cropPackVersion", cropContext.get("cropPackVersion"));
+        diagnosis.put("knowledgeVersion", cropContext.get("knowledgeVersion")); diagnosis.put("stageCode", cropContext.get("stageCode"));
+        diagnosis.put("stageLabel", cropContext.get("stageLabel")); diagnosis.put("thresholds", Map.of("WATER_DEFICIT", waterThreshold, "HEAT_STRESS", heatThreshold));
+        diagnosis.put("evaluatedAt", Instant.now().toString());
         store.save("diagnosis", Jsons.text(diagnosis, "diagnosisId", ""), diagnosis); events.publish("diagnosis.created", diagnosis); store.logEvent("diagnosis.created", diagnosis);
         return diagnosis;
     }
@@ -2138,11 +2222,15 @@ class AgriEngine {
                 || ("SENSOR_DRIFT".equals(primary) && diagnosisConfidence >= 0.6);
         boolean reviewOnly = !hardDataBlock
                 && (anyMetricDegraded || "DEGRADED".equals(qualityStatus) || "SENSOR_DRIFT".equals(primary) || "INSUFFICIENT_EVIDENCE".equals(primary));
+        Map<String, Object> cropContext = plotCropContext(plotId);
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("planId", Jsons.id("plan")); plan.put("plotId", plotId); plan.put("diagnosisId", diagnosis.get("diagnosisId")); if (request.containsKey("traceId")) plan.put("traceId", request.get("traceId"));
-        plan.put("cropPackVersion", "1.0.0"); plan.put("ruleVersion", "rule-1.0.0"); plan.put("knowledgeVersion", "kb-1.0.0"); plan.put("agentVersion", "rules-agent-1.0");
+        plan.put("cropPackVersion", cropContext.get("cropPackVersion")); plan.put("ruleVersion", cropContext.get("ruleVersion"));
+        plan.put("knowledgeVersion", cropContext.get("knowledgeVersion")); plan.put("agentVersion", cropContext.get("agentVersion"));
+        plan.put("stageCode", cropContext.get("stageCode")); plan.put("stageLabel", cropContext.get("stageLabel"));
         plan.put("recommendedWindow", Map.of("start", Instant.now().plus(5, ChronoUnit.MINUTES).toString(), "end", Instant.now().plus(35, ChronoUnit.MINUTES).toString()));
         double current = Jsons.number(soil, "value", 18); Map<String, Object> plot = requireRecord("plot", plotId); double area = Jsons.number(plot, "areaM2", 80);
-        Map<String, Object> resource = store.find("resource-profile", "resource-default"); double flow = Jsons.number(resource, "flowRateLitresPerMinute", 18); double target = 30;
+        Map<String, Object> resource = store.find("resource-profile", "resource-default"); double flow = Jsons.number(resource, "flowRateLitresPerMinute", 18);
+        double target = cropPackCatalog.irrigationTarget(cropContext);
         double water = Math.max(0, (target - current) * area * 0.08); long duration = Math.max(0, Math.round(water / Math.max(1, flow) * 60));
         duration = Math.min(duration, properties.getMaxIrrigationSeconds()); water = Math.round(duration / 60.0 * flow * 10) / 10.0;
         plan.put("durationSeconds", duration); plan.put("waterLitre", water); plan.put("expectedResult", Map.of("metric", "SOIL_MOISTURE", "from", current, "to", target));
@@ -2264,34 +2352,68 @@ class AgriEngine {
 
     Map<String, Object> forecast(String plotId, String metric) {
         requireRecord("plot", plotId);
-        List<Map<String, Object>> points = telemetry(plotId, metric == null ? "SOIL_MOISTURE" : metric, null, null, 500).stream()
+        Map<String, Object> context = plotCropContext(plotId);
+        String usedMetric = metric == null ? "SOIL_MOISTURE" : metric.toUpperCase(Locale.ROOT);
+        if (!Jsons.bool(context, "stageMatched", true)) {
+            return forecastUnavailable(plotId, usedMetric, "STAGE_UNKNOWN", 0, context);
+        }
+        Map<String, Object> forecastProfile = Jsons.map(mapper, context.get("forecastProfile"));
+        int minSamples = Math.max(3, (int) Jsons.whole(forecastProfile, "minValidSamples", 6));
+        List<Integer> horizonMinutes = horizonMinutes(forecastProfile);
+        List<Map<String, Object>> points = telemetry(plotId, usedMetric, null, null, 500).stream()
                 .filter(p -> "GOOD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD")))
                 .toList();
-        String usedMetric = metric == null ? "SOIL_MOISTURE" : metric.toUpperCase(Locale.ROOT);
-        if (points.size() < 3) return forecastUnavailable(plotId, usedMetric, "INSUFFICIENT_SAMPLES", points.size());
+        if (points.size() < minSamples) return forecastUnavailable(plotId, usedMetric, "INSUFFICIENT_SAMPLES", points.size(), context);
         Map<String, Object> last = points.get(points.size() - 1); Map<String, Object> first = points.get(Math.max(0, points.size() - Math.min(points.size() - 1, 12)));
         double current = Jsons.number(last, "value", 0); double slope = (current - Jsons.number(first, "value", current)) /
                 Math.max(1, Duration.between(Jsons.instant(first.get("ts"), Instant.EPOCH), Jsons.instant(last.get("ts"), Instant.EPOCH)).toMinutes());
         double mean = points.stream().mapToDouble(p -> Jsons.number(p, "value", 0)).average().orElse(current);
         double mad = points.stream().mapToDouble(p -> Math.abs(Jsons.number(p, "value", 0) - mean)).average().orElse(1.0);
-        List<Map<String, Object>> horizons = new ArrayList<>(); Integer[] mins = {60, 120, 240};
-        for (int minute : mins) {
+        List<Map<String, Object>> horizons = new ArrayList<>();
+        for (int minute : horizonMinutes) {
             double value = current + slope * minute; double spread = Math.max(0.8, mad * (1 + minute / 240.0));
             horizons.add(Map.of("minutes", minute, "value", round(value), "lower", round(value - spread), "upper", round(value + spread)));
         }
+        String ruleCode = "AIR_TEMPERATURE".equals(usedMetric) ? "HEAT_STRESS" : "WATER_DEFICIT";
+        Map<String, Object> boundRule = cropPackCatalog.rule(context, ruleCode);
+        String operator = Jsons.text(boundRule, "operator", "SOIL_MOISTURE".equals(usedMetric) ? "LT" : "GT");
+        double boundary = Jsons.number(boundRule, "threshold", "SOIL_MOISTURE".equals(usedMetric) ? 20 : 35);
         Integer timeToRisk = null;
-        if ("SOIL_MOISTURE".equals(usedMetric) && slope < 0 && current > 20) timeToRisk = (int) Math.ceil((current - 20) / -slope);
+        if ("LT".equals(operator) && slope < 0 && current > boundary) timeToRisk = (int) Math.ceil((current - boundary) / -slope);
+        if ("GT".equals(operator) && slope > 0 && current < boundary) timeToRisk = (int) Math.ceil((boundary - current) / slope);
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", usedMetric);
         result.put("issuedAt", Instant.now().toString()); result.put("status", "AVAILABLE"); result.put("horizons", horizons); result.put("timeToRiskMinutes", timeToRisk);
-        result.put("riskBoundary", Map.of("operator", "LT", "value", 20.0, "unit", "%")); result.put("inputWindow", Map.of("from", first.get("ts"), "to", last.get("ts"), "validSamples", points.size()));
+        result.put("riskBoundary", Map.of("operator", operator, "value", boundary, "unit", unitFor(usedMetric), "ruleCode", ruleCode));
+        result.put("inputWindow", Map.of("from", first.get("ts"), "to", last.get("ts"), "validSamples", points.size()));
         result.put("quality", Map.of("coverage", points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", "RESIDUAL_MAD"));
-        result.put("assumptions", List.of("NO_IRRIGATION", "MOCK_WEATHER_STABLE")); result.put("algorithmVersion", "robust-trend-v1"); result.put("expiresAt", Instant.now().plus(10, ChronoUnit.MINUTES).toString());
+        result.put("assumptions", List.of("NO_IRRIGATION", "MOCK_WEATHER_STABLE", "STAGE=" + context.get("stageCode")));
+        result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "robust-trend-v1"));
+        result.put("cropPackVersion", context.get("cropPackVersion")); result.put("ruleVersion", context.get("ruleVersion"));
+        result.put("stageCode", context.get("stageCode")); result.put("stageLabel", context.get("stageLabel"));
+        result.put("expiresAt", Instant.now().plus(10, ChronoUnit.MINUTES).toString());
         store.save("forecast", Jsons.text(result, "forecastId", ""), result); events.publish("forecast.created", result); store.logEvent("forecast.created", result); return result;
     }
 
+    private List<Integer> horizonMinutes(Map<String, Object> forecastProfile) {
+        List<Integer> minutes = new ArrayList<>();
+        Object raw = forecastProfile.get("horizonsMinutes");
+        if (raw instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                if (item instanceof Number number) minutes.add(number.intValue());
+            }
+        }
+        return minutes.isEmpty() ? List.of(60, 120, 240) : minutes;
+    }
+
     private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples) {
+        return forecastUnavailable(plotId, metric, reason, samples, Map.of());
+    }
+
+    private Map<String, Object> forecastUnavailable(String plotId, String metric, String reason, int samples, Map<String, Object> context) {
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", metric); result.put("status", "UNAVAILABLE");
-        result.put("reason", reason); result.put("inputWindow", Map.of("validSamples", samples)); result.put("horizons", List.of()); result.put("timeToRiskMinutes", null); result.put("algorithmVersion", "robust-trend-v1");
+        result.put("reason", reason); result.put("inputWindow", Map.of("validSamples", samples)); result.put("horizons", List.of()); result.put("timeToRiskMinutes", null);
+        result.put("algorithmVersion", Jsons.text(Jsons.map(mapper, context.get("forecastProfile")), "algorithm", "robust-trend-v1"));
+        result.put("stageCode", context.get("stageCode")); result.put("cropPackVersion", context.get("cropPackVersion"));
         store.save("forecast", Jsons.text(result, "forecastId", ""), result); return result;
     }
 
@@ -2971,7 +3093,13 @@ class AgriEngine {
         }
         answer.put("tools", tools);
         answer.put("confidence", .86);
-        answer.put("context", Map.of("cropPackVersion", "1.0.0", "ruleVersion", "rule-1.0.0", "knowledgeVersion", "kb-1.0.0", "agentVersion", "rules-agent-1.0"));
+        Map<String, Object> cropContext = plotCropContext(plotId);
+        answer.put("context", Map.of(
+                "cropPackVersion", cropContext.get("cropPackVersion"),
+                "ruleVersion", cropContext.get("ruleVersion"),
+                "knowledgeVersion", cropContext.get("knowledgeVersion"),
+                "agentVersion", cropContext.get("agentVersion"),
+                "stageCode", cropContext.get("stageCode")));
 
         boolean degraded = false;
         String degradationReason = null;
@@ -3468,18 +3596,7 @@ class AgriEngine {
     }
 
     private String knowledgeSnippet(String plotId) {
-        Map<String, Object> plot = store.find("plot", plotId);
-        String crop = Jsons.text(plot, "cropCode", "tomato");
-        String location = "classpath:/crop-packs/" + crop + "/knowledge/irrigation.md";
-        try {
-            Resource resource = resourceLoader.getResource(location);
-            if (!resource.exists()) return "";
-            String text = new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-            if (text.length() > 1800) text = text.substring(0, 1800) + "…";
-            return text;
-        } catch (Exception ignored) {
-            return "";
-        }
+        return cropPackCatalog.knowledgeSnippet(plotCropContext(plotId));
     }
 
     /** Removes Qwen reasoning blocks and common prompt/metadata leakage. */
@@ -3527,11 +3644,12 @@ class AgriEngine {
     }
 
     private List<Map<String, Object>> knowledgeEvidence(String plotId) {
-        Map<String, Object> plot = store.find("plot", plotId);
-        String crop = Jsons.text(plot, "cropCode", "tomato");
+        Map<String, Object> context = plotCropContext(plotId);
+        String crop = Jsons.text(context, "cropCode", "tomato");
         return List.of(
-                Map.of("scope", "PLOT", "plotId", plotId, "provenance", "RETRIEVED", "source", "crop-packs/" + crop + "/knowledge/irrigation.md", "version", "kb-1.0.0"),
-                Map.of("scope", "CROP", "cropCode", crop, "provenance", "RETRIEVED", "source", "crop-pack:" + crop, "version", "1.0.0"),
+                Map.of("scope", "PLOT", "plotId", plotId, "provenance", "RETRIEVED", "source", cropPackCatalog.knowledgeSource(context), "version", context.get("knowledgeVersion")),
+                Map.of("scope", "STAGE", "stageCode", context.get("stageCode"), "provenance", "RETRIEVED", "source", "crop-pack:" + crop + ":" + context.get("stageCode"), "version", context.get("cropPackVersion")),
+                Map.of("scope", "CROP", "cropCode", crop, "provenance", "RETRIEVED", "source", "crop-pack:" + crop, "version", context.get("cropPackVersion")),
                 Map.of("scope", "GENERAL", "provenance", "RETRIEVED", "source", "rules://agriloop/default", "version", "rules-agent-1.0")
         );
     }
@@ -3720,6 +3838,19 @@ class AgriController {
     @GetMapping("/crop-packs")
     ResponseEntity<?> cropPacks() { return ok(engine.cropPacks()); }
 
+    @GetMapping("/crop-manuals")
+    ResponseEntity<?> cropManuals() { return ok(engine.cropManuals()); }
+
+    @GetMapping("/crop-manuals/{cropCode}")
+    ResponseEntity<?> cropManual(@PathVariable String cropCode, @RequestParam(required = false) String stageCode) {
+        return ok(engine.cropManual(cropCode, stageCode));
+    }
+
+    @GetMapping("/crop-manuals/{cropCode}/stages/{stageCode}")
+    ResponseEntity<?> cropManualStage(@PathVariable String cropCode, @PathVariable String stageCode) {
+        return ok(engine.cropManual(cropCode, stageCode));
+    }
+
     @GetMapping("/farms")
     ResponseEntity<?> farms(Authentication a) { UserPrincipal p = principal(a); return ok(filterFarmScope(store.list("farm"), p)); }
 
@@ -3790,6 +3921,18 @@ class AgriController {
 
     @GetMapping("/plots/{plotId}/resolved-profile")
     ResponseEntity<?> resolvedProfile(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.resolvedProfile(plotId)); }
+
+    @GetMapping("/plots/{plotId}/crop-manual")
+    ResponseEntity<?> plotCropManual(@PathVariable String plotId, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        return ok(engine.plotCropManual(plotId));
+    }
+
+    @GetMapping("/plots/{plotId}/health")
+    ResponseEntity<?> plotHealth(@PathVariable String plotId, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        return ok(engine.plotHealth(plotId));
+    }
 
     @GetMapping("/crop-batches")
     ResponseEntity<?> batches(@RequestParam(required = false) String farmId, Authentication a) {
@@ -3869,7 +4012,16 @@ class AgriController {
     ResponseEntity<?> rules(@RequestBody Map<String, Object> body, Authentication a) { String plot = Jsons.text(body, "plotId", "plot-a01"); engine.ensurePlotAccess(principal(a), plot); return ok(engine.diagnose(plot, body)); }
 
     @GetMapping("/rules")
-    ResponseEntity<?> ruleCatalog(Authentication a) { return ok(engine.cropPacks().stream().map(p -> Map.of("cropCode", p.get("cropCode"), "version", p.get("ruleVersion"), "rules", p.get("rules"))).toList()); }
+    ResponseEntity<?> ruleCatalog(Authentication a) {
+        return ok(engine.cropPacks().stream().map(pack -> {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            entry.put("cropCode", pack.get("cropCode"));
+            entry.put("version", pack.get("ruleVersion"));
+            entry.put("cropPackVersion", pack.get("version"));
+            entry.put("rules", pack.get("rules"));
+            return entry;
+        }).toList());
+    }
 
     @PostMapping("/diagnoses/evaluate")
     ResponseEntity<?> diagnosis(@RequestBody Map<String, Object> body, Authentication a) { String plot = Jsons.text(body, "plotId", "plot-a01"); engine.ensurePlotAccess(principal(a), plot); return ok(engine.diagnose(plot, body)); }
@@ -3995,9 +4147,19 @@ class AgriController {
     @GetMapping("/farm-members")
     ResponseEntity<?> farmMembers(@RequestParam String farmId, Authentication a) { return ok(engine.farmMembers(farmId, principal(a))); }
 
+    @PostMapping("/farm-members")
+    ResponseEntity<?> createFarmMember(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(adminManagement.createFarmMember(body, principal(a))));
+    }
+
     @PatchMapping("/farm-members/{userId}/scope")
     ResponseEntity<?> updateFarmMemberScope(@PathVariable String userId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(adminManagement.updateFarmMemberScope(userId, body, principal(a)));
+    }
+
+    @DeleteMapping("/farm-members/{userId}")
+    ResponseEntity<?> deleteFarmMember(@PathVariable String userId, @RequestParam String farmId, Authentication a) {
+        return ok(adminManagement.deleteFarmMember(userId, farmId, principal(a)));
     }
 
     @GetMapping("/alerts")

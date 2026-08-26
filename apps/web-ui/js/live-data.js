@@ -150,7 +150,8 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     history,
     deviceId: text(device.deviceId || plot.deviceId, ''),
     deviceStatus: text(device.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
-    healthScore: device.healthScore ?? plot.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? plot.healthScore ?? device.healthScore ?? null,
+    health: overviewCard.health || plot.health || null,
     lastSeen: device.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
