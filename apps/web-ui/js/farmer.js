@@ -8,6 +8,7 @@ import {
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
+  mergePlotTelemetryWindow,
   normalizeFarmerTask,
   normalizePlot,
   normalizeWorkStatus,
@@ -1113,17 +1114,8 @@ const app = createApp({
       const nextPlots = snapshot.map((plot, index) => {
         const result = telemetryResults[index];
         if (result?.status !== 'fulfilled') return plot;
-        const history = {};
-        (result.value || []).forEach((point) => {
-          const metric = String(point?.metric || '').trim();
-          if (!metric) return;
-          (history[metric] ||= []).push(point);
-        });
-        const metrics = { ...plot.metrics };
-        Object.entries(history).forEach(([code, points]) => {
-          metrics[code] = { ...(metrics[code] || {}), history: points };
-        });
-        return { ...plot, metrics, history, healthScore: compute_plot_health_score({ ...plot, metrics }) };
+        const merged = mergePlotTelemetryWindow(plot, result.value || []);
+        return { ...merged, healthScore: compute_plot_health_score(merged) };
       });
       // Preserve references when the farmer is reading messages; only swap plots.
       replace_ref_array(plots, nextPlots);
@@ -1181,15 +1173,8 @@ const app = createApp({
         normalizedPlots = normalizedPlots.map((plot, index) => {
           const result = telemetryResults[index];
           if (result?.status !== 'fulfilled') return plot;
-          const history = {};
-          (result.value || []).forEach((point) => {
-            const metric = String(point?.metric || '').trim();
-            if (!metric) return;
-            (history[metric] ||= []).push(point);
-          });
-          const metrics = { ...plot.metrics };
-          Object.entries(history).forEach(([code, points]) => { metrics[code] = { ...(metrics[code] || {}), history: points }; });
-          return { ...plot, metrics, history };
+          const merged = mergePlotTelemetryWindow(plot, result.value || []);
+          return { ...merged, healthScore: compute_plot_health_score(merged) };
         });
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));

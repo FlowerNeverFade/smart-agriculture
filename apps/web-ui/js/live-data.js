@@ -171,6 +171,36 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
   };
 }
 
+/**
+ * Merge a fresh mixed-metric telemetry window into an existing plot card.
+ * The newest sample updates the visible value as well as the history. This
+ * keeps the fast farmer poll useful without waiting for a full overview.
+ */
+export function mergePlotTelemetryWindow(plot = {}, points = []) {
+  const history = { ...(plot.history || {}) };
+  Object.entries(plot.metrics || {}).forEach(([code, metric]) => {
+    if (!history[code] && Array.isArray(metric?.history)) history[code] = metric.history.slice();
+  });
+  const grouped = {};
+  (Array.isArray(points) ? points : []).forEach((point) => {
+    const code = text(point?.metric, '');
+    if (!code) return;
+    (grouped[code] ||= []).push(point);
+  });
+  const latest = {};
+  Object.entries(grouped).forEach(([code, samples]) => {
+    const ordered = samples.slice().sort((left, right) => (
+      dateValue(left?.ts || left?.observedAt)?.getTime() || 0
+    ) - (
+      dateValue(right?.ts || right?.observedAt)?.getTime() || 0
+    ));
+    if (!ordered.length) return;
+    history[code] = ordered;
+    latest[code] = ordered[ordered.length - 1];
+  });
+  return normalizePlot({ ...plot, history }, { history, latest });
+}
+
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const plotId = text(work.plotId || work.plot_id, '');
   const plot = plotMap.get(plotId) || {};
