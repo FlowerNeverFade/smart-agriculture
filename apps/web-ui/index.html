@@ -224,10 +224,12 @@
       </header>
 
       <div class="manager-summary-strip" aria-label="今日农场概况">
-        <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
+        <button type="button" class="manager-summary-item" v-for="item in managerSummary" :key="item.id"
+                :title="item.hint" :aria-label="`${item.label} ${item.value}，${item.hint}`"
+                @click="openManagerSummary(item)">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
-        </div>
+        </button>
       </div>
 
       <div class="manager-plot-grid" aria-label="地块状态列表">

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from '../js/admin-state.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -21,6 +21,38 @@ test('farm summary and merged plot facts use current records', () => {
   assert.equal(plots[0].areaM2, 80);
   assert.equal(plots[0].metrics.SOIL_MOISTURE.value, 12);
   assert.deepEqual(summary, { today: 1, overdue: 1, abnormal: 1, unassigned: 1, approval: 0 });
+});
+
+test('manager summary entries route to a real destination with the farm context', () => {
+  assert.deepEqual(managerSummaryTarget('today', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'today', farmId: 'farm-a' }
+  });
+  assert.deepEqual(managerSummaryTarget('overdue', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'overdue', farmId: 'farm-a' }
+  });
+  assert.deepEqual(managerSummaryTarget('abnormal', 'farm-a'), {
+    view: 'decision-console', params: { section: 'alerts', farmId: 'farm-a' }
+  });
+  assert.deepEqual(managerSummaryTarget('unassigned', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned', farmId: 'farm-a' }
+  });
+  assert.deepEqual(managerSummaryTarget('approval', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'approval', farmId: 'farm-a' }
+  });
+  assert.equal(managerSummaryTarget('unknown', 'farm-a'), null);
+});
+
+test('dashboard task scopes reproduce overdue, unassigned, and approval queues', () => {
+  const now = Date.parse('2026-08-26T12:00:00Z');
+  const overdue = { status: 'ASSIGNED', assigneeId: 'farmer-a', dueAt: '2026-08-26T10:00:00Z', actionType: 'FIELD_OPERATION' };
+  const unassigned = { status: 'OPEN', assigneeId: '', dueAt: '2026-08-27T10:00:00Z', actionType: 'FIELD_OPERATION' };
+  const approval = { status: 'OPEN', assigneeId: 'farmer-a', dueAt: '2026-08-27T10:00:00Z', actionType: 'IRRIGATION_REVIEW' };
+  assert.equal(normalizeWorkSummaryScope('OVERDUE'), 'overdue');
+  assert.equal(normalizeWorkSummaryScope('invalid'), '');
+  assert.equal(workOrderMatchesSummaryScope(overdue, 'overdue', now), true);
+  assert.equal(workOrderMatchesSummaryScope(unassigned, 'unassigned', now), true);
+  assert.equal(workOrderMatchesSummaryScope(approval, 'approval', now), true);
+  assert.equal(workOrderMatchesSummaryScope({ ...approval, status: 'DONE' }, 'approval', now), false);
 });
 
 test('backend events invalidate every affected fact domain', () => {

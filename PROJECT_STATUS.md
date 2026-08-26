@@ -109,6 +109,7 @@
 - 收口补丁已复验：持久化重启后的 `eventId` 去重、失败/超时命令不占用成功冷却、资源越权拒绝、统一 401/403 envelope、可重复黑盒验收、停止旧 JVM 后再替换 JAR 的部署脚本；当前 API 错误日志为空。
 - `lxh-frontend` 最新 3D 数字孪生切片已合入 `main`：Three.js 实时山地/水面/作物/树冠/云雨、顶点风场、昼夜光照、天气坞、地块拾取和详情面板均已落盘；本地运行时使用仓库内 Three.js 与 Phosphor 资源，不依赖 CDN。验收记录见 `docs/acceptance/FRONTEND_FARM_MONITOR_ACCEPTANCE.md`。
 - 当前农场管理员默认入口已改为二维地块总览，不再加载或创建旧 FarmMonitor 画布；上一条 3D 内容及其验收记录仅作为历史实现证据保留。登录页 WebGL、Three.js 依赖和其他角色模块不在本轮删除范围内。
+- 农场总览五项数字已由静态信息升级为业务入口：今日、逾期、待分配和待审批进入带明确范围的统一任务队列，异常地块进入告警处置；Hash 保留当前农场，任务页可清除总览筛选。
 - `feat/login-interface` 的独立登录页、`rium_dev` 的麦田/地形背景、`feat/farm-operations` 的工单/巡田/水务 Shader、`yyx` 的预测/回放/作物表现、`lxh-frontend` 的农田监测/独立作物沙盘以及 `rium_dev-v2` 的时序、折叠栏和中心模块已合入。重叠入口按功能拆分，三角尺占位和底部接口栏已删除；演示价值只标记 `SIMULATED` / `ESTIMATED`；主界面最终采用毛玻璃，不启用液态高光层。`quhl`、`docs/multi-crop-agri-design` 和 `task5` 本轮不处理。分支逐项对比与证据见 [`docs/branch-integration-review.md`](docs/branch-integration-review.md)。
 - “智能诊断与决策中枢”已从通用占位预览升级为真实接口驱动页面：相反证据与缺失证据不会被隐藏，安全门只阻断执行而不阻断解释和参考试算，漂移可直接生成补证工单，READY 处方经人工确认后显示 ACK 与效果状态。
 - 管理员 A 线工单生命周期已完成本地实现：统一使用 `OPEN -> ASSIGNED -> IN_PROGRESS -> SUBMITTED -> DONE` 主链及 `SUBMITTED -> REJECTED -> IN_PROGRESS` 返工链；管理员可分配、重新分配、验收、退回和取消，被分配农户可开始、提交或重新处理。每次变化保存操作人、时间、说明和证据引用；正式成员读取只用于选择有当前地块权限的有效农户。巡田结构化记录现已进入同一证据引用与审计链，页面可重新读取并用于农户提交和管理员验收。Gradle 全量测试、Vite 构建及应用内浏览器管理员/农户交互均已复核；未推送或远端部署。

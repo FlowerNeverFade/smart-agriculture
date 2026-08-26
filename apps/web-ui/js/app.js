@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -364,13 +364,18 @@ const DashboardView = {
     const managerSummary = computed(() => {
       const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: summary.today },
-        { id: 'overdue', label: '已逾期', value: summary.overdue },
-        { id: 'abnormal', label: '异常地块', value: summary.abnormal },
-        { id: 'unassigned', label: '待分配', value: summary.unassigned },
-        { id: 'approval', label: '待审批', value: summary.approval }
+        { id: 'today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
+        { id: 'overdue', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
+        { id: 'abnormal', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
+        { id: 'unassigned', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
+        { id: 'approval', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
       ];
     });
+
+    const openManagerSummary = (item) => {
+      const target = managerSummaryTarget(item?.id, selectedFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
 
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
@@ -541,6 +546,7 @@ const DashboardView = {
       selectedFarmId,
       visiblePlots,
       managerSummary,
+      openManagerSummary,
       plotMetrics,
       formatMetric,
       healthScore,

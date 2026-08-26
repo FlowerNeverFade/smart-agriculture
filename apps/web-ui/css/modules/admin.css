@@ -1060,6 +1060,36 @@
   border-color: var(--admin-glass-outline);
 }
 
+.role-farm-admin .manager-summary-item {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-liquid-control);
+  box-shadow: var(--admin-liquid-control-shadow);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .72);
+  transition: transform 160ms cubic-bezier(.2, .8, .2, 1), border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.role-farm-admin .manager-summary-item:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 23%, var(--admin-glass-control-outline));
+  background: var(--admin-liquid-control-hover);
+  box-shadow: var(--admin-liquid-control-shadow-hover);
+  transform: translateY(-1px);
+}
+
+.role-farm-admin .manager-summary-item:active {
+  background: var(--admin-liquid-control-pressed);
+  box-shadow: 0 2px 7px rgba(24, 49, 36, .08), inset 0 2px 4px rgba(38, 68, 51, .11), inset 0 -1px 0 rgba(255, 255, 255, .64);
+  transform: translateY(0) scale(.985);
+}
+
+.role-farm-admin .manager-summary-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 28%, transparent);
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .role-farm-admin .manager-summary-item {
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .32);
+}
+
 .role-farm-admin .manager-plot-card {
   border-color: color-mix(in srgb, var(--g-border) 82%, var(--admin-glass-edge));
 }
@@ -1164,6 +1194,7 @@
     .admin-knowledge-chip,
     .admin-icon-picker button,
     .work-summary button,
+    .manager-summary-item,
     .text-action,
     .g-header .g-header-farm-select
   ) {
@@ -1185,6 +1216,7 @@
     .admin-knowledge-chip,
     .admin-icon-picker button,
     .work-summary button,
+    .manager-summary-item,
     .text-action
   ) {
     transition: none;
@@ -1208,6 +1240,7 @@
     .g-btn,
     .g-nav-item,
     .account-profile-trigger,
+    .manager-summary-item,
     .manager-more-button,
     .manager-plot-menu button
   ) {

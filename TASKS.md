@@ -90,6 +90,7 @@
 | T-058 | P1 | 农场成员副文本字形与基线统一 | 前端 | — | 本轮 | 已完成（本地验收） | 成员列表将角色和 `ACCOUNT/SIMULATED` 来源拆分为独立文本节点，显式使用正常字形、统一基线和来源等宽样式，修正 `admin` 行副文本视觉倾斜；Node 14/14、Vite 构建和冲突标记检查通过；本地提交，未推送 |
 | T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 进行中 | `hardware/bearpi_e53_bridge.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；Python/Gradle/Web/Vite/Crop Pack 回归通过。物理端待 E53 固件烧录、RESET 和远端部署后验收 |
 | T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 已完成 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；修正证据不足候选误高亮并补齐高温胁迫文案。功能提交链已部署；Gradle 全量测试、Web 14/14、Vite 构建、Node 语法和服务器三角色黑盒（Qwen `degraded=false`、共享解释 trace）通过 |
+| T-061 | P1 | 农场总览五项统计接入任务与告警业务入口 | 前端 | — | 本轮 | 已完成（本地验收） | 五项统计均为原生按钮并保留农场 Hash；逾期、待分配、待审批进入对应任务范围，异常地块进入告警处置；Node 测试、Vite 构建与浏览器交互通过 |
 
 ### 2.1 核心八项能力任务映射
 

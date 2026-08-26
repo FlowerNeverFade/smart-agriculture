@@ -51,6 +51,42 @@ export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.no
   };
 }
 
+const MANAGER_SUMMARY_TARGETS = Object.freeze({
+  today: { view: 'work-orders', params: { tab: 'tasks', scope: 'today' } },
+  overdue: { view: 'work-orders', params: { tab: 'tasks', scope: 'overdue' } },
+  abnormal: { view: 'decision-console', params: { section: 'alerts' } },
+  unassigned: { view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned' } },
+  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } }
+});
+
+const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval']);
+const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED']);
+
+export function managerSummaryTarget(summaryId, farmId = '') {
+  const target = MANAGER_SUMMARY_TARGETS[String(summaryId || '').toLowerCase()];
+  if (!target) return null;
+  return {
+    view: target.view,
+    params: { ...target.params, ...(farmId ? { farmId } : {}) }
+  };
+}
+
+export function normalizeWorkSummaryScope(scope) {
+  const normalized = String(scope || '').trim().toLowerCase();
+  return WORK_SUMMARY_SCOPES.has(normalized) ? normalized : '';
+}
+
+export function workOrderMatchesSummaryScope(order, scope, now = Date.now()) {
+  const normalizedScope = normalizeWorkSummaryScope(scope);
+  if (!normalizedScope || normalizedScope === 'today') return true;
+  const status = String(order?.status || '').trim().toUpperCase();
+  if (TERMINAL_WORK_STATUSES.has(status)) return false;
+  if (normalizedScope === 'unassigned') return !order?.assigneeId;
+  if (normalizedScope === 'approval') return String(order?.actionType || '').trim().toUpperCase() === 'IRRIGATION_REVIEW';
+  const dueAt = new Date(order?.dueAt || 0).getTime();
+  return normalizedScope === 'overdue' && Number.isFinite(dueAt) && dueAt > 0 && dueAt < now;
+}
+
 export function domainsForEventType(type = '') {
   const value = String(type).toLowerCase();
   const domains = new Set();
