@@ -79,7 +79,7 @@
 
       <div class="g-header-center" style="position: relative;">
         <button type="button" class="g-header-farm-select-btn" @click.stop="showFarmMenu = !showFarmMenu">
-          <span>{{ state.farms.find(f => f.farmId === selectedFarmId)?.name || '选择农场' }}{{ state.farms.find(f => f.farmId === selectedFarmId)?.region ? ' · ' + state.farms.find(f => f.farmId === selectedFarmId)?.region : '' }}</span>
+          <span>{{ selectedFarm.name || '选择农场' }}{{ selectedFarm.region ? ' · ' + selectedFarm.region : '' }}</span>
           <app-icon name="arrow_drop_down" style="font-size: 20px; color: var(--g-text-secondary);"></app-icon>
         </button>
         <div v-if="showFarmMenu" class="g-header-farm-menu" @click.stop>

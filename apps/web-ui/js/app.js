@@ -2455,6 +2455,7 @@ const app = createApp({
       }
     });
 
+    const selectedFarm = computed(() => state.value.farms.find(f => f.farmId === selectedFarmId.value) || {});
     const accountProfile = computed(() => buildAccountProfile(state.value.currentUser, {
       state: state.value,
       farms: state.value.farms,
@@ -3120,6 +3121,7 @@ const app = createApp({
       isSidebarOpen,
       showProfileMenu,
       showFarmMenu,
+      selectedFarm,
       showAccountModal,
       passwordForm,
       passwordError,
