@@ -3,6 +3,8 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-26
 
+> 2026-08-26 Crop Pack 阶段解析与培养手册（本地已实现，接口已测）：番茄/黄瓜 Crop Pack 补齐阶段标签、任务模板、阶段知识和 healthProfile；规则、诊断、预测和灌溉目标按当前生长阶段解析，不再写死 20%/35°C。新增培养手册接口 `GET /api/v1/crop-manuals`、`/crop-manuals/{cropCode}/stages/{stageCode}`、`/plots/{plotId}/crop-manual`，以及按阶段目标计算的综合健康分 `GET /plots/{plotId}/health`；总览卡片带出 `health` 分解。农户页优先使用后端健康分，演示模式用同一套阶段权重回退。验证：Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；培养手册页与农户健康分尚未做浏览器复核。真实硬件仍不在本期范围。
+
 > 2026-08-26 决策台 AI 解释层（远端已验收）：诊断仍由确定性规则计算主因、置信度、支持/反对/缺失证据和安全门；新增按需 `POST /api/v1/diagnoses/{diagnosisId}/explain`，在 Qwen 可用时只生成基于冻结证据的“结论—依据—下一步”说明，失败时返回可见的规则降级解释并写入 Agent 审计记录。农场管理员与农户共享决策台新增 AI 解释卡和重新解释按钮，系统管理员可从 Agent 运行记录追溯；不会让模型改写诊断、剂量或控制命令。同时修正“证据不足”时误高亮第一候选，以及高温胁迫缺少角色化文案的问题。功能提交链已部署，Gradle 全量测试、Web 14/14、Vite 构建和语法检查通过；服务器本机实测管理员 `openai-compatible/degraded=false`，农户与系统管理员复用同一诊断解释 trace，主因和置信度未被改写。
 
 > 2026-08-26 BearPi E53_IA1 实时接入适配（本地硬件与远端链路已验收）：新增 `hardware/bearpi_e53_bridge.py` 与一键启动器 `hardware/connect_bearpi.py`，支持官方 E53 串口文本和 JSON 读数，发布温度/空气湿度/光照并带 `REAL/HARDWARE/OBSERVED` 来源；后端新增来源持久化、120 秒真实优先仲裁和空气湿度指标，模拟器改为平滑温湿度/昼夜光照/水位轨迹并每 5 秒持续发送。已在 COM5 刷写 E53_IA1 固件，HiBurn 全部分区日志显示 `Execution Successful`，串口连续读到变化中的光照/湿度/温度；通过 SSH 隧道发布到服务器 MQTT 后，远端 `/api/v1/plots/plot-a01/telemetry` 返回 `sourceMode=REAL`、`dataOrigin=HARDWARE`。一键命令为 `py hardware/connect_bearpi.py --port COM5 --plot-id plot-a01`（密码交互输入）；Python 解析、桥接器、Gradle API、前端 Node、Vite、Crop Pack 和语法检查通过。该项是用户明确追加的硬件适配验收，不把生产现场网关/GPIO/执行器误写成软件基线已完成。

@@ -473,9 +473,9 @@ export const WorkOrderLifecycleView = {
       </header>
 
       <div class="work-summary" aria-label="任务概况">
-        <button type="button" @click="statusFilter = 'ACTIVE'"><span>未结束</span><strong>{{ summary.total }}</strong></button>
-        <button type="button" @click="statusFilter = 'OPEN'"><span>待分配</span><strong>{{ summary.open }}</strong></button>
-        <button type="button" @click="statusFilter = 'SUBMITTED'"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' }" @click="statusFilter = 'ACTIVE'"><span>未结束</span><strong>{{ summary.total }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' }" @click="statusFilter = 'OPEN'"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' }" @click="statusFilter = 'SUBMITTED'"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
         <button type="button" @click="statusFilter = 'ACTIVE'"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
         <button type="button" class="summary-danger" @click="statusFilter = 'ACTIVE'"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
       </div>

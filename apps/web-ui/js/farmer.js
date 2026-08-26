@@ -232,20 +232,31 @@ function find_plot_by_id(plots, plot_id) {
   return plots.find((plot) => plot.plotId === plot_id);
 }
 
-/** 土壤湿度相对目标值带 / 告警阈值的分级：NORMAL | WARN | ALERT */
+/** 土壤湿度相对当前生长阶段目标值带 / 告警阈值的分级：NORMAL | WARN | ALERT */
+function crop_pack_for(plot) {
+  return (crop_pack_catalog || []).find((pack) => pack.cropCode === plot?.cropCode) || null;
+}
+
+function crop_stage_for(plot) {
+  const pack = crop_pack_for(plot);
+  if (!pack?.stages?.length) return null;
+  return pack.stages.find((stage) => stage.code === plot?.stageCode) || pack.stages[pack.stages.length - 1];
+}
+
 function resolve_moisture_band_status(plot) {
   const value = Number(plot?.metrics?.SOIL_MOISTURE?.value);
   if (!Number.isFinite(value)) return 'NORMAL';
-  const pack = crop_pack_catalog.find((p) => p.cropCode === plot.cropCode);
+  const pack = crop_pack_for(plot);
   let low = null;
   let high = null;
   let alertThreshold = null;
   if (pack) {
-    const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
+    const stage = crop_stage_for(plot);
     low = stage?.target?.soilMoistureLow;
     high = stage?.target?.soilMoistureHigh;
     const deficit = (pack.rules || []).find((r) => r.code === 'WATER_DEFICIT' && r.metric === 'SOIL_MOISTURE');
-    if (deficit && Number.isFinite(deficit.threshold)) alertThreshold = deficit.threshold;
+    if (deficit && Number.isFinite(Number(deficit.threshold))) alertThreshold = Number(deficit.threshold);
+    if (!Number.isFinite(alertThreshold) && Number.isFinite(Number(low))) alertThreshold = Number(low);
   } else {
     const nums = String(plot.metrics?.SOIL_MOISTURE?.target || '').match(/(\d+(?:\.\d+)?)/g);
     if (nums && nums.length >= 2) {
@@ -265,16 +276,21 @@ const BAND_STATUS_LABELS = {
   ALERT: '低于阈值'
 };
 
-// 综合健康不是后端传来的固定百分比，而是根据当前可见证据重新计算：
-// 指标状态 68% + 设备/新鲜度 14% + 风险等级 18%。这样某一项异常会拉低
-// 评分，但不会让单一土壤湿度值完全替代其他指标。
+// 综合健康优先使用后端按 Crop Pack 生长阶段计算的结果；演示或后端缺失时
+// 用同一套权重在前端复算：阶段指标 68% + 设备/新鲜度 14% + 风险 18%。
 const HEALTH_METRIC_WEIGHTS = Object.freeze({
-  SOIL_MOISTURE: 0.25,
-  AIR_TEMPERATURE: 0.16,
+  SOIL_MOISTURE: 0.30,
+  AIR_TEMPERATURE: 0.20,
+  AIR_HUMIDITY: 0.16,
   LIGHT: 0.12,
-  CO2: 0.12,
-  SOIL_EC: 0.17,
-  NPK_RATIO: 0.18
+  WATER_LEVEL: 0.12,
+  CO2: 0.10
+});
+const HEALTH_LEVEL_LABELS = Object.freeze({
+  HIGH: '高风险',
+  ATTENTION: '需要处理',
+  WATCH: '关注中',
+  GOOD: '状态良好'
 });
 
 const HEALTH_STATUS_MULTIPLIERS = Object.freeze({
@@ -306,17 +322,26 @@ function parse_target_range(target) {
   return values.length >= 2 ? [values[0], values[1]] : null;
 }
 
-function parse_npk_values(value) {
-  const values = String(value || '').split(':').map(Number);
-  return values.length === 3 && values.every(Number.isFinite) ? values : null;
+function stage_target_band(plot, code) {
+  const target = crop_stage_for(plot)?.target || {};
+  if (code === 'SOIL_MOISTURE' && Number.isFinite(Number(target.soilMoistureLow)) && Number.isFinite(Number(target.soilMoistureHigh))) {
+    return [Number(target.soilMoistureLow), Number(target.soilMoistureHigh)];
+  }
+  if (code === 'AIR_TEMPERATURE' && Number.isFinite(Number(target.airTemperatureLow)) && Number.isFinite(Number(target.airTemperatureHigh))) {
+    return [Number(target.airTemperatureLow), Number(target.airTemperatureHigh)];
+  }
+  if (code === 'AIR_HUMIDITY' && Number.isFinite(Number(target.airHumidityLow)) && Number.isFinite(Number(target.airHumidityHigh))) {
+    return [Number(target.airHumidityLow), Number(target.airHumidityHigh)];
+  }
+  if (code === 'WATER_LEVEL') return [20, 90];
+  return parse_target_range(plot?.metrics?.[code]?.target);
 }
 
-function metric_health_alignment(code, metric) {
+function metric_health_alignment(plot, code, metric) {
   if (!metric) return 0.38;
-  const range = parse_target_range(metric.target);
+  const range = stage_target_band(plot, code);
   const value = Number(metric.value);
   let alignment = 0.68;
-
   if (range && Number.isFinite(value)) {
     const [low, high] = range;
     const half = Math.max((high - low) / 2, 0.001);
@@ -325,43 +350,54 @@ function metric_health_alignment(code, metric) {
     alignment = distance <= 1
       ? 0.72 + (1 - distance) * 0.22
       : Math.max(0.12, 0.72 - Math.min(1.8, distance - 1) * 0.34);
-  } else if (code === 'NPK_RATIO') {
-    const values = parse_npk_values(metric.value);
-    if (values) {
-      const min = Math.min(...values);
-      const max = Math.max(...values);
-      const coverage = Math.min(1, Math.max(0, (min - 60) / 120));
-      const spread = max / Math.max(min, 1);
-      const balance = Math.min(1, Math.max(0, 1 - Math.max(0, spread - 2) / 2));
-      alignment = 0.55 + coverage * 0.25 + balance * 0.16;
-    }
+  } else if (Number.isFinite(value)) {
+    alignment = 0.75;
   }
-
+  const quality = String(metric.quality?.status || metric.status || 'UNKNOWN').toUpperCase();
+  const qualityFactor = quality === 'BAD' ? 0.40 : (quality === 'DEGRADED' ? 0.70 : 1);
   const status = String(metric.status || 'UNKNOWN').toUpperCase();
-  return clamp_health_score(alignment * (HEALTH_STATUS_MULTIPLIERS[status] || HEALTH_STATUS_MULTIPLIERS.UNKNOWN));
+  return clamp_health_score(alignment * qualityFactor * (HEALTH_STATUS_MULTIPLIERS[status] || HEALTH_STATUS_MULTIPLIERS.UNKNOWN));
 }
 
 function device_health_score(plot) {
   const status = String(plot?.deviceStatus || 'UNKNOWN').toUpperCase();
-  const base = status === 'ONLINE' ? 0.94 : (status === 'DEGRADED' ? 0.62 : (status === 'OFFLINE' ? 0.18 : 0.45));
+  const base = status === 'ONLINE' ? 0.94 : (status === 'DEGRADED' ? 0.62 : (status === 'OFFLINE' || status === 'UNBOUND' ? 0.18 : 0.45));
   const lastSeen = String(plot?.lastSeen || '');
-  const minuteMatch = lastSeen.match(/(\d+)\s*分钟/);
-  const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
-  const freshness = lastSeen.includes('刚刚') ? 1 : (minutes <= 1 ? 0.98 : (minutes <= 5 ? 0.92 : (minutes <= 15 ? 0.80 : 0.62)));
+  const parsed = Date.parse(lastSeen);
+  let freshness = 0.62;
+  if (Number.isFinite(parsed)) {
+    const seconds = Math.max(0, (Date.now() - parsed) / 1000);
+    freshness = seconds <= 60 ? 1 : (seconds <= 300 ? 0.92 : (seconds <= 900 ? 0.80 : (seconds <= 3600 ? 0.62 : 0.40)));
+  } else {
+    const minuteMatch = lastSeen.match(/(\d+)\s*分钟/);
+    const minutes = minuteMatch ? Number(minuteMatch[1]) : 0;
+    freshness = lastSeen.includes('刚刚') ? 1 : (minutes <= 1 ? 0.98 : (minutes <= 5 ? 0.92 : (minutes <= 15 ? 0.80 : 0.62)));
+  }
   return clamp_health_score(base * freshness);
 }
 
 function health_breakdown(plot) {
+  if (plot?.health && Number.isFinite(Number(plot.health.score))) {
+    return {
+      score: Number(plot.health.score),
+      metricScore: Number(plot.health.metricScore ?? plot.health.score),
+      deviceScore: Number(plot.health.deviceScore ?? 0.5),
+      riskScore: Number(plot.health.riskScore ?? 0.5),
+      completeness: Number(plot.health.completeness ?? 1),
+      level: plot.health.level
+    };
+  }
+  const packWeights = crop_pack_for(plot)?.healthProfile?.metricWeights || HEALTH_METRIC_WEIGHTS;
   let weightedTotal = 0;
   let weightTotal = 0;
-  Object.entries(HEALTH_METRIC_WEIGHTS).forEach(([code, weight]) => {
+  Object.entries(packWeights).forEach(([code, weight]) => {
     const metric = plot?.metrics?.[code];
     if (!metric) return;
-    weightedTotal += metric_health_alignment(code, metric) * weight;
-    weightTotal += weight;
+    weightedTotal += metric_health_alignment(plot, code, metric) * Number(weight);
+    weightTotal += Number(weight);
   });
   const metricScore = weightTotal ? weightedTotal / weightTotal : 0.38;
-  const completenessPenalty = (1 - weightTotal) * 0.12;
+  const completenessPenalty = (1 - Math.min(1, weightTotal)) * 0.12;
   const riskKey = String(plot?.riskLevel || 'UNKNOWN').toUpperCase();
   const riskScore = HEALTH_RISK_SCORES[riskKey] || HEALTH_RISK_SCORES.UNKNOWN;
   const deviceScore = device_health_score(plot);
@@ -369,15 +405,17 @@ function health_breakdown(plot) {
   return { score, metricScore, deviceScore, riskScore, completeness: weightTotal };
 }
 
-function health_level(score) {
+function health_level(score, plot) {
+  const coded = plot?.health?.level;
+  if (coded && HEALTH_LEVEL_LABELS[coded]) return HEALTH_LEVEL_LABELS[coded];
   if (score < 0.55) return '高风险';
   if (score < 0.72) return '需要处理';
   if (score < 0.86) return '关注中';
   return '状态良好';
 }
 
-// 兼容组员更新后的初始化流程：首次分配地块时也使用同一套综合评分。
 function compute_plot_health_score(plot) {
+  if (Number.isFinite(Number(plot?.health?.score))) return Number(plot.health.score);
   return health_breakdown(plot).score;
 }
 
@@ -772,7 +810,7 @@ const app = createApp({
       code === 'SOIL_MOISTURE' ? resolve_moisture_band_status(plot) : (metric?.status || 'NORMAL')
     );
     const health_score = (plot) => health_breakdown(plot).score;
-    const health_level_label = (plot) => health_level(health_score(plot));
+    const health_level_label = (plot) => health_level(health_score(plot), plot);
     const health_summary = (plot) => {
       const breakdown = health_breakdown(plot);
       return `指标 ${Math.round(breakdown.metricScore * 100)} · 设备 ${Math.round(breakdown.deviceScore * 100)} · 风险 ${Math.round(breakdown.riskScore * 100)}；${health_level_label(plot)}`;
@@ -830,6 +868,7 @@ const app = createApp({
         const optionalFailures = [packsResult, batchesResult].filter((result) => result.status === 'rejected');
         if (optionalFailures.length) load_error.value = '作物包或种植批次暂不可用，已显示其余正式数据';
         if (version !== workspace_request_version) return false;
+        crop_pack_catalog = Array.isArray(packs) ? packs : [];
         const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
         const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
         const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
@@ -860,7 +899,6 @@ const app = createApp({
           Object.entries(history).forEach(([code, points]) => { metrics[code] = { ...(metrics[code] || {}), history: points }; });
           return { ...plot, metrics, history };
         });
-        crop_pack_catalog = Array.isArray(packs) ? packs : [];
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
         const inspectionResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getInspections(plot.plotId)));
