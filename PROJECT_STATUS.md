@@ -3,7 +3,7 @@
 > 项目：农智闭环（AgriLoop）
 > 更新时间：2026-08-26
 
-> 2026-08-26 地块级模拟策略增强（本地进行中）：模拟器改为按地块热加载独立场景和有界随机波动，支持正常/干旱/暴雨/传感器漂移/设备离线；风险预测与灌溉建议复用策略参数，地块详情提供参数滑块、即时预测预览和历史/预测重置，硬件 `REAL/HARDWARE` 数据按地块优先且重置不删除。风险与农户 SVG 曲线支持鼠标局部数据浮窗。已通过 Gradle API、Python simulator、Node 14/14、Vite 构建和 OpenAPI YAML 解析；三角色浏览器视觉及服务器部署待验收。详见 `docs/simulation-strategies.md`。
+> 2026-08-26 地块级模拟策略增强（本地+远端已验收）：模拟器按地块热加载独立场景和有界随机波动，支持正常/干旱/暴雨/传感器漂移/设备离线；风险预测与灌溉建议复用策略参数，地块详情提供参数滑块、即时预测预览和历史/预测重置，硬件 `REAL/HARDWARE` 数据按地块优先且重置不删除。风险与农户 SVG 曲线支持鼠标局部数据浮窗。Gradle API、Python simulator、Node 19/19、Vite、stub/svg/real 三种 Web 回归和 OpenAPI YAML 解析通过；远端 `main@ad5d58d` 已部署，a01 干旱与 a02 暴雨黑盒验证显示温湿度/土壤湿度/降雨量反向变化，硬件离线安全门和缓存版本号也已验证。详见 `docs/simulation-strategies.md`。
 > 2026-08-26 告警冷却、在线改密、成员生命周期、巡田照片与高温告警（本地实现，待测试验收）：`evaluateRuleForEvent` 对同地块同规则的 ACTIVE/ACKED/ESCALATED 告警在冷却期内复用并发布 `alert.updated`；关闭后冷却期内不再新建。气温超阈对称落 `HEAT_STRESS_RULE` 告警。新增 `POST /auth/change-password`（校验旧密码、轮换 `credentialVersion`、签发新 JWT）。农场管理员可 `POST /farm-members` 创建农户、`PATCH .../status` 启用/停用。巡田照片以本地附件引用保存，`provenance=USER_PROVIDED`，不是生产级对象存储。真实硬件仍不在本期范围。
 
 > 2026-08-26 Crop Pack 阶段解析与培养手册（本地已实现，接口已测）：番茄/黄瓜 Crop Pack 补齐阶段标签、任务模板、阶段知识和 healthProfile；规则、诊断、预测和灌溉目标按当前生长阶段解析，不再写死 20%/35°C。新增培养手册接口 `GET /api/v1/crop-manuals`、`/crop-manuals/{cropCode}/stages/{stageCode}`、`/plots/{plotId}/crop-manual`，以及按阶段目标计算的综合健康分 `GET /plots/{plotId}/health`；总览卡片带出 `health` 分解。农户页优先使用后端健康分，演示模式用同一套阶段权重回退。验证：Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；培养手册页与农户健康分尚未做浏览器复核。真实硬件仍不在本期范围。

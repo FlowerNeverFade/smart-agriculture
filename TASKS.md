@@ -98,7 +98,7 @@
 | T-064 | P1 | 农场总览五项统计接入任务与告警业务入口 | 前端 | — | 本轮 | 已完成（本地验收） | 五项统计均为原生按钮并保留农场 Hash；逾期、待分配、待审批进入对应任务范围，异常地块进入告警处置；Node 测试、Vite 构建与浏览器交互通过 |
 | T-065 | P1 | 农户端天气风险、设备核验、批次阶段、资源分配、降级、报告和案例确认呈现 | 前端 | T-027/T-028/T-034/T-035/T-036 | 本轮 | 待验收 | `farmer.html/js/css` 已实现；输入为地块/工单/Crop Pack/预测/资源计划，输出为紧凑卡片、时间线、折叠排程和确认记录；失败路径显示 MOCK/SIMULATED/UNAVAILABLE 且不直接控制设备或发布策略；`node --check`、`git diff --check`、HTTP 200 通过，待补浏览器桌面/窄屏/双主题交互证据。 |
 | T-066 | P0 | 告警冷却生效、高温告警、在线改密、成员创建/停用与巡田照片附件 | 前后端 | — | 本轮 | 待验收 | 同地块同规则冷却期内复用/更新 ACTIVE 告警；HEAT_STRESS 进入告警状态机；`POST /auth/change-password` 轮换凭据版本；`POST /farm-members` 与 `PATCH .../status`；巡田照片本地附件 `USER_PROVIDED`。Gradle API 43/43、前端 Node 14/14、Vite 构建通过；应用内浏览器未复核 |
-| T-067 | P1 | 地块独立模拟策略、随机波动、曲线重置与局部浮窗 | 前后端 | — | 本轮 | 进行中 | 每个地块独立保存 NORMAL/DROUGHT/HEAVY_RAIN/SENSOR_DRIFT/DEVICE_OFFLINE 场景和参数；模拟器热加载 JSON、风险/灌溉复用策略、硬件 REAL 优先；地块详情可调参数/重置历史与预测，农户和风险曲线支持悬浮数据。Gradle、Python simulator、Node/Vite 已通过；三角色浏览器与远端部署待验收 |
+| T-067 | P1 | 地块独立模拟策略、随机波动、曲线重置与局部浮窗 | 前后端 | — | 本轮 | 已完成（本地+远端验收） | 每个地块独立保存 NORMAL/DROUGHT/HEAVY_RAIN/SENSOR_DRIFT/DEVICE_OFFLINE 场景和参数；模拟器热加载 JSON、风险/灌溉复用策略、硬件 REAL 优先；地块详情可调参数/重置历史与预测，农户和风险曲线支持悬浮数据。Gradle、Python simulator、Node 19/19、Vite、stub/svg/real 15/14/15、OpenAPI 解析通过；远端 `main@ad5d58d` 部署后验证 a01 干旱/a02 暴雨独立变化、FORECAST 重置、五场景目录、硬件离线显示和安全灌溉门；入口资源缓存版本已刷新 |
 
 ### 2.1 核心八项能力任务映射
 
