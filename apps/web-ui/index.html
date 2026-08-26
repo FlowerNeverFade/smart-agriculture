@@ -223,12 +223,7 @@
         </div>
       </header>
 
-      <nav class="admin-local-tabs manager-dashboard-tabs" aria-label="农场总览页签">
-        <button :class="{active: activeTab === 'overview'}" @click="setTab('overview')">总览</button>
-        <button :class="{active: activeTab === 'plots'}" @click="setTab('plots')">地块管理</button>
-      </nav>
-
-      <div v-if="activeTab === 'overview'" class="manager-summary-strip" aria-label="今日农场概况">
+      <div class="manager-summary-strip" aria-label="今日农场概况">
         <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
@@ -249,7 +244,7 @@
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
             <div class="manager-plot-card-tools">
-              <span v-if="activeTab === 'plots'" class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
+              <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
               <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
@@ -292,7 +287,7 @@
             </div>
           </div>
         </article>
-        <button v-if="activeTab === 'plots'" type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
+        <button type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
           <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
           <strong>添加新地块</strong>
           <small>录入作物种类、生长周期和地块面积</small>

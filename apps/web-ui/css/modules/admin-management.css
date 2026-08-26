@@ -87,8 +87,6 @@
   box-shadow: 0 0 0 1px var(--g-border), 0 1px 2px rgb(15 23 42 / 8%);
 }
 
-.manager-dashboard-tabs { margin-top: -2px; }
-
 .admin-split-layout {
   display: grid;
   grid-template-columns: minmax(280px, .82fr) minmax(420px, 1.5fr);
