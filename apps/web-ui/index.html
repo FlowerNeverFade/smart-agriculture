@@ -71,14 +71,14 @@
 </head>
 <body>
   <div id="app" v-cloak :class="roleClass" @click="closeProfileMenu">
-    <header class="g-header">
+    <header class="g-header" :class="{ 'farmer-header': isFarmer }">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
-        <span class="g-header-title">AgriLoop Console</span>
+        <span class="g-header-title">{{ isFarmer ? '农户工具台' : 'AgriLoop Console' }}</span>
       </div>
 
-      <div class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
+      <div v-if="!isFarmer" class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
         <select v-model="selectedFarmId" aria-label="选择当前农场" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
           <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}</option>
         </select>
@@ -143,25 +143,28 @@
     </header>
 
     <div class="g-body">
-      <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
-        <div class="g-sidebar-main">
+      <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
+        <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
           <button v-for="nav in navItems" :key="nav.id" type="button"
-               class="g-nav-item" :class="{active: currentView === nav.id}"
+               class="g-nav-item"
+               :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
                :aria-current="currentView === nav.id ? 'page' : null"
                @click="navigate(nav.id)">
-            <app-icon :name="nav.icon"></app-icon>
-            <span class="g-nav-label">{{ nav.label }}</span>
+            <span v-if="isFarmer" class="material-symbols-outlined">{{ nav.icon }}</span>
+            <app-icon v-else :name="nav.icon"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
           </button>
         </div>
-        <div v-if="farmerReturnPage" class="g-sidebar-footer">
-          <button type="button" class="g-nav-item g-nav-return-farmer" @click="returnToFarmer">
-            <app-icon name="arrow_back"></app-icon>
-            <span class="g-nav-label">返回农户工作台</span>
+        <div v-if="isFarmer || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
+          <button type="button" class="g-nav-item g-nav-return-farmer" :class="{ 'farmer-nav-item': isFarmer }" @click="returnToFarmer">
+            <span v-if="isFarmer" class="material-symbols-outlined">arrow_back</span>
+            <app-icon v-else name="arrow_back"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">返回农户工作台</span>
           </button>
         </div>
       </nav>
 
-      <main class="g-main">
+      <main class="g-main" :class="{ 'farmer-main': isFarmer }">
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
@@ -990,6 +993,7 @@
         <h2>作物培养手册</h2>
         <span v-if="cropPack" class="g-badge primary">v{{ cropPack.version }}</span>
       </div>
+      <p v-if="loadError" class="text-muted" style="margin-bottom:12px">{{ loadError }}</p>
 
       <div class="g-card mb-4">
         <div class="cm-section">

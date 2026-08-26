@@ -1,48 +1,73 @@
 cropCode: cucumber
 version: 1.0.0
 schemaVersion: '1.0'
-identity:
-  name: 黄瓜
-  variety: demonstration
-  region: 重庆
+status: ACTIVE
+identity: {name: 黄瓜, variety: demonstration, region: 重庆, environment: greenhouse}
+ruleVersion: rule-1.0.0
+knowledgeVersion: kb-1.0.0
 stages:
   - code: seedling
     sequence: 1
-    target: {soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28}
+    label: 苗期
+    target: {soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28, airHumidityLow: 65, airHumidityHigh: 85}
     riskFocus: [WATER_DEFICIT, COLD_STRESS]
-    taskTemplates: [{actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}]
+    taskTemplates:
+      - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
+    knowledgeRef: knowledge/seedling.md
   - code: vegetative
     sequence: 2
-    target: {soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30}
+    label: 营养生长期
+    target: {soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30, airHumidityLow: 60, airHumidityHigh: 85}
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
-    taskTemplates: [{actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}]
+    taskTemplates:
+      - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
+    knowledgeRef: knowledge/vegetative.md
   - code: flowering
     sequence: 3
-    target: {soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32}
+    label: 初花期
+    target: {soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80}
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
-    taskTemplates: [{actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}]
+    taskTemplates:
+      - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
+    knowledgeRef: knowledge/flowering.md
   - code: fruiting
     sequence: 4
-    target: {soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32}
+    label: 采收盛期
+    target: {soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80}
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
-    taskTemplates: [{actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}]
+    taskTemplates:
+      - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
+    knowledgeRef: knowledge/fruiting.md
 metrics:
-  - {code: SOIL_MOISTURE, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
-  - {code: AIR_TEMPERATURE, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
-  - {code: AIR_HUMIDITY, unit: '%RH', availability: SUPPORTED, range: {min: 0, max: 100}}
-  - {code: LIGHT, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
-  - {code: CO2, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
-  - {code: PH, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
-  - {code: WATER_LEVEL, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: SOIL_MOISTURE, label: 土壤湿度, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: AIR_TEMPERATURE, label: 空气温度, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
+  - {code: AIR_HUMIDITY, label: 空气湿度, unit: '%RH', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: LIGHT, label: 光照强度, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
+  - {code: CO2, label: CO2, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
+  - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
+  - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
 rules:
-  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 24, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
-  - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, threshold: 35, durationMinutes: 10, cooldownMinutes: 60}
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
+  - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
+  - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
+healthProfile:
+  algorithm: crop-stage-health-v1
+  metricWeight: 0.68
+  deviceWeight: 0.14
+  riskWeight: 0.18
+  metricWeights:
+    SOIL_MOISTURE: 0.32
+    AIR_TEMPERATURE: 0.20
+    AIR_HUMIDITY: 0.16
+    LIGHT: 0.10
+    WATER_LEVEL: 0.12
+    CO2: 0.10
 prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
 forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
 coordinationProfile: {stageSensitivity: 0.85, starvationGuardMinutes: 120}
-knowledgeVersion: kb-1.0.0
-ruleVersion: rule-1.0.0
-knowledge: {documents: [knowledge/irrigation.md], fallback: [plot, region, stage, crop, general]}
+knowledge:
+  documents: [knowledge/seedling.md, knowledge/vegetative.md, knowledge/flowering.md, knowledge/fruiting.md, knowledge/irrigation.md]
+  fallback: [plot, region, stage, crop, general]
 scenarios:
   normal: {quality: GOOD, expected: stable}
   drought: {quality: GOOD, expected: soil_moisture_decline}

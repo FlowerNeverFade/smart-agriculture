@@ -68,9 +68,35 @@
 
 .work-summary button:last-child { border-right: 0; }
 .work-summary button:hover { background: var(--g-bg-hover); }
+.work-summary button.is-active {
+  background: var(--g-primary-bg);
+  color: var(--g-primary);
+}
+.work-summary button.is-active strong { color: inherit; }
 .work-summary span { font-size: 13px; font-weight: 500; }
 .work-summary strong { color: var(--g-text-primary); font-size: 24px; font-weight: 600; }
 .work-summary .summary-danger strong { color: var(--g-danger); }
+
+.role-farmer .work-lifecycle-kicker { color: var(--g-success); }
+.role-farmer .work-summary {
+  border-color: var(--g-success-bg);
+  background: var(--g-bg-surface);
+}
+.role-farmer .work-summary button {
+  color: var(--g-text-primary);
+  border-right-color: var(--g-success-bg);
+}
+.role-farmer .work-summary button:hover {
+  background: var(--g-success-bg);
+  color: var(--g-success);
+}
+.role-farmer .work-summary button.is-active {
+  background: var(--g-success-bg);
+  color: var(--g-success);
+}
+.role-farmer .work-filters {
+  border-color: var(--g-success-bg);
+}
 
 .work-filters {
   display: grid;
