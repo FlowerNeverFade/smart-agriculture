@@ -1,7 +1,7 @@
-import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js';
-import { presentRoleUser } from './roles.js';
-import { buildAccountProfile } from './account-profile.js';
+import { api } from './api.js?v=20260826-simulation-f4517cc';
+import { MOCK_DATA } from './mock-data.js?v=20260826-simulation-f4517cc';
+import { presentRoleUser } from './roles.js?v=20260826-simulation-f4517cc';
+import { buildAccountProfile } from './account-profile.js?v=20260826-simulation-f4517cc';
 import {
   agentResponseSource,
   agentResponseText,
@@ -12,7 +12,7 @@ import {
   normalizePlot,
   normalizeWorkStatus,
   workStatusLabel
-} from './live-data.js';
+} from './live-data.js?v=20260826-simulation-f4517cc';
 
 const { createApp, ref, computed, onMounted } = Vue;
 
