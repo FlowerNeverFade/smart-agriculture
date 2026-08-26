@@ -2363,6 +2363,7 @@ const app = createApp({
     const isDark = ref(false);
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     const showProfileMenu = ref(false);
+    const showFarmMenu = ref(false);
     const showAccountModal = ref(false);
     const passwordForm = ref({ current: '', next: '', confirm: '' });
     const passwordError = ref('');
@@ -3118,6 +3119,7 @@ const app = createApp({
       isDark,
       isSidebarOpen,
       showProfileMenu,
+      showFarmMenu,
       showAccountModal,
       passwordForm,
       passwordError,
