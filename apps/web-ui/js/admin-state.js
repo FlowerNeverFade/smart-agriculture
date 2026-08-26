@@ -197,6 +197,16 @@ export function formatHealthScore(value) {
   return String(Math.round(numeric <= 1 ? numeric * 100 : numeric));
 }
 
+export function adminHealthTone(value) {
+  if (value === undefined || value === null || value === '') return 'unavailable';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 'unavailable';
+  const percent = Math.round(numeric <= 1 ? numeric * 100 : numeric);
+  if (percent >= 86) return 'good';
+  if (percent >= 55) return 'attention';
+  return 'danger';
+}
+
 export function normalizeAdminTab(view, tab) {
   const allowed = ADMIN_TABS[view] || [];
   return allowed.includes(tab) ? tab : (allowed[0] || '');

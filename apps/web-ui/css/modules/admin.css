@@ -1549,11 +1549,19 @@
 }
 
 .role-farm-admin .manager-health-score strong {
-  color: var(--g-primary);
+  color: var(--g-text-secondary);
 }
 
-.role-farm-admin .manager-plot-card.is-attention .manager-health-score strong {
+.role-farm-admin .manager-health-score.is-good strong {
+  color: var(--admin-mint);
+}
+
+.role-farm-admin .manager-health-score.is-attention strong {
   color: var(--admin-orange);
+}
+
+.role-farm-admin .manager-health-score.is-danger strong {
+  color: var(--admin-red);
 }
 
 .role-farm-admin .manager-metric-grid {

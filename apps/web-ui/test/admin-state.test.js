@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminDeviceTypeLabel, adminMetricLabel, adminSummary, adminWorkActionMeta, adminWorkAttentionSummary, adminWorkLifecycleSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesAttention, workOrderMatchesSummaryScope } from '../js/admin-state.js';
+import { adminDeviceTypeLabel, adminHealthTone, adminMetricLabel, adminSummary, adminWorkActionMeta, adminWorkAttentionSummary, adminWorkLifecycleSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesAttention, workOrderMatchesSummaryScope } from '../js/admin-state.js';
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -153,4 +153,13 @@ test('missing health never masquerades as a zero score', () => {
   assert.equal(formatHealthScore(null), '—');
   assert.equal(formatHealthScore(undefined), '—');
   assert.equal(formatHealthScore(0.98), '98');
+});
+
+test('farm admin health color depends only on the displayed score', () => {
+  assert.equal(adminHealthTone(0.88), 'good');
+  assert.equal(adminHealthTone(88), 'good');
+  assert.equal(adminHealthTone(0.855), 'good');
+  assert.equal(adminHealthTone(0.72), 'attention');
+  assert.equal(adminHealthTone(0.52), 'danger');
+  assert.equal(adminHealthTone(null), 'unavailable');
 });

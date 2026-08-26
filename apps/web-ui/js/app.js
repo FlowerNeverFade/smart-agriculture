@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -404,6 +404,7 @@ const DashboardView = {
     }));
     const formatMetric = (metric) => formatMetricValue(metric);
     const healthScore = (plot) => formatHealthScore(plot?.healthScore);
+    const healthTone = (plot) => adminHealthTone(plot?.healthScore);
     const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
     const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
@@ -568,6 +569,7 @@ const DashboardView = {
       plotMetrics,
       formatMetric,
       healthScore,
+      healthTone,
       cardTone,
       metricTone,
       metricVisualIcon,

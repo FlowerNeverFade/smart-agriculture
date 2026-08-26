@@ -256,7 +256,7 @@
             </div>
             <div class="manager-plot-card-tools">
               <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
-              <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
+              <div class="manager-health-score" :class="`is-${healthTone(plot)}`">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
                         :aria-label="`${plot.name}地块操作`" @click.stop="togglePlotMenu(plot.plotId)">
