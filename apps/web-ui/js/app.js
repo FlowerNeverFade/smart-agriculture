@@ -252,7 +252,13 @@ function adminServiceCards(systemStatus = {}) {
   }));
 }
 
-function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {}, alerts = [], devices = [], recentEvents = [] } = {}) {
+function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
+  overview = overview || {};
+  systemStatus = systemStatus || {};
+  simulator = simulator || {};
+  alerts = alerts || [];
+  devices = devices || [];
+  recentEvents = recentEvents || [];
   const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
   const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
@@ -269,7 +275,8 @@ function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {
       running: simStatus === 'RUNNING',
       scenario: simulator.scenario || simulator.scenarioId || '',
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
-      startTime: simulator.startedAt || null
+      startTime: simulator.startedAt || null,
+      history: simulator.history || []
     },
     services: adminServiceCards(systemStatus),
     recentEvents: Array.isArray(recentEvents) ? recentEvents.slice(0, 20) : [],
@@ -2372,7 +2379,7 @@ const app = createApp({
       state.value.adminStrategyCandidates = adminStrategyCandidates;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
-      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: state.value.simulatorStatus, alerts, devices, recentEvents });
+      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 

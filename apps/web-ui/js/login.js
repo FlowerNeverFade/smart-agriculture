@@ -305,10 +305,12 @@ async function submitLogin(event) {
   setLoading(loginButton, true);
 
   try {
-    const result = await api.login({ username: account, password: secret, role: selectedRole });
+        const result = await api.login({ username: account, password: secret, role: selectedRole });
     const user = presentUser(result.user);
-    api.saveSession({ mode: 'live', token: result.accessToken, user });
-    beginExit(user, 'live');
+    const mode = result.mode || 'live';
+    const token = result.accessToken || result.token || '';
+    api.saveSession({ mode, token, user });
+    beginExit(user, mode);
   } catch (error) {
     if (error instanceof ApiError && (error.status === 401 || error.code === 'AUTH_INVALID')) {
       setFormError(loginForm, loginError, '账号、密码或身份不匹配');
