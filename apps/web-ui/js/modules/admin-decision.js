@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { adminMetricLabel } from '../admin-state.js';
 import { roleCan } from '../roles.js';
 
 const { ref, computed, watch, onMounted } = Vue;
@@ -85,7 +86,11 @@ export const AdminDecisionView = {
     const canExecute = computed(() => canApprove.value && plan.value?.executable === true && readiness.value?.status === 'READY' && confirmed.value && !executing.value);
     const commandStatus = computed(() => terminalStatus(command.value));
     const isCommandSuccess = computed(() => commandStatus.value === 'SUCCEEDED');
-    const metrics = computed(() => Object.entries(selectedPlot.value?.metrics || {}).slice(0, 6).map(([code, metric]) => ({ code, ...metric })));
+    const metrics = computed(() => Object.entries(selectedPlot.value?.metrics || {}).slice(0, 6).map(([code, metric]) => ({
+      code,
+      ...metric,
+      label: adminMetricLabel(code, metric?.label)
+    })));
     const dataLabel = computed(() => {
       if (isDemo.value) return 'SIMULATED · 演示数据';
       if (String(scenario.value).toUpperCase() !== 'NORMAL') return 'SIMULATED · 情景数据';

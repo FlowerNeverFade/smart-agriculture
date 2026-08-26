@@ -22,7 +22,7 @@ export const MOCK_DATA = {
     role: "FARM_ADMIN",
     roleLabel: "农场管理员",
     farmIds: ["farm-demo"],
-    plotIds: ["plot-a01", "plot-a02", "plot-b01"],
+    plotIds: ["plot-a01", "plot-a02", "plot-b01", "plot-a03", "plot-b02", "plot-b03", "plot-c01"],
     avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=AgriLoopAdmin"
   },
 
@@ -32,8 +32,9 @@ export const MOCK_DATA = {
       name: "农智示范农场",
       region: "重庆 · 科学城",
       areaTotalM2: 240,
-      cropCount: 2,
-      plotCount: 3,
+      cropCount: 5,
+      plotCount: 7,
+      // 演示主线与后端种子一致：温室1/2/3；a03/b02/b03/c01 仅管理端扩展样例
       waterPricePerLitre: 0.004,
       labourPricePerHour: 35.0
     }
@@ -46,6 +47,7 @@ export const MOCK_DATA = {
       displayName: "张明",
       role: "FARMER",
       roleLabel: "种植农户",
+      farmIds: ["farm-demo"],
       plotIds: ["plot-a01", "plot-a02"],
       status: "ACTIVE",
       sourceMode: "SIMULATED"
@@ -56,7 +58,8 @@ export const MOCK_DATA = {
       displayName: "李芳",
       role: "FARMER",
       roleLabel: "种植农户",
-      plotIds: ["plot-b01", "plot-b02"],
+      farmIds: ["farm-demo"],
+      plotIds: ["plot-b01"],
       status: "ACTIVE",
       sourceMode: "SIMULATED"
     },
@@ -66,7 +69,8 @@ export const MOCK_DATA = {
       displayName: "王强",
       role: "FARMER",
       roleLabel: "种植农户",
-      plotIds: ["plot-b03"],
+      farmIds: ["farm-demo"],
+      plotIds: ["plot-a03", "plot-b02"],
       status: "INACTIVE",
       sourceMode: "SIMULATED"
     }
@@ -75,31 +79,85 @@ export const MOCK_DATA = {
   plots: [
     {
       plotId: "plot-a01",
-      name: "A01 番茄示范田",
+      name: "温室1",
       cropCode: "tomato",
-      cropName: "优质番茄",
-      cropVariety: "千禧水果番茄",
+      cropName: "番茄",
+      cropVariety: "示范番茄",
       stageCode: "fruiting",
       stageLabel: "挂果采收期",
-      areaM2: 120,
+      areaM2: 80,
       riskLevel: "HIGH",
       healthScore: 0.52,
       deviceStatus: "ONLINE",
       deviceId: "mock-plot-a01",
       lastSeen: "刚刚",
+      farmId: "farm-demo",
+      status: "ACTIVE",
       metrics: {
         SOIL_MOISTURE: { value: 16.8, unit: "%", status: "ALERT", label: "土壤湿度", target: "20~40%" },
         AIR_TEMPERATURE: { value: 26.4, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
         AIR_HUMIDITY: { value: 64.2, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 43500, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 680, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
-        SOIL_EC: { value: 1.4, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.2 mS/cm" },
-        NPK_RATIO: { value: "180:95:210", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
+        PH: { value: 6.3, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 42, unit: "%", status: "WARN", label: "水位", target: "20~90%" }
       }
     },
     {
       plotId: "plot-a02",
-      name: "A02 玉米高产田",
+      name: "温室2",
+      cropCode: "tomato",
+      cropName: "番茄",
+      cropVariety: "示范番茄",
+      stageCode: "fruiting",
+      stageLabel: "挂果采收期",
+      areaM2: 100,
+      riskLevel: "MEDIUM",
+      healthScore: 0.78,
+      deviceStatus: "ONLINE",
+      deviceId: "mock-plot-a02",
+      lastSeen: "1分钟前",
+      farmId: "farm-demo",
+      status: "ACTIVE",
+      metrics: {
+        SOIL_MOISTURE: { value: 28.5, unit: "%", status: "NORMAL", label: "土壤湿度", target: "20~40%" },
+        AIR_TEMPERATURE: { value: 27.2, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 61.7, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 46800, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
+        CO2: { value: 710, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        PH: { value: 6.4, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 68, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+      }
+    },
+    {
+      plotId: "plot-b01",
+      name: "温室3",
+      cropCode: "cucumber",
+      cropName: "黄瓜",
+      cropVariety: "示范黄瓜",
+      stageCode: "vegetative",
+      stageLabel: "营养生长期",
+      areaM2: 120,
+      riskLevel: "LOW",
+      healthScore: 0.86,
+      deviceStatus: "ONLINE",
+      deviceId: "mock-plot-b01",
+      lastSeen: "刚刚",
+      farmId: "farm-demo",
+      status: "ACTIVE",
+      metrics: {
+        SOIL_MOISTURE: { value: 26.2, unit: "%", status: "WARN", label: "土壤湿度", target: "28~48%" },
+        AIR_TEMPERATURE: { value: 25.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 68.5, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 41200, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
+        CO2: { value: 660, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        PH: { value: 6.2, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 72, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+      }
+    },
+    {
+      plotId: "plot-a03",
+      name: "A03 扩展玉米田",
       cropCode: "corn",
       cropName: "鲜食玉米",
       cropVariety: "甜糯双色 8 号",
@@ -109,64 +167,18 @@ export const MOCK_DATA = {
       riskLevel: "LOW",
       healthScore: 0.88,
       deviceStatus: "ONLINE",
-      deviceId: "mock-plot-a02",
-      lastSeen: "1分钟前",
-      metrics: {
-        SOIL_MOISTURE: { value: 28.5, unit: "%", status: "NORMAL", label: "土壤湿度", target: "25~45%" },
-        AIR_TEMPERATURE: { value: 27.2, unit: "°C", status: "NORMAL", label: "空气温度", target: "22~32°C" },
-        AIR_HUMIDITY: { value: 61.7, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~78%RH" },
-        LIGHT: { value: 46800, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
-        CO2: { value: 710, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
-        SOIL_EC: { value: 1.6, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.2~2.4 mS/cm" },
-        NPK_RATIO: { value: "195:102:220", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
-      }
-    },
-    {
-      plotId: "plot-a03",
-      name: "A03 黄瓜立体架",
-      cropCode: "cucumber",
-      cropName: "水果黄瓜",
-      cropVariety: "金童水果黄瓜",
-      stageCode: "vegetative",
-      stageLabel: "营养生长期",
-      areaM2: 120,
-      riskLevel: "LOW",
-      healthScore: 0.72,
-      deviceStatus: "ONLINE",
       deviceId: "mock-plot-a03",
       lastSeen: "2分钟前",
+      farmId: "farm-demo",
+      status: "ACTIVE",
       metrics: {
-        SOIL_MOISTURE: { value: 26.2, unit: "%", status: "WARN", label: "土壤湿度", target: "28~48%" },
-        AIR_TEMPERATURE: { value: 25.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "19~30°C" },
-        AIR_HUMIDITY: { value: 68.5, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "50~82%RH" },
-        LIGHT: { value: 41200, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~60k lux" },
-        CO2: { value: 660, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
-        SOIL_EC: { value: 1.3, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.0 mS/cm" },
-        NPK_RATIO: { value: "170:90:200", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
-      }
-    },
-    {
-      plotId: "plot-b01",
-      name: "B01 生态水稻田",
-      cropCode: "rice",
-      cropName: "生态水稻",
-      cropVariety: "渝香优 203",
-      stageCode: "vegetative",
-      stageLabel: "分蘖生长期",
-      areaM2: 150,
-      riskLevel: "LOW",
-      healthScore: 0.88,
-      deviceStatus: "ONLINE",
-      deviceId: "mock-plot-b01",
-      lastSeen: "刚刚",
-      metrics: {
-        SOIL_MOISTURE: { value: 35.4, unit: "%", status: "NORMAL", label: "田面湿度", target: "30~55%" },
-        AIR_TEMPERATURE: { value: 25.1, unit: "°C", status: "NORMAL", label: "环境温度", target: "25~32°C" },
-        AIR_HUMIDITY: { value: 72.1, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "55~85%RH" },
-        LIGHT: { value: 39500, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~60k lux" },
-        CO2: { value: 650, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
-        SOIL_EC: { value: 1.3, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "0.8~1.8 mS/cm" },
-        NPK_RATIO: { value: "175:88:190", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
+        SOIL_MOISTURE: { value: 29.0, unit: "%", status: "NORMAL", label: "土壤湿度", target: "25~45%" },
+        AIR_TEMPERATURE: { value: 27.0, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 60.0, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
+        CO2: { value: 700, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        PH: { value: 6.5, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 70, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
       }
     },
     {
@@ -183,14 +195,16 @@ export const MOCK_DATA = {
       deviceStatus: "ONLINE",
       deviceId: "mock-plot-b02",
       lastSeen: "1分钟前",
+      farmId: "farm-demo",
+      status: "ACTIVE",
       metrics: {
         SOIL_MOISTURE: { value: 24.8, unit: "%", status: "NORMAL", label: "土壤湿度", target: "20~38%" },
-        AIR_TEMPERATURE: { value: 27.6, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~28°C" },
-        AIR_HUMIDITY: { value: 58.9, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "40~75%RH" },
-        LIGHT: { value: 52000, unit: "lux", status: "NORMAL", label: "光照强度", target: "35k~65k lux" },
+        AIR_TEMPERATURE: { value: 27.6, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 58.9, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 52000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 690, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
-        SOIL_EC: { value: 1.5, unit: "mS/cm", status: "NORMAL", label: "土壤 EC 值", target: "1.0~2.2 mS/cm" },
-        NPK_RATIO: { value: "185:92:205", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
+        PH: { value: 6.4, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 65, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
       }
     },
     {
@@ -207,14 +221,16 @@ export const MOCK_DATA = {
       deviceStatus: "ONLINE",
       deviceId: "mock-plot-b03",
       lastSeen: "2分钟前",
+      farmId: "farm-demo",
+      status: "ACTIVE",
       metrics: {
-        SOIL_MOISTURE: { value: 31.0, unit: "%", status: "NORMAL", label: "基质湿度", target: "25~45%" },
-        AIR_TEMPERATURE: { value: 23.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~28°C" },
-        AIR_HUMIDITY: { value: 70.4, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "50~82%RH" },
-        LIGHT: { value: 38000, unit: "lux", status: "NORMAL", label: "光照强度", target: "25k~48k lux" },
-        CO2: { value: 740, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "600~900 ppm" },
-        SOIL_EC: { value: 1.2, unit: "mS/cm", status: "NORMAL", label: "基质 EC 值", target: "0.8~1.6 mS/cm" },
-        NPK_RATIO: { value: "160:85:195", unit: "mg/kg", status: "NORMAL", label: "氮磷钾肥力", target: "均衡充足" }
+        SOIL_MOISTURE: { value: 31.0, unit: "%", status: "NORMAL", label: "土壤湿度", target: "25~45%" },
+        AIR_TEMPERATURE: { value: 23.8, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 70.4, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 38000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
+        CO2: { value: 740, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        PH: { value: 6.1, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 60, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
       }
     },
     {
@@ -231,14 +247,16 @@ export const MOCK_DATA = {
       deviceStatus: "ONLINE",
       deviceId: "mock-plot-c01",
       lastSeen: "刚刚",
+      farmId: "farm-demo",
+      status: "ACTIVE",
       metrics: {
-        SOIL_MOISTURE: { value: 32.5, unit: "%", status: "NORMAL", label: "基质湿度", target: "28~45%" },
-        AIR_TEMPERATURE: { value: 24.5, unit: "°C", status: "NORMAL", label: "室内温度", target: "22~28°C" },
-        AIR_HUMIDITY: { value: 66.8, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~78%RH" },
-        LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "补光强度", target: "35k~55k lux" },
-        CO2: { value: 820, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "700~1000 ppm" },
-        SOIL_EC: { value: 1.8, unit: "mS/cm", status: "NORMAL", label: "营养液 EC", target: "1.4~2.2 mS/cm" },
-        NPK_RATIO: { value: "210:110:240", unit: "mg/L", status: "NORMAL", label: "水肥浓度", target: "精准供给" }
+        SOIL_MOISTURE: { value: 32.5, unit: "%", status: "NORMAL", label: "土壤湿度", target: "28~45%" },
+        AIR_TEMPERATURE: { value: 24.5, unit: "°C", status: "NORMAL", label: "空气温度", target: "18~32°C" },
+        AIR_HUMIDITY: { value: 66.8, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
+        LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
+        CO2: { value: 820, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        PH: { value: 6.3, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
+        WATER_LEVEL: { value: 75, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
       }
     }
   ],
@@ -248,9 +266,9 @@ export const MOCK_DATA = {
       id: "feed-101",
       type: "DIAGNOSIS",
       category: "根因诊断 · 风险分析",
-      title: "【温室 1 号棚】检测到土壤持续缺水风险，完成多因果排查",
+      title: "【温室1】检测到土壤持续缺水风险，完成多因果排查",
       plotId: "plot-a01",
-      plotName: "温室 1 号棚 (番茄 · 结果期)",
+      plotName: "温室1 (番茄 · 挂果采收期)",
       timestamp: "5 分钟前",
       timeIso: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       badge: { text: "WATER_DEFICIT", color: "amber" },
@@ -280,7 +298,7 @@ export const MOCK_DATA = {
       category: "结构化农业处方 · 就绪度通过",
       title: "【温室 1 号棚】灌溉处方待审批 (建议时长 8.5 分钟 / 153 升)",
       plotId: "plot-a01",
-      plotName: "温室 1 号棚 (番茄 · 结果期)",
+      plotName: "温室1 (番茄 · 挂果采收期)",
       timestamp: "3 分钟前",
       timeIso: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
       badge: { text: "READY · 可执行", color: "green" },
@@ -339,18 +357,18 @@ export const MOCK_DATA = {
       id: "feed-104",
       type: "WORK_ORDER",
       category: "今日农务 · 巡检与工单",
-      title: "【今日待办】温室 3 号棚例行水肥电导度核验 & 番茄地块疏叶",
+      title: "【今日待办】温室3 黄瓜水肥核验 & 温室1 番茄疏花",
       plotId: "plot-b01",
-      plotName: "温室 3 号棚 (黄瓜 · 营养生长期)",
+      plotName: "温室3 (黄瓜 · 营养生长期)",
       timestamp: "35 分钟前",
       timeIso: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
       badge: { text: "2 项待执行", color: "purple" },
       author: { name: "农务协同调度中心", tag: "Work Orders", avatar: "📋" },
-      summary: "根据 Crop Pack 作物全周期计划生成常规巡田工单，含水肥 EC/pH 便携式仪器采样抽检、温室 1 号棚下部老叶摘除。",
+      summary: "根据 Crop Pack 作物全周期计划生成常规巡田工单：温室3 黄瓜 EC/pH 便携仪比对，以及温室1 番茄疏花打杈。",
       details: {
         tasks: [
-          { name: "温室3号棚土壤便携仪校准比对", priority: "MEDIUM", status: "PENDING", due: "16:30 前" },
-          { name: "温室1号棚番茄第4穗花疏花打杈", priority: "LOW", status: "PENDING", due: "18:00 前" }
+          { name: "温室3 黄瓜棚土壤便携仪校准比对", priority: "MEDIUM", status: "PENDING", due: "16:30 前" },
+          { name: "温室1 番茄第4穗花疏花打杈", priority: "LOW", status: "PENDING", due: "18:00 前" }
         ]
       },
       actions: [
@@ -398,8 +416,8 @@ export const MOCK_DATA = {
       sourceType: "ALERT",
       sourceRef: "alert-water-a01",
       actionType: "IRRIGATION_REVIEW",
-      title: "核对缺水告警并审批补水处方",
-      reason: "土壤湿度连续低于番茄结果期目标下限",
+      title: "核对温室1 缺水告警并审批补水处方",
+      reason: "土壤湿度连续低于番茄挂果采收期目标下限",
       priority: "HIGH",
       status: "OPEN",
       assigneeId: null,
@@ -415,8 +433,8 @@ export const MOCK_DATA = {
       sourceType: "CROP_PLAN",
       sourceRef: "task-template-cucumber-ec",
       actionType: "INSPECTION",
-      title: "黄瓜棚水肥 EC/pH 便携仪比对",
-      reason: "Crop Pack 营养生长期例行核验",
+      title: "温室3 黄瓜棚水肥 EC/pH 便携仪比对",
+      reason: "黄瓜营养生长期例行核验",
       priority: "MEDIUM",
       status: "ASSIGNED",
       assigneeId: "demo-farmer-b",
@@ -433,8 +451,8 @@ export const MOCK_DATA = {
       sourceType: "CROP_PLAN",
       sourceRef: "task-template-tomato-prune",
       actionType: "FIELD_OPERATION",
-      title: "番茄第 4 穗花疏花打杈",
-      reason: "开花坐果期标准农务",
+      title: "温室2 番茄第 4 穗花疏花打杈",
+      reason: "挂果采收期标准农务",
       priority: "LOW",
       status: "IN_PROGRESS",
       assigneeId: "user-farmer",
@@ -451,7 +469,7 @@ export const MOCK_DATA = {
       sourceType: "DEVICE_HEALTH",
       sourceRef: "mock-plot-a02",
       actionType: "DEVICE_CHECK",
-      title: "检查 A02 流量计心跳延迟",
+      title: "检查温室2 流量计心跳延迟",
       reason: "设备新鲜度短时下降，需完成复测",
       priority: "MEDIUM",
       status: "DONE",
@@ -470,7 +488,7 @@ export const MOCK_DATA = {
       sourceType: "MANUAL",
       sourceRef: null,
       actionType: "INSPECTION",
-      title: "复测 A01 番茄田土壤湿度",
+      title: "复测温室1 番茄田土壤湿度",
       reason: "使用便携仪复测三处取样点并记录结果",
       priority: "HIGH",
       status: "ASSIGNED",
@@ -1127,11 +1145,13 @@ export const MOCK_DATA = {
 
 
   adminGlobalPlots: [
-    { id: 'plot-a01', farm: '科学城农业园', crop: '番茄', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '28%', AIR_TEMPERATURE: '25°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.4', WATER_LEVEL: '72%' } },
-    { id: 'plot-a02', farm: '科学城农业园', crop: '黄瓜', status: 'WARNING', updated: '1分钟前', issue: '缺水预警', metrics: { SOIL_MOISTURE: '18%', AIR_TEMPERATURE: '27°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.2', WATER_LEVEL: '41%' } },
-    { id: 'plot-b01', farm: '白云基地', crop: '草莓', status: 'CRITICAL', updated: '刚刚', issue: '严重干旱', metrics: { SOIL_MOISTURE: '12%', AIR_TEMPERATURE: '30°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.0', WATER_LEVEL: '18%' } },
-    { id: 'plot-b02', farm: '白云基地', crop: '辣椒', status: 'HEALTHY', updated: '5分钟前', metrics: { SOIL_MOISTURE: '24%', AIR_TEMPERATURE: '26°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.5', WATER_LEVEL: '68%' } },
-    { id: 'plot-c01', farm: '增城果园', crop: '葡萄', status: 'OFFLINE', updated: '2小时前', issue: '网关掉线', metrics: { SOIL_MOISTURE: '--', AIR_TEMPERATURE: '--', LIGHT: '--', CO2: '--', PH: '--', WATER_LEVEL: '--' } }
+    { id: 'plot-a01', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
+    { id: 'plot-a02', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
+    { id: 'plot-b01', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
+    { id: 'plot-a03', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
+    { id: 'plot-b02', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
+    { id: 'plot-b03', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
+    { id: 'plot-c01', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
   ],
 
   adminOverview: {
@@ -1306,10 +1326,10 @@ export const MOCK_DATA = {
 
   adminUsers: [
     { userId: 'user-sysadmin', username: 'sysadmin', role: 'SYSTEM_ADMIN', roleLabel: '系统管理员', farmName: '全局', plotIds: ['*'], enabled: true, createdAt: '2026-08-20' },
-    { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', farmName: '农智示范农场', plotIds: ['plot-a01','plot-a02','plot-a03','plot-b01','plot-b03'], enabled: true, createdAt: '2026-08-20' },
+    { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', farmName: '农智示范农场', plotIds: ['plot-a01','plot-a02','plot-b01','plot-a03','plot-b02','plot-b03','plot-c01'], enabled: true, createdAt: '2026-08-20' },
     { userId: 'user-farmer', username: 'farmer', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-a01','plot-a02'], enabled: true, createdAt: '2026-08-21' },
-    { userId: 'user-worker1', username: 'worker1', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-a03','plot-b01'], enabled: true, createdAt: '2026-08-22' },
-    { userId: 'user-op1', username: 'operator1', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-b03'], enabled: false, createdAt: '2026-08-22' }
+    { userId: 'demo-farmer-b', username: 'farmer-b', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-b01'], enabled: true, createdAt: '2026-08-22' },
+    { userId: 'demo-farmer-c', username: 'farmer-c', role: 'FARMER', roleLabel: '种植农户', farmName: '农智示范农场', plotIds: ['plot-a03','plot-b02'], enabled: false, createdAt: '2026-08-22' }
   ],
 
   adminAuditLogs: [
@@ -1330,10 +1350,10 @@ export const MOCK_DATA = {
     {
       id: "msg-001",
       category: "alert",
-      title: "【紧急】A01 番茄棚土壤湿度持续低于阈值",
+      title: "【紧急】温室1土壤湿度持续低于阈值",
       snippet: "近 3 个采样周期土壤湿度均低于 20%，已触发干旱风险告警，请尽快核实并处理。",
       body_paragraphs: [
-        "地块 A01 番茄示范田近 3 个采样周期土壤湿度均低于 20% 目标下限，最新读数 16.8%。",
+        "地块 温室1近 3 个采样周期土壤湿度均低于 20% 目标下限，最新读数 16.8%。",
         "系统已完成干旱与传感器漂移分流校验，置信度 92%，判定为真实缺水。",
         "建议尽快结合现场巡田核实，并联系农场管理员审批补水处方。"
       ],
@@ -1363,7 +1383,7 @@ export const MOCK_DATA = {
       title: "【通知】A02 流量计心跳延迟已恢复",
       snippet: "A02 地块流量计短时心跳延迟已恢复，设备健康度回到 0.98，无需进一步操作。",
       body_paragraphs: [
-        "A02 玉米高产田流量计此前出现短时心跳延迟，最新一次设备健康检查已通过。",
+        "温室2流量计此前出现短时心跳延迟，最新一次设备健康检查已通过。",
         "设备健康度回到 0.98，数据新鲜度恢复正常范围。",
         "您此前提交的设备复测任务已标记为完成，无需进一步操作。"
       ],
@@ -1390,10 +1410,10 @@ export const MOCK_DATA = {
     {
       id: "msg-005",
       category: "alert",
-      title: "【提醒】A01 番茄棚灌溉处方待您确认",
-      snippet: "系统已生成 A01 番茄棚灌溉处方（建议时长 8.5 分钟 / 153 升），等待农场管理员审批。",
+      title: "【提醒】温室1灌溉处方待您确认",
+      snippet: "系统已生成 温室1灌溉处方（建议时长 8.5 分钟 / 153 升），等待农场管理员审批。",
       body_paragraphs: [
-        "系统已针对 A01 番茄棚缺水风险生成结构化灌溉处方。",
+        "系统已针对 温室1缺水风险生成结构化灌溉处方。",
         "建议时长 8.5 分钟，水量 153 升，预计土壤湿度由 16.8% 回升至 30.0%。",
         "处方已提交农场管理员审批，审批通过后将通知您执行。"
       ],
@@ -1407,13 +1427,13 @@ export const MOCK_DATA = {
   farmer_tasks: [
     {
       id: "ft-001",
-      title: "黄瓜棚水肥 EC/pH 便携仪比对",
-      reason: "Crop Pack 营养生长期例行核验",
-      instruction: "在温室 3 号棚 5 个标准采样点采集便携仪读数，与在线传感器对比，误差超过 0.2 mS/cm 需上报。",
+      title: "温室2 番茄棚便携仪湿度复测",
+      reason: "挂果采收期例行核验",
+      instruction: "在温室2 五个标准采样点采集便携仪读数，与在线土壤湿度对比，偏差超过 3% 需上报。",
       status: "ASSIGNED",
       priority: "MEDIUM",
-      plot_id: "plot-a03",
-      plot_name: "A03 黄瓜立体架",
+      plot_id: "plot-a02",
+      plot_name: "温室2",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
       due_iso: new Date(Date.now() + 2.2 * 60 * 60 * 1000).toISOString(),
@@ -1422,13 +1442,13 @@ export const MOCK_DATA = {
     },
     {
       id: "ft-002",
-      title: "番茄第 4 穗花疏花打杈",
-      reason: "开花坐果期标准农务",
-      instruction: "对 A01 番茄棚第 4 穗花进行疏花打杈，每穗保留 4-5 朵健花，去除多余花蕾与侧枝。",
+      title: "温室1 番茄第 4 穗花疏花打杈",
+      reason: "挂果采收期标准农务",
+      instruction: "对温室1 番茄棚第 4 穗花进行疏花打杈，每穗保留 4-5 朵健花，去除多余花蕾与侧枝。",
       status: "IN_PROGRESS",
       priority: "LOW",
       plot_id: "plot-a01",
-      plot_name: "A01 番茄示范田",
+      plot_name: "温室1",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
       due_iso: new Date(Date.now() + 4.5 * 60 * 60 * 1000).toISOString(),
@@ -1437,13 +1457,13 @@ export const MOCK_DATA = {
     },
     {
       id: "ft-003",
-      title: "A02 流量计心跳延迟复测",
+      title: "温室2 流量计心跳延迟复测",
       reason: "设备新鲜度短时下降，需完成复测",
-      instruction: "现场检查 A02 流量计电源与通信线路，记录复测后心跳间隔。",
+      instruction: "现场检查温室2 流量计电源与通信线路，记录复测后心跳间隔。",
       status: "DONE",
       priority: "MEDIUM",
       plot_id: "plot-a02",
-      plot_name: "A02 玉米高产田",
+      plot_name: "温室2",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       due_iso: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
@@ -1452,9 +1472,9 @@ export const MOCK_DATA = {
     },
     {
       id: "ft-004",
-      title: "全场设备例行巡检",
+      title: "负责地块设备例行巡检",
       reason: "每周一例行设备健康巡检",
-      instruction: "巡查所属地块所有在线设备外观、电源、通信状态，填写巡检表并拍照上传。",
+      instruction: "巡查温室1、温室2 在线设备外观、电源、通信状态，填写巡检表并拍照上传。",
       status: "PENDING",
       priority: "LOW",
       plot_id: null,
@@ -1467,13 +1487,13 @@ export const MOCK_DATA = {
     },
     {
       id: "ft-005",
-      title: "A01 番茄棚缺水告警现场核实",
-      reason: "土壤湿度连续低于番茄结果期目标下限",
-      instruction: "现场查看 A01 番茄棚土壤表层与根系层湿度，观察植株萎蔫情况，与传感器读数对比。",
-      status: "PENDING",
+      title: "温室1 番茄缺水告警现场核实",
+      reason: "土壤湿度连续低于番茄挂果采收期目标下限",
+      instruction: "现场查看温室1 土壤表层与根系层湿度，观察植株萎蔫情况，与传感器读数对比。",
+      status: "ASSIGNED",
       priority: "HIGH",
       plot_id: "plot-a01",
-      plot_name: "A01 番茄示范田",
+      plot_name: "温室1",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
       due_iso: new Date(Date.now() + 35 * 60 * 1000).toISOString(),
@@ -1482,13 +1502,13 @@ export const MOCK_DATA = {
     },
     {
       id: "ft-006",
-      title: "A02 玉米抽雄期田间观察记录",
-      reason: "玉米开花抽雄期长势记录",
-      instruction: "在 A02 玉米田选取 5 个样点，记录抽雄率、株高、病虫害情况。",
+      title: "温室2 番茄挂果期田间观察记录",
+      reason: "番茄挂果采收期长势记录",
+      instruction: "在温室2 选取 5 个样点，记录穗花数、叶片色泽、病虫害情况。",
       status: "ASSIGNED",
       priority: "MEDIUM",
       plot_id: "plot-a02",
-      plot_name: "A02 玉米高产田",
+      plot_name: "温室2",
       issuer: "农场管理员",
       created_iso: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
       due_iso: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1503,7 +1523,7 @@ export const MOCK_DATA = {
     avatar: "🧑‍🌾",
     joined_at: "2026-03-15",
     contact: "138****5826",
-    plot_names: ["A01 番茄示范田", "A02 玉米高产田", "A03 黄瓜立体架"],
+    plot_names: ["温室1", "温室2"],
     total_done: 86,
     month_done: 12,
     inspections: 7,
@@ -1899,10 +1919,10 @@ export const MOCK_DATA = {
     // I-15 统一农务工单与今日农务中心
     unifiedWorkOrderCenter: {
       aggregatedItems: [
-        { type: "ALERT", sourceId: "alert-water-a01", plotId: "plot-a01", title: "A01 缺水告警", priority: "HIGH", status: "OPEN" },
-        { type: "DIAGNOSIS", sourceId: "diag-a01-001", plotId: "plot-a01", title: "A01 根因诊断", priority: "HIGH", status: "DONE" },
-        { type: "INSPECTION", sourceId: "wo-inspect-b01", plotId: "plot-b01", title: "黄瓜棚 EC 比对", priority: "MEDIUM", status: "ASSIGNED" },
-        { type: "DEVICE_CHECK", sourceId: "wo-device-a02", plotId: "plot-a02", title: "A02 流量计复测", priority: "MEDIUM", status: "DONE" }
+        { type: "ALERT", sourceId: "alert-water-a01", plotId: "plot-a01", title: "温室1 缺水告警", priority: "HIGH", status: "OPEN" },
+        { type: "DIAGNOSIS", sourceId: "diag-a01-001", plotId: "plot-a01", title: "温室1 根因诊断", priority: "HIGH", status: "DONE" },
+        { type: "INSPECTION", sourceId: "wo-inspect-b01", plotId: "plot-b01", title: "温室3 黄瓜棚 EC 比对", priority: "MEDIUM", status: "ASSIGNED" },
+        { type: "DEVICE_CHECK", sourceId: "wo-device-a02", plotId: "plot-a02", title: "温室2 流量计复测", priority: "MEDIUM", status: "DONE" }
       ],
       rawRecordLinks: [
         { workOrderId: "wo-alert-a01", refType: "ALERT", refId: "alert-water-a01" },

@@ -55,6 +55,7 @@ const PLOT_CHART_SPECS = [
   { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
   { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
   { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
+  { code: 'RAINFALL', label: '降雨强度', unit: 'mm/h', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
   { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
 ];
@@ -243,6 +244,7 @@ function metric_chart(plot, code, range_id = '7d') {
     risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
     range_title: range.title,
     labels: range.labels,
+    sample_labels: range.labels,
     grid,
     is_multi: Boolean(spec.multi),
     history_source: hasObservedHistory ? 'BACKEND' : (allowDerived ? 'DERIVED' : 'UNAVAILABLE'),
@@ -529,14 +531,6 @@ const app = createApp({
       ...plot,
       healthScore: compute_plot_health_score(plot)
     }));
-    if (!is_formal_session && assigned_plot_names.size > assigned_plots.length) {
-      const cucumber_plot = MOCK_DATA.plots.find((plot) => plot.cropCode === 'cucumber');
-      const missing_name = [...assigned_plot_names].find((name) => !assigned_plots.some((plot) => plot.name === name));
-      if (cucumber_plot && missing_name) {
-        const patched = { ...cucumber_plot, name: missing_name };
-        assigned_plots.push({ ...patched, healthScore: compute_plot_health_score(patched) });
-      }
-    }
     const plots = ref(assigned_plots);
 
     const messages = ref(is_formal_session ? [] : MOCK_DATA.farmer_messages.map((msg) => ({ ...msg })));
@@ -554,6 +548,32 @@ const app = createApp({
     const shared_module_links = SHARED_MODULE_LINKS;
     const chart_range = ref('7d');
     const chart_range_options = CHART_RANGE_OPTIONS;
+    const chart_tooltip = ref(null);
+    const show_chart_tooltip = (event, chart, key = chart?.code) => {
+      const svg = event?.currentTarget;
+      const series = Array.isArray(chart?.series) ? chart.series : [];
+      const pointCount = series.reduce((count, item) => Math.max(count, item?.values?.length || 0), 0);
+      if (!svg || !pointCount) {
+        chart_tooltip.value = null;
+        return;
+      }
+      const rect = svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+      const index = Math.round(ratio * Math.max(0, pointCount - 1));
+      const labels = chart.sample_labels || chart.labels || [];
+      const values = series
+        .map((item) => ({ label: item.label, color: item.color, value: item.values?.[index] }))
+        .filter((item) => Number.isFinite(Number(item.value)));
+      chart_tooltip.value = {
+        key,
+        label: labels[index] || `第 ${index + 1} 个采样点`,
+        values,
+        left: Math.max(9, Math.min(91, ratio * 100)),
+        top: Math.max(18, Math.min(82, ((event.clientY - rect.top) / rect.height) * 100))
+      };
+    };
+    const hide_chart_tooltip = () => { chart_tooltip.value = null; };
     const plot_charts = computed(() => PLOT_CHART_SPECS
       .map((spec) => {
         const chart = metric_chart(selected_plot.value, spec.code, chart_range.value);
@@ -751,6 +771,21 @@ const app = createApp({
     const latest_answer = ref('');
     const qa_history = ref([]);
     const qa_source_label = ref(is_formal_session ? '后端 AI' : '演示规则');
+    const show_ai_consult = ref(false);
+    const qa_busy = ref(false);
+    const qa_plot_id = ref(plots.value[0]?.plotId || '');
+
+    const toggle_ai_consult = () => {
+      show_ai_consult.value = !show_ai_consult.value;
+      if (show_ai_consult.value && !qa_plot_id.value && plots.value[0]?.plotId) {
+        qa_plot_id.value = plots.value[0].plotId;
+      }
+    };
+    const close_ai_consult = () => { show_ai_consult.value = false; };
+    const on_app_click = () => {
+      close_profile_menu();
+      close_ai_consult();
+    };
 
     // 农户任务看板状态：保留 PENDING（未开始），隐藏真正的 OPEN（待分配）。
     const farmer_task_status = (task) => {
@@ -1121,6 +1156,9 @@ const app = createApp({
       replace_ref_array(plots, nextPlots);
       selected_plot.value = nextPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || nextPlots[0] || null;
       advice_selected_plot.value = nextPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || nextPlots[0] || null;
+      if (!qa_plot_id.value || !nextPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
+        qa_plot_id.value = nextPlots[0]?.plotId || '';
+      }
       data_updated_label.value = '刚刚';
       return true;
     };
@@ -1217,6 +1255,9 @@ const app = createApp({
         };
         selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || normalizedPlots[0] || null;
         advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
+        if (!qa_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
+          qa_plot_id.value = normalizedPlots[0]?.plotId || '';
+        }
         if (!inspection_form.value.plot_id || !plotMap.has(inspection_form.value.plot_id)) inspection_form.value.plot_id = normalizedPlots[0]?.plotId || '';
         if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
         data_updated_label.value = '刚刚';
@@ -1411,36 +1452,41 @@ const app = createApp({
         show_toast('请先输入想了解的农事问题', 'error');
         return;
       }
+      if (qa_busy.value) return;
+      show_ai_consult.value = true;
       if (is_formal_session) {
-        const plot_id = advice_selected_plot.value?.plotId || selected_plot.value?.plotId || plots.value[0]?.plotId;
+        const plot_id = qa_plot_id.value || advice_selected_plot.value?.plotId || selected_plot.value?.plotId || plots.value[0]?.plotId;
+        qa_busy.value = true;
         try {
-          const response = await api.agentChat(question, plot_id);
+          const response = await api.agentChat(question, plot_id || undefined);
           const answer = agentResponseText(response, '后端智能服务已返回，但没有可展示的回答。');
           latest_answer.value = answer;
           qa_source_label.value = agentResponseSource(response, 'live');
           qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value, traceId: response?.traceId, dataOrigin: 'BACKEND' });
-          qa_history.value = qa_history.value.slice(0, 4);
+          qa_history.value = qa_history.value.slice(0, 6);
           qa_input.value = '';
           return;
         } catch (error) {
           qa_source_label.value = 'AI 暂不可用';
           show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
           return;
+        } finally {
+          qa_busy.value = false;
         }
       }
       const lower = question.toLowerCase();
       let answer = '建议先查看“我的地块”的最新数据，再结合现场观察决定是否操作；数据不足时请申请补证。';
       if (question.includes('水') || question.includes('浇') || lower.includes('irrig')) {
-        answer = 'A01 当前土壤湿度为 16.8%，系统建议补水约 153 升、执行约 8 分 30 秒。请先完成现场核验，并等待管理员审批。';
+        answer = '温室1 当前土壤湿度偏低，演示建议先现场核验后再由管理员审批补水；正式会话会由后端返回可执行处方与安全门结果。';
       } else if (question.includes('温度') || question.includes('热')) {
-        answer = '当前示范地块温度在 23.8~27.6°C，暂未触发高温告警；如果棚内持续升温，建议先通风并记录现场情况。';
+        answer = '当前示范地块温度大致正常，暂未触发高温告警；如果棚内持续升温，建议先通风并记录现场情况。';
       } else if (question.includes('病') || question.includes('虫')) {
         answer = '系统没有足够的图像证据判断病虫害。请在「巡田记录」中申请巡田或录入现场观察，再由管理员复核。';
       }
       latest_answer.value = answer;
       qa_source_label.value = '演示规则';
       qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value });
-      qa_history.value = qa_history.value.slice(0, 4);
+      qa_history.value = qa_history.value.slice(0, 6);
       qa_input.value = '';
     };
 
@@ -1749,6 +1795,9 @@ const app = createApp({
       selected_plot,
       chart_range,
       chart_range_options,
+      chart_tooltip,
+      show_chart_tooltip,
+      hide_chart_tooltip,
       plot_charts,
       advice_plot,
       advice_selected_plot,
@@ -1801,6 +1850,12 @@ const app = createApp({
       latest_answer,
       qa_history,
       qa_source_label,
+      show_ai_consult,
+      qa_busy,
+      qa_plot_id,
+      toggle_ai_consult,
+      close_ai_consult,
+      on_app_click,
       toasts,
       greeting,
       stats,

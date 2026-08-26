@@ -8,16 +8,16 @@
 
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/farmer.css">
-  <link rel="stylesheet" href="css/account-profile.css">
+  <link rel="stylesheet" href="css/style.css?v=20260826-farmer-ai-consult-2">
+  <link rel="stylesheet" href="css/farmer.css?v=20260826-farmer-ai-consult-2">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260826-farmer-ai-consult-2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
 </head>
 <body>
-  <div id="farmer_app" v-cloak @click="close_profile_menu">
+  <div id="farmer_app" v-cloak @click="on_app_click">
     <header class="g-header farmer-header">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggle_sidebar" title="折叠导航">
@@ -119,6 +119,21 @@
           </template>
         </div>
         <div class="farmer-nav-footer">
+          <div class="farmer-ai-dock" :class="{ open: show_ai_consult }">
+            <button
+              type="button"
+              class="g-nav-item farmer-nav-item farmer-ai-dock-trigger"
+              :class="{ active: show_ai_consult }"
+              :title="is_sidebar_open ? '' : '咨询 AI'"
+              :aria-expanded="show_ai_consult ? 'true' : 'false'"
+              @click.stop="toggle_ai_consult"
+            >
+              <span class="material-symbols-outlined">smart_toy</span>
+              <span class="farmer-nav-label">咨询 AI</span>
+              <span v-if="qa_history.length" class="farmer-nav-badge">{{ Math.min(qa_history.length, 9) }}</span>
+            </button>
+          </div>
+
           <template v-for="nav in nav_items" :key="nav.id">
             <div v-if="nav.is_footer"
                  class="g-nav-item farmer-nav-item"
@@ -131,6 +146,52 @@
       </nav>
 
       <main class="g-main farmer-main">
+        <div
+          v-if="show_ai_consult"
+          class="farmer-ai-consult"
+          :class="{ 'is-sidebar-collapsed': !is_sidebar_open }"
+          role="dialog"
+          aria-label="咨询 AI"
+          @click.stop
+        >
+          <header class="farmer-ai-consult-header">
+            <div>
+              <strong>咨询 AI</strong>
+              <small>{{ qa_source_label }}</small>
+            </div>
+            <button type="button" class="g-btn icon-only farmer-btn-light" title="关闭" aria-label="关闭咨询 AI" @click="close_ai_consult">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </header>
+          <form class="farmer-ai-consult-form" @submit.prevent="ask_question">
+            <textarea
+              v-model="qa_input"
+              rows="3"
+              placeholder="例如：温室1 现在需要浇多少水？"
+              aria-label="农事问题"
+            ></textarea>
+            <div class="farmer-ai-consult-actions">
+              <select v-if="plots.length" class="g-select" v-model="qa_plot_id" aria-label="关联地块">
+                <option value="">不关联地块</option>
+                <option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option>
+              </select>
+              <button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="qa_busy">{{ qa_busy ? '思考中…' : '发送' }}</button>
+            </div>
+          </form>
+          <div class="farmer-ai-consult-answer" v-if="latest_answer">
+            <span class="material-symbols-outlined">forum</span>
+            <p>{{ latest_answer }}</p>
+          </div>
+          <div class="farmer-ai-consult-history" v-if="qa_history.length">
+            <button
+              type="button"
+              v-for="item in qa_history"
+              :key="item.id"
+              @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || qa_source_label"
+            >{{ item.question }}</button>
+          </div>
+        </div>
+
         <transition name="fade" mode="out-in">
           <section v-if="current_view === 'dashboard'" class="farmer-workspace" key="dashboard">
             <div class="farmer-page-header">
@@ -429,11 +490,19 @@
                     </div>
                     <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'">
-                    <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
-                    <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                    <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
+                         @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                      <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                      <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === chart.code" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} {{ chart.unit }}</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
                   <div v-if="chart.is_multi" class="farmer-chart-legend">
                     <span v-for="series in chart.series" :key="'legend-' + series.label"><i :style="{background: series.color}"></i>{{ series.label }}</span>
@@ -514,18 +583,26 @@
                   </div>
                 </div>
                 <div v-if="advice_moisture_chart" class="farmer-moisture-chart-wrap">
-                  <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'">
-                    <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
-                    <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
-                    <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
-                      <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
-                      <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
-                    </g>
-                    <g v-if="advice_moisture_chart.alertLine">
-                      <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
-                    </g>
-                    <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'"
+                         @mousemove="show_chart_tooltip($event, advice_moisture_chart, 'advice-moisture')" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
+                      <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
+                      <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
+                        <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
+                        <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
+                      </g>
+                      <g v-if="advice_moisture_chart.alertLine">
+                        <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
+                      </g>
+                      <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === 'advice-moisture'" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} %</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_moisture_chart.labels[0] }}</span><span>{{ advice_moisture_chart.labels[3] }}</span><span>{{ advice_moisture_chart.labels[6] }}</span></div>
                   <div class="farmer-threshold-legend">
                     <span v-if="advice_moisture_chart.targetBands.length"><i class="legend-target"></i>{{ advice_moisture_chart.cropLabel }} {{ advice_moisture_chart.stageLabel }} 目标值带 {{ advice_moisture_chart.currentTarget }}</span>
@@ -553,10 +630,18 @@
                     <span>{{ advice_plot.name }} · 土壤湿度趋势</span>
                     <strong>{{ advice_soil_chart.current_label }}</strong>
                   </div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'">
-                    <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
-                    <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
+                  <div class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
+                         @mousemove="show_chart_tooltip($event, advice_soil_chart, 'advice-compact')" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                      <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === 'advice-compact'" class="farmer-chart-tooltip"
+                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} %</span>
+                    </div>
+                  </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
                 <p class="farmer-panel-hint">{{ irrigation_target_label }}；正式会话只创建后端审批工单，不直接控制水泵。</p>
@@ -610,27 +695,6 @@
                 </div>
               </article>
             </div>
-
-            <article class="g-card farmer-advice-card farmer-assistant-card">
-              <div class="farmer-panel-header">
-                <div>
-                  <span class="farmer-section-kicker">智能问答</span>
-                  <h3>问问农事助手</h3>
-                </div>
-                <span class="g-badge primary">{{ qa_source_label }}</span>
-              </div>
-              <form class="farmer-question-form" @submit.prevent="ask_question">
-                <input v-model="qa_input" type="text" placeholder="例如：番茄现在需要浇多少水？" aria-label="农事问题">
-                <button type="submit" class="g-btn primary farmer-btn-analyze">提问</button>
-              </form>
-              <div class="farmer-qa-answer" v-if="latest_answer">
-                <span class="material-symbols-outlined">smart_toy</span>
-                <p class="farmer-ai-answer-text">{{ latest_answer }}</p>
-              </div>
-              <div class="farmer-qa-history" v-if="qa_history.length">
-                <button type="button" v-for="item in qa_history" :key="item.id" @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || '后端 AI'">{{ item.question }}</button>
-              </div>
-            </article>
           </section>
 
           <section v-else-if="current_view === 'messages'" class="farmer-workspace" key="messages">
@@ -942,6 +1006,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js"></script>
+  <script type="module" src="js/farmer.js?v=20260826-farmer-ai-consult-2"></script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { normalizeAdminTab } from '../admin-state.js';
+import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js';
 
 const { ref, computed, watch, inject } = Vue;
@@ -89,9 +89,10 @@ export const AdminWorkManagementView = {
     };
     const taskLabel = action => action === 'IRRIGATION_CHECK' ? '检查灌溉需要' : action === 'INSPECTION' ? '现场巡田' : action || '农务任务';
     const stageLabel = stage => ({ seedling: '育苗期', vegetative: '营养生长期', flowering: '开花期', fruiting: '结果期' }[stage] || stage || '—');
+    const metricLabel = metric => adminMetricLabel(metric?.code, metric?.label);
     const value = input => input === undefined || input === null || input === '' ? '—' : input;
 
-    return { activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan, taskLabel, stageLabel, value };
+    return { activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan, taskLabel, stageLabel, metricLabel, value };
   },
   template: `
     <section class="admin-management-page">
@@ -102,7 +103,7 @@ export const AdminWorkManagementView = {
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
       </nav>
 
-      <work-order-lifecycle v-if="activeTab === 'tasks'" :state="state" :route-params="routeParams"
+      <work-order-lifecycle v-if="activeTab === 'tasks'" :state="state" :route-params="routeParams" :embedded="true"
         @navigate="(view, params) => $emit('navigate', view, params)"
         @data-invalidated="payload => $emit('data-invalidated', payload)"></work-order-lifecycle>
 
@@ -166,7 +167,7 @@ export const AdminWorkManagementView = {
             <ul><li v-for="task in stage.taskTemplates || []" :key="task.actionType">{{ taskLabel(task.actionType) }} · 每 {{ value(task.intervalDays) }} 天 · {{ value(task.priority) }}</li><li v-if="!stage.taskTemplates?.length">任务模板：—</li></ul>
           </article>
           <h3>指标与阈值</h3>
-          <div class="admin-compact-table"><div v-for="metric in selectedPack.metrics" :key="metric.code"><strong>{{ metric.code }}</strong><span>{{ metric.availability || '—' }}</span><span>{{ metric.range ? metric.range.min + '–' + metric.range.max + ' ' + (metric.unit || '') : '—' }}</span></div></div>
+          <div class="admin-compact-table"><div v-for="metric in selectedPack.metrics" :key="metric.code"><strong>{{ metricLabel(metric) }}</strong><span>{{ metric.availability || '—' }}</span><span>{{ metric.range ? metric.range.min + '–' + metric.range.max + ' ' + (metric.unit || '') : '—' }}</span></div></div>
         </section>
       </div>
     </section>

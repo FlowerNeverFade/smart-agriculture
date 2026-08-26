@@ -334,33 +334,47 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 
 /* Farm manager design tokens sampled from the accepted two-dimensional concept. */
 .role-farm-admin {
-  --g-bg-base: #f7f8fa;
+  --g-bg-base: #f3f6f5;
   --g-bg-surface: #ffffff;
-  --g-bg-subtle: #f4f6f5;
-  --g-bg-hover: #f4f7f5;
-  --g-border: #d6dadd;
-  --g-border-subtle: #e3e6e8;
-  --g-text-primary: #202322;
-  --g-text-secondary: #5d6461;
-  --g-primary: #08783f;
-  --g-primary-hover: #056334;
-  --g-primary-bg: #e9f3ed;
-  --g-success: #128149;
-  --g-success-bg: #e9f4ed;
-  --g-warning: #9a5a00;
-  --g-warning-bg: #f8efe0;
-  --g-danger: #b3261e;
-  --g-danger-bg: #f9e9e7;
-  --g-shadow-1: 0 1px 2px rgba(31, 39, 35, 0.08);
-  --g-shadow-2: 0 4px 12px rgba(31, 39, 35, 0.10);
+  --g-bg-subtle: #f2f5f3;
+  --g-bg-hover: #edf3ef;
+  --g-border: #d8e0dc;
+  --g-border-subtle: #e7ece9;
+  --g-text-primary: #19221e;
+  --g-text-secondary: #65706a;
+  --g-primary: #087b43;
+  --g-primary-hover: #066638;
+  --g-primary-bg: #e9f6ee;
+  --g-success: #178a53;
+  --g-success-bg: #eaf7ef;
+  --g-warning: #b66b12;
+  --g-warning-bg: #fff4e4;
+  --g-danger: #c9453d;
+  --g-danger-bg: #fff0ef;
+  --admin-blue: #3478f6;
+  --admin-blue-bg: #edf4ff;
+  --admin-red: #cf4842;
+  --admin-red-bg: #fff0ef;
+  --admin-orange: #c87816;
+  --admin-orange-bg: #fff5e7;
+  --admin-purple: #7657c4;
+  --admin-purple-bg: #f4efff;
+  --admin-mint: #178a53;
+  --admin-mint-bg: #eaf7ef;
+  --admin-teal: #16899a;
+  --admin-teal-bg: #ebf8fa;
+  --admin-card-shadow: 0 10px 28px rgba(31, 53, 42, 0.07), 0 2px 7px rgba(31, 53, 42, 0.04);
+  --admin-card-shadow-hover: 0 16px 34px rgba(31, 53, 42, 0.10), 0 4px 10px rgba(31, 53, 42, 0.05);
+  --g-shadow-1: 0 2px 7px rgba(31, 53, 42, 0.06);
+  --g-shadow-2: var(--admin-card-shadow);
 }
 [data-theme="dark"] .role-farm-admin {
-  --g-bg-base: #1f2221;
-  --g-bg-surface: #282c2a;
-  --g-bg-subtle: #323735;
-  --g-bg-hover: #353b38;
-  --g-border: #505753;
-  --g-border-subtle: #3e4541;
+  --g-bg-base: #181c1a;
+  --g-bg-surface: #242a27;
+  --g-bg-subtle: #2d3430;
+  --g-bg-hover: #333b37;
+  --g-border: #49534e;
+  --g-border-subtle: #39423e;
   --g-text-primary: #edf2ef;
   --g-text-secondary: #b6bfba;
   --g-primary: #77d8a2;
@@ -372,10 +386,24 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   --g-warning-bg: #4c3c25;
   --g-danger: #f28b82;
   --g-danger-bg: #533330;
+  --admin-blue: #75a7ff;
+  --admin-blue-bg: #263d63;
+  --admin-red: #ff8f88;
+  --admin-red-bg: #51302f;
+  --admin-orange: #efb568;
+  --admin-orange-bg: #493923;
+  --admin-purple: #b9a0ff;
+  --admin-purple-bg: #3d3459;
+  --admin-mint: #78d9a3;
+  --admin-mint-bg: #244735;
+  --admin-teal: #6dc9d7;
+  --admin-teal-bg: #24464b;
+  --admin-card-shadow: 0 12px 30px rgba(0, 0, 0, 0.24), 0 2px 7px rgba(0, 0, 0, 0.18);
+  --admin-card-shadow-hover: 0 18px 38px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.20);
   --g-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
   --g-shadow-2: 0 5px 15px rgba(0, 0, 0, 0.34);
 }
-.role-farm-admin .g-main { background: #fbfcfd; padding: 28px; }
+.role-farm-admin .g-main { background: #f7f9f8; padding: 28px; }
 [data-theme="dark"] .role-farm-admin .g-main { background: var(--g-bg-base); }
 .role-farm-admin .g-sidebar { padding: 20px 14px; }
 .role-farm-admin .g-nav-item { height: 46px; border-radius: 7px; gap: 14px; padding: 0 16px; color: #4f5552; }
@@ -608,6 +636,51 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .plot-related-work time { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--g-text-secondary); font-size: 11px; }
 .plot-empty-work { padding: 14px; border: 1px dashed var(--g-border); border-radius: 7px; color: var(--g-text-secondary); font-size: 12px; text-align: center; }
 .plot-detail-footer { background: var(--g-bg-surface); }
+
+/* Per-plot simulation controls and curve preview. */
+.plot-simulation-section { padding: 14px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-surface); }
+.plot-section-hint { margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.45; }
+.plot-simulation-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; background: var(--g-success-bg); color: var(--g-success); font-size: 11px; white-space: nowrap; }
+.plot-simulation-badge.is-offline { background: var(--g-warning-bg); color: var(--g-warning); }
+.plot-device-binding-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: 11px 0; padding: 9px 10px; border-radius: 7px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 11px; }
+.plot-device-binding-row span { display: inline-flex; align-items: center; gap: 6px; }
+.plot-device-binding-row i { width: 7px; height: 7px; border-radius: 50%; background: var(--g-text-disabled); }
+.plot-device-binding-row i.is-online { background: var(--g-success); }
+.plot-device-binding-row i.is-offline { background: var(--g-warning); }
+.plot-device-binding-row small { margin-left: auto; color: var(--g-text-disabled); }
+.plot-simulation-scenarios { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.plot-simulation-scenario { display: flex; align-items: flex-start; gap: 7px; min-height: 66px; padding: 9px 8px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.plot-simulation-scenario:hover { border-color: var(--g-primary); transform: translateY(-1px); }
+.plot-simulation-scenario:disabled { cursor: not-allowed; opacity: .72; }
+.plot-simulation-scenario:disabled:hover { border-color: var(--g-border-subtle); transform: none; }
+.plot-simulation-scenario.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--g-primary) 25%, transparent); }
+.plot-simulation-emoji { font-size: 18px; line-height: 1; }
+.plot-simulation-scenario span:last-child { display: grid; gap: 3px; min-width: 0; }
+.plot-simulation-scenario strong { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.plot-simulation-scenario small { color: var(--g-text-secondary); font-size: 9px; line-height: 1.35; }
+.plot-simulation-parameters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin-top: 11px; }
+.plot-simulation-field { display: grid; gap: 5px; padding: 8px 9px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
+.plot-simulation-field > span:first-child { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.plot-simulation-field b { color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.plot-simulation-field small { color: var(--g-text-secondary); font-size: 9px; }
+.plot-simulation-control { display: grid; grid-template-columns: minmax(80px, 1fr) 64px auto; align-items: center; gap: 7px; }
+.plot-simulation-control input[type=range] { width: 100%; accent-color: var(--g-primary); }
+.plot-simulation-control input[type=number] { width: 100%; min-height: 26px; padding: 3px 5px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-mono); }
+.plot-simulation-control em { color: var(--g-text-secondary); font-size: 10px; font-style: normal; white-space: nowrap; }
+.plot-simulation-chart-wrap { margin-top: 12px; padding: 9px 10px 5px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
+.plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.plot-simulation-chart-head small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; }
+.plot-simulation-chart { width: 100%; height: 220px; }
+.plot-simulation-note, .plot-simulation-readonly { margin-top: 4px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
+.plot-simulation-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.risk-forecast-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.risk-forecast-actions .g-btn { min-height: 28px; padding: 0 8px; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .plot-simulation-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plot-simulation-parameters { grid-template-columns: 1fr; }
+  .plot-device-binding-row small { width: 100%; margin-left: 0; }
+}
 
 /* Task creation and compact operational views. */
 .work-order-header-actions { display: flex; gap: 8px; }

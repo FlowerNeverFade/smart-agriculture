@@ -67,6 +67,7 @@ agriloop:
   simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
   supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
+  simulation-config-path: ${SIMULATION_CONFIG_PATH:data/plot-simulation.json}
   attachment-dir: ${ATTACHMENT_DIR:data/attachments}
 
 management:
