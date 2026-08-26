@@ -178,8 +178,8 @@
   overflow: hidden;
   flex-direction: column;
   border: 1px solid var(--g-border);
-  border-top: 3px solid var(--work-card-accent);
-  border-radius: 14px;
+  border-top: 1px solid var(--g-border);
+  border-radius: 13px;
   background: var(--g-bg-surface);
   box-shadow: var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 8%));
   color: var(--g-text-primary);
@@ -193,9 +193,8 @@
 .admin-pack-summary-card:hover,
 .admin-plan-summary-card.selected {
   border-color: color-mix(in srgb, var(--work-card-accent) 36%, var(--g-border));
-  border-top-color: var(--work-card-accent);
   box-shadow: var(--admin-card-shadow-hover, 0 14px 30px rgb(24 49 36 / 12%));
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .admin-plan-summary-card:focus-visible,
@@ -506,9 +505,9 @@
   min-width: 0;
   min-height: 82px;
   padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--device-summary-accent) 24%, var(--g-border));
+  border: 1px solid var(--g-border);
   border-radius: 13px;
-  background: linear-gradient(145deg, var(--device-summary-tint), var(--g-bg-surface) 74%);
+  background: color-mix(in srgb, var(--g-bg-surface) 94%, transparent);
   box-shadow: var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 8%));
   color: var(--g-text-primary);
   font: inherit;
@@ -516,17 +515,19 @@
   cursor: pointer;
   transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
-.admin-device-summary button:hover { border-color: var(--device-summary-accent); transform: translateY(-1px); }
+.admin-device-summary button:hover { border-color: color-mix(in srgb, var(--device-summary-accent) 36%, var(--g-border)); transform: translateY(-1px); }
 .admin-device-summary button:focus-visible { outline: 3px solid color-mix(in srgb, var(--device-summary-accent) 28%, transparent); outline-offset: 2px; }
 .admin-device-summary button.active {
-  border-color: color-mix(in srgb, var(--device-summary-accent) 64%, var(--g-border));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--device-summary-accent) 13%, transparent), var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 8%));
+  border-color: color-mix(in srgb, var(--device-summary-accent) 48%, var(--g-border));
+  background: color-mix(in srgb, var(--device-summary-tint) 34%, var(--g-bg-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--device-summary-accent) 12%, transparent), var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 8%));
 }
 .admin-device-summary button.tone-mint { --device-summary-accent: var(--admin-mint); --device-summary-tint: var(--admin-mint-bg); }
 .admin-device-summary button.tone-orange { --device-summary-accent: var(--admin-orange); --device-summary-tint: var(--admin-orange-bg); }
 .admin-device-summary button.tone-purple { --device-summary-accent: var(--admin-purple); --device-summary-tint: var(--admin-purple-bg); }
 .admin-device-summary button > span { min-width: 0; font-size: 13px; font-weight: 650; }
-.admin-device-summary button > strong { grid-row: 1 / span 2; grid-column: 2; color: var(--device-summary-accent); font-size: 25px; font-weight: 650; }
+.admin-device-summary button > strong { grid-row: 1 / span 2; grid-column: 2; color: var(--g-text-primary); font-size: 25px; font-weight: 650; }
+.admin-device-summary button.tone-orange > strong { color: var(--device-summary-accent); }
 .admin-device-summary button > small { margin-top: 4px; color: var(--g-text-secondary); font-size: 10px; }
 
 .admin-device-toolbar {
@@ -538,7 +539,7 @@
   padding: 14px;
   border: 1px solid var(--g-border);
   border-radius: 13px;
-  background: var(--g-bg-surface);
+  background: color-mix(in srgb, var(--g-bg-surface) 94%, transparent);
   box-shadow: var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 8%));
 }
 .admin-device-toolbar label { display: grid; min-width: 0; gap: 6px; }
@@ -551,7 +552,7 @@
   padding: 8px 10px;
   border: 1px solid var(--g-border);
   border-radius: 8px;
-  background: var(--g-bg-base);
+  background: var(--g-bg-subtle);
   color: var(--g-text-primary);
   font: inherit;
   font-size: 12px;
