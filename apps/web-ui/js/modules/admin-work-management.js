@@ -103,7 +103,7 @@ export const AdminWorkManagementView = {
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
       </nav>
 
-      <work-order-lifecycle v-if="activeTab === 'tasks'" :state="state" :route-params="routeParams"
+      <work-order-lifecycle v-if="activeTab === 'tasks'" :state="state" :route-params="routeParams" :embedded="true"
         @navigate="(view, params) => $emit('navigate', view, params)"
         @data-invalidated="payload => $emit('data-invalidated', payload)"></work-order-lifecycle>
 
