@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-multimetric-curve-fix';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
 import { MOCK_DATA } from './mock-data.js?v=1787649000001';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -930,7 +930,7 @@ const PlotDetailModal = {
       }, true);
     };
 
-    const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false } = {}) => {
+    const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
       const normalized = simulationMetricDefinition(metric).code;
       const requestId = ++metricRequestSerial;
       simulationMetricLoading.value = true;
@@ -941,9 +941,9 @@ const PlotDetailModal = {
         ]);
         if (requestId !== metricRequestSerial) return;
         if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-        else simulationHistory.value = [];
+        else if (!preserveOnError) simulationHistory.value = [];
         if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
-        else simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        else if (!preserveOnError) simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         if (resetPreview) simulationPreviewDirty.value = false;
         await nextTick();
         renderSimulationChart();
@@ -977,6 +977,65 @@ const PlotDetailModal = {
       } finally {
         hydratingSimulation = false;
       }
+    };
+
+    let liveSeriesTimer = null;
+    let liveSeriesInFlight = false;
+    let liveSeriesQueued = false;
+    let liveSeriesKickTimer = null;
+    let liveConfigRefreshedAt = 0;
+    let liveSeriesVisibilityHandler = null;
+    const isLivePlot = () => props.state?.sessionMode === 'live' || api.sessionMode === 'live';
+    const refreshLiveSeries = async () => {
+      if (!isLivePlot() || document.hidden || simulationBusy.value || simulationMetricLoading.value) return;
+      if (liveSeriesInFlight) {
+        liveSeriesQueued = true;
+        return;
+      }
+      liveSeriesInFlight = true;
+      try {
+        await loadMetricSeries(simulationMetric.value, { preserveOnError: true });
+        // The simulator/device state is a separate resource from the curve;
+        // refresh it periodically without overwriting unsaved what-if inputs.
+        if (!simulationPreviewDirty.value && Date.now() - liveConfigRefreshedAt >= 10000) {
+          liveConfigRefreshedAt = Date.now();
+          try {
+            const latest = await api.getPlotSimulation(props.plot?.plotId);
+            if (latest && !simulationBusy.value) {
+              simulation.value = latest;
+              simulationForm.value = cloneForm(latest);
+            }
+          } catch (error) { /* keep the last known simulator state */ }
+        }
+      } finally {
+        liveSeriesInFlight = false;
+        if (liveSeriesQueued && !document.hidden) {
+          liveSeriesQueued = false;
+          if (!liveSeriesKickTimer) {
+            liveSeriesKickTimer = window.setTimeout(() => {
+              liveSeriesKickTimer = null;
+              refreshLiveSeries();
+            }, 120);
+          }
+        }
+      }
+    };
+    const stopLiveSeriesRefresh = () => {
+      if (liveSeriesTimer) window.clearInterval(liveSeriesTimer);
+      liveSeriesTimer = null;
+      if (liveSeriesKickTimer) window.clearTimeout(liveSeriesKickTimer);
+      liveSeriesKickTimer = null;
+      if (liveSeriesVisibilityHandler) document.removeEventListener('visibilitychange', liveSeriesVisibilityHandler);
+      liveSeriesVisibilityHandler = null;
+      liveSeriesQueued = false;
+    };
+    const startLiveSeriesRefresh = () => {
+      stopLiveSeriesRefresh();
+      if (!isLivePlot()) return;
+      liveSeriesTimer = window.setInterval(refreshLiveSeries, 4000);
+      liveSeriesVisibilityHandler = () => { if (!document.hidden) refreshLiveSeries(); };
+      document.addEventListener('visibilitychange', liveSeriesVisibilityHandler);
+      refreshLiveSeries();
     };
 
     const selectSimulationMetric = (eventOrCode) => {
@@ -1048,8 +1107,15 @@ const PlotDetailModal = {
       simulationPreviewDirty.value = true;
       renderSimulationChart();
     }, { deep: true });
-    onMounted(loadSimulation);
-    onBeforeUnmount(() => { simulationChart.value?.dispose(); simulationChart.value = null; });
+    onMounted(async () => {
+      await loadSimulation();
+      startLiveSeriesRefresh();
+    });
+    onBeforeUnmount(() => {
+      stopLiveSeriesRefresh();
+      simulationChart.value?.dispose();
+      simulationChart.value = null;
+    });
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
       code,
       label: adminMetricLabel(code, props.plot?.metrics?.[code]?.label),
@@ -2072,7 +2138,7 @@ const AdminOverviewView = {
       await refreshPlotMetrics();
     };
     const refreshPlotMetrics = async () => {
-      if (!selectedPlot.value) return;
+      if (!selectedPlot.value || telemetryLoading.value || document.hidden) return;
       telemetryLoading.value = true;
       try {
         const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
@@ -2088,6 +2154,30 @@ const AdminOverviewView = {
         telemetryLoading.value = false;
       }
     };
+    let plotMetricsRefreshTimer = null;
+    let plotMetricsVisibilityHandler = null;
+    const stopPlotMetricsRefresh = () => {
+      if (plotMetricsRefreshTimer) window.clearInterval(plotMetricsRefreshTimer);
+      plotMetricsRefreshTimer = null;
+      if (plotMetricsVisibilityHandler) document.removeEventListener('visibilitychange', plotMetricsVisibilityHandler);
+      plotMetricsVisibilityHandler = null;
+    };
+    const startPlotMetricsRefresh = () => {
+      stopPlotMetricsRefresh();
+      if (props.state?.sessionMode !== 'live') return;
+      plotMetricsRefreshTimer = window.setInterval(refreshPlotMetrics, 4000);
+      plotMetricsVisibilityHandler = () => { if (!document.hidden && showPlotModal.value) refreshPlotMetrics(); };
+      document.addEventListener('visibilitychange', plotMetricsVisibilityHandler);
+    };
+    watch(showPlotModal, (visible) => {
+      if (visible) {
+        startPlotMetricsRefresh();
+        refreshPlotMetrics();
+      } else {
+        stopPlotMetricsRefresh();
+      }
+    });
+    onBeforeUnmount(stopPlotMetricsRefresh);
     const savePlotMetrics = () => {
       if (props.state.sessionMode === 'live') {
         toast('正式会话只读显示后端遥测指标，监测项配置请通过设备配置接口维护', 'error');
@@ -2632,23 +2722,88 @@ const app = createApp({
     let systemRequestVersion = 0;
     let systemRefreshTimer = null;
     let farmRefreshTimer = null;
+    let systemRefreshInFlight = false;
+    let systemRefreshQueued = false;
+    let systemLastRefreshAt = 0;
+    let farmRefreshInFlight = false;
+    let farmRefreshQueued = false;
+    let farmLastRefreshAt = 0;
+    let livePollTimer = null;
+    let liveVisibilityHandler = null;
+    let liveOnlineHandler = null;
+    let liveEventsStop = null;
+    let liveEventsConnecting = false;
+    let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
-    const scheduleSystemRefresh = () => {
+    const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator'
+    ]);
+    const scheduleSystemRefresh = (delay = 450) => {
+      if (state.value.sessionMode !== 'live') return;
+      if (systemRefreshInFlight) {
+        systemRefreshQueued = true;
+        return;
+      }
       if (systemRefreshTimer) return;
+      const waitForThrottle = Math.max(0, 3000 - (Date.now() - systemLastRefreshAt));
       systemRefreshTimer = window.setTimeout(async () => {
         systemRefreshTimer = null;
-        await refreshSystemAdminData({ announceErrors: false });
-      }, 450);
+        if (document.hidden) {
+          systemRefreshQueued = true;
+          return;
+        }
+        if (systemRefreshInFlight) {
+          systemRefreshQueued = true;
+          return;
+        }
+        systemRefreshInFlight = true;
+        try {
+          await refreshSystemAdminData({ announceErrors: false });
+        } finally {
+          isLive.value = api.isLive;
+          systemLastRefreshAt = Date.now();
+          systemRefreshInFlight = false;
+          if (systemRefreshQueued && !document.hidden) {
+            systemRefreshQueued = false;
+            scheduleSystemRefresh(250);
+          }
+        }
+      }, Math.max(delay, waitForThrottle));
     };
-    const scheduleFarmRefresh = (domains = []) => {
+    const scheduleFarmRefresh = (domains = [], delay = 450) => {
       domains.forEach((domain) => pendingFarmDomains.add(domain));
+      if (state.value.sessionMode !== 'live') return;
+      if (farmRefreshInFlight) {
+        farmRefreshQueued = true;
+        return;
+      }
       if (farmRefreshTimer) return;
+      const waitForThrottle = Math.max(0, 1800 - (Date.now() - farmLastRefreshAt));
       farmRefreshTimer = window.setTimeout(async () => {
         farmRefreshTimer = null;
+        if (document.hidden) {
+          farmRefreshQueued = true;
+          return;
+        }
+        if (farmRefreshInFlight) {
+          farmRefreshQueued = true;
+          return;
+        }
         const requested = [...pendingFarmDomains];
         pendingFarmDomains.clear();
-        await refreshFarmData(state.value.adminContext.farmId, requested.length ? requested : ['overview', 'plots'], { announceErrors: false });
-      }, 450);
+        farmRefreshInFlight = true;
+        try {
+          await refreshFarmData(state.value.adminContext.farmId, requested.length ? requested : ['overview', 'plots'], { announceErrors: false });
+        } finally {
+          isLive.value = api.isLive;
+          farmLastRefreshAt = Date.now();
+          farmRefreshInFlight = false;
+          if (farmRefreshQueued && !document.hidden) {
+            farmRefreshQueued = false;
+            scheduleFarmRefresh([], 250);
+          }
+        }
+      }, Math.max(delay, waitForThrottle));
     };
     let requestContextChange = async () => {};
     const selectedFarmId = computed({
@@ -3014,6 +3169,95 @@ const app = createApp({
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 
+    const runLivePoll = () => {
+      if (document.hidden || state.value.sessionMode !== 'live') return;
+      if (api.isLive) {
+        connectLiveEvents({ announce: false });
+      } else if (!liveHealthProbeInFlight) {
+        liveHealthProbeInFlight = true;
+        api.checkHealth().then((healthy) => {
+          isLive.value = healthy;
+          if (healthy) {
+            connectLiveEvents({ announce: false });
+            runLivePoll();
+          }
+        }).catch(() => {}).finally(() => { liveHealthProbeInFlight = false; });
+      }
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
+        scheduleSystemRefresh(0);
+      } else if (state.value.currentUser?.role === 'FARM_ADMIN') {
+        scheduleFarmRefresh(LIVE_FARM_REFRESH_DOMAINS, 0);
+      }
+    };
+    const stopLiveRefresh = () => {
+      if (livePollTimer) window.clearInterval(livePollTimer);
+      livePollTimer = null;
+      if (liveVisibilityHandler) document.removeEventListener('visibilitychange', liveVisibilityHandler);
+      if (liveOnlineHandler) window.removeEventListener('online', liveOnlineHandler);
+      liveVisibilityHandler = null;
+      liveOnlineHandler = null;
+      if (systemRefreshTimer) window.clearTimeout(systemRefreshTimer);
+      if (farmRefreshTimer) window.clearTimeout(farmRefreshTimer);
+      systemRefreshTimer = null;
+      farmRefreshTimer = null;
+      systemRefreshQueued = false;
+      farmRefreshQueued = false;
+      pendingFarmDomains.clear();
+    };
+    const startLiveRefresh = () => {
+      stopLiveRefresh();
+      if (state.value.sessionMode !== 'live') return;
+      const interval = state.value.currentUser?.role === 'SYSTEM_ADMIN' ? 12000 : 8000;
+      livePollTimer = window.setInterval(runLivePoll, interval);
+      liveVisibilityHandler = () => { if (!document.hidden) runLivePoll(); };
+      liveOnlineHandler = () => runLivePoll();
+      document.addEventListener('visibilitychange', liveVisibilityHandler);
+      window.addEventListener('online', liveOnlineHandler);
+      runLivePoll();
+    };
+    const handleLiveEvent = (event) => {
+      if (event.type === 'connected' || event.type === 'heartbeat') return;
+      const systemEvent = presentSystemEvent(event);
+      const eventId = String(event?.data?.eventId || '').trim();
+      if (eventId) {
+        if (seenSystemEventIds.has(eventId)) return;
+        seenSystemEventIds.add(eventId);
+        // Keep the dedupe set bounded during a long-running dashboard
+        // session; event IDs are only needed for the recent window.
+        if (seenSystemEventIds.size > 256) {
+          const oldest = seenSystemEventIds.values().next().value;
+          if (oldest) seenSystemEventIds.delete(oldest);
+        }
+      }
+      // Some proxies normalize the SSE event name to `message`; the payload
+      // still carries the authoritative eventType.
+      const domains = domainsForEventType(systemEvent.type || event.type);
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
+        scheduleFarmRefresh(domains, systemEvent.silent ? 450 : 120);
+      }
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
+        scheduleSystemRefresh(systemEvent.silent ? 450 : 120);
+      }
+      if (systemEvent.silent) return;
+      if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
+      state.value.adminOverview.recentEvents.unshift(systemEvent);
+      state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+      showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+    };
+    const connectLiveEvents = async ({ announce = true } = {}) => {
+      if (state.value.sessionMode !== 'live' || !api.isLive || liveEventsStop || liveEventsConnecting) return false;
+      liveEventsConnecting = true;
+      try {
+        liveEventsStop = await api.subscribeEvents(handleLiveEvent);
+        return true;
+      } catch (error) {
+        if (announce) showToast('系统消息暂不可用：' + error.message, 'error');
+        return false;
+      } finally {
+        liveEventsConnecting = false;
+      }
+    };
+
     const handleContextChanged = async ({ farmId, plotId = null, sessionMode = state.value.sessionMode } = {}, options = {}) => {
       const selected = selectAuthorizedFarm(state.value.farms, farmId);
       if (!selected) {
@@ -3218,8 +3462,9 @@ const app = createApp({
           const requestedFarm = initialRoute.params?.farmId || '';
           const farmId = selectAuthorizedFarm(state.value.farms, requestedFarm);
           if (!farmId) throw new Error('当前账户没有授权农场');
-          state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
-          await refreshFarmData(farmId, ['all']);
+           state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+           await refreshFarmData(farmId, ['all']);
+           farmLastRefreshAt = Date.now();
         } catch (error) {
           state.value.farms = [];
           state.value.plots = [];
@@ -3229,6 +3474,7 @@ const app = createApp({
       } else if (session.mode === 'live') {
         if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
           await refreshSystemAdminData();
+          systemLastRefreshAt = Date.now();
         } else {
           const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
             api.getFarms(), api.getOverview(), api.getPlots({ includeInactive: true }), api.getWorkOrders(), api.getAlerts()
@@ -3273,38 +3519,7 @@ const app = createApp({
       // failure. Use the service transport flag here so formal sessions can
       // start SSE after their REST refresh has proved the backend works.
       isLive.value = api.isLive;
-      if (api.isLive && session.mode === 'live') {
-        try {
-          await api.subscribeEvents((event) => {
-            if (event.type === 'connected' || event.type === 'heartbeat') return;
-            const systemEvent = presentSystemEvent(event);
-            const eventId = String(event?.data?.eventId || '').trim();
-            if (eventId) {
-              if (seenSystemEventIds.has(eventId)) return;
-              seenSystemEventIds.add(eventId);
-              // Keep the dedupe set bounded during a long-running dashboard
-              // session; event IDs are only needed for the recent window.
-              if (seenSystemEventIds.size > 256) {
-                const oldest = seenSystemEventIds.values().next().value;
-                if (oldest) seenSystemEventIds.delete(oldest);
-              }
-            }
-            const domains = domainsForEventType(event.type);
-            if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
-              if (systemEvent.silent) scheduleFarmRefresh(domains);
-              else refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
-            }
-            if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
-              scheduleSystemRefresh();
-            }
-            if (systemEvent.silent) return;
-            if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
-            state.value.adminOverview.recentEvents.unshift(systemEvent);
-            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
-            showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
-          });
-        } catch (error) { showToast('系统消息暂不可用：' + error.message, 'error'); }
-      }
+      if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
@@ -3312,6 +3527,15 @@ const app = createApp({
         window.history.replaceState(null, '', routeHash(currentView.value, params));
       }
       if (!state.value.allowedViews.includes(currentView.value)) navigate(currentRole.value.defaultView);
+      startLiveRefresh();
+    });
+
+    onBeforeUnmount(() => {
+      stopLiveRefresh();
+      liveEventsStop?.();
+      liveEventsStop = null;
+      api.sseAbortController?.abort();
+      window.removeEventListener('hashchange', applyHashRoute);
     });
 
     // Provide toast globally

@@ -360,50 +360,101 @@ export class ApiService {
     this.sseAbortController?.abort();
     const controller = new AbortController();
     this.sseAbortController = controller;
-    const response = await fetch(`${this.baseUrl}/api/v1/events/stream`, {
+    const request = () => fetch(`${this.baseUrl}/api/v1/events/stream`, {
       headers: { Accept: 'text/event-stream', Authorization: `Bearer ${this.token}` },
       signal: controller.signal
+    }).then((response) => {
+      if (!response.ok || !response.body) {
+        throw new ApiError('系统消息流连接失败', { status: response.status, code: 'EVENT_STREAM_UNAVAILABLE' });
+      }
+      return response;
     });
-    if (!response.ok || !response.body) {
-      throw new ApiError('系统消息流连接失败', { status: response.status, code: 'EVENT_STREAM_UNAVAILABLE' });
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let event = { type: 'message', data: '' };
-    const flush = () => {
-      if (!event.data) return;
-      let data = event.data;
-      try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
-      onEvent({ type: event.type, data });
-      event = { type: 'message', data: '' };
-    };
-    const consume = (line) => {
-      if (!line) { flush(); return; }
-      const separator = line.indexOf(':');
-      const field = separator === -1 ? line : line.slice(0, separator);
-      const value = separator === -1 ? '' : line.slice(separator + 1).trimStart();
-      if (field === 'event') event.type = value || 'message';
-      if (field === 'data') event.data += `${value}\n`;
-    };
-    const run = async () => {
-      try {
-        while (!controller.signal.aborted) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || '';
-          lines.forEach(consume);
+
+    // Keep the first request synchronous so callers can still report an
+    // authentication/transport failure.  Once connected, a dropped stream is
+    // retried in the background; REST polling in the views remains the final
+    // fallback when the server is temporarily unavailable.
+    const response = await request();
+    const sleep = (milliseconds) => new Promise((resolve) => {
+      const timer = globalThis.setTimeout(resolve, milliseconds);
+      controller.signal.addEventListener('abort', () => {
+        globalThis.clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+    const consume = async (streamResponse) => {
+      const reader = streamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let event = { type: 'message', data: '' };
+      const flush = () => {
+        if (!event.data) {
+          event = { type: 'message', data: '' };
+          return;
         }
-        if (buffer) consume(buffer);
-        flush();
-      } catch (error) {
-        if (!controller.signal.aborted) throw error;
+        let data = event.data.replace(/\n$/, '');
+        try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
+        try { onEvent({ type: event.type, data }); }
+        catch (error) { console.warn('[AgriLoop] event handler failed:', error); }
+        event = { type: 'message', data: '' };
+      };
+      const consumeLine = (line) => {
+        if (!line) { flush(); return; }
+        // SSE comments are keep-alive lines and carry no event data.
+        if (line.startsWith(':')) return;
+        const separator = line.indexOf(':');
+        const field = separator === -1 ? line : line.slice(0, separator);
+        const value = separator === -1 ? '' : line.slice(separator + 1).trimStart();
+        if (field === 'event') event.type = value || 'message';
+        if (field === 'data') event.data += `${value}\n`;
+      };
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        lines.forEach(consumeLine);
+      }
+      if (buffer) consumeLine(buffer);
+      flush();
+    };
+    const run = async (initialResponse) => {
+      let nextResponse = initialResponse;
+      let retryDelay = 1000;
+      while (!controller.signal.aborted) {
+        try {
+          await consume(nextResponse);
+          retryDelay = 1000;
+        } catch (error) {
+          if (controller.signal.aborted) break;
+          console.warn('[AgriLoop] system event stream read failed:', error);
+        }
+        if (controller.signal.aborted) break;
+        // Keep retrying the connection itself until it succeeds.  The
+        // consumed Response must never be fed to the parser a second time.
+        while (!controller.signal.aborted) {
+          await sleep(retryDelay);
+          if (controller.signal.aborted) break;
+          try {
+            nextResponse = await request();
+            retryDelay = 1000;
+            break;
+          } catch (error) {
+            if (controller.signal.aborted) break;
+            console.warn('[AgriLoop] system event stream reconnect failed:', error);
+            retryDelay = Math.min(retryDelay * 2, 30000);
+          }
+        }
       }
     };
-    run().catch(error => console.warn('[AgriLoop] system event stream closed:', error));
-    return () => controller.abort();
+    run(response).catch(error => {
+      if (!controller.signal.aborted) console.warn('[AgriLoop] system event stream closed:', error);
+    });
+    return () => {
+      controller.abort();
+      if (this.sseAbortController === controller) this.sseAbortController = null;
+    };
   }
 
   async getFarms() {

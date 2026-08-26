@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260826-multimetric-curve-fix';
+import { api } from './api.js?v=20260826-live-refresh';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -14,7 +14,7 @@ import {
   workStatusLabel
 } from './live-data.js';
 
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
 
 const STATUS_LABELS = {
   OPEN: '待分配',
@@ -1249,6 +1249,15 @@ const app = createApp({
 
     let workspace_refresh_timer = null;
     let telemetry_refresh_timer = null;
+    let live_workspace_poll_timer = null;
+    let live_telemetry_poll_timer = null;
+    let live_poll_visibility_handler = null;
+    let live_poll_online_handler = null;
+    let live_workspace_poll_in_flight = false;
+    let live_telemetry_poll_in_flight = false;
+    let live_events_stop = null;
+    let live_events_connecting = false;
+    let live_health_probe_in_flight = false;
     const schedule_live_refresh = (scope = 'workspace') => {
       if (!is_formal_session) return;
       if (scope === 'telemetry') {
@@ -1266,6 +1275,104 @@ const app = createApp({
         workspace_refresh_timer = null;
         await load_live_workspace({ announce: false });
       }, 800);
+    };
+
+    const poll_live_workspace = async () => {
+      if (!is_formal_session || document.hidden || live_workspace_poll_in_flight) return;
+      live_workspace_poll_in_flight = true;
+      try {
+        await load_live_workspace({ announce: false });
+        is_live.value = api.isLive;
+        if (api.isLive) connect_live_events({ announce: false });
+      }
+      finally { live_workspace_poll_in_flight = false; }
+    };
+    const poll_live_telemetry = async () => {
+      if (!is_formal_session || document.hidden || current_view.value === 'messages' || live_telemetry_poll_in_flight) return;
+      live_telemetry_poll_in_flight = true;
+      try {
+        await refresh_plot_telemetry();
+        is_live.value = api.isLive;
+        if (api.isLive) connect_live_events({ announce: false });
+      }
+      finally { live_telemetry_poll_in_flight = false; }
+    };
+    const stop_live_polling = () => {
+      if (live_workspace_poll_timer) window.clearInterval(live_workspace_poll_timer);
+      if (live_telemetry_poll_timer) window.clearInterval(live_telemetry_poll_timer);
+      if (workspace_refresh_timer) window.clearTimeout(workspace_refresh_timer);
+      if (telemetry_refresh_timer) window.clearTimeout(telemetry_refresh_timer);
+      live_workspace_poll_timer = null;
+      live_telemetry_poll_timer = null;
+      workspace_refresh_timer = null;
+      telemetry_refresh_timer = null;
+      if (live_poll_visibility_handler) document.removeEventListener('visibilitychange', live_poll_visibility_handler);
+      if (live_poll_online_handler) window.removeEventListener('online', live_poll_online_handler);
+      live_poll_visibility_handler = null;
+      live_poll_online_handler = null;
+    };
+    const start_live_polling = () => {
+      stop_live_polling();
+      if (!is_formal_session) return;
+      // SSE normally updates immediately; these low-frequency polls recover
+      // from missed events and keep secondary resources (tasks, inspections,
+      // crop batches and device state) current as well.
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, 5000);
+      live_workspace_poll_timer = window.setInterval(poll_live_workspace, 15000);
+      live_poll_visibility_handler = () => {
+        if (!document.hidden) {
+          poll_live_telemetry();
+          poll_live_workspace();
+        }
+      };
+      live_poll_online_handler = () => {
+        poll_live_telemetry();
+        poll_live_workspace();
+      };
+      document.addEventListener('visibilitychange', live_poll_visibility_handler);
+      window.addEventListener('online', live_poll_online_handler);
+      poll_live_telemetry();
+      ensure_live_connection();
+    };
+
+    const handle_live_event = (event) => {
+      const type = String(event?.data?.eventType || event?.type || '').toLowerCase();
+      if (['connected', 'heartbeat'].includes(type)) return;
+      // Telemetry only refreshes plot metrics. Rebuilding the whole workspace
+      // for every sample makes the message center flicker and is unnecessary.
+      if (type.includes('telemetry') || type.includes('device.heartbeat')) {
+        schedule_live_refresh('telemetry');
+        return;
+      }
+      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
+        schedule_live_refresh('workspace');
+      }
+    };
+    const connect_live_events = async ({ announce = true } = {}) => {
+      if (!is_formal_session || !api.isLive || live_events_stop || live_events_connecting) return false;
+      live_events_connecting = true;
+      try {
+        live_events_stop = await api.subscribeEvents(handle_live_event);
+        return true;
+      } catch (error) {
+        if (announce) show_toast(`实时同步暂不可用：${error.message || '事件流连接失败'}`, 'error');
+        return false;
+      } finally {
+        live_events_connecting = false;
+      }
+    };
+    const ensure_live_connection = () => {
+      if (!is_formal_session || document.hidden) return;
+      if (api.isLive) {
+        connect_live_events({ announce: false });
+        return;
+      }
+      if (live_health_probe_in_flight) return;
+      live_health_probe_in_flight = true;
+      api.checkHealth().then((healthy) => {
+        is_live.value = healthy;
+        if (healthy) connect_live_events({ announce: false });
+      }).catch(() => {}).finally(() => { live_health_probe_in_flight = false; });
     };
 
     const open_message = (msg) => {
@@ -1718,26 +1825,18 @@ const app = createApp({
       if (is_formal_session) {
         await load_live_workspace({ announce: true });
         is_live.value = api.isLive;
-        try {
-          await api.subscribeEvents((event) => {
-            const type = String(event?.data?.eventType || event?.type || '').toLowerCase();
-            if (['connected', 'heartbeat'].includes(type)) return;
-            // Telemetry only refreshes plot metrics.  Rebuilding the whole
-            // workspace on every sample made the message center flicker as if
-            // the same notice were arriving again and again.
-            if (type.includes('telemetry') || type.includes('device.heartbeat')) {
-              schedule_live_refresh('telemetry');
-              return;
-            }
-            if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
-              schedule_live_refresh('workspace');
-            }
-          });
-        } catch (error) {
-          show_toast(`实时同步暂不可用：${error.message || '事件流连接失败'}`, 'error');
-        }
+        await connect_live_events();
       }
       await load_farmer_enhancements();
+      start_live_polling();
+    });
+
+    onBeforeUnmount(() => {
+      stop_live_polling();
+      window.removeEventListener('hashchange', apply_farmer_hash);
+      live_events_stop?.();
+      live_events_stop = null;
+      api.sseAbortController?.abort();
     });
 
     return {

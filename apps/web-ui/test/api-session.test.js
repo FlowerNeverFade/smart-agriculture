@@ -59,6 +59,40 @@ test('formal reads recover after a transient health-probe failure', async () => 
   }
 });
 
+test('SSE reconnects after a dropped stream and stops cleanly', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'live';
+  service.token = 'formal-test-token';
+  service.isLive = true;
+  const originalFetch = globalThis.fetch;
+  const events = [];
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          'event: telemetry.received\n' +
+          `data: {"eventId":"sse-${calls}","eventType":"telemetry.received"}\n\n`
+        ));
+        controller.close();
+      }
+    });
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  try {
+    const stop = await service.subscribeEvents((event) => events.push(event));
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(calls >= 2, `expected a reconnect, got ${calls} request(s)`);
+    assert.ok(events.some((event) => event.type === 'telemetry.received' && event.data.eventType === 'telemetry.received'));
+  } finally {
+    service.clearSession();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('demo device binding and farmer membership mutations remain visible on reread', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';
