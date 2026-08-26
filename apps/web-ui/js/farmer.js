@@ -722,7 +722,11 @@ const app = createApp({
     const advice_plot = computed(() => advice_selected_plot.value || plots.value[0] || null);
     const select_advice_plot = (plot_id) => {
       const plot = plots.value.find((p) => p.plotId === plot_id);
-      if (plot) advice_selected_plot.value = plot;
+      if (plot) {
+        advice_selected_plot.value = plot;
+        // 处方随地块切换重新读取，避免确认弹窗沿用上一块地的数据。
+        load_irrigation_plan(plot.plotId, { silent: true });
+      }
     };
     const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '7d'));
 
@@ -750,6 +754,11 @@ const app = createApp({
     // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
     const moisture_range = ref('7d');
     const moisture_range_options = CHART_RANGE_OPTIONS;
+    const irrigation_plan = ref(null);
+    const irrigation_readiness_detail = ref(null);
+    const irrigation_plan_loading = ref(false);
+    const irrigation_plan_error = ref('');
+    let irrigation_plan_request_version = 0;
     const selected_crop_band = computed(() => {
       const plot = advice_selected_plot.value;
       if (!plot) return null;
@@ -790,10 +799,25 @@ const app = createApp({
       const plot = advice_plot.value;
       const moisture = plot?.metrics?.SOIL_MOISTURE;
       if (!plot || moisture?.value === undefined || moisture?.value === null) return 0;
-      return plot.deviceStatus === 'ONLINE' ? 100 : 50;
+      const status = String(irrigation_plan.value?.readinessStatus || '').toUpperCase();
+      if (status === 'READY') return 100;
+      if (status === 'HUMAN_REVIEW') return 72;
+      if (status === 'NEEDS_EVIDENCE') return 35;
+      if (status === 'UNAVAILABLE') return 0;
+      return plot.deviceStatus === 'ONLINE' ? 82 : 42;
     });
-    const irrigation_amount = computed(() => '—');
-    const irrigation_duration_label = computed(() => '等待后端处方');
+    const irrigation_amount = computed(() => {
+      const value = Number(irrigation_plan.value?.waterLitre ?? irrigation_plan.value?.howMuch?.waterLitre);
+      return Number.isFinite(value) && value > 0 ? Math.round(value) : '—';
+    });
+    const irrigation_duration_label = computed(() => {
+      const seconds = Number(irrigation_plan.value?.durationSeconds ?? irrigation_plan.value?.howMuch?.durationSeconds);
+      if (Number.isFinite(seconds) && seconds > 0) return `建议 ${Math.round(seconds / 6) / 10} 分钟`;
+      if (String(irrigation_plan.value?.status || '').toUpperCase() === 'NO_ACTION') return '当前无需补水';
+      if (irrigation_plan_loading.value) return '正在读取处方';
+      if (irrigation_plan_error.value) return '处方暂不可用';
+      return '等待后端处方';
+    });
     const irrigation_target_label = computed(() => {
       const plot = advice_plot.value;
       if (!plot) return '暂无地块数据';
@@ -867,6 +891,20 @@ const app = createApp({
     const show_report_modal = ref(false);
     const show_weather_controls = ref(false);
     const show_resource_allocation = ref(false);
+    const show_suggestion_flow = ref(false);
+    const active_suggestion = ref(null);
+    const suggestion_flow_stage = ref('VIEW');
+    const suggestion_confirm_checked = ref(false);
+    const suggestion_result_form = ref({
+      outcome: 'SUCCEEDED',
+      note: '',
+      actual_water_litre: '',
+      actual_duration_seconds: ''
+    });
+    const suggestion_result = ref(null);
+    const suggestion_recovery_status = ref('');
+    const suggestion_busy = ref(false);
+    const suggestion_idempotency_key = ref('');
     const report_subscribed = ref(localStorage.getItem('agriloop-farmer-weekly-report') === 'true');
     const active_report_key = ref('daily');
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
@@ -1096,6 +1134,140 @@ const app = createApp({
       };
     });
 
+    // 首页只展示可行动的三件事：设备/高风险优先，其次是逾期和即将到期工单。
+    // 任务仍来自统一工单读模型，风险和设备只是聚合出的入口，不创建第二套事实表。
+    const plot_issue_summary = (plot) => {
+      const deviceOffline = String(plot?.deviceStatus || '').toUpperCase() !== 'ONLINE';
+      const band = resolve_moisture_band_status(plot);
+      const risk = String(plot?.riskLevel || 'LOW').toUpperCase();
+      if (deviceOffline) {
+        return {
+          kind: 'DEVICE',
+          statusLabel: '设备离线',
+          issue: '设备离线，数据可能不准确',
+          detail: '先检查供电、通信和设备心跳，再决定是否操作。',
+          actionLabel: '先检查设备',
+          icon: 'build_circle'
+        };
+      }
+      if (band === 'ALERT') {
+        return {
+          kind: 'IRRIGATION',
+          statusLabel: '需要补水',
+          issue: '土壤湿度低于目标',
+          detail: '查看补水建议，确认地块和水量后提交审批。',
+          actionLabel: '查看补水建议',
+          icon: 'water_drop'
+        };
+      }
+      if (band === 'WARN') {
+        return {
+          kind: 'IRRIGATION',
+          statusLabel: '关注湿度',
+          issue: '土壤湿度偏离目标',
+          detail: '建议先巡田或复测，再决定是否补水。',
+          actionLabel: '查看补水建议',
+          icon: 'water_drop'
+        };
+      }
+      if (risk !== 'LOW') {
+        return {
+          kind: 'RISK',
+          statusLabel: '有风险提醒',
+          issue: '当前地块存在风险提醒',
+          detail: '查看风险说明和下一步核验动作。',
+          actionLabel: '查看风险建议',
+          icon: 'warning'
+        };
+      }
+      return {
+        kind: 'NORMAL',
+        statusLabel: '状态正常',
+        issue: '暂未发现明显问题',
+        detail: '保持日常巡查，点开可查看详细指标。',
+        actionLabel: '查看详情',
+        icon: 'check_circle'
+      };
+    };
+
+    const today_priorities = computed(() => {
+      const now = Date.now();
+      const candidates = [];
+      const activeStatuses = new Set(['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'REJECTED']);
+      const taskPriorityScore = { HIGH: 72, MEDIUM: 48, LOW: 24 };
+      farmer_visible_tasks.value.forEach((task) => {
+        const status = farmer_task_status(task);
+        if (!activeStatuses.has(status)) return;
+        const due = Date.parse(task.due_iso || '');
+        const overdue = Number.isFinite(due) && due < now;
+        const dueSoon = Number.isFinite(due) && due >= now && due - now <= 6 * 60 * 60 * 1000;
+        const deviceTask = /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(`${task.title || ''}${task.reason || ''}`);
+        const plot = find_plot_by_id(plots.value, task.plot_id);
+        const score = (deviceTask ? 108 : (taskPriorityScore[String(task.priority || 'MEDIUM').toUpperCase()] || 40))
+          + (overdue ? 34 : (dueSoon ? 16 : 0));
+        candidates.push({
+          id: `task-${task.id}`,
+          kind: deviceTask ? 'DEVICE' : 'TASK',
+          plotId: task.plot_id || plot?.plotId || '',
+          task,
+          title: task.title,
+          reason: task.reason || '按任务说明完成现场处理。',
+          urgency: overdue ? '已逾期' : (String(task.priority || '').toUpperCase() === 'HIGH' ? '高优先级' : (dueSoon ? '即将到期' : '今日任务')),
+          urgencyTone: overdue || String(task.priority || '').toUpperCase() === 'HIGH' ? 'danger' : (dueSoon ? 'warning' : 'primary'),
+          dueLabel: overdue ? `截止 ${task.due_label || '已逾期'}` : (task.due_label || '按计划完成'),
+          actionLabel: deviceTask ? '去处理' : (status === 'IN_PROGRESS' ? '填写结果' : '打开任务'),
+          icon: deviceTask ? 'build_circle' : 'event_available',
+          score,
+          sortTime: Number.isFinite(due) ? due : Number.MAX_SAFE_INTEGER
+        });
+      });
+
+      plots.value.forEach((plot) => {
+        const issue = plot_issue_summary(plot);
+        if (issue.kind === 'NORMAL') return;
+        const riskLevel = String(plot.riskLevel || '').toUpperCase();
+        const score = issue.kind === 'DEVICE'
+          ? 116
+          : (issue.statusLabel === '需要补水' || riskLevel === 'HIGH' || riskLevel === 'CRITICAL' ? 101 : 78);
+        candidates.push({
+          id: `plot-${issue.kind}-${plot.plotId}`,
+          kind: issue.kind,
+          plotId: plot.plotId,
+          title: `${plot.name} · ${issue.issue}`,
+          reason: issue.detail,
+          urgency: issue.kind === 'DEVICE' || issue.statusLabel === '需要补水' ? '立即处理' : '需要关注',
+          urgencyTone: issue.kind === 'DEVICE' || issue.statusLabel === '需要补水' ? 'danger' : 'warning',
+          dueLabel: issue.kind === 'DEVICE' ? '尽快检查' : '建议今天核验',
+          actionLabel: issue.actionLabel,
+          icon: issue.icon,
+          score,
+          sortTime: now
+        });
+      });
+
+      const unique = new Map();
+      candidates.sort((a, b) => b.score - a.score || a.sortTime - b.sortTime).forEach((item) => {
+        // 同一地块同一类入口只保留得分更高的一项，避免首页重复提醒。
+        const key = `${item.kind}:${item.plotId || item.id}`;
+        if (!unique.has(key)) unique.set(key, item);
+      });
+      return [...unique.values()].sort((a, b) => b.score - a.score || a.sortTime - b.sortTime).slice(0, 3);
+    });
+
+    const suggestion_flow_steps = computed(() => {
+      const order = ['VIEW', 'CONFIRM', 'RESULT', 'RECOVERY'];
+      const current = Math.max(0, order.indexOf(suggestion_flow_stage.value));
+      return [
+        { id: 'VIEW', label: '查看建议' },
+        { id: 'CONFIRM', label: '确认执行' },
+        { id: 'RESULT', label: '填写结果' },
+        { id: 'RECOVERY', label: '查看是否恢复' }
+      ].map((step, index) => ({
+        ...step,
+        state: index < current ? 'done' : (index === current ? 'current' : 'upcoming')
+      }));
+    });
+
     const batch_timeline = computed(() => {
       const plot = selected_plot.value;
       if (!plot) return [];
@@ -1133,6 +1305,47 @@ const app = createApp({
         explanation: hasConflict ? `受可用水量限制，仍有 ${unmet} L 未满足，请等待管理员调整。` : '当前分配未超过可用水量，暂未发现地块间冲突。',
         provenance: plan.provenance || (is_live.value ? 'BACKEND' : 'SIMULATED')
       };
+    });
+
+    const suggestion_plot = computed(() => {
+      const plotId = active_suggestion.value?.plotId;
+      return find_plot_by_id(plots.value, plotId) || advice_plot.value || plots.value[0] || null;
+    });
+    const suggestion_kind_label = computed(() => ({
+      TASK: '任务建议',
+      RISK: '风险建议',
+      DEVICE: '设备建议',
+      IRRIGATION: '灌溉建议'
+    }[active_suggestion.value?.kind] || '农事建议'));
+    const suggestion_block_reason = computed(() => {
+      if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
+      const plan = irrigation_plan.value;
+      const status = String(plan?.readinessStatus || plan?.status || '').toUpperCase();
+      if (irrigation_plan_loading.value) return '正在读取最新处方和安全门，请稍候。';
+      if (irrigation_plan_error.value) return irrigation_plan_error.value;
+      if (!active_suggestion.value.plotId || !suggestion_plot.value) return '未明确涉及地块，请先选择要处理的地块。';
+      if (!plan) return '暂未生成处方，请先查看地块湿度或发起复测。';
+      const readinessGate = String(irrigation_readiness_detail.value?.status || '').toUpperCase();
+      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return '当前安全门未通过，请先巡田、复测或检查设备。';
+      if (status === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
+      if (status === 'NEEDS_EVIDENCE') return '数据质量或诊断证据不足，请先巡田或复测。';
+      if (status === 'UNAVAILABLE') return '设备或预测服务不可用，请先检查设备并联系管理员。';
+      if (status === 'BLOCKED') return '安全门未通过，不能提交灌溉申请，请先补充证据。';
+      const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
+      const duration = Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds);
+      const start = plan.when?.start || plan.recommendedWindow?.start;
+      const end = plan.when?.end || plan.recommendedWindow?.end;
+      if (!Number.isFinite(water) || water <= 0) return '处方缺少有效水量，不能提交审批。';
+      if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能提交审批。';
+      if (!start || !end) return '处方缺少执行时间窗口，请先补充证据。';
+      return '';
+    });
+    const suggestion_confirm_enabled = computed(() => {
+      if (!active_suggestion.value || suggestion_busy.value || suggestion_flow_stage.value !== 'CONFIRM') return false;
+      if (active_suggestion.value.kind === 'IRRIGATION') {
+        return suggestion_confirm_checked.value && !suggestion_block_reason.value;
+      }
+      return suggestion_confirm_checked.value;
     });
 
     const tools_plot = computed(() => plots.value.find((plot) => plot.plotId === tools_plot_id.value) || plots.value[0] || null);
@@ -1639,13 +1852,13 @@ const app = createApp({
     };
 
     const open_device_attention = () => {
-      const task = device_attention.value.task;
-      if (task) {
-        navigate('tasks');
-        open_task(task);
-        return;
-      }
-      open_inspection_form(device_attention.value.plotId);
+      open_suggestion('DEVICE', {
+        task: device_attention.value.task,
+        plotId: device_attention.value.plotId,
+        title: device_attention.value.title,
+        reason: device_attention.value.detail,
+        actionLabel: device_attention.value.needsAction ? '进入设备核验' : '查看处理记录'
+      });
     };
 
     const open_plot = (plot) => {
@@ -1659,14 +1872,298 @@ const app = createApp({
       navigate('tools', { tab: tools_tab.value });
     };
 
-    const toggle_irrigation = () => {
-      if (is_formal_session) {
-        show_toast('正式会话不会直接操作水泵，灌溉处方需由管理员审批后执行', 'error');
+    const load_irrigation_plan = async (plot_id = advice_plot.value?.plotId, { silent = false } = {}) => {
+      const plotId = plot_id || advice_plot.value?.plotId;
+      if (!plotId) {
+        irrigation_plan.value = null;
+        irrigation_readiness_detail.value = null;
+        irrigation_plan_error.value = '没有可生成建议的地块';
+        return null;
+      }
+      const version = ++irrigation_plan_request_version;
+      irrigation_plan_loading.value = true;
+      irrigation_plan_error.value = '';
+      try {
+        const plan = await api.estimateIrrigation({
+          farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo',
+          plotId,
+          scenarioId: 'NORMAL'
+        });
+        if (version !== irrigation_plan_request_version) return plan;
+        irrigation_plan.value = plan;
+        irrigation_readiness_detail.value = null;
+        if (plan?.planId) {
+          try {
+            irrigation_readiness_detail.value = await api.getDecisionReadiness('IRRIGATION_PLAN', plan.planId, { plan, plotId });
+          } catch (error) {
+            // 处方仍可展示；读取就绪度失败时保留明确的降级文案。
+            irrigation_readiness_detail.value = { status: plan.readinessStatus || 'UNAVAILABLE', reason: error?.message || '就绪度暂不可用' };
+          }
+        }
+        return plan;
+      } catch (error) {
+        if (version !== irrigation_plan_request_version) return null;
+        irrigation_plan.value = null;
+        irrigation_readiness_detail.value = null;
+        irrigation_plan_error.value = error?.message || '灌溉处方读取失败';
+        if (!silent) show_toast(irrigation_plan_error.value, 'error');
+        return null;
+      } finally {
+        if (version === irrigation_plan_request_version) irrigation_plan_loading.value = false;
+      }
+    };
+
+    const format_suggestion_time = (value) => {
+      if (!value) return '—';
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      return parsed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+    const suggestion_outcome_label = (outcome) => ({
+      SUCCEEDED: '成功',
+      PARTIAL: '部分完成',
+      FAILED: '失败',
+      TIMEOUT: '超时'
+    }[String(outcome || '').toUpperCase()] || outcome || '—');
+    const suggestion_recovery_detail = computed(() => {
+      if (!active_suggestion.value) return '';
+      if (suggestion_recovery_status.value) return suggestion_recovery_status.value;
+      if (active_suggestion.value.kind === 'IRRIGATION') return '提交审批后，等待管理员执行并复测湿度。';
+      if (active_suggestion.value.kind === 'TASK') return '任务结果已提交，等待管理员验收。';
+      return '已确认处理，等待现场复测或设备心跳恢复。';
+    });
+
+    const open_suggestion = (kind = 'RISK', context = {}) => {
+      const task = context.task || (kind === 'TASK' ? context : null);
+      const plotId = context.plotId || task?.plot_id || (kind === 'RISK' ? weather_risk_card.value.plotId : advice_plot.value?.plotId);
+      const plot = find_plot_by_id(plots.value, plotId);
+      const issue = plot ? plot_issue_summary(plot) : null;
+      const title = context.title
+        || task?.title
+        || (kind === 'DEVICE' ? device_attention.value.title : '')
+        || (kind === 'IRRIGATION' ? `${plot?.name || '当前地块'}补水建议` : `${plot?.name || '当前地块'}风险建议`);
+      const reason = context.reason
+        || task?.reason
+        || (kind === 'DEVICE' ? device_attention.value.detail : '')
+        || issue?.detail
+        || weather_risk_card.value.impact;
+      active_suggestion.value = {
+        id: context.id || `${String(kind).toLowerCase()}-${plotId || 'farm'}-${Date.now()}`,
+        kind,
+        plotId,
+        task,
+        title,
+        reason,
+        actionLabel: context.actionLabel || (kind === 'IRRIGATION' ? '提交管理员审批' : (kind === 'TASK' ? '开始并填写结果' : '进入现场核验')),
+        traceId: context.traceId || null
+      };
+      suggestion_flow_stage.value = 'VIEW';
+      suggestion_confirm_checked.value = false;
+      suggestion_result.value = null;
+      suggestion_recovery_status.value = '';
+      suggestion_result_form.value = { outcome: 'SUCCEEDED', note: '', actual_water_litre: '', actual_duration_seconds: '' };
+      suggestion_idempotency_key.value = '';
+      show_suggestion_flow.value = true;
+      if (kind === 'IRRIGATION' && (!irrigation_plan.value || irrigation_plan.value.plotId !== plotId)) {
+        load_irrigation_plan(plotId, { silent: true });
+      }
+    };
+
+    const close_suggestion_flow = () => {
+      if (suggestion_busy.value) return;
+      show_suggestion_flow.value = false;
+    };
+
+    const prepare_suggestion_confirmation = async () => {
+      if (!active_suggestion.value) return;
+      if (active_suggestion.value.kind === 'IRRIGATION') {
+        if (!irrigation_plan.value || irrigation_plan.value.plotId !== active_suggestion.value.plotId) {
+          await load_irrigation_plan(active_suggestion.value.plotId);
+        }
+        if (suggestion_block_reason.value) {
+          show_toast(suggestion_block_reason.value, 'error');
+          return;
+        }
+      }
+      suggestion_confirm_checked.value = false;
+      suggestion_flow_stage.value = 'CONFIRM';
+    };
+
+    const confirm_suggestion_action = async () => {
+      if (!suggestion_confirm_enabled.value || !active_suggestion.value) return;
+      const active = active_suggestion.value;
+      suggestion_busy.value = true;
+      try {
+        if (active.kind === 'IRRIGATION') {
+          const plan = irrigation_plan.value;
+          const key = suggestion_idempotency_key.value || `farmer-approval-${plan.planId}-${Date.now()}`;
+          suggestion_idempotency_key.value = key;
+          if (!suggestion_result.value) {
+            suggestion_result.value = await api.submitDecisionFeedback(plan.traceId || active.traceId || `farmer-${plan.planId}`, {
+              decision: 'REQUEST_APPROVAL',
+              action: 'IRRIGATION_REQUEST',
+              status: 'PENDING_APPROVAL',
+              plotId: active.plotId,
+              planId: plan.planId,
+              waterLitre: Number(plan.waterLitre ?? plan.howMuch?.waterLitre),
+              durationSeconds: Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds),
+              requestedWindow: plan.when || plan.recommendedWindow,
+              idempotencyKey: key,
+              requiresApproval: true,
+              provenance: is_live.value ? 'BACKEND' : 'SIMULATED'
+            });
+          }
+          suggestion_recovery_status.value = '已提交管理员审批，执行后等待复测。';
+          suggestion_flow_stage.value = 'RESULT';
+          show_toast(is_live.value ? '灌溉申请已提交管理员审批' : '演示申请已记录，不会控制真实水泵');
+        } else if (active.kind === 'TASK') {
+          const task = active.task;
+          const status = farmer_task_status(task);
+          if (['PENDING', 'ASSIGNED', 'REJECTED'].includes(status)) {
+            if (is_formal_session) {
+              await api.transitionWorkOrder(task.workOrderId, { action: status === 'REJECTED' ? 'RESTART' : 'START', note: '农户确认开始执行任务' });
+              await load_live_workspace({ announce: false });
+            } else {
+              const source = tasks.value.find((item) => item.id === task.id);
+              if (source) source.status = 'IN_PROGRESS';
+              task.status = 'IN_PROGRESS';
+            }
+          }
+          suggestion_flow_stage.value = 'RESULT';
+          suggestion_recovery_status.value = '任务已开始，完成后填写结果。';
+          show_toast(`已确认任务：${task.title}`);
+        } else {
+          suggestion_flow_stage.value = 'RESULT';
+          suggestion_recovery_status.value = active.kind === 'DEVICE' ? '已确认设备处理，完成检查后填写结果。' : '已确认风险处理，完成巡田或复测后填写结果。';
+          show_toast('已确认下一步处理，请完成现场动作后填写结果');
+        }
+      } catch (error) {
+        show_toast(error?.message || '确认操作失败，请稍后重试', 'error');
+      } finally {
+        suggestion_busy.value = false;
+      }
+    };
+
+    const open_suggestion_inspection = () => {
+      const plotId = active_suggestion.value?.plotId;
+      close_suggestion_flow();
+      open_inspection_form(plotId, active_suggestion.value?.task?.workOrderId || '');
+    };
+
+    const submit_suggestion_result = async () => {
+      const active = active_suggestion.value;
+      const form = suggestion_result_form.value;
+      const note = String(form.note || '').trim();
+      if (!active || !note || !form.outcome) {
+        show_toast('请选择结果并填写处理备注', 'error');
         return;
       }
-      irrigation_running.value = !irrigation_running.value;
-      irrigation_progress.value = irrigation_running.value ? 18 : 0;
-      show_toast(irrigation_running.value ? '演示灌溉已开始，不会控制真实水泵' : '演示灌溉已停止');
+      if (suggestion_busy.value) return;
+      const actualWater = String(form.actual_water_litre ?? '').trim();
+      const actualDuration = String(form.actual_duration_seconds ?? '').trim();
+      if (actualWater && !Number.isFinite(Number(actualWater))) {
+        show_toast('实际用水量必须是数字', 'error');
+        return;
+      }
+      if (actualDuration && !Number.isFinite(Number(actualDuration))) {
+        show_toast('实际执行时长必须是数字', 'error');
+        return;
+      }
+      suggestion_busy.value = true;
+      try {
+        let saved;
+        if (active.kind === 'TASK' && active.task?.workOrderId) {
+          saved = await api.transitionWorkOrder(active.task.workOrderId, {
+            action: 'SUBMIT',
+            resultSummary: `${suggestion_outcome_label(form.outcome)}：${note}`,
+            outcome: form.outcome,
+            actualWaterLitre: actualWater ? Number(actualWater) : undefined,
+            actualDurationSeconds: actualDuration ? Number(actualDuration) : undefined
+          });
+          if (is_formal_session) await load_live_workspace({ announce: false });
+        } else {
+          saved = await api.submitDecisionFeedback(active.traceId || `${String(active.kind).toLowerCase()}-${active.plotId || 'farm'}`, {
+            decision: 'RESULT',
+            action: active.kind,
+            plotId: active.plotId,
+            outcome: form.outcome,
+            note,
+            actualWaterLitre: actualWater ? Number(actualWater) : undefined,
+            actualDurationSeconds: actualDuration ? Number(actualDuration) : undefined,
+            idempotencyKey: suggestion_idempotency_key.value || undefined,
+            provenance: is_live.value ? 'BACKEND' : 'SIMULATED'
+          });
+        }
+        if (active.kind === 'TASK') {
+          const source = tasks.value.find((item) => item.id === active.task?.id);
+          if (source) source.status = is_formal_session ? (saved?.status || 'SUBMITTED') : 'SUBMITTED';
+          active.task.status = is_formal_session ? (saved?.status || 'SUBMITTED') : 'SUBMITTED';
+        }
+        suggestion_result.value = saved;
+        suggestion_recovery_status.value = active.kind === 'IRRIGATION'
+          ? '结果已记录；等待管理员执行后复测湿度。'
+          : (active.kind === 'TASK' ? '结果已提交，等待管理员验收。' : '结果已记录，等待现场复测或设备心跳恢复。');
+        suggestion_flow_stage.value = 'RECOVERY';
+        show_toast('处理结果已记录');
+      } catch (error) {
+        show_toast(error?.message || '结果提交失败', 'error');
+      } finally {
+        suggestion_busy.value = false;
+      }
+    };
+
+    const refresh_suggestion_recovery = async () => {
+      if (!active_suggestion.value) return;
+      suggestion_busy.value = true;
+      try {
+        if (is_formal_session) {
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+        }
+        const plot = suggestion_plot.value;
+        const band = plot ? resolve_moisture_band_status(plot) : 'UNKNOWN';
+        const online = String(plot?.deviceStatus || '').toUpperCase() === 'ONLINE';
+        if (active_suggestion.value.kind === 'TASK') {
+          const status = farmer_task_status(active_suggestion.value.task);
+          suggestion_recovery_status.value = status === 'DONE' ? '已验收完成' : '等待管理员验收';
+        } else if (is_live.value && online && band === 'NORMAL') {
+          suggestion_recovery_status.value = '已恢复（最新遥测已回到目标范围）';
+        } else if (!is_live.value && online && band === 'NORMAL') {
+          suggestion_recovery_status.value = '演示数据已回到目标范围，等待正式复测确认';
+        } else {
+          suggestion_recovery_status.value = '等待复测，当前尚未确认恢复';
+        }
+      } catch (error) {
+        suggestion_recovery_status.value = `恢复状态暂不可用：${error?.message || '请稍后重试'}`;
+      } finally {
+        suggestion_busy.value = false;
+      }
+    };
+
+    const open_priority_item = (item) => {
+      if (!item) return;
+      if (item.kind === 'TASK') {
+        navigate('tasks');
+        open_task(item.task);
+      } else if (item.kind === 'DEVICE') {
+        if (item.task) {
+          navigate('tasks');
+          open_task(item.task);
+        } else {
+          navigate('inspections');
+          open_inspection_form(item.plotId);
+        }
+      } else if (item.kind === 'IRRIGATION') {
+        select_advice_plot(item.plotId);
+        open_suggestion('IRRIGATION', item);
+      } else {
+        open_suggestion('RISK', item);
+      }
+    };
+
+    const toggle_irrigation = () => {
+      // 农户没有 irrigation:approve，按钮只进入处方确认和管理员审批闭环。
+      open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
 
     const set_suggestion_feedback = (feedback) => {
@@ -2025,6 +2522,7 @@ const app = createApp({
         }
       }
       await load_farmer_enhancements();
+      await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
       if (current_view.value === 'tools') {
         if (tools_tab.value === 'manual') await load_crop_manual();
         else await load_tools_forecast();
@@ -2035,6 +2533,10 @@ const app = createApp({
       if (current_view.value !== 'tools') return;
       if (tools_tab.value === 'manual') load_crop_manual();
       else load_tools_forecast(tools_scenario.value);
+    });
+
+    watch(advice_selected_plot, (plot, previous) => {
+      if (plot?.plotId && plot.plotId !== previous?.plotId) load_irrigation_plan(plot.plotId, { silent: true });
     });
 
     return {
@@ -2068,6 +2570,10 @@ const app = createApp({
       irrigation_readiness,
       irrigation_amount,
       irrigation_duration_label,
+      irrigation_plan,
+      irrigation_readiness_detail,
+      irrigation_plan_loading,
+      irrigation_plan_error,
       irrigation_target_label,
       advice_moisture_chart,
       selected_message,
@@ -2085,6 +2591,22 @@ const app = createApp({
       show_report_modal,
       show_weather_controls,
       show_resource_allocation,
+      show_suggestion_flow,
+      active_suggestion,
+      suggestion_flow_stage,
+      suggestion_flow_steps,
+      suggestion_kind_label,
+      suggestion_plot,
+      suggestion_block_reason,
+      suggestion_confirm_checked,
+      suggestion_confirm_enabled,
+      suggestion_result_form,
+      suggestion_result,
+      suggestion_recovery_detail,
+      suggestion_recovery_status,
+      suggestion_busy,
+      format_suggestion_time,
+      suggestion_outcome_label,
       report_subscribed,
       active_report,
       weather_inputs,
@@ -2138,6 +2660,8 @@ const app = createApp({
       toasts,
       greeting,
       stats,
+      today_priorities,
+      plot_issue_summary,
       recent_tasks,
       recent_messages,
       sorted_messages,
@@ -2178,10 +2702,19 @@ const app = createApp({
       open_task,
       open_task_from_dashboard,
       open_device_attention,
+      open_priority_item,
       close_task,
       open_plot,
       open_tools,
+      load_irrigation_plan,
       toggle_irrigation,
+      open_suggestion,
+      close_suggestion_flow,
+      prepare_suggestion_confirmation,
+      confirm_suggestion_action,
+      open_suggestion_inspection,
+      submit_suggestion_result,
+      refresh_suggestion_recovery,
       set_suggestion_feedback,
       confirm_suggestion,
       ask_question,

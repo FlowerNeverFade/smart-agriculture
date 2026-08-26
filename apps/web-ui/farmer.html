@@ -214,6 +214,28 @@
               <span class="farmer-mode-pill">{{ degradation_banner.mode }}</span>
             </div>
 
+            <section class="g-card farmer-priority-panel" aria-labelledby="today-priority-title">
+              <div class="farmer-panel-header">
+                <div>
+                  <h3 id="today-priority-title">今天先做什么</h3>
+                  <p class="farmer-panel-hint">按风险、设备异常和任务截止时间排序，最多显示三件事。</p>
+                </div>
+                <span class="farmer-priority-count">{{ today_priorities.length }} 项</span>
+              </div>
+              <div v-if="today_priorities.length" class="farmer-priority-list">
+                <button v-for="item in today_priorities" :key="item.id" type="button" class="farmer-priority-item" :class="'tone-' + item.urgencyTone" @click="open_priority_item(item)">
+                  <span class="farmer-priority-icon"><span class="material-symbols-outlined">{{ item.icon }}</span></span>
+                  <span class="farmer-priority-content">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.reason }}</span>
+                    <small><b :class="'is-' + item.urgencyTone">{{ item.urgency }}</b> · {{ item.dueLabel }}</small>
+                  </span>
+                  <span class="farmer-priority-action">{{ item.actionLabel }}<span class="material-symbols-outlined">arrow_forward</span></span>
+                </button>
+              </div>
+              <div v-else class="farmer-priority-empty"><span class="material-symbols-outlined">task_alt</span><span>今天暂无紧急事项，按计划巡查即可。</span></div>
+            </section>
+
             <div class="farmer-stats-grid">
               <button type="button" class="farmer-stat-card stat-todo" @click="navigate('tasks')">
                 <span class="material-symbols-outlined farmer-stat-icon">event_available</span>
@@ -252,7 +274,7 @@
             <div class="farmer-insight-grid">
               <article class="g-card farmer-insight-card farmer-weather-card">
                 <div class="farmer-insight-head">
-                  <div><span class="farmer-section-kicker">I-16 · I-27</span><h3>未来天气与风险</h3></div>
+                  <div><h3>未来天气与风险</h3></div>
                   <span class="g-badge" :class="weather_risk_card.tone">{{ weather_risk_card.statusLabel }}</span>
                 </div>
                 <div class="farmer-weather-summary">
@@ -269,13 +291,13 @@
                 </div>
                 <div class="farmer-insight-actions">
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="show_weather_controls = !show_weather_controls">{{ show_weather_controls ? '收起情景' : '调整情景' }}</button>
-                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_tools('risk', weather_risk_card.plotId)">查看风险预警</button>
+                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="open_suggestion('RISK', weather_risk_card)">查看风险建议</button>
                 </div>
               </article>
 
               <article class="g-card farmer-insight-card farmer-device-card" :class="{'needs-action': device_attention.needsAction}">
                 <div class="farmer-insight-head">
-                  <div><span class="farmer-section-kicker">I-18 · I-26</span><h3>设备需要处理</h3></div>
+                  <div><h3>设备需要处理</h3></div>
                   <span class="g-badge" :class="device_attention.needsAction ? 'warning' : 'success'">{{ device_attention.statusLabel }}</span>
                 </div>
                 <div class="farmer-device-main">
@@ -287,7 +309,7 @@
                 </ol>
                 <div class="farmer-insight-actions">
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="open_device_attention">{{ device_attention.needsAction ? '去处理' : '查看处理记录' }}</button>
-                  <button v-if="device_attention.needsAction" type="button" class="g-btn primary farmer-btn-analyze" @click="open_inspection_form(device_attention.plotId)">现场核验</button>
+                  <button v-if="device_attention.needsAction" type="button" class="g-btn primary farmer-btn-analyze" @click="open_suggestion('DEVICE', {plotId: device_attention.plotId, title: device_attention.title, reason: device_attention.detail})">现场核验</button>
                 </div>
               </article>
             </div>
@@ -333,12 +355,14 @@
                       >{{ plot_band_label(plot) }}</span>
                     </div>
                   </div>
-                  <dl class="farmer-plot-overview-metrics">
-                    <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
-                      <dt>{{ metric.label }}</dt>
-                      <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                  <div class="farmer-plot-overview-summary">
+                    <div class="farmer-plot-issue-summary">
+                      <span class="farmer-plot-summary-status" :class="'status-' + plot_band_status(plot)">{{ plot_issue_summary(plot).statusLabel }}</span>
+                      <strong>{{ plot_issue_summary(plot).issue }}</strong>
+                      <small>{{ plot_issue_summary(plot).detail }}</small>
                     </div>
-                  </dl>
+                    <span class="farmer-plot-action-label"><span class="material-symbols-outlined">{{ plot_issue_summary(plot).icon }}</span>{{ plot_issue_summary(plot).actionLabel }}</span>
+                  </div>
                 </button>
               </div>
             </div>
@@ -644,13 +668,15 @@
                 </div>
                 <p class="farmer-panel-hint">{{ irrigation_target_label }}；正式会话只创建后端审批工单，不直接控制水泵。</p>
                 <div class="farmer-advice-actions">
-                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation">
-                    <span class="material-symbols-outlined">{{ irrigation_running ? 'stop_circle' : 'water_drop' }}</span>
-                    {{ is_live ? '进入智能诊断与审批' : (irrigation_running ? '停止演示灌溉' : '开始演示灌溉') }}
+                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation" :disabled="irrigation_plan_loading">
+                    <span class="material-symbols-outlined">water_drop</span>
+                    {{ irrigation_plan_loading ? '读取处方中…' : '查看建议并提交审批' }}
                   </button>
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
-                <p v-if="irrigation_running && !is_live" class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>演示灌溉执行中，已完成 {{ irrigation_progress }}%</p>
+                <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
+                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不提交灌溉申请</p>
+                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '需管理员审批，农户不会直接控制水泵' : '处方仅供当前地块参考，提交前会再次检查安全门' }}</p>
 
                 <div class="farmer-fold-section">
                   <button type="button" class="farmer-fold-trigger" :aria-expanded="show_resource_allocation ? 'true' : 'false'" @click="show_resource_allocation = !show_resource_allocation">
@@ -856,8 +882,8 @@
                     <div class="farmer-detail-section">
                       <h4>操作</h4>
                       <div class="farmer-task-actions">
-                        <button v-if="['PENDING', 'ASSIGNED', 'REJECTED'].includes(selected_task.status)" class="g-btn primary farmer-btn-light" @click="start_task(selected_task)">{{ selected_task.status === 'REJECTED' ? '重新开始' : '开始执行' }}</button>
-                        <button v-if="selected_task.status === 'IN_PROGRESS'" class="g-btn primary farmer-btn-light" @click="complete_task(selected_task)">提交完成</button>
+                        <button v-if="['PENDING', 'ASSIGNED', 'REJECTED'].includes(selected_task.status)" class="g-btn primary farmer-btn-light" @click="open_suggestion('TASK', selected_task)">{{ selected_task.status === 'REJECTED' ? '重新开始' : '开始执行' }}</button>
+                        <button v-if="selected_task.status === 'IN_PROGRESS'" class="g-btn primary farmer-btn-light" @click="open_suggestion('TASK', selected_task)">填写结果</button>
                         <button class="g-btn secondary farmer-btn-light" @click="report_issue(selected_task)">上报问题</button>
                         <button class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_task.plot_id, selected_task.workOrderId)">录入巡田记录</button>
                       </div>
@@ -1142,6 +1168,88 @@
             <div class="farmer-report-summary-grid"><div v-for="item in active_report.items" :key="item.label"><small>{{ item.label }}</small><strong>{{ item.value }}</strong><span>{{ item.note }}</span></div></div>
             <p class="farmer-report-disclaimer"><span class="material-symbols-outlined">info</span>报告基于当前模拟数据生成，仅用于本期演示；未接入真实推送服务。</p>
             <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_report">关闭</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_report_subscription">{{ report_subscribed ? '取消周报提醒' : '订阅周报提醒' }}</button></div>
+          </article>
+        </div>
+
+        <div v-if="show_suggestion_flow" class="farmer-form-overlay" @click.self="close_suggestion_flow">
+          <article class="farmer-form-card farmer-suggestion-modal" role="dialog" aria-modal="true" aria-labelledby="suggestion-flow-title">
+            <div class="farmer-detail-header">
+              <div>
+                <span class="farmer-section-kicker">{{ suggestion_kind_label }}</span>
+                <h3 id="suggestion-flow-title">{{ active_suggestion && active_suggestion.title }}</h3>
+                <p class="farmer-detail-meta">{{ suggestion_plot ? suggestion_plot.name + ' · ' + suggestion_plot.cropName + ' · ' + suggestion_plot.stageLabel : '请核对关联地块' }}</p>
+              </div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_suggestion_flow" title="关闭"><span class="material-symbols-outlined">close</span></button>
+            </div>
+
+            <ol class="farmer-suggestion-flow" aria-label="建议处理进度">
+              <li v-for="step in suggestion_flow_steps" :key="step.id" :class="step.state">
+                <span class="farmer-suggestion-flow-node"><span v-if="step.state === 'done'" class="material-symbols-outlined">check</span><b v-else>{{ suggestion_flow_steps.indexOf(step) + 1 }}</b></span>
+                <strong>{{ step.label }}</strong>
+              </li>
+            </ol>
+
+            <section v-if="suggestion_flow_stage === 'VIEW'" class="farmer-suggestion-stage">
+              <div class="farmer-suggestion-explanation">
+                <span class="material-symbols-outlined">info</span>
+                <div><strong>先看清楚再操作</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
+              </div>
+              <div class="farmer-suggestion-facts">
+                <div><small>涉及地块</small><strong>{{ suggestion_plot ? suggestion_plot.name : '—' }}</strong></div>
+                <div><small>当前状态</small><strong>{{ suggestion_plot ? plot_issue_summary(suggestion_plot).statusLabel : '待确认' }}</strong></div>
+                <div><small>下一步</small><strong>{{ active_suggestion && active_suggestion.actionLabel }}</strong></div>
+              </div>
+              <div class="farmer-form-footer">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="close_suggestion_flow">稍后处理</button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" @click="prepare_suggestion_confirmation">下一步：确认执行<span class="material-symbols-outlined">arrow_forward</span></button>
+              </div>
+            </section>
+
+            <section v-else-if="suggestion_flow_stage === 'CONFIRM'" class="farmer-suggestion-stage">
+              <div v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-danger-summary">
+                <div class="farmer-danger-summary-head"><span class="material-symbols-outlined">warning</span><strong>请核对灌溉申请</strong><span class="farmer-danger-badge">需要管理员审批</span></div>
+                <div class="farmer-suggestion-facts">
+                  <div><small>地块 / 作物</small><strong>{{ suggestion_plot ? suggestion_plot.name + ' · ' + suggestion_plot.cropName : '—' }}</strong></div>
+                  <div><small>计划水量</small><strong>{{ irrigation_amount === '—' ? '—' : irrigation_amount + ' L' }}</strong></div>
+                  <div><small>预计时长</small><strong>{{ irrigation_duration_label }}</strong></div>
+                  <div><small>执行时间窗</small><strong>{{ irrigation_plan ? format_suggestion_time(irrigation_plan.when && irrigation_plan.when.start) + ' – ' + format_suggestion_time(irrigation_plan.when && irrigation_plan.when.end) : '—' }}</strong></div>
+                  <div><small>当前湿度</small><strong>{{ suggestion_plot && suggestion_plot.metrics && suggestion_plot.metrics.SOIL_MOISTURE ? suggestion_plot.metrics.SOIL_MOISTURE.value + '%' : '—' }}</strong></div>
+                  <div><small>目标湿度</small><strong>{{ selected_crop_band ? selected_crop_band.targetText : (suggestion_plot && suggestion_plot.metrics && suggestion_plot.metrics.SOIL_MOISTURE ? suggestion_plot.metrics.SOIL_MOISTURE.target : '—') }}</strong></div>
+                </div>
+              </div>
+              <div v-else class="farmer-suggestion-explanation">
+                <span class="material-symbols-outlined">fact_check</span>
+                <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
+              </div>
+              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能提交</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间' : '' }}，并确认按提示操作。</span></label>
+              <div class="farmer-form-footer">
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '提交中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并提交管理员审批' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
+              </div>
+            </section>
+
+            <form v-else-if="suggestion_flow_stage === 'RESULT'" class="farmer-suggestion-stage" @submit.prevent="submit_suggestion_result">
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">edit_note</span><div><strong>填写处理结果</strong><p>{{ suggestion_recovery_detail }}</p></div></div>
+              <div v-if="active_suggestion && ['RISK', 'DEVICE'].includes(active_suggestion.kind)" class="farmer-suggestion-inline-action"><span>需要现场数据时：</span><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection"><span class="material-symbols-outlined">fact_check</span>去现场核验</button></div>
+              <div class="farmer-form-grid">
+                <label>处理结果<select v-model="suggestion_result_form.outcome" required><option value="SUCCEEDED">成功</option><option value="PARTIAL">部分完成</option><option value="FAILED">失败</option><option value="TIMEOUT">超时</option></select></label>
+                <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际用水量（L）<input v-model="suggestion_result_form.actual_water_litre" type="number" min="0" step="0.1" placeholder="选填"></label>
+                <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际执行时长（秒）<input v-model="suggestion_result_form.actual_duration_seconds" type="number" min="0" step="1" placeholder="选填"></label>
+              </div>
+              <label>处理备注<textarea v-model.trim="suggestion_result_form.note" rows="4" required placeholder="请记录现场看到的情况、采取的动作和结果"></textarea></label>
+              <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会让农户直接控制水泵。</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_suggestion_flow">稍后填写</button><button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="suggestion_busy">{{ suggestion_busy ? '保存中…' : '保存结果并查看恢复状态' }}</button></div>
+            </form>
+
+            <section v-else class="farmer-suggestion-stage">
+              <div class="farmer-recovery-card" :class="{'is-recovered': suggestion_recovery_status.includes('已恢复') || suggestion_recovery_status.includes('已验收')}" role="status">
+                <span class="material-symbols-outlined">{{ suggestion_recovery_status.includes('已恢复') || suggestion_recovery_status.includes('已验收') ? 'check_circle' : 'hourglass_top' }}</span>
+                <div><strong>{{ suggestion_recovery_status || '等待复测' }}</strong><p>只有最新后端状态、遥测或效果评价确认后，才会显示已恢复；其余情况请按提示复测。</p></div>
+              </div>
+              <div v-if="suggestion_result" class="farmer-suggestion-result-summary"><span>本次记录：{{ suggestion_outcome_label(suggestion_result.outcome || suggestion_result.status) }}</span><span v-if="suggestion_result.note">{{ suggestion_result.note }}</span><small>{{ suggestion_result.provenance || (is_live ? 'BACKEND' : 'SIMULATED') }} · {{ format_suggestion_time(suggestion_result.createdAt) }}</small></div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新恢复状态' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">完成</button></div>
+            </section>
           </article>
         </div>
 

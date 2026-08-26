@@ -1634,6 +1634,37 @@ export class ApiService {
     };
   }
 
+  /**
+   * Persist a farmer decision outcome without changing a strategy or issuing
+   * a control command.  Farmers use this contract to request administrator
+   * approval and to record the result of an inspection/task; direct
+   * irrigation execution remains guarded by irrigation:approve.
+   */
+  async submitDecisionFeedback(traceId, input = {}) {
+    if (!traceId) {
+      throw new ApiError('提交建议反馈前必须明确决策记录', { status: 400, code: 'TRACE_CONTEXT_REQUIRED' });
+    }
+    const payload = { ...input, traceId };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      return resp?.data || resp;
+    }
+    const feedback = {
+      feedbackId: `feedback-demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...payload,
+      actorId: this._demoActorId(),
+      decision: payload.decision || 'ACCEPTED',
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+    this.decisionCache.feedback ||= new Map();
+    this.decisionCache.feedback.set(feedback.feedbackId, feedback);
+    return feedback;
+  }
+
   async getDecisionPassport(traceId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decision-passports/${encodeURIComponent(traceId)}`);
