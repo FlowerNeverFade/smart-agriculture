@@ -794,6 +794,28 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmManagerCanCreateUpdateAndRemoveFarmerMembership() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        String suffix = String.valueOf(System.nanoTime());
+        String username = "worker." + suffix;
+
+        Map<String, Object> created = adminManagement.createFarmMember(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "username", username, "password", "Field2026!",
+                "plotIds", List.of("plot-a01"))), admin);
+        String userId = String.valueOf(created.get("userId"));
+        assertThat(created).containsEntry("username", username).containsEntry("role", "FARMER");
+        assertThat(created.get("plotIds")).isEqualTo(List.of("plot-a01"));
+
+        Map<String, Object> updated = adminManagement.updateFarmMemberScope(userId,
+                Map.of("farmId", "farm-demo", "plotIds", List.of("plot-a02")), admin);
+        assertThat(updated.get("plotIds")).isEqualTo(List.of("plot-a02"));
+
+        Map<String, Object> removed = adminManagement.deleteFarmMember(userId, "farm-demo", admin);
+        assertThat(removed).containsEntry("removed", true).containsEntry("userId", userId);
+        assertThat(Jsons.strings(store.userById(userId).get("farmIds"))).doesNotContain("farm-demo");
+    }
+
+    @Test
     void simulatorWithoutSupervisorIsExplicitlyUnavailable() {
         AgriProperties properties = new AgriProperties();
         properties.setSimulatorControlEnabled(false);

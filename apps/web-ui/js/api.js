@@ -834,23 +834,27 @@ export class ApiService {
       if (response?.data?.userId) {
         return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
       }
-      throw new ApiError('后端返回了无效的成员创建结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
+      throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
-    if (!normalized) throw new ApiError('请填写账号', { status: 400, code: 'ACCOUNT_USERNAME_INVALID' });
-    const existing = Array.from(this.demoFarmMembers.values()).find((member) => member.username === normalized);
-    if (existing) throw new ApiError('该账号已存在', { status: 409, code: 'ACCOUNT_EXISTS' });
-    const created = normalizeFarmMember({
-      userId: `user-demo-${Date.now()}`,
+    if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'MEMBER_USERNAME_INVALID' });
+    if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'MEMBER_PASSWORD_WEAK' });
+    if ([...this.demoFarmMembers.values()].some(member => member.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
+    const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
+    if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
+    const userId = `user-demo-${Date.now().toString(36)}`;
+    const member = normalizeFarmMember({
+      userId,
       username: normalized,
       displayName: displayName || normalized,
       role: 'FARMER',
+      roleLabel: '种植农户',
       farmIds: [farmId],
-      plotIds: [...plotIds],
+      plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
-    this.demoFarmMembers.set(created.userId, created);
-    return { ...created, plotIds: [...created.plotIds], farmIds: [...created.farmIds], recoveryCode: 'DEMO-ONLY-ONCE' };
+    this.demoFarmMembers.set(userId, member);
+    return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
   }
 
   async updateFarmMemberStatus(userId, { farmId, status, enabled } = {}) {
@@ -869,6 +873,22 @@ export class ApiService {
     const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
     this.demoFarmMembers.set(userId, updated);
     return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
+  }
+
+  async deleteFarmMember(userId, { farmId } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}?farmId=${encodeURIComponent(farmId || '')}`, { method: 'DELETE' });
+      if (response?.data?.userId) return response.data;
+      throw new ApiError('后端返回了无效的成员移除结果', { code: 'FARM_MEMBER_DELETE_INVALID', payload: response });
+    }
+    const member = this.demoFarmMembers.get(userId);
+    if (!member || member.role !== 'FARMER') throw new ApiError('没有找到可移除的种植农户', { status: 404, code: 'FARM_MEMBER_NOT_FOUND' });
+    const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId).map(plot => plot.plotId));
+    const farmIds = member.farmIds.filter(id => id !== farmId);
+    const plotIds = member.plotIds.filter(id => !farmPlotIds.has(id));
+    if (farmIds.length) this.demoFarmMembers.set(userId, { ...member, farmIds, plotIds });
+    else this.demoFarmMembers.delete(userId);
+    return { userId, username: member.username, farmId, removed: true, sourceMode: 'SIMULATED' };
   }
 
   _demoActorId() {

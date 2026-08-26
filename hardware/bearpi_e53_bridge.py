@@ -239,6 +239,8 @@ def run(args: argparse.Namespace) -> int:
                             publisher.send(make_event(metric, value, unit, args, ts))
                         publisher.heartbeat(make_status(args, ts))
                         last_heartbeat = time.monotonic()
+                        if args.once:
+                            return 0
             except KeyboardInterrupt:
                 return 0
             except Exception as error:

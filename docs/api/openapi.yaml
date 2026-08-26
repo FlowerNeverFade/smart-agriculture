@@ -245,14 +245,7 @@ paths:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:
     get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场正式成员；只返回 FARMER/FARM_ADMIN 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
-    post:
-      tags: [management]
-      description: 农场管理员或系统管理员在当前农场创建种植农户，返回一次性恢复码
-      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
-      responses:
-        '201': {description: 农户已创建}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '409': {description: 账号已存在}
+    post: {tags: [management], description: 农场管理员创建种植农户账号并分配当前农场的活跃地块；若实现返回恢复码则只展示一次, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已创建种植农户成员}, '400': {description: 账号或初始密码不符合要求}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员账号已存在}}}
   /api/v1/farm-members/{userId}/status:
     patch:
       tags: [management]
@@ -262,6 +255,8 @@ paths:
       responses:
         '200': {description: 更新后的成员视图}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/farm-members/{userId}:
+    delete: {tags: [management], description: 从当前农场移除种植农户并保留其其他农场范围, parameters: [{name: userId, in: path, required: true, schema: {type: string}}, {name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 成员已从当前农场移除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 成员不存在或不属于当前农场}}}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
   /api/v1/alerts:

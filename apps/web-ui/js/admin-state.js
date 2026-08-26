@@ -1,8 +1,8 @@
 export const ADMIN_TABS = Object.freeze({
-  dashboard: ['overview', 'plots'],
+  dashboard: ['overview'],
   'work-orders': ['tasks', 'plans', 'crop-packs'],
   'resource-coordination': ['devices', 'irrigation', 'value', 'simulator'],
-  'farm-members': ['members', 'permissions']
+  'farm-members': ['members']
 });
 
 export function selectAuthorizedFarm(farms = [], requestedFarmId = '') {
@@ -51,6 +51,42 @@ export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.no
   };
 }
 
+const MANAGER_SUMMARY_TARGETS = Object.freeze({
+  today: { view: 'work-orders', params: { tab: 'tasks', scope: 'today' } },
+  overdue: { view: 'work-orders', params: { tab: 'tasks', scope: 'overdue' } },
+  abnormal: { view: 'decision-console', params: { section: 'alerts' } },
+  unassigned: { view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned' } },
+  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } }
+});
+
+const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval']);
+const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED']);
+
+export function managerSummaryTarget(summaryId, farmId = '') {
+  const target = MANAGER_SUMMARY_TARGETS[String(summaryId || '').toLowerCase()];
+  if (!target) return null;
+  return {
+    view: target.view,
+    params: { ...target.params, ...(farmId ? { farmId } : {}) }
+  };
+}
+
+export function normalizeWorkSummaryScope(scope) {
+  const normalized = String(scope || '').trim().toLowerCase();
+  return WORK_SUMMARY_SCOPES.has(normalized) ? normalized : '';
+}
+
+export function workOrderMatchesSummaryScope(order, scope, now = Date.now()) {
+  const normalizedScope = normalizeWorkSummaryScope(scope);
+  if (!normalizedScope || normalizedScope === 'today') return true;
+  const status = String(order?.status || '').trim().toUpperCase();
+  if (TERMINAL_WORK_STATUSES.has(status)) return false;
+  if (normalizedScope === 'unassigned') return !order?.assigneeId;
+  if (normalizedScope === 'approval') return String(order?.actionType || '').trim().toUpperCase() === 'IRRIGATION_REVIEW';
+  const dueAt = new Date(order?.dueAt || 0).getTime();
+  return normalizedScope === 'overdue' && Number.isFinite(dueAt) && dueAt > 0 && dueAt < now;
+}
+
 export function domainsForEventType(type = '') {
   const value = String(type).toLowerCase();
   const domains = new Set();
@@ -65,10 +101,26 @@ export function domainsForEventType(type = '') {
   return [...domains];
 }
 
-export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
+export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {
   const cards = new Map((overviewCards || []).map(card => [String(card.plotId), card]));
+  const plotDevices = new Map();
+  (devices || []).forEach(device => {
+    const plotId = String(device?.plotId || '');
+    if (!plotId) return;
+    const current = plotDevices.get(plotId);
+    const candidateOnline = String(device?.status || '').toUpperCase() === 'ONLINE';
+    const currentOnline = String(current?.status || '').toUpperCase() === 'ONLINE';
+    const candidateTime = new Date(device?.lastSeen || device?.boundAt || 0).getTime();
+    const currentTime = new Date(current?.lastSeen || current?.boundAt || 0).getTime();
+    if (!current || (candidateOnline && !currentOnline) || (candidateOnline === currentOnline && candidateTime > currentTime)) {
+      plotDevices.set(plotId, device);
+    }
+  });
   return (plotFacts || []).map(fact => {
     const card = cards.get(String(fact.plotId)) || {};
+    const cardDevice = card.device && Object.keys(card.device).length ? card.device : null;
+    const device = cardDevice || plotDevices.get(String(fact.plotId)) || null;
+    const hasBoundDevice = Boolean(device?.deviceId || device?.plotId);
     const metrics = { ...(fact.metrics || {}), ...(card.metrics || {}) };
     Object.entries(card.latest || {}).forEach(([code, event]) => {
       if (!event || event.value === undefined) return;
@@ -88,10 +140,10 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = []) {
       ...card,
       metrics,
       history: fact.history || card.history || {},
-      deviceId: card.device?.deviceId || card.deviceId || fact.deviceId || null,
-      deviceStatus: card.device?.status || card.deviceStatus || fact.deviceStatus || 'UNKNOWN',
-      healthScore: card.device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
-      lastSeen: card.device?.lastSeen || card.lastSeen || fact.lastSeen || null,
+      deviceId: device?.deviceId || card.deviceId || fact.deviceId || null,
+      deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
+      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
+      lastSeen: device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)),
       sourceMode: fact.sourceMode || card.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
       dataOrigin: fact.dataOrigin || card.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
     };

@@ -16,7 +16,7 @@
 
 > 2026-08-26 三角色账号资料面板（本地已验收）：农户、农场管理员、系统管理员共用同一资料抽屉结构，分别展示农务、运营和平台概览；头像入口、角色范围、统计卡、修改密码/找回密码和 390px 窄屏布局均通过 Chromium 回归。本轮只创建本地提交，不推送或部署。
 
-> 2026-08-26 BearPi E53_IA1 接入适配（本地已验收，待部署/现场固件）：串口桥接、REAL/HARDWARE 来源、真实优先仲裁、空气湿度指标和连续平滑模拟器已实现；COM5 当前固件为 StreetLight 示例，需确认后烧录 E53_IA1 固件才能完成物理端到端验收。
+> 2026-08-26 BearPi E53_IA1 接入适配（硬件与远端链路已验收）：COM5 已刷写 E53_IA1 固件并连续输出变化中的光照/湿度/温度；一键启动器可建立 SSH 隧道并运行串口桥接，服务器 MQTT 与 `/api/v1/plots/plot-a01/telemetry` 已确认收到 `REAL/HARDWARE` 事件；运行时代码由发布提交 `b1048ef` 验收，服务器本机 acceptance smoke PASS，后续提交仅同步验收记录。生产现场网关/GPIO/执行器仍不纳入软件基线承诺。
 
 > 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，交付提交为 `85155db1f184e8a2c1b6806af2a7cd34f3e67193`；提交链已进入 GitHub `main` 并发布到 `/srv/agriloop`。Flyway v4、三角色登录与 `/auth/me`、身份错配、角色目录、透明 Logo、Supervisor 服务及健康检查均已通过服务器本机黑盒；旧应用保留为带时间戳的回滚目录。
 
@@ -90,11 +90,14 @@
 | T-056 | P0 | 三角色正式数据闭环与演示数据隔离 | 前后端 | — | 本轮 | 已完成（本地验收） | 正式会话不再用 `MOCK_DATA` 补数据；农户补证/巡田/任务状态写入后端后可由农场管理员和系统管理员重新读取；共享工单、巡田证据、遥测事件通过 REST/SSE 刷新；正式离线会报错而不是显示演示数据；Gradle、Vite、前端 13/13、H2 REST 黑盒闭环通过；本地提交，未推送 |
 | T-057 | P0 | AI 正式问答展示与模型降级边界修复 | 前后端 | — | 本轮 | 已完成（本地 + 远端验收） | 前端优先展示后端 `narrative`（不再误显卡片 `summary`），显示 `Qwen 实时回答`/`规则降级回答` 来源标签，聊天内容安全纯文本换行；远端 API 实测三角色登录后 Qwen `adapter=openai-compatible`、`degraded=false`，本地前端 14/14、Vite、Node 语法和 Gradle 全量测试通过；本地提交，未推送 |
 | T-058 | P1 | 农场成员副文本字形与基线统一 | 前端 | — | 本轮 | 已完成（本地验收） | 成员列表将角色和 `ACCOUNT/SIMULATED` 来源拆分为独立文本节点，显式使用正常字形、统一基线和来源等宽样式，修正 `admin` 行副文本视觉倾斜；Node 14/14、Vite 构建和冲突标记检查通过；本地提交，未推送 |
-| T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 进行中 | `hardware/bearpi_e53_bridge.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；Python/Gradle/Web/Vite/Crop Pack 回归通过。物理端待 E53 固件烧录、RESET 和远端部署后验收 |
+| T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 已完成（硬件与远端链路验收） | `hardware/bearpi_e53_bridge.py`、`hardware/connect_bearpi.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；COM5 E53 固件刷写日志全分区 `Execution Successful`，串口实时变化读数，SSH 隧道 + 服务器 MQTT + `/api/v1/plots/plot-a01/telemetry` 黑盒验证通过；Python/Gradle/Web/Vite/Crop Pack 回归通过 |
 | T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 已完成 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；修正证据不足候选误高亮并补齐高温胁迫文案。功能提交链已部署；Gradle 全量测试、Web 14/14、Vite 构建、Node 语法和服务器三角色黑盒（Qwen `degraded=false`、共享解释 trace）通过 |
 | T-061 | P0 | Crop Pack 阶段解析、综合健康分与作物培养手册接口 | 前后端 | — | 本轮 | 待验收 | 番茄/黄瓜 Pack 补齐阶段标签、任务模板、阶段知识与 healthProfile；规则/诊断/预测/处方按当前生长阶段阈值解析；新增培养手册与健康分接口。Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；页面手册切换与农户健康分仍待浏览器复核 |
-| T-062 | P1 | 农户端天气风险、设备核验、批次阶段、资源分配、降级、报告和案例确认呈现 | 前端 | T-027/T-028/T-034/T-035/T-036 | 本轮 | 待验收 | `farmer.html/js/css` 已实现；输入为地块/工单/Crop Pack/预测/资源计划，输出为紧凑卡片、时间线、折叠排程和确认记录；失败路径显示 MOCK/SIMULATED/UNAVAILABLE 且不直接控制设备或发布策略；`node --check`、`git diff --check`、HTTP 200 通过，待补浏览器桌面/窄屏/双主题交互证据。 |
-| T-063 | P0 | 告警冷却生效、高温告警、在线改密、成员创建/停用与巡田照片附件 | 前后端 | — | 本轮 | 待验收 | 同地块同规则冷却期内复用/更新 ACTIVE 告警；HEAT_STRESS 进入告警状态机；`POST /auth/change-password` 轮换凭据版本；`POST /farm-members` 与 `PATCH .../status`；巡田照片本地附件 `USER_PROVIDED`。Gradle API 43/43、前端 Node 14/14、Vite 构建通过；应用内浏览器未复核 |
+| T-062 | P0 | 合并农场管理员总览与地块管理页面 | 前端 | — | 本轮 | 待验收 | 移除首页二级页签；今日概况、全部地块、状态/编辑入口和添加地块卡片同屏展示；Web 15/15、Vite 构建、Chromium 7→8 新增闭环通过，待用户本地检查 |
+| T-063 | P0 | 修复设备绑定显示并补齐种植农户成员增删改 | 前后端 | — | 本轮 | 待验收 | 设备绑定结果即时回写且绑定/在线状态分开展示；总览在无首次心跳时显示“设备已绑定，等待首次数据”；成员页取消重复权限页签，地块范围归入新增/修改窗口，添加卡使用加号；后端 38/38、Web 16/16、Vite、Chromium 正式绑定与成员页面回归通过，待用户本地检查 |
+| T-064 | P1 | 农场总览五项统计接入任务与告警业务入口 | 前端 | — | 本轮 | 已完成（本地验收） | 五项统计均为原生按钮并保留农场 Hash；逾期、待分配、待审批进入对应任务范围，异常地块进入告警处置；Node 测试、Vite 构建与浏览器交互通过 |
+| T-065 | P1 | 农户端天气风险、设备核验、批次阶段、资源分配、降级、报告和案例确认呈现 | 前端 | T-027/T-028/T-034/T-035/T-036 | 本轮 | 待验收 | `farmer.html/js/css` 已实现；输入为地块/工单/Crop Pack/预测/资源计划，输出为紧凑卡片、时间线、折叠排程和确认记录；失败路径显示 MOCK/SIMULATED/UNAVAILABLE 且不直接控制设备或发布策略；`node --check`、`git diff --check`、HTTP 200 通过，待补浏览器桌面/窄屏/双主题交互证据。 |
+| T-066 | P0 | 告警冷却生效、高温告警、在线改密、成员创建/停用与巡田照片附件 | 前后端 | — | 本轮 | 待验收 | 同地块同规则冷却期内复用/更新 ACTIVE 告警；HEAT_STRESS 进入告警状态机；`POST /auth/change-password` 轮换凭据版本；`POST /farm-members` 与 `PATCH .../status`；巡田照片本地附件 `USER_PROVIDED`。Gradle API 43/43、前端 Node 14/14、Vite 构建通过；应用内浏览器未复核 |
 
 ### 2.1 核心八项能力任务映射
 
