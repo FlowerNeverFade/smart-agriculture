@@ -8,8 +8,20 @@ import {
   mapStrategyCandidate,
   mapTimelineRecord,
   normalizeFarmerTask,
-  normalizeWorkStatus
+  normalizeWorkStatus,
+  relativeTime
 } from '../js/live-data.js';
+
+test('timeline cards ignore epoch placeholders and keep actionable summaries', () => {
+  assert.equal(relativeTime(0, Date.parse('2026-08-26T00:00:00Z')), '—');
+  const record = mapTimelineRecord({
+    type: 'diagnosis',
+    at: '2026-08-26T10:00:00Z',
+    record: { plotId: 'plot-a01', riskType: 'DEVICE_FAULT', diagnosisId: 'diag-1' }
+  });
+  assert.equal(record.summary, '诊断完成：DEVICE_FAULT');
+  assert.equal(record.typeLabel, '诊断');
+});
 
 test('agent surfaces show the generated narrative instead of the card summary', () => {
   const response = {

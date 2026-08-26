@@ -22,7 +22,8 @@ import {
   mapCropPack,
   mapStrategyCandidate,
   mapTimelineRecord,
-  normalizePlot
+  normalizePlot,
+  relativeTime
 } from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
@@ -275,16 +276,26 @@ function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
   const online = devices.filter((device) => ['ONLINE', 'UP', 'ACTIVE'].includes(liveStatusValue(device.status))).length;
   const simStatus = liveStatusValue(simulator.status, 'UNAVAILABLE');
+  const rawAiMode = String(systemStatus.ai || overview.aiMode || '—').trim().toLowerCase();
+  // The backend calls a configured Qwen/OpenAI-compatible adapter
+  // `openai-compatible`; the overview uses the concise product-facing mode
+  // names used by the demo card.
+  const aiMode = rawAiMode === 'openai-compatible' ? 'full' : rawAiMode;
+  const scenarios = [...new Set((overview.plots || [])
+    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
+    .filter(Boolean)
+    .map((scenario) => String(scenario).toUpperCase()))];
+  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
   return {
-    uptime: '—',
-    apiVersion: '—',
-    aiMode: String(systemStatus.ai || overview.aiMode || '—').toLowerCase(),
-    llmModel: '—',
+    uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
+    apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
+    aiMode,
+    llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
     devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
     simulator: {
       running: simStatus === 'RUNNING',
-      scenario: simulator.scenario || simulator.scenarioId || '',
+      scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
       startTime: simulator.startedAt || null
     },
@@ -2640,15 +2651,36 @@ const app = createApp({
         .map((entry, index) => mapTimelineRecord(entry, plotMap, index))
         .sort((a, b) => (new Date(b.timeIso || 0).getTime() || 0) - (new Date(a.timeIso || 0).getTime() || 0))
         .filter((record, index, list) => list.findIndex((candidate) => candidate.traceId === record.traceId) === index);
-      const recentEvents = auditRecords.slice(0, 20).map((record) => ({
+      // The timeline also contains high-volume telemetry/heartbeat rows. They
+      // belong in the audit view, but a platform overview should show a
+      // concise, actionable digest instead of twenty identical sensor rows.
+      const recentEventRecords = auditRecords
+        .filter((record) => !['TELEMETRY', 'HEARTBEAT', 'SCENARIO.TELEMETRY'].includes(record.type))
+        .filter((record) => record.summary && record.summary !== 'EVENT 事件')
+        .filter((record, index, list) => list.findIndex((candidate) =>
+          candidate.plotId === record.plotId && candidate.type === record.type && candidate.summary === record.summary
+        ) === index)
+        .slice(0, 20);
+      const recentEvents = recentEventRecords.map((record) => ({
         id: `audit:${record.traceId}`,
-        category: record.type === 'ALERT' ? 'alert' : 'system',
-        icon: record.type === 'ALERT' ? 'warning' : 'history',
+        category: record.type === 'ALERT' || record.result === 'REJECT' ? 'alert' : record.type === 'DIAGNOSIS' ? 'agent' : 'system',
+        icon: record.type === 'ALERT' || record.result === 'REJECT' ? 'warning' : record.type === 'DIAGNOSIS' ? 'psychology' : record.type === 'COMMAND' ? 'login' : 'history',
         title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${record.summary}`,
         time: record.time,
         traceId: record.traceId,
         dataOrigin: 'BACKEND'
       }));
+      if (!recentEvents.length) {
+        recentEvents.push(...alerts.slice(0, 8).map((alert, index) => ({
+          id: `alert:${alert.alertId || alert.id || index}`,
+          category: 'alert',
+          icon: 'warning',
+          title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          traceId: alert.alertId || alert.id,
+          dataOrigin: 'BACKEND'
+        })));
+      }
       const adminPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
       const adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
       const adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
