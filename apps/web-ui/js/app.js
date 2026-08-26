@@ -5,11 +5,10 @@ import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -83,7 +82,9 @@ const ICON_CLASS = Object.freeze({
   more_vertical: 'ph-dots-three-vertical',
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
-  add: 'ph-plus'
+  add: 'ph-plus',
+  sensors: 'ph-cpu',
+  chevron_right: 'ph-caret-right'
 });
 
 const AppIcon = {
@@ -100,11 +101,10 @@ const NAV_CATALOG = Object.freeze([
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警与诊断', SYSTEM_ADMIN: '决策审计' } },
   { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
-  { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
+  { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
   { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
   { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
@@ -239,13 +239,6 @@ const EMPTY_RISK_FORECAST_CONFIG = Object.freeze({
   baselineMoisture: null,
   stressBoundary: null,
   scenarioCatalog: []
-});
-
-const EMPTY_VALUE_LEDGER = Object.freeze({
-  summary: { plannedWaterLitres: '—', actualWaterLitres: '—', savedWaterLitres: '—', savedElectricityKwh: '—', labourSavedHours: '—', totalSavedRmb: '—' },
-  provenance: [],
-  counterfactual: [],
-  daily: []
 });
 
 function liveStatusValue(status, fallback = 'UNKNOWN') {
@@ -1451,25 +1444,6 @@ const WorkOrdersView = {
   }
 };
 
-const ResourceCoordinationView = {
-  template: '#tmpl-resource-coordination',
-  props: ['state', 'routeParams'],
-  setup(props, { emit }) {
-    const devices = computed(() => props.state.plots.map((plot) => ({
-      deviceId: plot.deviceId || '—',
-      plotId: plot.plotId,
-      plotName: plot.name,
-      status: normalizedStatus(plot.deviceStatus),
-      lastSeen: plot.lastSeen || '—',
-      healthScore: formatHealthScore(plot.healthScore)
-    })));
-    const onlineCount = computed(() => devices.value.filter((device) => device.status === 'ONLINE').length);
-    const statusLabel = (status) => status === 'ONLINE' ? '在线' : status === 'OFFLINE' ? '离线' : '状态未知';
-    const openIrrigation = (plotId) => emit('navigate', 'decision-console', { plotId, highlight: 'diagnosis' });
-    return { devices, onlineCount, statusLabel, openIrrigation };
-  }
-};
-
 const FarmMembersView = {
   template: '#tmpl-farm-members',
   props: ['state', 'routeParams'],
@@ -1720,59 +1694,6 @@ const CropManualView = {
     return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel, loadError };
   }
 };
-
-const ValueLedgerView = {
-  template: '#tmpl-value-ledger',
-  props: ['state', 'routeParams'],
-  setup(props) {
-    let chart = null;
-
-    const renderChart = async () => {
-      await nextTick();
-      const dom = document.getElementById('ledgerChart');
-      if (!dom) return;
-      if (!chart) {
-        chart = echarts.init(dom);
-        window.addEventListener('resize', () => chart.resize());
-      }
-
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const textColor = isDark ? '#e8eaed' : '#202124';
-      const dailyData = props.state.valueLedger.daily;
-
-      chart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', formatter: '{b}: {c}% 偏差' },
-        xAxis: { 
-          type: 'category', 
-          data: dailyData.map(d => d.date.split('-')[1]),
-          axisLabel: { color: textColor }
-        },
-        yAxis: { 
-          type: 'value', 
-          name: '水量偏差率 (%)',
-          axisLabel: { color: textColor },
-          nameTextStyle: { color: textColor }
-        },
-        series: [{
-          data: dailyData.map(d => d.deviationRatePct),
-          type: 'bar',
-          itemStyle: {
-            color: (params) => params.value <= 0 ? '#1e8e3e' : '#d93025'
-          }
-        }]
-      });
-    };
-
-    onMounted(renderChart);
-    const observer = new MutationObserver(() => renderChart());
-    onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
-
-    return {};
-  }
-};
-
-
 
 // ---- SYSTEM ADMIN COMPONENTS ----
 
@@ -2286,7 +2207,6 @@ const app = createApp({
     'farm-members-view': AdminMemberManagementView,
     'crop-manual-view': CropManualView,
     'crop-packs-view': CropPacksView,
-    'value-ledger-view': ValueLedgerView,
     'admin-overview-view': AdminOverviewView,
     'admin-ops-view': AdminOpsView,
     'admin-audit-view': AdminAuditView,
@@ -2341,7 +2261,6 @@ const app = createApp({
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
-      valueLedger: isDemoSession ? MOCK_DATA.valueLedger : EMPTY_VALUE_LEDGER,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
       farmerTasks: isDemoSession ? (MOCK_DATA.farmer_tasks || []).map((item) => ({ ...item })) : [],
       farmerProfile: isDemoSession ? (MOCK_DATA.farmer_profile || {}) : {},
@@ -2771,6 +2690,16 @@ const app = createApp({
       const route = parseHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && route.params?.farmId && route.params.farmId !== state.value.adminContext.farmId) {
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
+      }
+      const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
+        ? legacyAdminTabTarget(route.view, route.params?.tab, route.params?.farmId || state.value.adminContext.farmId)
+        : null;
+      if (legacyTarget) {
+        const targetHash = routeHash(legacyTarget.view, legacyTarget.params);
+        window.history.replaceState(null, '', targetHash);
+        currentView.value = legacyTarget.view;
+        routeParams.value = legacyTarget.params;
+        return;
       }
       if (route.view === 'plot-detail') {
         const plot = (state.value.allPlots || state.value.plots).find((item) => item.plotId === route.params.plotId);

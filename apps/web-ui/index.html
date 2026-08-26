@@ -967,30 +967,6 @@
     </div>
   </template>
 
-  <template id="tmpl-resource-coordination">
-    <section class="simple-operations-view" aria-labelledby="resource-view-title">
-      <header class="simple-view-header">
-        <div><h1 id="resource-view-title">设备与灌溉</h1><p>先确认采集设备状态，再进入对应地块处理灌溉方案。</p></div>
-      </header>
-      <div class="simple-summary-row">
-        <div><span>采集设备</span><strong>{{ devices.length }}</strong></div>
-        <div><span>当前在线</span><strong>{{ onlineCount }}</strong></div>
-        <div><span>需要检查</span><strong>{{ devices.length - onlineCount }}</strong></div>
-      </div>
-      <div class="simple-data-panel">
-        <div class="simple-device-head" aria-hidden="true"><span>设备</span><span>绑定地块</span><span>状态</span><span>最后更新</span><span>健康分</span><span>操作</span></div>
-        <article class="simple-device-row" v-for="device in devices" :key="device.plotId">
-          <span><strong>{{ device.deviceId }}</strong><small>采集终端</small></span>
-          <span>{{ device.plotName }}</span>
-          <span class="device-state" :class="device.status === 'ONLINE' ? 'is-online' : 'is-offline'"><i></i>{{ statusLabel(device.status) }}</span>
-          <span>{{ device.lastSeen }}</span>
-          <span>{{ device.healthScore }}</span>
-          <button type="button" class="text-action" @click="openIrrigation(device.plotId)">查看灌溉</button>
-        </article>
-      </div>
-    </section>
-  </template>
-
   <template id="tmpl-farm-members">
     <section class="simple-operations-view" aria-labelledby="member-view-title">
       <header class="simple-view-header">
@@ -1171,68 +1147,6 @@
                 <td>{{ rule.threshold }}</td>
                 <td>{{ rule.durationMinutes }} min</td>
                 <td>{{ rule.cooldownMinutes }} min</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <!-- Value Ledger Template -->
-  <template id="tmpl-value-ledger">
-    <div>
-      <h2 class="mb-4">经营效益审计台账 (Value Ledger)</h2>
-
-      <div class="g-grid g-grid-4 mb-4">
-        <div class="g-card text-center">
-          <div class="text-muted mb-2">规划用水 vs 实际用水</div>
-          <div style="font-size:24px; font-weight:500">{{ state.valueLedger.summary.plannedWaterLitres }}L / {{ state.valueLedger.summary.actualWaterLitres }}L</div>
-          <div class="g-badge success mt-2">节约 {{ state.valueLedger.summary.savedWaterLitres }}L</div>
-        </div>
-        <div class="g-card text-center">
-          <div class="text-muted mb-2">节约电力折算</div>
-          <div style="font-size:24px; font-weight:500; color:var(--g-primary)">{{ state.valueLedger.summary.savedElectricityKwh }} kWh</div>
-          <div class="text-muted mt-2" style="font-size:12px">泵站耗能直降</div>
-        </div>
-        <div class="g-card text-center">
-          <div class="text-muted mb-2">节省巡田工时</div>
-          <div style="font-size:24px; font-weight:500; color:var(--g-purple)">{{ state.valueLedger.summary.labourSavedHours }} h</div>
-          <div class="text-muted mt-2" style="font-size:12px">精准派单优势</div>
-        </div>
-        <div class="g-card text-center">
-          <div class="text-muted mb-2">总经济效益 (人民币)</div>
-          <div style="font-size:28px; font-weight:500; color:var(--g-success)">¥ {{ state.valueLedger.summary.totalSavedRmb }}</div>
-          <div class="text-muted mt-2" style="font-size:12px">基于当前计价本推算</div>
-        </div>
-      </div>
-
-      <div class="g-grid" style="grid-template-columns: 2fr 1fr">
-        <div class="g-card">
-          <h3 class="mb-4">每日偏差率跟踪矩阵</h3>
-          <div id="ledgerChart" style="width: 100%; height: 320px;"></div>
-        </div>
-
-        <div class="g-card">
-          <h3 class="mb-4">数据审计溯源 (Provenance)</h3>
-          <ul class="gates-list">
-            <li v-for="(prov, i) in state.valueLedger.provenance" :key="i" style="flex-direction:column; align-items:flex-start">
-              <div class="flex justify-between" style="width:100%">
-                <span style="font-weight:500">{{ prov.key }}</span>
-                <span class="g-badge" :class="prov.value==='OBSERVED'?'primary':(prov.value==='DERIVED'?'purple':'warning')">{{ prov.value }}</span>
-              </div>
-              <div class="text-muted mt-2" style="font-size:12px">{{ prov.tag }}</div>
-            </li>
-          </ul>
-
-          <h3 class="mt-4 mb-4">反事实推演对标</h3>
-          <table class="g-table">
-            <thead><tr><th>周期</th><th>传统估算</th><th>AgriLoop</th></tr></thead>
-            <tbody>
-              <tr v-for="item in state.valueLedger.counterfactual" :key="item.week">
-                <td>{{ item.week }}</td>
-                <td class="text-muted">¥{{ item.traditionalCostRmb }}</td>
-                <td style="color:var(--g-success)">¥{{ item.agriLoopCostRmb }}</td>
               </tr>
             </tbody>
           </table>

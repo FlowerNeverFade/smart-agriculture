@@ -1,7 +1,7 @@
 export const ADMIN_TABS = Object.freeze({
   dashboard: ['overview'],
-  'work-orders': ['tasks', 'plans', 'crop-packs'],
-  'resource-coordination': ['devices', 'irrigation', 'value', 'simulator'],
+  'work-orders': ['tasks', 'plans', 'resources', 'crop-packs'],
+  'resource-coordination': ['devices'],
   'farm-members': ['members']
 });
 
@@ -82,6 +82,82 @@ export function adminDeviceTypeLabel(type) {
   const value = String(type || '').trim();
   if (!value) return '类型未知';
   return ADMIN_DEVICE_TYPE_LABELS[metricKey(value)] || value;
+}
+
+function deviceIsBound(device) {
+  return Boolean(device?.plotId) || metricKey(device?.bindingState) === 'BOUND';
+}
+
+export function adminDeviceSummary(devices = []) {
+  const list = Array.isArray(devices) ? devices : [];
+  return {
+    all: list.length,
+    online: list.filter(device => metricKey(device?.status) === 'ONLINE').length,
+    attention: list.filter(device => metricKey(device?.status) !== 'ONLINE').length,
+    unbound: list.filter(device => !deviceIsBound(device)).length
+  };
+}
+
+export function adminDeviceMatchesFilters(device, filters = {}) {
+  const status = metricKey(filters.status);
+  const type = metricKey(filters.type);
+  const binding = metricKey(filters.binding);
+  const deviceStatus = metricKey(device?.status || 'OFFLINE');
+  const bound = deviceIsBound(device);
+  if (status === 'ATTENTION' && deviceStatus === 'ONLINE') return false;
+  if (status && status !== 'ALL' && status !== 'ATTENTION' && deviceStatus !== status) return false;
+  if (type && type !== 'ALL' && metricKey(device?.type) !== type) return false;
+  if (binding === 'BOUND' && !bound) return false;
+  if (binding === 'UNBOUND' && bound) return false;
+  const query = String(filters.keyword || '').trim().toLowerCase();
+  if (!query) return true;
+  return [device?.name, device?.deviceId, device?.type, device?.plotName]
+    .some(value => String(value || '').toLowerCase().includes(query));
+}
+
+const DEVICE_ALERT_SOURCES = new Set([
+  'DEVICE_FRESHNESS', 'DEVICE_HEALTH', 'DEVICE_STATUS', 'DEVICE_FAULT', 'FLOW_METER', 'WATER_FLOW'
+]);
+
+export function deviceRelatedAlerts(device, alerts = []) {
+  const deviceId = String(device?.deviceId || '').trim();
+  const plotId = String(device?.plotId || '').trim();
+  if (!deviceId && !plotId) return [];
+  return (Array.isArray(alerts) ? alerts : []).filter(alert => {
+    const directRef = String(alert?.deviceId || alert?.sourceRef || '').trim();
+    if (deviceId && directRef === deviceId) return true;
+    const source = metricKey(alert?.source || alert?.type);
+    const deviceSource = DEVICE_ALERT_SOURCES.has(source) || source.includes('DEVICE');
+    return Boolean(plotId && String(alert?.plotId || '').trim() === plotId && deviceSource);
+  });
+}
+
+export function deviceRelatedWorkOrders(device, workOrders = []) {
+  const deviceId = String(device?.deviceId || '').trim();
+  const plotId = String(device?.plotId || '').trim();
+  if (!deviceId && !plotId) return [];
+  return (Array.isArray(workOrders) ? workOrders : []).filter(order => {
+    if (normalizeAdminWorkActionType(order?.actionType) !== 'DEVICE_CHECK') return false;
+    if (deviceId && String(order?.sourceRef || '').trim() === deviceId) return true;
+    return Boolean(plotId && String(order?.plotId || '').trim() === plotId);
+  });
+}
+
+export function legacyAdminTabTarget(view, tab, farmId = '') {
+  const normalizedView = String(view || '').trim().toLowerCase();
+  const farmParams = farmId ? { farmId } : {};
+  if (['simulator', 'admin-simulator'].includes(normalizedView)) {
+    return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
+  }
+  if (normalizedView !== 'resource-coordination') return null;
+  const normalizedTab = String(tab || '').trim().toLowerCase();
+  if (['irrigation', 'value'].includes(normalizedTab)) {
+    return { view: 'work-orders', params: { tab: 'resources', ...farmParams } };
+  }
+  if (normalizedTab === 'simulator') {
+    return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
+  }
+  return null;
 }
 
 export function normalizeAdminWorkStatus(status) {

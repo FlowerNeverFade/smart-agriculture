@@ -1013,29 +1013,6 @@ export const MOCK_DATA = {
     ]
   },
 
-  valueLedger: {
-    farmId: "farm-demo",
-    farmName: "农智示范农场",
-    period: { start: "2026-08-01", end: "2026-08-22" },
-    prices: { waterPerLitre: 0.004, electricityPerKwh: 0.55, labourPerHour: 35.0 },
-    summary: { plannedWaterLitres: 18600, actualWaterLitres: 17240, deviationRatePct: -7.3, savedWaterLitres: 1360, savedElectricityKwh: 42.5, labourSavedHours: 6.2, savedWaterCostRmb: 5.44, savedElectricityCostRmb: 23.38, labourSavedCostRmb: 217.0, totalSavedRmb: 245.82 },
-    daily: Array.from({ length: 22 }, (_, i) => {
-      const planned = 845;
-      const wave = Math.sin(i / 2.3) * 42 + Math.cos(i / 1.7) * 26;
-      const actual = Math.round((planned * (0.93 + wave / 2200)) * 10) / 10;
-      return { date: `08-${String(i + 1).padStart(2, '0')}`, planned, actual, deviationRatePct: Math.round(((actual - planned) / planned) * 1000) / 10 };
-    }),
-    counterfactual: [
-      { week: "第 1 周", traditionalCostRmb: 320, agriLoopCostRmb: 240 }, { week: "第 2 周", traditionalCostRmb: 610, agriLoopCostRmb: 455 },
-      { week: "第 3 周", traditionalCostRmb: 870, agriLoopCostRmb: 645 }, { week: "第 4 周", traditionalCostRmb: 1120, agriLoopCostRmb: 830 }
-    ],
-    provenance: [
-      { key: "实际用水 / 用电 / 工时", value: "OBSERVED", tag: "sourceMode=SIMULATION（本期模拟遥测与虚拟执行）" },
-      { key: "偏差率 / 折合人民币", value: "DERIVED", tag: "由计划-实际差异确定性换算" },
-      { key: "传统粗放灌溉成本", value: "ESTIMATED", tag: "按行业经验参数估算，非实测" }
-    ]
-  },
-
   changelog: [
     {
       time: "2026-08-22 14:30",

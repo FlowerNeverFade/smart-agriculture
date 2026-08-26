@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js';
+import { AdminResourcePlanningView } from './admin-resource-planning.js';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -9,7 +10,10 @@ function todayInput() {
 }
 
 export const AdminWorkManagementView = {
-  components: { 'work-order-lifecycle': WorkOrderLifecycleView },
+  components: {
+    'work-order-lifecycle': WorkOrderLifecycleView,
+    'admin-resource-planning': AdminResourcePlanningView
+  },
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props, { emit }) {
@@ -165,10 +169,11 @@ export const AdminWorkManagementView = {
   },
   template: `
     <section class="admin-management-page">
-      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划与 Crop Pack 使用同一农场上下文。</p></div></header>
+      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、资源安排与 Crop Pack 使用同一农场上下文。</p></div></header>
       <nav class="admin-local-tabs" aria-label="农务任务页签">
         <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务列表</button>
         <button :class="{active: activeTab === 'plans'}" @click="setTab('plans')">生产计划</button>
+        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">资源安排</button>
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
       </nav>
 
@@ -209,6 +214,10 @@ export const AdminWorkManagementView = {
           </button>
         </div>
       </section>
+
+      <admin-resource-planning v-else-if="activeTab === 'resources'" :state="state"
+        :route-params="{ ...routeParams, farmId }"
+        @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-resource-planning>
 
       <section v-else class="admin-panel admin-work-collection" aria-labelledby="admin-pack-collection-title">
         <div class="admin-work-collection-header">
