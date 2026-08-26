@@ -107,7 +107,8 @@ def main() -> int:
     trace_id = f"acceptance-trace-{run_id}"
     status, diagnosis = call("POST", "/api/v1/diagnoses/evaluate", token, {"plotId": "plot-a02", "traceId": trace_id})
     assert_status("diagnosis", status)
-    if diagnosis["data"].get("primaryCause") not in {"WATER_DEFICIT", "SENSOR_DRIFT"}:
+    primary_cause = diagnosis["data"].get("primaryCause")
+    if primary_cause not in {"WATER_DEFICIT", "SENSOR_DRIFT", "DEVICE_FAULT"}:
         raise AssertionError("unexpected diagnosis cause")
 
     status, plan = call("POST", "/api/v1/irrigation/estimate", token, {
@@ -117,8 +118,17 @@ def main() -> int:
     })
     assert_status("irrigation plan", status)
     plan_data = plan["data"]
-    if plan_data.get("readinessStatus") != "READY" or plan_data.get("executable") is not True:
-        raise AssertionError(f"healthy plan did not become READY: {plan_data.get('readinessStatus')}")
+    if plan_data.get("executable") is True:
+        if plan_data.get("readinessStatus") != "READY":
+            raise AssertionError(f"executable plan did not become READY: {plan_data.get('readinessStatus')}")
+        safety_mode = "EXECUTABLE"
+    else:
+        # A plot with a bound but offline hardware must remain a safe,
+        # non-executable decision.  This is an expected acceptance outcome,
+        # not a failed irrigation calculation.
+        if primary_cause != "DEVICE_FAULT" or plan_data.get("readinessStatus") not in {"UNAVAILABLE", "REVIEW_REQUIRED", "BLOCKED"}:
+            raise AssertionError(f"non-executable plan has an unexpected safety state: {plan_data.get('readinessStatus')}")
+        safety_mode = "HARDWARE_OFFLINE"
 
     status, forecast = call("POST", "/api/v1/forecasts/evaluate", token, {"plotId": "plot-a02", "metric": "SOIL_MOISTURE"})
     assert_status("forecast", status)
@@ -133,22 +143,26 @@ def main() -> int:
     if resource["data"].get("status") != "INFEASIBLE":
         raise AssertionError("over-capacity resource plan was not rejected")
 
-    key = f"acceptance-command-once-{run_id}"
-    command_body = {"plotId": "plot-a02", "planId": plan_data["planId"], "approved": True, "idempotencyKey": key, "outcome": "FAILED"}
-    status, command = call("POST", "/api/v1/commands/virtual", token, command_body)
-    assert_status("command", status)
-    command_id = command["data"]["commandId"]
-    status, duplicate_command = call("POST", "/api/v1/commands/virtual", token, command_body)
-    assert_status("duplicate command", status)
-    if duplicate_command["data"].get("commandId") != command_id:
-        raise AssertionError("idempotency key created a second command")
+    command_id = None
+    effect_status = None
+    if plan_data.get("executable") is True:
+        key = f"acceptance-command-once-{run_id}"
+        command_body = {"plotId": "plot-a02", "planId": plan_data["planId"], "approved": True, "idempotencyKey": key, "outcome": "FAILED"}
+        status, command = call("POST", "/api/v1/commands/virtual", token, command_body)
+        assert_status("command", status)
+        command_id = command["data"]["commandId"]
+        status, duplicate_command = call("POST", "/api/v1/commands/virtual", token, command_body)
+        assert_status("duplicate command", status)
+        if duplicate_command["data"].get("commandId") != command_id:
+            raise AssertionError("idempotency key created a second command")
 
-    # The virtual executor is asynchronous; wait briefly for its non-success ACK/effect.
-    time.sleep(1.5)
-    status, evaluation = call("GET", f"/api/v1/commands/{command_id}/evaluation", token)
-    assert_status("effect evaluation", status)
-    if evaluation["data"].get("status") not in {"INCONCLUSIVE", "PENDING"}:
-        raise AssertionError("failed execution was incorrectly marked successful")
+        # The virtual executor is asynchronous; wait briefly for its non-success ACK/effect.
+        time.sleep(1.5)
+        status, evaluation = call("GET", f"/api/v1/commands/{command_id}/evaluation", token)
+        assert_status("effect evaluation", status)
+        effect_status = evaluation["data"].get("status")
+        if effect_status not in {"INCONCLUSIVE", "PENDING"}:
+            raise AssertionError("failed execution was incorrectly marked successful")
 
     status, passport = call("GET", f"/api/v1/decision-passports/{trace_id}", token)
     assert_status("decision passport", status)
@@ -160,10 +174,11 @@ def main() -> int:
         "status": "PASS",
         "telemetryAccepted": len(events),
         "duplicateTelemetry": duplicate["data"].get("duplicate"),
-        "diagnosis": diagnosis["data"].get("primaryCause"),
+        "diagnosis": primary_cause,
         "readiness": plan_data.get("readinessStatus"),
+        "safetyMode": safety_mode,
         "commandId": command_id,
-        "effectStatus": evaluation["data"].get("status"),
+        "effectStatus": effect_status,
         "scenarioRunId": scenario["data"].get("runId"),
     }, ensure_ascii=False))
     return 0

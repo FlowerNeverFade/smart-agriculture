@@ -1,10 +1,12 @@
 import { api } from './api.js';
+import { adminMetricLabel } from './admin-state.js';
 
-const { ref, computed, inject } = Vue;
+const { ref, computed, inject, watch } = Vue;
 
+const STATUS_LABELS = Object.freeze({ ACTIVE: '待处理', ACKED: '处理中', ESCALATED: '需优先处理', CLOSED: '已关闭', RESOLVED: '已解决' });
 const LEVEL_LABELS = Object.freeze({ CRITICAL: '严重', HIGH: '紧急', MEDIUM: '注意', LOW: '提示' });
 const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED', 'CANCELED', 'FAILED']);
-const CONFIDENCE_THRESHOLD = 0.78;
+const HIGH_CONFIDENCE_THRESHOLD = 0.8;
 
 function normalized(value, fallback = 'UNKNOWN') {
   return String(value || fallback).trim().toUpperCase();
@@ -19,11 +21,40 @@ function replaceById(list, key, update) {
 function readableTime(value) {
   if (!value) return '时间未知';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  });
 }
 
 function memberName(member) {
   return member?.displayName || member?.username || member?.userId || '未知农户';
+}
+
+function confidenceValue(diagnosis = {}) {
+  const candidates = Array.isArray(diagnosis?.candidateCauses)
+    ? diagnosis.candidateCauses
+    : (Array.isArray(diagnosis?.candidates) ? diagnosis.candidates : []);
+  const raw = [
+    diagnosis?.confidence,
+    diagnosis?.primaryCandidate?.confidence,
+    candidates[0]?.confidence
+  ].map(Number).find(Number.isFinite);
+  if (!Number.isFinite(raw)) return 0;
+  const normalizedValue = raw > 1 ? raw / 100 : raw;
+  return Math.max(0, Math.min(1, normalizedValue));
+}
+
+function primaryCauseValue(diagnosis = {}) {
+  const candidates = Array.isArray(diagnosis?.candidateCauses)
+    ? diagnosis.candidateCauses
+    : (Array.isArray(diagnosis?.candidates) ? diagnosis.candidates : []);
+  return normalized(
+    diagnosis?.primaryCause
+      || diagnosis?.riskType
+      || diagnosis?.primaryCandidate?.code
+      || candidates[0]?.code,
+    'INSUFFICIENT_EVIDENCE'
+  );
 }
 
 export function chooseBestFarmer(members = [], workOrders = [], plotId = '') {
@@ -31,8 +62,10 @@ export function chooseBestFarmer(members = [], workOrders = [], plotId = '') {
     .filter(member => normalized(member?.role) === 'FARMER' && normalized(member?.status, 'ACTIVE') === 'ACTIVE')
     .filter(member => Array.isArray(member?.plotIds) && (member.plotIds.includes('*') || member.plotIds.includes(plotId)))
     .map(member => {
-      const activeLoad = workOrders.filter(order => order?.assigneeId === member.userId && !TERMINAL_WORK_STATUSES.has(normalized(order?.status))).length;
-      const plotExperience = workOrders.filter(order => order?.assigneeId === member.userId && order?.plotId === plotId).length;
+      const activeLoad = workOrders.filter(order => order?.assigneeId === member.userId
+        && !TERMINAL_WORK_STATUSES.has(normalized(order?.status))).length;
+      const plotExperience = workOrders.filter(order => order?.assigneeId === member.userId
+        && order?.plotId === plotId).length;
       return { member, activeLoad, plotExperience };
     })
     .sort((a, b) => a.activeLoad - b.activeLoad
@@ -43,38 +76,47 @@ export function chooseBestFarmer(members = [], workOrders = [], plotId = '') {
   const best = eligible[0];
   return {
     ...best,
-    reason: `${memberName(best.member)}有这块地的作业权限，当前进行中任务 ${best.activeLoad} 项，过往处理该地块 ${best.plotExperience} 次。`
+    reason: `${memberName(best.member)}具备该地块权限，当前进行中任务 ${best.activeLoad} 项，过往处理该地块 ${best.plotExperience} 次。`
   };
 }
 
 export function assessAlertCredibility(alert = {}, diagnosis = {}) {
-  const raw = Number(diagnosis?.confidence);
-  let score = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
+  let score = confidenceValue(diagnosis);
   const reasons = [];
-  const primaryCause = normalized(diagnosis?.primaryCause || diagnosis?.riskType, 'INSUFFICIENT_EVIDENCE');
-  const missingInformation = Array.isArray(diagnosis?.missingInformation) ? diagnosis.missingInformation.filter(Boolean) : [];
+  const primaryCause = primaryCauseValue(diagnosis);
+  const missingInformation = [
+    ...(Array.isArray(diagnosis?.missingInformation) ? diagnosis.missingInformation : []),
+    ...(Array.isArray(diagnosis?.missingEvidence) ? diagnosis.missingEvidence : [])
+  ].filter(Boolean);
+  const diagnosisStatus = normalized(diagnosis?.status, 'AVAILABLE');
 
-  if (primaryCause === 'INSUFFICIENT_EVIDENCE') {
+  if (['INSUFFICIENT_EVIDENCE', 'UNKNOWN', 'UNAVAILABLE'].includes(primaryCause) || diagnosisStatus === 'UNAVAILABLE') {
     score = Math.min(score, 0.49);
-    reasons.push('现有数据还不足以确定原因');
+    reasons.push('现有证据还不足以确认告警原因');
   }
   if (missingInformation.length) {
     score = Math.min(score, 0.74);
-    reasons.push(`还需补充 ${missingInformation.length} 项检查`);
+    reasons.push(`仍需补充 ${missingInformation.length} 项证据`);
   }
   if (normalized(alert?.ruleState, 'CONFIRMED') === 'CANDIDATE') {
     score = Math.min(score, 0.69);
-    reasons.push('告警规则尚未完全确认');
+    reasons.push('告警规则尚未完成持续时间确认');
   }
 
-  const highConfidence = score >= CONFIDENCE_THRESHOLD && primaryCause !== 'INSUFFICIENT_EVIDENCE' && !missingInformation.length;
+  const highConfidence = score >= HIGH_CONFIDENCE_THRESHOLD
+    && !['INSUFFICIENT_EVIDENCE', 'UNKNOWN', 'UNAVAILABLE'].includes(primaryCause)
+    && diagnosisStatus !== 'UNAVAILABLE'
+    && !missingInformation.length;
+
   return {
     score,
     highConfidence,
     primaryCause,
     status: highConfidence ? 'AUTO_READY' : 'HUMAN_REVIEW',
-    label: highConfidence ? '可自动处理' : '需人工审核',
-    reason: reasons.join('；') || (highConfidence ? '多项数据相互印证，告警可信。' : '置信度未达到自动派单标准。')
+    label: highConfidence ? '可智能下发' : '保留人工审核',
+    reason: reasons.join('；') || (highConfidence
+      ? '规则、遥测与诊断结果相互印证，达到智能下发阈值。'
+      : `当前可信度未达到 ${Math.round(HIGH_CONFIDENCE_THRESHOLD * 100)}% 的智能下发阈值。`)
   };
 }
 
@@ -82,9 +124,15 @@ function dueHours(level) {
   return ({ CRITICAL: 1, HIGH: 2, MEDIUM: 4, LOW: 8 })[normalized(level, 'MEDIUM')] || 4;
 }
 
-function actionTypeFor(alert) {
-  const text = `${alert?.title || ''} ${alert?.message || ''} ${alert?.source || ''}`.toLowerCase();
-  return /device|sensor|设备|传感器|离线|漂移/.test(text) ? 'INSPECTION' : 'FIELD_OPERATION';
+function workPriority(level) {
+  const value = normalized(level, 'MEDIUM');
+  if (value === 'CRITICAL') return 'HIGH';
+  return ['HIGH', 'MEDIUM', 'LOW'].includes(value) ? value : 'MEDIUM';
+}
+
+function actionTypeFor(alert, audit = null) {
+  const text = `${audit?.primaryCause || ''} ${alert?.title || ''} ${alert?.message || ''} ${alert?.source || ''}`.toLowerCase();
+  return /device|sensor|设备|传感器|离线|漂移|fault/.test(text) ? 'INSPECTION' : 'FIELD_OPERATION';
 }
 
 export const AdminAlertCenter = {
@@ -95,10 +143,14 @@ export const AdminAlertCenter = {
     const filter = ref('REVIEW');
     const busyKey = ref('');
     const selectedIds = ref([]);
+    const activeAlertId = ref('');
     const aiAudits = ref({});
     const aiSummary = ref(null);
+
+    const alertKey = alert => alert?.alertId || alert?.id || '';
     const isClosed = alert => ['CLOSED', 'RESOLVED'].includes(normalized(alert?.status));
-    const existingTask = alert => (props.state.workOrders || []).find(order => order?.sourceType === 'ALERT' && order?.sourceRef === alert?.alertId);
+    const existingTask = alert => (props.state.workOrders || []).find(order => order?.sourceType === 'ALERT'
+      && order?.sourceRef === alertKey(alert));
     const isDispatched = alert => Boolean(existingTask(alert)?.assigneeId);
     const sortedAlerts = computed(() => [...(props.state.alerts || [])].sort((a, b) => {
       const rank = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -108,47 +160,95 @@ export const AdminAlertCenter = {
     const reviewAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && !isDispatched(alert)));
     const dispatchedAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && isDispatched(alert)));
     const closedAlerts = computed(() => sortedAlerts.value.filter(isClosed));
-    const visibleAlerts = computed(() => ({ REVIEW: reviewAlerts.value, DISPATCHED: dispatchedAlerts.value, CLOSED: closedAlerts.value, ALL: sortedAlerts.value })[filter.value] || reviewAlerts.value);
+    const visibleAlerts = computed(() => ({
+      REVIEW: reviewAlerts.value,
+      DISPATCHED: dispatchedAlerts.value,
+      CLOSED: closedAlerts.value,
+      ALL: sortedAlerts.value
+    })[filter.value] || reviewAlerts.value);
     const selectableAlerts = computed(() => visibleAlerts.value.filter(alert => !isClosed(alert)));
-    const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alert.alertId) && !isClosed(alert)));
-    const allVisibleSelected = computed(() => selectableAlerts.value.length > 0 && selectableAlerts.value.every(alert => selectedIds.value.includes(alert.alertId)));
-    const plotName = plotId => props.state.plots.find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
+    const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert)));
+    const allVisibleSelected = computed(() => selectableAlerts.value.length > 0
+      && selectableAlerts.value.every(alert => selectedIds.value.includes(alertKey(alert))));
+    const activeAlert = computed(() => sortedAlerts.value.find(alert => alertKey(alert) === activeAlertId.value) || null);
+
+    const plotName = plotId => (props.state.plots || []).find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
+    const statusLabel = status => STATUS_LABELS[normalized(status)] || '状态未知';
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
-    const auditFor = alert => aiAudits.value[alert.alertId] || null;
+    const sourceLabel = source => adminMetricLabel(source, source || '系统规则');
+    const auditFor = alert => aiAudits.value[alertKey(alert)] || null;
     const confidenceText = audit => audit ? `${Math.round(audit.score * 100)}%` : '未分析';
+    const nextStep = alert => {
+      if (isClosed(alert)) return '告警已结束';
+      if (isDispatched(alert)) return '任务已下发，等待农户处理';
+      if (auditFor(alert) && !auditFor(alert).highConfidence) return '证据不确定，保留人工审核';
+      return '等待智能分析或人工下发';
+    };
 
     const toggleSelectAll = () => {
-      const visibleIds = selectableAlerts.value.map(alert => alert.alertId);
+      const visibleIds = selectableAlerts.value.map(alertKey);
       selectedIds.value = allVisibleSelected.value
         ? selectedIds.value.filter(id => !visibleIds.includes(id))
         : [...new Set([...selectedIds.value, ...visibleIds])];
     };
+    const openDetail = alert => { activeAlertId.value = alertKey(alert); };
+    const closeDetail = () => {
+      if (!busyKey.value) activeAlertId.value = '';
+    };
+    const openDetailFromKeyboard = (event, alert) => {
+      if (!['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openDetail(alert);
+    };
 
-    const invalidate = records => emit('data-invalidated', {
-      domains: ['alerts', 'workOrders', 'overview'],
-      plotIds: [...new Set(records.map(item => item?.plotId).filter(Boolean))]
+    watch(() => props.state.adminContext?.farmId, () => {
+      activeAlertId.value = '';
+      selectedIds.value = [];
+      aiAudits.value = {};
+      aiSummary.value = null;
     });
-    const selectFarmer = alert => chooseBestFarmer(props.state.farmMembers || [], props.state.workOrders || [], alert.plotId);
 
-    const ensureDispatched = async (alert, assignment = selectFarmer(alert)) => {
-      if (!assignment?.member?.userId) throw new Error(`暂无有 ${plotName(alert.plotId)} 权限的在岗农户`);
+    const invalidate = (records, reason) => emit('data-invalidated', {
+      type: 'data-invalidated',
+      domains: ['alerts', 'workOrders', 'overview'],
+      farmId: props.state.adminContext?.farmId || records[0]?.farmId || '',
+      plotIds: [...new Set(records.map(item => item?.plotId).filter(Boolean))],
+      reason
+    });
+
+    const selectFarmer = alert => chooseBestFarmer(
+      props.state.farmMembers || [],
+      props.state.workOrders || [],
+      alert?.plotId
+    );
+
+    const ensureDispatched = async (alert, assignment = selectFarmer(alert), audit = auditFor(alert)) => {
+      if (!assignment?.member?.userId) throw new Error(`暂无具备 ${plotName(alert.plotId)} 权限的在岗农户`);
       let task = existingTask(alert);
       if (task?.assigneeId) return task;
       if (!task) {
         task = await api.createWorkOrder({
+          farmId: props.state.adminContext?.farmId || alert.farmId || '',
           plotId: alert.plotId,
           title: `处理：${alert.title || '地块告警'}`,
-          reason: alert.message || '根据 AI 分析安排现场检查与处理',
-          sourceType: 'ALERT', sourceRef: alert.alertId, actionType: actionTypeFor(alert),
-          priority: normalized(alert.level, 'MEDIUM'), status: 'OPEN', assigneeId: null,
+          reason: alert.message || '根据告警分析安排现场检查与处理',
+          sourceType: 'ALERT',
+          sourceRef: alertKey(alert),
+          actionType: actionTypeFor(alert, audit),
+          priority: workPriority(alert.level),
+          status: 'OPEN',
+          assigneeId: null,
           dueAt: new Date(Date.now() + dueHours(alert.level) * 60 * 60 * 1000).toISOString(),
           provenance: props.state.sessionMode === 'demo' ? 'SIMULATED' : 'DERIVED'
         });
         replaceById(props.state.workOrders, 'workOrderId', task);
       }
-      const assigned = await api.assignWorkOrder(task.workOrderId || task.workItemId, {
+
+      const taskId = task.workOrderId || task.workItemId;
+      if (!taskId) throw new Error('任务创建成功，但后端没有返回任务编号');
+      const assigned = await api.assignWorkOrder(taskId, {
         assigneeId: assignment.member.userId,
-        note: `AI 智能派单：${assignment.reason}`
+        note: `智能派单依据：${assignment.reason}`
       });
       replaceById(props.state.workOrders, 'workOrderId', assigned);
       return assigned;
@@ -156,14 +256,22 @@ export const AdminAlertCenter = {
 
     const dispatchOne = async alert => {
       const task = existingTask(alert);
-      if (task?.assigneeId) return emit('navigate', 'work-orders', { highlight: task.workOrderId || task.workItemId });
-      busyKey.value = `${alert.alertId}:dispatch`;
+      if (task?.assigneeId) {
+        activeAlertId.value = '';
+        emit('navigate', 'work-orders', {
+          highlight: task.workOrderId || task.workItemId,
+          farmId: props.state.adminContext?.farmId || ''
+        });
+        return;
+      }
+
+      busyKey.value = `${alertKey(alert)}:dispatch`;
       try {
         const assignment = selectFarmer(alert);
         const saved = await ensureDispatched(alert, assignment);
-        selectedIds.value = selectedIds.value.filter(id => id !== alert.alertId);
-        toast(`已下发给 ${saved.assigneeName || memberName(assignment.member)}：${assignment.reason}`);
-        invalidate([alert]);
+        selectedIds.value = selectedIds.value.filter(id => id !== alertKey(alert));
+        toast(`任务已下发给 ${saved.assigneeName || memberName(assignment.member)}`);
+        invalidate([alert], 'alert-task-dispatched');
       } catch (error) {
         toast(error.message || '任务下发失败', 'error');
       } finally {
@@ -173,22 +281,24 @@ export const AdminAlertCenter = {
 
     const closeAlerts = async alerts => {
       if (!alerts.length) return toast('请先选择要关闭的告警', 'error');
-      busyKey.value = 'batch:close';
+      busyKey.value = alerts.length > 1 ? 'batch:close' : `${alertKey(alerts[0])}:close`;
       let completed = 0;
-      try {
-        for (const alert of alerts) {
-          const saved = await api.closeAlert(alert.alertId);
+      const failed = [];
+      for (const alert of alerts) {
+        try {
+          const saved = await api.closeAlert(alertKey(alert));
           replaceById(props.state.alerts, 'alertId', saved);
           completed += 1;
+        } catch (error) {
+          failed.push(`${plotName(alert.plotId)}：${error.message || '关闭失败'}`);
         }
-        selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alert.alertId === id));
-        toast(`已关闭 ${completed} 条告警`);
-        invalidate(alerts);
-      } catch (error) {
-        toast(`已处理 ${completed} 条，${error.message || '关闭告警失败'}`, 'error');
-      } finally {
-        busyKey.value = '';
       }
+      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alertKey(alert) === id));
+      busyKey.value = '';
+      invalidate(alerts, 'alerts-closed');
+      toast(failed.length
+        ? `已关闭 ${completed} 条，另有 ${failed.length} 条失败`
+        : `已关闭 ${completed} 条告警`, failed.length ? 'error' : 'success');
     };
 
     const dispatchSelected = async () => {
@@ -202,65 +312,132 @@ export const AdminAlertCenter = {
           await ensureDispatched(alert);
           completed += 1;
         } catch (error) {
-          failed.push(`${plotName(alert.plotId)}：${error.message}`);
+          failed.push(`${plotName(alert.plotId)}：${error.message || '下发失败'}`);
         }
       }
-      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alert.alertId === id));
+      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alertKey(alert) === id));
       busyKey.value = '';
-      invalidate(alerts);
-      toast(failed.length ? `成功下发 ${completed} 条，${failed.length} 条需人工处理` : `AI 已为 ${completed} 条告警选择农户并下发任务`, failed.length ? 'error' : 'success');
+      invalidate(alerts, 'alerts-batch-dispatched');
+      toast(failed.length
+        ? `成功下发 ${completed} 条，${failed.length} 条需人工处理`
+        : `已为 ${completed} 条告警智能选择农户并下发任务`, failed.length ? 'error' : 'success');
     };
 
     const aiProcess = async () => {
-      const chosen = selectedAlerts.value.filter(alert => !existingTask(alert)?.assigneeId);
-      const alerts = chosen.length ? chosen : reviewAlerts.value;
-      if (!alerts.length) return toast('当前没有需要 AI 处理的告警');
+      const selectedPending = selectedAlerts.value.filter(alert => !existingTask(alert)?.assigneeId);
+      const alerts = selectedAlerts.value.length ? [...selectedPending] : [...reviewAlerts.value];
+      if (!alerts.length) return toast(selectedAlerts.value.length
+        ? '选中的告警均已下发，无需重复智能处理'
+        : '当前没有需要智能处理的告警');
+
       busyKey.value = 'batch:ai';
       let dispatched = 0;
       let review = 0;
       let failed = 0;
       for (const alert of alerts) {
         try {
-          const diagnosis = await api.evaluateDiagnosis(alert.plotId, { traceId: `alert-ai-${Date.now()}-${alert.alertId}` });
+          const diagnosis = await api.evaluateDiagnosis(alert.plotId, {
+            traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`
+          });
           const audit = assessAlertCredibility(alert, diagnosis);
           const assignment = audit.highConfidence ? selectFarmer(alert) : null;
           if (audit.highConfidence && assignment) {
-            await ensureDispatched(alert, assignment);
-            aiAudits.value = { ...aiAudits.value, [alert.alertId]: { ...audit, farmerName: memberName(assignment.member), assignmentReason: assignment.reason } };
+            await ensureDispatched(alert, assignment, audit);
+            aiAudits.value = {
+              ...aiAudits.value,
+              [alertKey(alert)]: {
+                ...audit,
+                farmerName: memberName(assignment.member),
+                assignmentReason: assignment.reason
+              }
+            };
             dispatched += 1;
           } else {
-            aiAudits.value = { ...aiAudits.value, [alert.alertId]: { ...audit, reason: `${audit.reason}${audit.highConfidence ? '。暂无有符合地块权限的在岗农户。' : ''}` } };
+            aiAudits.value = {
+              ...aiAudits.value,
+              [alertKey(alert)]: {
+                ...audit,
+                highConfidence: false,
+                status: 'HUMAN_REVIEW',
+                label: '保留人工审核',
+                reason: audit.highConfidence && !assignment
+                  ? `${audit.reason} 暂无具备该地块权限的在岗农户。`
+                  : audit.reason
+              }
+            };
             review += 1;
           }
         } catch (error) {
-          aiAudits.value = { ...aiAudits.value, [alert.alertId]: { score: 0, highConfidence: false, label: '分析失败', reason: error.message || '无法获取诊断结果' } };
+          aiAudits.value = {
+            ...aiAudits.value,
+            [alertKey(alert)]: {
+              score: 0,
+              highConfidence: false,
+              status: 'HUMAN_REVIEW',
+              label: '分析失败，保留人工审核',
+              reason: error.message || '无法获取诊断结果'
+            }
+          };
           failed += 1;
         }
       }
+
       aiSummary.value = { total: alerts.length, dispatched, review, failed };
-      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alert.alertId === id));
+      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alertKey(alert) === id));
       busyKey.value = '';
-      invalidate(alerts);
-      toast(`AI 已检查 ${alerts.length} 条：自动下发 ${dispatched} 条，保留审核 ${review + failed} 条`);
+      invalidate(alerts, 'alerts-ai-processed');
+      toast(`已分析 ${alerts.length} 条：智能下发 ${dispatched} 条，保留审核 ${review + failed} 条`);
     };
 
     return {
-      filter, busyKey, selectedIds, visibleAlerts, selectableAlerts, selectedAlerts, allVisibleSelected,
-      reviewCount: computed(() => reviewAlerts.value.length), dispatchedCount: computed(() => dispatchedAlerts.value.length), closedCount: computed(() => closedAlerts.value.length),
-      isClosed, existingTask, plotName, levelLabel, auditFor, confidenceText, readableTime, normalized,
-      aiSummary, toggleSelectAll, dispatchOne, closeAlerts, dispatchSelected, aiProcess,
-      showChat: () => emit('show-chat'),
-      openTask: alert => {
-        const task = existingTask(alert);
-        if (task) emit('navigate', 'work-orders', { highlight: task.workOrderId || task.workItemId });
+      filter,
+      busyKey,
+      selectedIds,
+      visibleAlerts,
+      selectableAlerts,
+      selectedAlerts,
+      allVisibleSelected,
+      activeAlert,
+      reviewCount: computed(() => reviewAlerts.value.length),
+      dispatchedCount: computed(() => dispatchedAlerts.value.length),
+      closedCount: computed(() => closedAlerts.value.length),
+      isClosed,
+      existingTask,
+      plotName,
+      statusLabel,
+      levelLabel,
+      sourceLabel,
+      auditFor,
+      confidenceText,
+      nextStep,
+      readableTime,
+      normalized,
+      aiSummary,
+      toggleSelectAll,
+      dispatchOne,
+      closeAlerts,
+      dispatchSelected,
+      aiProcess,
+      openDetail,
+      closeDetail,
+      openDetailFromKeyboard,
+      showChat: () => {
+        activeAlertId.value = '';
+        emit('show-chat');
       }
     };
   },
   template: `
     <section class="admin-alert-view" aria-labelledby="admin-alert-title">
       <header class="admin-alert-header">
-        <div><p class="admin-alert-eyebrow">AI 告警助手</p><h2 id="admin-alert-title">AI 告警处置</h2><p>先核对告警可信度，再结合地块权限和当前任务量，把任务直接下发给合适的农户。</p></div>
-        <button class="g-btn g-btn-outline" type="button" @click="showChat">询问 AI 助手</button>
+        <div>
+          <p class="admin-alert-eyebrow">农场管理员 · 智能告警</p>
+          <h2 id="admin-alert-title">AI告警分析与智能处理</h2>
+          <p>批量筛选告警、判断可信度，并结合地块权限、当前任务量和过往经验，把高可信告警直接下发给合适的农户。</p>
+        </div>
+        <button class="g-btn secondary" type="button" @click="showChat">
+          <app-icon name="smart_toy"></app-icon><span>打开 AI 对话助手</span>
+        </button>
       </header>
 
       <div class="admin-alert-tabs" role="group" aria-label="告警筛选">
@@ -270,33 +447,109 @@ export const AdminAlertCenter = {
         <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部</button>
       </div>
 
-      <div class="admin-alert-ai-summary" v-if="aiSummary">
-        <span class="admin-alert-ai-icon">AI</span><div><strong>本次已检查 {{ aiSummary.total }} 条告警</strong><p>自动下发 {{ aiSummary.dispatched }} 条，保留人工审核 {{ aiSummary.review + aiSummary.failed }} 条。不确定的告警不会自动派单。</p></div>
+      <div class="admin-alert-ai-summary" v-if="aiSummary" role="status">
+        <span class="admin-alert-ai-icon"><app-icon name="smart_toy"></app-icon></span>
+        <div>
+          <strong>本次已分析 {{ aiSummary.total }} 条告警</strong>
+          <p>智能下发 {{ aiSummary.dispatched }} 条，保留人工审核 {{ aiSummary.review + aiSummary.failed }} 条；证据不确定的告警不会自动派单。</p>
+        </div>
       </div>
 
       <div class="admin-alert-batch-bar">
-        <label class="admin-alert-select-all" :class="{ disabled: !selectableAlerts.length }"><input type="checkbox" :checked="allVisibleSelected" :disabled="!selectableAlerts.length || busyKey !== ''" @change="toggleSelectAll"><span>全选当前列表</span></label>
-        <span class="admin-alert-selection">已选 {{ selectedAlerts.length }} 条</span>
+        <div class="admin-alert-selection-group">
+          <label class="admin-alert-select-all" :class="{ disabled: !selectableAlerts.length }">
+            <input type="checkbox" :checked="allVisibleSelected" :disabled="!selectableAlerts.length || busyKey !== ''" @change="toggleSelectAll">
+            <span>全选当前列表</span>
+          </label>
+          <span class="admin-alert-selection">已选 {{ selectedAlerts.length }} 条</span>
+        </div>
         <div class="admin-alert-batch-actions">
-          <button class="g-btn g-btn-primary" type="button" :disabled="busyKey !== '' || !reviewCount" @click="aiProcess">{{ busyKey === 'batch:ai' ? 'AI 正在分析…' : 'AI 智能处理' }}</button>
-          <button class="g-btn g-btn-tonal" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="dispatchSelected">一键下发任务</button>
-          <button class="g-btn g-btn-outline" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="closeAlerts(selectedAlerts)">一键关闭告警</button>
+          <button class="g-btn primary" type="button" :disabled="busyKey !== '' || (!selectedAlerts.length && !reviewCount)" @click="aiProcess">
+            <app-icon name="auto_awesome"></app-icon><span>{{ busyKey === 'batch:ai' ? '正在分析…' : 'AI 智能处理' }}</span>
+          </button>
+          <button class="g-btn secondary" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="dispatchSelected">
+            <app-icon name="person_add"></app-icon><span>一键下发任务</span>
+          </button>
+          <button class="g-btn secondary admin-alert-close-action" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="closeAlerts(selectedAlerts)">
+            <app-icon name="close"></app-icon><span>一键关闭告警</span>
+          </button>
         </div>
       </div>
 
       <div class="admin-alert-empty" v-if="!visibleAlerts.length">当前列表没有告警。</div>
       <div class="admin-alert-list" v-else>
-        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alert.alertId" :class="'level-' + normalized(alert.level, 'MEDIUM').toLowerCase()">
-          <label class="admin-alert-check" v-if="!isClosed(alert)" :aria-label="'选择' + (alert.title || '告警')"><input type="checkbox" v-model="selectedIds" :value="alert.alertId" :disabled="busyKey !== ''"></label>
+        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alert.alertId"
+          :class="['level-' + normalized(alert.level, 'MEDIUM').toLowerCase(), { 'is-selected': selectedIds.includes(alert.alertId) }]"
+          role="button" tabindex="0" :aria-label="'查看告警详情：' + (alert.title || '地块需要处理')"
+          @click="openDetail(alert)" @keydown="openDetailFromKeyboard($event, alert)">
           <div class="admin-alert-main">
-            <div class="admin-alert-title-row"><h3>{{ alert.title || '地块需要处理' }}</h3><span class="admin-alert-chip level">{{ levelLabel(alert.level) }}</span><span class="admin-alert-chip dispatched" v-if="existingTask(alert)">{{ existingTask(alert).assigneeId ? '已下发农户' : '等待分配' }}</span></div>
-            <p class="admin-alert-meta">{{ plotName(alert.plotId) }} · {{ readableTime(alert.raisedAt || alert.createdAt) }}</p>
+            <div class="admin-alert-card-top">
+              <label class="admin-alert-card-select" v-if="!isClosed(alert)" @click.stop>
+                <input type="checkbox" v-model="selectedIds" :value="alert.alertId" :disabled="busyKey !== ''" @click.stop>
+                <span>选择</span>
+              </label>
+              <div class="admin-alert-title-row">
+                <span class="admin-alert-chip" :class="'state-' + normalized(alert.status, 'ACTIVE').toLowerCase()">{{ statusLabel(alert.status) }}</span>
+                <span class="admin-alert-chip level">{{ levelLabel(alert.level) }}</span>
+                <span class="admin-alert-chip dispatched" v-if="existingTask(alert)">{{ existingTask(alert).assigneeId ? '已下发农户' : '等待分配' }}</span>
+              </div>
+            </div>
+            <h3>{{ alert.title || '地块需要处理' }}</h3>
             <p class="admin-alert-message">{{ alert.message || '该地块存在需要人工确认的问题。' }}</p>
-            <div class="admin-alert-audit" v-if="auditFor(alert)" :class="auditFor(alert).highConfidence ? 'is-ready' : 'needs-review'"><strong>AI 可信度 {{ confidenceText(auditFor(alert)) }} · {{ auditFor(alert).label }}</strong><span>{{ auditFor(alert).farmerName ? '已派给 ' + auditFor(alert).farmerName + '。' : '' }}{{ auditFor(alert).reason }}</span></div>
-            <p class="admin-alert-source">检测来源：{{ alert.source || '系统规则' }}</p>
+            <dl class="admin-alert-card-facts">
+              <div><dt>地块</dt><dd>{{ plotName(alert.plotId) }}</dd></div>
+              <div><dt>发生时间</dt><dd>{{ readableTime(alert.raisedAt || alert.createdAt) }}</dd></div>
+            </dl>
+            <div class="admin-alert-audit" v-if="auditFor(alert)" :class="auditFor(alert).highConfidence ? 'is-ready' : 'needs-review'">
+              <strong>可信度 {{ confidenceText(auditFor(alert)) }} · {{ auditFor(alert).label }}</strong>
+              <span>{{ auditFor(alert).farmerName ? '已下发给 ' + auditFor(alert).farmerName + '。' : '' }}{{ auditFor(alert).reason }}</span>
+            </div>
           </div>
-          <div class="admin-alert-actions" v-if="!isClosed(alert)"><button class="g-btn g-btn-tonal" type="button" :disabled="busyKey !== ''" @click="existingTask(alert)?.assigneeId ? openTask(alert) : dispatchOne(alert)">{{ existingTask(alert)?.assigneeId ? '查看已下发任务' : 'AI 派单' }}</button><button class="g-btn g-btn-ghost" type="button" :disabled="busyKey !== ''" @click="closeAlerts([alert])">关闭告警</button></div>
+          <footer class="admin-alert-card-footer">
+            <span>来源：{{ sourceLabel(alert.source) }}</span>
+            <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
+          </footer>
         </article>
+      </div>
+
+      <div v-if="activeAlert" class="g-modal-overlay admin-alert-detail-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
+        <section class="g-modal admin-alert-detail" role="dialog" aria-modal="true" aria-labelledby="admin-alert-detail-title">
+          <div class="g-modal-header">
+            <div><small>告警详情</small><h3 id="admin-alert-detail-title">{{ activeAlert.title || '地块需要处理' }}</h3></div>
+            <button type="button" class="g-btn icon-only" aria-label="关闭" :disabled="busyKey !== ''" @click="closeDetail"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body admin-alert-detail-body">
+            <div class="admin-alert-detail-status">
+              <div class="admin-alert-title-row">
+                <span class="admin-alert-chip" :class="'state-' + normalized(activeAlert.status, 'ACTIVE').toLowerCase()">{{ statusLabel(activeAlert.status) }}</span>
+                <span class="admin-alert-chip level">{{ levelLabel(activeAlert.level) }}</span>
+              </div>
+              <strong>{{ nextStep(activeAlert) }}</strong>
+            </div>
+            <p class="admin-alert-detail-message">{{ activeAlert.message || '该地块存在需要人工确认的问题。' }}</p>
+            <dl class="admin-alert-detail-facts">
+              <div><dt>地块</dt><dd>{{ plotName(activeAlert.plotId) }}</dd></div>
+              <div><dt>发生时间</dt><dd>{{ readableTime(activeAlert.raisedAt || activeAlert.createdAt) }}</dd></div>
+              <div><dt>告警来源</dt><dd>{{ sourceLabel(activeAlert.source) }}</dd></div>
+              <div><dt>关联任务</dt><dd>{{ existingTask(activeAlert)?.title || '尚未下发' }}</dd></div>
+            </dl>
+            <div class="admin-alert-audit admin-alert-detail-audit" v-if="auditFor(activeAlert)" :class="auditFor(activeAlert).highConfidence ? 'is-ready' : 'needs-review'">
+              <strong>AI 分析可信度 {{ confidenceText(auditFor(activeAlert)) }} · {{ auditFor(activeAlert).label }}</strong>
+              <span>{{ auditFor(activeAlert).farmerName ? '已下发给 ' + auditFor(activeAlert).farmerName + '。' : '' }}{{ auditFor(activeAlert).reason }}</span>
+            </div>
+            <p class="admin-alert-detail-note" v-if="isClosed(activeAlert)">这条告警已经结束，处理记录继续保留为只读事实。</p>
+          </div>
+          <div class="g-modal-footer admin-alert-detail-footer">
+            <button class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="closeDetail">返回</button>
+            <template v-if="!isClosed(activeAlert)">
+              <button class="g-btn primary" type="button" :disabled="busyKey !== ''" @click="dispatchOne(activeAlert)">
+                <app-icon :name="existingTask(activeAlert)?.assigneeId ? 'task_alt' : 'person_add'"></app-icon>
+                <span>{{ existingTask(activeAlert)?.assigneeId ? '查看已下发任务' : '智能下发任务' }}</span>
+              </button>
+              <button class="g-btn secondary admin-alert-close-action" type="button" :disabled="busyKey !== ''" @click="closeAlerts([activeAlert])">关闭告警</button>
+            </template>
+          </div>
+        </section>
       </div>
     </section>
   `

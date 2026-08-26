@@ -89,7 +89,9 @@ export function workStatusLabel(value) {
 
 export function relativeTime(value, now = Date.now()) {
   const date = dateValue(value);
-  if (!date) return '—';
+  // A missing backend timestamp is sometimes serialised as `0`/epoch.  It
+  // must not appear in a user-facing card as "20,000 days ago".
+  if (!date || date.getTime() < Date.UTC(2000, 0, 1)) return '—';
   const diff = Math.max(0, now - date.getTime());
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return '刚刚';
@@ -136,6 +138,15 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     metrics[code] = metricFromLatest(code, event, metrics[code]);
   });
   const device = overviewCard.device || plot.device || {};
+  // A physical binding has precedence over the simulator device for the
+  // plot's operational status.  Synthetic values may continue to exist as a
+  // fallback, but the UI must never call a plot usable while its bound
+  // hardware is offline.
+  const hardware = overviewCard.hardware || plot.hardware || {};
+  const hardwareBound = String(hardware.bindingState || '').toUpperCase() === 'BOUND';
+  const effectiveDevice = hardwareBound
+    ? { ...device, ...hardware, deviceId: hardware.deviceId || device.deviceId, sourceMode: 'REAL', dataOrigin: 'HARDWARE' }
+    : device;
   const cropCode = text(plot.cropCode || overviewCard.cropCode, '');
   return {
     ...plot,
@@ -148,11 +159,13 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     stageLabel: text(plot.stageLabel, '—'),
     metrics,
     history,
-    deviceId: text(device.deviceId || plot.deviceId, ''),
-    deviceStatus: text(device.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
-    healthScore: overviewCard.health?.score ?? plot.healthScore ?? device.healthScore ?? null,
+    deviceId: text(effectiveDevice.deviceId || plot.deviceId, ''),
+    deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
+    hardware,
+    hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
+    healthScore: overviewCard.health?.score ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
-    lastSeen: device.lastSeen || plot.lastSeen || null,
+    lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
@@ -205,10 +218,22 @@ function messageBase({ id, category, title, snippet, body, sender, at, read = fa
 export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [], plots = [] } = {}) {
   const plotMap = new Map(asArray(plots).map((plot) => [String(plot.plotId), plot]));
   const messages = [];
-  asArray(alerts).forEach((alert) => {
+  const seenAlertKeys = new Set();
+  const sortedAlerts = asArray(alerts).slice().sort((a, b) =>
+    (dateValue(b.updatedAt || b.raisedAt || b.createdAt)?.getTime() || 0)
+    - (dateValue(a.updatedAt || a.raisedAt || a.createdAt)?.getTime() || 0));
+  sortedAlerts.forEach((alert) => {
     const plotId = text(alert.plotId, '');
-    const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
+    const source = text(alert.source, 'RULE').toUpperCase();
     const status = text(alert.status, 'ACTIVE').toUpperCase();
+    // Keep one live alert message per plot+source so a cooldown miss on the
+    // backend cannot flood the farmer inbox with the same notice.
+    if (['ACTIVE', 'ACKNOWLEDGED', 'OPEN'].includes(status)) {
+      const dedupeKey = `${plotId}|${source}`;
+      if (seenAlertKeys.has(dedupeKey)) return;
+      seenAlertKeys.add(dedupeKey);
+    }
+    const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
     const title = text(alert.title, `${plotName}出现${text(alert.level, '提示')}告警`);
     const message = text(alert.message || alert.summary, '请打开告警详情查看后端提供的处理建议。');
     messages.push(messageBase({
@@ -218,7 +243,7 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       snippet: message,
       body: [message, `来源：${text(alert.source, '规则引擎')}`, `当前状态：${status}`],
       sender: 'AgriLoop 规则引擎',
-      at: alert.createdAt || alert.raisedAt || alert.updatedAt,
+      at: alert.updatedAt || alert.createdAt || alert.raisedAt,
       plotId,
       read: status === 'CLOSED' || status === 'RESOLVED'
     }));
@@ -437,6 +462,22 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
   const traceId = text(record.traceId || record.diagnosisId || record.planId || record.commandId || record.workOrderId || record.inspectionId, `event-${index + 1}`);
   const at = entry.at || record.createdAt || record.evaluatedAt || record.observedAt;
   const result = ['REJECTED', 'FAILED', 'ERROR', 'CANCELLED'].includes(text(record.status).toUpperCase()) ? 'REJECT' : ['DONE', 'COMPLETED', 'PASS', 'APPROVED'].includes(text(record.status).toUpperCase()) ? 'PASS' : 'PENDING';
+  const explicitSummary = record.summary || record.message || record.title || record.reason || record.evidenceSummary;
+  const derivedSummary = type === 'DIAGNOSIS'
+    ? `诊断完成：${text(record.primaryCause || record.riskType, '待确认')}`
+    : type === 'ALERT'
+      ? `告警：${text(record.title || record.source || record.level, '平台规则')}`
+      : type === 'IRRIGATION-PLAN'
+        ? `生成灌溉处方${record.waterLitre !== undefined ? ` · ${record.waterLitre} L` : ''}`
+        : type === 'COMMAND'
+          ? `控制命令：${text(record.action || record.commandType, '已提交')}`
+          : type === 'READINESS'
+            ? `决策就绪度：${text(record.readinessStatus || record.status, '待评估')}`
+            : type === 'INSPECTION'
+              ? `巡田记录：${text(record.notes || record.observation, '已提交')}`
+              : type === 'WORK-ORDER'
+                ? `工单：${text(record.title || record.actionType, '已更新')}`
+                : `${type} 事件`;
   return {
     traceId,
     time: relativeTime(at),
@@ -445,7 +486,7 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
     plotId,
     type,
     typeLabel: ({ DIAGNOSIS: '诊断', READINESS: '就绪度', 'IRRIGATION-PLAN': '处方', COMMAND: '命令', EVALUATION: '评价', INSPECTION: '巡田', 'WORK-ORDER': '工单', ALERT: '告警' }[type] || type),
-    summary: text(record.summary || record.message || record.title || record.reason || record.evidenceSummary, '后端审计记录'),
+    summary: text(explicitSummary, derivedSummary),
     result,
     passport: {
       trigger: text(record.source || record.sourceType, '后端记录'),

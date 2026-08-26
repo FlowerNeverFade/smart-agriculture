@@ -5,6 +5,83 @@ export const ADMIN_TABS = Object.freeze({
   'farm-members': ['members']
 });
 
+const ADMIN_METRIC_LABELS = Object.freeze({
+  SOIL_MOISTURE: '土壤湿度',
+  SOIL_HUMIDITY: '土壤湿度',
+  SOIL_TEMPERATURE: '土壤温度',
+  AIR_TEMPERATURE: '空气温度',
+  AIR_TEMP: '空气温度',
+  TEMPERATURE: '温度',
+  AIR_HUMIDITY: '空气湿度',
+  HUMIDITY: '湿度',
+  LIGHT: '光照',
+  LIGHT_INTENSITY: '光照',
+  ILLUMINANCE: '光照',
+  CO2: '二氧化碳',
+  CO2_CONCENTRATION: '二氧化碳',
+  CARBON_DIOXIDE: '二氧化碳',
+  SOIL_EC: '土壤电导率',
+  EC: '电导率',
+  ELECTRICAL_CONDUCTIVITY: '电导率',
+  NPK_RATIO: '氮磷钾',
+  PH: '酸碱度',
+  SOIL_PH: '土壤酸碱度',
+  WATER_LEVEL: '水位',
+  WATER_FLOW: '水流量',
+  FLOW_RATE: '流量',
+  WIND_SPEED: '风速',
+  RAINFALL: '降雨量',
+  DATA_FRESHNESS: '数据新鲜度',
+  DEVICE_FRESHNESS: '设备数据新鲜度',
+  DEVICE_HEALTH: '设备健康'
+});
+
+const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
+  ENVIRONMENTAL_SENSOR: '环境传感器',
+  IRRIGATION_CONTROLLER: '灌溉控制器',
+  FLOW_METER: '流量计'
+});
+
+function metricKey(value) {
+  return String(value || '')
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toUpperCase();
+}
+
+export function adminMetricLabel(code, fallbackLabel = '') {
+  const normalized = metricKey(code);
+  if (ADMIN_METRIC_LABELS[normalized]) return ADMIN_METRIC_LABELS[normalized];
+  const fallback = String(fallbackLabel || '').trim();
+  const fallbackKey = metricKey(fallback);
+  if (ADMIN_METRIC_LABELS[fallbackKey]) return ADMIN_METRIC_LABELS[fallbackKey];
+  return fallback || normalized.replaceAll('_', ' ') || '未知指标';
+}
+
+export function adminDeviceTypeLabel(type) {
+  const value = String(type || '').trim();
+  if (!value) return '类型未知';
+  return ADMIN_DEVICE_TYPE_LABELS[metricKey(value)] || value;
+}
+
+export function alertAcknowledgementAction(status) {
+  const normalized = String(status || '').trim().toUpperCase();
+  if (normalized === 'ACTIVE') {
+    return {
+      label: '确认收到',
+      successMessage: '已确认收到，告警继续保留，方便后续处理'
+    };
+  }
+  if (normalized === 'ESCALATED') {
+    return {
+      label: '降级处理',
+      successMessage: '告警已降级为已确认，继续保留以便后续处理'
+    };
+  }
+  return null;
+}
+
 export function selectAuthorizedFarm(farms = [], requestedFarmId = '') {
   const list = Array.isArray(farms) ? farms.filter(farm => farm?.farmId) : [];
   return list.find(farm => farm.farmId === requestedFarmId)?.farmId || list[0]?.farmId || '';
@@ -49,6 +126,42 @@ export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.no
     unassigned: activeWork.filter(item => !item?.assigneeId).length,
     approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length
   };
+}
+
+const MANAGER_SUMMARY_TARGETS = Object.freeze({
+  today: { view: 'work-orders', params: { tab: 'tasks', scope: 'today' } },
+  overdue: { view: 'work-orders', params: { tab: 'tasks', scope: 'overdue' } },
+  abnormal: { view: 'decision-console', params: { section: 'alerts' } },
+  unassigned: { view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned' } },
+  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } }
+});
+
+const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval']);
+const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED']);
+
+export function managerSummaryTarget(summaryId, farmId = '') {
+  const target = MANAGER_SUMMARY_TARGETS[String(summaryId || '').toLowerCase()];
+  if (!target) return null;
+  return {
+    view: target.view,
+    params: { ...target.params, ...(farmId ? { farmId } : {}) }
+  };
+}
+
+export function normalizeWorkSummaryScope(scope) {
+  const normalized = String(scope || '').trim().toLowerCase();
+  return WORK_SUMMARY_SCOPES.has(normalized) ? normalized : '';
+}
+
+export function workOrderMatchesSummaryScope(order, scope, now = Date.now()) {
+  const normalizedScope = normalizeWorkSummaryScope(scope);
+  if (!normalizedScope || normalizedScope === 'today') return true;
+  const status = String(order?.status || '').trim().toUpperCase();
+  if (TERMINAL_WORK_STATUSES.has(status)) return false;
+  if (normalizedScope === 'unassigned') return !order?.assigneeId;
+  if (normalizedScope === 'approval') return String(order?.actionType || '').trim().toUpperCase() === 'IRRIGATION_REVIEW';
+  const dueAt = new Date(order?.dueAt || 0).getTime();
+  return normalizedScope === 'overdue' && Number.isFinite(dueAt) && dueAt > 0 && dueAt < now;
 }
 
 export function domainsForEventType(type = '') {

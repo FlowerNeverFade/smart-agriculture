@@ -12,6 +12,72 @@ import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 
+export const PLOT_SIMULATION_DEFAULTS = Object.freeze({
+  NORMAL: { volatility: 1.25, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  DROUGHT: { volatility: 1.75, timeScale: 60, temperatureBias: 7, humidityBias: -20, rainfallRate: 0, soilMoistureTrendPerHour: -3.6, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  HEAVY_RAIN: { volatility: 1.9, timeScale: 60, temperatureBias: -4.5, humidityBias: 20, rainfallRate: 32, soilMoistureTrendPerHour: 7.2, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  SENSOR_DRIFT: { volatility: 1.45, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 2.4, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  DEVICE_OFFLINE: { volatility: 1.3, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: .55, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 }
+});
+
+export const PLOT_SIMULATION_SCENARIOS = Object.freeze([
+  { code: 'NORMAL', emoji: '☀️', label: '正常运行', description: '标准环境参数运行', color: '#1e8e3e' },
+  { code: 'DROUGHT', emoji: '🏜️', label: '干旱场景', description: '持续高温低湿，土壤逐步失水', color: '#d97706' },
+  { code: 'HEAVY_RAIN', emoji: '🌧️', label: '暴雨场景', description: '大量降水、低温高湿，土壤快速增湿', color: '#2563eb' },
+  { code: 'SENSOR_DRIFT', emoji: '📡', label: '传感器漂移', description: '物理环境稳定，读数逐步偏移', color: '#7c3aed' },
+  { code: 'DEVICE_OFFLINE', emoji: '🔌', label: '设备离线', description: '按比例模拟采集设备断连', color: '#6b7280' }
+]);
+
+const PLOT_SIMULATION_LIMITS = Object.freeze({
+  volatility: [.2, 3], timeScale: [1, 180], temperatureBias: [-15, 15], humidityBias: [-40, 40],
+  rainfallRate: [0, 120], soilMoistureTrendPerHour: [-12, 12], driftRatePerHour: [0, 10],
+  offlineRatio: [0, 1], riskThreshold: [1, 99], waterloggingThreshold: [40, 99], forecastHours: [1, 12]
+});
+
+// Defaults used only by the explicit demo session.  They mirror the
+// simulator/API metric contract so a local preview never renders a missing
+// rainfall or pH reading as an arbitrary 25% soil value.
+const TELEMETRY_METRIC_PROFILES = Object.freeze({
+  SOIL_MOISTURE: { defaultValue: 35, unit: '%', min: 0, max: 100, noise: .45, decimals: 2 },
+  AIR_TEMPERATURE: { defaultValue: 25, unit: '°C', min: -40, max: 80, noise: .28, decimals: 2 },
+  AIR_HUMIDITY: { defaultValue: 68, unit: '%RH', min: 0, max: 100, noise: 1.05, decimals: 2 },
+  LIGHT: { defaultValue: 42000, unit: 'lux', min: 0, max: 100000, noise: 1200, decimals: 0 },
+  CO2: { defaultValue: 520, unit: 'ppm', min: 0, max: 10000, noise: 18, decimals: 1 },
+  PH: { defaultValue: 6.25, unit: 'pH', min: 0, max: 14, noise: .045, decimals: 2 },
+  WATER_LEVEL: { defaultValue: 78, unit: '%', min: 0, max: 100, noise: .8, decimals: 2 },
+  RAINFALL: { defaultValue: .2, unit: 'mm/h', min: 0, max: 250, noise: .8, decimals: 2 }
+});
+
+function telemetryMetricProfile(metric = 'SOIL_MOISTURE') {
+  return TELEMETRY_METRIC_PROFILES[String(metric || '').toUpperCase()] || TELEMETRY_METRIC_PROFILES.SOIL_MOISTURE;
+}
+
+function normalizePlotSimulationScenario(value) {
+  const key = String(value || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+  if (key === 'STORM' || key === 'HEAVYRAIN') return 'HEAVY_RAIN';
+  if (key === 'OFFLINE') return 'DEVICE_OFFLINE';
+  // Legacy replay names map to the current five plot-level strategies.
+  if (key === 'HEAT_WAVE' || key === 'GRADUAL_DRYDOWN') return 'DROUGHT';
+  if (key === 'FORECAST_MISS' || key === 'LIMITED_WATER' || key === 'REPEATED_CASE' || key === 'COST_SHIFT') return 'NORMAL';
+  return PLOT_SIMULATION_DEFAULTS[key] ? key : 'NORMAL';
+}
+
+function cloneSimulationParameters(scenario, supplied = {}) {
+  const code = normalizePlotSimulationScenario(scenario);
+  const result = { ...(PLOT_SIMULATION_DEFAULTS[code] || PLOT_SIMULATION_DEFAULTS.NORMAL) };
+  Object.entries(supplied || {}).forEach(([key, value]) => {
+    if (!PLOT_SIMULATION_LIMITS[key]) return;
+    const [min, max] = PLOT_SIMULATION_LIMITS[key];
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) result[key] = Math.min(max, Math.max(min, numeric));
+  });
+  if (result.riskThreshold >= result.waterloggingThreshold) {
+    result.waterloggingThreshold = Math.min(99, Math.max(40, result.riskThreshold + .5));
+    if (result.riskThreshold >= result.waterloggingThreshold) result.riskThreshold = Math.max(1, result.waterloggingThreshold - .5);
+  }
+  return result;
+}
+
 function normalizeWorkOrderStatus(value) {
   const status = String(value || 'OPEN').trim().toUpperCase();
   return WORK_ORDER_STATUS_ALIASES[status] || status;
@@ -100,6 +166,19 @@ export class ApiService {
         sourceMode: 'SIMULATED'
       }];
     }));
+    this.demoSimulationStrategies = new Map((MOCK_DATA.plots || []).map((plot) => {
+      const scenario = normalizePlotSimulationScenario(plot.simulation?.scenario || 'NORMAL');
+      return [plot.plotId, {
+        plotId: plot.plotId,
+        scenario,
+        parameters: cloneSimulationParameters(scenario, plot.simulation?.parameters),
+        revision: 1,
+        sourceMode: 'SIMULATION',
+        updatedAt: new Date().toISOString(),
+        hardware: { bindingState: 'UNBOUND', status: 'NOT_BOUND', usability: 'NOT_BOUND', label: '未绑定硬件' },
+        simulatorDevice: { status: 'ONLINE', label: '模拟数据运行中' }
+      }];
+    }));
     this.demoCropBatches = new Map();
     this.demoCropPlans = new Map();
     this.demoValueLedgers = [];
@@ -166,6 +245,22 @@ export class ApiService {
       throw new ApiError('密码重设响应不完整', { code: 'ACCOUNT_RESET_RESPONSE_INVALID', payload: resp });
     }
     return result;
+  }
+
+  async changePassword({ currentPassword, newPassword }) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const session = resp?.data || resp;
+      if (!session?.accessToken || !session?.user?.username) {
+        throw new ApiError('改密响应缺少新的登录令牌', { code: 'ACCOUNT_PASSWORD_RESPONSE_INVALID', payload: resp });
+      }
+      this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
+      return session;
+    }
+    return { username: this.user?.username, demo: true };
   }
 
   async getCurrentUser() {
@@ -265,50 +360,101 @@ export class ApiService {
     this.sseAbortController?.abort();
     const controller = new AbortController();
     this.sseAbortController = controller;
-    const response = await fetch(`${this.baseUrl}/api/v1/events/stream`, {
+    const request = () => fetch(`${this.baseUrl}/api/v1/events/stream`, {
       headers: { Accept: 'text/event-stream', Authorization: `Bearer ${this.token}` },
       signal: controller.signal
+    }).then((response) => {
+      if (!response.ok || !response.body) {
+        throw new ApiError('系统消息流连接失败', { status: response.status, code: 'EVENT_STREAM_UNAVAILABLE' });
+      }
+      return response;
     });
-    if (!response.ok || !response.body) {
-      throw new ApiError('系统消息流连接失败', { status: response.status, code: 'EVENT_STREAM_UNAVAILABLE' });
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let event = { type: 'message', data: '' };
-    const flush = () => {
-      if (!event.data) return;
-      let data = event.data;
-      try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
-      onEvent({ type: event.type, data });
-      event = { type: 'message', data: '' };
-    };
-    const consume = (line) => {
-      if (!line) { flush(); return; }
-      const separator = line.indexOf(':');
-      const field = separator === -1 ? line : line.slice(0, separator);
-      const value = separator === -1 ? '' : line.slice(separator + 1).trimStart();
-      if (field === 'event') event.type = value || 'message';
-      if (field === 'data') event.data += `${value}\n`;
-    };
-    const run = async () => {
-      try {
-        while (!controller.signal.aborted) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || '';
-          lines.forEach(consume);
+
+    // Keep the first request synchronous so callers can still report an
+    // authentication/transport failure.  Once connected, a dropped stream is
+    // retried in the background; REST polling in the views remains the final
+    // fallback when the server is temporarily unavailable.
+    const response = await request();
+    const sleep = (milliseconds) => new Promise((resolve) => {
+      const timer = globalThis.setTimeout(resolve, milliseconds);
+      controller.signal.addEventListener('abort', () => {
+        globalThis.clearTimeout(timer);
+        resolve();
+      }, { once: true });
+    });
+    const consume = async (streamResponse) => {
+      const reader = streamResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let event = { type: 'message', data: '' };
+      const flush = () => {
+        if (!event.data) {
+          event = { type: 'message', data: '' };
+          return;
         }
-        if (buffer) consume(buffer);
-        flush();
-      } catch (error) {
-        if (!controller.signal.aborted) throw error;
+        let data = event.data.replace(/\n$/, '');
+        try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
+        try { onEvent({ type: event.type, data }); }
+        catch (error) { console.warn('[AgriLoop] event handler failed:', error); }
+        event = { type: 'message', data: '' };
+      };
+      const consumeLine = (line) => {
+        if (!line) { flush(); return; }
+        // SSE comments are keep-alive lines and carry no event data.
+        if (line.startsWith(':')) return;
+        const separator = line.indexOf(':');
+        const field = separator === -1 ? line : line.slice(0, separator);
+        const value = separator === -1 ? '' : line.slice(separator + 1).trimStart();
+        if (field === 'event') event.type = value || 'message';
+        if (field === 'data') event.data += `${value}\n`;
+      };
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        lines.forEach(consumeLine);
+      }
+      if (buffer) consumeLine(buffer);
+      flush();
+    };
+    const run = async (initialResponse) => {
+      let nextResponse = initialResponse;
+      let retryDelay = 1000;
+      while (!controller.signal.aborted) {
+        try {
+          await consume(nextResponse);
+          retryDelay = 1000;
+        } catch (error) {
+          if (controller.signal.aborted) break;
+          console.warn('[AgriLoop] system event stream read failed:', error);
+        }
+        if (controller.signal.aborted) break;
+        // Keep retrying the connection itself until it succeeds.  The
+        // consumed Response must never be fed to the parser a second time.
+        while (!controller.signal.aborted) {
+          await sleep(retryDelay);
+          if (controller.signal.aborted) break;
+          try {
+            nextResponse = await request();
+            retryDelay = 1000;
+            break;
+          } catch (error) {
+            if (controller.signal.aborted) break;
+            console.warn('[AgriLoop] system event stream reconnect failed:', error);
+            retryDelay = Math.min(retryDelay * 2, 30000);
+          }
+        }
       }
     };
-    run().catch(error => console.warn('[AgriLoop] system event stream closed:', error));
-    return () => controller.abort();
+    run(response).catch(error => {
+      if (!controller.signal.aborted) console.warn('[AgriLoop] system event stream closed:', error);
+    });
+    return () => {
+      controller.abort();
+      if (this.sseAbortController === controller) this.sseAbortController = null;
+    };
   }
 
   async getFarms() {
@@ -477,6 +623,73 @@ export class ApiService {
     return { ...saved };
   }
 
+  async getPlotSimulation(plotId = 'plot-a01') {
+    if (!plotId) throw new ApiError('缺少地块编号', { status: 400, code: 'PLOT_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/simulation`);
+      const result = resp?.data || resp;
+      if (result && typeof result === 'object') return result;
+      throw new ApiError('后端返回了无效的地块模拟策略', { code: 'PLOT_SIMULATION_INVALID', payload: resp });
+    }
+    const plot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find((item) => item.plotId === plotId) || MOCK_DATA.plots[0];
+    if (!this.demoSimulationStrategies.has(plotId)) {
+      const scenario = normalizePlotSimulationScenario(plot?.simulation?.scenario || 'NORMAL');
+      this.demoSimulationStrategies.set(plotId, {
+        plotId, scenario, parameters: cloneSimulationParameters(scenario, plot?.simulation?.parameters), revision: 1,
+        sourceMode: 'SIMULATION', updatedAt: new Date().toISOString(),
+        hardware: { bindingState: 'UNBOUND', status: 'NOT_BOUND', usability: 'NOT_BOUND', label: '未绑定硬件' },
+        simulatorDevice: { status: 'ONLINE', label: '模拟数据运行中' }
+      });
+    }
+    const current = this.demoSimulationStrategies.get(plotId);
+    return {
+      ...current,
+      scenarioCatalog: PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description, defaultParameters: cloneSimulationParameters(item.code) })),
+      parameterLimits: {
+        volatility: { min: .2, max: 3 }, timeScale: { min: 1, max: 180 }, temperatureBias: { min: -15, max: 15 },
+        humidityBias: { min: -40, max: 40 }, rainfallRate: { min: 0, max: 120 }, soilMoistureTrendPerHour: { min: -12, max: 12 },
+        driftRatePerHour: { min: 0, max: 10 }, offlineRatio: { min: 0, max: 1 }, riskThreshold: { min: 1, max: 99 },
+        waterloggingThreshold: { min: 40, max: 99 }, forecastHours: { min: 1, max: 12 }
+      }
+    };
+  }
+
+  async updatePlotSimulation(plotId, { scenario = 'NORMAL', parameters = {} } = {}) {
+    const normalized = normalizePlotSimulationScenario(scenario);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/simulation`, {
+        method: 'PUT', body: JSON.stringify({ scenario: normalized, parameters })
+      });
+      const result = resp?.data || resp;
+      if (result?.plotId) return result;
+      throw new ApiError('后端返回了无效的模拟策略保存结果', { code: 'PLOT_SIMULATION_UPDATE_INVALID', payload: resp });
+    }
+    const previous = await this.getPlotSimulation(plotId);
+    const next = {
+      ...previous, plotId, scenario: normalized,
+      parameters: cloneSimulationParameters(normalized, parameters),
+      revision: Number(previous.revision || 0) + 1, updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION'
+    };
+    this.demoSimulationStrategies.set(plotId, next);
+    return next;
+  }
+
+  async resetPlotSimulation(plotId, target = 'ALL') {
+    const normalizedTarget = String(target || 'ALL').toUpperCase();
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/simulation/reset`, {
+        method: 'POST', body: JSON.stringify({ target: normalizedTarget })
+      });
+      const result = resp?.data || resp;
+      if (result?.plotId) return result;
+      throw new ApiError('后端返回了无效的曲线重置结果', { code: 'PLOT_SIMULATION_RESET_INVALID', payload: resp });
+    }
+    const current = await this.getPlotSimulation(plotId);
+    const next = { ...current, revision: Number(current.revision || 0) + 1, resetTarget: normalizedTarget, resetAt: new Date().toISOString() };
+    this.demoSimulationStrategies.set(plotId, next);
+    return { ...next, removedSimulationTelemetry: 0, removedForecasts: 0, hardwareTelemetryPreserved: true };
+  }
+
   async deactivatePlot(plotId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/deactivate`, { method: 'POST', body: '{}' });
@@ -527,32 +740,68 @@ export class ApiService {
       if (resp && Array.isArray(resp.data)) return resp.data;
       throw new ApiError('后端返回了无效的遥测数据', { code: 'TELEMETRY_INVALID', payload: resp });
     }
-    // Generate 20 realistic telemetry series points
+    // Generate a realistic multi-metric window for the explicit demo session.
+    // Each series follows its own physical range and the selected plot
+    // strategy, so changing the chart metric does not silently reuse soil %.
     const now = Date.now();
+    const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
+    const profile = telemetryMetricProfile(code);
     const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
-    const baseValue = targetPlot.metrics[metric]?.value || 25.0;
-    
+    const metricRecord = targetPlot?.metrics?.[code] || {};
+    const configuredBase = Number(metricRecord.value);
+    const baseValue = Number.isFinite(configuredBase) ? configuredBase : profile.defaultValue;
+    const strategy = this.demoSimulationStrategies.get(plotId);
+    const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
+    const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
+    const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
     const count = Math.max(1, Math.min(Number(limit) || 24, 5000));
-    const endMs = options.to ? new Date(options.to).getTime() : now;
-    const startMs = options.from ? new Date(options.from).getTime() : endMs - (count - 1) * 10 * 60 * 1000;
+    const requestedEnd = options.to ? new Date(options.to).getTime() : now;
+    const endMs = Number.isFinite(requestedEnd) ? requestedEnd : now;
+    const requestedStart = options.from ? new Date(options.from).getTime() : endMs - (count - 1) * 10 * 60 * 1000;
+    const startMs = Number.isFinite(requestedStart) ? requestedStart : endMs - (count - 1) * 10 * 60 * 1000;
     const stepMs = count > 1 ? Math.max(1, Math.floor((endMs - startMs) / (count - 1))) : 0;
+    const strategyTrend = {
+      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0) + driftRate,
+      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .35,
+      AIR_HUMIDITY: Number(params.humidityBias || 0) * .3,
+      LIGHT: scenario === 'DROUGHT' ? 1800 : scenario === 'HEAVY_RAIN' ? -1400 : 0,
+      CO2: scenario === 'HEAVY_RAIN' ? -30 : scenario === 'DROUGHT' ? 24 : 0,
+      PH: scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) * .02 : 0,
+      WATER_LEVEL: scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .03 : scenario === 'DROUGHT' ? -1 : 0,
+      RAINFALL: 0
+    }[code] || 0;
+    const trendWindowHours = Math.max(.25, (count - 1) * 10 / 60);
+    const volatility = Math.max(.2, Number(params.volatility || 1.25));
     return Array.from({ length: count }, (_, i) => {
-      const noise = (Math.sin(i / 3) * 1.5) + (Math.random() * 0.4 - 0.2);
+      const progress = count <= 1 ? 0 : i / (count - 1);
+      const elapsedHours = progress * trendWindowHours;
+      const wave = Math.sin(i / 3) * profile.noise * volatility;
+      let value = baseValue + strategyTrend * elapsedHours + wave + (Math.random() * profile.noise * .65 - profile.noise * .325);
+      if (code === 'LIGHT') value += Math.sin(i / 8) * 2200 * volatility;
+      if (code === 'RAINFALL') {
+        const rate = Math.max(0, Number(params.rainfallRate ?? profile.defaultValue));
+        const pattern = .72 + .28 * Math.max(0, Math.sin(i / 2.4 + 1.2));
+        value = (scenario === 'HEAVY_RAIN' ? rate : Math.max(.2, rate * .18)) * pattern + Math.random() * profile.noise;
+      }
+      value = Math.max(profile.min, Math.min(profile.max, value));
+      const qualityStatus = scenario === 'DEVICE_OFFLINE' && i > count * .55 ? 'OFFLINE' : 'GOOD';
       return {
-        eventId: `mock-evt-${i}`,
+        eventId: `mock-evt-${code.toLowerCase()}-${i}`,
         plotId,
-        metric,
-        value: Number((baseValue + noise - (plotId === 'plot-a01' && metric === 'SOIL_MOISTURE' ? (count - 1 - i) * 0.25 : 0)).toFixed(2)),
-        unit: targetPlot.metrics[metric]?.unit || '%',
+        metric: code,
+        value: Number(value.toFixed(profile.decimals)),
+        unit: metricRecord.unit || profile.unit,
         ts: new Date(startMs + i * stepMs).toISOString(),
-        quality: { status: "GOOD", freshnessMs: 200, confidence: 0.98 }
+        sourceMode: 'SIMULATION',
+        dataOrigin: 'SIMULATOR',
+        quality: { status: qualityStatus, freshnessMs: 200, confidence: qualityStatus === 'GOOD' ? 0.98 : 0.2 }
       };
     });
   }
 
   /**
    * 返回指定地块的多指标遥测窗口。后端支持不带 metric 的混合序列；
-   * 若当前环境只提供单指标接口，则按 Crop Pack 的六类指标并行回退。
+   * 若当前环境只提供单指标接口，则按统一八类指标并行回退。
    */
   async getPlotTelemetryAll(plotId = 'plot-a01', limit = 120) {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 120, 5000));
@@ -570,7 +819,7 @@ export class ApiService {
         if (this.isLive) console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
       }
     }
-    const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL'];
+    const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL', 'RAINFALL'];
     // A backend may legitimately omit one optional metric (for example PH or
     // WATER_LEVEL) while still serving the core soil/air series.  Keep the
     // successful backend windows instead of turning one partial endpoint
@@ -809,13 +1058,15 @@ export class ApiService {
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
-  async createFarmMember({ farmId, username, password, plotIds = [] } = {}) {
+  async createFarmMember({ farmId, username, password, displayName = '', plotIds = [] } = {}) {
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/farm-members', {
         method: 'POST',
-        body: JSON.stringify({ farmId, username, password, plotIds })
+        body: JSON.stringify({ farmId, username, password, displayName, plotIds })
       });
-      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      if (response?.data?.userId) {
+        return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
+      }
       throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
@@ -825,9 +1076,36 @@ export class ApiService {
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
-    const member = normalizeFarmMember({ userId, username: normalized, role: 'FARMER', roleLabel: '种植农户', farmIds: [farmId], plotIds, status: 'ACTIVE' }, 'SIMULATED');
+    const member = normalizeFarmMember({
+      userId,
+      username: normalized,
+      displayName: displayName || normalized,
+      role: 'FARMER',
+      roleLabel: '种植农户',
+      farmIds: [farmId],
+      plotIds,
+      status: 'ACTIVE'
+    }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
-    return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds] };
+    return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateFarmMemberStatus(userId, { farmId, status, enabled } = {}) {
+    const nextEnabled = typeof enabled === 'boolean' ? enabled : String(status || '').toUpperCase() !== 'INACTIVE' && String(status || '').toUpperCase() !== 'DISABLED';
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/farm-members/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ farmId, status: nextEnabled ? 'ACTIVE' : 'INACTIVE', enabled: nextEnabled })
+      });
+      if (response?.data?.userId) return normalizeFarmMember(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的成员状态结果', { code: 'FARM_MEMBER_STATUS_INVALID', payload: response });
+    }
+    const current = this.demoFarmMembers.get(userId);
+    if (!current) throw new ApiError('没有找到该成员', { status: 404, code: 'FARM_MEMBER_NOT_FOUND' });
+    if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
+    const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
+    this.demoFarmMembers.set(userId, updated);
+    return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
   }
 
   async deleteFarmMember(userId, { farmId } = {}) {
@@ -930,15 +1208,20 @@ export class ApiService {
     return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
   }
 
-  async createInspection(inspection) {
+  async createInspection(inspection, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/inspections', {
         method: 'POST',
         body: JSON.stringify(inspection)
       });
-      return response?.data || response;
+      const saved = response?.data || response;
+      if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
+      if (!uploads.length) return saved;
+      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
     }
     const now = new Date().toISOString();
+    const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
@@ -951,6 +1234,7 @@ export class ApiService {
       revision: 1,
       provenance: 'USER_PROVIDED',
       sourceType: 'HUMAN_OBSERVATION',
+      photos,
       quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
     this.demoInspections.set(saved.inspectionId, saved);
@@ -970,6 +1254,26 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    return { ...saved };
+  }
+
+  async uploadInspectionPhotos(inspectionId, files = []) {
+    const uploads = Array.from(files || []).filter(Boolean).slice(0, 6);
+    if (!uploads.length) throw new ApiError('请选择至少一张现场照片', { status: 400, code: 'INSPECTION_PHOTO_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const body = new FormData();
+      uploads.forEach((file) => body.append('files', file));
+      const response = await this._fetch(`/api/v1/inspections/${encodeURIComponent(inspectionId)}/photos`, {
+        method: 'POST',
+        body
+      });
+      return response?.data || response;
+    }
+    const current = this.demoInspections.get(inspectionId);
+    if (!current) throw new ApiError('没有找到该巡田记录', { status: 404, code: 'NOT_FOUND' });
+    const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
+    const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
+    this.demoInspections.set(inspectionId, saved);
     return { ...saved };
   }
 
@@ -1589,7 +1893,7 @@ export class ApiService {
       lower: toFinite(h.lower ?? h.expected ?? h.value),
       upper: toFinite(h.upper ?? h.expected ?? h.value)
     })).filter(h => Number.isFinite(h.minute));
-    const start = toFinite(source.startMoisture ?? source.currentMoisture ?? horizons[0]?.expected ?? plot?.metrics?.[metric]?.value);
+    const start = toFinite(source.startValue ?? source.startMoisture ?? source.currentMoisture ?? horizons[0]?.expected ?? plot?.metrics?.[metric]?.value);
     const maxHorizon = toFinite(source.forecastRangeMinutes ?? cfg.maxHorizonMinutes) || (horizons.at(-1)?.minute || null);
     const curve = Array.isArray(source.curve) && source.curve.length
       ? source.curve.map(p => ({ minute: Number(p.minute), expected: toFinite(p.expected ?? p.value), lower: toFinite(p.lower ?? p.expected ?? p.value), upper: toFinite(p.upper ?? p.expected ?? p.value) }))
@@ -1637,49 +1941,112 @@ export class ApiService {
   mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
     const cfg = MOCK_DATA.riskForecastConfig;
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
-    const start = Number(plot?.metrics?.[metric]?.value ?? 25);
-    const boundary = cfg.stressBoundary;
-    if (plot?.deviceStatus !== 'ONLINE' || start <= boundary + 0.5) {
-      return { status: 'UNAVAILABLE', plotId, metric, reason: plot?.deviceStatus !== 'ONLINE' ? '设备离线，遥测样本不足' : '当前湿度已低于极限胁迫边界，无可推演余量', generatedAt: new Date().toISOString(), algorithmVersion: cfg.algorithmVersion };
+    const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
+    const profile = telemetryMetricProfile(code);
+    const currentRecord = plot?.metrics?.[code] || {};
+    const currentValue = Number(currentRecord.value);
+    const start = Number.isFinite(currentValue) ? currentValue : profile.defaultValue;
+    const strategy = this.demoSimulationStrategies.get(plotId);
+    const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
+    const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
+    const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
+    const boundary = code === 'SOIL_MOISTURE' ? Number(params.riskThreshold ?? cfg.stressBoundary) : null;
+    if (plot?.deviceStatus !== 'ONLINE' || scenario === 'DEVICE_OFFLINE') {
+      return { status: 'UNAVAILABLE', plotId, metric: code, reason: scenario === 'DEVICE_OFFLINE' ? '设备断连，保留最后一条读数，拒绝生成可执行预测' : '设备离线，遥测样本不足', generatedAt: new Date().toISOString(), algorithmVersion: cfg.algorithmVersion };
     }
-    const k = Math.log(16.8 / boundary) / 72;
-    const timeToRisk = Math.min(Math.round(Math.log(start / boundary) / k), cfg.maxHorizonMinutes);
+    const horizonMinutes = Math.max(60, Math.min(720, Math.round(Number(params.forecastHours || 4) * 60)));
+    const trend = {
+      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0) + driftRate,
+      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .75,
+      AIR_HUMIDITY: Number(params.humidityBias || 0) * .65,
+      LIGHT: scenario === 'DROUGHT' ? 900 : scenario === 'HEAVY_RAIN' ? -650 : 0,
+      CO2: scenario === 'HEAVY_RAIN' ? -22 : scenario === 'DROUGHT' ? 16 : 0,
+      PH: scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) * .035 : 0,
+      WATER_LEVEL: scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .035 : scenario === 'DROUGHT' ? -1.2 : 0,
+      RAINFALL: 0
+    }[code] || 0;
+    const waveAmplitude = { SOIL_MOISTURE: .7, AIR_TEMPERATURE: .28, AIR_HUMIDITY: .85, LIGHT: 850, CO2: 14, PH: .035, WATER_LEVEL: .65, RAINFALL: .7 }[code] || .5;
+    const identity = `${plotId}:${code}:${scenario}`;
+    let hash = 0;
+    for (let index = 0; index < identity.length; index += 1) hash = (hash * 31 + identity.charCodeAt(index)) >>> 0;
+    const phase = (hash % 628) / 100;
+    const initialWave = Math.sin(phase);
+    const rainfallRate = Math.max(0, Number(params.rainfallRate || 0));
+    const initialRainWave = .72 + .28 * Math.max(0, Math.sin(1.2));
+    const volatility = Math.max(.2, Number(params.volatility || 1.25));
     const curve = [];
-    for (let t = 0; t <= cfg.maxHorizonMinutes; t += 5) {
-      const expected = start * Math.exp(-k * t);
-      const half = 0.6 + 0.007 * t;
-      curve.push({ minute: t, expected: Number(expected.toFixed(2)), lower: Number(Math.max(expected - half, 0).toFixed(2)), upper: Number((expected + half).toFixed(2)) });
+    for (let t = 0; t <= horizonMinutes; t += 5) {
+      const hours = t / 60;
+      const wave = (Math.sin(t / 5 / 2.7 + phase) - initialWave) * waveAmplitude * volatility;
+      const rainWave = code === 'RAINFALL'
+        ? rainfallRate * ((.72 + .28 * Math.max(0, Math.sin(hours * 3.1 + 1.2))) - initialRainWave)
+        : 0;
+      const expected = Math.max(profile.min, Math.min(profile.max, start + trend * hours + rainWave + wave));
+      const spread = Math.max(code === 'PH' ? .03 : code === 'LIGHT' ? 120 : .45, t / 240 * volatility + (code === 'LIGHT' ? 120 : 0));
+      curve.push({ minute: t, expected: Number(expected.toFixed(profile.decimals)), lower: Number(Math.max(profile.min, expected - spread).toFixed(profile.decimals)), upper: Number(Math.min(profile.max, expected + spread).toFixed(profile.decimals)) });
+    }
+    let timeToRisk = null;
+    if (code === 'SOIL_MOISTURE' && Number.isFinite(boundary)) {
+      const riskPoint = curve.find((point) => point.expected <= boundary);
+      timeToRisk = riskPoint?.minute ?? null;
     }
     return {
-      status: 'AVAILABLE', plotId, metric, generatedAt: new Date().toISOString(), inputWindowMinutes: cfg.inputWindowMinutes,
-      forecastRangeMinutes: cfg.maxHorizonMinutes, algorithmVersion: cfg.algorithmVersion, algorithmLabel: cfg.algorithmLabel,
-      startMoisture: start, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, timeToRiskMinutes: timeToRisk,
-      horizons: [60, 120, 240].map(minute => { const p = curve.find(x => x.minute === minute); return { minute, expected: p.expected, lower: p.lower, upper: p.upper, band: `${p.lower.toFixed(1)}% ~ ${p.upper.toFixed(1)}%` }; }),
-      curve, assumptions: ['无降水 / 无外界灌溉', '棚室通风与外部光热保持稳定', '设备保持在线，遥测质量 GOOD'],
+      status: 'AVAILABLE', plotId, metric: code, generatedAt: new Date().toISOString(), inputWindowMinutes: cfg.inputWindowMinutes,
+      forecastRangeMinutes: horizonMinutes, algorithmVersion: cfg.algorithmVersion, algorithmLabel: cfg.algorithmLabel,
+      startMoisture: start, startValue: start, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, timeToRiskMinutes: timeToRisk,
+      horizons: [60, 120, 240].filter(minute => minute <= horizonMinutes).map(minute => { const p = curve.find(x => x.minute === minute); return { minute, expected: p.expected, lower: p.lower, upper: p.upper, band: `${p.lower.toFixed(profile.decimals)}${profile.unit} ~ ${p.upper.toFixed(profile.decimals)}${profile.unit}` }; }),
+      curve, assumptions: ['无外界灌溉', `PLOT_STRATEGY=${scenario}`, '设备保持在线，遥测质量 GOOD'],
       uncertaintyNote: '置信区间随预测时距线性放大；超出 4h 不承诺，样本不足返回 UNAVAILABLE', provenance: 'SIMULATED'
     };
   }
 
-  async runScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01' } = {}) {
-    const normalizedScenario = String(scenario).toUpperCase();
+  async runScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', parameters = {} } = {}) {
+    const normalizedScenario = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/scenarios/runs', { method: 'POST', body: JSON.stringify({ scenario: normalizedScenario, seed, plotId }) });
+      const resp = await this._fetch('/api/v1/scenarios/runs', { method: 'POST', body: JSON.stringify({ scenario: normalizedScenario, seed, plotId, parameters }) });
       const run = resp?.data || resp;
       return { ...run, scenario: run.scenario || normalizedScenario, scenarioLabel: run.scenarioLabel || normalizedScenario, plotId, dataOrigin: 'BACKEND' };
     }
-    const def = MOCK_DATA.riskForecastConfig.scenarioCatalog.find(s => s.code === normalizedScenario) || MOCK_DATA.riskForecastConfig.scenarioCatalog[0];
+    const def = PLOT_SIMULATION_SCENARIOS.find((item) => item.code === normalizedScenario) || PLOT_SIMULATION_SCENARIOS[0];
     const plot = this.mockPlot(plotId);
-    return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', frozenSnapshot: { plotId, plotName: plot.name, startMoisture: plot.metrics.SOIL_MOISTURE.value, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
+    if (normalizedScenario === 'DEVICE_OFFLINE') {
+      return {
+        scenarioId: `device-offline-${seed}`,
+        scenario: normalizedScenario,
+        scenarioLabel: def.label,
+        seed,
+        status: 'UNAVAILABLE',
+        runStatus: 'UNAVAILABLE',
+        reason: '设备断连，保留最后一条读数，拒绝生成可执行预测',
+        curve: [],
+        horizons: [],
+        frozenSnapshot: { plotId, plotName: plot.name, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' },
+        params: def,
+        provenance: 'SIMULATED'
+      };
+    }
+    const start = Number(plot.metrics.SOIL_MOISTURE.value || 35);
+    const curve = Array.from({ length: 49 }, (_, index) => {
+      const minute = index * 5;
+      const p = cloneSimulationParameters(normalizedScenario, parameters);
+      const trend = Number(p.soilMoistureTrendPerHour || 0);
+      const rain = Number(p.rainfallRate || 0) * .04;
+      const drift = normalizedScenario === 'SENSOR_DRIFT' ? Number(p.driftRatePerHour || 0) : 0;
+      const expected = Math.max(0, Math.min(100, start + (trend + rain + drift) * minute / 60 + Math.sin(index / 2.7 + seed) * Number(p.volatility || 1)));
+      const spread = .6 + index * .04;
+      return { minute, expected: Number(expected.toFixed(2)), lower: Number(Math.max(0, expected - spread).toFixed(2)), upper: Number(Math.min(100, expected + spread).toFixed(2)) };
+    });
+    return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', curve, horizons: curve.filter((item) => [60, 120, 240].includes(item.minute)), frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
   }
 
   async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '' } = {}) {
-    const normalizedScenario = String(scenario).toUpperCase();
+    const normalizedScenario = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
       const server = resp?.data || resp;
       return { ...(server || {}), scenario: normalizedScenario, seed, plotId, dataOrigin: 'BACKEND', provenance: 'BACKEND' };
     }
-    return this.mockScenarioCompare(normalizedScenario, seed, plotId);
+    return this.mockScenarioCompare(normalizedScenario === 'HEAVY_RAIN' ? 'STORM' : normalizedScenario, seed, plotId);
   }
 
   mockScenarioCompare(scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01') {
@@ -1937,17 +2304,28 @@ export class ApiService {
     const pack = (MOCK_DATA.cropPackDetails || []).find((item) => item.cropCode === cropCode) || MOCK_DATA.cropPackDetails?.[0];
     if (!pack) throw new ApiError('演示作物培养手册不存在', { code: 'CROP_MANUAL_NOT_FOUND' });
     const stage = (pack.stages || []).find((item) => item.code === stageCode) || pack.stages?.[0];
+    const stageKnowledge = pack.knowledge?.byStage?.[stage?.code] || [];
     return {
       cropCode: pack.cropCode,
       version: pack.version,
+      ruleVersion: pack.ruleVersion,
+      knowledgeVersion: pack.knowledgeVersion,
       identity: pack.identity,
       stages: pack.stages,
       stage,
       envMetrics: [],
       guideParagraphs: [],
       rules: pack.rules,
-      knowledge: pack.knowledge,
-      provenance: 'SIMULATED'
+      riskFocus: stage?.riskFocus || [],
+      taskTemplates: stage?.taskTemplates || [],
+      knowledge: {
+        ...(pack.knowledge || {}),
+        documents: pack.knowledge?.documents || [],
+        stageDocuments: stage?.knowledgeRef ? [stage.knowledgeRef] : [],
+        content: stageKnowledge.length ? stageKnowledge : (pack.knowledge?.content || [])
+      },
+      provenance: 'SIMULATED',
+      sourceMode: 'CROP_PACK'
     };
   }
 
@@ -1995,12 +2373,14 @@ export class ApiService {
 
   async _fetch(path, options = {}, { auth = true } = {}) {
     const { auth: optionAuth = auth, ...fetchOptions } = options;
+    const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
     const headers = {
-      'Content-Type': 'application/json',
       'Accept': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(optionAuth && this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
+    if (isFormData) delete headers['Content-Type'];
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
@@ -2042,6 +2422,23 @@ export class ApiService {
 }
 
 export const api = new ApiService();
+
+function fileToInspectionPhoto(file, index = 0) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({
+      photoId: `photo-demo-${Date.now()}-${index}`,
+      fileName: file.name || `field-${index + 1}.jpg`,
+      contentType: file.type || 'image/jpeg',
+      sizeBytes: file.size || 0,
+      provenance: 'USER_PROVIDED',
+      sourceType: 'HUMAN_OBSERVATION',
+      previewUrl: reader.result
+    });
+    reader.onerror = () => reject(new ApiError('现场照片读取失败', { code: 'INSPECTION_PHOTO_READ_FAILED' }));
+    reader.readAsDataURL(file);
+  });
+}
 
 // 确定性伪随机数：同一 scenario + seed 的双轨回放必须完全可复现。
 function mulberry32(seed) {
