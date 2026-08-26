@@ -531,14 +531,6 @@ const app = createApp({
       ...plot,
       healthScore: compute_plot_health_score(plot)
     }));
-    if (!is_formal_session && assigned_plot_names.size > assigned_plots.length) {
-      const cucumber_plot = MOCK_DATA.plots.find((plot) => plot.cropCode === 'cucumber');
-      const missing_name = [...assigned_plot_names].find((name) => !assigned_plots.some((plot) => plot.name === name));
-      if (cucumber_plot && missing_name) {
-        const patched = { ...cucumber_plot, name: missing_name };
-        assigned_plots.push({ ...patched, healthScore: compute_plot_health_score(patched) });
-      }
-    }
     const plots = ref(assigned_plots);
 
     const messages = ref(is_formal_session ? [] : MOCK_DATA.farmer_messages.map((msg) => ({ ...msg })));
