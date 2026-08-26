@@ -143,6 +143,8 @@ export const WorkOrderLifecycleView = {
       .filter((order) => workOrderMatchesSummaryScope(order, scopeFilter.value))
       .filter((order) => {
         const status = workStatus(order.status);
+        // 农户任务界面不展示「待分配」队列，只看已分配给自己的执行项。
+        if (isFarmer.value && status === 'OPEN') return false;
         if (statusFilter.value === 'ACTIVE') return !TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'FINISHED') return TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'OVERDUE') return isOverdue(order);
@@ -176,13 +178,16 @@ export const WorkOrderLifecycleView = {
       return !isFarmer.value || (order.assigneeId === currentActorId.value && status === 'IN_PROGRESS');
     }));
 
-    const summary = computed(() => ({
-      total: scopedOrders.value.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
-      open: scopedOrders.value.filter((order) => workStatus(order.status) === 'OPEN').length,
-      progressing: scopedOrders.value.filter((order) => ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(workStatus(order.status))).length,
-      submitted: scopedOrders.value.filter((order) => workStatus(order.status) === 'SUBMITTED').length,
-      overdue: scopedOrders.value.filter(isOverdue).length
-    }));
+    const summary = computed(() => {
+      const visible = scopedOrders.value.filter((order) => !(isFarmer.value && workStatus(order.status) === 'OPEN'));
+      return {
+        total: visible.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
+        open: visible.filter((order) => workStatus(order.status) === 'OPEN').length,
+        progressing: visible.filter((order) => ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(workStatus(order.status))).length,
+        submitted: visible.filter((order) => workStatus(order.status) === 'SUBMITTED').length,
+        overdue: visible.filter(isOverdue).length
+      };
+    });
 
     const pageTitle = computed(() => canManage.value ? '农务任务' : isFarmer.value ? '我的农务' : '工单审计');
     const pageHint = computed(() => canManage.value
@@ -449,7 +454,8 @@ export const WorkOrderLifecycleView = {
       scopeFilter.value = nextScope;
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
-        statusFilter.value = String(params.status).toUpperCase();
+        const nextStatus = String(params.status).toUpperCase();
+        statusFilter.value = (isFarmer.value && nextStatus === 'OPEN') ? 'ACTIVE' : nextStatus;
       } else {
         statusFilter.value = nextScope === 'today' ? '' : 'ACTIVE';
       }
@@ -498,7 +504,7 @@ export const WorkOrderLifecycleView = {
 
       <div class="work-summary" aria-label="任务概况">
         <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' && !scopeFilter }" @click="applyStatusFilter('ACTIVE')"><span>未结束</span><strong>{{ summary.total }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+        <button v-if="!isFarmer" type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' && !scopeFilter }" @click="applyStatusFilter('PROGRESSING')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
         <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' && !scopeFilter }" @click="applyStatusFilter('OVERDUE')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
@@ -511,7 +517,7 @@ export const WorkOrderLifecycleView = {
 
       <div class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter">
-          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
+          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option v-if="!isFarmer" value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
         <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>

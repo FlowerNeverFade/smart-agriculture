@@ -161,7 +161,11 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const plotId = text(work.plotId || work.plot_id, '');
   const plot = plotMap.get(plotId) || {};
-  const status = normalizeWorkStatus(work.status);
+  const rawStatus = text(work.status, 'OPEN').trim().toUpperCase();
+  let status = normalizeWorkStatus(rawStatus);
+  // Keep farmer-facing "not started" distinct from admin "unassigned".
+  if (rawStatus === 'PENDING') status = 'PENDING';
+  else if (status === 'OPEN' && (work.assigneeId || work.assignee_id)) status = 'ASSIGNED';
   const createdAt = work.createdAt || work.created_at || work.created_iso;
   const dueAt = work.dueAt || work.due_at || work.due_iso;
   const issuer = text(work.createdByName || work.createdBy || work.issuer, '—');

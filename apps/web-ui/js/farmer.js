@@ -752,9 +752,21 @@ const app = createApp({
     const qa_history = ref([]);
     const qa_source_label = ref(is_formal_session ? '后端 AI' : '演示规则');
 
+    // 农户任务看板状态：保留 PENDING（未开始），隐藏真正的 OPEN（待分配）。
+    const farmer_task_status = (task) => {
+      const raw = String(task?.status || '').trim().toUpperCase();
+      if (raw === 'PENDING') return 'PENDING';
+      return normalizeWorkStatus(raw);
+    };
+
+    // 农户端不展示「待分配」(OPEN)：这类任务仍归管理员分配队列。
+    const farmer_visible_tasks = computed(() =>
+      tasks.value.filter((t) => farmer_task_status(t) !== 'OPEN')
+    );
+
     const nav_items = computed(() => {
       const unread = messages.value.filter((m) => !m.read).length;
-      const pending = tasks.value.filter((t) => ['PENDING', 'OPEN', 'ASSIGNED', 'REJECTED'].includes(t.status)).length;
+      const pending = farmer_visible_tasks.value.filter((t) => ['PENDING', 'ASSIGNED', 'REJECTED'].includes(farmer_task_status(t))).length;
       const risks = plots.value.filter((plot) => plot.riskLevel !== 'LOW').length;
       return [
         { id: 'dashboard', label: '主面板', icon: 'dashboard' },
@@ -777,20 +789,20 @@ const app = createApp({
     });
 
     const stats = computed(() => {
-      const today_todo = tasks.value.filter((t) =>
-        ['PENDING', 'OPEN', 'ASSIGNED', 'REJECTED'].includes(t.status) && is_today(t.due_iso)
+      const today_todo = farmer_visible_tasks.value.filter((t) =>
+        ['PENDING', 'ASSIGNED', 'REJECTED'].includes(farmer_task_status(t)) && is_today(t.due_iso)
       ).length;
-      const dispatched = tasks.value.length;
-      const done = tasks.value.filter((t) => t.status === 'DONE').length;
-      const pending = tasks.value.filter((t) => ['PENDING', 'OPEN', 'ASSIGNED', 'REJECTED'].includes(t.status)).length;
-      const in_progress = tasks.value.filter((t) => t.status === 'IN_PROGRESS').length;
+      const dispatched = farmer_visible_tasks.value.length;
+      const done = farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'DONE').length;
+      const pending = farmer_visible_tasks.value.filter((t) => ['PENDING', 'ASSIGNED', 'REJECTED'].includes(farmer_task_status(t))).length;
+      const in_progress = farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'IN_PROGRESS').length;
       const unread_messages = messages.value.filter((m) => !m.read).length;
       const risk_alerts = plots.value.filter((plot) => plot.riskLevel !== 'LOW').length;
       return { today_todo, dispatched, done, pending, in_progress, unread_messages, risk_alerts };
     });
 
     const recent_tasks = computed(() =>
-      tasks.value
+      farmer_visible_tasks.value
         .slice()
         .sort((a, b) => new Date(b.created_iso) - new Date(a.created_iso))
         .slice(0, 5)
@@ -812,23 +824,23 @@ const app = createApp({
     const unread_count = computed(() => messages.value.filter((m) => !m.read).length);
 
     const task_columns = computed(() => [
-      { status: 'PENDING', label: '未开始', items: tasks.value.filter((t) => ['PENDING', 'OPEN'].includes(t.status)) },
-      { status: 'ASSIGNED', label: '已分配', items: tasks.value.filter((t) => t.status === 'ASSIGNED') },
-      { status: 'IN_PROGRESS', label: '执行中', items: tasks.value.filter((t) => t.status === 'IN_PROGRESS') },
-      { status: 'SUBMITTED', label: '待验收', items: tasks.value.filter((t) => t.status === 'SUBMITTED') },
-      { status: 'REJECTED', label: '需返工', items: tasks.value.filter((t) => t.status === 'REJECTED') },
-      { status: 'DONE', label: '已完成', items: tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(t.status)) }
+      { status: 'PENDING', label: '未开始', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'PENDING') },
+      { status: 'ASSIGNED', label: '已分配', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'ASSIGNED') },
+      { status: 'IN_PROGRESS', label: '执行中', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'IN_PROGRESS') },
+      { status: 'SUBMITTED', label: '待验收', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'SUBMITTED') },
+      { status: 'REJECTED', label: '需返工', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'REJECTED') },
+      { status: 'DONE', label: '已完成', items: farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t))) }
     ]);
 
     const profile_stats = computed(() => {
-      const total_done = Number.isFinite(Number(user.value.total_done)) ? Number(user.value.total_done) : tasks.value.filter((t) => ['DONE', 'COMPLETED'].includes(normalizeWorkStatus(t.status))).length;
+      const total_done = Number.isFinite(Number(user.value.total_done)) ? Number(user.value.total_done) : farmer_visible_tasks.value.filter((t) => ['DONE', 'COMPLETED'].includes(farmer_task_status(t))).length;
       const month_done = Number.isFinite(Number(user.value.month_done)) ? Number(user.value.month_done) : 0;
-      const in_progress = tasks.value.filter((t) => t.status === 'IN_PROGRESS').length;
-      const pending = tasks.value.filter((t) => ['PENDING', 'OPEN', 'ASSIGNED', 'REJECTED'].includes(t.status)).length;
-      const due_soon = tasks.value.filter(is_due_soon).length;
+      const in_progress = farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'IN_PROGRESS').length;
+      const pending = farmer_visible_tasks.value.filter((t) => ['PENDING', 'ASSIGNED', 'REJECTED'].includes(farmer_task_status(t))).length;
+      const due_soon = farmer_visible_tasks.value.filter(is_due_soon).length;
       const completion_rate = Number.isFinite(Number(user.value.completion_rate))
         ? Number(user.value.completion_rate)
-        : tasks.value.length ? Math.round((tasks.value.filter((t) => ['DONE', 'COMPLETED'].includes(normalizeWorkStatus(t.status))).length / tasks.value.length) * 100) : 0;
+        : farmer_visible_tasks.value.length ? Math.round((farmer_visible_tasks.value.filter((t) => ['DONE', 'COMPLETED'].includes(farmer_task_status(t))).length / farmer_visible_tasks.value.length) * 100) : 0;
       const inspections = inspection_records.value.length;
       const messages_count = messages.value.length;
       const unread = messages.value.filter((m) => !m.read).length;
