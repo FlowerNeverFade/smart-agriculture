@@ -1,5 +1,5 @@
 export const ADMIN_TABS = Object.freeze({
-  dashboard: ['overview', 'plots'],
+  dashboard: ['overview'],
   'work-orders': ['tasks', 'plans', 'crop-packs'],
   'resource-coordination': ['devices', 'irrigation', 'value', 'simulator'],
   'farm-members': ['members', 'permissions']

@@ -10,6 +10,7 @@ test('authorized farm selection never invents a live farm', () => {
 });
 
 test('admin tabs and hash routes retain the shared farm context', () => {
+  assert.equal(normalizeAdminTab('dashboard', 'plots'), 'overview');
   assert.equal(normalizeAdminTab('work-orders', 'plans'), 'plans');
   assert.equal(normalizeAdminTab('work-orders', 'unknown'), 'tasks');
   assert.equal(routeHash('resource-coordination', { tab: 'devices', farmId: 'farm-a' }), '#view=resource-coordination&tab=devices&farmId=farm-a');

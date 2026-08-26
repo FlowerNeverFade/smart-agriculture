@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -338,13 +338,11 @@ const DashboardView = {
   setup(props, { emit }) {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const activeTab = ref(normalizeAdminTab('dashboard', props.routeParams?.tab));
-    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('dashboard', tab); });
     const selectedFarmId = computed({
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
-    const visiblePlots = computed(() => activeTab.value === 'plots' ? (props.state.allPlots || []) : (props.state.plots || []));
+    const visiblePlots = computed(() => props.state.allPlots || props.state.plots || []);
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -519,7 +517,6 @@ const DashboardView = {
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
-    const setTab = tab => emit('navigate', 'dashboard', { tab, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
@@ -537,7 +534,6 @@ const DashboardView = {
     };
     return {
       isFarmAdmin,
-      activeTab,
       selectedFarmId,
       visiblePlots,
       managerSummary,
@@ -566,7 +562,6 @@ const DashboardView = {
       cancelDeletePlot,
       confirmDeletePlot,
       createTask,
-      setTab,
       handleAction,
       visibleActions
     };
