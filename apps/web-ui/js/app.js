@@ -5,6 +5,7 @@ import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 import { AdminDecisionView } from './modules/admin-decision.js';
+import { AdminAiChatView } from './modules/admin-ai-chat.js';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
@@ -88,7 +89,7 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警与诊断', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI 告警处置', SYSTEM_ADMIN: '决策审计' } },
   { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
@@ -817,33 +818,33 @@ const DecisionConsoleView = {
 };
 
 const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
+  components: { AdminAlertCenter, AdminAiChat: AdminAiChatView, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props) {
-    const showDiagnosis = ref(Boolean(props.routeParams?.highlight === 'diagnosis' || props.routeParams?.section === 'diagnosis'));
+    const showChat = ref(Boolean(['diagnosis', 'chat'].includes(props.routeParams?.highlight) || ['diagnosis', 'chat'].includes(props.routeParams?.section)));
     watch(() => props.routeParams?.highlight, (value) => {
-      if (value === 'diagnosis') showDiagnosis.value = true;
+      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
     });
     watch(() => props.routeParams?.section, (value) => {
-      if (value === 'diagnosis') showDiagnosis.value = true;
-      if (value === 'alerts') showDiagnosis.value = false;
+      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
+      if (value === 'alerts') showChat.value = false;
     });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
-    return { showDiagnosis, isFarmAdmin, isFarmer };
+    return { showChat, isFarmAdmin, isFarmer };
   },
   template: `
     <div class="role-decision-shell">
       <template v-if="isFarmAdmin">
-        <nav class="admin-decision-tabs" aria-label="告警与诊断功能切换">
-          <button class="g-btn" :class="showDiagnosis ? 'g-btn-outline' : 'g-btn-primary'" type="button" @click="showDiagnosis = false">告警处置</button>
-          <button class="g-btn" :class="showDiagnosis ? 'g-btn-primary' : 'g-btn-outline'" type="button" @click="showDiagnosis = true">智能诊断与灌溉</button>
+        <nav class="admin-decision-tabs" aria-label="AI 告警与对话功能切换">
+          <button class="g-btn" :class="showChat ? 'g-btn-outline' : 'g-btn-primary'" type="button" @click="showChat = false">AI 告警处置</button>
+          <button class="g-btn" :class="showChat ? 'g-btn-primary' : 'g-btn-outline'" type="button" @click="showChat = true">AI 对话助手</button>
         </nav>
-        <admin-alert-center v-if="!showDiagnosis" :state="state" @show-diagnosis="showDiagnosis = true" @navigate="(view, params) => $emit('navigate', view, params)"></admin-alert-center>
-        <admin-decision v-else :state="state" :route-params="routeParams"
-                        @navigate="(view, params) => $emit('navigate', view, params)"
-                        @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
+        <admin-alert-center v-if="!showChat" :state="state" @show-chat="showChat = true"
+                            @navigate="(view, params) => $emit('navigate', view, params)"
+                            @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
+        <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
