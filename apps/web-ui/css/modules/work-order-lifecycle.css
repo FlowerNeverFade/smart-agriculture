@@ -4,12 +4,22 @@
   color: var(--g-text-primary);
 }
 
+.work-lifecycle.is-embedded-manager {
+  width: 100%;
+  margin: 0;
+}
+
 .work-lifecycle-header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 18px;
+}
+
+.work-lifecycle-header.is-actions-only {
+  justify-content: flex-end;
+  margin-bottom: 14px;
 }
 
 .work-lifecycle-kicker {

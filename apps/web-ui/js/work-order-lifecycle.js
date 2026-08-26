@@ -66,7 +66,7 @@ function emptyInspectionForm(plots, plotId = '', workOrderId = '') {
 }
 
 export const WorkOrderLifecycleView = {
-  props: ['state', 'routeParams'],
+  props: ['state', 'routeParams', 'embedded'],
   emits: ['navigate', 'data-invalidated'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -78,6 +78,7 @@ export const WorkOrderLifecycleView = {
     const canInspect = computed(() => roleCan(props.state.currentUser, 'inspection:create'));
     const isFarmer = computed(() => role.value === 'FARMER');
     const isAuditor = computed(() => role.value === 'SYSTEM_ADMIN');
+    const isEmbeddedManager = computed(() => Boolean(props.embedded) && canManage.value);
     const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const isBusy = ref(false);
     const memberLoading = ref(false);
@@ -500,7 +501,7 @@ export const WorkOrderLifecycleView = {
     });
 
     return {
-      role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
+      role, canManage, canInspect, isFarmer, isAuditor, isEmbeddedManager, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
@@ -514,9 +515,11 @@ export const WorkOrderLifecycleView = {
     };
   },
   template: `
-    <section class="work-lifecycle" aria-labelledby="work-lifecycle-title">
-      <header class="work-lifecycle-header">
-        <div>
+    <section class="work-lifecycle" :class="{ 'is-embedded-manager': isEmbeddedManager }"
+      :aria-labelledby="isEmbeddedManager ? null : 'work-lifecycle-title'"
+      :aria-label="isEmbeddedManager ? '任务列表' : null">
+      <header class="work-lifecycle-header" :class="{ 'is-actions-only': isEmbeddedManager }">
+        <div v-if="!isEmbeddedManager">
           <p class="work-lifecycle-kicker">WORK ORDERS</p>
           <h1 id="work-lifecycle-title">{{ pageTitle }}</h1>
           <p>{{ pageHint }}</p>
