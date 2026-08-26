@@ -2193,7 +2193,8 @@ const app = createApp({
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || []);
+        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
+        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }

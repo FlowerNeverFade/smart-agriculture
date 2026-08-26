@@ -1,40 +1,20 @@
 import { api } from '../api.js';
-import { normalizeAdminTab } from '../admin-state.js';
 
-const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
+const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 
 export const AdminMemberManagementView = {
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props, { emit }) {
     const toast = inject('toast');
-    const activeTab = ref(normalizeAdminTab('farm-members', props.routeParams?.tab));
     const busyUserId = ref('');
     const memberMenuId = ref('');
-    const draftScopes = ref({});
     const memberEditor = ref({ open: false, mode: 'create' });
     const memberDraft = ref({ userId: '', username: '', password: '', plotIds: [] });
     const farmId = computed(() => props.state.adminContext?.farmId || '');
     const members = computed(() => (props.state.farmMembers || []).filter(member => String(member.role).toUpperCase() === 'FARMER'));
     const plots = computed(() => (props.state.allPlots || props.state.plots || []).filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'));
 
-    const syncDrafts = () => {
-      const farmPlotIds = new Set(plots.value.map(plot => plot.plotId));
-      const next = {};
-      members.value.forEach(member => {
-        next[member.userId] = (member.plotIds || []).filter(plotId => farmPlotIds.has(plotId));
-      });
-      draftScopes.value = next;
-    };
-    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('farm-members', tab); });
-    watch([members, plots], syncDrafts, { immediate: true, deep: true });
-
-    const setTab = tab => emit('navigate', 'farm-members', { tab, farmId: farmId.value });
-    const togglePlot = (userId, plotId, checked) => {
-      const values = new Set(draftScopes.value[userId] || []);
-      if (checked) values.add(plotId); else values.delete(plotId);
-      draftScopes.value = { ...draftScopes.value, [userId]: [...values] };
-    };
     const toggleEditorPlot = (plotId, checked) => {
       const values = new Set(memberDraft.value.plotIds || []);
       if (checked) values.add(plotId); else values.delete(plotId);
@@ -44,16 +24,6 @@ export const AdminMemberManagementView = {
       const index = props.state.farmMembers.findIndex(item => item.userId === member.userId);
       if (index >= 0) props.state.farmMembers.splice(index, 1, { ...props.state.farmMembers[index], ...member });
       else props.state.farmMembers.push(member);
-    };
-    const saveScope = async member => {
-      busyUserId.value = member.userId;
-      try {
-        const updated = await api.updateFarmMemberScope(member.userId, { farmId: farmId.value, plotIds: draftScopes.value[member.userId] || [] });
-        upsertMember(updated);
-        emit('data-invalidated', { domains: ['members', 'workOrders'], record: updated });
-        toast(`${member.username}的负责地块已更新`);
-      } catch (error) { toast(error.message || '地块权限更新失败', 'error'); }
-      finally { busyUserId.value = ''; }
     };
     const toggleMemberMenu = userId => {
       memberMenuId.value = memberMenuId.value === userId ? '' : userId;
@@ -118,8 +88,8 @@ export const AdminMemberManagementView = {
     onBeforeUnmount(() => document.removeEventListener('click', closeMemberMenu));
 
     return {
-      activeTab, busyUserId, memberMenuId, draftScopes, memberEditor, memberDraft,
-      farmId, members, plots, setTab, togglePlot, toggleEditorPlot, saveScope,
+      busyUserId, memberMenuId, memberEditor, memberDraft,
+      farmId, members, plots, toggleEditorPlot,
       toggleMemberMenu, openCreateMember, openEditMember, closeMemberEditor,
       submitMember, deleteMember, memberPlots, openAssignments
     };
@@ -127,9 +97,8 @@ export const AdminMemberManagementView = {
   template: `
     <section class="admin-management-page">
       <header class="admin-section-header"><div><h1>农场成员</h1><p>这里只管理种植农户账号及其负责地块。</p></div></header>
-      <nav class="admin-local-tabs" aria-label="农场成员页签"><button :class="{active: activeTab === 'members'}" @click="setTab('members')">成员列表</button><button :class="{active: activeTab === 'permissions'}" @click="setTab('permissions')">地块权限</button></nav>
 
-      <section v-if="activeTab === 'members'" class="admin-panel">
+      <section class="admin-panel">
         <div class="admin-panel-title"><div><span>当前农场</span><h2>种植农户</h2></div><em>{{ members.length }} 人</em></div>
         <div class="admin-member-card-grid">
           <article v-for="member in members" :key="member.userId" class="admin-member-card">
@@ -139,7 +108,7 @@ export const AdminMemberManagementView = {
               <div class="admin-member-card-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="memberMenuId === member.userId" :aria-label="member.username + '成员操作'" @click.stop="toggleMemberMenu(member.userId)"><app-icon name="more_vertical"></app-icon></button>
                 <div v-if="memberMenuId === member.userId" class="manager-plot-menu admin-member-menu" role="menu">
-                  <button type="button" role="menuitem" @click="openEditMember(member)"><app-icon name="edit"></app-icon><span>修改成员</span></button>
+                  <button type="button" role="menuitem" @click="openEditMember(member)"><app-icon name="edit"></app-icon><span>修改成员与地块</span></button>
                   <button type="button" class="is-danger" role="menuitem" @click="deleteMember(member)"><app-icon name="person_remove"></app-icon><span>删除成员</span></button>
                 </div>
               </div>
@@ -148,24 +117,12 @@ export const AdminMemberManagementView = {
             <footer><span class="admin-status-pill" :class="String(member.status || '').toLowerCase()">{{ String(member.status || 'ACTIVE').toUpperCase() === 'ACTIVE' ? '正常' : '已停用' }}</span><button class="g-btn secondary compact" @click="openAssignments(member)">查看任务</button></footer>
           </article>
           <button type="button" class="admin-member-card admin-add-member-card" @click="openCreateMember">
-            <span class="manager-add-plot-icon"><app-icon name="person_add"></app-icon></span>
+            <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
             <strong>添加种植农户</strong>
             <small>创建账号并分配负责地块</small>
           </button>
         </div>
         <p v-if="!members.length" class="admin-empty">当前农场还没有种植农户，请使用添加卡片创建。</p>
-      </section>
-
-      <section v-else class="admin-panel">
-        <div class="admin-panel-title"><div><span>即时生效</span><h2>种植农户地块范围</h2></div><em>只改本农场</em></div>
-        <p class="admin-hint">保存后会立即影响该农户可查看的地块和可接收的任务。</p>
-        <div class="admin-permission-table">
-          <article v-for="member in members" :key="member.userId">
-            <header><div><strong>{{ member.username }}</strong><small>种植农户</small></div><button class="g-btn primary compact" :disabled="busyUserId === member.userId" @click="saveScope(member)">{{ busyUserId === member.userId ? '保存中…' : '保存权限' }}</button></header>
-            <div class="admin-scope-checks"><label v-for="plot in plots" :key="plot.plotId"><input type="checkbox" :checked="draftScopes[member.userId]?.includes(plot.plotId)" @change="togglePlot(member.userId, plot.plotId, $event.target.checked)"><span><strong>{{ plot.name }}</strong><small>{{ plot.plotId }}</small></span></label></div>
-          </article>
-          <p v-if="!members.length" class="admin-empty">当前农场没有可维护的种植农户账号。</p>
-        </div>
       </section>
 
       <div v-if="memberEditor.open" class="g-modal-overlay admin-member-editor-overlay" @click.self="closeMemberEditor">
