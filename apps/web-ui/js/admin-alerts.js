@@ -1,6 +1,7 @@
 import { api } from './api.js';
+import { adminMetricLabel, alertAcknowledgementAction } from './admin-state.js';
 
-const { ref, computed, inject } = Vue;
+const { ref, computed, inject, watch } = Vue;
 
 const STATUS_LABELS = Object.freeze({ ACTIVE: '待确认', ACKED: '已确认', ESCALATED: '已升级', CLOSED: '已关闭', RESOLVED: '已解决' });
 const LEVEL_LABELS = Object.freeze({ CRITICAL: '严重', HIGH: '紧急', MEDIUM: '注意', LOW: '提示' });
@@ -28,6 +29,8 @@ export const AdminAlertCenter = {
     const toast = inject('toast');
     const filter = ref('OPEN');
     const busyKey = ref('');
+    const activeAlertId = ref('');
+    const alertKey = alert => alert?.alertId || alert?.id || '';
     const isClosed = alert => ['CLOSED', 'RESOLVED'].includes(normalized(alert.status));
     const visibleAlerts = computed(() => (props.state.alerts || [])
       .filter(alert => filter.value === 'ALL' || (filter.value === 'CLOSED' ? isClosed(alert) : !isClosed(alert)))
@@ -38,18 +41,38 @@ export const AdminAlertCenter = {
       }));
     const openCount = computed(() => (props.state.alerts || []).filter(alert => !isClosed(alert)).length);
     const closedCount = computed(() => (props.state.alerts || []).filter(isClosed).length);
+    const activeAlert = computed(() => (props.state.alerts || []).find(alert => alertKey(alert) === activeAlertId.value) || null);
     const plotName = plotId => props.state.plots.find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
     const statusLabel = status => STATUS_LABELS[normalized(status)] || '状态未知';
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
+    const sourceLabel = source => adminMetricLabel(source, source || '系统规则');
     const existingTask = alert => props.state.workOrders.find(order => order.sourceType === 'ALERT' && order.sourceRef === alert.alertId);
+    const acknowledgementAction = alert => alertAcknowledgementAction(alert?.status);
+    const nextStep = alert => {
+      if (isClosed(alert)) return '告警已结束';
+      return ({ ACTIVE: '等待确认', ACKED: '安排现场处理', ESCALATED: '优先安排处理' })[normalized(alert?.status)] || '继续跟进';
+    };
+    const openDetail = alert => { activeAlertId.value = alertKey(alert); };
+    const closeDetail = () => {
+      if (!busyKey.value) activeAlertId.value = '';
+    };
+    const openDetailFromKeyboard = (event, alert) => {
+      if (!['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openDetail(alert);
+    };
+
+    watch(() => props.state.adminContext?.farmId, () => { activeAlertId.value = ''; });
 
     const act = async (alert, action) => {
       busyKey.value = `${alert.alertId}:${action}`;
       try {
         const handler = { ack: api.ackAlert.bind(api), escalate: api.escalateAlert.bind(api), close: api.closeAlert.bind(api) }[action];
+        if (!handler) throw new Error('不支持的告警操作');
+        const acknowledgement = action === 'ack' ? acknowledgementAction(alert) : null;
         const saved = await handler(alert.alertId);
         replaceById(props.state.alerts, 'alertId', saved);
-        toast(action === 'ack' ? '已确认收到，告警继续保留，方便后续处理' : action === 'escalate' ? '告警已升级，请优先安排处理' : '告警已关闭');
+        toast(acknowledgement?.successMessage || (action === 'escalate' ? '告警已升级，请优先安排处理' : '告警已关闭'));
       } catch (error) {
         toast(error.message || '告警处理失败', 'error');
       } finally {
@@ -60,7 +83,11 @@ export const AdminAlertCenter = {
     const convertToTask = async alert => {
       const existing = existingTask(alert);
       if (existing) {
-        emit('navigate', 'work-orders', { highlight: existing.workOrderId || existing.workItemId });
+        activeAlertId.value = '';
+        emit('navigate', 'work-orders', {
+          highlight: existing.workOrderId || existing.workItemId,
+          farmId: props.state.adminContext?.farmId || ''
+        });
         return;
       }
       busyKey.value = `${alert.alertId}:task`;
@@ -88,8 +115,9 @@ export const AdminAlertCenter = {
     };
 
     return {
-      filter, busyKey, visibleAlerts, openCount, closedCount, isClosed, plotName, statusLabel, levelLabel,
-      existingTask, readableTime, normalized, act, convertToTask, showDiagnosis: () => emit('show-diagnosis')
+      filter, busyKey, visibleAlerts, openCount, closedCount, activeAlert, isClosed, plotName, statusLabel, levelLabel, sourceLabel,
+      existingTask, acknowledgementAction, nextStep, readableTime, normalized, act, convertToTask, openDetail, closeDetail,
+      openDetailFromKeyboard, showDiagnosis: () => { activeAlertId.value = ''; emit('show-diagnosis'); }
     };
   },
   template: `
@@ -111,25 +139,58 @@ export const AdminAlertCenter = {
 
       <div class="admin-alert-empty" v-if="!visibleAlerts.length">当前筛选条件下没有告警。</div>
       <div class="admin-alert-list" v-else>
-        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alert.alertId" :class="'level-' + normalized(alert.level, 'MEDIUM').toLowerCase()">
+        <article class="admin-alert-card" v-for="alert in visibleAlerts" :key="alert.alertId"
+          :class="'level-' + normalized(alert.level, 'MEDIUM').toLowerCase()" role="button" tabindex="0"
+          :aria-label="'查看告警详情：' + (alert.title || '地块需要处理')" @click="openDetail(alert)" @keydown="openDetailFromKeyboard($event, alert)">
           <div class="admin-alert-main">
             <div class="admin-alert-title-row">
-              <h3>{{ alert.title || '地块需要处理' }}</h3>
               <span class="admin-alert-chip" :class="'state-' + normalized(alert.status, 'ACTIVE').toLowerCase()">{{ statusLabel(alert.status) }}</span>
               <span class="admin-alert-chip level">{{ levelLabel(alert.level) }}</span>
             </div>
-            <p class="admin-alert-meta">{{ plotName(alert.plotId) }} · {{ readableTime(alert.raisedAt || alert.createdAt) }}</p>
+            <h3>{{ alert.title || '地块需要处理' }}</h3>
             <p class="admin-alert-message">{{ alert.message || '该地块存在需要人工确认的问题。' }}</p>
-            <p class="admin-alert-source">来源：{{ alert.source || '系统规则' }}</p>
+            <dl class="admin-alert-card-facts">
+              <div><dt>地块</dt><dd>{{ plotName(alert.plotId) }}</dd></div>
+              <div><dt>发生时间</dt><dd>{{ readableTime(alert.raisedAt || alert.createdAt) }}</dd></div>
+            </dl>
           </div>
-
-          <div class="admin-alert-actions" v-if="!isClosed(alert)">
-            <button class="g-btn g-btn-outline" type="button" v-if="normalized(alert.status) === 'ACTIVE'" :disabled="busyKey !== ''" @click="act(alert, 'ack')">确认收到</button>
-            <button class="g-btn g-btn-outline" type="button" v-if="normalized(alert.status) !== 'ESCALATED'" :disabled="busyKey !== ''" @click="act(alert, 'escalate')">升级处理</button>
-            <button class="g-btn g-btn-tonal" type="button" :disabled="busyKey !== ''" @click="convertToTask(alert)">{{ existingTask(alert) ? '查看关联任务' : '转成任务' }}</button>
-            <button class="g-btn g-btn-ghost" type="button" :disabled="busyKey !== ''" @click="act(alert, 'close')">关闭告警</button>
-          </div>
+          <footer class="admin-alert-card-footer"><span>来源：{{ sourceLabel(alert.source) }}</span><strong>查看详情 <span class="material-symbols-outlined">arrow_forward</span></strong></footer>
         </article>
+      </div>
+
+      <div v-if="activeAlert" class="g-modal-overlay admin-alert-detail-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
+        <section class="g-modal admin-alert-detail" role="dialog" aria-modal="true" aria-labelledby="admin-alert-detail-title">
+          <div class="g-modal-header">
+            <div><small>告警详情</small><h3 id="admin-alert-detail-title">{{ activeAlert.title || '地块需要处理' }}</h3></div>
+            <button type="button" class="g-btn icon-only" aria-label="关闭" :disabled="busyKey !== ''" @click="closeDetail"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body admin-alert-detail-body">
+            <div class="admin-alert-detail-status">
+              <div class="admin-alert-title-row">
+                <span class="admin-alert-chip" :class="'state-' + normalized(activeAlert.status, 'ACTIVE').toLowerCase()">{{ statusLabel(activeAlert.status) }}</span>
+                <span class="admin-alert-chip level">{{ levelLabel(activeAlert.level) }}</span>
+              </div>
+              <strong>{{ nextStep(activeAlert) }}</strong>
+            </div>
+            <p class="admin-alert-detail-message">{{ activeAlert.message || '该地块存在需要人工确认的问题。' }}</p>
+            <dl class="admin-alert-detail-facts">
+              <div><dt>地块</dt><dd>{{ plotName(activeAlert.plotId) }}</dd></div>
+              <div><dt>发生时间</dt><dd>{{ readableTime(activeAlert.raisedAt || activeAlert.createdAt) }}</dd></div>
+              <div><dt>告警来源</dt><dd>{{ sourceLabel(activeAlert.source) }}</dd></div>
+              <div><dt>关联任务</dt><dd>{{ existingTask(activeAlert)?.title || '尚未创建' }}</dd></div>
+            </dl>
+            <p class="admin-alert-detail-note" v-if="isClosed(activeAlert)">这条告警已经结束，处理记录继续保留为只读事实。</p>
+          </div>
+          <div class="g-modal-footer admin-alert-detail-footer">
+            <button class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="closeDetail">关闭</button>
+            <template v-if="!isClosed(activeAlert)">
+              <button class="g-btn g-btn-outline" type="button" v-if="acknowledgementAction(activeAlert)" :disabled="busyKey !== ''" @click="act(activeAlert, 'ack')">{{ acknowledgementAction(activeAlert).label }}</button>
+              <button class="g-btn g-btn-outline" type="button" v-if="normalized(activeAlert.status) !== 'ESCALATED'" :disabled="busyKey !== ''" @click="act(activeAlert, 'escalate')">升级处理</button>
+              <button class="g-btn g-btn-tonal" type="button" :disabled="busyKey !== ''" @click="convertToTask(activeAlert)">{{ existingTask(activeAlert) ? '查看关联任务' : '转成任务' }}</button>
+              <button class="g-btn g-btn-ghost" type="button" :disabled="busyKey !== ''" @click="act(activeAlert, 'close')">关闭告警</button>
+            </template>
+          </div>
+        </section>
       </div>
     </section>
   `

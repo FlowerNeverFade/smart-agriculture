@@ -1,5 +1,5 @@
-import { api } from './api.js';
-import { MOCK_DATA } from './mock-data.js?v=1787645254016';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js';
+import { MOCK_DATA } from './mock-data.js?v=1787649000001';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -22,7 +22,8 @@ import {
   mapCropPack,
   mapStrategyCandidate,
   mapTimelineRecord,
-  normalizePlot
+  normalizePlot,
+  relativeTime
 } from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
@@ -53,6 +54,15 @@ const ICON_CLASS = Object.freeze({
   error: 'ph-x-circle',
   check_circle: 'ph-check-circle',
   add_task: 'ph-note-pencil',
+  calendar_today: 'ph-calendar-check',
+  schedule: 'ph-clock',
+  person_add: 'ph-user-plus',
+  thermometer: 'ph-thermometer-simple',
+  humidity: 'ph-drop-half-bottom',
+  eco: 'ph-leaf',
+  rainy: 'ph-cloud-rain',
+  soil_ec: 'ph-wave-sine',
+  nutrition: 'ph-plant',
   remove_circle_outline: 'ph-minus-circle',
   close: 'ph-x',
   psychology: 'ph-brain',
@@ -104,10 +114,16 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'SOIL_EC', 'NPK_RATIO']);
-const METRIC_LABELS = Object.freeze({
-  SOIL_MOISTURE: '土壤湿度', AIR_TEMPERATURE: '空气温度', AIR_HUMIDITY: '空气湿度',
-  LIGHT: '光照', CO2: 'CO2', SOIL_EC: '土壤 EC', NPK_RATIO: '氮磷钾'
+const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ICONS = Object.freeze({
+  SOIL_MOISTURE: 'water_drop',
+  AIR_TEMPERATURE: 'thermometer',
+  AIR_HUMIDITY: 'humidity',
+  LIGHT: 'light_mode',
+  CO2: 'eco',
+  RAINFALL: 'rainy',
+  SOIL_EC: 'soil_ec',
+  NPK_RATIO: 'nutrition'
 });
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
@@ -177,8 +193,10 @@ function readFarmerReturnPage() {
     if (!raw) return '';
     const context = JSON.parse(raw);
     if (context?.source !== 'farmer') return '';
-    const page = String(context.returnPage || 'farmer.html');
-    return page.endsWith('.html') ? page : 'farmer.html';
+    const page = String(context.returnPage || 'farmer.html').trim();
+    // Accept farmer.html or farmer.html#advice so returning keeps the page.
+    if (/^[A-Za-z0-9._-]+\.html(#[A-Za-z0-9_-]+)?$/.test(page)) return page;
+    return 'farmer.html';
   } catch (error) {
     return '';
   }
@@ -264,16 +282,26 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
   const online = devices.filter((device) => ['ONLINE', 'UP', 'ACTIVE'].includes(liveStatusValue(device.status))).length;
   const simStatus = liveStatusValue(simulator.status, 'UNAVAILABLE');
+  const rawAiMode = String(systemStatus.ai || overview.aiMode || '—').trim().toLowerCase();
+  // The backend calls a configured Qwen/OpenAI-compatible adapter
+  // `openai-compatible`; the overview uses the concise product-facing mode
+  // names used by the demo card.
+  const aiMode = rawAiMode === 'openai-compatible' ? 'full' : rawAiMode;
+  const scenarios = [...new Set((overview.plots || [])
+    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
+    .filter(Boolean)
+    .map((scenario) => String(scenario).toUpperCase()))];
+  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
   return {
-    uptime: '—',
-    apiVersion: '—',
-    aiMode: String(systemStatus.ai || overview.aiMode || '—').toLowerCase(),
-    llmModel: '—',
+    uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
+    apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
+    aiMode,
+    llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
     devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
     simulator: {
       running: simStatus === 'RUNNING',
-      scenario: simulator.scenario || simulator.scenarioId || '',
+      scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
       startTime: simulator.startedAt || null,
       history: simulator.history || []
@@ -345,13 +373,15 @@ const DashboardView = {
   setup(props, { emit }) {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const activeTab = ref(normalizeAdminTab('dashboard', props.routeParams?.tab));
-    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('dashboard', tab); });
     const selectedFarmId = computed({
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
-    const visiblePlots = computed(() => activeTab.value === 'plots' ? (props.state.allPlots || []) : (props.state.plots || []));
+    const visiblePlots = computed(() => (
+      Array.isArray(props.state.allPlots) && props.state.allPlots.length
+        ? props.state.allPlots
+        : (props.state.plots || [])
+    ));
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -369,17 +399,22 @@ const DashboardView = {
     const managerSummary = computed(() => {
       const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: summary.today },
-        { id: 'overdue', label: '已逾期', value: summary.overdue },
-        { id: 'abnormal', label: '异常地块', value: summary.abnormal },
-        { id: 'unassigned', label: '待分配', value: summary.unassigned },
-        { id: 'approval', label: '待审批', value: summary.approval }
+        { id: 'today', icon: 'calendar_today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
+        { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
+        { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
+        { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
+        { id: 'approval', icon: 'task_alt', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
       ];
     });
 
+    const openManagerSummary = (item) => {
+      const target = managerSummaryTarget(item?.id, selectedFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
+
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
+      label: adminMetricLabel(code, plot?.metrics?.[code]?.label),
       target: plot?.metrics?.[code]?.target || '—',
       unit: plot?.metrics?.[code]?.unit || '',
       value: plot?.metrics?.[code]?.value,
@@ -387,7 +422,8 @@ const DashboardView = {
     }));
     const formatMetric = (metric) => formatMetricValue(metric);
     const healthScore = (plot) => formatHealthScore(plot?.healthScore);
-    const cardTone = (plot) => isAbnormalPlot(plot) ? 'attention' : 'normal';
+    const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
+    const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
     const openPlotDetail = (plot, event) => emit('open-plot-detail', {
       plotId: plot.plotId,
@@ -526,7 +562,6 @@ const DashboardView = {
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
-    const setTab = tab => emit('navigate', 'dashboard', { tab, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
@@ -544,15 +579,16 @@ const DashboardView = {
     };
     return {
       isFarmAdmin,
-      activeTab,
       selectedFarmId,
       visiblePlots,
       managerSummary,
+      openManagerSummary,
       plotMetrics,
       formatMetric,
       healthScore,
       cardTone,
       metricTone,
+      metricVisualIcon,
       metricStatusIcon,
       openPlotDetail,
       plotMenuId,
@@ -573,7 +609,6 @@ const DashboardView = {
       cancelDeletePlot,
       confirmDeletePlot,
       createTask,
-      setTab,
       handleAction,
       visibleActions
     };
@@ -582,12 +617,186 @@ const DashboardView = {
 
 const PlotDetailModal = {
   template: '#tmpl-plot-detail-modal',
-  props: ['plot', 'workOrders'],
-  emits: ['close', 'navigate'],
+  props: ['plot', 'workOrders', 'state'],
+  emits: ['close', 'navigate', 'data-invalidated'],
   setup(props, { emit }) {
+    const toast = inject('toast');
+    const simulation = ref(null);
+    const simulationForm = ref({ scenario: 'NORMAL', parameters: {} });
+    const simulationHistory = ref([]);
+    const simulationForecast = ref(null);
+    const simulationBusy = ref(false);
+    const simulationChartEl = ref(null);
+    const simulationChart = ref(null);
+    const simulationPreviewDirty = ref(false);
+    const simulationScenarioOptions = computed(() => {
+      const configured = simulation.value?.scenarioCatalog;
+      return Array.isArray(configured) && configured.length ? configured : PLOT_SIMULATION_SCENARIOS;
+    });
+    const canConfigureSimulation = computed(() => roleCan(props.state?.currentUser, 'strategy:manage') || roleCan(props.state?.currentUser, 'simulator:control'));
+    const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
+    const parameterMeta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制随机扰动幅度' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 180, step: 1, help: '每个采样点代表的加速时间' },
+      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
+      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
+      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '暴雨时高于此值触发积水风险' },
+      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '预测曲线的时间范围' }
+    });
+    const simulationFields = computed(() => {
+      const code = simulationForm.value.scenario;
+      const common = ['volatility', 'timeScale', 'riskThreshold', 'forecastHours'];
+      const extra = code === 'DROUGHT' ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
+        : code === 'HEAVY_RAIN' ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
+          : code === 'SENSOR_DRIFT' ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
+            : code === 'DEVICE_OFFLINE' ? ['offlineRatio']
+              : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
+      return [...new Set([...common, ...extra])].map((key) => {
+        const fromApi = simulation.value?.parameterLimits?.[key];
+        const meta = parameterMeta[key] || { label: key, unit: '', min: 0, max: 100, step: 1, help: '' };
+        return { key, ...meta, min: Number(fromApi?.min ?? meta.min), max: Number(fromApi?.max ?? meta.max) };
+      });
+    });
+    const simulationDeviceLabel = computed(() => simulation.value?.simulatorDevice?.label || '等待模拟器数据');
+    const simulationDeviceTone = computed(() => String(simulation.value?.simulatorDevice?.status || '').toUpperCase() === 'ONLINE' ? 'is-online' : 'is-offline');
+    const simulatorTone = computed(() => simulationDeviceTone.value === 'is-online' ? 'is-online' : 'is-offline');
+    const hardware = computed(() => simulation.value?.hardware || {});
+    const hardwareLabel = computed(() => hardware.value.label || (hardware.value.status === 'ONLINE' ? '硬件在线，可使用' : '未绑定硬件'));
+    const hardwareTone = computed(() => hardware.value.status === 'ONLINE' ? 'is-online' : 'is-offline');
+    const hardwareLastSeen = computed(() => {
+      if (!hardware.value.lastSeen) return '';
+      const date = new Date(hardware.value.lastSeen);
+      return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
+    });
+    const simulationPreviewMessage = computed(() => {
+      const scenario = selectedSimulationScenario.value;
+      if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
+      if (simulationPreviewDirty.value) return '参数尚未保存，曲线为即时预览；点击“保存到此地块”后服务器模拟器会热加载。';
+      return `${scenario.label}已绑定到 ${props.plot?.name || props.plot?.plotId}，历史数据只清除模拟样本，硬件实测数据始终保留。`;
+    });
+
+    const cloneForm = (record) => ({
+      scenario: String(record?.scenario || 'NORMAL').toUpperCase(),
+      parameters: { ...(record?.parameters || {}) }
+    });
+    const localPreviewCurve = () => {
+      const start = Number(props.plot?.metrics?.SOIL_MOISTURE?.value ?? 35);
+      const params = simulationForm.value.parameters || {};
+      const scenario = simulationForm.value.scenario;
+      const trend = Number(params.soilMoistureTrendPerHour || 0);
+      const volatility = Number(params.volatility || 1.25);
+      const drift = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
+      const rain = scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0;
+      const requestedHours = Number(params.forecastHours);
+      const hours = Math.min(12, Math.max(1, Number.isFinite(requestedHours) ? requestedHours : 4));
+      if (scenario === 'DEVICE_OFFLINE') return [];
+      return Array.from({ length: hours * 12 + 1 }, (_, index) => {
+        const minute = index * 5;
+        const expected = Math.max(0, Math.min(100, start + (trend + rain + drift) * minute / 60 + Math.sin(index / 2.7 + String(props.plot?.plotId || '').length) * volatility));
+        const spread = .6 + index * .04 * volatility;
+        return { minute, expected: Number(expected.toFixed(2)), lower: Number(Math.max(0, expected - spread).toFixed(2)), upper: Number(Math.min(100, expected + spread).toFixed(2)) };
+      });
+    };
+    const renderSimulationChart = async () => {
+      await nextTick();
+      if (!simulationChartEl.value || typeof echarts === 'undefined') return;
+      if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
+      const historical = (simulationHistory.value || []).map((item) => [new Date(item?.ts).getTime(), Number(item?.value)])
+        .filter(([ts, value]) => Number.isFinite(ts) && Number.isFinite(value));
+      const now = Date.now();
+      const forecastPoints = simulationPreviewDirty.value || !simulationForecast.value?.curve?.length ? localPreviewCurve() : simulationForecast.value.curve;
+      const predicted = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.expected ?? item.value)]);
+      const lower = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.lower ?? item.expected ?? item.value)]);
+      const upper = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.upper ?? item.expected ?? item.value)]);
+      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const textColor = dark ? '#e8eaed' : '#3c4043';
+      simulationChart.value.setOption({
+        backgroundColor: 'transparent', animation: false,
+        tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
+          const list = Array.isArray(items) ? items : [items];
+          const time = list[0]?.axisValue ? new Date(Number(list[0].axisValue)).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${Number(item.value[1]).toFixed(2)}%`).join('<br>')}`;
+        }},
+        legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
+        grid: { left: 42, right: 18, top: 32, bottom: 30 },
+        xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
+        yAxis: { type: 'value', min: 0, max: 100, name: '%', nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10 } },
+        series: [
+          { name: '历史实测', type: 'line', data: historical, showSymbol: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
+        ]
+      }, true);
+    };
+    const loadSimulation = async () => {
+      try {
+        const [configResult, historyResult, forecastResult] = await Promise.allSettled([
+          api.getPlotSimulation(props.plot?.plotId),
+          api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120),
+          api.getRiskForecast(props.plot?.plotId, 'SOIL_MOISTURE')
+        ]);
+        if (configResult.status === 'fulfilled') {
+          simulation.value = configResult.value;
+          simulationForm.value = cloneForm(configResult.value);
+        }
+        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value;
+        await nextTick();
+        simulationPreviewDirty.value = false;
+        renderSimulationChart();
+      } catch (error) {
+        toast?.(error.message || '地块模拟策略读取失败', 'error');
+      }
+    };
+    const selectSimulationScenario = (code) => {
+      const normalized = String(code || 'NORMAL').toUpperCase();
+      const scenario = simulationScenarioOptions.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
+      const defaults = scenario.defaultParameters || PLOT_SIMULATION_DEFAULTS[normalized] || PLOT_SIMULATION_DEFAULTS.NORMAL;
+      simulationForm.value = { scenario: normalized, parameters: { ...defaults } };
+      simulationPreviewDirty.value = true;
+      renderSimulationChart();
+    };
+    const saveSimulation = async () => {
+      simulationBusy.value = true;
+      try {
+        const saved = await api.updatePlotSimulation(props.plot.plotId, simulationForm.value);
+        simulation.value = saved; simulationForm.value = cloneForm(saved); simulationPreviewDirty.value = false;
+        await loadSimulation();
+        toast?.('该地块模拟策略已保存，服务器将从下一采样点应用', 'success');
+        emit('data-invalidated', { domains: ['overview', 'plots'], plotId: props.plot.plotId, record: saved });
+      } catch (error) { toast?.(error.message || '模拟策略保存失败', 'error'); }
+      finally { simulationBusy.value = false; }
+    };
+    const resetSimulation = async (target) => {
+      simulationBusy.value = true;
+      try {
+        const resetResult = await api.resetPlotSimulation(props.plot.plotId, target);
+        simulation.value = resetResult;
+        simulationForm.value = cloneForm(resetResult);
+        simulationPreviewDirty.value = false;
+        if (target === 'HISTORY' || target === 'ALL') {
+          const refreshed = await api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120);
+          simulationHistory.value = refreshed || [];
+        }
+        if (target === 'FORECAST' || target === 'ALL') simulationForecast.value = null;
+        await nextTick();
+        renderSimulationChart();
+        toast?.(`${target === 'HISTORY' ? '历史' : target === 'FORECAST' ? '预测' : '历史与预测'}曲线已重置（硬件实测数据未删除）`, 'success');
+      } catch (error) { toast?.(error.message || '曲线重置失败', 'error'); }
+      finally { simulationBusy.value = false; }
+    };
+    watch(simulationForm, () => { simulationPreviewDirty.value = true; renderSimulationChart(); }, { deep: true });
+    onMounted(loadSimulation);
+    onBeforeUnmount(() => { simulationChart.value?.dispose(); simulationChart.value = null; });
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: props.plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
+      label: adminMetricLabel(code, props.plot?.metrics?.[code]?.label),
       target: props.plot?.metrics?.[code]?.target || '—',
       unit: props.plot?.metrics?.[code]?.unit || '',
       value: props.plot?.metrics?.[code]?.value,
@@ -643,6 +852,23 @@ const PlotDetailModal = {
       metrics,
       relatedWork,
       issueSummary,
+      simulation,
+      simulationForm,
+      simulationScenarioOptions,
+      simulationFields,
+      simulationBusy,
+      simulationChartEl,
+      canConfigureSimulation,
+      simulationDeviceLabel,
+      simulationDeviceTone,
+      hardwareLabel,
+      hardwareTone,
+      hardwareLastSeen,
+      simulatorTone,
+      simulationPreviewMessage,
+      selectSimulationScenario,
+      saveSimulation,
+      resetSimulation,
       metricTone,
       formatMetric: formatMetricValue,
       healthScore: formatHealthScore,
@@ -870,25 +1096,34 @@ const RoleAwareDecisionConsoleView = {
 const RiskForecastView = {
   template: '#tmpl-risk-forecast',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['navigate'],
+  setup(props, { emit }) {
     let chart = null;
     const currentScenario = ref('NORMAL');
     const selectedPlotId = ref(props.state.plots[0]?.plotId || '');
     const highlightChart = ref(false);
     const forecast = ref(null);
+    const simulation = ref(null);
     const loading = ref(false);
     const error = ref('');
-    const DEFAULT_SCENARIOS = Object.freeze([
-      { code: 'NORMAL', emoji: '🌱', label: '当前状态', desc: '读取后端最新遥测与风险预测', color: '#1a73e8' },
-      { code: 'DROUGHT', emoji: '🏜️', label: '干旱情景', desc: '由后端仿真服务生成只读情景记录', color: '#d97706' },
-      { code: 'STORM', emoji: '🌧️', label: '暴雨情景', desc: '由后端仿真服务生成只读情景记录', color: '#2563eb' },
-      { code: 'SENSOR_DRIFT', emoji: '📡', label: '传感器漂移', desc: '由后端仿真服务生成只读情景记录', color: '#7c3aed' },
-      { code: 'DEVICE_OFFLINE', emoji: '🔌', label: '设备离线', desc: '后端将按设备数据质量门禁返回结果', color: '#6b7280' }
-    ]);
+    const DEFAULT_SCENARIOS = PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description }));
     const scenarioOptions = computed(() => {
-      const configured = props.state.riskForecastConfig?.scenarioCatalog;
-      return Array.isArray(configured) && configured.length ? configured : DEFAULT_SCENARIOS;
+      // Older demo payloads used HEAT_WAVE/STORM/OFFLINE.  Render the same
+      // five plot-level scenarios in every session so a click never silently
+      // falls back to NORMAL just because a legacy catalog is present.
+      const configured = Array.isArray(props.state.riskForecastConfig?.scenarioCatalog)
+        ? props.state.riskForecastConfig.scenarioCatalog : [];
+      const aliases = { STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', HEAT_WAVE: 'DROUGHT', OFFLINE: 'DEVICE_OFFLINE' };
+      const byCode = new Map(configured.map((item) => {
+        const raw = String(item?.code || '').toUpperCase().replaceAll('-', '_');
+        return [aliases[raw] || raw, item];
+      }));
+      return DEFAULT_SCENARIOS.map((base) => {
+        const legacy = byCode.get(base.code) || {};
+        return { ...base, ...legacy, code: base.code, description: legacy.description || legacy.desc || base.description, desc: legacy.description || legacy.desc || base.description };
+      });
     });
+    const canConfigureSimulation = computed(() => roleCan(props.state.currentUser, 'strategy:manage') || roleCan(props.state.currentUser, 'simulator:control'));
 
     watch(() => props.routeParams, (newParams) => {
       if (newParams && newParams.targetPlot) {
@@ -911,11 +1146,16 @@ const RiskForecastView = {
       loading.value = true;
       error.value = '';
       try {
-        if (props.state.sessionMode === 'live') {
-          forecast.value = await api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE');
-        } else {
-          forecast.value = await api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE');
+        const [configResult, forecastResult] = await Promise.allSettled([
+          api.getPlotSimulation(selectedPlotId.value),
+          api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE')
+        ]);
+        if (configResult.status === 'fulfilled') {
+          simulation.value = configResult.value;
+          if (!currentScenario.value || currentScenario.value === 'NORMAL') currentScenario.value = String(configResult.value.scenario || 'NORMAL').toUpperCase();
         }
+        if (forecastResult.status === 'fulfilled') forecast.value = forecastResult.value;
+        else throw forecastResult.reason;
       } catch (caught) {
         forecast.value = null;
         error.value = caught?.message || '风险预测读取失败';
@@ -926,15 +1166,15 @@ const RiskForecastView = {
     };
 
     const loadScenario = async (scenario) => {
-      currentScenario.value = scenario.code;
-      if (props.state.sessionMode !== 'live' || scenario.code === 'NORMAL') {
+      currentScenario.value = scenario.code === 'STORM' ? 'HEAVY_RAIN' : scenario.code;
+      if (currentScenario.value === 'NORMAL') {
         await loadForecast();
         return;
       }
       loading.value = true;
       error.value = '';
       try {
-        const run = await api.runScenario({ scenario: scenario.code, plotId: selectedPlotId.value });
+        const run = await api.runScenario({ scenario: currentScenario.value, plotId: selectedPlotId.value });
         forecast.value = {
           ...run,
           status: run?.status || run?.runStatus || 'RECORDED',
@@ -943,7 +1183,7 @@ const RiskForecastView = {
           dataOrigin: 'BACKEND'
         };
         if (!forecast.value.curve.length && !forecast.value.horizons.length) {
-          error.value = '后端已记录该情景，但暂未提供可绘制的曲线数据';
+          error.value = '该情景暂未返回可绘制的曲线数据';
         }
       } catch (caught) {
         forecast.value = null;
@@ -985,7 +1225,13 @@ const RiskForecastView = {
       
       chart.setOption({
         backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis' },
+        tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
+          const list = Array.isArray(items) ? items : [items];
+          const axisValue = list[0]?.axisValue;
+          const minute = Number(axisValue);
+          const header = Number.isFinite(minute) ? (minute === 0 ? '现在' : `未来 ${minute} 分钟`) : String(axisValue || '当前');
+          return `<strong>${header}</strong><br>${list.filter((item) => item.value != null).map((item) => `${item.marker}${item.seriesName}：${Number(item.value).toFixed(2)}%`).join('<br>')}`;
+        }},
         xAxis: { type: 'category', data: times, axisLabel: { color: textColor } },
         yAxis: { 
           type: 'value', 
@@ -1019,18 +1265,44 @@ const RiskForecastView = {
     const changeScenario = (scenario) => loadScenario(scenario);
 
     const changePlot = () => {
+      currentScenario.value = 'NORMAL';
       loadForecast();
     };
 
+    const resetForecast = async (target = 'FORECAST') => {
+      loading.value = true;
+      try {
+        const resetResult = await api.resetPlotSimulation(selectedPlotId.value, target);
+        // Keep the reset visible instead of immediately writing a new
+        // forecast record back to the server.  The user can explicitly
+        // regenerate it after changing the strategy/parameters.
+        forecast.value = {
+          ...(resetResult || {}),
+          status: 'RESET',
+          reason: '预测曲线已重置，可重新生成',
+          curve: [],
+          horizons: []
+        };
+        error.value = '预测曲线已重置；选择场景或点击“重新生成预测”后再计算。';
+      } catch (caught) { error.value = caught?.message || '预测曲线重置失败'; }
+      finally { loading.value = false; renderChart(); }
+    };
+    const openPlotSettings = () => {
+      const query = new URLSearchParams({ view: 'plot-detail', plotId: selectedPlotId.value });
+      if (props.state.adminContext?.farmId) query.set('farmId', props.state.adminContext.farmId);
+      window.location.hash = query.toString();
+    };
+
     onMounted(() => {
-        currentScenario.value = scenarioOptions.value[0]?.code || 'NORMAL';
+        currentScenario.value = 'NORMAL';
         loadForecast();
     });
     
     const observer = new MutationObserver(() => renderChart());
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
+    onBeforeUnmount(() => { observer.disconnect(); chart?.dispose(); chart = null; });
     
-    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, loading, error, changeScenario, changePlot };
+    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings };
   }
 };
 
@@ -1317,12 +1589,24 @@ function manualEnvMetrics(pack, stage) {
     { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
     { code: 'AIR_TEMPERATURE', label: metricLabels.AIR_TEMPERATURE, range: `${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
   ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    items.push({
+      code: 'AIR_HUMIDITY',
+      label: metricLabels.AIR_HUMIDITY,
+      range: `${target.airHumidityLow ?? '—'}~${target.airHumidityHigh ?? '—'}`,
+      unit: '%RH',
+      availability: 'SUPPORTED',
+      note: '阶段环境湿度目标'
+    });
+  }
+  const covered = new Set(items.map((item) => item.code));
+  covered.add('WATER_LEVEL');
   (pack.metrics || []).forEach((metric) => {
-    if (['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'WATER_LEVEL'].includes(metric.code)) return;
+    if (covered.has(metric.code)) return;
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
     items.push({
       code: metric.code,
-      label: metric.label || metricLabels[metric.code] || metric.code,
+      label: adminMetricLabel(metric.code, metric.label || metricLabels[metric.code]),
       range: fallbackRange,
       unit: metric.unit || '',
       availability: metric.availability || 'SIMULATION_ONLY',
@@ -1338,6 +1622,9 @@ function buildStageGuide(pack, stage) {
     `${pack.identity.name}（${pack.identity.region || '本地'}）处于「${stage.label}」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。`,
     `适宜土壤湿度 ${target.soilMoistureLow}%~${target.soilMoistureHigh}%，空气温度 ${target.airTemperatureLow}~${target.airTemperatureHigh}°C。`
   ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
   if (stage.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);
   }
@@ -1348,12 +1635,23 @@ function buildStageGuide(pack, stage) {
     }).join('；');
     lines.push(`建议农务节奏：${tasks}。`);
   }
+  const stageBound = {
+    WATER_DEFICIT: target.soilMoistureLow,
+    HEAT_STRESS: target.airTemperatureHigh,
+    COLD_STRESS: target.airTemperatureLow
+  };
   const ruleNotes = (pack.rules || []).map((rule) => {
     const op = rule.operator === 'LT' ? '低于' : '高于';
-    return `${rule.code}：${rule.metric} ${op} ${rule.threshold} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
+    const bound = rule.threshold ?? stageBound[rule.code];
+    const boundText = bound == null ? '阶段目标' : String(bound);
+    return `${rule.code}：${rule.metric} ${op} ${boundText} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
   });
   if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
-  const knowledgeLines = (pack.knowledge?.content || []).filter((line) => line && !line.startsWith('>') && !line.startsWith('#')).slice(0, 5);
+  const stageKnowledge = pack.knowledge?.byStage?.[stage.code];
+  const knowledgeSource = Array.isArray(stageKnowledge) && stageKnowledge.length
+    ? stageKnowledge
+    : (pack.knowledge?.content || []);
+  const knowledgeLines = knowledgeSource.filter((line) => line && !line.startsWith('>') && !line.startsWith('#') && !line.startsWith('-')).slice(0, 5);
   return [...lines, ...knowledgeLines];
 }
 
@@ -1372,31 +1670,70 @@ const CropManualView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const packs = computed(() => (props.state.cropPackDetails || []).slice().sort((a, b) => a.identity.name.localeCompare(b.identity.name, 'zh-CN')));
+    const manuals = ref([]);
+    const liveManual = ref(null);
+    const loadError = ref('');
     const cropCode = ref((props.state.plots?.[0]?.cropCode) || packs.value[0]?.cropCode || 'tomato');
     const stageCode = ref((props.state.plots?.[0]?.stageCode) || packs.value.find((p) => p.cropCode === cropCode.value)?.stages?.[0]?.code || 'seedling');
 
-    const cropOptions = computed(() => packs.value.map((pack) => ({
-      cropCode: pack.cropCode,
-      label: pack.identity.name,
-      region: pack.identity.region || '本地',
-      stageCount: pack.stages?.length || 0,
-      icon: CROP_MANUAL_ICONS[pack.cropCode] || '🌱'
-    })));
-    const cropPack = computed(() => packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null);
-    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => a.sequence - b.sequence));
-    const stage = computed(() => stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
-    const envMetrics = computed(() => cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : []);
-    const guideParagraphs = computed(() => cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : []);
+    const cropOptions = computed(() => {
+      const source = manuals.value.length ? manuals.value : packs.value.map((pack) => ({
+        cropCode: pack.cropCode,
+        name: pack.identity?.name,
+        region: pack.identity?.region,
+        stageCount: pack.stages?.length || 0
+      }));
+      return source.map((item) => ({
+        cropCode: item.cropCode,
+        label: item.name || item.label,
+        region: item.region || '本地',
+        stageCount: item.stageCount || item.stages?.length || 0,
+        icon: CROP_MANUAL_ICONS[item.cropCode] || '🌱'
+      }));
+    });
+    const cropPack = computed(() => {
+      if (liveManual.value) return liveManual.value;
+      return packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null;
+    });
+    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
+    const stage = computed(() => liveManual.value?.stage || stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
+    const envMetrics = computed(() => {
+      if (liveManual.value?.envMetrics?.length) return liveManual.value.envMetrics;
+      return cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : [];
+    });
+    const guideParagraphs = computed(() => {
+      if (liveManual.value?.guideParagraphs?.length) return liveManual.value.guideParagraphs;
+      return cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : [];
+    });
 
     const selectCrop = (code) => {
       cropCode.value = code;
+      const listed = manuals.value.find((item) => item.cropCode === code);
       const pack = packs.value.find((item) => item.cropCode === code);
-      stageCode.value = pack?.stages?.[0]?.code || 'seedling';
+      stageCode.value = listed?.stages?.[0]?.code || pack?.stages?.[0]?.code || 'seedling';
     };
     const selectStage = (code) => { stageCode.value = code; };
     const availabilityLabel = (code) => METRIC_AVAILABILITY_LABELS[code] || code || '—';
 
-    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel };
+    const loadManual = async () => {
+      if (props.state.sessionMode !== 'live') {
+        liveManual.value = null;
+        return;
+      }
+      try {
+        if (!manuals.value.length) manuals.value = await api.getCropManuals();
+        liveManual.value = await api.getCropManual(cropCode.value, stageCode.value);
+        loadError.value = '';
+      } catch (error) {
+        loadError.value = error.message || '培养手册读取失败';
+        liveManual.value = null;
+      }
+    };
+
+    watch([cropCode, stageCode], loadManual);
+    onMounted(loadManual);
+
+    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel, loadError };
   }
 };
 
@@ -2041,11 +2378,23 @@ const app = createApp({
     let contextRequestVersion = 0;
     let systemRequestVersion = 0;
     let systemRefreshTimer = null;
+    let farmRefreshTimer = null;
+    const pendingFarmDomains = new Set();
     const scheduleSystemRefresh = () => {
       if (systemRefreshTimer) return;
       systemRefreshTimer = window.setTimeout(async () => {
         systemRefreshTimer = null;
         await refreshSystemAdminData({ announceErrors: false });
+      }, 450);
+    };
+    const scheduleFarmRefresh = (domains = []) => {
+      domains.forEach((domain) => pendingFarmDomains.add(domain));
+      if (farmRefreshTimer) return;
+      farmRefreshTimer = window.setTimeout(async () => {
+        farmRefreshTimer = null;
+        const requested = [...pendingFarmDomains];
+        pendingFarmDomains.clear();
+        await refreshFarmData(state.value.adminContext.farmId, requested.length ? requested : ['overview', 'plots'], { announceErrors: false });
       }, 450);
     };
     let requestContextChange = async () => {};
@@ -2065,6 +2414,7 @@ const app = createApp({
     }));
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
+    const isFarmer = computed(() => state.value.currentUser?.role === 'FARMER');
     const navItems = computed(() => {
       return state.value.allowedViews
         .map((viewId) => NAV_CATALOG.find((item) => item.id === viewId))
@@ -2116,14 +2466,14 @@ const app = createApp({
       passwordError.value = '';
     };
 
-    const changePassword = () => {
+    const changePassword = async () => {
       passwordError.value = '';
       if (!passwordForm.value.current) {
         passwordError.value = '请输入当前密码';
         return;
       }
-      if (passwordForm.value.next.length < 6) {
-        passwordError.value = '新密码至少需要 6 位';
+      if (passwordForm.value.next.length < 8) {
+        passwordError.value = '新密码至少需要 8 位，并同时包含字母和数字';
         return;
       }
       if (passwordForm.value.next !== passwordForm.value.confirm) {
@@ -2131,11 +2481,17 @@ const app = createApp({
         return;
       }
       if (state.value.sessionMode === 'live') {
-        passwordError.value = '正式账号暂未开放在线改密，请退出后在登录页使用恢复码重设密码';
+        try {
+          await api.changePassword({ currentPassword: passwordForm.value.current, newPassword: passwordForm.value.next });
+          closeAccountModal();
+          showToast('密码已更新，当前登录仍然有效，旧令牌已失效');
+        } catch (error) {
+          passwordError.value = error.message || '密码修改失败';
+        }
         return;
       }
       closeAccountModal();
-      showToast('演示密码修改成功，接入账号服务后将正式生效');
+      showToast('演示密码修改成功');
     };
 
     const forgotPassword = () => {
@@ -2205,7 +2561,8 @@ const app = createApp({
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || []);
+        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
+        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }
@@ -2301,15 +2658,36 @@ const app = createApp({
         .map((entry, index) => mapTimelineRecord(entry, plotMap, index))
         .sort((a, b) => (new Date(b.timeIso || 0).getTime() || 0) - (new Date(a.timeIso || 0).getTime() || 0))
         .filter((record, index, list) => list.findIndex((candidate) => candidate.traceId === record.traceId) === index);
-      const recentEvents = auditRecords.slice(0, 20).map((record) => ({
+      // The timeline also contains high-volume telemetry/heartbeat rows. They
+      // belong in the audit view, but a platform overview should show a
+      // concise, actionable digest instead of twenty identical sensor rows.
+      const recentEventRecords = auditRecords
+        .filter((record) => !['TELEMETRY', 'HEARTBEAT', 'SCENARIO.TELEMETRY'].includes(record.type))
+        .filter((record) => record.summary && record.summary !== 'EVENT 事件')
+        .filter((record, index, list) => list.findIndex((candidate) =>
+          candidate.plotId === record.plotId && candidate.type === record.type && candidate.summary === record.summary
+        ) === index)
+        .slice(0, 20);
+      const recentEvents = recentEventRecords.map((record) => ({
         id: `audit:${record.traceId}`,
-        category: record.type === 'ALERT' ? 'alert' : 'system',
-        icon: record.type === 'ALERT' ? 'warning' : 'history',
+        category: record.type === 'ALERT' || record.result === 'REJECT' ? 'alert' : record.type === 'DIAGNOSIS' ? 'agent' : 'system',
+        icon: record.type === 'ALERT' || record.result === 'REJECT' ? 'warning' : record.type === 'DIAGNOSIS' ? 'psychology' : record.type === 'COMMAND' ? 'login' : 'history',
         title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${record.summary}`,
         time: record.time,
         traceId: record.traceId,
         dataOrigin: 'BACKEND'
       }));
+      if (!recentEvents.length) {
+        recentEvents.push(...alerts.slice(0, 8).map((alert, index) => ({
+          id: `alert:${alert.alertId || alert.id || index}`,
+          category: 'alert',
+          icon: 'warning',
+          title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          traceId: alert.alertId || alert.id,
+          dataOrigin: 'BACKEND'
+        })));
+      }
       const adminPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
       const adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
       const adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
@@ -2508,6 +2886,10 @@ const app = createApp({
       if (record?.workOrderId && domains.includes('workOrders')) {
         state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
       }
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
+        scheduleSystemRefresh();
+        return;
+      }
       if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
       const normalized = [...new Set(domains.flatMap(domain => {
         if (domain === 'resourcePlans') return ['overview'];
@@ -2656,7 +3038,8 @@ const app = createApp({
             }
             const domains = domainsForEventType(event.type);
             if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
-              refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
+              if (systemEvent.silent) scheduleFarmRefresh(domains);
+              else refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
             }
             if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
               scheduleSystemRefresh();
@@ -2693,6 +3076,7 @@ const app = createApp({
       accountProfile,
       roleClass,
       currentRole,
+      isFarmer,
       navItems,
       currentView,
       currentViewComponent,

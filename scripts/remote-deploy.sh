@@ -29,12 +29,14 @@ SUPERVISOR_MODE=0
 if command -v supervisorctl >/dev/null 2>&1 && [[ -f "$APP_ROOT/supervisor.conf" ]]; then
   SUPERVISOR_MODE=1
   supervisorctl -c "$APP_ROOT/supervisor.conf" stop agriloop-api >/dev/null 2>&1 || true
+  supervisorctl -c "$APP_ROOT/supervisor.conf" stop agriloop-simulator >/dev/null 2>&1 || true
 else
   pkill -f 'api-service-.*\.jar' >/dev/null 2>&1 || true
 fi
 restart_on_error() {
   if [[ "$SUPERVISOR_MODE" == "1" ]]; then
     supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-api >/dev/null 2>&1 || true
+    supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-simulator >/dev/null 2>&1 || true
   fi
 }
 trap restart_on_error EXIT
@@ -50,6 +52,9 @@ if [[ "$SUPERVISOR_MODE" == "1" ]]; then
   supervisorctl -c "$APP_ROOT/supervisor.conf" reread || true
   supervisorctl -c "$APP_ROOT/supervisor.conf" update || true
   supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-api
+  # Keep the plot-level simulator running so strategy changes written by the
+  # API are consumed without a second manual service command.
+  supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-simulator
 else
   nohup scripts/run-api.sh >>"$APP_ROOT/logs/api.log" 2>&1 &
   echo $! > "$APP_ROOT/api.pid"

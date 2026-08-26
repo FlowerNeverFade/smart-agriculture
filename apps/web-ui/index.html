@@ -9,14 +9,14 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="css/google-material.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/account-profile.css">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css">
-  <link rel="stylesheet" href="css/modules/decision-console.css">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css">
-  <link rel="stylesheet" href="css/modules/admin-management.css">
-  <link rel="stylesheet" href="css/modules/admin.css">
+  <link rel="stylesheet" href="css/style.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260826-admin-v56-9019096">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -71,15 +71,14 @@
 </head>
 <body>
   <div id="app" v-cloak :class="roleClass" @click="closeProfileMenu">
-    <header class="g-header">
+    <header class="g-header" :class="{ 'farmer-header': isFarmer }">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
-        <span class="g-header-title">AgriLoop Console</span>
       </div>
 
-      <div class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
-        <select v-model="selectedFarmId" aria-label="选择当前农场" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
+      <div class="g-header-center">
+        <select class="g-select g-header-farm-select" v-model="selectedFarmId" aria-label="选择当前农场">
           <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}</option>
         </select>
       </div>
@@ -143,25 +142,29 @@
     </header>
 
     <div class="g-body">
-      <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen}">
-        <div class="g-sidebar-main">
+      <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
+        <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
           <button v-for="nav in navItems" :key="nav.id" type="button"
-               class="g-nav-item" :class="{active: currentView === nav.id}"
+               class="g-nav-item"
+               :data-nav="nav.id"
+               :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
                :aria-current="currentView === nav.id ? 'page' : null"
                @click="navigate(nav.id)">
-            <app-icon :name="nav.icon"></app-icon>
-            <span class="g-nav-label">{{ nav.label }}</span>
+            <span v-if="isFarmer" class="material-symbols-outlined">{{ nav.icon }}</span>
+            <app-icon v-else :name="nav.icon"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
           </button>
         </div>
-        <div v-if="farmerReturnPage" class="g-sidebar-footer">
-          <button type="button" class="g-nav-item g-nav-return-farmer" @click="returnToFarmer">
-            <app-icon name="arrow_back"></app-icon>
-            <span class="g-nav-label">返回农户工作台</span>
+        <div v-if="isFarmer || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
+          <button type="button" class="g-nav-item g-nav-return-farmer" :class="{ 'farmer-nav-item': isFarmer }" @click="returnToFarmer">
+            <span v-if="isFarmer" class="material-symbols-outlined">arrow_back</span>
+            <app-icon v-else name="arrow_back"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">返回农户工作台</span>
           </button>
         </div>
       </nav>
 
-      <main class="g-main">
+      <main class="g-main" :class="{ 'farmer-main': isFarmer }">
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
@@ -169,8 +172,9 @@
                      @context-changed="handleContextChanged"></component>
         </transition>
 
-        <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders"
-                           @close="closePlotDetail" @navigate="navigateFromPlotDetail"></plot-detail-modal>
+        <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders" :state="state"
+                           @close="closePlotDetail" @navigate="navigateFromPlotDetail"
+                           @data-invalidated="handleDataInvalidated"></plot-detail-modal>
 
         <div v-if="showAccountModal" class="account-security-overlay" @click.self="closeAccountModal">
           <form class="account-security-card" @submit.prevent="changePassword">
@@ -185,8 +189,8 @@
             </div>
             <div class="account-security-card-body">
               <label>当前密码<input v-model="passwordForm.current" type="password" autocomplete="current-password" required></label>
-              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="6" required></label>
-              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="6" required></label>
+              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="8" required></label>
+              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="8" required></label>
               <p v-if="passwordError" class="account-security-error">{{ passwordError }}</p>
             </div>
             <div class="account-security-card-footer">
@@ -217,12 +221,6 @@
           <p>先看地块状态，再处理异常和农务。</p>
         </div>
         <div class="manager-dashboard-actions">
-          <label class="sr-only" for="manager-farm-select">选择农场</label>
-          <select id="manager-farm-select" class="g-select manager-farm-select" v-model="selectedFarmId">
-            <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">
-              {{ farm.name }} · {{ farm.region }}
-            </option>
-          </select>
           <button type="button" class="g-btn primary manager-create-task" @click="createTask">
             <app-icon name="add_task"></app-icon>
             创建农务任务
@@ -230,19 +228,20 @@
         </div>
       </header>
 
-      <nav class="admin-local-tabs manager-dashboard-tabs" aria-label="农场总览页签">
-        <button :class="{active: activeTab === 'overview'}" @click="setTab('overview')">总览</button>
-        <button :class="{active: activeTab === 'plots'}" @click="setTab('plots')">地块管理</button>
-      </nav>
-
-      <div v-if="activeTab === 'overview'" class="manager-summary-strip" aria-label="今日农场概况">
-        <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
+      <div class="manager-summary-strip" aria-label="今日农场概况">
+        <button type="button" class="manager-summary-item" v-for="item in managerSummary" :key="item.id"
+                :data-summary="item.id"
+                :title="item.hint" :aria-label="`${item.label} ${item.value}，${item.hint}`"
+                @click="openManagerSummary(item)">
+          <span class="manager-summary-icon"><app-icon :name="item.icon"></app-icon></span>
+          <span class="manager-summary-copy">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </span>
+        </button>
       </div>
 
-      <div class="manager-plot-grid" aria-label="地块状态列表">
+      <div class="manager-plot-grid" aria-label="地块状态和管理列表">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
                  class="manager-plot-card" :class="`is-${cardTone(plot)}`"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
@@ -256,7 +255,7 @@
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
             <div class="manager-plot-card-tools">
-              <span v-if="activeTab === 'plots'" class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
+              <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
               <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
@@ -287,10 +286,13 @@
             <span>生长周期：{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</span>
           </p>
           <div class="manager-metric-grid">
-            <div class="manager-metric" :class="`is-${metricTone(metric)}`" v-for="metric in plotMetrics(plot)" :key="metric.code">
+            <div class="manager-metric" :class="`is-${metricTone(metric)}`" :data-metric="metric.code" v-for="metric in plotMetrics(plot)" :key="metric.code">
               <div class="manager-metric-label">
-                <span>{{ metric.label }}</span>
-                <app-icon :name="metricStatusIcon(metric)"></app-icon>
+                <span class="manager-metric-name">
+                  <span class="manager-metric-glyph"><app-icon :name="metricVisualIcon(metric)"></app-icon></span>
+                  <span>{{ metric.label }}</span>
+                </span>
+                <app-icon class="manager-metric-state" :name="metricStatusIcon(metric)"></app-icon>
               </div>
               <div class="manager-metric-value">
                 {{ formatMetric(metric) }} <small v-if="formatMetric(metric) !== '—'">{{ metric.unit }}</small>
@@ -299,7 +301,7 @@
             </div>
           </div>
         </article>
-        <button v-if="activeTab === 'plots'" type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
+        <button type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
           <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
           <strong>添加新地块</strong>
           <small>录入作物种类、生长周期和地块面积</small>
@@ -461,6 +463,50 @@
                   <p>建议范围：{{ metric.target }}</p>
                 </div>
               </div>
+            </section>
+
+            <section class="plot-detail-section plot-simulation-section" aria-labelledby="plot-simulation-title">
+              <div class="plot-detail-section-heading">
+                <div>
+                  <h3 id="plot-simulation-title">地块模拟策略</h3>
+                  <p class="plot-section-hint">每块地独立生效；参数调整会立即刷新预测预览，保存后由服务器模拟器热加载。</p>
+                </div>
+                <span class="plot-simulation-badge" :class="simulationDeviceTone">{{ simulationDeviceLabel }}</span>
+              </div>
+              <div class="plot-device-binding-row">
+                <span><i :class="hardwareTone"></i>硬件：{{ hardwareLabel }}</span>
+                <span><i :class="simulatorTone"></i>模拟器：{{ simulatorDeviceLabel }}</span>
+                <small v-if="hardwareLastSeen">最近硬件数据 {{ hardwareLastSeen }}</small>
+              </div>
+              <div class="plot-simulation-scenarios" role="group" aria-label="选择地块模拟场景">
+                <button v-for="scenario in simulationScenarioOptions" :key="scenario.code" type="button"
+                        class="plot-simulation-scenario" :class="{active: simulationForm.scenario === scenario.code}"
+                        @click="selectSimulationScenario(scenario.code)" :disabled="!canConfigureSimulation">
+                  <span class="plot-simulation-emoji">{{ scenario.emoji }}</span>
+                  <span><strong>{{ scenario.label }}</strong><small>{{ scenario.description || scenario.desc }}</small></span>
+                </button>
+              </div>
+              <div class="plot-simulation-parameters" v-if="simulationFields.length">
+                <label v-for="field in simulationFields" :key="field.key" class="plot-simulation-field">
+                  <span><b>{{ field.label }}</b><small>{{ field.help }}</small></span>
+                  <span class="plot-simulation-control">
+                    <input type="range" :min="field.min" :max="field.max" :step="field.step" v-model.number="simulationForm.parameters[field.key]" :disabled="!canConfigureSimulation">
+                    <input type="number" :min="field.min" :max="field.max" :step="field.step" v-model.number="simulationForm.parameters[field.key]" :aria-label="field.label" :disabled="!canConfigureSimulation">
+                    <em>{{ field.unit }}</em>
+                  </span>
+                </label>
+              </div>
+              <div class="plot-simulation-chart-wrap">
+                <div class="plot-simulation-chart-head"><span>土壤湿度：历史 + 策略预测</span><small>鼠标悬停查看局部数据</small></div>
+                <div ref="simulationChartEl" class="plot-simulation-chart" role="img" aria-label="地块模拟策略曲线"></div>
+                <p class="plot-simulation-note">{{ simulationPreviewMessage }}</p>
+              </div>
+              <div class="plot-simulation-actions" v-if="canConfigureSimulation">
+                <button type="button" class="g-btn secondary" :disabled="simulationBusy" @click="resetSimulation('HISTORY')">重置历史曲线</button>
+                <button type="button" class="g-btn secondary" :disabled="simulationBusy" @click="resetSimulation('FORECAST')">重置预测曲线</button>
+                <button type="button" class="g-btn primary" :disabled="simulationBusy" @click="saveSimulation">{{ simulationBusy ? '正在同步…' : '保存到此地块' }}</button>
+              </div>
+              <p v-else class="plot-simulation-readonly">当前身份可查看策略和曲线；策略修改由农场管理员或系统管理员执行。</p>
             </section>
 
             <section class="plot-plain-issue" :class="`is-${issueSummary.tone}`" aria-labelledby="plot-detail-issue-title">
@@ -688,6 +734,11 @@
               综合地块含水率推演模型
             </h3>
             <span class="g-badge primary">初始基线：{{ currentPlotBaseMoisture }}%</span>
+            <div class="risk-forecast-actions">
+              <button v-if="canConfigureSimulation && forecast?.status === 'RESET'" type="button" class="g-btn text" @click="loadForecast" :disabled="loading">重新生成预测</button>
+              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="resetForecast('FORECAST')" :disabled="loading">重置预测曲线</button>
+              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="openPlotSettings">调整地块策略</button>
+            </div>
           </div>
           <div id="riskChart" style="width: 100%; height: 450px;"></div>
         </div>
@@ -704,7 +755,7 @@
               <div class="text-muted" style="font-size:12px; margin-bottom:8px">{{ scenario.desc }}</div>
               <div class="flex justify-between items-center">
                 <span class="g-badge" style="background:var(--g-bg-base); border:1px solid var(--g-border-subtle)">
-                  衰减倍率: {{ scenario.decayFactor }}x
+                  {{ scenario.description || scenario.desc }}
                 </span>
                 <span v-if="scenario.ttrMinutes" class="g-badge" :style="{backgroundColor: scenario.color, color:'#fff'}">
                   TTR: {{ scenario.ttrMinutes }}m
@@ -990,6 +1041,7 @@
         <h2>作物培养手册</h2>
         <span v-if="cropPack" class="g-badge primary">v{{ cropPack.version }}</span>
       </div>
+      <p v-if="loadError" class="text-muted" style="margin-bottom:12px">{{ loadError }}</p>
 
       <div class="g-card mb-4">
         <div class="cm-section">
@@ -1189,7 +1241,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260825-event-toast-fix"></script>
+  <script type="module" src="js/app.js?v=20260826-sysadmin-overview-fix"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1333,7 +1385,9 @@
             <div class="admin-plot-farm">{{ plot.farm }}</div>
             <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) }}%</strong><b><i :style="{width: healthPercent(plot) + '%'}"></i></b></div>
             <div class="admin-plot-metrics">
-              <span v-for="metric in telemetryMetrics" v-if="!plot.monitoredMetrics || plot.monitoredMetrics.includes(metric.code)" :key="metric.code"><strong>{{ plot.metrics[metric.code] }}</strong> {{ metric.label }}</span>
+              <template v-for="metric in telemetryMetrics" :key="metric.code">
+                <span v-if="!plot.monitoredMetrics || plot.monitoredMetrics.includes(metric.code)"><strong>{{ plot.metrics[metric.code] }}</strong> {{ metric.label }}</span>
+              </template>
             </div>
             <div v-if="plot.issue" class="admin-plot-issue"><span class="material-symbols-outlined">warning</span>{{ plot.issue }}</div>
             <div v-else class="admin-plot-issue quiet"><span class="material-symbols-outlined">check_circle</span>环境正常</div>
@@ -1355,7 +1409,9 @@
             </div>
             <div class="admin-telemetry-preview" v-if="selectedPlot">
               <div class="admin-preview-title">最近遥测 <span v-if="telemetryLoading">正在同步...</span></div>
-              <span v-for="metric in telemetryMetrics" v-if="plotMetricForm.includes(metric.code)" :key="metric.code"><strong>{{ selectedPlot.metrics[metric.code] }}</strong>{{ metric.label }}</span>
+              <template v-for="metric in telemetryMetrics" :key="metric.code">
+                <span v-if="plotMetricForm.includes(metric.code)"><strong>{{ selectedPlot.metrics[metric.code] }}</strong>{{ metric.label }}</span>
+              </template>
             </div>
           </div>
           <div class="admin-modal-footer"><button class="g-btn" @click="showPlotModal = false">取消</button><button class="g-btn primary" :disabled="!plotMetricForm.length" @click="savePlotMetrics">保存监测配置</button></div>
