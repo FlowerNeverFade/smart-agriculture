@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
 import { roleCan } from './roles.js';
 
 const { ref, computed, watch, inject, nextTick } = Vue;
@@ -89,6 +89,7 @@ export const WorkOrderLifecycleView = {
     const plotFilter = ref('');
     const assigneeFilter = ref('');
     const keyword = ref('');
+    const showDetailModal = ref(false);
     const showTaskModal = ref(false);
     const showAssignModal = ref(false);
     const showSubmitModal = ref(false);
@@ -196,6 +197,10 @@ export const WorkOrderLifecycleView = {
     }[scopeFilter.value] || ''));
     const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', farmId: currentFarmId.value });
     const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
+    const applySummaryScope = (scope) => {
+      const target = managerSummaryTarget(scope, currentFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
@@ -351,6 +356,31 @@ export const WorkOrderLifecycleView = {
       if (saved) showCancelModal.value = false;
     };
 
+    const openDetail = (order) => {
+      if (!canManage.value || !order) return;
+      activeOrder.value = order;
+      showDetailModal.value = true;
+    };
+
+    const closeDetail = () => {
+      showDetailModal.value = false;
+    };
+
+    const openDetailAction = (action) => {
+      const order = activeOrder.value;
+      closeDetail();
+      if (!order) return;
+      if (action === 'assign') openAssign(order);
+      if (action === 'review') openReview(order);
+      if (action === 'cancel') openCancel(order);
+    };
+
+    const openDetailFromKeyboard = (event, order) => {
+      if (!canManage.value || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openDetail(order);
+    };
+
     const loadInspections = async (announce = false) => {
       if (inspectionLoading.value) return false;
       const plotIds = props.state.plots.map((plot) => plot.plotId).filter(Boolean);
@@ -475,10 +505,11 @@ export const WorkOrderLifecycleView = {
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
-      showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
+      showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
-      clearSummaryScope, applyStatusFilter,
+      openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
+      clearSummaryScope, applyStatusFilter, applySummaryScope,
       loadInspections, openInspection, onInspectionPhotos, submitInspection
     };
   },
@@ -501,7 +532,7 @@ export const WorkOrderLifecycleView = {
         <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' && !scopeFilter }" @click="applyStatusFilter('PROGRESSING')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' && !scopeFilter }" @click="applyStatusFilter('OVERDUE')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+        <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
       </div>
 
       <div v-if="scopeFilter" class="work-route-filter" role="status">
@@ -518,8 +549,12 @@ export const WorkOrderLifecycleView = {
         <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
       </div>
 
-      <div v-if="filteredOrders.length" class="work-order-list">
-        <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card" :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order) }]" :data-work-order-id="order.workOrderId">
+      <div v-if="filteredOrders.length" class="work-order-list" :class="{ 'is-manager-card-grid': canManage }">
+        <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card"
+          :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order), 'is-manager-summary': canManage }]"
+          :data-work-order-id="order.workOrderId" :role="canManage ? 'button' : null" :tabindex="canManage ? 0 : null"
+          :aria-label="canManage ? '查看任务详情：' + (order.title || '未命名任务') : null"
+          @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
               <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
@@ -536,12 +571,12 @@ export const WorkOrderLifecycleView = {
             <div><dt>下一步</dt><dd>{{ statusMeta(order).step }}</dd></div>
           </dl>
 
-          <div v-if="order.resultSummary || order.rejectionReason" class="work-result" :class="{ rejected: workStatus(order.status) === 'REJECTED' }">
+          <div v-if="!canManage && (order.resultSummary || order.rejectionReason)" class="work-result" :class="{ rejected: workStatus(order.status) === 'REJECTED' }">
             <strong>{{ order.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
             <p>{{ order.rejectionReason || order.resultSummary }}</p>
           </div>
 
-          <footer class="work-order-footer">
+          <footer v-if="!canManage" class="work-order-footer">
             <details class="work-history">
               <summary>操作记录 {{ order.history?.length || 0 }} 条</summary>
               <ol v-if="order.history?.length">
@@ -560,6 +595,10 @@ export const WorkOrderLifecycleView = {
               <button v-if="isFarmer && workStatus(order.status) === 'IN_PROGRESS'" type="button" class="g-btn primary compact" @click="openSubmit(order)">提交结果</button>
               <button v-if="isFarmer && workStatus(order.status) === 'REJECTED'" type="button" class="g-btn primary compact" @click="startTask(order, true)">重新处理</button>
             </div>
+          </footer>
+          <footer v-else class="work-summary-card-footer">
+            <span>完整结果与操作记录</span>
+            <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
           </footer>
         </article>
       </div>
@@ -587,6 +626,50 @@ export const WorkOrderLifecycleView = {
         </div>
         <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
       </section>
+
+      <div v-if="showDetailModal && activeOrder" class="g-modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
+        <section class="g-modal work-dialog work-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="work-detail-title">
+          <div class="g-modal-header">
+            <div><small>任务详情 · {{ activeOrder.workOrderId }}</small><h3 id="work-detail-title">{{ activeOrder.title || '未命名任务' }}</h3></div>
+            <button type="button" class="g-btn icon-only" @click="closeDetail" aria-label="关闭任务详情"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body work-detail-body">
+            <div class="work-detail-status-row">
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
+              <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
+            </div>
+            <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
+            <dl class="work-order-facts work-detail-facts">
+              <div><dt>地块</dt><dd>{{ plotName(activeOrder.plotId) }}</dd></div>
+              <div><dt>负责人</dt><dd :class="{ 'needs-owner': !activeOrder.assigneeId }">{{ farmerName(activeOrder) }}</dd></div>
+              <div><dt>截止时间</dt><dd>{{ formatTime(activeOrder.dueAt) }}</dd></div>
+              <div><dt>下一步</dt><dd>{{ statusMeta(activeOrder).step }}</dd></div>
+            </dl>
+            <div v-if="activeOrder.resultSummary || activeOrder.rejectionReason" class="work-result" :class="{ rejected: workStatus(activeOrder.status) === 'REJECTED' }">
+              <strong>{{ activeOrder.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
+              <p>{{ activeOrder.rejectionReason || activeOrder.resultSummary }}</p>
+            </div>
+            <details class="work-history work-detail-history" open>
+              <summary>操作记录 {{ activeOrder.history?.length || 0 }} 条</summary>
+              <ol v-if="activeOrder.history?.length">
+                <li v-for="(entry, index) in [...activeOrder.history].reverse()" :key="entry.at + '-' + index">
+                  <span></span><div><strong>{{ actionLabel(entry.action) }}</strong><small>{{ entry.actorName || entry.actorId || '系统' }} · {{ formatTime(entry.at) }}</small><p v-if="entry.note">{{ entry.note }}</p></div>
+                </li>
+              </ol>
+              <p v-else class="work-history-empty">旧任务暂无操作记录，下一次操作起将自动保存。</p>
+            </details>
+          </div>
+          <div class="g-modal-footer work-detail-footer">
+            <div class="work-detail-next"><small>当前下一步</small><strong>{{ statusMeta(activeOrder).step }}</strong></div>
+            <div class="work-card-actions">
+              <button v-if="!TERMINAL_STATUSES.has(workStatus(activeOrder.status))" type="button" class="g-btn secondary compact" @click="openDetailAction('assign')">{{ activeOrder.assigneeId ? '重新分配' : '分配农户' }}</button>
+              <button v-if="workStatus(activeOrder.status) === 'SUBMITTED'" type="button" class="g-btn primary compact" @click="openDetailAction('review')">验收结果</button>
+              <button v-if="!TERMINAL_STATUSES.has(workStatus(activeOrder.status))" type="button" class="g-btn danger-text compact" @click="openDetailAction('cancel')">取消</button>
+              <button type="button" class="g-btn secondary compact" @click="closeDetail">关闭</button>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <div v-if="showTaskModal" class="g-modal-overlay" @click.self="showTaskModal = false" @keydown.esc="showTaskModal = false">
         <form class="g-modal work-dialog" @submit.prevent="createTask">

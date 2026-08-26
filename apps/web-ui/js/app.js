@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -105,10 +105,6 @@ const NAV_CATALOG = Object.freeze([
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
-const METRIC_LABELS = Object.freeze({
-  SOIL_MOISTURE: '土壤湿度', AIR_TEMPERATURE: '空气温度', AIR_HUMIDITY: '空气湿度',
-  LIGHT: '光照', CO2: 'CO2', RAINFALL: '降雨强度', SOIL_EC: '土壤 EC', NPK_RATIO: '氮磷钾'
-});
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
   { code: 'tomato', name: '番茄' },
@@ -381,7 +377,7 @@ const DashboardView = {
 
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
+      label: adminMetricLabel(code, plot?.metrics?.[code]?.label),
       target: plot?.metrics?.[code]?.target || '—',
       unit: plot?.metrics?.[code]?.unit || '',
       value: plot?.metrics?.[code]?.value,
@@ -761,7 +757,7 @@ const PlotDetailModal = {
     onBeforeUnmount(() => { simulationChart.value?.dispose(); simulationChart.value = null; });
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
       code,
-      label: props.plot?.metrics?.[code]?.label || METRIC_LABELS[code] || code,
+      label: adminMetricLabel(code, props.plot?.metrics?.[code]?.label),
       target: props.plot?.metrics?.[code]?.target || '—',
       unit: props.plot?.metrics?.[code]?.unit || '',
       value: props.plot?.metrics?.[code]?.value,
@@ -1571,7 +1567,7 @@ function manualEnvMetrics(pack, stage) {
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
     items.push({
       code: metric.code,
-      label: metric.label || metricLabels[metric.code] || metric.code,
+      label: adminMetricLabel(metric.code, metric.label || metricLabels[metric.code]),
       range: fallbackRange,
       unit: metric.unit || '',
       availability: metric.availability || 'SIMULATION_ONLY',

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
+import { adminDeviceTypeLabel, adminMetricLabel, adminSummary, alertAcknowledgementAction, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, normalizeAdminTab, normalizeWorkSummaryScope, routeHash, selectAuthorizedFarm, workOrderMatchesSummaryScope } from '../js/admin-state.js';
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -66,6 +66,33 @@ test('dashboard task scopes reproduce overdue, unassigned, and approval queues',
   assert.equal(workOrderMatchesSummaryScope(unassigned, 'unassigned', now), true);
   assert.equal(workOrderMatchesSummaryScope(approval, 'approval', now), true);
   assert.equal(workOrderMatchesSummaryScope({ ...approval, status: 'DONE' }, 'approval', now), false);
+});
+
+test('farm admin metrics prefer concise Chinese names for known backend codes', () => {
+  assert.equal(adminMetricLabel('SOIL_MOISTURE', 'Soil Moisture'), '土壤湿度');
+  assert.equal(adminMetricLabel('soilMoisture', ''), '土壤湿度');
+  assert.equal(adminMetricLabel('CO2', 'CO2 Concentration'), '二氧化碳');
+  assert.equal(adminMetricLabel('SOIL_EC', 'Soil EC'), '土壤电导率');
+  assert.equal(adminMetricLabel('custom', 'Air Temperature'), '空气温度');
+  assert.equal(adminMetricLabel('DEVICE_FRESHNESS', ''), '设备数据新鲜度');
+  assert.equal(adminMetricLabel('CUSTOM_INDEX', '自定义指标'), '自定义指标');
+});
+
+test('farm admin device cards translate known types without guessing unknown values', () => {
+  assert.equal(adminDeviceTypeLabel('ENVIRONMENTAL_SENSOR'), '环境传感器');
+  assert.equal(adminDeviceTypeLabel('irrigation-controller'), '灌溉控制器');
+  assert.equal(adminDeviceTypeLabel('FLOW_METER'), '流量计');
+  assert.equal(adminDeviceTypeLabel('土壤传感器'), '土壤传感器');
+  assert.equal(adminDeviceTypeLabel('CUSTOM_SENSOR'), 'CUSTOM_SENSOR');
+  assert.equal(adminDeviceTypeLabel(''), '类型未知');
+});
+
+test('escalated alerts expose the existing acknowledgement action as downgrade', () => {
+  assert.deepEqual(alertAcknowledgementAction('ESCALATED'), {
+    label: '降级处理',
+    successMessage: '告警已降级为已确认，继续保留以便后续处理'
+  });
+  assert.equal(alertAcknowledgementAction('ACKED'), null);
 });
 
 test('backend events invalidate every affected fact domain', () => {
