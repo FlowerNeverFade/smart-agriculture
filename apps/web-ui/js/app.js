@@ -1,15 +1,15 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-simulation-f4517cc';
-import { MOCK_DATA } from './mock-data.js?v=20260826-simulation-f4517cc';
-import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260826-simulation-f4517cc';
-import { buildAccountProfile } from './account-profile.js?v=20260826-simulation-f4517cc';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260826-simulation-f4517cc';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260826-simulation-f4517cc';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260826-simulation-f4517cc';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260826-simulation-f4517cc';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260826-simulation-f4517cc';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260826-simulation-f4517cc';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260826-simulation-f4517cc';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260826-simulation-f4517cc';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js';
+import { MOCK_DATA } from './mock-data.js?v=1787649000001';
+import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { buildAccountProfile } from './account-profile.js';
+import { AdminAlertCenter } from './admin-alerts.js';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
+import { AdminDecisionView } from './modules/admin-decision.js';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
+import { AdminWorkManagementView } from './modules/admin-work-management.js';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js';
+import { AdminMemberManagementView } from './modules/admin-member-management.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -23,7 +23,7 @@ import {
   mapStrategyCandidate,
   mapTimelineRecord,
   normalizePlot
-} from './live-data.js?v=20260826-simulation-f4517cc';
+} from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
