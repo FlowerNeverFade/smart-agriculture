@@ -846,10 +846,10 @@
 }
 
 .role-farm-admin .g-header .g-header-farm-select {
-  border: 1px solid var(--admin-glass-control-outline);
+  border: none;
   border-radius: 12px;
-  background: var(--admin-liquid-control);
-  box-shadow: var(--admin-liquid-control-shadow);
+  background: transparent;
+  box-shadow: none;
 }
 
 .role-farm-admin .g-header .g-header-farm-select:hover {
