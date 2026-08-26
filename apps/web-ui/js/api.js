@@ -509,6 +509,14 @@ export class ApiService {
     throw new ApiError('后端返回了无效的模拟器启动结果', { code: 'SIMULATOR_START_INVALID', payload: resp });
   }
 
+  async updateCropPackStatus(cropCode, version, status) {
+    const resp = await this._fetch(`/api/v1/crop-packs/${cropCode}/${version || 'unknown'}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    return resp;
+  }
+
   async stopSimulator() {
     if (this.sessionMode !== 'live') {
       throw new ApiError('演示会话不能控制后端模拟器', { code: 'SIMULATOR_DEMO_ONLY', isNetworkError: false });

@@ -1965,7 +1965,25 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
-    const selectedScenario = ref('NORMAL');
+    const plotScenarios = ref([]);
+    const plots = computed(() => props.state.plots || []);
+    
+    watch(plots, (newPlots) => {
+      plotScenarios.value = newPlots.map(p => {
+        const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
+        return {
+          plotId: p.plotId,
+          name: p.name,
+          cropName: p.cropName || p.cropCode || '未知作物',
+          scenario: existing ? existing.scenario : 'NORMAL'
+        };
+      });
+    }, { immediate: true });
+
+    const applyGlobalScenario = (sc) => {
+      if (!sc) return;
+      plotScenarios.value.forEach(p => p.scenario = sc);
+    };
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2090,7 +2108,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, simBusy, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
+    return { simRunning, simBusy, plotScenarios, applyGlobalScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
   }
 };
 
@@ -2156,12 +2174,19 @@ const AdminRulesView = {
         if (index >= 0) props.state.adminCropPacks.splice(index, 1);
       }
     };
-    const togglePackStatus = (pack) => {
+    const togglePackStatus = async (pack) => {
+      const nextStatus = pack.status === 'published' ? 'draft' : 'published';
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 状态由后端发布流程维护，当前只读。', 'error');
+        try {
+          await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
+          pack.status = nextStatus;
+          toast('Crop Pack 状态已更新为 ' + nextStatus);
+        } catch (error) {
+          toast(error.message || 'Crop Pack 状态更新失败', 'error');
+        }
         return;
       }
-      pack.status = pack.status === 'published' ? 'draft' : 'published';
+      pack.status = nextStatus;
     };
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
@@ -2256,12 +2281,35 @@ const AdminSettingsView = {
       user.enabled = !user.enabled;
     };
 
-    const createUser = () => {
+    const createUser = async () => {
+      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       if (isLiveSession.value) {
-        toast('正式账号创建请走注册/授权流程，当前页面不会写入浏览器假数据。', 'error');
+        try {
+          const user = await api.createFarmMember({
+            farmId: newUser.value.farmId || 'farm-demo',
+            username: newUser.value.username,
+            password: newUser.value.password,
+            role: newUser.value.role,
+            plotIds: []
+          });
+          props.state.adminUsers.push({
+            userId: user.userId || 'user-' + Date.now(),
+            username: user.username || newUser.value.username,
+            role: user.role || newUser.value.role,
+            roleLabel: roleLabels[user.role || newUser.value.role],
+            farmName: '远程农场',
+            plotIds: user.plotIds || [],
+            enabled: user.enabled !== false,
+            createdAt: new Date().toISOString().split('T')[0]
+          });
+          toast(`账号 ${newUser.value.username} 创建成功`);
+          showCreateUser.value = false;
+          newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+        } catch (error) {
+          toast(error.message || '账号创建失败', 'error');
+        }
         return;
       }
-      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       props.state.adminUsers.push({
         userId: 'user-' + Date.now(),
         username: newUser.value.username,

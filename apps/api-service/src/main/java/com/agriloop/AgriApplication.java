@@ -4697,6 +4697,13 @@ class AgriController {
     @GetMapping("/crop-packs")
     ResponseEntity<?> cropPacks() { return ok(engine.cropPacks()); }
 
+    @PatchMapping("/crop-packs/{cropCode}/{version}/status")
+    ResponseEntity<?> updateCropPackStatus(@PathVariable String cropCode, @PathVariable String version, @RequestBody Map<String, Object> body, Authentication a) {
+        if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "只有系统管理员可以修改作物包状态");
+        cropPackCatalog.updateStatus(cropCode, version, Jsons.text(body, "status", "DRAFT"));
+        return ok(Map.of("success", true));
+    }
+
     @GetMapping("/crop-manuals")
     ResponseEntity<?> cropManuals() { return ok(engine.cropManuals()); }
 

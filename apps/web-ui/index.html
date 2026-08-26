@@ -1639,15 +1639,36 @@
 
       <!-- Scenario Selection -->
       <div class="admin-section-head">
-        <div class="admin-section-title"><span class="material-symbols-outlined">category</span> 场景选择</div>
-      </div>
-      <div class="g-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px">
-        <div v-for="sc in scenarios" :key="sc.id"
-             class="scenario-btn" :class="{active: selectedScenario === sc.id}"
-             @click="selectedScenario = sc.id">
-          <div style="font-weight:500;margin-bottom:4px">{{ sc.icon }} {{ sc.label }}</div>
-          <div style="font-size:12px;color:var(--g-text-secondary)">{{ sc.desc }}</div>
+        <div class="admin-section-title"><span class="material-symbols-outlined">category</span> 场景配置矩阵</div>
+        <div style="display:flex; gap: 8px; align-items: center">
+          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
+          <select @change="applyGlobalScenario($event.target.value); $event.target.value = ''" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+            <option value="">-- 选择场景 --</option>
+            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+          </select>
         </div>
+      </div>
+      <div class="admin-table-wrap" style="margin-bottom: 24px">
+        <table class="admin-table">
+          <thead><tr>
+            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="plot in plotScenarios" :key="plot.plotId">
+              <td style="font-family:var(--g-mono);font-size:11px">{{ plot.plotId }}</td>
+              <td style="font-weight:500">{{ plot.name }}</td>
+              <td><span class="status-pill info">{{ plot.cropName }}</span></td>
+              <td>
+                <select v-model="plot.scenario" style="width:100%; max-width: 200px; padding: 6px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+                  <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+                </select>
+              </td>
+            </tr>
+            <tr v-if="!plotScenarios || plotScenarios.length === 0">
+              <td colspan="4" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- History -->

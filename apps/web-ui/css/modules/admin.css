@@ -503,7 +503,7 @@
 .admin-overview-main { display: flex; flex-direction: column; min-width: 0; gap: 12px; }
 .admin-overview-label { margin: 2px 0 14px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
 .admin-overview-events { min-width: 0; }
-.admin-overview-events > .g-card { max-height: 320px; overflow-y: auto; box-sizing: border-box; padding: 10px 14px !important; }
+.admin-overview-events > .g-card { max-height: 320px; overflow-y: auto; box-sizing: border-box; padding: 10px 14px !important; box-shadow: none; border: 1px solid var(--g-border-subtle); }
 .admin-overview-events .event-timeline { max-height: none; box-sizing: border-box; }
 
 /* removed: no collapse mode */
@@ -602,7 +602,7 @@
   .service-matrix { grid-template-columns: repeat(2, 1fr); }
   .admin-overview-layout { grid-template-columns: 1fr; }
 
-  .admin-overview-events > .g-card { height: 360px; }
+  .admin-overview-events > .g-card { height: 360px; box-shadow: none; border: 1px solid var(--g-border-subtle); }
 }
 
 @media (max-width: 640px) {
