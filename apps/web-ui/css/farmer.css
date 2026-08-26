@@ -207,6 +207,144 @@
   padding-top: 10px;
   margin-top: 10px;
   border-top: 1px solid var(--g-border-subtle);
+  gap: 4px;
+  position: relative;
+}
+
+.farmer-ai-dock {
+  margin-bottom: 4px;
+}
+
+.farmer-ai-dock-trigger.active {
+  background-color: var(--g-success-bg);
+  color: var(--g-success);
+}
+
+/* 固定在主工作区左下，避免被侧栏 overflow 裁切 */
+.farmer-ai-consult {
+  position: fixed;
+  left: calc(var(--g-sidebar-width, 260px) + 20px);
+  bottom: 24px;
+  width: min(380px, calc(100vw - var(--g-sidebar-width, 260px) - 48px));
+  max-height: min(520px, calc(100vh - var(--g-header-height, 64px) - 48px));
+  overflow: auto;
+  z-index: 120;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--g-border) 80%, transparent);
+  background: color-mix(in srgb, var(--g-bg-surface, var(--g-surface)) 96%, white);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.farmer-ai-consult.is-sidebar-collapsed {
+  left: 20px;
+  width: min(380px, calc(100vw - 40px));
+}
+
+.farmer-ai-consult-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.farmer-ai-consult-header strong {
+  display: block;
+  font-size: 15px;
+  color: var(--g-text-primary);
+}
+
+.farmer-ai-consult-header small {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+}
+
+.farmer-ai-consult-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.farmer-ai-consult-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  border: 1px solid var(--g-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--g-bg);
+  color: var(--g-text-primary);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.farmer-ai-consult-form textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--g-success) 35%, transparent);
+  border-color: var(--g-success);
+}
+
+.farmer-ai-consult-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.farmer-ai-consult-actions .g-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.farmer-ai-consult-answer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--g-success-bg);
+  color: var(--g-text-primary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.farmer-ai-consult-answer .material-symbols-outlined {
+  color: var(--g-success);
+  flex-shrink: 0;
+}
+
+.farmer-ai-consult-answer p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.farmer-ai-consult-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.farmer-ai-consult-history button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--g-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+@media (max-width: 900px) {
+  .farmer-ai-consult,
+  .farmer-ai-consult.is-sidebar-collapsed {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 60vh;
+  }
 }
 
 /* 导航项：紫色高亮 */
