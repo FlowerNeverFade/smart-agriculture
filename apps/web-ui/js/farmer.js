@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api, PLOT_SIMULATION_SCENARIOS } from './api.js';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -14,7 +14,7 @@ import {
   workStatusLabel
 } from './live-data.js';
 
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, watch } = Vue;
 
 const STATUS_LABELS = {
   OPEN: '待分配',
@@ -46,8 +46,26 @@ const CROP_ICONS = {
   cucumber: '🥒',
   rice: '🌾',
   sunflower: '🌻',
-  strawberry: '🍓'
+  strawberry: '🍓',
+  pepper: '🌶️'
 };
+
+const CROP_MANUAL_AVAILABILITY = Object.freeze({
+  SUPPORTED: '已接入',
+  SIMULATION_ONLY: '演示参考',
+  UNAVAILABLE: '不可用'
+});
+
+const CROP_MANUAL_RISK_LABELS = Object.freeze({
+  WATER_DEFICIT: '缺水风险',
+  HEAT_STRESS: '高温胁迫',
+  COLD_STRESS: '低温冷害'
+});
+
+const CROP_MANUAL_TASK_LABELS = Object.freeze({
+  INSPECTION: '现场巡田',
+  IRRIGATION_CHECK: '灌溉巡检'
+});
 
 const PLOT_CHART_SPECS = [
   { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 60, amplitude: 3, precision: 1, color: 'var(--g-success)' },
@@ -84,21 +102,14 @@ const CHART_RANGE_OPTIONS = [
   }
 ];
 
-const SHARED_MODULE_LINKS = [
-  { id: 'decision-console', label: '智能诊断与处方', icon: 'psychology', description: '查看根因、证据和灌溉处方' },
-  { id: 'risk-forecast', label: '风险推演', icon: 'timeline', description: '切换情景并查看未来趋势' },
-  { id: 'work-orders', label: '工单与巡田', icon: 'assignment', description: '查看工单流转和人工核验' }
-];
-
-const SHARED_CONTEXT_KEY = 'agriloop-farmer-shared-context';
-
 const FARMER_VIEWS = Object.freeze([
   'dashboard',
   'plots',
   'tasks',
   'inspections',
   'advice',
-  'messages'
+  'messages',
+  'tools'
 ]);
 
 function parse_farmer_hash(hash = window.location.hash) {
@@ -108,9 +119,125 @@ function parse_farmer_hash(hash = window.location.hash) {
   return FARMER_VIEWS.includes(view) ? view : 'dashboard';
 }
 
-function farmer_hash_for(view_id) {
+function parse_tools_tab(hash = window.location.hash) {
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  if (!raw.startsWith('tools')) return 'risk';
+  const rest = raw.slice('tools'.length).replace(/^[/?]/, '');
+  const tab = rest.split(/[?&/]/)[0];
+  if (tab === 'manual') return 'manual';
+  const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : rest;
+  return new URLSearchParams(query).get('tab') === 'manual' ? 'manual' : 'risk';
+}
+
+function farmer_hash_for(view_id, tab = 'risk') {
   const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+  if (view === 'tools') return `#tools/${tab === 'manual' ? 'manual' : 'risk'}`;
   return `#${view}`;
+}
+
+function crop_manual_metrics(pack, stage) {
+  const target = stage?.target || {};
+  const labels = {
+    SOIL_MOISTURE: '土壤湿度',
+    AIR_TEMPERATURE: '空气温度',
+    AIR_HUMIDITY: '空气湿度',
+    WATER_LEVEL: '水位',
+    LIGHT: '光照',
+    CO2: 'CO2',
+    SOIL_EC: '土壤 EC',
+    NPK_RATIO: '氮磷钾'
+  };
+  const items = [
+    { code: 'SOIL_MOISTURE', label: labels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
+    { code: 'AIR_TEMPERATURE', label: labels.AIR_TEMPERATURE, range: `${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
+  ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    items.push({
+      code: 'AIR_HUMIDITY',
+      label: labels.AIR_HUMIDITY,
+      range: `${target.airHumidityLow ?? '—'}~${target.airHumidityHigh ?? '—'}`,
+      unit: '%RH',
+      availability: 'SUPPORTED',
+      note: '阶段环境湿度目标'
+    });
+  }
+  const covered = new Set(items.map((item) => item.code));
+  (pack?.metrics || []).forEach((metric) => {
+    if (covered.has(metric.code)) return;
+    items.push({
+      code: metric.code,
+      label: metric.label || labels[metric.code] || metric.code,
+      range: metric.range ? `${metric.range.min}~${metric.range.max}` : '—',
+      unit: metric.unit || '',
+      availability: metric.availability || 'SIMULATION_ONLY',
+      note: metric.availability === 'SUPPORTED' ? '可监测指标' : '模型参考区间'
+    });
+  });
+  return items;
+}
+
+function crop_manual_guide(pack, stage) {
+  const target = stage?.target || {};
+  const identity = pack?.identity || {};
+  const lines = [
+    `${identity.name || pack?.cropCode || '作物'}（${identity.region || '本地'}）处于「${stage?.label || '当前阶段'}」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。`,
+    `适宜土壤湿度 ${target.soilMoistureLow ?? '—'}%~${target.soilMoistureHigh ?? '—'}%，空气温度 ${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}°C。`
+  ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
+  if (stage?.riskFocus?.length) {
+    lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || code).join('、')}。`);
+  }
+  if (stage?.taskTemplates?.length) {
+    const tasks = stage.taskTemplates.map((task) => {
+      const action = CROP_MANUAL_TASK_LABELS[task.actionType] || task.actionType;
+      return `${action}（每 ${task.intervalDays} 天，优先级 ${task.priority}）`;
+    }).join('；');
+    lines.push(`建议农务节奏：${tasks}。`);
+  }
+  const stageKnowledge = pack?.knowledge?.byStage?.[stage?.code];
+  const knowledgeSource = Array.isArray(stageKnowledge) && stageKnowledge.length
+    ? stageKnowledge
+    : (pack?.knowledge?.content || []);
+  const knowledgeLines = knowledgeSource.filter((line) => line && !String(line).startsWith('>') && !String(line).startsWith('#') && !String(line).startsWith('-')).slice(0, 5);
+  return [...lines, ...knowledgeLines];
+}
+
+function forecast_chart_model(forecast, baseMoisture, color = 'var(--g-success)') {
+  const points = (forecast?.curve?.length ? forecast.curve : forecast?.horizons || [])
+    .map((point) => ({
+      minute: Number(point.minute ?? point.minutes ?? 0),
+      expected: Number(point.expected ?? point.value)
+    }))
+    .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
+  if (!points.length) return null;
+  const values = points.map((point) => point.expected);
+  const base = Number(baseMoisture);
+  const min = Math.max(0, Math.floor(Math.min(...values, Number.isFinite(base) ? base : values[0]) - 5));
+  const max = Math.ceil(Math.max(35, ...values, Number.isFinite(base) ? base + 5 : 0));
+  const labels = points.map((point) => (point.minute === 0 ? '现在' : `${point.minute}m`));
+  const boundary = Number(forecast?.stressBoundary ?? forecast?.riskBoundary?.value);
+  const span = Math.max(1, max - min);
+  const boundaryY = Number.isFinite(boundary) ? (10 + (1 - ((boundary - min) / span)) * 104) : null;
+  return {
+    labels,
+    values,
+    current: values[0],
+    min,
+    max,
+    color,
+    points: chart_points(values, min, max),
+    grid: [
+      { y: 10, label: `${max}%` },
+      { y: 62, label: `${Math.round((max + min) / 2)}%` },
+      { y: 114, label: `${min}%` }
+    ],
+    boundary,
+    boundaryY,
+    sample_labels: labels,
+    series: [{ label: '推演含水率', color, values }]
+  };
 }
 
 // The farmer view keeps this catalogue separate from MOCK_DATA so the same
@@ -544,8 +671,8 @@ const app = createApp({
     const evidence_requests = ref([]);
 
     const current_view = ref(parse_farmer_hash());
+    const tools_tab = ref(parse_tools_tab());
     const selected_plot = ref(plots.value[0] || null);
-    const shared_module_links = SHARED_MODULE_LINKS;
     const chart_range = ref('7d');
     const chart_range_options = CHART_RANGE_OPTIONS;
     const chart_tooltip = ref(null);
@@ -774,6 +901,16 @@ const app = createApp({
     const show_ai_consult = ref(false);
     const qa_busy = ref(false);
     const qa_plot_id = ref(plots.value[0]?.plotId || '');
+    const tools_plot_id = ref(plots.value[0]?.plotId || '');
+    const tools_scenario = ref('NORMAL');
+    const tools_forecast = ref(null);
+    const tools_forecast_error = ref('');
+    const tools_forecast_loading = ref(false);
+    const crop_manuals = ref([]);
+    const crop_manual_code = ref(plots.value[0]?.cropCode || crop_pack_catalog[0]?.cropCode || 'tomato');
+    const crop_manual_stage = ref(plots.value[0]?.stageCode || crop_pack_catalog[0]?.stages?.[0]?.code || 'seedling');
+    const crop_manual_live = ref(null);
+    const crop_manual_error = ref('');
 
     const toggle_ai_consult = () => {
       show_ai_consult.value = !show_ai_consult.value;
@@ -810,7 +947,7 @@ const app = createApp({
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'more-tools', label: '更多工具', icon: 'apps', is_footer: true, target: 'work-orders' }
+        { id: 'tools', label: '更多工具', icon: 'apps', is_footer: true }
       ];
     });
 
@@ -998,17 +1135,129 @@ const app = createApp({
       };
     });
 
+    const tools_plot = computed(() => plots.value.find((plot) => plot.plotId === tools_plot_id.value) || plots.value[0] || null);
+    const tools_scenarios = computed(() => PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description })));
+    const tools_forecast_chart = computed(() => {
+      const moisture = Number(tools_plot.value?.metrics?.SOIL_MOISTURE?.value);
+      const scenario = tools_scenarios.value.find((item) => item.code === tools_scenario.value);
+      return forecast_chart_model(tools_forecast.value, moisture, scenario?.color || 'var(--g-success)');
+    });
+    const crop_manual_options = computed(() => {
+      const source = crop_manuals.value.length
+        ? crop_manuals.value
+        : (crop_pack_catalog || []).map((pack) => ({
+          cropCode: pack.cropCode,
+          name: pack.identity?.name,
+          region: pack.identity?.region,
+          stageCount: pack.stages?.length || 0
+        }));
+      return source
+        .slice()
+        .sort((a, b) => String(a.name || a.label || '').localeCompare(String(b.name || b.label || ''), 'zh-CN'))
+        .map((item) => ({
+          cropCode: item.cropCode,
+          label: item.name || item.label || item.cropCode,
+          region: item.region || '本地',
+          stageCount: item.stageCount || item.stages?.length || 0,
+          icon: CROP_ICONS[item.cropCode] || '🌱'
+        }));
+    });
+    const crop_manual_pack = computed(() => {
+      if (crop_manual_live.value) return crop_manual_live.value;
+      return (crop_pack_catalog || []).find((pack) => pack.cropCode === crop_manual_code.value) || crop_pack_catalog[0] || null;
+    });
+    const crop_manual_stages = computed(() => (crop_manual_pack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
+    const crop_manual_stage_item = computed(() => crop_manual_live.value?.stage || crop_manual_stages.value.find((stage) => stage.code === crop_manual_stage.value) || crop_manual_stages.value[0] || null);
+    const crop_manual_metrics_list = computed(() => {
+      if (crop_manual_live.value?.envMetrics?.length) return crop_manual_live.value.envMetrics;
+      return crop_manual_pack.value && crop_manual_stage_item.value
+        ? crop_manual_metrics(crop_manual_pack.value, crop_manual_stage_item.value)
+        : [];
+    });
+    const crop_manual_guide_list = computed(() => {
+      if (crop_manual_live.value?.guideParagraphs?.length) return crop_manual_live.value.guideParagraphs;
+      return crop_manual_pack.value && crop_manual_stage_item.value
+        ? crop_manual_guide(crop_manual_pack.value, crop_manual_stage_item.value)
+        : [];
+    });
+
+    const load_tools_forecast = async (scenario = tools_scenario.value) => {
+      const plotId = tools_plot_id.value || plots.value[0]?.plotId;
+      if (!plotId) {
+        tools_forecast.value = null;
+        tools_forecast_error.value = '没有可预测的地块';
+        return;
+      }
+      tools_forecast_loading.value = true;
+      tools_forecast_error.value = '';
+      try {
+        if (!scenario || scenario === 'NORMAL') {
+          const result = await api.getRiskForecast(plotId, 'SOIL_MOISTURE');
+          tools_forecast.value = result;
+          if (String(result?.status || '').toUpperCase() === 'UNAVAILABLE') {
+            tools_forecast_error.value = result.reason || result.unavailableReason || '样本、数据质量或设备状态不足';
+          }
+        } else {
+          const run = await api.runScenario({ scenario, plotId });
+          tools_forecast.value = {
+            ...run,
+            status: run?.status || run?.runStatus || 'RECORDED',
+            curve: Array.isArray(run?.curve) ? run.curve : [],
+            horizons: Array.isArray(run?.horizons) ? run.horizons : []
+          };
+          if (!tools_forecast.value.curve.length && !tools_forecast.value.horizons.length) {
+            tools_forecast_error.value = '该情景暂未返回可绘制的曲线数据';
+          }
+        }
+      } catch (error) {
+        tools_forecast.value = null;
+        tools_forecast_error.value = error?.message || '风险预警读取失败';
+      } finally {
+        tools_forecast_loading.value = false;
+      }
+    };
+
+    const change_tools_scenario = (scenario) => {
+      tools_scenario.value = scenario?.code === 'STORM' ? 'HEAVY_RAIN' : (scenario?.code || 'NORMAL');
+    };
+
+    const select_crop_manual = (code) => {
+      crop_manual_code.value = code;
+      const listed = crop_manuals.value.find((item) => item.cropCode === code);
+      const pack = (crop_pack_catalog || []).find((item) => item.cropCode === code);
+      crop_manual_stage.value = listed?.stages?.[0]?.code || pack?.stages?.[0]?.code || 'seedling';
+    };
+
+    const load_crop_manual = async () => {
+      try {
+        if (!crop_manuals.value.length) crop_manuals.value = await api.getCropManuals();
+        if (is_formal_session) {
+          crop_manual_live.value = await api.getCropManual(crop_manual_code.value, crop_manual_stage.value);
+        } else {
+          crop_manual_live.value = null;
+        }
+        crop_manual_error.value = '';
+      } catch (error) {
+        crop_manual_error.value = error.message || '培养手册读取失败';
+        crop_manual_live.value = null;
+      }
+    };
+
+    const availability_label = (code) => CROP_MANUAL_AVAILABILITY[code] || code || '—';
     const similar_cases = computed(() => FARMER_SIMILAR_CASES);
     const active_report = computed(() => {
       const base = FARMER_REPORT_CATALOG[active_report_key.value] || FARMER_REPORT_CATALOG.daily;
       return { ...base, generatedAt: data_updated_label.value };
     });
 
-    const navigate = (view_id, { sync_hash = true } = {}) => {
+    const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       current_view.value = next_view;
+      if (next_view === 'tools' && (tab === 'risk' || tab === 'manual')) {
+        tools_tab.value = tab;
+      }
       if (sync_hash) {
-        const target = farmer_hash_for(next_view);
+        const target = farmer_hash_for(next_view, tools_tab.value);
         if (window.location.hash !== target) {
           window.location.hash = target.slice(1);
         }
@@ -1034,8 +1283,9 @@ const app = createApp({
 
     const apply_farmer_hash = () => {
       const view = parse_farmer_hash();
-      if (view === current_view.value) return;
-      navigate(view, { sync_hash: false });
+      const tab = parse_tools_tab();
+      if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value)) return;
+      navigate(view, { sync_hash: false, tab });
     };
 
     const toggle_sidebar = () => { is_sidebar_open.value = !is_sidebar_open.value; };
@@ -1159,6 +1409,9 @@ const app = createApp({
       if (!qa_plot_id.value || !nextPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
         qa_plot_id.value = nextPlots[0]?.plotId || '';
       }
+      if (!tools_plot_id.value || !nextPlots.some((plot) => plot.plotId === tools_plot_id.value)) {
+        tools_plot_id.value = nextPlots[0]?.plotId || '';
+      }
       data_updated_label.value = '刚刚';
       return true;
     };
@@ -1257,6 +1510,12 @@ const app = createApp({
         advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
         if (!qa_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
           qa_plot_id.value = normalizedPlots[0]?.plotId || '';
+        }
+        if (!tools_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === tools_plot_id.value)) {
+          tools_plot_id.value = normalizedPlots[0]?.plotId || '';
+        }
+        if (!crop_manual_code.value && (normalizedPlots[0]?.cropCode || crop_pack_catalog[0]?.cropCode)) {
+          crop_manual_code.value = normalizedPlots[0]?.cropCode || crop_pack_catalog[0]?.cropCode;
         }
         if (!inspection_form.value.plot_id || !plotMap.has(inspection_form.value.plot_id)) inspection_form.value.plot_id = normalizedPlots[0]?.plotId || '';
         if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
@@ -1394,26 +1653,15 @@ const app = createApp({
       selected_plot.value = plot;
     };
 
-    const open_shared_view = (view_id, plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId) => {
-      const module = SHARED_MODULE_LINKS.find((item) => item.id === view_id);
-      if (!module) return;
-      try {
-        sessionStorage.setItem(SHARED_CONTEXT_KEY, JSON.stringify({
-          source: 'farmer',
-          plotId: plot_id || '',
-          returnPage: `farmer.html${farmer_hash_for(current_view.value)}`,
-          createdAt: new Date().toISOString()
-        }));
-      } catch (error) {
-        // Session storage may be unavailable in a restricted browser; navigation still works.
-      }
-      window.location.assign(`index.html#${module.id}`);
+    const open_tools = (tab = 'risk', plot_id = '') => {
+      if (plot_id) tools_plot_id.value = plot_id;
+      tools_tab.value = tab === 'manual' ? 'manual' : 'risk';
+      navigate('tools', { tab: tools_tab.value });
     };
 
     const toggle_irrigation = () => {
       if (is_formal_session) {
-        open_shared_view('decision-console', advice_plot.value?.plotId);
-        show_toast('正式会话不会直接操作水泵，请在智能诊断页完成人工审批', 'error');
+        show_toast('正式会话不会直接操作水泵，灌溉处方需由管理员审批后执行', 'error');
         return;
       }
       irrigation_running.value = !irrigation_running.value;
@@ -1423,7 +1671,7 @@ const app = createApp({
 
     const set_suggestion_feedback = (feedback) => {
       if (is_formal_session) {
-        show_toast('正式建议反馈需要关联具体决策记录，请在智能诊断页提交', 'error');
+        show_toast('正式建议反馈已保留在本页，不会改写生产策略', 'error');
         return;
       }
       suggestion_feedback.value = feedback;
@@ -1437,8 +1685,9 @@ const app = createApp({
         return;
       }
       if (is_live.value) {
-        show_toast('正式采用需进入智能诊断页完成安全检查与审批');
-        open_shared_view('decision-console', advice_selected_plot.value?.plotId);
+        decision_confirmation.value = '已提交待复核';
+        suggestion_feedback.value = '确认采用（待审批）';
+        show_toast('正式采用已记录为待复核，不会直接修改处方或策略');
         return;
       }
       decision_confirmation.value = '已提交人工确认';
@@ -1747,7 +1996,7 @@ const app = createApp({
       }
       // Keep the current farmer page across refresh / back-forward.
       if (!window.location.hash) {
-        window.history.replaceState(null, '', farmer_hash_for(current_view.value));
+        window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
       } else {
         apply_farmer_hash();
       }
@@ -1776,6 +2025,16 @@ const app = createApp({
         }
       }
       await load_farmer_enhancements();
+      if (current_view.value === 'tools') {
+        if (tools_tab.value === 'manual') await load_crop_manual();
+        else await load_tools_forecast();
+      }
+    });
+
+    watch([current_view, tools_tab, tools_plot_id, tools_scenario, crop_manual_code, crop_manual_stage], () => {
+      if (current_view.value !== 'tools') return;
+      if (tools_tab.value === 'manual') load_crop_manual();
+      else load_tools_forecast(tools_scenario.value);
     });
 
     return {
@@ -1787,7 +2046,6 @@ const app = createApp({
       user,
       farm,
       nav_items,
-      shared_module_links,
       current_view,
       messages,
       tasks,
@@ -1832,6 +2090,27 @@ const app = createApp({
       weather_inputs,
       degradation_banner,
       weather_risk_card,
+      tools_tab,
+      tools_plot_id,
+      tools_plot,
+      tools_scenario,
+      tools_scenarios,
+      tools_forecast,
+      tools_forecast_error,
+      tools_forecast_loading,
+      tools_forecast_chart,
+      crop_manual_code,
+      crop_manual_stage,
+      crop_manual_options,
+      crop_manual_pack,
+      crop_manual_stages,
+      crop_manual_stage_item,
+      crop_manual_metrics_list,
+      crop_manual_guide_list,
+      crop_manual_error,
+      change_tools_scenario,
+      select_crop_manual,
+      availability_label,
       device_attention,
       batch_timeline,
       selected_allocation,
@@ -1901,7 +2180,7 @@ const app = createApp({
       open_device_attention,
       close_task,
       open_plot,
-      open_shared_view,
+      open_tools,
       toggle_irrigation,
       set_suggestion_feedback,
       confirm_suggestion,
