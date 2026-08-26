@@ -19,6 +19,10 @@ spring:
     driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}
     hikari:
       maximum-pool-size: ${DATABASE_POOL_SIZE:8}
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 8MB
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true
@@ -64,6 +68,7 @@ agriloop:
   supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
   simulation-config-path: ${SIMULATION_CONFIG_PATH:data/plot-simulation.json}
+  attachment-dir: ${ATTACHMENT_DIR:data/attachments}
 
 management:
   endpoints:

@@ -4,6 +4,8 @@
 > 任务版本：v1.8（2026-08-26）
 > 状态枚举：`未开始` / `进行中` / `待验收` / `已完成` / `阻塞`
 
+> 2026-08-26 告警冷却、在线改密、成员生命周期、巡田照片与高温告警：后端补齐冷却期内复用 ACTIVE 告警、`HEAT_STRESS` 告警状态机、`POST /auth/change-password`、创建/启用/停用农户，以及本地巡田照片附件（USER_PROVIDED）。本轮只创建本地改动，不推送或部署。
+
 > 2026-08-24 GitHub `main` 的后端、AI、公网部署和指定前端分支整合已完成验收。凡标记“已完成（后端）”均以 `docs/acceptance/REMOTE_ACCEPTANCE.md`、Gradle 测试和远端黑盒证据为准；前端切片的完成只代表已实现并验证的演示模块，不代表真实现场效果。`rium_dev-v2` 增量与毛玻璃回退另有本地 Chromium 证据。
 >
 > 本轮只合入 `feat/login-interface`、`feat/farm-operations`、`yyx`、`lxh-frontend`、`rium_dev` 和 `rium_dev-v2`；`quhl`、`docs/multi-crop-agri-design` 和 `task5` 不处理。冲突处保留独立登录、现有 JWT/Agent、安全门、yyx 预测/回放入口，并把 lxh 微观作物沙盘与 rium 时序拆成独立导航；主界面按最新要求采用毛玻璃。逐分支复核见 `docs/branch-integration-review.md`。
@@ -91,7 +93,12 @@
 | T-059 | P0 | BearPi E53_IA1 串口/MQTT 实时接入与真实/模拟来源仲裁 | 项目组 | — | 本轮 | 已完成（硬件与远端链路验收） | `hardware/bearpi_e53_bridge.py`、`hardware/connect_bearpi.py`、Flyway V5、`sourceMode=REAL` 优先规则、AIR_HUMIDITY、平滑连续模拟器；COM5 E53 固件刷写日志全分区 `Execution Successful`，串口实时变化读数，SSH 隧道 + 服务器 MQTT + `/api/v1/plots/plot-a01/telemetry` 黑盒验证通过；Python/Gradle/Web/Vite/Crop Pack 回归通过 |
 | T-060 | P1 | 决策台诊断 AI 解释层（证据说明与下一步） | 项目组 | — | 本轮 | 已完成 | 新增 `POST /api/v1/diagnoses/{diagnosisId}/explain` 与共享决策台解释卡；规则负责主因/置信度/安全门，Qwen 只解释证据，rules-only/mock 可见降级；修正证据不足候选误高亮并补齐高温胁迫文案。功能提交链已部署；Gradle 全量测试、Web 14/14、Vite 构建、Node 语法和服务器三角色黑盒（Qwen `degraded=false`、共享解释 trace）通过 |
 | T-061 | P0 | Crop Pack 阶段解析、综合健康分与作物培养手册接口 | 前后端 | — | 本轮 | 待验收 | 番茄/黄瓜 Pack 补齐阶段标签、任务模板、阶段知识与 healthProfile；规则/诊断/预测/处方按当前生长阶段阈值解析；新增培养手册与健康分接口。Gradle API 39/39、前端 Node 14/14、Crop Pack 校验通过；页面手册切换与农户健康分仍待浏览器复核 |
-| T-062 | P1 | 地块独立模拟策略、随机波动、曲线重置与局部浮窗 | 前后端 | — | 本轮 | 进行中 | 每个地块独立保存 NORMAL/DROUGHT/HEAVY_RAIN/SENSOR_DRIFT/DEVICE_OFFLINE 场景和参数；模拟器热加载 JSON、风险/灌溉复用策略、硬件 REAL 优先；地块详情可调参数/重置历史与预测，农户和风险曲线支持悬浮数据。Gradle、Python simulator、Node/Vite 已通过；三角色浏览器与远端部署待验收 |
+| T-062 | P0 | 合并农场管理员总览与地块管理页面 | 前端 | — | 本轮 | 待验收 | 移除首页二级页签；今日概况、全部地块、状态/编辑入口和添加地块卡片同屏展示；Web 15/15、Vite 构建、Chromium 7→8 新增闭环通过，待用户本地检查 |
+| T-063 | P0 | 修复设备绑定显示并补齐种植农户成员增删改 | 前后端 | — | 本轮 | 待验收 | 设备绑定结果即时回写且绑定/在线状态分开展示；总览在无首次心跳时显示“设备已绑定，等待首次数据”；成员页取消重复权限页签，地块范围归入新增/修改窗口，添加卡使用加号；后端 38/38、Web 16/16、Vite、Chromium 正式绑定与成员页面回归通过，待用户本地检查 |
+| T-064 | P1 | 农场总览五项统计接入任务与告警业务入口 | 前端 | — | 本轮 | 已完成（本地验收） | 五项统计均为原生按钮并保留农场 Hash；逾期、待分配、待审批进入对应任务范围，异常地块进入告警处置；Node 测试、Vite 构建与浏览器交互通过 |
+| T-065 | P1 | 农户端天气风险、设备核验、批次阶段、资源分配、降级、报告和案例确认呈现 | 前端 | T-027/T-028/T-034/T-035/T-036 | 本轮 | 待验收 | `farmer.html/js/css` 已实现；输入为地块/工单/Crop Pack/预测/资源计划，输出为紧凑卡片、时间线、折叠排程和确认记录；失败路径显示 MOCK/SIMULATED/UNAVAILABLE 且不直接控制设备或发布策略；`node --check`、`git diff --check`、HTTP 200 通过，待补浏览器桌面/窄屏/双主题交互证据。 |
+| T-066 | P0 | 告警冷却生效、高温告警、在线改密、成员创建/停用与巡田照片附件 | 前后端 | — | 本轮 | 待验收 | 同地块同规则冷却期内复用/更新 ACTIVE 告警；HEAT_STRESS 进入告警状态机；`POST /auth/change-password` 轮换凭据版本；`POST /farm-members` 与 `PATCH .../status`；巡田照片本地附件 `USER_PROVIDED`。Gradle API 43/43、前端 Node 14/14、Vite 构建通过；应用内浏览器未复核 |
+| T-067 | P1 | 地块独立模拟策略、随机波动、曲线重置与局部浮窗 | 前后端 | — | 本轮 | 进行中 | 每个地块独立保存 NORMAL/DROUGHT/HEAVY_RAIN/SENSOR_DRIFT/DEVICE_OFFLINE 场景和参数；模拟器热加载 JSON、风险/灌溉复用策略、硬件 REAL 优先；地块详情可调参数/重置历史与预测，农户和风险曲线支持悬浮数据。Gradle、Python simulator、Node/Vite 已通过；三角色浏览器与远端部署待验收 |
 
 ### 2.1 核心八项能力任务映射
 

@@ -216,10 +216,22 @@ function messageBase({ id, category, title, snippet, body, sender, at, read = fa
 export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [], plots = [] } = {}) {
   const plotMap = new Map(asArray(plots).map((plot) => [String(plot.plotId), plot]));
   const messages = [];
-  asArray(alerts).forEach((alert) => {
+  const seenAlertKeys = new Set();
+  const sortedAlerts = asArray(alerts).slice().sort((a, b) =>
+    (dateValue(b.updatedAt || b.raisedAt || b.createdAt)?.getTime() || 0)
+    - (dateValue(a.updatedAt || a.raisedAt || a.createdAt)?.getTime() || 0));
+  sortedAlerts.forEach((alert) => {
     const plotId = text(alert.plotId, '');
-    const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
+    const source = text(alert.source, 'RULE').toUpperCase();
     const status = text(alert.status, 'ACTIVE').toUpperCase();
+    // Keep one live alert message per plot+source so a cooldown miss on the
+    // backend cannot flood the farmer inbox with the same notice.
+    if (['ACTIVE', 'ACKNOWLEDGED', 'OPEN'].includes(status)) {
+      const dedupeKey = `${plotId}|${source}`;
+      if (seenAlertKeys.has(dedupeKey)) return;
+      seenAlertKeys.add(dedupeKey);
+    }
+    const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
     const title = text(alert.title, `${plotName}出现${text(alert.level, '提示')}告警`);
     const message = text(alert.message || alert.summary, '请打开告警详情查看后端提供的处理建议。');
     messages.push(messageBase({
@@ -229,7 +241,7 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       snippet: message,
       body: [message, `来源：${text(alert.source, '规则引擎')}`, `当前状态：${status}`],
       sender: 'AgriLoop 规则引擎',
-      at: alert.createdAt || alert.raisedAt || alert.updatedAt,
+      at: alert.updatedAt || alert.createdAt || alert.raisedAt,
       plotId,
       read: status === 'CLOSED' || status === 'RESOLVED'
     }));

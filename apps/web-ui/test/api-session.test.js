@@ -58,3 +58,21 @@ test('formal reads recover after a transient health-probe failure', async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('demo device binding and farmer membership mutations remain visible on reread', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+
+  const device = await service.registerDevice({ deviceId: 'sensor-contract-1', farmId: 'farm-demo', name: '合同测试传感器', type: 'ENVIRONMENTAL_SENSOR' });
+  assert.equal(device.bindingState, 'UNBOUND');
+  const bound = await service.bindDevice(device.deviceId, 'plot-a01');
+  assert.equal(bound.plotId, 'plot-a01');
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === device.deviceId)?.bindingState, 'BOUND');
+
+  const member = await service.createFarmMember({ farmId: 'farm-demo', username: 'worker.qa', password: 'Field2026!', plotIds: ['plot-a01'] });
+  assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), true);
+  const updated = await service.updateFarmMemberScope(member.userId, { farmId: 'farm-demo', plotIds: ['plot-a02'] });
+  assert.deepEqual(updated.plotIds, ['plot-a02']);
+  await service.deleteFarmMember(member.userId, { farmId: 'farm-demo' });
+  assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), false);
+});

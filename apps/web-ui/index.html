@@ -75,11 +75,10 @@
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
         <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
-        <span class="g-header-title">{{ isFarmer ? '农户工具台' : 'AgriLoop Console' }}</span>
       </div>
 
-      <div v-if="!isFarmer" class="g-header-center" style="position: absolute; left: 50%; transform: translateX(-50%);">
-        <select v-model="selectedFarmId" aria-label="选择当前农场" style="padding: 6px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; outline: none; box-shadow: var(--g-shadow-1);">
+      <div class="g-header-center">
+        <select class="g-select g-header-farm-select" v-model="selectedFarmId" aria-label="选择当前农场">
           <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}</option>
         </select>
       </div>
@@ -189,8 +188,8 @@
             </div>
             <div class="account-security-card-body">
               <label>当前密码<input v-model="passwordForm.current" type="password" autocomplete="current-password" required></label>
-              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="6" required></label>
-              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="6" required></label>
+              <label>新密码<input v-model="passwordForm.next" type="password" autocomplete="new-password" minlength="8" required></label>
+              <label>确认新密码<input v-model="passwordForm.confirm" type="password" autocomplete="new-password" minlength="8" required></label>
               <p v-if="passwordError" class="account-security-error">{{ passwordError }}</p>
             </div>
             <div class="account-security-card-footer">
@@ -221,12 +220,6 @@
           <p>先看地块状态，再处理异常和农务。</p>
         </div>
         <div class="manager-dashboard-actions">
-          <label class="sr-only" for="manager-farm-select">选择农场</label>
-          <select id="manager-farm-select" class="g-select manager-farm-select" v-model="selectedFarmId">
-            <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">
-              {{ farm.name }} · {{ farm.region }}
-            </option>
-          </select>
           <button type="button" class="g-btn primary manager-create-task" @click="createTask">
             <app-icon name="add_task"></app-icon>
             创建农务任务
@@ -234,19 +227,16 @@
         </div>
       </header>
 
-      <nav class="admin-local-tabs manager-dashboard-tabs" aria-label="农场总览页签">
-        <button :class="{active: activeTab === 'overview'}" @click="setTab('overview')">总览</button>
-        <button :class="{active: activeTab === 'plots'}" @click="setTab('plots')">地块管理</button>
-      </nav>
-
-      <div v-if="activeTab === 'overview'" class="manager-summary-strip" aria-label="今日农场概况">
-        <div class="manager-summary-item" v-for="item in managerSummary" :key="item.id">
+      <div class="manager-summary-strip" aria-label="今日农场概况">
+        <button type="button" class="manager-summary-item" v-for="item in managerSummary" :key="item.id"
+                :title="item.hint" :aria-label="`${item.label} ${item.value}，${item.hint}`"
+                @click="openManagerSummary(item)">
           <span>{{ item.label }}</span>
           <strong>{{ item.value }}</strong>
-        </div>
+        </button>
       </div>
 
-      <div class="manager-plot-grid" aria-label="地块状态列表">
+      <div class="manager-plot-grid" aria-label="地块状态和管理列表">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
                  class="manager-plot-card" :class="`is-${cardTone(plot)}`"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
@@ -260,7 +250,7 @@
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
             <div class="manager-plot-card-tools">
-              <span v-if="activeTab === 'plots'" class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
+              <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
               <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
@@ -303,7 +293,7 @@
             </div>
           </div>
         </article>
-        <button v-if="activeTab === 'plots'" type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
+        <button type="button" class="manager-plot-card manager-add-plot-card" @click="openCreatePlot">
           <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
           <strong>添加新地块</strong>
           <small>录入作物种类、生长周期和地块面积</small>

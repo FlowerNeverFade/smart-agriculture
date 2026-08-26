@@ -1,5 +1,5 @@
 import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js';
-import { MOCK_DATA } from './mock-data.js?v=1787645254016';
+import { MOCK_DATA } from './mock-data.js?v=1787649000001';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
@@ -9,7 +9,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, mergeFarmPlots, normalizeAdminTab, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -177,8 +177,10 @@ function readFarmerReturnPage() {
     if (!raw) return '';
     const context = JSON.parse(raw);
     if (context?.source !== 'farmer') return '';
-    const page = String(context.returnPage || 'farmer.html');
-    return page.endsWith('.html') ? page : 'farmer.html';
+    const page = String(context.returnPage || 'farmer.html').trim();
+    // Accept farmer.html or farmer.html#advice so returning keeps the page.
+    if (/^[A-Za-z0-9._-]+\.html(#[A-Za-z0-9_-]+)?$/.test(page)) return page;
+    return 'farmer.html';
   } catch (error) {
     return '';
   }
@@ -338,13 +340,15 @@ const DashboardView = {
   setup(props, { emit }) {
     const toast = inject('toast');
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const activeTab = ref(normalizeAdminTab('dashboard', props.routeParams?.tab));
-    watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('dashboard', tab); });
     const selectedFarmId = computed({
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
-    const visiblePlots = computed(() => activeTab.value === 'plots' ? (props.state.allPlots || []) : (props.state.plots || []));
+    const visiblePlots = computed(() => (
+      Array.isArray(props.state.allPlots) && props.state.allPlots.length
+        ? props.state.allPlots
+        : (props.state.plots || [])
+    ));
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -362,13 +366,18 @@ const DashboardView = {
     const managerSummary = computed(() => {
       const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
       return [
-        { id: 'today', label: '今日任务', value: summary.today },
-        { id: 'overdue', label: '已逾期', value: summary.overdue },
-        { id: 'abnormal', label: '异常地块', value: summary.abnormal },
-        { id: 'unassigned', label: '待分配', value: summary.unassigned },
-        { id: 'approval', label: '待审批', value: summary.approval }
+        { id: 'today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
+        { id: 'overdue', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
+        { id: 'abnormal', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
+        { id: 'unassigned', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
+        { id: 'approval', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
       ];
     });
+
+    const openManagerSummary = (item) => {
+      const target = managerSummaryTarget(item?.id, selectedFarmId.value);
+      if (target) emit('navigate', target.view, target.params);
+    };
 
     const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
       code,
@@ -519,7 +528,6 @@ const DashboardView = {
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
-    const setTab = tab => emit('navigate', 'dashboard', { tab, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
@@ -537,10 +545,10 @@ const DashboardView = {
     };
     return {
       isFarmAdmin,
-      activeTab,
       selectedFarmId,
       visiblePlots,
       managerSummary,
+      openManagerSummary,
       plotMetrics,
       formatMetric,
       healthScore,
@@ -566,7 +574,6 @@ const DashboardView = {
       cancelDeletePlot,
       confirmDeletePlot,
       createTask,
-      setTab,
       handleAction,
       visibleActions
     };
@@ -1547,8 +1554,20 @@ function manualEnvMetrics(pack, stage) {
     { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
     { code: 'AIR_TEMPERATURE', label: metricLabels.AIR_TEMPERATURE, range: `${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
   ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    items.push({
+      code: 'AIR_HUMIDITY',
+      label: metricLabels.AIR_HUMIDITY,
+      range: `${target.airHumidityLow ?? '—'}~${target.airHumidityHigh ?? '—'}`,
+      unit: '%RH',
+      availability: 'SUPPORTED',
+      note: '阶段环境湿度目标'
+    });
+  }
+  const covered = new Set(items.map((item) => item.code));
+  covered.add('WATER_LEVEL');
   (pack.metrics || []).forEach((metric) => {
-    if (['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'WATER_LEVEL'].includes(metric.code)) return;
+    if (covered.has(metric.code)) return;
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
     items.push({
       code: metric.code,
@@ -1568,6 +1587,9 @@ function buildStageGuide(pack, stage) {
     `${pack.identity.name}（${pack.identity.region || '本地'}）处于「${stage.label}」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。`,
     `适宜土壤湿度 ${target.soilMoistureLow}%~${target.soilMoistureHigh}%，空气温度 ${target.airTemperatureLow}~${target.airTemperatureHigh}°C。`
   ];
+  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
+    lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
   if (stage.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);
   }
@@ -1578,12 +1600,23 @@ function buildStageGuide(pack, stage) {
     }).join('；');
     lines.push(`建议农务节奏：${tasks}。`);
   }
+  const stageBound = {
+    WATER_DEFICIT: target.soilMoistureLow,
+    HEAT_STRESS: target.airTemperatureHigh,
+    COLD_STRESS: target.airTemperatureLow
+  };
   const ruleNotes = (pack.rules || []).map((rule) => {
     const op = rule.operator === 'LT' ? '低于' : '高于';
-    return `${rule.code}：${rule.metric} ${op} ${rule.threshold} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
+    const bound = rule.threshold ?? stageBound[rule.code];
+    const boundText = bound == null ? '阶段目标' : String(bound);
+    return `${rule.code}：${rule.metric} ${op} ${boundText} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
   });
   if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
-  const knowledgeLines = (pack.knowledge?.content || []).filter((line) => line && !line.startsWith('>') && !line.startsWith('#')).slice(0, 5);
+  const stageKnowledge = pack.knowledge?.byStage?.[stage.code];
+  const knowledgeSource = Array.isArray(stageKnowledge) && stageKnowledge.length
+    ? stageKnowledge
+    : (pack.knowledge?.content || []);
+  const knowledgeLines = knowledgeSource.filter((line) => line && !line.startsWith('>') && !line.startsWith('#') && !line.startsWith('-')).slice(0, 5);
   return [...lines, ...knowledgeLines];
 }
 
@@ -2398,14 +2431,14 @@ const app = createApp({
       passwordError.value = '';
     };
 
-    const changePassword = () => {
+    const changePassword = async () => {
       passwordError.value = '';
       if (!passwordForm.value.current) {
         passwordError.value = '请输入当前密码';
         return;
       }
-      if (passwordForm.value.next.length < 6) {
-        passwordError.value = '新密码至少需要 6 位';
+      if (passwordForm.value.next.length < 8) {
+        passwordError.value = '新密码至少需要 8 位，并同时包含字母和数字';
         return;
       }
       if (passwordForm.value.next !== passwordForm.value.confirm) {
@@ -2413,11 +2446,17 @@ const app = createApp({
         return;
       }
       if (state.value.sessionMode === 'live') {
-        passwordError.value = '正式账号暂未开放在线改密，请退出后在登录页使用恢复码重设密码';
+        try {
+          await api.changePassword({ currentPassword: passwordForm.value.current, newPassword: passwordForm.value.next });
+          closeAccountModal();
+          showToast('密码已更新，当前登录仍然有效，旧令牌已失效');
+        } catch (error) {
+          passwordError.value = error.message || '密码修改失败';
+        }
         return;
       }
       closeAccountModal();
-      showToast('演示密码修改成功，接入账号服务后将正式生效');
+      showToast('演示密码修改成功');
     };
 
     const forgotPassword = () => {
@@ -2487,7 +2526,8 @@ const app = createApp({
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || []);
+        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
+        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }

@@ -28,6 +28,12 @@ export const AdminResourceCenterView = {
     const ledgers = computed(() => props.state.valueLedgers || []);
     const simulator = computed(() => props.state.simulatorStatus || { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' });
     const simulatorMessage = computed(() => SIMULATOR_REASONS[simulator.value.reason] || simulator.value.reason || '模拟器状态暂不可用。');
+    const upsertDevice = device => {
+      if (!device?.deviceId) return;
+      const index = props.state.devices.findIndex(item => item.deviceId === device.deviceId);
+      if (index >= 0) props.state.devices.splice(index, 1, { ...props.state.devices[index], ...device });
+      else props.state.devices.unshift(device);
+    };
     watch(() => props.routeParams?.tab, tab => { activeTab.value = normalizeAdminTab('resource-coordination', tab); });
     watch(plots, value => {
       if (!ledgerForm.value.plotId) ledgerForm.value.plotId = value[0]?.plotId || '';
@@ -38,9 +44,10 @@ export const AdminResourceCenterView = {
       busy.value = true;
       try {
         const device = await api.registerDevice({ ...deviceForm.value, farmId: farmId.value });
+        upsertDevice(device);
         deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR' };
         emit('data-invalidated', { domains: ['devices'], record: device });
-        toast('设备已注册；心跳到达前保持离线、未绑定');
+        toast('设备已注册并显示在列表中，请继续选择地块完成绑定');
       } catch (error) { toast(error.message || '设备注册失败', 'error'); }
       finally { busy.value = false; }
     };
@@ -50,8 +57,10 @@ export const AdminResourceCenterView = {
       busy.value = true;
       try {
         const saved = await api.bindDevice(device.deviceId, plotId);
+        upsertDevice(saved);
+        delete bindSelections.value[device.deviceId];
         emit('data-invalidated', { domains: ['devices', 'plots', 'overview'], record: saved });
-        toast('设备已绑定；在线状态仍等待真实心跳');
+        toast(`设备已绑定到${plotName(plotId)}；收到心跳后才会显示在线`);
       } catch (error) { toast(error.message || '设备绑定失败', 'error'); }
       finally { busy.value = false; }
     };
@@ -60,6 +69,7 @@ export const AdminResourceCenterView = {
       busy.value = true;
       try {
         const saved = await api.unbindDevice(device.deviceId);
+        upsertDevice(saved);
         emit('data-invalidated', { domains: ['devices', 'plots', 'overview'], record: saved });
         toast('设备已解绑');
       } catch (error) { toast(error.message || '设备解绑失败', 'error'); }
@@ -91,9 +101,10 @@ export const AdminResourceCenterView = {
       catch (error) { props.state.simulatorStatus = { available: false, status: 'UNAVAILABLE', reason: error.code || error.message }; }
     };
     const plotName = plotId => plots.value.find(plot => plot.plotId === plotId)?.name || plotId || '未绑定';
+    const bindingLabel = device => device?.plotId || String(device?.bindingState || '').toUpperCase() === 'BOUND' ? '已绑定' : '未绑定';
     const display = value => value === undefined || value === null || value === '' ? '—' : value;
     const metric = (ledger, key) => display(ledger?.metrics?.[key]);
-    return { activeTab, busy, farmId, plots, devices, ledgers, simulator, simulatorMessage, bindSelections, deviceForm, ledgerForm, setTab, registerDevice, bind, unbind, createLedger, controlSimulator, refreshSimulator, plotName, display, metric };
+    return { activeTab, busy, farmId, plots, devices, ledgers, simulator, simulatorMessage, bindSelections, deviceForm, ledgerForm, setTab, registerDevice, bind, unbind, createLedger, controlSimulator, refreshSimulator, plotName, bindingLabel, display, metric };
   },
   template: `
     <section class="admin-management-page">
@@ -120,7 +131,10 @@ export const AdminResourceCenterView = {
           <div class="admin-panel-title"><div><span>当前农场</span><h2>设备事实列表</h2></div><em>{{ devices.length }} 台</em></div>
           <div class="admin-device-list">
             <article v-for="device in devices" :key="device.deviceId">
-              <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ device.status || 'OFFLINE' }}</span></div>
+              <div class="admin-device-state-stack">
+                <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ String(device.status || 'OFFLINE').toUpperCase() === 'ONLINE' ? '在线' : '离线' }}</span></div>
+                <span class="admin-binding-state" :class="device.plotId ? 'bound' : 'unbound'">{{ bindingLabel(device) }}</span>
+              </div>
               <div><strong>{{ device.name || device.deviceId }}</strong><small>{{ device.deviceId }} · {{ device.type || '—' }}</small></div>
               <div><span>绑定地块</span><strong>{{ plotName(device.plotId) }}</strong></div>
               <div class="admin-inline-actions" v-if="!device.plotId"><select v-model="bindSelections[device.deviceId]"><option value="">选择地块</option><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select><button :disabled="busy" @click="bind(device)">绑定</button></div>

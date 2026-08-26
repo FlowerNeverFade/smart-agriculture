@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
 import { roleCan } from './roles.js';
 
 const { ref, computed, watch, inject, nextTick } = Vue;
@@ -59,7 +60,8 @@ function emptyInspectionForm(plots, plotId = '', workOrderId = '') {
     cropCondition: 'NORMAL',
     deviceStatus: 'NORMAL',
     portableSoilMoisture: '',
-    notes: ''
+    notes: '',
+    photos: []
   };
 }
 
@@ -83,6 +85,7 @@ export const WorkOrderLifecycleView = {
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
     const statusFilter = ref('ACTIVE');
+    const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
     const plotFilter = ref('');
     const assigneeFilter = ref('');
     const keyword = ref('');
@@ -134,11 +137,16 @@ export const WorkOrderLifecycleView = {
       });
     });
 
+    const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
+
     const filteredOrders = computed(() => scopedOrders.value
+      .filter((order) => workOrderMatchesSummaryScope(order, scopeFilter.value))
       .filter((order) => {
         const status = workStatus(order.status);
         if (statusFilter.value === 'ACTIVE') return !TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'FINISHED') return TERMINAL_STATUSES.has(status);
+        if (statusFilter.value === 'OVERDUE') return isOverdue(order);
+        if (statusFilter.value === 'PROGRESSING') return ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(status);
         return !statusFilter.value || status === statusFilter.value;
       })
       .filter((order) => !plotFilter.value || order.plotId === plotFilter.value)
@@ -168,7 +176,6 @@ export const WorkOrderLifecycleView = {
       return !isFarmer.value || (order.assigneeId === currentActorId.value && status === 'IN_PROGRESS');
     }));
 
-    const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
     const summary = computed(() => ({
       total: scopedOrders.value.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
       open: scopedOrders.value.filter((order) => workStatus(order.status) === 'OPEN').length,
@@ -181,6 +188,14 @@ export const WorkOrderLifecycleView = {
     const pageHint = computed(() => canManage.value
       ? '先分配无人负责的任务，再处理等待验收的结果。'
       : isFarmer.value ? '这里显示分配给你的任务，以及你提交的补证请求。按顺序开始、提交或返工。' : '查看任务状态和操作记录，系统管理员不参与日常执行。');
+    const scopeLabel = computed(() => ({
+      today: '今日任务',
+      overdue: '已逾期',
+      unassigned: '待分配',
+      approval: '待审批'
+    }[scopeFilter.value] || ''));
+    const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', farmId: currentFarmId.value });
+    const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
@@ -372,6 +387,10 @@ export const WorkOrderLifecycleView = {
       showInspectionModal.value = true;
     };
 
+    const onInspectionPhotos = (event) => {
+      inspectionForm.value = { ...inspectionForm.value, photos: Array.from(event.target.files || []).slice(0, 6) };
+    };
+
     const submitInspection = async () => {
       const draft = inspectionForm.value;
       if (!draft.plotId || !draft.observedAt || !draft.soilSurface || !draft.cropCondition || !draft.deviceStatus || !draft.notes.trim()) {
@@ -391,7 +410,7 @@ export const WorkOrderLifecycleView = {
           deviceStatus: draft.deviceStatus,
           portableSoilMoisture: draft.portableSoilMoisture === '' ? null : Number(draft.portableSoilMoisture),
           notes: draft.notes.trim()
-        });
+        }, draft.photos);
         const oldIndex = props.state.inspections.findIndex((record) => record.inspectionId === saved.inspectionId);
         if (oldIndex >= 0) props.state.inspections.splice(oldIndex, 1, saved);
         else props.state.inspections.unshift(saved);
@@ -426,9 +445,13 @@ export const WorkOrderLifecycleView = {
     };
 
     watch(() => props.routeParams, (params) => {
+      const nextScope = normalizeWorkSummaryScope(params?.scope);
+      scopeFilter.value = nextScope;
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
-      if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED'].includes(String(params.status).toUpperCase())) {
+      if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
         statusFilter.value = String(params.status).toUpperCase();
+      } else {
+        statusFilter.value = nextScope === 'today' ? '' : 'ACTIVE';
       }
       if (params?.highlight) focusHighlightedTask(params.highlight);
     }, { immediate: true, deep: true });
@@ -448,14 +471,15 @@ export const WorkOrderLifecycleView = {
 
     return {
       role, canManage, canInspect, isFarmer, isAuditor, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
-      statusFilter, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
+      statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
       showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
-      loadInspections, openInspection, submitInspection
+      clearSummaryScope, applyStatusFilter,
+      loadInspections, openInspection, onInspectionPhotos, submitInspection
     };
   },
   template: `
@@ -473,16 +497,21 @@ export const WorkOrderLifecycleView = {
       </header>
 
       <div class="work-summary" aria-label="任务概况">
-        <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' }" @click="statusFilter = 'ACTIVE'"><span>未结束</span><strong>{{ summary.total }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' }" @click="statusFilter = 'OPEN'"><span>待分配</span><strong>{{ summary.open }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' }" @click="statusFilter = 'SUBMITTED'"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
-        <button type="button" @click="statusFilter = 'ACTIVE'"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" class="summary-danger" @click="statusFilter = 'ACTIVE'"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' && !scopeFilter }" @click="applyStatusFilter('ACTIVE')"><span>未结束</span><strong>{{ summary.total }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+        <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' && !scopeFilter }" @click="applyStatusFilter('PROGRESSING')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
+        <button type="button" class="summary-danger" :class="{ 'is-active': statusFilter === 'OVERDUE' && !scopeFilter }" @click="applyStatusFilter('OVERDUE')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+      </div>
+
+      <div v-if="scopeFilter" class="work-route-filter" role="status">
+        <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
+        <button type="button" @click="clearSummaryScope">查看全部任务</button>
       </div>
 
       <div class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter">
-          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="FINISHED">已结束</option>
+          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
         <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
@@ -551,6 +580,7 @@ export const WorkOrderLifecycleView = {
               <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
               <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
               <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
+              <span>现场照片：{{ (record.photos || []).length }} 张 · USER_PROVIDED</span>
             </div>
             <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
           </article>
@@ -629,6 +659,7 @@ export const WorkOrderLifecycleView = {
             <label><span>设备外观</span><select class="g-select" v-model="inspectionForm.deviceStatus" required><option value="NORMAL">外观完好</option><option value="LOOSE">接头松动</option><option value="LEAKING">管线渗漏</option><option value="OFFLINE">离线或无显示</option></select></label>
             <label><span>便携仪实测含水率（选填）</span><div class="inspection-number"><input type="number" min="0" max="100" step="0.1" class="g-input" v-model="inspectionForm.portableSoilMoisture" placeholder="未测量"><b>%</b></div></label>
             <label class="span-2"><span>现场说明</span><textarea class="g-input" rows="3" v-model="inspectionForm.notes" required placeholder="例如：西侧两垄表层开裂，番茄叶片轻微下垂，阀门外观正常"></textarea></label>
+            <label class="span-2"><span>现场照片（选填，最多 6 张）</span><input type="file" class="g-input" accept="image/jpeg,image/png,image/webp" multiple @change="onInspectionPhotos"><small>按人工提供证据保存，不覆盖遥测。{{ inspectionForm.photos?.length ? '已选 ' + inspectionForm.photos.length + ' 张。' : '' }}</small></label>
           </div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showInspectionModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy">{{ isBusy ? '正在保存' : '保存巡田证据' }}</button></div>
         </form>
