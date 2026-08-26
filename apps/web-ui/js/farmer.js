@@ -91,6 +91,27 @@ const SHARED_MODULE_LINKS = [
 
 const SHARED_CONTEXT_KEY = 'agriloop-farmer-shared-context';
 
+const FARMER_VIEWS = Object.freeze([
+  'dashboard',
+  'plots',
+  'tasks',
+  'inspections',
+  'advice',
+  'messages'
+]);
+
+function parse_farmer_hash(hash = window.location.hash) {
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  if (!raw) return 'dashboard';
+  const view = raw.split(/[?&/]/)[0];
+  return FARMER_VIEWS.includes(view) ? view : 'dashboard';
+}
+
+function farmer_hash_for(view_id) {
+  const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+  return `#${view}`;
+}
+
 // The farmer view keeps this catalogue separate from MOCK_DATA so the same
 // moisture bands can be replaced by the backend Crop Pack response as soon as
 // a formal session is loaded.
@@ -478,7 +499,7 @@ const app = createApp({
     let workspace_request_version = 0;
     const evidence_requests = ref([]);
 
-    const current_view = ref('dashboard');
+    const current_view = ref(parse_farmer_hash());
     const selected_plot = ref(plots.value[0] || null);
     const shared_module_links = SHARED_MODULE_LINKS;
     const chart_range = ref('7d');
@@ -762,25 +783,38 @@ const app = createApp({
       isLive: is_formal_session
     }));
 
-    const navigate = (view_id) => {
-      current_view.value = view_id;
-      if (view_id !== 'messages') {
+    const navigate = (view_id, { sync_hash = true } = {}) => {
+      const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+      current_view.value = next_view;
+      if (sync_hash) {
+        const target = farmer_hash_for(next_view);
+        if (window.location.hash !== target) {
+          window.location.hash = target.slice(1);
+        }
+      }
+      if (next_view !== 'messages') {
         selected_message.value = null;
         analysis_result.value = '';
         analysis_error.value = '';
       }
-      if (view_id !== 'tasks') {
+      if (next_view !== 'tasks') {
         selected_task.value = null;
       }
-      if (view_id !== 'plots') {
+      if (next_view !== 'plots') {
         selected_plot.value = null;
       } else if (!selected_plot.value) {
         selected_plot.value = plots.value[0] || null;
       }
-      if (view_id !== 'inspections') {
+      if (next_view !== 'inspections') {
         show_inspection_form.value = false;
         show_evidence_form.value = false;
       }
+    };
+
+    const apply_farmer_hash = () => {
+      const view = parse_farmer_hash();
+      if (view === current_view.value) return;
+      navigate(view, { sync_hash: false });
     };
 
     const toggle_sidebar = () => { is_sidebar_open.value = !is_sidebar_open.value; };
@@ -1056,7 +1090,7 @@ const app = createApp({
         sessionStorage.setItem(SHARED_CONTEXT_KEY, JSON.stringify({
           source: 'farmer',
           plotId: plot_id || '',
-          returnPage: 'farmer.html',
+          returnPage: `farmer.html${farmer_hash_for(current_view.value)}`,
           createdAt: new Date().toISOString()
         }));
       } catch (error) {
@@ -1332,6 +1366,13 @@ const app = createApp({
         document.documentElement.setAttribute('data-theme', 'dark');
         document.documentElement.style.colorScheme = 'dark';
       }
+      // Keep the current farmer page across refresh / back-forward.
+      if (!window.location.hash) {
+        window.history.replaceState(null, '', farmer_hash_for(current_view.value));
+      } else {
+        apply_farmer_hash();
+      }
+      window.addEventListener('hashchange', apply_farmer_hash);
       is_live.value = await api.checkHealth();
       if (is_formal_session) {
         await load_live_workspace({ announce: true });

@@ -177,8 +177,10 @@ function readFarmerReturnPage() {
     if (!raw) return '';
     const context = JSON.parse(raw);
     if (context?.source !== 'farmer') return '';
-    const page = String(context.returnPage || 'farmer.html');
-    return page.endsWith('.html') ? page : 'farmer.html';
+    const page = String(context.returnPage || 'farmer.html').trim();
+    // Accept farmer.html or farmer.html#advice so returning keeps the page.
+    if (/^[A-Za-z0-9._-]+\.html(#[A-Za-z0-9_-]+)?$/.test(page)) return page;
+    return 'farmer.html';
   } catch (error) {
     return '';
   }

@@ -279,9 +279,16 @@
   color: var(--g-success);
   border: 1px solid var(--g-success-bg);
 }
-.farmer-btn-light:hover {
+.g-btn.secondary.farmer-btn-light {
+  background-color: var(--g-bg-surface);
+  color: var(--g-success);
+  border: 1px solid var(--g-success-bg);
+}
+.farmer-btn-light:hover,
+.g-btn.secondary.farmer-btn-light:hover {
   background-color: var(--g-success-bg);
   border-color: var(--g-success);
+  color: var(--g-success);
 }
 .farmer-btn-light:disabled {
   color: var(--g-text-disabled);
@@ -395,13 +402,26 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--g-success) 18%, var(--g-border-subtle));
   border-radius: var(--g-radius);
+  background: color-mix(in srgb, var(--g-success-bg) 42%, var(--g-bg-surface));
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  appearance: none;
+  -webkit-appearance: none;
 }
 .farmer-mini-item:hover {
   background: var(--g-success-bg);
+  border-color: color-mix(in srgb, var(--g-success) 45%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-success) 12%, transparent);
+}
+.farmer-mini-item:active {
+  background: color-mix(in srgb, var(--g-success-bg) 78%, var(--g-success));
 }
 .farmer-mini-status {
   display: inline-flex;
@@ -412,15 +432,18 @@
   font-weight: 600;
   flex-shrink: 0;
 }
-.farmer-mini-status.status-PENDING { background: var(--g-warning-bg); color: var(--g-warning); }
-.farmer-mini-status.status-ASSIGNED { background: var(--g-primary-bg); color: var(--g-primary); }
-.farmer-mini-status.status-IN_PROGRESS { background: var(--g-primary-bg); color: var(--g-primary); }
+.farmer-mini-status.status-PENDING,
+.farmer-mini-status.status-OPEN { background: var(--g-warning-bg); color: var(--g-warning); }
+.farmer-mini-status.status-ASSIGNED { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-mini-status.status-IN_PROGRESS { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-mini-status.status-SUBMITTED { background: var(--g-primary-bg); color: var(--g-primary); }
+.farmer-mini-status.status-REJECTED { background: var(--g-danger-bg); color: var(--g-danger); }
 .farmer-mini-status.status-DONE { background: var(--g-success-bg); color: var(--g-success); }
 .farmer-mini-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--g-border);
+  background: color-mix(in srgb, var(--g-success) 35%, var(--g-border));
   flex-shrink: 0;
 }
 .farmer-mini-dot.unread {
@@ -439,6 +462,14 @@
   font-size: 11px;
   color: var(--g-text-secondary);
   flex-shrink: 0;
+}
+[data-theme="dark"] .farmer-mini-item {
+  background: color-mix(in srgb, var(--g-success-bg) 65%, var(--g-bg-surface));
+  border-color: color-mix(in srgb, var(--g-success) 28%, var(--g-border));
+}
+[data-theme="dark"] .farmer-mini-item:hover {
+  background: var(--g-success-bg);
+  border-color: var(--g-success);
 }
 .farmer-empty {
   padding: 24px;
@@ -982,7 +1013,7 @@
 .farmer-stat-card:focus-visible,
 .farmer-plot-overview-card:focus-visible,
 .farmer-mini-item:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--g-primary) 35%, transparent);
+  outline: 3px solid color-mix(in srgb, var(--g-success) 40%, transparent);
   outline-offset: 2px;
 }
 .farmer-stat-card.stat-risk .farmer-stat-icon { color: var(--g-danger); background: var(--g-danger-bg); }
