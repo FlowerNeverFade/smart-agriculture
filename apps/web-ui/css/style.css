@@ -332,58 +332,54 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .text-action { border: 0; padding: 4px 0; background: transparent; color: var(--g-primary); font: 500 13px/1.4 var(--g-font-family); cursor: pointer; }
 .text-action:hover { text-decoration: underline; }
 
-/* Farm manager semantic tokens: macOS-like grouped surfaces with AgriLoop green as the accent. */
+/* Farm manager design tokens sampled from the accepted two-dimensional concept. */
 .role-farm-admin {
-  --g-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --g-sidebar-width: 244px;
-  --g-bg-base: #f2f2f7;
+  --g-bg-base: #f3f6f5;
   --g-bg-surface: #ffffff;
-  --g-bg-subtle: #f5f5f7;
-  --g-bg-hover: rgba(118, 118, 128, .10);
-  --g-border: rgba(60, 60, 67, .18);
-  --g-border-subtle: rgba(60, 60, 67, .10);
-  --g-text-primary: #1d1d1f;
-  --g-text-secondary: #6e6e73;
-  --g-text-disabled: #98989d;
+  --g-bg-subtle: #f2f5f3;
+  --g-bg-hover: #edf3ef;
+  --g-border: #d8e0dc;
+  --g-border-subtle: #e7ece9;
+  --g-text-primary: #19221e;
+  --g-text-secondary: #65706a;
   --g-primary: #087b43;
   --g-primary-hover: #066638;
-  --g-primary-bg: #e7f4ec;
-  --g-success: #248a4c;
-  --g-success-bg: #e9f6ed;
-  --g-warning: #b96800;
-  --g-warning-bg: #fff5e6;
-  --g-danger: #d13b35;
+  --g-primary-bg: #e9f6ee;
+  --g-success: #178a53;
+  --g-success-bg: #eaf7ef;
+  --g-warning: #b66b12;
+  --g-warning-bg: #fff4e4;
+  --g-danger: #c9453d;
   --g-danger-bg: #fff0ef;
-  --admin-blue: #1677e8;
-  --admin-blue-bg: #edf5ff;
-  --admin-red: #d13b35;
+  --admin-blue: #3478f6;
+  --admin-blue-bg: #edf4ff;
+  --admin-red: #cf4842;
   --admin-red-bg: #fff0ef;
-  --admin-orange: #b96800;
-  --admin-orange-bg: #fff5e6;
-  --admin-purple: #8056c7;
-  --admin-purple-bg: #f4effc;
-  --admin-mint: #248a4c;
-  --admin-mint-bg: #e9f6ed;
-  --admin-teal: #17859a;
-  --admin-teal-bg: #ebf7f9;
-  --admin-card-shadow: 0 1px 2px rgba(0, 0, 0, .035), 0 8px 24px rgba(0, 0, 0, .045);
-  --admin-card-shadow-hover: 0 2px 5px rgba(0, 0, 0, .055), 0 14px 32px rgba(0, 0, 0, .07);
-  --g-shadow-1: 0 1px 2px rgba(0, 0, 0, .045), 0 5px 16px rgba(0, 0, 0, .035);
+  --admin-orange: #c87816;
+  --admin-orange-bg: #fff5e7;
+  --admin-purple: #7657c4;
+  --admin-purple-bg: #f4efff;
+  --admin-mint: #178a53;
+  --admin-mint-bg: #eaf7ef;
+  --admin-teal: #16899a;
+  --admin-teal-bg: #ebf8fa;
+  --admin-card-shadow: 0 10px 28px rgba(31, 53, 42, 0.07), 0 2px 7px rgba(31, 53, 42, 0.04);
+  --admin-card-shadow-hover: 0 16px 34px rgba(31, 53, 42, 0.10), 0 4px 10px rgba(31, 53, 42, 0.05);
+  --g-shadow-1: 0 2px 7px rgba(31, 53, 42, 0.06);
   --g-shadow-2: var(--admin-card-shadow);
 }
 [data-theme="dark"] .role-farm-admin {
-  --g-bg-base: #1c1c1e;
-  --g-bg-surface: #2c2c2e;
-  --g-bg-subtle: #363638;
-  --g-bg-hover: rgba(235, 235, 245, .10);
-  --g-border: rgba(235, 235, 245, .18);
-  --g-border-subtle: rgba(235, 235, 245, .10);
-  --g-text-primary: #f5f5f7;
-  --g-text-secondary: #aeaeb2;
-  --g-text-disabled: #7c7c80;
+  --g-bg-base: #181c1a;
+  --g-bg-surface: #242a27;
+  --g-bg-subtle: #2d3430;
+  --g-bg-hover: #333b37;
+  --g-border: #49534e;
+  --g-border-subtle: #39423e;
+  --g-text-primary: #edf2ef;
+  --g-text-secondary: #b6bfba;
   --g-primary: #77d8a2;
   --g-primary-hover: #9be8bb;
-  --g-primary-bg: #244a35;
+  --g-primary-bg: #234c36;
   --g-success: #72d39b;
   --g-success-bg: #254533;
   --g-warning: #e4ad5b;
@@ -402,16 +398,15 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   --admin-mint-bg: #244735;
   --admin-teal: #6dc9d7;
   --admin-teal-bg: #24464b;
-  --admin-card-shadow: 0 1px 2px rgba(0, 0, 0, .24), 0 9px 26px rgba(0, 0, 0, .18);
-  --admin-card-shadow-hover: 0 2px 5px rgba(0, 0, 0, .30), 0 15px 34px rgba(0, 0, 0, .25);
-  --g-shadow-1: 0 1px 2px rgba(0, 0, 0, .26), 0 6px 18px rgba(0, 0, 0, .16);
-  --g-shadow-2: var(--admin-card-shadow);
+  --admin-card-shadow: 0 12px 30px rgba(0, 0, 0, 0.24), 0 2px 7px rgba(0, 0, 0, 0.18);
+  --admin-card-shadow-hover: 0 18px 38px rgba(0, 0, 0, 0.32), 0 4px 12px rgba(0, 0, 0, 0.20);
+  --g-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --g-shadow-2: 0 5px 15px rgba(0, 0, 0, 0.34);
 }
-.role-farm-admin { font-family: var(--g-font-family); }
-.role-farm-admin .g-main { background: var(--g-bg-base); padding: 30px 32px 40px; }
+.role-farm-admin .g-main { background: #f7f9f8; padding: 28px; }
 [data-theme="dark"] .role-farm-admin .g-main { background: var(--g-bg-base); }
-.role-farm-admin .g-sidebar { padding: 14px 10px; }
-.role-farm-admin .g-nav-item { height: 42px; border-radius: 9px; gap: 12px; padding: 0 12px; color: var(--g-text-secondary); }
+.role-farm-admin .g-sidebar { padding: 20px 14px; }
+.role-farm-admin .g-nav-item { height: 46px; border-radius: 7px; gap: 14px; padding: 0 16px; color: #4f5552; }
 .role-farm-admin .g-nav-item .material-symbols-outlined { font-size: 21px; font-variation-settings: 'wght' 400; }
 .role-farm-admin .g-nav-item.active { background: var(--g-primary-bg); color: var(--g-primary); }
 .role-farm-admin .g-btn.primary { border-radius: 7px; box-shadow: none; }
@@ -761,7 +756,7 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   .g-sidebar { overflow-x: hidden; scrollbar-width: none; }
   .g-sidebar::-webkit-scrollbar { display: none; }
   .g-sidebar.collapsed { width: 230px; padding: 12px; border-right: 1px solid var(--g-border); opacity: 1; transform: translateX(-105%); }
-  .role-farm-admin .g-sidebar.collapsed { padding: 14px 10px; }
+  .role-farm-admin .g-sidebar.collapsed { padding: 20px 14px; }
   .g-main, .role-farm-admin .g-main { width: 100%; padding: 18px 16px 28px; }
   .manager-dashboard-heading h1, .simple-view-header h1 { font-size: 23px; }
   .simple-view-header { align-items: flex-start; flex-direction: column; }
@@ -778,17 +773,6 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 }
 
 @media (max-width: 520px) {
-  .role-farm-admin { --g-header-height: 98px; }
-  .role-farm-admin .g-header {
-    flex-wrap: wrap;
-    align-content: center;
-    column-gap: 8px;
-    row-gap: 4px;
-    padding: 6px 10px;
-  }
-  .role-farm-admin .g-header-left { flex: 1 1 auto; }
-  .role-farm-admin .g-header-center { order: 3; flex: 0 0 100%; }
-  .role-farm-admin .g-header .g-header-farm-select { min-height: 32px; }
   .g-header-right .g-btn.icon-only { width: 34px; height: 34px; }
   .g-user-avatar { width: 29px; height: 29px; font-size: 15px; }
   .g-user-identity { display: none; }
