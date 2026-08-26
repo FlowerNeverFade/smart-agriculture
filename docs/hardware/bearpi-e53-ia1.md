@@ -63,6 +63,6 @@ Temperature is 28.13
 
 本次已按用户确认将 E53_IA1 温湿度/光照示例固件刷入 `USB-SERIAL CH340 (COM5)`：HiBurn 日志最后连续显示 `Execution Successful`，随后串口以 115200 读取到官方样例的连续读数，例如 `Lux Value is 470.83`、`Humidity is 60.88`、`Temperature is 30.31`，并且数值随采样变化。
 
-串口桥接器已在本机实测通过 SSH 隧道发布到服务器；服务器 `/api/v1/plots/plot-a01/telemetry` 返回的最新事件带有 `sourceMode=REAL`、`provenance=OBSERVED`、`dataOrigin=HARDWARE`，同一地块的其它指标仍可由模拟器补齐。这里是本次用户明确追加的真实硬件适配验收，不改变项目软件基线对生产现场网关、GPIO 执行器和生产级设备驱动的范围说明。
+串口桥接器已在本机实测通过 SSH 隧道发布到服务器；服务器 `/api/v1/plots/plot-a01/telemetry` 返回的最新事件带有 `sourceMode=REAL`、`provenance=OBSERVED`、`dataOrigin=HARDWARE`，同一地块的其它指标仍可由模拟器补齐。当前 GitHub `main` 与服务器 `/srv/agriloop/DEPLOYED_COMMIT` 均为 `b1048ef`，服务器本机 acceptance smoke 已通过。这里是本次用户明确追加的真实硬件适配验收，不改变项目软件基线对生产现场网关、GPIO 执行器和生产级设备驱动的范围说明。
 
 刷写后若板卡没有自动运行新固件，断开 HiBurn 并按一次板卡 `RESET`；正常运行时不需要保持 HiBurn 打开，只需保持一条命令启动的终端窗口运行。

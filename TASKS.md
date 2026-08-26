@@ -14,7 +14,7 @@
 
 > 2026-08-26 三角色账号资料面板（本地已验收）：农户、农场管理员、系统管理员共用同一资料抽屉结构，分别展示农务、运营和平台概览；头像入口、角色范围、统计卡、修改密码/找回密码和 390px 窄屏布局均通过 Chromium 回归。本轮只创建本地提交，不推送或部署。
 
-> 2026-08-26 BearPi E53_IA1 接入适配（硬件与远端链路已验收）：COM5 已刷写 E53_IA1 固件并连续输出变化中的光照/湿度/温度；一键启动器可建立 SSH 隧道并运行串口桥接，服务器 MQTT 与 `/api/v1/plots/plot-a01/telemetry` 已确认收到 `REAL/HARDWARE` 事件。生产现场网关/GPIO/执行器仍不纳入软件基线承诺。
+> 2026-08-26 BearPi E53_IA1 接入适配（硬件与远端链路已验收）：COM5 已刷写 E53_IA1 固件并连续输出变化中的光照/湿度/温度；一键启动器可建立 SSH 隧道并运行串口桥接，服务器 MQTT 与 `/api/v1/plots/plot-a01/telemetry` 已确认收到 `REAL/HARDWARE` 事件；GitHub `main` 与服务器 `/srv/agriloop/DEPLOYED_COMMIT` 均为 `b1048ef`，本机 acceptance smoke PASS。生产现场网关/GPIO/执行器仍不纳入软件基线承诺。
 
 > 2026-08-25 本轮三角色收口实现提交为 `ce98679ca3a6d0ba47b69eed54de9926b27664b6`，迁移加固提交为 `6e0b1db`，交付提交为 `85155db1f184e8a2c1b6806af2a7cd34f3e67193`；提交链已进入 GitHub `main` 并发布到 `/srv/agriloop`。Flyway v4、三角色登录与 `/auth/me`、身份错配、角色目录、透明 Logo、Supervisor 服务及健康检查均已通过服务器本机黑盒；旧应用保留为带时间戳的回滚目录。
 
