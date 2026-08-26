@@ -172,12 +172,12 @@ export const AdminAiChatView = {
     };
   },
   template: `
-    <section class="admin-ai-chat" aria-labelledby="admin-ai-chat-title">
-      <header class="admin-ai-chat-header">
-        <div class="admin-ai-chat-heading">
-          <p>农场管理员 · 智能问答</p>
-          <h2 id="admin-ai-chat-title">AI 对话助手</h2>
-          <span>围绕当前农场数据连续提问，获得带地块上下文的告警分析、农务建议和处理说明。</span>
+    <section class="admin-ai-chat" aria-label="AI 对话助手">
+      <div class="admin-ai-chat-toolbar">
+        <div class="admin-ai-chat-context">
+          <span class="admin-ai-chat-context-item is-online"><app-icon name="check_circle"></app-icon><strong>AI 助手已就绪</strong></span>
+          <span class="admin-ai-chat-context-item"><app-icon name="psychiatry"></app-icon><span>当前上下文：{{ selectedPlotName }}</span></span>
+          <span class="admin-ai-chat-context-item"><app-icon name="policy"></app-icon><span>不会自动执行设备操作</span></span>
         </div>
         <div class="admin-ai-chat-tools">
           <label>
@@ -190,12 +190,6 @@ export const AdminAiChatView = {
             <app-icon name="add"></app-icon><span>新对话</span>
           </button>
         </div>
-      </header>
-
-      <div class="admin-ai-chat-context">
-        <span class="admin-ai-chat-context-item is-online"><app-icon name="check_circle"></app-icon><strong>AI 助手已就绪</strong></span>
-        <span class="admin-ai-chat-context-item"><app-icon name="psychiatry"></app-icon><span>当前上下文：{{ selectedPlotName }}</span></span>
-        <span class="admin-ai-chat-context-item"><app-icon name="policy"></app-icon><span>不会自动执行设备操作</span></span>
       </div>
 
       <div class="admin-ai-message-list" ref="messageList" aria-live="polite">
@@ -220,19 +214,21 @@ export const AdminAiChatView = {
         </article>
       </div>
 
-      <div class="admin-ai-suggestions" v-if="!loadingHistory && messages.length <= 3" aria-label="快捷问题">
-        <button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)">{{ suggestion }}</button>
-      </div>
-
-      <div class="admin-ai-composer">
-        <textarea v-model="input" rows="3" maxlength="1000" aria-label="向 AI 助手提问"
-          placeholder="例如：A01 地块的缺水告警可信吗？应该安排谁去处理？"
-          @keydown="handleKeydown"></textarea>
-        <button class="g-btn primary" type="button" :disabled="sending || !input.trim()" @click="send()">
-          <app-icon name="send"></app-icon><span>{{ sending ? '正在回答' : '发送' }}</span>
-        </button>
-      </div>
-      <p class="admin-ai-chat-footnote">Enter 发送，Shift + Enter 换行。关键操作仍需遵守现场确认、权限和安全规则。</p>
+      <footer class="admin-ai-compose-area">
+        <div class="admin-ai-suggestions" v-if="!loadingHistory && messages.length <= 3" aria-label="快捷问题">
+          <span class="admin-ai-suggestions-label">你可以这样问</span>
+          <button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)">{{ suggestion }}</button>
+        </div>
+        <div class="admin-ai-composer">
+          <textarea v-model="input" rows="3" maxlength="1000" aria-label="向 AI 助手提问"
+            placeholder="例如：A01 地块的缺水告警可信吗？应该安排谁去处理？"
+            @keydown="handleKeydown"></textarea>
+          <button class="g-btn primary" type="button" :disabled="sending || !input.trim()" @click="send()">
+            <app-icon name="send"></app-icon><span>{{ sending ? '正在回答' : '发送' }}</span>
+          </button>
+        </div>
+        <p class="admin-ai-chat-footnote">Enter 发送，Shift + Enter 换行。关键操作仍需遵守现场确认、权限和安全规则。</p>
+      </footer>
     </section>
   `
 };

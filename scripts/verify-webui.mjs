@@ -141,16 +141,17 @@ async function mountIndex() {
   if (!mounted) { dom.window.close(); return; }
 
   window.location.hash = '#view=decision-console&farmId=farm-demo';
-  const alertCenter = await waitFor(() => window.document.body.textContent.includes('AI告警分析与智能处理'), 3500);
+  const alertCenter = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-view[aria-label="AI告警分析与智能处理"]')), 3500);
   ok('农场管理员 AI 告警中心可打开', alertCenter);
   await waitFor(() => Boolean(window.document.querySelector('.admin-alert-batch-bar')), 1500);
   const batchBarText = window.document.querySelector('.admin-alert-batch-bar')?.textContent || '';
   ok('告警中心保留 main 卡片网格与批量入口', alertCenter
     && Boolean(window.document.querySelector('.admin-alert-batch-bar'))
     && batchBarText.includes('全选当前列表')
-    && batchBarText.includes('AI 智能处理'));
+    && batchBarText.includes('AI智能处理'));
   ok('告警中心已移除旧操作入口', alertCenter
-    && !/\u786e认收到|\u5347级处理|\u8f6c成任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || ''));
+    && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
+    && !window.document.querySelector('.admin-alert-view h2'));
   await waitFor(() => Boolean(window.document.querySelector('.admin-decision-tabs button:nth-child(2)')), 1500);
   const chatTab = window.document.querySelector('.admin-decision-tabs button:nth-child(2)');
   chatTab?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -161,6 +162,13 @@ async function mountIndex() {
   ok('农场管理员完整 AI 对话页可切换', chatReady
     && window.document.body.textContent.includes('新对话')
     && window.document.body.textContent.includes('关键操作仍需遵守现场确认'));
+  await waitFor(() => chatReady && !window.document.querySelector('.admin-ai-history-loading'), 1500);
+  const newConversationButton = window.document.querySelector('.admin-ai-chat-tools .g-btn');
+  newConversationButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const suggestionsReady = await waitFor(() => window.document.querySelectorAll('.admin-ai-suggestions button').length === 4, 1500);
+  ok('新对话后快捷问题在输入区上方可见', suggestionsReady
+    && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-suggestions + .admin-ai-composer'))
+    && !window.document.querySelector('.admin-ai-chat h2'));
 
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);

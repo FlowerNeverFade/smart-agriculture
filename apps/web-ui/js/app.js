@@ -1407,7 +1407,7 @@ const RoleAwareDecisionConsoleView = {
           <button class="g-btn" :class="{ active: !showChat }" :aria-pressed="!showChat" type="button" @click="showChat = false">告警智能处理</button>
           <button class="g-btn" :class="{ active: showChat }" :aria-pressed="showChat" type="button" @click="showChat = true">AI 对话助手</button>
         </nav>
-        <admin-alert-center v-if="!showChat" :state="state" @show-chat="showChat = true"
+        <admin-alert-center v-if="!showChat" :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
         <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>

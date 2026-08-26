@@ -1,9 +1,9 @@
 .admin-ai-chat {
   display: grid;
-  grid-template-rows: auto auto minmax(300px, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(220px, 1fr) auto;
   width: 100%;
-  height: calc(100vh - 190px);
-  min-height: 620px;
+  height: min(760px, calc(100dvh - 164px));
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid var(--g-border);
   border-radius: 16px;
@@ -12,58 +12,35 @@
   box-shadow: var(--admin-card-shadow, var(--g-shadow-1));
 }
 
-.admin-ai-chat-header {
+.admin-ai-chat-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 22px 24px 19px;
+  gap: 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--g-border);
-}
-
-.admin-ai-chat-heading p {
-  margin: 0 0 6px;
-  color: var(--admin-orange, var(--g-primary));
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: .08em;
-}
-
-.admin-ai-chat-heading h2 {
-  margin: 0;
-  color: var(--g-text-primary);
-  font-size: 28px;
-  font-weight: 650;
-  letter-spacing: -.025em;
-}
-
-.admin-ai-chat-heading > span {
-  display: block;
-  max-width: 720px;
-  margin-top: 8px;
-  color: var(--g-text-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  background: color-mix(in srgb, var(--g-bg-subtle) 72%, var(--g-bg-surface));
 }
 
 .admin-ai-chat-tools {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   flex: 0 0 auto;
   gap: 9px;
 }
 
 .admin-ai-chat-tools label {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--g-text-secondary);
   font-size: 13px;
   font-weight: 600;
 }
 
 .admin-ai-chat-tools select {
-  min-width: 190px;
-  height: 42px;
+  min-width: 168px;
+  height: 38px;
   padding: 0 36px 0 12px;
   border: 1px solid var(--g-border);
   border-radius: 9px;
@@ -76,11 +53,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  flex: 1 1 auto;
   gap: 8px;
-  min-height: 50px;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--g-border);
-  background: color-mix(in srgb, var(--g-bg-subtle) 82%, var(--g-bg-surface));
 }
 
 .admin-ai-chat-context-item {
@@ -112,7 +86,7 @@
   flex-direction: column;
   gap: 18px;
   min-height: 0;
-  padding: 26px clamp(22px, 5vw, 72px);
+  padding: 20px clamp(20px, 4vw, 58px);
   overflow-y: auto;
   scroll-behavior: smooth;
 }
@@ -228,20 +202,30 @@
 
 .admin-ai-suggestions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 13px;
-  overflow-x: auto;
+  max-height: 92px;
+  padding: 0 0 10px;
+  overflow-y: auto;
+}
+
+.admin-ai-suggestions-label {
+  flex: 0 0 auto;
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .admin-ai-suggestions button {
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 0 12px;
+  flex: 0 1 auto;
+  min-height: 34px;
+  padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--admin-orange, var(--g-primary)) 22%, var(--g-border));
   border-radius: 10px;
   color: var(--g-text-primary);
   background: color-mix(in srgb, var(--admin-orange-bg, var(--g-primary-bg)) 48%, var(--g-bg-surface));
-  font: 550 14px/1.35 var(--g-font-family);
+  font: 550 13px/1.35 var(--g-font-family);
   cursor: pointer;
 }
 
@@ -250,12 +234,18 @@
   background: color-mix(in srgb, var(--admin-orange-bg, var(--g-primary-bg)) 72%, var(--g-bg-surface));
 }
 
+.admin-ai-compose-area {
+  padding: 10px 14px 11px;
+  border-top: 1px solid var(--g-border);
+  background: var(--g-bg-surface);
+}
+
 .admin-ai-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
-  margin: 0 24px;
+  margin: 0;
   padding: 11px;
   border: 1px solid var(--g-border);
   border-radius: 14px;
@@ -292,7 +282,7 @@
 }
 
 .admin-ai-chat-footnote {
-  margin: 9px 24px 15px;
+  margin: 7px 0 0;
   color: var(--g-text-secondary);
   font-size: 13px;
   line-height: 1.45;
@@ -301,11 +291,12 @@
 
 @media (max-width: 980px) {
   .admin-ai-chat {
-    height: auto;
-    min-height: 720px;
+    height: calc(100dvh - 144px);
+    min-height: 500px;
   }
 
-  .admin-ai-chat-header {
+  .admin-ai-chat-toolbar {
+    align-items: stretch;
     flex-direction: column;
   }
 
@@ -332,16 +323,13 @@
 
 @media (max-width: 640px) {
   .admin-ai-chat {
-    min-height: 700px;
+    height: auto;
+    min-height: 620px;
     border-radius: 14px;
   }
 
-  .admin-ai-chat-header {
-    padding: 19px 17px 16px;
-  }
-
-  .admin-ai-chat-heading h2 {
-    font-size: 24px;
+  .admin-ai-chat-toolbar {
+    padding: 10px;
   }
 
   .admin-ai-chat-tools {
@@ -350,11 +338,11 @@
   }
 
   .admin-ai-chat-context {
-    padding-inline: 17px;
+    gap: 6px;
   }
 
   .admin-ai-chat-context-item {
-    flex: 1 1 100%;
+    flex: 1 1 auto;
   }
 
   .admin-ai-message-list {
@@ -380,21 +368,21 @@
   }
 
   .admin-ai-suggestions {
-    padding-inline: 14px;
+    align-items: stretch;
+    flex-direction: column;
+    max-height: 150px;
   }
+
+  .admin-ai-suggestions button { width: 100%; text-align: left; }
 
   .admin-ai-composer {
     grid-template-columns: 1fr;
-    margin-inline: 14px;
   }
 
   .admin-ai-composer .g-btn {
     width: 100%;
   }
 
-  .admin-ai-chat-footnote {
-    margin-inline: 14px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
