@@ -96,6 +96,7 @@ test('告警页面保留 main 卡片详情结构并提供新的批量入口', ()
   assert.match(AdminAlertCenter.template, /全选当前列表/);
   assert.match(AdminAlertCenter.template, /一键关闭告警/);
   assert.match(AdminAlertCenter.template, /AI智能处理/);
+  assert.match(AdminAlertCenter.template, /全部未关闭/);
   assert.match(AdminAlertCenter.template, /admin-alert-card-footer/);
   assert.match(AdminAlertCenter.template, /admin-alert-detail/);
   assert.doesNotMatch(AdminAlertCenter.template, /确认收到|升级处理|转成任务|一键下发任务/);
@@ -154,7 +155,10 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     api.evaluateDiagnosis = async () => ({ confidence: 0.94, primaryCause: 'WATER_DEFICIT', missingInformation: [] });
     api.createWorkOrder = async () => ({ workItemId: 'wo-ai-1', status: 'OPEN' });
     api.assignWorkOrder = async () => ({ workItemId: 'wo-ai-1' });
-    api.closeAlert = async alertId => ({ alertId });
+    let finishClose;
+    api.closeAlert = alertId => new Promise(resolve => {
+      finishClose = () => resolve({ alertId });
+    });
 
     const view = AdminAlertCenter.setup({ state }, { emit: () => {} });
     await view.aiProcess([alertToDispatch]);
@@ -163,13 +167,45 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     assert.equal(state.workOrders[0].assigneeId, 'farmer-1');
     assert.equal(state.workOrders[0].sourceRef, 'alert-dispatch');
 
-    await view.closeAlerts([alertToClose]);
+    view.filter.value = 'ALL';
+    const closing = view.closeAlerts([alertToClose]);
+    assert.equal(view.visibleAlerts.value.length, 1, '点击关闭后应在接口返回前先移除卡片');
+    assert.equal(view.reviewCount.value, 0);
+    finishClose();
+    await closing;
     assert.equal(state.alerts.length, 2);
     assert.equal(state.alerts.find(item => (item.alertId || item.id) === 'alert-close').status, 'CLOSED');
     assert.equal(view.reviewCount.value, 0);
     assert.equal(view.closedCount.value, 1);
   } finally {
     Object.assign(api, originals);
+  }
+});
+
+test('批量关闭会在接口返回前同步移除全部目标卡片', async () => {
+  const originalCloseAlert = api.closeAlert;
+  const state = {
+    sessionMode: 'demo',
+    adminContext: { farmId: 'farm-demo' },
+    plots: [{ plotId: 'plot-a01', name: 'A01' }],
+    alerts: [
+      { alertId: 'alert-batch-1', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'HIGH' },
+      { id: 'alert-batch-2', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACKED', level: 'MEDIUM' }
+    ],
+    workOrders: [],
+    farmMembers: []
+  };
+
+  try {
+    api.closeAlert = async alertId => ({ alertId });
+    const view = AdminAlertCenter.setup({ state }, { emit: () => {} });
+    const closing = view.closeAlerts([...state.alerts]);
+    assert.equal(view.visibleAlerts.value.length, 0, '批量关闭点击后必须立即清空当前未关闭列表');
+    assert.equal(view.reviewCount.value, 0);
+    await closing;
+    assert.equal(view.closedCount.value, 2);
+  } finally {
+    api.closeAlert = originalCloseAlert;
   }
 });
 

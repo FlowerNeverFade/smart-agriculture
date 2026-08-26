@@ -175,6 +175,7 @@ export const AdminAlertCenter = {
     const busyKey = ref('');
     const selectedIds = ref([]);
     const activeAlertId = ref('');
+    const dismissedAlertIds = ref([]);
     const aiAudits = ref({});
     const aiSummary = ref(null);
 
@@ -191,12 +192,13 @@ export const AdminAlertCenter = {
     const reviewAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && !isDispatched(alert)));
     const dispatchedAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && isDispatched(alert)));
     const closedAlerts = computed(() => sortedAlerts.value.filter(isClosed));
+    const activeAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert)));
     const visibleAlerts = computed(() => ({
       REVIEW: reviewAlerts.value,
       DISPATCHED: dispatchedAlerts.value,
       CLOSED: closedAlerts.value,
-      ALL: sortedAlerts.value
-    })[filter.value] || reviewAlerts.value);
+      ALL: activeAlerts.value
+    })[filter.value]?.filter(alert => filter.value === 'CLOSED' || !dismissedAlertIds.value.includes(alertKey(alert))) || reviewAlerts.value);
     const selectableAlerts = computed(() => visibleAlerts.value.filter(alert => !isClosed(alert)));
     const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert)));
     const allVisibleSelected = computed(() => selectableAlerts.value.length > 0
@@ -235,6 +237,7 @@ export const AdminAlertCenter = {
     watch(() => props.state.adminContext?.farmId, () => {
       activeAlertId.value = '';
       selectedIds.value = [];
+      dismissedAlertIds.value = [];
       aiAudits.value = {};
       aiSummary.value = null;
     });
@@ -244,6 +247,7 @@ export const AdminAlertCenter = {
       domains: ['alerts', 'workOrders', 'overview'],
       farmId: props.state.adminContext?.farmId || records[0]?.farmId || '',
       plotIds: [...new Set(records.map(item => item?.plotId).filter(Boolean))],
+      records: records.map(item => ({ ...item })),
       reason
     });
 
@@ -302,24 +306,35 @@ export const AdminAlertCenter = {
     };
 
     const closeAlerts = async alerts => {
-      if (!alerts.length) return toast('请先选择要关闭的告警', 'error');
-      busyKey.value = alerts.length > 1 ? 'batch:close' : `${alertKey(alerts[0])}:close`;
+      const targets = [...alerts].filter(alert => alertKey(alert) && !isClosed(alert));
+      if (!targets.length) return toast('请先选择要关闭的告警', 'error');
+      const targetIds = targets.map(alertKey);
+      const previousById = new Map(targets.map(alert => [alertKey(alert), { ...alert }]));
+      busyKey.value = targets.length > 1 ? 'batch:close' : `${alertKey(targets[0])}:close`;
+      dismissedAlertIds.value = [...new Set([...dismissedAlertIds.value, ...targetIds])];
+      targets.forEach(alert => replaceById(props.state.alerts, 'alertId', finalizedClosedAlert(alert)));
+      selectedIds.value = selectedIds.value.filter(id => !targetIds.includes(id));
+      if (targetIds.includes(activeAlertId.value)) activeAlertId.value = '';
+
       let completed = 0;
       const failed = [];
-      for (const alert of alerts) {
+      const savedRecords = [];
+      for (const alert of targets) {
         try {
           const response = await api.closeAlert(alertKey(alert));
           const closed = finalizedClosedAlert(alert, response);
           replaceById(props.state.alerts, 'alertId', closed);
+          savedRecords.push(closed);
           completed += 1;
         } catch (error) {
+          replaceById(props.state.alerts, 'alertId', previousById.get(alertKey(alert)));
           failed.push(`${plotName(alert.plotId)}：${error.message || '关闭失败'}`);
         }
       }
-      selectedIds.value = selectedIds.value.filter(id => !alerts.some(alert => alertKey(alert) === id));
-      if (alerts.some(alert => alertKey(alert) === activeAlertId.value)) activeAlertId.value = '';
+      const failedIds = new Set(targets.filter(alert => !savedRecords.some(record => alertKey(record) === alertKey(alert))).map(alertKey));
+      dismissedAlertIds.value = dismissedAlertIds.value.filter(id => !failedIds.has(id));
       busyKey.value = '';
-      invalidate(alerts, 'alerts-closed');
+      if (savedRecords.length) invalidate(savedRecords, 'alerts-closed');
       toast(failed.length
         ? `已关闭 ${completed} 条，另有 ${failed.length} 条失败`
         : `已关闭 ${completed} 条告警`, failed.length ? 'error' : 'success');
@@ -435,7 +450,7 @@ export const AdminAlertCenter = {
         <button type="button" :class="{ active: filter === 'REVIEW' }" @click="filter = 'REVIEW'">待审核 {{ reviewCount }}</button>
         <button type="button" :class="{ active: filter === 'DISPATCHED' }" @click="filter = 'DISPATCHED'">已下发 {{ dispatchedCount }}</button>
         <button type="button" :class="{ active: filter === 'CLOSED' }" @click="filter = 'CLOSED'">已关闭 {{ closedCount }}</button>
-        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部</button>
+        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部未关闭</button>
       </div>
 
       <div class="admin-alert-ai-summary" v-if="aiSummary" role="status">

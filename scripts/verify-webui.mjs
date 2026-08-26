@@ -152,6 +152,13 @@ async function mountIndex() {
   ok('告警中心已移除旧操作入口', alertCenter
     && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
     && !window.document.querySelector('.admin-alert-view h2'));
+  const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
+  window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);
+  const detailCloseButton = window.document.querySelector('.admin-alert-detail-footer .admin-alert-close-action');
+  detailCloseButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const singleCloseRemovedCard = await waitFor(() => window.document.querySelectorAll('.admin-alert-card').length === cardsBeforeSingleClose - 1, 2000);
+  ok('详情关闭后卡片立即从未关闭列表移除', cardsBeforeSingleClose > 0 && alertDetailReady && singleCloseRemovedCard);
   await waitFor(() => Boolean(window.document.querySelector('.admin-decision-tabs button:nth-child(2)')), 1500);
   const chatTab = window.document.querySelector('.admin-decision-tabs button:nth-child(2)');
   chatTab?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));

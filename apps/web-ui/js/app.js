@@ -3381,7 +3381,7 @@ const app = createApp({
       state.value.plots = state.value.allPlots.filter(item => String(item.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
     };
 
-    const handleDataInvalidated = async ({ domains = [], record } = {}) => {
+    const handleDataInvalidated = async ({ domains = [], record, records = [], reason = '' } = {}) => {
       if (record?.workOrderId && domains.includes('workOrders')) {
         state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
       }
@@ -3395,6 +3395,23 @@ const app = createApp({
         return [domain];
       }))];
       await refreshFarmData(state.value.adminContext.farmId, normalized.length ? normalized : ['all']);
+      if (reason === 'alerts-closed' && records.length) {
+        const closedById = new Map(records.map(item => [String(item?.alertId || item?.id || ''), { ...item, status: 'CLOSED' }]));
+        const presentIds = new Set(state.value.alerts.map(item => String(item?.alertId || item?.id || '')));
+        state.value.alerts = [
+          ...state.value.alerts.map(item => {
+            const closed = closedById.get(String(item?.alertId || item?.id || ''));
+            return closed ? { ...item, ...closed } : item;
+          }),
+          ...records.filter(item => !presentIds.has(String(item?.alertId || item?.id || ''))).map(item => ({ ...item, status: 'CLOSED' }))
+        ];
+        state.value.feedItems = buildLiveFeedItems({
+          alerts: state.value.alerts,
+          workOrders: state.value.workOrders,
+          inspections: state.value.inspections,
+          plots: state.value.allPlots
+        });
+      }
     };
 
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
