@@ -102,6 +102,8 @@ body {
 .g-header-center { position: absolute; left: 50%; max-width: calc(100% - 520px); transform: translateX(-50%); }
 .g-header .g-header-farm-select { width: auto; min-width: 210px; max-width: 100%; min-height: 38px; padding: 7px 34px 7px 12px; background: transparent; border: none; color: var(--g-text-primary); font-size: 16px; font-weight: 600; box-shadow: none; text-align: center; outline: none; }
 .g-header .g-header-farm-select:focus, .g-header .g-header-farm-select:active { outline: none; box-shadow: none; }
+.g-header .g-header-farm-select option { background-color: var(--g-bg-base); color: var(--g-text-primary); font-size: 14px; }
+[data-theme="dark"] .g-header .g-header-farm-select option { background-color: #2a2f2d; color: var(--g-text-primary); }
 .g-header-right { display: flex; flex: 0 0 auto; align-items: center; gap: 16px; }
 .g-user-avatar { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--g-bg-subtle); font-size: 18px; }
 .g-user-identity { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
