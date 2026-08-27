@@ -16,6 +16,8 @@ import random
 import sys
 import time
 import uuid
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -23,6 +25,68 @@ try:
     import paho.mqtt.client as mqtt  # type: ignore
 except Exception:  # pragma: no cover - optional in standalone mode
     mqtt = None
+
+
+class HttpIngestClient:
+    """Push telemetry into the API without MQTT (standalone local fallback)."""
+
+    def __init__(self, api_url: str, username: str, password: str, role: str = "FARM_ADMIN") -> None:
+        self.api_url = api_url.rstrip("/")
+        self.username = username
+        self.password = password
+        self.role = role
+        self.token = ""
+        self._login()
+
+    def _request(self, method: str, path: str, body: dict | None = None, auth: bool = True) -> dict:
+        payload = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if auth:
+            if not self.token:
+                self._login()
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(
+            f"{self.api_url}{path}",
+            data=payload,
+            headers=headers,
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            if error.code == 401 and auth:
+                self._login()
+                return self._request(method, path, body, auth=True)
+            raise RuntimeError(f"HTTP {error.code} {path}: {detail}") from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"无法连接 API {self.api_url}: {error.reason}") from error
+        return json.loads(raw) if raw else {}
+
+    def _login(self) -> None:
+        response = self._request(
+            "POST",
+            "/api/v1/auth/login",
+            {"username": self.username, "password": self.password, "role": self.role},
+            auth=False,
+        )
+        session = response.get("data") or response
+        token = session.get("accessToken")
+        if not token:
+            raise RuntimeError(f"登录失败，响应缺少 accessToken: {response}")
+        self.token = token
+
+    def publish_telemetry(self, event: dict) -> None:
+        self._request("POST", "/api/v1/telemetry", event)
+
+    def publish_device_status(self, status: dict) -> None:
+        device_id = status.get("deviceId") or ""
+        if not device_id:
+            return
+        payload = dict(status)
+        payload.setdefault("ts", status.get("lastSeen") or datetime.now(UTC8).isoformat())
+        self._request("POST", f"/api/v1/devices/{device_id}/heartbeat", payload)
 
 UTC8 = timezone(timedelta(hours=8))
 PLOTS = [
@@ -305,14 +369,33 @@ def run(args: argparse.Namespace) -> int:
     scenario_id = args.scenario_id or f"{args.scenario}-{args.seed}"
     branch = args.branch
     client = None
+    http_client = None
+    if args.http:
+        try:
+            http_client = HttpIngestClient(args.api_url, args.api_user, args.api_password, args.api_role)
+            print(f"HTTP 直推已连接 {args.api_url}（用户 {args.api_user}）", file=sys.stderr)
+        except Exception as error:
+            print(f"HTTP 直推初始化失败: {error}", file=sys.stderr)
+            return 1
     if mqtt is not None and args.mqtt:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"agriloop-sim-{uuid.uuid4().hex[:8]}")
-        if args.mqtt_username:
-            client.username_pw_set(args.mqtt_username, args.mqtt_password)
-        client.connect(args.mqtt_host, args.mqtt_port, 30)
-        client.loop_start()
+        try:
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"agriloop-sim-{uuid.uuid4().hex[:8]}")
+            if args.mqtt_username:
+                client.username_pw_set(args.mqtt_username, args.mqtt_password)
+            client.connect(args.mqtt_host, args.mqtt_port, 30)
+            client.loop_start()
+        except OSError as error:
+            client = None
+            print(
+                f"MQTT 连接失败（{args.mqtt_host}:{args.mqtt_port}）: {error}\n"
+                "提示：Docker 的 mqtt 未启动时，请改用 --http 直推 API，例如：\n"
+                "  python simulator/runner.py --scenario normal --seed 42 --http --interval 5 --continuous",
+                file=sys.stderr,
+            )
+            if http_client is None:
+                return 1
     elif args.mqtt:
-        print("paho-mqtt 未安装，切换为 stdout 回放模式", file=sys.stderr)
+        print("paho-mqtt 未安装，切换为 stdout/HTTP 回放模式", file=sys.stderr)
 
     start = datetime.now(UTC8) - timedelta(minutes=args.minutes)
     count = 0
@@ -372,21 +455,30 @@ def run(args: argparse.Namespace) -> int:
                     if args.continuous:
                         event["eventId"] = f"{scenario_id}-{revision}-{branch}-{plot_id}-{metric}-{index:09d}"
                     topic = f"agri/farm-demo/{plot_id}/telemetry"
+                    delivered = False
                     if client is not None:
                         client.publish(topic, json.dumps(event, ensure_ascii=False), qos=1)
-                    else:
+                        delivered = True
+                    if http_client is not None:
+                        http_client.publish_telemetry(event)
+                        delivered = True
+                    if not delivered:
                         print(json.dumps(event, ensure_ascii=False))
                     count += 1
+                status = {
+                    "deviceId": f"mock-{plot_id}", "farmId": "farm-demo", "plotId": plot_id,
+                    "status": "OFFLINE" if is_offline else "ONLINE",
+                    "lastSeen": now_iso(ts), "sourceMode": "SIMULATION", "dataOrigin": "SIMULATOR",
+                    "provenance": "OBSERVED", "scenarioId": plot_scenario,
+                    "simulationRunId": scenario_id, "simulationRevision": revision,
+                    "bindingState": "BOUND", "type": "ENVIRONMENTAL_SENSOR"
+                }
                 if client is not None:
-                    status = {
-                        "deviceId": f"mock-{plot_id}", "farmId": "farm-demo", "plotId": plot_id,
-                        "status": "OFFLINE" if is_offline else "ONLINE",
-                        "lastSeen": now_iso(ts), "sourceMode": "SIMULATION", "dataOrigin": "SIMULATOR",
-                        "provenance": "OBSERVED", "scenarioId": plot_scenario,
-                        "simulationRunId": scenario_id, "simulationRevision": revision,
-                        "bindingState": "BOUND", "type": "ENVIRONMENTAL_SENSOR"
-                    }
                     client.publish(f"agri/farm-demo/{plot_id}/device/status", json.dumps(status, ensure_ascii=False), qos=1)
+                # Heartbeat endpoint always marks ONLINE; only call it while the
+                # simulated device is supposed to be reachable.
+                if http_client is not None and not is_offline:
+                    http_client.publish_device_status(status)
             if args.speed > 0:
                 time.sleep(max(0.0, args.interval / args.speed))
             index += 1
@@ -415,6 +507,11 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-username", default="")
     p.add_argument("--mqtt-password", default="")
+    p.add_argument("--http", action="store_true", help="无 MQTT 时通过 REST 直推 /api/v1/telemetry（standalone 本地推荐）")
+    p.add_argument("--api-url", default="http://127.0.0.1:8080", help="HTTP 直推目标 API 根地址")
+    p.add_argument("--api-user", default="admin", help="HTTP 直推登录用户（需覆盖全部模拟地块）")
+    p.add_argument("--api-password", default="demo123", help="HTTP 直推登录密码")
+    p.add_argument("--api-role", default="FARM_ADMIN", help="HTTP 直推登录角色")
     p.add_argument("--continuous", action="store_true", help="持续生成使用当前时间戳的实时遥测，直到进程被停止")
     p.add_argument("--plot-config", default="", help="地块级场景 JSON；运行中自动热加载")
     return p

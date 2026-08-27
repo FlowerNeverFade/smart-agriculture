@@ -48,6 +48,10 @@ export function isReworkOrder(order) {
     ['REJECT', 'RESTART', 'RESUME'].includes(String(entry?.action || '').trim().toUpperCase()));
 }
 
+export function isAlertVerificationOrder(order) {
+  return String(order?.taskPurpose || '').trim().toUpperCase() === 'ALERT_VERIFICATION';
+}
+
 export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '') {
   const currentAssigneeId = String(order?.assigneeId || '');
   const eligible = (Array.isArray(members) ? members : []).filter((member) => {
@@ -166,7 +170,7 @@ export const WorkOrderLifecycleView = {
     const activeOrder = ref(null);
     const assignment = ref({ assigneeId: '', note: '', dueAt: '' });
     const submission = ref({ resultSummary: '', evidenceText: '' });
-    const review = ref({ note: '' });
+    const review = ref({ note: '', verificationResult: 'CONFIRMED_ABNORMAL' });
     const cancellation = ref({ note: '' });
     const taskForm = ref(emptyTaskForm(props.state.plots));
     const inspectionForm = ref(emptyInspectionForm(props.state.plots));
@@ -479,8 +483,61 @@ export const WorkOrderLifecycleView = {
 
     const openReview = (order) => {
       activeOrder.value = order;
-      review.value = { note: '' };
+      review.value = { note: '', verificationResult: 'CONFIRMED_ABNORMAL' };
       showReviewModal.value = true;
+    };
+
+    const resolveApprovedVerification = async (verificationOrder, result) => {
+      const alertId = String(verificationOrder?.sourceRef || '');
+      if (result === 'CLEARED_NORMAL') {
+        const response = await api.closeAlert(alertId);
+        const alert = (props.state.alerts || []).find((item) => String(item.alertId || item.id || '') === alertId);
+        if (alert) Object.assign(alert, response || {}, { status: 'CLOSED' });
+        emit('data-invalidated', {
+          type: 'data-invalidated', domains: ['alerts', 'overview'], farmId: currentFarmId.value,
+          plotId: verificationOrder.plotId, reason: 'alert-cleared-by-verification'
+        });
+        return { mode: 'CLOSED' };
+      }
+
+      const existingFollowUp = props.state.workOrders.find((order) =>
+        order.parentVerificationWorkOrderId === verificationOrder.workOrderId
+        || (String(order.taskPurpose || '').toUpperCase() === 'ALERT_FOLLOW_UP'
+          && String(order.sourceRef || '') === alertId));
+      if (existingFollowUp) return { mode: 'DISPATCHED', task: existingFollowUp };
+
+      const currentMember = eligibleFarmers(verificationOrder).find((member) => member.userId === verificationOrder.assigneeId);
+      const choice = currentMember
+        ? { member: currentMember }
+        : chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, verificationOrder, currentFarmId.value);
+      if (!choice?.member?.userId) throw new Error('核查已确认，但没有具备该地块权限的在岗农户，处置任务暂未下发');
+      const dueAt = overdueRecoveryDueAt(verificationOrder, Date.now());
+      const draft = {
+        farmId: currentFarmId.value,
+        plotId: verificationOrder.plotId,
+        sourceType: 'ALERT',
+        sourceRef: alertId,
+        actionType: verificationOrder.followUpActionType || 'FIELD_OPERATION',
+        taskPurpose: 'ALERT_FOLLOW_UP',
+        parentVerificationWorkOrderId: verificationOrder.workOrderId,
+        title: String(verificationOrder.title || '告警核查').replace(/^核查[：:]\s*/, '处置：'),
+        reason: `现场核查已确认异常。核查结果：${verificationOrder.resultSummary || '已通过管理员确认'}。请按核查证据完成处置。`,
+        priority: verificationOrder.priority || 'MEDIUM',
+        status: 'OPEN',
+        dueAt,
+        provenance: props.state.sessionMode === 'demo' ? 'SIMULATED' : 'DERIVED'
+      };
+      const created = await api.createWorkOrder(draft);
+      const taskId = created?.workOrderId || created?.workItemId;
+      if (!taskId) throw new Error('核查已确认，但处置任务创建响应缺少任务编号');
+      const response = await api.assignWorkOrder(taskId, {
+        assigneeId: choice.member.userId,
+        dueAt,
+        note: `根据核查任务 ${verificationOrder.workOrderId} 的确认结果自动下发`
+      });
+      const assigned = finalizedWorkOrderAssignment({ ...draft, ...(created || {}), workOrderId: taskId }, response, choice.member, dueAt);
+      publishUpdate(assigned);
+      return { mode: 'DISPATCHED', task: assigned };
     };
 
     const reviewTask = async (action) => {
@@ -488,8 +545,30 @@ export const WorkOrderLifecycleView = {
         toast('退回时请说明还需要补做什么', 'error');
         return;
       }
-      const saved = await runAction(() => api.reviewWorkOrder(activeOrder.value.workOrderId, { action, note: review.value.note.trim() }), action === 'APPROVE' ? '验收通过，任务已进入已完成' : '任务已标记返工并重新进入进行中，仍由原农户处理');
-      if (saved) showReviewModal.value = false;
+      if (isBusy.value) return;
+      isBusy.value = true;
+      const verificationOrder = activeOrder.value;
+      try {
+        const isVerification = isAlertVerificationOrder(verificationOrder);
+        const verificationResult = review.value.verificationResult;
+        const conclusion = verificationResult === 'CLEARED_NORMAL' ? '现场正常，关闭告警' : '确认异常，自动下发处置任务';
+        const note = [isVerification && action === 'APPROVE' ? `核查结论：${conclusion}` : '', review.value.note.trim()].filter(Boolean).join('；');
+        const saved = await api.reviewWorkOrder(verificationOrder.workOrderId, { action, note });
+        publishUpdate(saved);
+        showReviewModal.value = false;
+        if (isVerification && action === 'APPROVE') {
+          const resolution = await resolveApprovedVerification({ ...verificationOrder, ...saved }, verificationResult);
+          toast(resolution.mode === 'CLOSED'
+            ? '核查结果已确认正常，原告警已自动关闭'
+            : `核查结果已确认，处置任务已自动下发给 ${resolution.task.assigneeName || resolution.task.assigneeId}`);
+        } else {
+          toast(action === 'APPROVE' ? '验收通过，任务已进入已完成' : '任务已标记返工并重新进入进行中，仍由原农户处理');
+        }
+      } catch (error) {
+        toast(error.message || '任务验收失败，请稍后重试', 'error');
+      } finally {
+        isBusy.value = false;
+      }
     };
 
     const openCancel = (order) => {
@@ -658,7 +737,7 @@ export const WorkOrderLifecycleView = {
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
-      isOverdue, orderLane, isReworkOrder, formatTime, workStatus, TERMINAL_STATUSES,
+      isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
@@ -724,7 +803,7 @@ export const WorkOrderLifecycleView = {
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
@@ -804,7 +883,7 @@ export const WorkOrderLifecycleView = {
           </div>
           <div class="g-modal-body work-detail-body">
             <div class="work-detail-status-row">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span v-if="isReworkOrder(activeOrder)" class="work-rework">返工任务</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span v-if="isReworkOrder(activeOrder)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(activeOrder)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
             <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
@@ -886,8 +965,8 @@ export const WorkOrderLifecycleView = {
       <div v-if="showReviewModal" class="g-modal-overlay" @click.self="showReviewModal = false" @keydown.esc="showReviewModal = false">
         <div class="g-modal work-dialog work-dialog-small">
           <div class="g-modal-header"><div><small>任务验收</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showReviewModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
-          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ activeOrder?.resultSummary || '未填写结果说明' }}</p></div><div v-if="relatedInspections(activeOrder).length" class="review-evidence"><strong>巡田证据 {{ relatedInspections(activeOrder).length }} 条</strong><div v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><span>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</span><small>{{ inspectionOperatorName(record) }} · {{ record.inspectionId }}</small></div></div><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
-          <div class="g-modal-footer split"><button type="button" class="g-btn secondary" @click="showReviewModal = false">稍后处理</button><div><button type="button" class="g-btn danger-text" :disabled="isBusy" @click="reviewTask('REJECT')">退回处理</button><button type="button" class="g-btn primary" :disabled="isBusy" @click="reviewTask('APPROVE')">验收通过</button></div></div>
+          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ activeOrder?.resultSummary || '未填写结果说明' }}</p></div><div v-if="relatedInspections(activeOrder).length" class="review-evidence"><strong>巡田证据 {{ relatedInspections(activeOrder).length }} 条</strong><div v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><span>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</span><small>{{ inspectionOperatorName(record) }} · {{ record.inspectionId }}</small></div></div><label v-if="isAlertVerificationOrder(activeOrder)"><span>核查结论</span><select class="g-select" v-model="review.verificationResult"><option value="CONFIRMED_ABNORMAL">确认异常，自动下发处置任务</option><option value="CLEARED_NORMAL">现场正常，自动关闭原告警</option></select><small>核查结论是后续动作的唯一依据，不再进入人工告警审核。</small></label><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
+          <div class="g-modal-footer split"><button type="button" class="g-btn secondary" @click="showReviewModal = false">稍后处理</button><div><button type="button" class="g-btn danger-text" :disabled="isBusy" @click="reviewTask('REJECT')">退回处理</button><button type="button" class="g-btn primary" :disabled="isBusy" @click="reviewTask('APPROVE')">{{ isAlertVerificationOrder(activeOrder) ? '确认结果并自动处理' : '验收通过' }}</button></div></div>
         </div>
       </div>
 

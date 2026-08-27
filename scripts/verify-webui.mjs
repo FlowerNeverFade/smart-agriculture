@@ -45,6 +45,12 @@ const liveDataSource = read('apps/web-ui/js/live-data.js');
 const farmerStyle = read('apps/web-ui/css/farmer.css');
 const openApi = read('docs/api/openapi.yaml');
 
+const dashboardStart = farmerHtml.indexOf('key="dashboard"');
+const plotsStart = farmerHtml.indexOf('key="plots"');
+const farmerDashboard = dashboardStart >= 0 && plotsStart > dashboardStart
+  ? farmerHtml.slice(dashboardStart, plotsStart)
+  : '';
+
 ok('入口脚本带版本参数', /js\/app\.js\?v=[^"']+/.test(indexHtml));
 ok('五个地块场景已注册', ['NORMAL', 'DROUGHT', 'HEAVY_RAIN', 'SENSOR_DRIFT', 'DEVICE_OFFLINE'].every((code) => apiSource.includes(`code: '${code}'`)));
 ok('模拟策略 REST 与重置接口已接线', ['/simulation`', '/simulation/reset`', 'PLOT_SIMULATION_DEFAULTS'].every((part) => apiSource.includes(part)) && openApi.includes('/api/v1/plots/{plotId}/simulation/reset'));
@@ -57,6 +63,10 @@ ok('正式会话具备实时刷新与事件流重连', appSource.includes('LIVE_
 ok('硬件 REAL 状态优先', liveDataSource.includes('hardwareBound') && appSource.includes('hardwareLabel'));
 ok('系统管理员总览指标循环作用域安全', !indexHtml.includes('v-for="metric in telemetryMetrics" v-if='));
 ok('无冲突标记', ![indexHtml, appSource, apiSource, farmerHtml, farmerSource].some((source) => /^(?:<<<<<<<|=======|>>>>>>>)(?: |$)/m.test(source)));
+ok('农户首页优先事项与建议闭环契约', farmerDashboard.includes('今天先做什么') && farmerDashboard.includes('today_priorities') && farmerHtml.includes('farmer-suggestion-flow') && farmerHtml.includes('提交管理员审批') && farmerSource.includes('submitDecisionFeedback'));
+ok('农户首页隐藏内部能力编号', !farmerDashboard.includes('I-16 · I-27') && !farmerDashboard.includes('I-18 · I-26'));
+ok('首页地块摘要不渲染原始指标且详情保留趋势', !farmerDashboard.includes('farmer-plot-overview-metrics') && farmerHtml.includes('环境与肥力指标趋势'));
+ok('农户灌溉安全边界', farmerSource.includes("open_suggestion('IRRIGATION'") && farmerSource.includes("action: 'IRRIGATION_REQUEST'") && !farmerSource.includes('executeIrrigation('));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitFor = async (predicate, timeout = 5000) => {
@@ -148,7 +158,8 @@ async function mountIndex() {
   ok('告警中心保留 main 卡片网格与批量入口', alertCenter
     && Boolean(window.document.querySelector('.admin-alert-batch-bar'))
     && batchBarText.includes('全选当前列表')
-    && batchBarText.includes('AI智能处理'));
+    && batchBarText.includes('AI智能处理')
+    && batchBarText.includes('一键发布核查任务'));
   ok('告警中心已移除旧操作入口', alertCenter
     && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
     && !window.document.querySelector('.admin-alert-view h2'));
@@ -162,10 +173,20 @@ async function mountIndex() {
     const summary = window.document.querySelector('.admin-alert-ai-summary')?.textContent || '';
     return summary.includes('本次已分析 7 条告警')
       && summary.includes('智能下发 2 条')
-      && summary.includes('保留人工审核 5 条');
+      && summary.includes('需现场核查 5 条');
   }, 2500);
   ok('AI 智能处理可自动下发高可信告警并保留不确定项', aiProcessed,
     window.document.querySelector('.admin-alert-ai-summary')?.textContent.replace(/\s+/g, ' ').trim() || 'no summary');
+  const verificationButton = window.document.querySelector('.admin-alert-verify-action');
+  verificationButton?.click();
+  const verificationPublished = await waitFor(() => {
+    const firstTab = window.document.querySelector('.admin-alert-tabs button:first-child')?.textContent || '';
+    return firstTab.includes('待审核 0');
+  }, 3000);
+  ok('AI 不确定告警可一键发布现场核查任务', verificationPublished,
+    window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'no toast');
+  window.document.querySelector('.admin-alert-tabs button:nth-child(4)')?.click();
+  await waitFor(() => window.document.querySelectorAll('.admin-alert-card').length === initialAlertCards, 1200);
   const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
   window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);

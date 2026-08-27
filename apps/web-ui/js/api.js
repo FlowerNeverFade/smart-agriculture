@@ -6,7 +6,7 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=20260827-alert-verification-v1';
 import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
@@ -212,16 +212,31 @@ export class ApiService {
     const { username, password: secret, role = '' } = typeof credentials === 'object'
       ? (credentials || {})
       : { username: credentials, password };
-    const resp = await this._fetch('/api/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password: secret, role })
-    }, { auth: false });
-    const session = resp?.data || resp;
-    if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
-      throw new ApiError('登录响应缺少 accessToken', { code: 'AUTH_RESPONSE_INVALID', payload: resp });
+    try {
+      const resp = await this._fetch('/api/v1/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password: secret, role })
+      }, { auth: false });
+      const session = resp?.data || resp;
+      if (!session?.accessToken || !session?.user?.username || !session?.user?.role) {
+        throw new ApiError('登录响应缺少 accessToken', { code: 'AUTH_RESPONSE_INVALID', payload: resp });
+      }
+      this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
+      return session;
+    } catch (error) {
+      if (!this.isLive) {
+        const fallbackRole = role || (username.includes('admin') ? 'sysadmin' : 'farmer');
+        console.warn('Backend unavailable, falling back to offline demo login');
+        const session = {
+          mode: 'demo',
+          token: 'demo-token-' + Date.now(),
+          user: { username, role: fallbackRole, id: 'demo-u-' + Date.now() }
+        };
+        this.saveSession(session);
+        return session;
+      }
+      throw error;
     }
-    this.saveSession({ mode: 'live', token: session.accessToken, user: session.user });
-    return session;
   }
 
   async register({ username, password, role }) {
@@ -562,6 +577,14 @@ export class ApiService {
     const resp = await this._fetch('/api/v1/simulator/start', { method: 'POST', body: JSON.stringify({}) });
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器启动结果', { code: 'SIMULATOR_START_INVALID', payload: resp });
+  }
+
+  async updateCropPackStatus(cropCode, version, status) {
+    const resp = await this._fetch(`/api/v1/crop-packs/${cropCode}/${version || 'unknown'}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status })
+    });
+    return resp;
   }
 
   async stopSimulator() {
@@ -1752,6 +1775,53 @@ export class ApiService {
       provenance: 'SIMULATED',
       createdAt: new Date().toISOString()
     };
+  }
+
+  /**
+   * Persist a farmer decision outcome without changing a strategy or issuing
+   * a control command.  Farmers use this contract to request administrator
+   * approval and to record the result of an inspection/task; direct
+   * irrigation execution remains guarded by irrigation:approve.
+   */
+  async submitDecisionFeedback(traceId, input = {}) {
+    if (!traceId) {
+      throw new ApiError('提交建议反馈前必须明确决策记录', { status: 400, code: 'TRACE_CONTEXT_REQUIRED' });
+    }
+    const payload = { ...input, traceId };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      return resp?.data || resp;
+    }
+    const feedback = {
+      feedbackId: `feedback-demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...payload,
+      actorId: this._demoActorId(),
+      decision: payload.decision || 'ACCEPTED',
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+    this.decisionCache.feedback ||= new Map();
+    this.decisionCache.feedback.set(feedback.feedbackId, feedback);
+    return feedback;
+  }
+
+  async getSimilarCases(traceId, params = {}) {
+    if (!traceId) {
+      throw new ApiError('缺少决策 traceId', { status: 400, code: 'TRACE_ID_REQUIRED' });
+    }
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams(
+        Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+      ).toString();
+      const suffix = query ? `?${query}` : '';
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/similar-cases${suffix}`);
+      const data = resp?.data ?? resp;
+      return Array.isArray(data) ? data : (data?.cases || []);
+    }
+    return [];
   }
 
   async getDecisionPassport(traceId) {

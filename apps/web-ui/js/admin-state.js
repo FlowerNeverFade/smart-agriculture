@@ -1,7 +1,7 @@
 export const ADMIN_TABS = Object.freeze({
   dashboard: ['overview'],
-  'work-orders': ['tasks', 'plans', 'crop-packs'],
-  'resource-coordination': ['devices', 'irrigation', 'value', 'simulator'],
+  'work-orders': ['tasks', 'plans', 'resources', 'crop-packs'],
+  'resource-coordination': ['devices'],
   'farm-members': ['members']
 });
 
@@ -42,6 +42,25 @@ const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   FLOW_METER: '流量计'
 });
 
+const ADMIN_WORK_ACTION_META = Object.freeze({
+  INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
+  FIELD_INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
+  FIELD_OPERATION: { label: '田间作业', icon: 'eco', tone: 'field' },
+  IRRIGATION_REVIEW: { label: '灌溉审批', icon: 'water_drop', tone: 'irrigation' },
+  IRRIGATION_CHECK: { label: '灌溉巡检', icon: 'water_drop', tone: 'irrigation' },
+  DEVICE_CHECK: { label: '设备检查', icon: 'monitoring', tone: 'device' },
+  FERTILIZATION: { label: '施肥检查', icon: 'nutrition', tone: 'fertilization' }
+});
+
+const ADMIN_WORK_STATUS_ALIASES = Object.freeze({
+  PENDING: 'OPEN',
+  NEW: 'OPEN',
+  CLAIMED: 'ASSIGNED',
+  COMPLETED: 'DONE'
+});
+
+const ADMIN_TERMINAL_WORK_STATUSES = new Set(['DONE', 'CANCELLED']);
+
 function metricKey(value) {
   return String(value || '')
     .trim()
@@ -63,6 +82,158 @@ export function adminDeviceTypeLabel(type) {
   const value = String(type || '').trim();
   if (!value) return '类型未知';
   return ADMIN_DEVICE_TYPE_LABELS[metricKey(value)] || value;
+}
+
+function deviceIsBound(device) {
+  return Boolean(device?.plotId) || metricKey(device?.bindingState) === 'BOUND';
+}
+
+export function adminDeviceSummary(devices = []) {
+  const list = Array.isArray(devices) ? devices : [];
+  return {
+    all: list.length,
+    online: list.filter(device => metricKey(device?.status) === 'ONLINE').length,
+    attention: list.filter(device => metricKey(device?.status) !== 'ONLINE').length,
+    unbound: list.filter(device => !deviceIsBound(device)).length
+  };
+}
+
+export function adminDeviceMatchesFilters(device, filters = {}) {
+  const status = metricKey(filters.status);
+  const type = metricKey(filters.type);
+  const binding = metricKey(filters.binding);
+  const deviceStatus = metricKey(device?.status || 'OFFLINE');
+  const bound = deviceIsBound(device);
+  if (status === 'ATTENTION' && deviceStatus === 'ONLINE') return false;
+  if (status && status !== 'ALL' && status !== 'ATTENTION' && deviceStatus !== status) return false;
+  if (type && type !== 'ALL' && metricKey(device?.type) !== type) return false;
+  if (binding === 'BOUND' && !bound) return false;
+  if (binding === 'UNBOUND' && bound) return false;
+  const query = String(filters.keyword || '').trim().toLowerCase();
+  if (!query) return true;
+  return [device?.name, device?.deviceId, device?.type, device?.plotName]
+    .some(value => String(value || '').toLowerCase().includes(query));
+}
+
+const DEVICE_ALERT_SOURCES = new Set([
+  'DEVICE_FRESHNESS', 'DEVICE_HEALTH', 'DEVICE_STATUS', 'DEVICE_FAULT', 'FLOW_METER', 'WATER_FLOW'
+]);
+
+export function deviceRelatedAlerts(device, alerts = []) {
+  const deviceId = String(device?.deviceId || '').trim();
+  const plotId = String(device?.plotId || '').trim();
+  if (!deviceId && !plotId) return [];
+  return (Array.isArray(alerts) ? alerts : []).filter(alert => {
+    const directRef = String(alert?.deviceId || alert?.sourceRef || '').trim();
+    if (deviceId && directRef === deviceId) return true;
+    const source = metricKey(alert?.source || alert?.type);
+    const deviceSource = DEVICE_ALERT_SOURCES.has(source) || source.includes('DEVICE');
+    return Boolean(plotId && String(alert?.plotId || '').trim() === plotId && deviceSource);
+  });
+}
+
+export function deviceRelatedWorkOrders(device, workOrders = []) {
+  const deviceId = String(device?.deviceId || '').trim();
+  const plotId = String(device?.plotId || '').trim();
+  if (!deviceId && !plotId) return [];
+  return (Array.isArray(workOrders) ? workOrders : []).filter(order => {
+    if (normalizeAdminWorkActionType(order?.actionType) !== 'DEVICE_CHECK') return false;
+    if (deviceId && String(order?.sourceRef || '').trim() === deviceId) return true;
+    return Boolean(plotId && String(order?.plotId || '').trim() === plotId);
+  });
+}
+
+export function legacyAdminTabTarget(view, tab, farmId = '') {
+  const normalizedView = String(view || '').trim().toLowerCase();
+  const farmParams = farmId ? { farmId } : {};
+  if (['simulator', 'admin-simulator'].includes(normalizedView)) {
+    return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
+  }
+  if (normalizedView !== 'resource-coordination') return null;
+  const normalizedTab = String(tab || '').trim().toLowerCase();
+  if (['irrigation', 'value'].includes(normalizedTab)) {
+    return { view: 'work-orders', params: { tab: 'resources', ...farmParams } };
+  }
+  if (normalizedTab === 'simulator') {
+    return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
+  }
+  return null;
+}
+
+export function normalizeAdminWorkStatus(status) {
+  const normalized = metricKey(status || 'OPEN');
+  return ADMIN_WORK_STATUS_ALIASES[normalized] || normalized;
+}
+
+export function normalizeAdminWorkActionType(actionType) {
+  return metricKey(actionType);
+}
+
+export function adminWorkActionMeta(actionType) {
+  const value = String(actionType || '').trim();
+  const code = normalizeAdminWorkActionType(value);
+  const known = ADMIN_WORK_ACTION_META[code];
+  return {
+    code: code || 'UNKNOWN',
+    key: (code || 'UNKNOWN').toLowerCase().replaceAll('_', '-'),
+    label: known?.label || value || '类型未知',
+    icon: known?.icon || 'task_alt',
+    tone: known?.tone || 'neutral'
+  };
+}
+
+export function adminWorkLifecycleSummary(workOrders = []) {
+  const summary = { all: 0, open: 0, assigned: 0, inProgress: 0, submitted: 0, rejected: 0, finished: 0 };
+  for (const order of Array.isArray(workOrders) ? workOrders : []) {
+    const status = normalizeAdminWorkStatus(order?.status);
+    summary.all += 1;
+    if (status === 'OPEN') summary.open += 1;
+    else if (status === 'ASSIGNED') summary.assigned += 1;
+    else if (status === 'IN_PROGRESS') summary.inProgress += 1;
+    else if (status === 'SUBMITTED') summary.submitted += 1;
+    else if (status === 'REJECTED') summary.rejected += 1;
+    else if (ADMIN_TERMINAL_WORK_STATUSES.has(status)) summary.finished += 1;
+  }
+  return summary;
+}
+
+function localDayWindow(now = Date.now()) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setMilliseconds(-1);
+  return { start: start.getTime(), end: end.getTime() };
+}
+
+export function workOrderMatchesAttention(order, attention, now = Date.now()) {
+  const normalized = metricKey(attention);
+  if (!normalized) return true;
+  if (ADMIN_TERMINAL_WORK_STATUSES.has(normalizeAdminWorkStatus(order?.status))) return false;
+  if (normalized === 'HIGH') return metricKey(order?.priority) === 'HIGH';
+
+  const dueAt = new Date(order?.dueAt || 0).getTime();
+  if (!Number.isFinite(dueAt) || dueAt <= 0) return false;
+  if (normalized === 'OVERDUE') return dueAt < now;
+
+  const { end } = localDayWindow(now);
+  if (normalized === 'DUE_TODAY') return dueAt >= now && dueAt <= end;
+  if (normalized === 'UPCOMING') {
+    const upcomingEnd = new Date(end);
+    upcomingEnd.setDate(upcomingEnd.getDate() + 7);
+    return dueAt > end && dueAt <= upcomingEnd.getTime();
+  }
+  return true;
+}
+
+export function adminWorkAttentionSummary(workOrders = [], now = Date.now()) {
+  const orders = Array.isArray(workOrders) ? workOrders : [];
+  return {
+    overdue: orders.filter(order => workOrderMatchesAttention(order, 'OVERDUE', now)).length,
+    dueToday: orders.filter(order => workOrderMatchesAttention(order, 'DUE_TODAY', now)).length,
+    upcoming: orders.filter(order => workOrderMatchesAttention(order, 'UPCOMING', now)).length,
+    high: orders.filter(order => workOrderMatchesAttention(order, 'HIGH', now)).length
+  };
 }
 
 export function alertAcknowledgementAction(status) {
@@ -100,6 +271,16 @@ export function formatHealthScore(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return '—';
   return String(Math.round(numeric <= 1 ? numeric * 100 : numeric));
+}
+
+export function adminHealthTone(value) {
+  if (value === undefined || value === null || value === '') return 'unavailable';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 'unavailable';
+  const percent = Math.round(numeric <= 1 ? numeric * 100 : numeric);
+  if (percent >= 86) return 'good';
+  if (percent >= 55) return 'attention';
+  return 'danger';
 }
 
 export function normalizeAdminTab(view, tab) {

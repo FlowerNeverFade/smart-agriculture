@@ -20,6 +20,7 @@ const {
   WorkOrderLifecycleView,
   chooseWorkOrderAssignee,
   finalizedWorkOrderAssignment,
+  isAlertVerificationOrder,
   isReworkOrder,
   overdueRecoveryDueAt,
   workOrderLane
@@ -110,6 +111,15 @@ test('逾期页提供全选、一键重新分配、一键处置和单任务人�
   assert.match(WorkOrderLifecycleView.template, /一键重新分配/);
   assert.match(WorkOrderLifecycleView.template, /一键处置/);
   assert.match(WorkOrderLifecycleView.template, /选择人员处置/);
+});
+
+test('告警核查任务验收时提供唯一核查结论并自动处理', () => {
+  assert.equal(isAlertVerificationOrder({ taskPurpose: 'ALERT_VERIFICATION' }), true);
+  assert.equal(isAlertVerificationOrder({ actionType: 'INSPECTION' }), false);
+  assert.match(WorkOrderLifecycleView.template, /确认异常，自动下发处置任务/);
+  assert.match(WorkOrderLifecycleView.template, /现场正常，自动关闭原告警/);
+  assert.match(WorkOrderLifecycleView.template, /确认结果并自动处理/);
+  assert.match(WorkOrderLifecycleView.template, /不再进入人工告警审核/);
 });
 
 test('农务任务与主应用复用同一 API 数据实例并定时刷新逾期分区', () => {

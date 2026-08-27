@@ -62,7 +62,7 @@ test('多项证据可靠且无缺失信息时可自动处理', () => {
   assert.equal(result.score, 0.91);
 });
 
-test('缺少关键检查或候选告警必须留给人工审核', () => {
+test('缺少关键检查或候选告警必须转入现场核查', () => {
   const missing = assessAlertCredibility(
     { ruleState: 'CONFIRMED' },
     { confidence: 0.95, primaryCause: 'SENSOR_DRIFT', missingInformation: ['PORTABLE_METER_COMPARISON'] }
@@ -72,6 +72,7 @@ test('缺少关键检查或候选告警必须留给人工审核', () => {
     { confidence: 0.96, primaryCause: 'WATER_DEFICIT', missingInformation: [] }
   );
   assert.equal(missing.highConfidence, false);
+  assert.equal(missing.status, 'VERIFICATION_REQUIRED');
   assert.ok(missing.score < 0.78);
   assert.equal(candidate.highConfidence, false);
   assert.ok(candidate.score < 0.78);
@@ -97,11 +98,13 @@ test('告警页面保留 main 卡片详情结构并提供新的批量入口', ()
   assert.match(AdminAlertCenter.template, /全选当前列表/);
   assert.match(AdminAlertCenter.template, /一键关闭告警/);
   assert.match(AdminAlertCenter.template, /AI智能处理/);
+  assert.match(AdminAlertCenter.template, /一键发布核查任务/);
   assert.match(AdminAlertCenter.template, /全部未关闭/);
   assert.match(AdminAlertCenter.template, /admin-alert-card-footer/);
   assert.match(AdminAlertCenter.template, /admin-alert-detail/);
   assert.doesNotMatch(AdminAlertCenter.template, /确认收到|升级处理|转成任务|一键下发任务/);
   assert.doesNotMatch(AdminAlertCenter.template, /<h2/);
+  assert.doesNotMatch(AdminAlertCenter.template, /aria-label="关闭"\s+:disabled="busyKey/);
 });
 
 test('演示告警覆盖自动下发和多种人工审核场景', () => {
@@ -193,6 +196,42 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     assert.equal(state.alerts.find(item => (item.alertId || item.id) === 'alert-close').status, 'CLOSED');
     assert.equal(view.reviewCount.value, 0);
     assert.equal(view.closedCount.value, 1);
+  } finally {
+    Object.assign(api, originals);
+  }
+});
+
+test('AI 不确定告警可一键创建并分配现场核查任务', async () => {
+  const originals = {
+    evaluateDiagnosis: api.evaluateDiagnosis,
+    createWorkOrder: api.createWorkOrder,
+    assignWorkOrder: api.assignWorkOrder
+  };
+  const alert = {
+    alertId: 'alert-verify', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE',
+    level: 'HIGH', ruleState: 'CONFIRMED', diagnosisScenario: 'sensor-drift', title: '探头疑似漂移'
+  };
+  const state = {
+    sessionMode: 'demo', adminContext: { farmId: 'farm-demo' },
+    plots: [{ plotId: 'plot-a01', name: '温室1' }], alerts: [alert], workOrders: [],
+    farmMembers: [{ userId: 'farmer-1', displayName: '张明', role: 'FARMER', status: 'ACTIVE', plotIds: ['plot-a01'] }]
+  };
+  let createdDraft;
+  try {
+    api.evaluateDiagnosis = async () => ({ confidence: 0.93, primaryCause: 'SENSOR_DRIFT', missingInformation: ['PORTABLE_METER_COMPARISON'] });
+    api.createWorkOrder = async draft => {
+      createdDraft = draft;
+      return { ...draft, workOrderId: 'wo-verify-1', status: 'OPEN' };
+    };
+    api.assignWorkOrder = async () => ({ workOrderId: 'wo-verify-1', status: 'ASSIGNED' });
+    const view = AdminAlertCenter.setup({ state }, { emit: () => {} });
+    await view.aiProcess([alert]);
+    await view.publishVerificationTasks([alert]);
+    assert.equal(createdDraft.taskPurpose, 'ALERT_VERIFICATION');
+    assert.equal(createdDraft.actionType, 'INSPECTION');
+    assert.equal(createdDraft.sourceRef, 'alert-verify');
+    assert.equal(state.workOrders[0].assigneeId, 'farmer-1');
+    assert.equal(state.workOrders[0].taskPurpose, 'ALERT_VERIFICATION');
   } finally {
     Object.assign(api, originals);
   }

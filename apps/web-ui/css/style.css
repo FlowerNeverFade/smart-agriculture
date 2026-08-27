@@ -31,6 +31,9 @@
   --g-danger: #d93025;
   --g-danger-bg: #fce8e6;
 
+  --g-info: #039be5;
+  --g-info-bg: #e1f5fe;
+
   --g-purple: #9334e6;
   --g-purple-bg: #f3e8fd;
 
@@ -42,7 +45,7 @@
   --g-radius-lg: 16px;
   --g-radius-pill: 9999px;
   
-  --g-sidebar-width: 260px;
+  --g-sidebar-width: 210px;
   --g-header-height: 64px;
 }
 
@@ -100,7 +103,12 @@ body {
 .g-header-left { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
 .g-brand-logo { width: 92px; height: 28px; object-fit: contain; object-position: left center; }
 .g-header-center { position: absolute; left: 50%; max-width: calc(100% - 520px); transform: translateX(-50%); }
-.g-header .g-header-farm-select { width: 210px; min-height: 38px; padding: 7px 34px 7px 12px; background: var(--g-bg-base); color: var(--g-text-primary); font-size: 13px; font-weight: 500; box-shadow: var(--g-shadow-1); }
+.g-header-farm-select-btn { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 38px; padding: 4px 16px; background: transparent; border: none; color: var(--g-text-primary); font-size: 16px; font-weight: 600; border-radius: var(--g-radius); cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+.g-header-farm-select-btn:hover { background: var(--g-bg-subtle); }
+.g-header-farm-menu { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: var(--g-bg-base); border: 1px solid var(--g-border); border-radius: var(--g-radius); box-shadow: var(--g-shadow-3); min-width: 200px; max-height: 400px; overflow-y: auto; z-index: 100; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+.g-header-farm-option { text-align: left; padding: 8px 12px; border: none; background: transparent; color: var(--g-text-primary); font-size: 14px; border-radius: 4px; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+.g-header-farm-option:hover { background: var(--g-bg-subtle); }
+.g-header-farm-option.active { background: color-mix(in srgb, var(--g-primary) 12%, transparent); color: var(--g-primary); font-weight: 500; }
 .g-header-right { display: flex; flex: 0 0 auto; align-items: center; gap: 16px; }
 .g-user-avatar { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--g-bg-subtle); font-size: 18px; }
 .g-user-identity { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
