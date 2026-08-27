@@ -100,7 +100,7 @@
         <div class="account-profile-anchor ml-2">
           <button type="button" class="account-profile-trigger" aria-label="打开个人中心" aria-haspopup="dialog"
                   :aria-expanded="showProfileMenu ? 'true' : 'false'" @click.stop="toggleProfileMenu">
-            <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
+            <span class="g-user-avatar" :class="{'material-symbols-outlined': state.currentUser.role === 'SYSTEM_ADMIN'}" aria-hidden="true">{{ state.currentUser.role === 'SYSTEM_ADMIN' ? 'admin_panel_settings' : state.currentUser.avatar }}</span>
             <span class="g-user-identity">
               <strong>{{ state.currentUser.username }}</strong>
               <small>{{ state.currentUser.roleLabel }}</small>
