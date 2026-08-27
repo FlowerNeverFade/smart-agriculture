@@ -325,6 +325,18 @@ class AgriStore {
     String persistenceKind() { return !databaseReady ? "IN_MEMORY_FALLBACK" : (postgres ? "POSTGRESQL" : "H2_STANDALONE"); }
     long eventCount() { return eventCount.get(); }
 
+    /** 真实测量数据库往返延迟（SELECT 1），失败返回 -1。 */
+    long pingDbLatencyMs() {
+        if (!databaseReady) return -1;
+        long start = System.nanoTime();
+        try {
+            jdbc.queryForObject("SELECT 1", Integer.class);
+            return Math.max(0, Duration.ofNanos(System.nanoTime() - start).toMillis());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     synchronized void save(String type, String id, Map<String, Object> value) {
         Map<String, Object> copy = Jsons.copy(mapper, value);
         records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
@@ -856,6 +868,26 @@ class MqttCommandGateway {
     }
 
     boolean available() { return available.get(); }
+
+    /** 真实测量 MQTT 连接+发布往返延迟（毫秒），失败返回 -1。 */
+    long latencyMs() {
+        org.eclipse.paho.client.mqttv3.MqttClient client = null;
+        long start = System.nanoTime();
+        try {
+            client = new org.eclipse.paho.client.mqttv3.MqttClient(properties.getMqttUrl(), properties.getMqttClientId() + "-latency-" + UUID.randomUUID().toString().substring(0, 8));
+            org.eclipse.paho.client.mqttv3.MqttConnectOptions options = new org.eclipse.paho.client.mqttv3.MqttConnectOptions();
+            options.setAutomaticReconnect(false); options.setCleanSession(true); options.setConnectionTimeout(2);
+            if (StringUtils.hasText(properties.getMqttUsername())) { options.setUserName(properties.getMqttUsername()); options.setPassword(properties.getMqttPassword().toCharArray()); }
+            client.connect(options);
+            org.eclipse.paho.client.mqttv3.MqttMessage message = new org.eclipse.paho.client.mqttv3.MqttMessage(mapper.writeValueAsBytes(Map.of("type", "latency-probe", "at", Instant.now().toString()))); message.setQos(1);
+            client.publish("agri/farm-demo/latency-probe/command", message);
+            return Math.max(0, Duration.ofNanos(System.nanoTime() - start).toMillis());
+        } catch (Exception e) {
+            return -1;
+        } finally {
+            if (client != null) { try { if (client.isConnected()) client.disconnect(); } catch (Exception ignored) { } try { client.close(); } catch (Exception ignored) { } }
+        }
+    }
 }
 
 @Component
@@ -1940,7 +1972,23 @@ class AgriEngine {
         status.put("mqttCommandTransport", mqttCommands.available() ? "UP" : "FALLBACK_OR_IDLE");
         status.put("persistence", store.persistenceKind());
         status.put("ai", properties.getAiMode());
+        // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
+        status.put("databaseLatencyMs", store.pingDbLatencyMs());
+        status.put("redisLatencyMs", redisPingLatencyMs());
+        status.put("mqttLatencyMs", mqttConnected ? mqttCommands.latencyMs() : -1);
         return status;
+    }
+
+    /** 真实测量 Redis PING 往返延迟（毫秒），失败返回 -1。 */
+    private long redisPingLatencyMs() {
+        if (!redisAvailable.get()) return -1;
+        long start = System.nanoTime();
+        try {
+            redis.getConnectionFactory().getConnection().ping();
+            return Math.max(0, Duration.ofNanos(System.nanoTime() - start).toMillis());
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     @Scheduled(fixedDelay = 30000)

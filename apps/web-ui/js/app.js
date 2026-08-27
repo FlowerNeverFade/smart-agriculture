@@ -255,17 +255,19 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    ['PostgreSQL', systemStatus.database],
-    ['Redis Streams', systemStatus.redis],
-    ['MQTT Broker', systemStatus.mqtt],
-    ['SSE Gateway', 'UP'],
-    ['API Service', 'UP'],
-    ['AI 服务', systemStatus.ai]
+    ['PostgreSQL', systemStatus.database, systemStatus.databaseLatencyMs],
+    ['Redis Streams', systemStatus.redis, systemStatus.redisLatencyMs],
+    ['MQTT Broker', systemStatus.mqtt, systemStatus.mqttLatencyMs],
+    ['SSE Gateway', 'UP', undefined],
+    ['API Service', 'UP', undefined],
+    ['AI 服务', systemStatus.ai, undefined]
   ];
-  return entries.map(([name, status]) => ({
+  return entries.map(([name, status, latencyMs]) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
     mode: name === 'AI 服务' ? (status || '—') : undefined,
+    latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
+    latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
     sourceMode: 'BACKEND'
   }));
 }
