@@ -379,6 +379,7 @@ export const WorkOrderLifecycleView = {
       if (action === 'assign') openAssign(order);
       if (action === 'review') openReview(order);
       if (action === 'cancel') openCancel(order);
+      if (action === 'decision') emit('navigate', 'decision-console', { farmId: order.farmId || currentFarmId.value, plotId: order.plotId, planId: order.planId || order.sourceRef, traceId: order.traceId, workOrderId: order.workOrderId });
     };
 
     const openDetailFromKeyboard = (event, order) => {
@@ -596,6 +597,7 @@ export const WorkOrderLifecycleView = {
               <p v-else class="work-history-empty">旧任务暂无操作记录，下一次操作起将自动保存。</p>
             </details>
             <div class="work-card-actions">
+              <button v-if="String(activeOrder.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW'" type="button" class="g-btn primary compact" @click="openDetailAction('decision')">打开原处方审批</button>
               <button v-if="canManage && !TERMINAL_STATUSES.has(workStatus(order.status))" type="button" class="g-btn secondary compact" @click="openAssign(order)">{{ order.assigneeId ? '重新分配' : '分配农户' }}</button>
               <button v-if="canManage && workStatus(order.status) === 'SUBMITTED'" type="button" class="g-btn primary compact" @click="openReview(order)">验收结果</button>
               <button v-if="canManage && !TERMINAL_STATUSES.has(workStatus(order.status))" type="button" class="g-btn danger-text compact" @click="openCancel(order)">取消</button>

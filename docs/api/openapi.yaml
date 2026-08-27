@@ -211,7 +211,7 @@ paths:
               properties:
                 files: {type: array, items: {type: string, format: binary}, maxItems: 6}
       responses:
-        '200': {description: 含 photos[] 的巡田记录}
+        '200': {description: '含 photos[] 的巡田记录'}
         '400': {description: 类型、大小或数量不符合要求}
   /api/v1/inspections/{inspectionId}/photos/{photoId}:
     get:
@@ -220,12 +220,35 @@ paths:
         - {name: inspectionId, in: path, required: true, schema: {type: string}}
         - {name: photoId, in: path, required: true, schema: {type: string}}
       responses:
-        '200': {description: 现场照片二进制; content: {image/jpeg: {}, image/png: {}, image/webp: {}}}
+        '200':
+          description: 现场照片二进制
+          content:
+            image/jpeg: {}
+            image/png: {}
+            image/webp: {}
         '404': {description: 照片不存在}
   /api/v1/plots/{plotId}/inspections:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
+  /api/v1/plots/{plotId}/irrigation-guard:
+    get:
+      tags: [decision]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      responses:
+        '200': {description: 当前阶段迟滞状态、持久化灌溉冷却窗口和最近有效命令；仅限授权地块}
   /api/v1/irrigation/estimate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+  /api/v1/irrigation/plans/{planId}:
+    get:
+      tags: [decision]
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: 按地块权限读取原始灌溉处方}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
   /api/v1/agent/tools:
@@ -257,7 +280,13 @@ paths:
   /api/v1/scenarios/runs/{runId}/snapshot:
     get: {tags: [scenario], parameters: [{$ref: '#/components/parameters/RunId'}], responses: {'200': {description: 冻结只读快照}}}
   /api/v1/scenarios/compare:
-    post: {tags: [scenario], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: EXECUTE/NO_ACTION 双轨比较}}}
+    post:
+      tags: [scenario]
+      description: 使用同一 plotId、冻结快照和 seed 生成只读 EXECUTE/NO_ACTION 双轨；农户仅能比较授权地块且不写回主遥测
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: branches、frozenSnapshot、seed 与兼容的 leftBranch/rightBranch 双轨结果}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/work-items/today:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: plotId, in: query, schema: {type: string}}], responses: {'200': {description: 按当前农场和地块范围过滤的今日农务}}}
   /api/v1/work-orders:

@@ -285,6 +285,25 @@ const READINESS_GATE_LABELS = Object.freeze({
   safetyLimit: '用水上限'
 });
 
+const EVIDENCE_LABELS = Object.freeze({
+  FLOW_RATE_CALIBRATION: '检查流量计校准', PORTABLE_METER_COMPARISON: '使用便携仪复测',
+  FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
+  MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '等待管理员审批',
+  GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据'
+});
+
+function evidence_view(item, index = 0) {
+  if (typeof item === 'string') return { id: `${item}-${index}`, label: EVIDENCE_LABELS[item] || item, meta: '缺失证据' };
+  const metric = item?.metric ? `${item.metric} ${item.value ?? ''}`.trim() : '';
+  const reason = item?.reason || item?.message || item?.status || item?.type || '证据记录';
+  return {
+    id: item?.eventId || item?.inspectionId || item?.source || `${reason}-${index}`,
+    label: metric || reason,
+    meta: [item?.provenance, item?.source, item?.observedAt || item?.ts].filter(Boolean).join(' · ') || 'DERIVED'
+  };
+}
+
 function advice_trace_id() {
   return `farmer-advice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -384,7 +403,7 @@ function find_chart_range(range_id) {
   return CHART_RANGE_OPTIONS.find((item) => item.id === range_id) || CHART_RANGE_OPTIONS[2];
 }
 
-function metric_chart(plot, code, range_id = '7d') {
+function metric_chart(plot, code, range_id = '7d', stage_override = null) {
   const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
   const metric = plot?.metrics?.[code];
   if (!spec || !metric) return null;
@@ -427,11 +446,41 @@ function metric_chart(plot, code, range_id = '7d') {
     { y: 62, label: format_chart_axis_value((spec.max + spec.min) / 2, spec.precision) },
     { y: 114, label: format_chart_axis_value(spec.min, spec.precision) }
   ];
+  const targetBand = stage_target_band(plot, code, stage_override);
+  const span = Math.max(1, spec.max - spec.min);
+  const quality = metric.quality || {};
+  const isDemoMetric = plot?.dataOrigin !== 'BACKEND';
+  const expectedSamples = Number(quality.expectedSamples ?? 90);
+  const demoValidSamples = metric.status === 'ALERT' ? 84 : (metric.status === 'WARN' ? 86 : 88);
+  const validSamples = Number(quality.validSamples ?? (isDemoMetric ? demoValidSamples : NaN));
+  const freshnessMs = Number(quality.freshnessMs ?? (metric.ts ? Date.now() - Date.parse(metric.ts) : (isDemoMetric ? 15000 : NaN)));
+  const completeness = Number(quality.completeness ?? (
+    Number.isFinite(validSamples) && Number.isFinite(expectedSamples) && expectedSamples > 0
+      ? validSamples / expectedSamples
+      : NaN
+  ));
+  const confidence = Number(quality.confidence ?? (isDemoMetric ? (metric.status === 'ALERT' ? 0.91 : 0.97) : NaN));
 
   return {
     ...spec,
     current_label: `${format_chart_current_value(metric.value, spec.precision)} ${metric.unit || spec.unit}`,
     target: metric.target || '—',
+    targetBand: targetBand ? {
+      low: targetBand[0], high: targetBand[1],
+      yLow: 10 + (1 - ((targetBand[0] - spec.min) / span)) * 104,
+      yHigh: 10 + (1 - ((targetBand[1] - spec.min) / span)) * 104
+    } : null,
+    stageLabel: stage_override?.label || plot?.stageLabel || crop_stage_for(plot)?.label || '当前阶段',
+    quality: {
+      status: String(quality.status || metric.status || 'UNKNOWN').toUpperCase(),
+      freshnessLabel: Number.isFinite(freshnessMs) ? (freshnessMs < 60000 ? '1 分钟内' : `${Math.round(freshnessMs / 60000)} 分钟`) : '不可用',
+      completenessLabel: Number.isFinite(completeness) ? `${Math.round(completeness * 100)}%` : '不可用',
+      confidenceLabel: Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : '不可用',
+      windowMinutes: Number(quality.windowMinutes ?? 30),
+      validSamples: Number.isFinite(validSamples) ? validSamples : null,
+      expectedSamples: Number.isFinite(expectedSamples) ? expectedSamples : null,
+      calculationVersion: quality.calculationVersion || 'telemetry-quality-v1'
+    },
     status: metric.status || 'NORMAL',
     is_risk,
     risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
@@ -588,8 +637,8 @@ function parse_target_range(target) {
   return values.length >= 2 ? [values[0], values[1]] : null;
 }
 
-function stage_target_band(plot, code) {
-  const target = crop_stage_for(plot)?.target || {};
+function stage_target_band(plot, code, stage_override = null) {
+  const target = (stage_override || crop_stage_for(plot))?.target || {};
   if (code === 'SOIL_MOISTURE' && Number.isFinite(Number(target.soilMoistureLow)) && Number.isFinite(Number(target.soilMoistureHigh))) {
     return [Number(target.soilMoistureLow), Number(target.soilMoistureHigh)];
   }
@@ -740,6 +789,9 @@ const app = createApp({
     const tools_tab = ref(parse_tools_tab());
     const selected_plot = ref(plots.value[0] || null);
     const chart_range = ref('7d');
+    const plot_stage_preview = ref(selected_plot.value?.stageCode || '');
+    const plot_stage_options = computed(() => (crop_pack_for(selected_plot.value)?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
+    const plot_stage_preview_item = computed(() => plot_stage_options.value.find((stage) => stage.code === plot_stage_preview.value) || crop_stage_for(selected_plot.value));
     const chart_range_options = CHART_RANGE_OPTIONS;
     const chart_tooltip = ref(null);
     const show_chart_tooltip = (event, chart, key = chart?.code) => {
@@ -769,8 +821,8 @@ const app = createApp({
     const hide_chart_tooltip = () => { chart_tooltip.value = null; };
     const plot_charts = computed(() => PLOT_CHART_SPECS
       .map((spec) => {
-        const chart = metric_chart(selected_plot.value, spec.code, chart_range.value);
-        if (!chart) return null;
+        const chart = metric_chart(selected_plot.value, spec.code, chart_range.value, plot_stage_preview_item.value);
+        if (!chart) return { ...spec, unavailable: true, current_label: 'UNAVAILABLE', target: '无可用数据', stageLabel: plot_stage_preview_item.value?.label || selected_plot.value?.stageLabel || '当前阶段', quality: { status: 'UNAVAILABLE', freshnessLabel: '不可用', completenessLabel: '不可用', confidenceLabel: '不可用' } };
         if (spec.code !== 'SOIL_MOISTURE' || !selected_plot.value) return chart;
         const status = resolve_moisture_band_status(selected_plot.value);
         const is_risk = status === 'WARN' || status === 'ALERT';
@@ -907,7 +959,11 @@ const app = createApp({
           code: item.code,
           label: FEEDBACK_CAUSE_LABELS[String(item.code || '').toUpperCase()] || item.code,
           confidence: Number.isFinite(Number(item.confidence)) ? `${Math.round(Number(item.confidence) * 100)}%` : '—'
-        }))
+        })),
+        supporting: (diagnosis.supportingEvidence || []).map(evidence_view),
+        opposing: (diagnosis.opposingEvidence || []).map(evidence_view),
+        missing: (diagnosis.missingInformation || []).map(evidence_view),
+        conflicts: (diagnosis.evidenceConflicts || []).map(evidence_view)
       };
     });
     const advice_readiness_summary = computed(() => {
@@ -918,13 +974,40 @@ const app = createApp({
         status,
         statusLabel: READINESS_STATUS_LABELS[status] || status,
         score: Number.isFinite(Number(readiness.score)) ? Math.round(Number(readiness.score) * 100) : null,
-        missing: (readiness.missingEvidence || []).slice(0, 4),
+        missing: (readiness.missingEvidence || []).slice(0, 6).map((item, index) => evidence_view(item, index)),
+        requiredActions: (readiness.requiredActions || []).slice(0, 6).map((item, index) => ({
+          id: `${item.type || 'ACTION'}-${item.action || index}`,
+          label: EVIDENCE_LABELS[item.action] || EVIDENCE_LABELS[item.type] || item.action || item.type || '补充检查',
+          priority: item.priority || 'HIGH'
+        })),
         gates: Object.entries(readiness.hardGates || {}).map(([key, value]) => ({
           key,
           label: READINESS_GATE_LABELS[key] || key,
           status: String(value || '').toUpperCase()
         })),
         canRequestReview: Boolean(irrigation_plan.value?.planId || advice_plan.value?.planId)
+      };
+    });
+    const advice_execution_summary = computed(() => {
+      const commands = advice_passport.value?.commands || [];
+      const evaluations = advice_passport.value?.evaluations || [];
+      const command = commands[commands.length - 1] || null;
+      const evaluation = command
+        ? evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
+        : null;
+      const expected = evaluation?.expected || {};
+      const actual = evaluation?.actual || {};
+      return {
+        approvalStatus: suggestion_result.value?.approvalStatus || (suggestion_result.value?.workOrderId ? 'PENDING' : 'NOT_REQUESTED'),
+        workOrderId: suggestion_result.value?.workOrderId || null,
+        command,
+        evaluation,
+        commandStatus: String(command?.ack?.status || command?.status || 'PENDING').toUpperCase(),
+        ackAt: command?.ack?.receivedAt || null,
+        actualWater: command?.ack?.actualWaterLitre ?? actual.waterLitre,
+        before: actual.soilMoistureBefore ?? expected.soilMoistureBefore,
+        after: actual.soilMoistureAfter,
+        score: Number.isFinite(Number(evaluation?.effectivenessScore)) ? Math.round(Number(evaluation.effectivenessScore) * 100) : null
       };
     });
     const advice_moisture_chart = computed(() => {
@@ -1038,6 +1121,9 @@ const app = createApp({
     const advice_plan = ref(null);
     const advice_diagnosis = ref(null);
     const advice_readiness = ref(null);
+    const irrigation_guard = ref(null);
+    const advice_passport = ref(null);
+    const evidence_request_busy = ref(false);
     const advice_loading = ref(false);
     const advice_error = ref('');
     const show_advice_diagnosis = ref(false);
@@ -1047,6 +1133,7 @@ const app = createApp({
     const qa_input = ref('');
     const latest_answer = ref('');
     const qa_history = ref([]);
+    const qa_audit = ref(null);
     const qa_source_label = ref(is_formal_session ? '后端 AI' : '演示规则');
     const show_ai_consult = ref(false);
     const qa_busy = ref(false);
@@ -1054,6 +1141,7 @@ const app = createApp({
     const tools_plot_id = ref(plots.value[0]?.plotId || '');
     const tools_scenario = ref('NORMAL');
     const tools_forecast = ref(null);
+    const tools_compare = ref(null);
     const tools_forecast_error = ref('');
     const tools_forecast_loading = ref(false);
     const crop_manuals = ref([]);
@@ -1369,12 +1457,19 @@ const app = createApp({
     const suggestion_flow_steps = computed(() => {
       const order = ['VIEW', 'CONFIRM', 'RESULT', 'RECOVERY'];
       const current = Math.max(0, order.indexOf(suggestion_flow_stage.value));
-      return [
+      const irrigationSteps = [
+        { id: 'VIEW', label: '查看建议' },
+        { id: 'CONFIRM', label: '确认处方' },
+        { id: 'RESULT', label: '审批与执行证据' },
+        { id: 'RECOVERY', label: '效果评价' }
+      ];
+      const fieldActionSteps = [
         { id: 'VIEW', label: '查看建议' },
         { id: 'CONFIRM', label: '确认执行' },
         { id: 'RESULT', label: '填写结果' },
         { id: 'RECOVERY', label: '查看是否恢复' }
-      ].map((step, index) => ({
+      ];
+      return (active_suggestion.value?.kind === 'IRRIGATION' ? irrigationSteps : fieldActionSteps).map((step, index) => ({
         ...step,
         state: index < current ? 'done' : (index === current ? 'current' : 'upcoming')
       }));
@@ -1470,6 +1565,25 @@ const app = createApp({
       const scenario = tools_scenarios.value.find((item) => item.code === tools_scenario.value);
       return forecast_chart_model(tools_forecast.value, moisture, scenario?.color || 'var(--g-success)');
     });
+    const tools_compare_chart = computed(() => {
+      const branches = tools_compare.value?.branches;
+      if (!branches?.EXECUTE || !branches?.NO_ACTION) return null;
+      const execute = branches.EXECUTE.points || [];
+      const noAction = branches.NO_ACTION.points || [];
+      const values = [...execute, ...noAction].map((point) => Number(point.value ?? point.moisture)).filter(Number.isFinite);
+      if (!values.length) return null;
+      const min = Math.max(0, Math.floor(Math.min(...values) - 3));
+      const max = Math.ceil(Math.max(...values) + 3);
+      const labels = execute.map((point) => `${point.minute}m`);
+      return {
+        min, max, labels,
+        grid: [{ y: 10, label: `${max}%` }, { y: 62, label: `${Math.round((max + min) / 2)}%` }, { y: 114, label: `${min}%` }],
+        series: [branches.EXECUTE, branches.NO_ACTION].map((branch) => {
+          const branchValues = (branch.points || []).map((point) => Number(point.value ?? point.moisture));
+          return { label: branch.label, color: branch.color, values: branchValues, points: chart_points(branchValues, min, max), finalMoisture: branch.finalMoisture ?? branchValues[branchValues.length - 1], timeToRiskMinutes: branch.timeToRiskMinutes };
+        })
+      };
+    });
     const crop_manual_options = computed(() => {
       const source = crop_manuals.value.length
         ? crop_manuals.value
@@ -1518,6 +1632,7 @@ const app = createApp({
       }
       tools_forecast_loading.value = true;
       tools_forecast_error.value = '';
+      tools_compare.value = null;
       try {
         if (!scenario || scenario === 'NORMAL') {
           const result = await api.getRiskForecast(plotId, 'SOIL_MOISTURE');
@@ -1533,12 +1648,19 @@ const app = createApp({
             curve: Array.isArray(run?.curve) ? run.curve : [],
             horizons: Array.isArray(run?.horizons) ? run.horizons : []
           };
+          tools_compare.value = await api.compareScenario({
+            scenario,
+            plotId,
+            scenarioId: run?.scenarioId,
+            seed: Number(run?.seed ?? 42)
+          });
           if (!tools_forecast.value.curve.length && !tools_forecast.value.horizons.length) {
             tools_forecast_error.value = '该情景暂未返回可绘制的曲线数据';
           }
         }
       } catch (error) {
         tools_forecast.value = null;
+        tools_compare.value = null;
         tools_forecast_error.value = error?.message || '风险预警读取失败';
       } finally {
         tools_forecast_loading.value = false;
@@ -2330,6 +2452,16 @@ const app = createApp({
       if (!active_suggestion.value) return;
       suggestion_busy.value = true;
       try {
+        if (active_suggestion.value.kind === 'IRRIGATION') {
+          const traceId = advice_trace.value || irrigation_plan.value?.traceId;
+          const plotId = active_suggestion.value.plotId || advice_plot.value?.plotId;
+          const [passportResult, guardResult] = await Promise.allSettled([
+            traceId ? api.getDecisionPassport(traceId) : Promise.resolve(null),
+            plotId ? api.getIrrigationGuard(plotId) : Promise.resolve(null)
+          ]);
+          if (passportResult.status === 'fulfilled' && passportResult.value) advice_passport.value = passportResult.value;
+          if (guardResult.status === 'fulfilled' && guardResult.value) irrigation_guard.value = guardResult.value;
+        }
         if (is_formal_session) {
           await refresh_plot_telemetry();
           await load_live_workspace({ announce: false });
@@ -2412,6 +2544,12 @@ const app = createApp({
           diagnosis,
           plan
         });
+        const [guardResult, passportResult] = await Promise.allSettled([
+          api.getIrrigationGuard(plot.plotId),
+          api.getDecisionPassport(traceId)
+        ]);
+        irrigation_guard.value = guardResult.status === 'fulfilled' ? guardResult.value : null;
+        advice_passport.value = passportResult.status === 'fulfilled' ? passportResult.value : null;
         const cases = await api.getSimilarCases(traceId, {
           cropCode: plot.cropCode || 'tomato',
           primaryCause: diagnosis.primaryCause || 'WATER_DEFICIT'
@@ -2422,10 +2560,38 @@ const app = createApp({
         advice_plan.value = null;
         advice_diagnosis.value = null;
         advice_readiness.value = null;
+        irrigation_guard.value = null;
+        advice_passport.value = null;
         advice_trace.value = '';
         similar_cases_live.value = [];
       } finally {
         advice_loading.value = false;
+      }
+    };
+
+    const request_missing_evidence = async () => {
+      const readiness = advice_readiness.value;
+      const plot = advice_plot.value;
+      if (!readiness?.readinessId || !plot?.plotId || evidence_request_busy.value) return;
+      evidence_request_busy.value = true;
+      try {
+        const action = readiness.requiredActions?.[0] || {};
+        const key = `farmer-evidence-${readiness.readinessId}-${action.action || action.type || 'inspection'}`;
+        const saved = await api.createDecisionEvidenceRequest(readiness.readinessId, {
+          farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
+          plotId: plot.plotId,
+          title: `决策补证：${EVIDENCE_LABELS[action.action] || EVIDENCE_LABELS[readiness.missingEvidence?.[0]] || '现场复测'}`,
+          reason: `就绪度 ${readiness.status}，需要补充最小证据`,
+          actionType: action.type === 'REQUEST_APPROVAL' ? 'IRRIGATION_REVIEW' : 'INSPECTION',
+          priority: action.priority || 'HIGH',
+          idempotencyKey: key
+        });
+        evidence_requests.value.unshift(saved);
+        show_toast(`补证任务已创建：${saved.workOrderId || '待同步'}`);
+      } catch (error) {
+        show_toast(error.message || '补证任务创建失败', 'error');
+      } finally {
+        evidence_request_busy.value = false;
       }
     };
 
@@ -2536,7 +2702,9 @@ const app = createApp({
           const answer = agentResponseText(response, '后端智能服务已返回，但没有可展示的回答。');
           latest_answer.value = answer;
           qa_source_label.value = agentResponseSource(response, 'live');
-          qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value, traceId: response?.traceId, dataOrigin: 'BACKEND' });
+          const audit = response?.traceId ? await api.getAgentRun(response.traceId).catch(() => null) : null;
+          qa_audit.value = audit;
+          qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value, traceId: response?.traceId, dataOrigin: 'BACKEND', audit });
           qa_history.value = qa_history.value.slice(0, 6);
           qa_input.value = '';
           return;
@@ -2559,7 +2727,8 @@ const app = createApp({
       }
       latest_answer.value = answer;
       qa_source_label.value = '演示规则';
-      qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value });
+      qa_audit.value = await api.getAgentRun(`demo-${Date.now()}`).catch(() => null);
+      qa_history.value.unshift({ id: Date.now(), question, answer, sourceLabel: qa_source_label.value, audit: qa_audit.value });
       qa_history.value = qa_history.value.slice(0, 6);
       qa_input.value = '';
     };
@@ -2857,6 +3026,10 @@ const app = createApp({
       else load_tools_forecast(tools_scenario.value);
     });
 
+    watch(selected_plot, (plot) => {
+      plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
+    });
+
     watch(advice_selected_plot, (plot, previous) => {
       if (!plot?.plotId || plot.plotId === previous?.plotId) return;
       show_advice_diagnosis.value = false;
@@ -2895,6 +3068,9 @@ const app = createApp({
       selected_plot,
       chart_range,
       chart_range_options,
+      plot_stage_preview,
+      plot_stage_options,
+      plot_stage_preview_item,
       chart_tooltip,
       show_chart_tooltip,
       hide_chart_tooltip,
@@ -2958,9 +3134,11 @@ const app = createApp({
       tools_scenario,
       tools_scenarios,
       tools_forecast,
+      tools_compare,
       tools_forecast_error,
       tools_forecast_loading,
       tools_forecast_chart,
+      tools_compare_chart,
       crop_manual_code,
       crop_manual_stage,
       crop_manual_options,
@@ -2991,6 +3169,10 @@ const app = createApp({
       show_advice_diagnosis,
       advice_diagnosis_summary,
       advice_readiness_summary,
+      advice_execution_summary,
+      irrigation_guard,
+      advice_passport,
+      evidence_request_busy,
       advice_plan,
       advice_trace,
       feedback_busy,
@@ -2998,6 +3180,7 @@ const app = createApp({
       qa_input,
       latest_answer,
       qa_history,
+      qa_audit,
       qa_source_label,
       show_ai_consult,
       qa_busy,
@@ -3064,6 +3247,7 @@ const app = createApp({
       submit_suggestion_result,
       refresh_suggestion_recovery,
       open_advice_diagnosis,
+      request_missing_evidence,
       set_suggestion_feedback,
       confirm_suggestion,
       ask_question,

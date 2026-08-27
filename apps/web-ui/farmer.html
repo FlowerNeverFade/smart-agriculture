@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-info">
-  <link rel="stylesheet" href="css/farmer.css?v=20260827-confirm">
+  <link rel="stylesheet" href="css/farmer.css?v=20260827-p0-closure">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -183,12 +183,18 @@
             <span class="material-symbols-outlined">forum</span>
             <p>{{ latest_answer }}</p>
           </div>
+          <details v-if="qa_audit" class="farmer-agent-audit">
+            <summary>查看知识证据与工具审计 · {{ qa_audit.traceId || '演示记录' }}</summary>
+            <div class="farmer-agent-audit-meta"><span>模式 {{ qa_audit.mode || qa_audit.adapter || 'rules-only' }}</span><span>{{ qa_audit.provenance || 'BACKEND' }}</span></div>
+            <section><strong>知识片段</strong><article v-for="(item, index) in (qa_audit.knowledgeEvidence || [])" :key="item.source || index"><b>{{ item.scope || item.citation || '知识证据' }}</b><p>{{ item.snippet || item.content || '该层仅返回来源与版本。' }}</p><small>{{ item.source || 'Crop Pack' }} · {{ item.version || '—' }}</small></article></section>
+            <section><strong>工具调用</strong><article v-for="(item, index) in (qa_audit.tools || qa_audit.calls || [])" :key="item.name || item.tool || index"><b>{{ item.name || item.tool }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><code>出参 {{ JSON.stringify(item.output || {}) }}</code><small>Schema {{ item.schemaVersion || '—' }} · {{ item.validated === false ? '校验失败' : '已校验' }} · {{ item.durationMs ?? '—' }} ms</small></article></section>
+          </details>
           <div class="farmer-ai-consult-history" v-if="qa_history.length">
             <button
               type="button"
               v-for="item in qa_history"
               :key="item.id"
-              @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || qa_source_label"
+              @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || qa_source_label; qa_audit = item.audit || null"
             >{{ item.question }}</button>
           </div>
         </div>
@@ -482,6 +488,12 @@
                 <div>
                   <h3>环境与肥力指标趋势</h3>
                   <p class="farmer-panel-hint">按时间查看 {{ selected_plot.name }} 的环境与肥力变化；历史曲线优先来自后端遥测。</p>
+                  <label class="farmer-stage-preview">阶段目标预览
+                    <select v-model="plot_stage_preview">
+                      <option v-for="stage in plot_stage_options" :key="stage.code" :value="stage.code">{{ stage.label }}</option>
+                    </select>
+                    <small>仅更新目标带，不修改真实种植批次</small>
+                  </label>
                 </div>
                 <div class="farmer-chart-range" role="group" aria-label="趋势时间范围">
                   <button
@@ -500,6 +512,7 @@
                   :key="chart.code"
                   class="farmer-metric-chart"
                   :class="{
+                    'is-unavailable': chart.unavailable,
                     'is-risk': chart.is_risk,
                     'is-warn': chart.status === 'WARN',
                     'is-alert': chart.status === 'ALERT'
@@ -515,11 +528,14 @@
                     </div>
                     <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
-                  <div class="farmer-chart-interactive">
+                  <div v-if="!chart.unavailable" class="farmer-chart-interactive">
                     <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
                          @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                      <rect v-if="chart.targetBand" class="farmer-target-band-area" x="28" :y="Math.min(chart.targetBand.yLow, chart.targetBand.yHigh)" width="324" :height="Math.abs(chart.targetBand.yLow - chart.targetBand.yHigh)"></rect>
+                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yLow" x2="352" :y2="chart.targetBand.yLow"></line>
+                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yHigh" x2="352" :y2="chart.targetBand.yHigh"></line>
                       <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
                     </svg>
                     <div v-if="chart_tooltip && chart_tooltip.key === chart.code" class="farmer-chart-tooltip"
@@ -528,11 +544,13 @@
                       <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} {{ chart.unit }}</span>
                     </div>
                   </div>
-                  <div class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
+                  <p v-else class="farmer-chart-unavailable">当前 Crop Pack 或遥测未提供该指标，系统不会补造曲线。</p>
+                  <div v-if="!chart.unavailable" class="farmer-chart-x-labels"><span>{{ chart.labels[0] }}</span><span>{{ chart.labels[3] }}</span><span>{{ chart.labels[6] }}</span></div>
                   <div v-if="chart.is_multi" class="farmer-chart-legend">
                     <span v-for="series in chart.series" :key="'legend-' + series.label"><i :style="{background: series.color}"></i>{{ series.label }}</span>
                   </div>
-                  <p class="farmer-chart-target">目标：{{ chart.target }}</p>
+                  <p class="farmer-chart-target">{{ chart.stageLabel }}目标：{{ chart.targetBand ? chart.targetBand.low + '～' + chart.targetBand.high + ' ' + chart.unit : chart.target }}</p>
+                  <div class="farmer-metric-quality"><span>新鲜度 {{ chart.quality.freshnessLabel }}</span><span>完整率 {{ chart.quality.completenessLabel }}</span><span>可信度 {{ chart.quality.confidenceLabel }}</span><b>{{ chart.quality.status }}</b></div>
                 </article>
               </div>
             </div>
@@ -700,6 +718,12 @@
                       <span>{{ item.label }}</span><strong>{{ item.confidence }}</strong>
                     </article>
                   </div>
+                  <div class="farmer-evidence-grid">
+                    <section><strong>支持证据</strong><span v-for="item in advice_diagnosis_summary.supporting" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.supporting.length">暂无支持证据</em></section>
+                    <section><strong>反对证据</strong><span v-for="item in advice_diagnosis_summary.opposing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.opposing.length">暂无反对证据</em></section>
+                    <section><strong>缺失证据</strong><span v-for="item in advice_diagnosis_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.missing.length">当前无缺失项</em></section>
+                  </div>
+                  <div v-if="advice_diagnosis_summary.conflicts.length" class="farmer-evidence-conflicts"><strong>证据冲突，需要人工复核</strong><span v-for="item in advice_diagnosis_summary.conflicts" :key="item.id">{{ item.label }} · {{ item.meta }}</span></div>
                   <div v-if="advice_readiness_summary" class="farmer-readiness-block">
                     <div class="farmer-readiness-head">
                       <strong>{{ advice_readiness_summary.statusLabel }}</strong>
@@ -707,6 +731,21 @@
                     </div>
                     <div class="farmer-readiness-gates">
                       <span v-for="gate in advice_readiness_summary.gates" :key="gate.key" :class="'gate-' + gate.status.toLowerCase()">{{ gate.label }}</span>
+                    </div>
+                    <div v-if="advice_readiness_summary.missing.length" class="farmer-missing-evidence">
+                      <strong>还需要补充</strong><span v-for="item in advice_readiness_summary.missing" :key="item.id">{{ item.label }}</span>
+                      <button type="button" class="g-btn secondary farmer-btn-light" :disabled="evidence_request_busy" @click="request_missing_evidence">{{ evidence_request_busy ? '创建中…' : '按最小动作创建补证任务' }}</button>
+                    </div>
+                    <div v-if="irrigation_guard" class="farmer-irrigation-guard">
+                      <div><span>迟滞状态</span><strong>{{ irrigation_guard.hysteresis?.state || 'UNAVAILABLE' }}</strong><small>{{ irrigation_guard.hysteresis?.currentValue ?? '—' }}{{ irrigation_guard.hysteresis?.unit || '%' }} · 触发 {{ irrigation_guard.hysteresis?.threshold ?? '—' }} / 复位 {{ irrigation_guard.hysteresis?.resetThreshold ?? '—' }}</small></div>
+                      <div><span>冷却窗口</span><strong>{{ irrigation_guard.state }}</strong><small v-if="irrigation_guard.remainingSeconds">剩余 {{ Math.ceil(irrigation_guard.remainingSeconds / 60) }} 分钟 · 至 {{ format_suggestion_time(irrigation_guard.cooldownUntil) }}</small><small v-else>当前无执行冷却 · {{ irrigation_guard.cooldownMinutes }} 分钟策略</small></div>
+                    </div>
+                    <div v-if="advice_execution_summary.workOrderId || advice_execution_summary.command" class="farmer-execution-evidence">
+                      <strong>审批、执行与效果</strong>
+                      <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || '未提交' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                      <div><span>命令 / ACK</span><b>{{ advice_execution_summary.command?.commandId || '等待管理员执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                      <div><span>实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待回执' }}</em></div>
+                      <div><span>前后对比</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
                     </div>
                     <p v-if="irrigation_plan?.why || advice_plan?.why" class="farmer-panel-hint">处方说明：{{ irrigation_plan?.why || advice_plan?.why }}</p>
                     <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 农户可查看结论并通过建议流提交审批，不能直接虚拟执行。</small>
@@ -1084,6 +1123,17 @@
                   <p v-if="tools_forecast_error && tools_forecast_chart" class="farmer-panel-hint">{{ tools_forecast_error }}</p>
                 </article>
 
+                <article v-if="tools_compare_chart" class="g-card farmer-advice-card farmer-dual-track-card">
+                  <div class="farmer-panel-header"><div><span class="farmer-section-kicker">I-07 · I-13</span><h3>执行 / 不执行双轨对比</h3></div><span class="g-badge primary">Seed {{ tools_compare.seed }}</span></div>
+                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" aria-label="执行与不执行双轨比较曲线">
+                    <line v-for="line in tools_compare_chart.grid" :key="'dual-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
+                    <text v-for="line in tools_compare_chart.grid" :key="'dual-label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                    <polyline v-for="series in tools_compare_chart.series" :key="series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                  </svg>
+                  <div class="farmer-dual-track-summary"><div v-for="series in tools_compare_chart.series" :key="'summary-' + series.label"><i :style="{background: series.color}"></i><strong>{{ series.label }}</strong><span>最终 {{ series.finalMoisture }}% · 风险时间 {{ series.timeToRiskMinutes >= 0 ? series.timeToRiskMinutes + ' 分钟' : '未触发' }}</span></div></div>
+                  <small class="farmer-case-note">冻结快照 {{ tools_compare.frozenSnapshot?.snapshotHash || '—' }} · 两分支使用同一 seed，结果只读且不写回主状态。</small>
+                </article>
+
                 <article class="g-card farmer-advice-card">
                   <div class="farmer-panel-header">
                     <div>
@@ -1239,7 +1289,7 @@
               </div>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="close_suggestion_flow">稍后处理</button>
-                <button type="button" class="g-btn primary farmer-btn-analyze" @click="prepare_suggestion_confirmation">下一步：确认执行<span class="material-symbols-outlined">arrow_forward</span></button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" @click="prepare_suggestion_confirmation">{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '下一步：确认处方' : '下一步：确认执行' }}<span class="material-symbols-outlined">arrow_forward</span></button>
               </div>
             </section>
 
@@ -1260,11 +1310,23 @@
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
               <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能提交</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间' : '' }}，并确认按提示操作。</span></label>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认提交管理员审批' : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
                 <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '提交中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并提交管理员审批' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
               </div>
+            </section>
+
+            <section v-else-if="suggestion_flow_stage === 'RESULT' && active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-suggestion-stage">
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>审批申请已记录</strong><p>农户不能自行填写执行成功。管理员执行后，这里只读显示命令 ACK、遥测前后值和效果评价。</p></div></div>
+              <div class="farmer-execution-evidence is-modal">
+                <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || suggestion_result?.workOrderId || '等待同步' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '尚未创建命令' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                <div><span>ACK 实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待设备回执' }}</em></div>
+                <div><span>效果验证</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
+              </div>
+              <div class="farmer-suggestion-inline-action"><span>效果证据不足时：</span><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection"><span class="material-symbols-outlined">fact_check</span>提交巡田复测</button></div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新审批 / ACK / 效果' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">关闭</button></div>
             </section>
 
             <form v-else-if="suggestion_flow_stage === 'RESULT'" class="farmer-suggestion-stage" @submit.prevent="submit_suggestion_result">
@@ -1303,6 +1365,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260827-chart-color"></script>
+  <script type="module" src="js/farmer.js?v=20260827-p0-closure"></script>
 </body>
 </html>

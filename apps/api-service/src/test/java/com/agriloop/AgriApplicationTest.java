@@ -649,7 +649,7 @@ class AgriApplicationTest {
         Map<String, Object> snapshot = engine.scenarioSnapshot(String.valueOf(run.get("runId")), systemAdmin);
         assertThat(snapshot.get("readOnly")).isEqualTo(true);
         assertThat(((List<?>) snapshot.get("branchEvents")).size()).isGreaterThan(0);
-        Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "test-branch-snapshot", "leftBranch", "NO_ACTION", "rightBranch", "EXECUTE"), systemAdmin);
+        Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "test-branch-snapshot", "plotId", "plot-a01", "seed", 9, "leftBranch", "NO_ACTION", "rightBranch", "EXECUTE"), systemAdmin);
         assertThat(compare.get("readOnly")).isEqualTo(true);
         assertThat(engine.valueLedger(Map.of("actualWaterLitres", 10), admin).get("status")).isEqualTo("INCOMPLETE");
     }
@@ -1299,5 +1299,47 @@ class AgriApplicationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.uploadInspectionPhotos(inspectionId,
                         List.of(new org.springframework.mock.web.MockMultipartFile("files", "notes.txt", "text/plain", "x".getBytes())), farmer))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("INSPECTION_PHOTO_TYPE_INVALID"));
+    }
+
+    @Test
+    void farmerP0QualityGuardScenarioAndApprovalContractsRemainScoped() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-farmer-a02", "farmer-a02", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
+        engine.ingest(Map.of("eventId", "p0-quality-" + System.nanoTime(), "plotId", "plot-a01", "deviceId", "mock-plot-a01",
+                "metric", "SOIL_MOISTURE", "value", 16.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> quality = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), engine.latestMetrics("plot-a01").get("SOIL_MOISTURE")).get("quality"));
+        assertThat(quality).containsKeys("freshnessMs", "completeness", "confidence", "windowMinutes", "calculationVersion");
+
+        Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "farmer-readonly", "plotId", "plot-a01", "seed", 42,
+                "leftBranch", "EXECUTE", "rightBranch", "NO_ACTION"), farmer);
+        assertThat(compare).containsEntry("readOnly", true).containsEntry("comparisonVersion", "branch-compare-v2");
+        assertThat(Jsons.map(new ObjectMapper(), compare.get("branches"))).containsKeys("EXECUTE", "NO_ACTION");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.compareScenario(Map.of(
+                        "scenarioId", "forbidden", "plotId", "plot-a01", "seed", 42), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
+
+        String traceId = "trace-approval-" + System.nanoTime();
+        String planId = "plan-approval-" + System.nanoTime();
+        store.save("irrigation-plan", planId, new java.util.LinkedHashMap<>(Map.of(
+                "planId", planId, "plotId", "plot-a01", "traceId", traceId, "readinessId", "ready-p0",
+                "readinessStatus", "HUMAN_REVIEW", "durationSeconds", 120, "waterLitre", 40.0)));
+        String key = "approval-idem-" + System.nanoTime();
+        Map<String, Object> first = engine.feedback(traceId, new java.util.LinkedHashMap<>(Map.of(
+                "decision", "REQUEST_APPROVAL", "planId", planId, "idempotencyKey", key)), farmer);
+        Map<String, Object> repeated = engine.feedback(traceId, new java.util.LinkedHashMap<>(Map.of(
+                "decision", "REQUEST_APPROVAL", "planId", planId, "idempotencyKey", key)), farmer);
+        assertThat(first.get("workOrderId")).isEqualTo(repeated.get("workOrderId"));
+        assertThat(store.find("work-order", String.valueOf(first.get("workOrderId"))))
+                .containsEntry("actionType", "IRRIGATION_REVIEW").containsEntry("planId", planId);
+
+        String commandId = "cmd-scoped-" + System.nanoTime();
+        store.save("command", commandId, new java.util.LinkedHashMap<>(Map.of(
+                "commandId", commandId, "planId", planId, "plotId", "plot-a01", "status", "SUCCEEDED",
+                "ack", Map.of("status", "SUCCEEDED", "receivedAt", Instant.now().toString(), "actualWaterLitre", 40.0))));
+        assertThat(engine.commandById(commandId, farmer)).containsEntry("plotId", "plot-a01");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.commandById(commandId, otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
+        Map<String, Object> guard = engine.irrigationGuard("plot-a01", farmer);
+        assertThat(guard).containsEntry("state", "COOLDOWN_ACTIVE").containsKeys("remainingSeconds", "hysteresis", "ruleVersion");
     }
 }

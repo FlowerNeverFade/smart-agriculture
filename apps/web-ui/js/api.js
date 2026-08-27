@@ -1744,6 +1744,35 @@ export class ApiService {
     };
   }
 
+  async getAgentRun(traceId) {
+    if (!traceId) throw new ApiError('缺少 Agent traceId', { status: 400, code: 'TRACE_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/runs/${encodeURIComponent(traceId)}`);
+      return resp?.data || resp;
+    }
+    const innovation = MOCK_DATA.gapCoverage || MOCK_DATA.innovation || {};
+    const ragEvidence = innovation.ragEvidence || {};
+    const toolAudit = innovation.toolCallAudit || {};
+    return innovation.agentAudit || {
+      traceId,
+      mode: 'mock',
+      adapter: 'rules',
+      knowledgeEvidence: (ragEvidence.snippets || []).map((item) => ({
+        ...item,
+        snippet: item.snippet || item.content,
+        scope: item.scope || item.citation,
+        version: item.version || ragEvidence.knowledgeVersion
+      })),
+      tools: (toolAudit.calls || []).map((item) => ({
+        ...item,
+        name: item.name || item.tool,
+        schemaVersion: item.schemaVersion || 'agent-tool-v1',
+        validated: item.validated !== false
+      })),
+      provenance: 'SIMULATED'
+    };
+  }
+
   /**
    * Persist a farmer decision outcome without changing a strategy or issuing
    * a control command.  Farmers use this contract to request administrator
@@ -1762,15 +1791,59 @@ export class ApiService {
       });
       return resp?.data || resp;
     }
+    this.decisionCache.feedback ||= new Map();
+    const existing = [...this.decisionCache.feedback.values()].find(item => (
+      payload.idempotencyKey && item.idempotencyKey === payload.idempotencyKey && item.traceId === traceId
+    ));
+    if (existing) return { ...existing };
+
+    let approval = {};
+    if (String(payload.decision || '').toUpperCase() === 'REQUEST_APPROVAL') {
+      const plan = this.decisionCache.plans.get(payload.planId);
+      if (!plan || (plan.traceId && plan.traceId !== traceId) || plan.plotId !== payload.plotId) {
+        throw new ApiError('审批申请与原处方或决策链不一致', { status: 409, code: 'IRRIGATION_PLAN_TRACE_MISMATCH' });
+      }
+      if (!plan.traceId) {
+        plan.traceId = traceId;
+        this.decisionCache.plans.set(plan.planId, plan);
+      }
+      const workOrderId = `wo-irrigation-review-${payload.planId}`;
+      if (!this.demoWorkOrders.has(workOrderId)) {
+        const plot = this.mockPlot(payload.plotId);
+        const now = new Date().toISOString();
+        this.demoWorkOrders.set(workOrderId, cloneWorkOrder({
+          workOrderId,
+          workItemId: workOrderId,
+          type: 'IRRIGATION_REVIEW',
+          title: `${plot.name || payload.plotId} 灌溉处方审批`,
+          farmId: plot.farmId || 'farm-demo',
+          plotId: payload.plotId,
+          traceId,
+          planId: payload.planId,
+          sourceType: 'IRRIGATION_PLAN',
+          sourceRef: payload.planId,
+          status: 'OPEN',
+          approvalStatus: 'PENDING',
+          priority: 'HIGH',
+          idempotencyKey: payload.idempotencyKey,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: this._demoActorId(),
+          provenance: 'SIMULATED'
+        }));
+      }
+      approval = { workOrderId, approvalStatus: 'PENDING' };
+    }
+
     const feedback = {
       feedbackId: `feedback-demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       ...payload,
+      ...approval,
       actorId: this._demoActorId(),
       decision: payload.decision || 'ACCEPTED',
       provenance: 'SIMULATED',
       createdAt: new Date().toISOString()
     };
-    this.decisionCache.feedback ||= new Map();
     this.decisionCache.feedback.set(feedback.feedbackId, feedback);
     return feedback;
   }
@@ -1814,6 +1887,48 @@ export class ApiService {
     };
   }
 
+  async getIrrigationGuard(plotId) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/irrigation-guard`);
+      return resp?.data || resp;
+    }
+    const plot = this.mockPlot(plotId);
+    const rule = (MOCK_DATA.cropPackDetails || [])
+      .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT') || {};
+    const threshold = Number(rule.threshold ?? 20);
+    const hysteresis = Number(rule.hysteresis ?? 2);
+    const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
+    return {
+      plotId,
+      state: 'AVAILABLE',
+      cooldownMinutes: Number(rule.cooldownMinutes ?? 120),
+      cooldownStartedAt: null,
+      cooldownUntil: null,
+      remainingSeconds: 0,
+      lastCommandId: null,
+      lastOutcome: null,
+      hysteresis: {
+        state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
+        threshold,
+        resetThreshold: threshold + hysteresis,
+        currentValue,
+        unit: '%'
+      },
+      evaluatedAt: new Date().toISOString(),
+      provenance: 'SIMULATED'
+    };
+  }
+
+  async getIrrigationPlan(planId) {
+    if (!planId) throw new ApiError('缺少处方编号', { status: 400, code: 'PLAN_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/irrigation/plans/${encodeURIComponent(planId)}`);
+      return resp?.data || resp;
+    }
+    return this.decisionCache.plans.get(planId) || null;
+  }
+
   async executeIrrigation(planId, plotId, options = {}) {
     if (!plotId) {
       throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
@@ -1833,6 +1948,7 @@ export class ApiService {
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
           approved: true,
           source: options.source || 'web-decision-console',
+          ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });

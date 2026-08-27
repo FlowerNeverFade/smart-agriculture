@@ -1436,10 +1436,15 @@
   .g-header-title { display: none; }
   .g-header-right { gap: 6px; }
   .farmer-data-freshness { font-size: 11px; padding: 5px 7px; }
-  .farmer-sidebar { width: 72px; padding: 8px 6px; }
-  .farmer-sidebar .farmer-nav-label, .farmer-sidebar .farmer-nav-badge { display: none; }
-  .farmer-sidebar .farmer-nav-item { justify-content: center; padding: 0; gap: 0; }
-  .farmer-main { padding: 16px; }
+  .g-body { min-width: 0; }
+  .farmer-sidebar { width: 230px; padding: 12px; }
+  .farmer-sidebar .farmer-nav-label { display: block; }
+  .farmer-sidebar .farmer-nav-badge { display: inline-flex; }
+  .farmer-sidebar .farmer-nav-item { justify-content: flex-start; padding: 0 12px; gap: 12px; }
+  .farmer-main { width: 100%; min-width: 0; padding: 16px 12px 28px; overflow-x: hidden; }
+  .farmer-workspace { width: 100%; min-width: 0; }
+  .farmer-workspace > *, .farmer-advice-grid > *, .farmer-plot-grid > * { min-width: 0; max-width: 100%; }
+  .farmer-ai-consult { left: 12px; width: calc(100vw - 24px); }
   .farmer-dashboard-row, .farmer-task-tools { grid-template-columns: 1fr; }
   .farmer-security-panel { align-items: flex-start; flex-direction: column; }
 }
@@ -2242,6 +2247,52 @@
 .farmer-recovery-card p { margin-top: 4px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary small { color: var(--g-text-secondary); font-size: 10px; }
+
+.farmer-stage-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 9px; color: var(--g-text-secondary); font-size: 12px; }
+.farmer-stage-preview select { min-width: 130px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); padding: 5px 8px; }
+.farmer-stage-preview small { color: var(--g-text-tertiary); }
+.farmer-target-band-area { fill: color-mix(in srgb, var(--g-success) 12%, transparent); pointer-events: none; }
+.farmer-metric-chart.is-unavailable { border-style: dashed; opacity: .82; }
+.farmer-chart-unavailable { min-height: 116px; display: grid; place-items: center; margin: 0; padding: 18px; text-align: center; color: var(--g-text-secondary); background: var(--g-bg-subtle); border-radius: 10px; }
+.farmer-metric-quality { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.farmer-metric-quality span,.farmer-metric-quality b { padding: 3px 6px; border-radius: 999px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 10px; font-weight: 500; }
+.farmer-metric-quality b { color: var(--g-primary); }
+.farmer-evidence-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-top: 12px; }
+.farmer-evidence-grid section { display: grid; align-content: start; gap: 6px; padding: 10px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-subtle); }
+.farmer-evidence-grid section>strong { font-size: 12px; }
+.farmer-evidence-grid section>span { display: grid; gap: 2px; padding-top: 5px; border-top: 1px solid var(--g-border-subtle); }
+.farmer-evidence-grid b { font-size: 11px; color: var(--g-text-primary); }
+.farmer-evidence-grid small,.farmer-evidence-grid em { font-size: 10px; color: var(--g-text-secondary); font-style: normal; }
+.farmer-evidence-conflicts { display: grid; gap: 4px; margin-top: 8px; padding: 9px; border-radius: 9px; background: var(--g-danger-bg); color: var(--g-danger); font-size: 11px; }
+.farmer-missing-evidence { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; padding: 9px; border-radius: 9px; background: var(--g-warning-bg); }
+.farmer-missing-evidence strong { width: 100%; font-size: 12px; }
+.farmer-missing-evidence span { padding: 3px 6px; border-radius: 999px; background: var(--g-bg-base); color: var(--g-warning); font-size: 10px; }
+.farmer-irrigation-guard { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 10px 0; }
+.farmer-irrigation-guard>div { display: grid; gap: 3px; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: 9px; }
+.farmer-irrigation-guard span,.farmer-irrigation-guard small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-irrigation-guard strong { font-size: 12px; }
+.farmer-execution-evidence { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 10px; }
+.farmer-execution-evidence>strong { grid-column: 1/-1; }
+.farmer-execution-evidence>div { display: grid; gap: 3px; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-base); }
+.farmer-execution-evidence span,.farmer-execution-evidence em { color: var(--g-text-secondary); font-size: 10px; font-style: normal; }
+.farmer-execution-evidence b { font-size: 12px; overflow-wrap: anywhere; }
+.farmer-execution-evidence.is-modal { margin: 4px 0 12px; }
+.farmer-dual-track-card { grid-column: 1/-1; }
+.farmer-dual-track-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 8px 0; }
+.farmer-dual-track-summary>div { display: grid; grid-template-columns: auto 1fr; gap: 3px 7px; align-items: center; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: 9px; }
+.farmer-dual-track-summary i { width: 9px; height: 9px; border-radius: 50%; }
+.farmer-dual-track-summary span { grid-column: 2; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-audit { margin: 10px 0; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-base); font-size: 11px; }
+.farmer-agent-audit summary { cursor: pointer; color: var(--g-primary); font-weight: 600; }
+.farmer-agent-audit-meta { display: flex; gap: 6px; margin: 8px 0; color: var(--g-text-secondary); }
+.farmer-agent-audit section { display: grid; gap: 6px; margin-top: 8px; }
+.farmer-agent-audit article { display: grid; gap: 3px; padding: 7px; border-radius: 8px; background: var(--g-bg-subtle); }
+.farmer-agent-audit p { margin: 0; line-height: 1.45; }
+.farmer-agent-audit code { display: block; max-height: 74px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--g-text-secondary); font-size: 9px; }
+
+@media (max-width: 760px) {
+  .farmer-evidence-grid,.farmer-irrigation-guard,.farmer-execution-evidence,.farmer-dual-track-summary { grid-template-columns: 1fr; }
+}
 .farmer-operation-status.is-error { color: var(--g-danger); }
 .farmer-operation-status.is-warning { color: var(--g-warning); }
 

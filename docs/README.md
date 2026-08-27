@@ -1,6 +1,6 @@
 # AgriLoop 文档索引
 
-> 更新时间：2026-08-26
+> 更新时间：2026-08-27
 
 当前工作树只保留仍用于开发、运行、合同核对或验收追溯的文档。已完成的阶段分工、旧界面验收和截图证据由 Git 历史保存，不再与当前事实混放。
 
@@ -29,6 +29,7 @@
 - [智能诊断与决策中枢](acceptance/DECISION_CONSOLE_ACCEPTANCE.md)
 - [后端远端验收](acceptance/REMOTE_ACCEPTANCE.md)
 - [Web 性能验收](acceptance/WEB_PERFORMANCE_ACCEPTANCE.md)
+- [农户端 P0 创新闭环](acceptance/FARMER_P0_ACCEPTANCE.md)
 
 ## 历史材料
 
