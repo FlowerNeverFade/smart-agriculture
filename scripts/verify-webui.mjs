@@ -140,6 +140,44 @@ async function mountIndex() {
   ok('三角色主壳可挂载（演示会话）', mounted);
   if (!mounted) { dom.window.close(); return; }
 
+  window.location.hash = '#view=decision-console&farmId=farm-demo';
+  const alertCenter = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-view[aria-label="AI告警分析与智能处理"]')), 3500);
+  ok('农场管理员 AI 告警中心可打开', alertCenter);
+  await waitFor(() => Boolean(window.document.querySelector('.admin-alert-batch-bar')), 1500);
+  const batchBarText = window.document.querySelector('.admin-alert-batch-bar')?.textContent || '';
+  ok('告警中心保留 main 卡片网格与批量入口', alertCenter
+    && Boolean(window.document.querySelector('.admin-alert-batch-bar'))
+    && batchBarText.includes('全选当前列表')
+    && batchBarText.includes('AI智能处理'));
+  ok('告警中心已移除旧操作入口', alertCenter
+    && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
+    && !window.document.querySelector('.admin-alert-view h2'));
+  const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
+  window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);
+  const detailCloseButton = window.document.querySelector('.admin-alert-detail-footer .admin-alert-close-action');
+  detailCloseButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const singleCloseRemovedCard = await waitFor(() => window.document.querySelectorAll('.admin-alert-card').length === cardsBeforeSingleClose - 1, 2000);
+  ok('详情关闭后卡片立即从未关闭列表移除', cardsBeforeSingleClose > 0 && alertDetailReady && singleCloseRemovedCard);
+  await waitFor(() => Boolean(window.document.querySelector('.admin-decision-tabs button:nth-child(2)')), 1500);
+  const chatTab = window.document.querySelector('.admin-decision-tabs button:nth-child(2)');
+  chatTab?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const chatReady = await waitFor(() => Boolean(window.document.querySelector('.admin-ai-chat textarea')), 3500);
+  if (!chatReady) {
+    console.warn('AI 对话切换调试：', window.document.querySelector('.role-decision-shell')?.innerHTML?.slice(0, 1600) || '未挂载');
+  }
+  ok('农场管理员完整 AI 对话页可切换', chatReady
+    && window.document.body.textContent.includes('新对话')
+    && window.document.body.textContent.includes('AI 可能会出错，请核对重要信息'));
+  await waitFor(() => chatReady && !window.document.querySelector('.admin-ai-history-loading'), 1500);
+  const newConversationButton = window.document.querySelector('.admin-ai-chat-tools .g-btn');
+  newConversationButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const suggestionsReady = await waitFor(() => window.document.querySelectorAll('.admin-ai-suggestions button').length === 4, 1500);
+  ok('新对话后经典空白页快捷问题和底部输入框可见', suggestionsReady
+    && Boolean(window.document.querySelector('.admin-ai-message-list.is-empty .admin-ai-empty-state .admin-ai-suggestions'))
+    && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
+    && !window.document.querySelector('.admin-ai-chat h2'));
+
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);
   ok('地块详情显示独立策略设置', detail);

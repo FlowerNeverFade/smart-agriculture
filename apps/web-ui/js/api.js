@@ -151,6 +151,7 @@ export class ApiService {
       evaluations: new Map()
     };
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
+    this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
     this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => [item.plotId, { ...item, farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }]));
     this.demoDevices = new Map((MOCK_DATA.adminDevices || []).map((item, index) => {
@@ -1175,7 +1176,8 @@ export class ApiService {
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的告警数据', { code: 'ALERTS_INVALID', payload: response });
     }
-    return (MOCK_DATA.alerts || [])
+    return Array.from(this.demoAlerts.values())
+      .filter(alert => !filters.farmId || alert.farmId === filters.farmId)
       .filter(alert => !filters.plotId || alert.plotId === filters.plotId)
       .filter(alert => !filters.status || alert.status === filters.status)
       .map(alert => ({ ...alert }));
@@ -1192,7 +1194,10 @@ export class ApiService {
       return response?.data || response;
     }
     const status = { ack: 'ACKED', close: 'CLOSED', escalate: 'ESCALATED' }[operation];
-    return { alertId, status, updatedAt: new Date().toISOString(), provenance: 'SIMULATED' };
+    const current = this.demoAlerts.get(alertId) || { alertId };
+    const saved = { ...current, alertId: current.alertId || current.id || alertId, status, updatedAt: new Date().toISOString(), provenance: 'SIMULATED' };
+    this.demoAlerts.set(alertId, saved);
+    return { ...saved };
   }
 
   async ackAlert(alertId) { return this.transitionAlert(alertId, 'ack'); }

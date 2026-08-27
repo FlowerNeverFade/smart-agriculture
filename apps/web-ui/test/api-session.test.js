@@ -114,6 +114,17 @@ test('demo device binding and farmer membership mutations remain visible on rere
   assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), false);
 });
 
+test('demo alert closure remains visible after refreshing alerts', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  const alert = (await service.getAlerts({ farmId: 'farm-demo' })).find(item => item.status !== 'CLOSED');
+  assert.ok(alert);
+
+  await service.closeAlert(alert.alertId || alert.id);
+  const refreshed = await service.getAlerts({ farmId: 'farm-demo' });
+  assert.equal(refreshed.find(item => (item.alertId || item.id) === (alert.alertId || alert.id))?.status, 'CLOSED');
+});
+
 test('demo alert actions and alert-sourced task creation preserve their frozen contracts', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';
