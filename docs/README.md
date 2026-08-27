@@ -13,6 +13,7 @@
 - [统一开发规则](../AGENTS.md)
 - [当前项目状态](../PROJECT_STATUS.md)
 - [任务看板](../TASKS.md)
+- [后端任务清单](BACKEND_TASKS.md)
 
 ## 当前合同与运行说明
 

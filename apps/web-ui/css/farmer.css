@@ -309,6 +309,191 @@
   line-height: 1.6;
 }
 
+.farmer-ai-consult-answer-wrap {
+  display: grid;
+  gap: 10px;
+}
+
+.farmer-ai-consult-answer-body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.farmer-ai-consult-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+}
+
+.farmer-ai-consult-meta .g-badge {
+  font-size: 10px;
+}
+
+.farmer-ai-consult-intent {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+}
+
+.farmer-ai-consult-trace {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+}
+
+.farmer-ai-consult-trace .material-symbols-outlined {
+  font-size: 15px;
+  color: var(--g-primary);
+}
+
+.farmer-ai-consult-trace code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--g-bg-base);
+  color: var(--g-text-primary);
+  font: 11px/1.4 var(--g-mono, monospace);
+  word-break: break-all;
+}
+
+.farmer-ai-evidence-list {
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--g-border) 70%, transparent);
+}
+
+.farmer-ai-evidence-list strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: var(--g-text-secondary);
+}
+
+.farmer-ai-evidence-list ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.farmer-ai-evidence-list li {
+  display: grid;
+  gap: 1px;
+}
+
+.farmer-ai-evidence-type {
+  display: inline-flex;
+  width: fit-content;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--g-primary-bg);
+  color: var(--g-primary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.farmer-ai-evidence-label {
+  font-size: 12px;
+  color: var(--g-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.farmer-ai-evidence-list small {
+  color: var(--g-text-secondary);
+  font-size: 10px;
+}
+
+.farmer-ai-decision-card {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--g-primary-bg) 55%, var(--g-bg-surface));
+}
+
+.farmer-ai-decision-card header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.farmer-ai-decision-card header .material-symbols-outlined {
+  color: var(--g-primary);
+  font-size: 20px;
+}
+
+.farmer-ai-decision-card header strong {
+  display: block;
+  font-size: 13px;
+  color: var(--g-text-primary);
+}
+
+.farmer-ai-decision-card header p {
+  margin: 3px 0 0;
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.farmer-ai-decision-note {
+  margin: 8px 0 10px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.farmer-ai-consult-quick-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.farmer-ai-consult-quick-actions .g-btn {
+  justify-content: center;
+}
+
+.farmer-ai-details-toggle {
+  font-size: 12px;
+}
+
+.farmer-ai-details-toggle .material-symbols-outlined {
+  font-size: 17px;
+}
+
+.farmer-ai-consult-details {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--g-border-subtle);
+  border-radius: 12px;
+  background: var(--g-bg-subtle);
+}
+
+.farmer-ai-consult-detail-block {
+  display: grid;
+  gap: 6px;
+}
+
+.farmer-ai-decision-card.is-detail {
+  margin: 0;
+  background: var(--g-bg-surface);
+}
+
+.farmer-ai-consult-history-title {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .farmer-ai-consult-answer .material-symbols-outlined {
   color: var(--g-success);
   flex-shrink: 0;
@@ -334,6 +519,11 @@
   font-size: 12px;
   cursor: pointer;
   padding: 4px 0;
+}
+
+.farmer-ai-consult-history button.active {
+  color: var(--g-text-primary);
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {
@@ -445,6 +635,22 @@
 .farmer-btn-analyze:disabled {
   background-color: var(--g-text-disabled);
   cursor: not-allowed;
+}
+
+.g-btn.is-loading {
+  gap: 8px;
+  cursor: wait;
+}
+.g-btn.is-loading .farmer-btn-spin {
+  animation: farmer-btn-spin 0.75s linear infinite;
+}
+@keyframes farmer-btn-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g-btn.is-loading .farmer-btn-spin {
+    animation-duration: 1.6s;
+  }
 }
 
 /* 主面板统计卡片 */
@@ -617,6 +823,135 @@
 }
 
 /* 消息中心 */
+.farmer-message-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.farmer-message-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 10px 16px 10px 12px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius-lg);
+  background: var(--g-bg-surface);
+  color: var(--g-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--g-shadow-1);
+  transition: transform .15s, box-shadow .15s, border-color .15s, background .15s, color .15s;
+}
+
+.farmer-message-filter-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--g-shadow-2);
+  border-color: var(--g-border);
+  color: var(--g-text-primary);
+}
+
+.farmer-message-filter-btn:focus-visible {
+  outline: 2px solid var(--g-primary);
+  outline-offset: 2px;
+}
+
+.farmer-message-filter-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  flex-shrink: 0;
+}
+
+.farmer-message-filter-icon .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.farmer-message-filter-text {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.farmer-message-filter-count {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: var(--g-radius-pill);
+  background: var(--g-bg-subtle);
+  color: var(--g-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.farmer-message-filter-btn.filter-all .farmer-message-filter-icon {
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+}
+
+.farmer-message-filter-btn.filter-alert .farmer-message-filter-icon {
+  color: var(--g-danger);
+  background: var(--g-danger-bg);
+}
+
+.farmer-message-filter-btn.filter-task .farmer-message-filter-icon {
+  color: var(--g-warning);
+  background: var(--g-warning-bg);
+}
+
+.farmer-message-filter-btn.filter-notice .farmer-message-filter-icon {
+  color: var(--g-success);
+  background: var(--g-success-bg);
+}
+
+.farmer-message-filter-btn.active {
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--g-shadow-2);
+}
+
+.farmer-message-filter-btn.filter-all.active {
+  background: linear-gradient(135deg, var(--g-primary) 0%, color-mix(in srgb, var(--g-primary) 82%, #000) 100%);
+}
+
+.farmer-message-filter-btn.filter-alert.active {
+  background: linear-gradient(135deg, var(--g-danger) 0%, color-mix(in srgb, var(--g-danger) 78%, #000) 100%);
+}
+
+.farmer-message-filter-btn.filter-task.active {
+  background: linear-gradient(135deg, var(--g-warning) 0%, color-mix(in srgb, var(--g-warning) 78%, #000) 100%);
+}
+
+.farmer-message-filter-btn.filter-notice.active {
+  background: linear-gradient(135deg, var(--g-success) 0%, color-mix(in srgb, var(--g-success) 78%, #000) 100%);
+}
+
+.farmer-message-filter-btn.active .farmer-message-filter-icon {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.farmer-message-filter-btn.active .farmer-message-filter-count {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .farmer-message-filter-btn {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+}
+
 .farmer-message-layout {
   display: grid;
   grid-template-columns: 360px 1fr;
@@ -653,8 +988,9 @@
 }
 .farmer-message-head {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px;
   margin-bottom: 6px;
 }
 .farmer-message-tag {
@@ -668,22 +1004,101 @@
 .farmer-message-tag.tag-task { background: var(--g-primary-bg); color: var(--g-primary); }
 .farmer-message-tag.tag-system { background: var(--g-success-bg); color: var(--g-success); }
 .farmer-message-tag.tag-notice { background: var(--g-success-bg); color: var(--g-success); }
-.farmer-message-time {
-  font-size: 11px;
-  color: var(--g-text-secondary);
-}
-.farmer-message-title {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 4px;
-  color: var(--g-text-primary);
-}
 .farmer-message-snippet {
   font-size: 12px;
   color: var(--g-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.farmer-message-plot {
+  display: block;
+  margin-top: 6px;
+  color: var(--g-text-secondary);
+  font-size: 10px;
+}
+
+.farmer-message-level {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--g-danger-bg);
+  color: var(--g-danger);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.farmer-message-alert-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+
+.farmer-message-alert-meta small {
+  display: block;
+  color: var(--g-text-secondary);
+  font-size: 10px;
+}
+
+.farmer-message-alert-meta strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--g-text-primary);
+  font-size: 12px;
+}
+
+.farmer-message-code {
+  word-break: break-all;
+  font-family: var(--g-mono, monospace);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.farmer-message-alert-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--g-radius);
+  background: var(--g-warning-bg);
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.farmer-message-alert-note .material-symbols-outlined {
+  color: var(--g-warning);
+  font-size: 16px;
+}
+
+.farmer-message-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.farmer-message-action-grid .g-btn {
+  justify-content: center;
+}
+
+.farmer-message-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--g-text-primary);
+}
+
+.farmer-message-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--g-text-secondary);
 }
 
 .farmer-message-detail {

@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { adminMetricLabel } from './admin-state.js';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, inject, watch } = Vue;
 
@@ -208,7 +209,7 @@ export const AdminAlertCenter = {
     const plotName = plotId => (props.state.plots || []).find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
     const statusLabel = status => STATUS_LABELS[normalized(status)] || '状态未知';
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
-    const sourceLabel = source => adminMetricLabel(source, source || '系统规则');
+    const sourceLabel = source => localizedSourceLabel(source, adminMetricLabel(source, '系统规则'));
     const auditFor = alert => aiAudits.value[alertKey(alert)] || null;
     const confidenceText = audit => audit ? `${Math.round(audit.score * 100)}%` : '未分析';
     const nextStep = alert => {

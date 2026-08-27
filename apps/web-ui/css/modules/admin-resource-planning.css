@@ -62,5 +62,32 @@
 .rp-device-grid strong, .rp-device-grid span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp-device-grid span { margin-top: 2px; color: var(--g-text-secondary); font-size: 10px; }
 .rp-device-grid b { color: var(--g-text-secondary); font: 9px var(--g-mono); }
+.rp-ledger-layout { display: grid; grid-template-columns: minmax(280px, .86fr) minmax(420px, 1.4fr); align-items: start; gap: 12px; }
+.rp-ledger-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; padding: 16px 18px 0; }
+.rp-ledger-fields label { display: grid; gap: 6px; }
+.rp-ledger-fields label > span { color: var(--g-text-secondary); font-size: 10px; font-weight: 650; }
+.rp-ledger-fields input,
+.rp-ledger-fields select { width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); font: 12px var(--g-font-family); }
+.rp-ledger-fields input:focus,
+.rp-ledger-fields select:focus { outline: 2px solid color-mix(in srgb, var(--g-primary) 22%, transparent); border-color: var(--g-primary); }
+.rp-ledger-note { margin: 14px 18px 0; padding: 10px 11px; border-left: 3px solid var(--admin-teal); background: var(--admin-teal-bg); color: var(--g-text-secondary); font-size: 10px; line-height: 1.55; }
+.rp-ledger-submit { display: flex; justify-content: flex-end; padding: 14px 18px 17px; }
+.rp-ledger-list { display: grid; gap: 8px; max-height: 390px; padding: 14px; overflow-y: auto; }
+.rp-ledger-list article { overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-base); }
+.rp-ledger-list article > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 12px; border-bottom: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); }
+.rp-ledger-list article > header div { display: grid; min-width: 0; gap: 2px; }
+.rp-ledger-list article > header strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.rp-ledger-list article > header small { color: var(--g-text-secondary); font-size: 9px; }
+.rp-ledger-list article > header > span { flex: 0 0 auto; padding: 3px 7px; border: 1px solid var(--g-border); border-radius: 999px; color: var(--g-text-secondary); font-size: 9px; font-weight: 700; }
+.rp-ledger-list article > header > span.computed { border-color: color-mix(in srgb, var(--g-success) 32%, var(--g-border)); background: var(--g-success-bg); color: var(--g-success); }
+.rp-ledger-list article > header > span.incomplete { border-color: color-mix(in srgb, var(--g-warning) 32%, var(--g-border)); background: var(--g-warning-bg); color: var(--g-warning); }
+.rp-ledger-list dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.rp-ledger-list dl > div { min-width: 0; padding: 10px 11px; border-right: 1px solid var(--g-border-subtle); }
+.rp-ledger-list dl > div:last-child { border-right: 0; }
+.rp-ledger-list dt { color: var(--g-text-secondary); font-size: 9px; }
+.rp-ledger-list dd { margin: 4px 0 0; overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.rp-ledger-list article > footer { padding: 8px 11px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font: 9px var(--g-mono); }
+.rp-ledger-empty { margin: 0; padding: 38px 18px; color: var(--g-text-secondary); font-size: 11px; text-align: center; }
+@media (max-width: 980px) { .rp-ledger-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .rp-hero { align-items: stretch; flex-direction: column; } .rp-mode { min-width: 0; } .rp-summary { grid-template-columns: repeat(2, 1fr); } .rp-allocation-list, .rp-device-grid { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .rp-summary { grid-template-columns: 1fr 1fr; } .rp-submit { align-items: stretch; flex-direction: column; } .rp-submit .rp-button { width: 100%; } }
+@media (max-width: 560px) { .rp-summary { grid-template-columns: 1fr 1fr; } .rp-submit { align-items: stretch; flex-direction: column; } .rp-submit .rp-button { width: 100%; } .rp-ledger-fields { grid-template-columns: 1fr; } .rp-ledger-list dl { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rp-ledger-list dl > div:nth-child(2) { border-right: 0; } .rp-ledger-list dl > div:nth-child(-n + 2) { border-bottom: 1px solid var(--g-border-subtle); } }
