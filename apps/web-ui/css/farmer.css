@@ -1588,16 +1588,31 @@
 .farmer-advice-chart-head { align-items: center; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-advice-moisture-chart .farmer-chart-svg { height: 112px; margin-top: 4px; }
 
-/* 灌溉建议卡内嵌反馈区 */
-.farmer-feedback-inline {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--g-border-subtle);
+/* 灌溉页：建议反馈与案例学习独立卡片 */
+.farmer-learning-card .farmer-feedback-section .farmer-panel-header { margin-bottom: 6px; }
+.farmer-learning-card .farmer-feedback-section .farmer-advice-summary { margin: 0 0 10px; font-size: 13px; line-height: 1.6; }
+.farmer-learning-card .farmer-feedback-actions { gap: 8px; }
+.farmer-learning-card .farmer-case-panel {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--g-border-subtle);
 }
-.farmer-feedback-inline .farmer-panel-header { margin-bottom: 6px; }
-.farmer-feedback-inline .farmer-advice-summary { margin: 0 0 10px; font-size: 12px; line-height: 1.5; }
-.farmer-feedback-inline .farmer-feedback-actions { gap: 6px; }
-.farmer-feedback-inline .farmer-feedback-actions .g-btn { min-height: 34px; padding: 7px 10px; font-size: 12px; }
+
+.farmer-advice-diagnosis-panel { border-top-style: solid; }
+.farmer-diagnosis-primary { margin: 10px 0 12px; padding: 12px; border-radius: var(--g-radius); background: var(--g-bg-subtle); }
+.farmer-diagnosis-primary strong { display: block; font-size: 16px; margin-bottom: 6px; color: var(--g-primary); }
+.farmer-diagnosis-primary p { margin: 0; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
+.farmer-diagnosis-candidates { display: grid; gap: 6px; margin-bottom: 12px; }
+.farmer-diagnosis-candidates article { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--g-radius); background: var(--g-bg-base); font-size: 12px; }
+.farmer-diagnosis-candidates strong { color: var(--g-text-secondary); }
+.farmer-readiness-block { padding-top: 4px; }
+.farmer-readiness-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+.farmer-readiness-head span { color: var(--g-text-secondary); font-size: 12px; }
+.farmer-readiness-gates { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.farmer-readiness-gates > span { padding: 4px 8px; border-radius: var(--g-radius-pill); font-size: 11px; background: var(--g-bg-subtle); color: var(--g-text-secondary); }
+.farmer-readiness-gates > span.gate-pass { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-readiness-gates > span.gate-fail { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-readiness-gates > span.gate-review { color: var(--g-warning); background: var(--g-warning-bg); }
 
 /* 农事助手单独成行 */
 .farmer-assistant-card { margin-top: 20px; }
@@ -1808,7 +1823,7 @@
 @media (max-width: 560px) {
   .farmer-plot-charts { grid-template-columns: 1fr; }
   .farmer-metric-chart { padding: 12px; }
-  .farmer-feedback-inline .farmer-feedback-actions .g-btn { flex: 1 1 auto; }
+  .farmer-learning-card .farmer-feedback-actions .g-btn { flex: 1 1 auto; }
 }
 
 /* ============================================================
@@ -1886,7 +1901,7 @@
 .farmer-batch-timeline li.upcoming small { color: var(--g-text-secondary); }
 .farmer-batch-timeline p { margin-top: 5px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
 
-.farmer-fold-section, .farmer-case-panel { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--g-border-subtle); }
+.farmer-fold-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--g-border-subtle); }
 .farmer-fold-trigger { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--g-text-primary); font: inherit; cursor: pointer; }
 .farmer-fold-trigger > span:first-child { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .farmer-fold-trigger .material-symbols-outlined { color: var(--g-primary); }

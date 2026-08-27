@@ -251,6 +251,71 @@ const FARMER_SIMILAR_CASES = Object.freeze([
   { id: 'case-038', title: '高温时段延后灌溉', result: '改到傍晚执行后蒸散压力下降，未出现重复告警。', similarity: '81%', source: 'SIMULATED · 已完成评价案例' }
 ]);
 
+const FEEDBACK_CAUSE_LABELS = Object.freeze({
+  WATER_DEFICIT: '地块缺水',
+  SENSOR_DRIFT: '传感器读数可疑',
+  DEVICE_FAULT: '采集设备异常',
+  HEAT_STRESS: '高温胁迫',
+  INSUFFICIENT_EVIDENCE: '证据不足'
+});
+
+const FEEDBACK_DECISION_MAP = Object.freeze({
+  '采纳建议': 'ACCEPTED',
+  '需要调整': 'MODIFIED',
+  '修改方案': 'MODIFIED',
+  '暂不处理': 'DEFERRED',
+  '确认采用（待审批）': 'ACCEPTED'
+});
+
+const READINESS_STATUS_LABELS = Object.freeze({
+  READY: '可以提交审批',
+  NEEDS_EVIDENCE: '需要补充检查',
+  HUMAN_REVIEW: '等待人工复核',
+  UNAVAILABLE: '当前不可执行'
+});
+
+const READINESS_GATE_LABELS = Object.freeze({
+  requiredMetrics: '关键数据',
+  freshness: '数据新鲜度',
+  dataQuality: '数据可靠性',
+  deviceHealth: '设备在线',
+  diagnosisSafety: '诊断安全',
+  resourceCapacity: '水源容量',
+  permission: '审批权限',
+  safetyLimit: '用水上限'
+});
+
+function advice_trace_id() {
+  return `farmer-advice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalize_similar_cases(raw) {
+  return (Array.isArray(raw) ? raw : []).map((item, index) => {
+    const cause = String(item.primaryCause || '').toUpperCase();
+    const crop = item.cropCode || '作物';
+    const score = Number(item.similarityScore ?? item.similarity ?? 0);
+    const similarity = Number.isFinite(score)
+      ? `${Math.round(score <= 1 ? score * 100 : score)}%`
+      : '—';
+    const effectiveness = Number(item.effectivenessScore);
+    const result = Number.isFinite(effectiveness)
+      ? `效果评分 ${Math.round(effectiveness <= 1 ? effectiveness * 100 : effectiveness)}%，已完成评价。`
+      : '已完成评价案例，可供人工参考。';
+    return {
+      id: item.caseId || item.id || `case-${index}`,
+      title: `${crop} · ${FEEDBACK_CAUSE_LABELS[cause] || cause || '相似情境'}`,
+      result,
+      similarity,
+      source: `SIMULATED · ${item.ruleVersion || '已完成评价案例'}`,
+      raw: item
+    };
+  });
+}
+
+function feedback_decision_code(label) {
+  return FEEDBACK_DECISION_MAP[label] || 'ACCEPTED';
+}
+
 const FARMER_REPORT_CATALOG = Object.freeze({
   daily: {
     title: '今日农务日报',
@@ -797,6 +862,10 @@ const app = createApp({
       };
     });
     const irrigation_readiness = computed(() => {
+      const score = irrigation_readiness_detail.value?.score ?? advice_readiness.value?.score;
+      if (score !== undefined && score !== null && Number.isFinite(Number(score))) {
+        return Math.round(Number(score) * 100);
+      }
       const plot = advice_plot.value;
       const moisture = plot?.metrics?.SOIL_MOISTURE;
       if (!plot || moisture?.value === undefined || moisture?.value === null) return 0;
@@ -824,6 +893,39 @@ const app = createApp({
       if (!plot) return '暂无地块数据';
       const band = selected_crop_band.value;
       return `当前 ${plot.metrics?.SOIL_MOISTURE?.value ?? '—'}% · 目标 ${band?.targetText || plot.metrics?.SOIL_MOISTURE?.target || '—'}`;
+    });
+    const advice_diagnosis_summary = computed(() => {
+      const diagnosis = advice_diagnosis.value;
+      if (!diagnosis) return null;
+      const cause = String(diagnosis.primaryCause || '').toUpperCase();
+      const confidence = Number(diagnosis.confidence);
+      return {
+        causeLabel: FEEDBACK_CAUSE_LABELS[cause] || cause || '待分析',
+        confidenceLabel: Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : '—',
+        summary: diagnosis.summary || diagnosis.explanation || irrigation_plan.value?.why || advice_plan.value?.why || '系统已根据当前地块数据完成规则诊断。',
+        candidates: (diagnosis.candidateCauses || []).slice(0, 3).map((item) => ({
+          code: item.code,
+          label: FEEDBACK_CAUSE_LABELS[String(item.code || '').toUpperCase()] || item.code,
+          confidence: Number.isFinite(Number(item.confidence)) ? `${Math.round(Number(item.confidence) * 100)}%` : '—'
+        }))
+      };
+    });
+    const advice_readiness_summary = computed(() => {
+      const readiness = advice_readiness.value;
+      if (!readiness) return null;
+      const status = String(readiness.status || 'UNAVAILABLE').toUpperCase();
+      return {
+        status,
+        statusLabel: READINESS_STATUS_LABELS[status] || status,
+        score: Number.isFinite(Number(readiness.score)) ? Math.round(Number(readiness.score) * 100) : null,
+        missing: (readiness.missingEvidence || []).slice(0, 4),
+        gates: Object.entries(readiness.hardGates || {}).map(([key, value]) => ({
+          key,
+          label: READINESS_GATE_LABELS[key] || key,
+          status: String(value || '').toUpperCase()
+        })),
+        canRequestReview: Boolean(irrigation_plan.value?.planId || advice_plan.value?.planId)
+      };
     });
     const advice_moisture_chart = computed(() => {
       const plot = advice_selected_plot.value;
@@ -932,6 +1034,15 @@ const app = createApp({
     const password_error = ref('');
     const irrigation_running = ref(false);
     const irrigation_progress = ref(0);
+    const advice_trace = ref('');
+    const advice_plan = ref(null);
+    const advice_diagnosis = ref(null);
+    const advice_readiness = ref(null);
+    const advice_loading = ref(false);
+    const advice_error = ref('');
+    const show_advice_diagnosis = ref(false);
+    const feedback_busy = ref(false);
+    const similar_cases_live = ref([]);
     const suggestion_feedback = ref('');
     const qa_input = ref('');
     const latest_answer = ref('');
@@ -1458,7 +1569,11 @@ const app = createApp({
     };
 
     const availability_label = (code) => CROP_MANUAL_AVAILABILITY[code] || code || '—';
-    const similar_cases = computed(() => FARMER_SIMILAR_CASES);
+    const similar_cases = computed(() => {
+      if (similar_cases_live.value.length) return similar_cases_live.value;
+      if (is_formal_session) return [];
+      return FARMER_SIMILAR_CASES;
+    });
     const active_report = computed(() => {
       const base = FARMER_REPORT_CATALOG[active_report_key.value] || FARMER_REPORT_CATALOG.daily;
       return { ...base, generatedAt: data_updated_label.value };
@@ -2261,25 +2376,139 @@ const app = createApp({
       open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
 
-    const set_suggestion_feedback = (feedback) => {
+    const reset_advice_feedback_state = () => {
+      selected_case_id.value = '';
+      human_confirmation_checked.value = false;
+      suggestion_feedback.value = '';
+      decision_confirmation.value = '';
+    };
+
+    const load_advice_decision = async (plotId) => {
+      const plot = find_plot_by_id(plots.value, plotId) || advice_plot.value;
+      if (!plot?.plotId) return;
+      advice_loading.value = true;
+      advice_error.value = '';
+      reset_advice_feedback_state();
+      try {
+        const plan = (irrigation_plan.value?.plotId === plot.plotId && irrigation_plan.value?.planId)
+          ? irrigation_plan.value
+          : await load_irrigation_plan(plot.plotId, { silent: true });
+        if (!plan?.planId) {
+          advice_error.value = irrigation_plan_error.value || '灌溉建议尚未就绪';
+          return;
+        }
+        const traceId = plan.traceId || advice_trace.value || advice_trace_id();
+        advice_trace.value = traceId;
+        advice_plan.value = plan;
+        const diagnosis = await api.evaluateDiagnosis(plot.plotId, { traceId });
+        advice_diagnosis.value = diagnosis;
+        advice_readiness.value = irrigation_readiness_detail.value || await api.getDecisionReadiness('IRRIGATION_PLAN', plan.planId, {
+          farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
+          plotId: plot.plotId,
+          diagnosis,
+          plan
+        });
+        const cases = await api.getSimilarCases(traceId, {
+          cropCode: plot.cropCode || 'tomato',
+          primaryCause: diagnosis.primaryCause || 'WATER_DEFICIT'
+        });
+        similar_cases_live.value = normalize_similar_cases(cases);
+      } catch (error) {
+        advice_error.value = error.message || '灌溉建议加载失败';
+        advice_plan.value = null;
+        advice_diagnosis.value = null;
+        advice_readiness.value = null;
+        advice_trace.value = '';
+        similar_cases_live.value = [];
+      } finally {
+        advice_loading.value = false;
+      }
+    };
+
+    const open_advice_diagnosis = async () => {
+      const plot = advice_plot.value;
+      if (!plot?.plotId) {
+        show_toast('请先选择地块', 'error');
+        return;
+      }
+      if (!advice_diagnosis.value && !advice_loading.value) {
+        await load_advice_decision(plot.plotId);
+      }
+      if (!advice_diagnosis.value && advice_error.value) {
+        show_toast(advice_error.value, 'error');
+        return;
+      }
+      show_advice_diagnosis.value = !show_advice_diagnosis.value;
+    };
+
+    const set_suggestion_feedback = async (feedback) => {
+      decision_confirmation.value = '';
       if (is_formal_session) {
-        show_toast('正式建议反馈已保留在本页，不会改写生产策略', 'error');
+        if (!advice_trace.value) {
+          await load_advice_decision(advice_plot.value?.plotId);
+        }
+        const traceId = advice_trace.value || irrigation_plan.value?.traceId;
+        const planId = advice_plan.value?.planId || irrigation_plan.value?.planId;
+        if (!traceId) {
+          show_toast('灌溉建议尚未就绪，请稍后再反馈', 'error');
+          return;
+        }
+        if (feedback_busy.value) return;
+        feedback_busy.value = true;
+        try {
+          await api.submitDecisionFeedback(traceId, {
+            decision: feedback_decision_code(feedback),
+            planId,
+            note: feedback,
+            reasonCodes: feedback_decision_code(feedback) === 'MODIFIED' ? ['FARMER_ADJUSTMENT'] : []
+          });
+          suggestion_feedback.value = feedback;
+          show_toast(`反馈已记录：${feedback}`);
+        } catch (error) {
+          show_toast(error.message || '反馈提交失败', 'error');
+        } finally {
+          feedback_busy.value = false;
+        }
         return;
       }
       suggestion_feedback.value = feedback;
-      decision_confirmation.value = '';
       show_toast(`演示反馈已记录：${feedback}`);
     };
 
-    const confirm_suggestion = () => {
+    const confirm_suggestion = async () => {
       if (!selected_case_id.value || !human_confirmation_checked.value) {
         show_toast('请先选择参考案例并完成现场确认', 'error');
         return;
       }
-      if (is_live.value) {
-        decision_confirmation.value = '已提交待复核';
-        suggestion_feedback.value = '确认采用（待审批）';
-        show_toast('正式采用已记录为待复核，不会直接修改处方或策略');
+      const selected = similar_cases.value.find((item) => item.id === selected_case_id.value);
+      if (is_formal_session) {
+        if (!advice_trace.value) {
+          await load_advice_decision(advice_plot.value?.plotId);
+        }
+        const traceId = advice_trace.value || irrigation_plan.value?.traceId;
+        const planId = advice_plan.value?.planId || irrigation_plan.value?.planId;
+        if (!traceId) {
+          show_toast('灌溉建议尚未就绪', 'error');
+          return;
+        }
+        if (feedback_busy.value) return;
+        feedback_busy.value = true;
+        try {
+          await api.submitDecisionFeedback(traceId, {
+            decision: 'ACCEPTED',
+            planId,
+            note: '农户已核对案例并确认采用，等待安全检查与审批',
+            referenceCaseId: selected?.raw?.caseId || selected_case_id.value,
+            humanConfirmed: true
+          });
+          decision_confirmation.value = '已提交待复核';
+          suggestion_feedback.value = '确认采用（待审批）';
+          show_toast('正式采用已记录为待复核，不会直接修改处方或策略');
+        } catch (error) {
+          show_toast(error.message || '确认提交失败', 'error');
+        } finally {
+          feedback_busy.value = false;
+        }
         return;
       }
       decision_confirmation.value = '已提交人工确认';
@@ -2608,6 +2837,9 @@ const app = createApp({
       }
       await load_farmer_enhancements();
       await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
+      if (current_view.value === 'advice' && advice_plot.value?.plotId) {
+        void load_advice_decision(advice_plot.value.plotId);
+      }
       if (current_view.value === 'tools') {
         if (tools_tab.value === 'manual') await load_crop_manual();
         else await load_tools_forecast();
@@ -2622,7 +2854,16 @@ const app = createApp({
     });
 
     watch(advice_selected_plot, (plot, previous) => {
-      if (plot?.plotId && plot.plotId !== previous?.plotId) load_irrigation_plan(plot.plotId, { silent: true });
+      if (!plot?.plotId || plot.plotId === previous?.plotId) return;
+      show_advice_diagnosis.value = false;
+      load_irrigation_plan(plot.plotId, { silent: true });
+      if (current_view.value === 'advice') void load_advice_decision(plot.plotId);
+    });
+
+    watch(current_view, (view) => {
+      if (view === 'advice' && advice_plot.value?.plotId) {
+        void load_advice_decision(advice_plot.value.plotId);
+      }
     });
 
     onBeforeUnmount(() => {
@@ -2634,6 +2875,7 @@ const app = createApp({
     });
 
     return {
+      is_formal_session,
       is_live,
       load_error,
       is_dark,
@@ -2740,6 +2982,14 @@ const app = createApp({
       password_error,
       irrigation_running,
       irrigation_progress,
+      advice_loading,
+      advice_error,
+      show_advice_diagnosis,
+      advice_diagnosis_summary,
+      advice_readiness_summary,
+      advice_plan,
+      advice_trace,
+      feedback_busy,
       suggestion_feedback,
       qa_input,
       latest_answer,
@@ -2809,6 +3059,7 @@ const app = createApp({
       open_suggestion_inspection,
       submit_suggestion_result,
       refresh_suggestion_recovery,
+      open_advice_diagnosis,
       set_suggestion_feedback,
       confirm_suggestion,
       ask_question,

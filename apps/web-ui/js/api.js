@@ -1775,6 +1775,22 @@ export class ApiService {
     return feedback;
   }
 
+  async getSimilarCases(traceId, params = {}) {
+    if (!traceId) {
+      throw new ApiError('缺少决策 traceId', { status: 400, code: 'TRACE_ID_REQUIRED' });
+    }
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams(
+        Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+      ).toString();
+      const suffix = query ? `?${query}` : '';
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/similar-cases${suffix}`);
+      const data = resp?.data ?? resp;
+      return Array.isArray(data) ? data : (data?.cases || []);
+    }
+    return [];
+  }
+
   async getDecisionPassport(traceId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decision-passports/${encodeURIComponent(traceId)}`);

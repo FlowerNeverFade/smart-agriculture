@@ -645,6 +645,8 @@
                   </div>
                   <span class="g-badge success">就绪度 {{ irrigation_readiness }}%</span>
                 </div>
+                <p v-if="advice_loading" class="farmer-panel-hint">正在读取诊断、处方与相似案例…</p>
+                <p v-else-if="advice_error" class="farmer-form-error">{{ advice_error }}</p>
                 <div class="farmer-irrigation-amount"><strong>{{ irrigation_amount }}</strong><span v-if="irrigation_amount !== '—'">升</span><small>{{ irrigation_duration_label }}</small></div>
                 <div class="farmer-irrigation-progress"><span :style="{width: irrigation_progress + '%'}"></span></div>
                 <div v-if="advice_soil_chart" class="farmer-advice-moisture-chart">
@@ -666,17 +668,50 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；正式会话只创建后端审批工单，不直接控制水泵。</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，执行审批由农场管理员处理。' : '演示模式不会控制真实水泵。' }}</p>
                 <div class="farmer-advice-actions">
-                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation" :disabled="irrigation_plan_loading">
+                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation" :disabled="irrigation_plan_loading || advice_loading">
                     <span class="material-symbols-outlined">water_drop</span>
                     {{ irrigation_plan_loading ? '读取处方中…' : '查看建议并提交审批' }}
+                  </button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" :disabled="advice_loading" @click="open_advice_diagnosis">
+                    <span class="material-symbols-outlined">{{ show_advice_diagnosis ? 'expand_less' : 'psychology' }}</span>{{ show_advice_diagnosis ? '收起诊断' : '查看智能诊断' }}
                   </button>
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
                 <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不提交灌溉申请</p>
                 <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '需管理员审批，农户不会直接控制水泵' : '处方仅供当前地块参考，提交前会再次检查安全门' }}</p>
+
+                <div v-if="show_advice_diagnosis && advice_diagnosis_summary" class="farmer-fold-section farmer-advice-diagnosis-panel">
+                  <div class="farmer-panel-header">
+                    <div>
+                      <span class="farmer-section-kicker">智能诊断</span>
+                      <h3>{{ advice_plot ? advice_plot.name : '当前地块' }} · 根因与就绪度</h3>
+                    </div>
+                    <span class="g-badge primary">{{ advice_diagnosis_summary.confidenceLabel }} 可信</span>
+                  </div>
+                  <div class="farmer-diagnosis-primary">
+                    <strong>{{ advice_diagnosis_summary.causeLabel }}</strong>
+                    <p>{{ advice_diagnosis_summary.summary }}</p>
+                  </div>
+                  <div v-if="advice_diagnosis_summary.candidates.length" class="farmer-diagnosis-candidates">
+                    <article v-for="item in advice_diagnosis_summary.candidates" :key="item.code">
+                      <span>{{ item.label }}</span><strong>{{ item.confidence }}</strong>
+                    </article>
+                  </div>
+                  <div v-if="advice_readiness_summary" class="farmer-readiness-block">
+                    <div class="farmer-readiness-head">
+                      <strong>{{ advice_readiness_summary.statusLabel }}</strong>
+                      <span v-if="advice_readiness_summary.score !== null">综合分 {{ advice_readiness_summary.score }}</span>
+                    </div>
+                    <div class="farmer-readiness-gates">
+                      <span v-for="gate in advice_readiness_summary.gates" :key="gate.key" :class="'gate-' + gate.status.toLowerCase()">{{ gate.label }}</span>
+                    </div>
+                    <p v-if="irrigation_plan?.why || advice_plan?.why" class="farmer-panel-hint">处方说明：{{ irrigation_plan?.why || advice_plan?.why }}</p>
+                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 农户可查看结论并通过建议流提交审批，不能直接虚拟执行。</small>
+                  </div>
+                </div>
 
                 <div class="farmer-fold-section">
                   <button type="button" class="farmer-fold-trigger" :aria-expanded="show_resource_allocation ? 'true' : 'false'" @click="show_resource_allocation = !show_resource_allocation">
@@ -689,36 +724,39 @@
                     <small>来源：{{ selected_allocation.provenance }} · 容量优先级排程结果，仅展示不在农户端重算规则。</small>
                   </div>
                 </div>
-
-                <div class="farmer-feedback-inline">
-                  <div class="farmer-panel-header">
-                    <div>
-                      <span class="farmer-section-kicker">建议反馈</span>
-                      <h3>这条建议有帮助吗？</h3>
-                    </div>
-                    <span class="g-badge" :class="suggestion_feedback ? 'success' : 'primary'">{{ suggestion_feedback || '待反馈' }}</span>
-                  </div>
-                  <p class="farmer-advice-summary">你的反馈会帮助管理员复核建议是否适合现场情况，并保留为可审计记录。</p>
-                  <div class="farmer-feedback-actions">
-                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('采纳建议')"><span class="material-symbols-outlined">thumb_up</span>采纳建议</button>
-                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('需要调整')"><span class="material-symbols-outlined">edit_note</span>需要调整</button>
-                    <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('暂不处理')"><span class="material-symbols-outlined">schedule</span>暂不处理</button>
-                  </div>
-                </div>
-
-                <div class="farmer-case-panel">
-                  <div class="farmer-panel-header"><div><span class="farmer-section-kicker">I-23 · I-29</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
-                  <button type="button" v-for="item in similar_cases" :key="item.id" class="farmer-case-item" @click="selected_case_id = item.id">
-                    <span class="material-symbols-outlined">history</span>
-                    <div><strong>{{ item.title }}</strong><p>{{ item.result }}</p><small>相似度 {{ item.similarity }} · {{ item.source }}</small></div>
-                    <span class="material-symbols-outlined">{{ selected_case_id === item.id ? 'radio_button_checked' : 'radio_button_unchecked' }}</span>
-                  </button>
-                  <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用仍需经过安全检查与审批。</span></label>
-                  <button type="button" class="g-btn primary farmer-btn-analyze farmer-confirm-button" :disabled="!human_confirmation_checked || !selected_case_id" @click="confirm_suggestion"><span class="material-symbols-outlined">verified_user</span>{{ decision_confirmation || '确认采用建议' }}</button>
-                  <small class="farmer-case-note">反馈只形成待复核记录，不会静默修改阈值、处方或生产策略。</small>
-                </div>
               </article>
             </div>
+
+            <article class="g-card farmer-advice-card farmer-learning-card">
+              <div class="farmer-feedback-section">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">建议反馈</span>
+                    <h3>这条建议有帮助吗？</h3>
+                  </div>
+                  <span class="g-badge" :class="suggestion_feedback ? 'success' : 'primary'">{{ suggestion_feedback || '待反馈' }}</span>
+                </div>
+                <p class="farmer-advice-summary">你的反馈会帮助管理员复核建议是否适合现场情况，并保留为可审计记录。</p>
+                <div class="farmer-feedback-actions">
+                  <button type="button" class="g-btn secondary farmer-btn-light" :disabled="feedback_busy || advice_loading" @click="set_suggestion_feedback('采纳建议')"><span class="material-symbols-outlined">thumb_up</span>采纳建议</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" :disabled="feedback_busy || advice_loading" @click="set_suggestion_feedback('需要调整')"><span class="material-symbols-outlined">edit_note</span>需要调整</button>
+                  <button type="button" class="g-btn secondary farmer-btn-light" :disabled="feedback_busy || advice_loading" @click="set_suggestion_feedback('暂不处理')"><span class="material-symbols-outlined">schedule</span>暂不处理</button>
+                </div>
+              </div>
+
+                <div class="farmer-case-panel">
+                <div class="farmer-panel-header"><div><span class="farmer-section-kicker">I-23 · I-29</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
+                <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或创建灌溉审批工单。</p>
+                <button type="button" v-for="item in similar_cases" :key="item.id" class="farmer-case-item" @click="selected_case_id = item.id">
+                  <span class="material-symbols-outlined">history</span>
+                  <div><strong>{{ item.title }}</strong><p>{{ item.result }}</p><small>相似度 {{ item.similarity }} · {{ item.source }}</small></div>
+                  <span class="material-symbols-outlined">{{ selected_case_id === item.id ? 'radio_button_checked' : 'radio_button_unchecked' }}</span>
+                </button>
+                <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用仍需经过安全检查与审批。</span></label>
+                <button type="button" class="g-btn primary farmer-btn-analyze farmer-confirm-button" :disabled="feedback_busy || advice_loading || !human_confirmation_checked || !selected_case_id" @click="confirm_suggestion"><span class="material-symbols-outlined">verified_user</span>{{ decision_confirmation || '确认采用建议' }}</button>
+                <small class="farmer-case-note">反馈只形成待复核记录，不会静默修改阈值、处方或生产策略。</small>
+              </div>
+            </article>
           </section>
 
           <section v-else-if="current_view === 'messages'" class="farmer-workspace" key="messages">
