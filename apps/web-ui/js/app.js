@@ -2505,6 +2505,17 @@ const app = createApp({
       showProfileMenu.value = false;
     };
 
+    const handleGlobalClick = (e) => {
+      if (!e.target.closest('.account-profile-anchor')) {
+        closeProfileMenu();
+      }
+      if (!e.target.closest('.g-header-center')) {
+        showFarmMenu.value = false;
+      }
+    };
+    onMounted(() => document.addEventListener('click', handleGlobalClick, true));
+    onBeforeUnmount(() => document.removeEventListener('click', handleGlobalClick, true));
+
     const openAccountModal = () => {
       closeProfileMenu();
       passwordForm.value = { current: '', next: '', confirm: '' };

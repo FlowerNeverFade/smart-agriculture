@@ -70,7 +70,7 @@
   </style>
 </head>
 <body>
-  <div id="app" v-cloak :class="roleClass" @click="closeProfileMenu(); showFarmMenu = false">
+  <div id="app" v-cloak :class="roleClass">
     <header class="g-header" :class="{ 'farmer-header': isFarmer }">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
