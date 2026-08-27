@@ -637,6 +637,22 @@
   cursor: not-allowed;
 }
 
+.g-btn.is-loading {
+  gap: 8px;
+  cursor: wait;
+}
+.g-btn.is-loading .farmer-btn-spin {
+  animation: farmer-btn-spin 0.75s linear infinite;
+}
+@keyframes farmer-btn-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .g-btn.is-loading .farmer-btn-spin {
+    animation-duration: 1.6s;
+  }
+}
+
 /* 主面板统计卡片 */
 .farmer-stats-grid {
   display: grid;

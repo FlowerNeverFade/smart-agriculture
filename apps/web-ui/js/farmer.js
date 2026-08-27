@@ -43,7 +43,8 @@ const FARMER_ICON_CLASS = Object.freeze({
   radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
   insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
-  science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass'
+  science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
+  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone'
 });
 
 const FarmerAppIcon = {
@@ -225,9 +226,10 @@ function crop_manual_metrics(pack, stage) {
     SOIL_MOISTURE: '土壤湿度',
     AIR_TEMPERATURE: '空气温度',
     AIR_HUMIDITY: '空气湿度',
-    WATER_LEVEL: '水位',
-    LIGHT: '光照',
+    WATER_LEVEL: '水箱水位',
+    LIGHT: '光照强度',
     CO2: 'CO2',
+    PH: '土壤酸碱度',
     SOIL_EC: '土壤 EC',
     NPK_RATIO: '氮磷钾'
   };
@@ -245,6 +247,24 @@ function crop_manual_metrics(pack, stage) {
       note: '阶段环境湿度目标'
     });
   }
+  const stageTargets = [
+    { code: 'LIGHT', low: target.lightLow, high: target.lightHigh, unit: 'lux', note: '阶段模型参考区间' },
+    { code: 'CO2', low: target.co2Low, high: target.co2High, unit: 'ppm', note: '阶段模型参考区间' },
+    { code: 'PH', low: target.phLow, high: target.phHigh, unit: 'pH', note: '阶段模型参考区间' },
+    { code: 'WATER_LEVEL', low: target.waterLevelLow, high: target.waterLevelHigh, unit: '%', note: '可监测指标' }
+  ];
+  stageTargets.forEach((item) => {
+    if (item.low == null && item.high == null) return;
+    const profile = (pack?.metrics || []).find((metric) => metric.code === item.code) || {};
+    items.push({
+      code: item.code,
+      label: profile.label || labels[item.code] || item.code,
+      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      unit: profile.unit || item.unit,
+      availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
+      note: item.note
+    });
+  });
   const covered = new Set(items.map((item) => item.code));
   (pack?.metrics || []).forEach((metric) => {
     if (covered.has(metric.code)) return;
@@ -269,6 +289,9 @@ function crop_manual_guide(pack, stage) {
   ];
   if (target.airHumidityLow != null || target.airHumidityHigh != null) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
+  if (target.lightLow != null || target.lightHigh != null) {
+    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage?.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || code).join('、')}。`);
@@ -683,7 +706,21 @@ function stage_target_band(plot, code) {
   if (code === 'AIR_HUMIDITY' && Number.isFinite(Number(target.airHumidityLow)) && Number.isFinite(Number(target.airHumidityHigh))) {
     return [Number(target.airHumidityLow), Number(target.airHumidityHigh)];
   }
-  if (code === 'WATER_LEVEL') return [20, 90];
+  if (code === 'LIGHT' && Number.isFinite(Number(target.lightLow)) && Number.isFinite(Number(target.lightHigh))) {
+    return [Number(target.lightLow), Number(target.lightHigh)];
+  }
+  if (code === 'CO2' && Number.isFinite(Number(target.co2Low)) && Number.isFinite(Number(target.co2High))) {
+    return [Number(target.co2Low), Number(target.co2High)];
+  }
+  if (code === 'PH' && Number.isFinite(Number(target.phLow)) && Number.isFinite(Number(target.phHigh))) {
+    return [Number(target.phLow), Number(target.phHigh)];
+  }
+  if (code === 'WATER_LEVEL') {
+    if (Number.isFinite(Number(target.waterLevelLow)) && Number.isFinite(Number(target.waterLevelHigh))) {
+      return [Number(target.waterLevelLow), Number(target.waterLevelHigh)];
+    }
+    return [20, 90];
+  }
   return parse_target_range(plot?.metrics?.[code]?.target);
 }
 

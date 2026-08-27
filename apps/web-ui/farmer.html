@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260827-farmer-ui">
+  <link rel="stylesheet" href="css/farmer.css?v=20260827-btn-loading">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -171,13 +171,28 @@
               rows="3"
               placeholder="例如：温室1 现在需要浇多少水？"
               aria-label="农事问题"
+              :disabled="qa_busy"
             ></textarea>
             <div class="farmer-ai-consult-actions">
-              <select v-if="plots.length" class="g-select" v-model="qa_plot_id" aria-label="关联地块">
+              <select v-if="plots.length" class="g-select" v-model="qa_plot_id" aria-label="关联地块" :disabled="qa_busy">
                 <option value="">不关联地块</option>
                 <option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option>
               </select>
-              <button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="qa_busy">{{ qa_busy ? '思考中…' : '发送' }}</button>
+              <button
+                type="submit"
+                class="g-btn primary farmer-btn-analyze"
+                :class="{ 'is-loading': qa_busy }"
+                :disabled="qa_busy"
+                :aria-busy="qa_busy ? 'true' : 'false'"
+              >
+                <span
+                  v-if="qa_busy"
+                  class="material-symbols-outlined farmer-btn-spin"
+                  aria-hidden="true"
+                >progress_activity</span>
+                <app-icon v-else name="send"></app-icon>
+                {{ qa_busy ? '思考中…' : '发送' }}
+              </button>
             </div>
           </form>
           <div v-if="qa_active_turn" class="farmer-ai-consult-answer-wrap">
@@ -735,12 +750,37 @@
                 </div>
                 <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，执行审批由农场管理员处理。' : '演示模式不会控制真实水泵。' }}</p>
                 <div class="farmer-advice-actions">
-                  <button type="button" class="g-btn primary farmer-btn-analyze" @click="toggle_irrigation" :disabled="irrigation_plan_loading || advice_loading">
-                    <app-icon name="water_drop"></app-icon>
-                    {{ irrigation_plan_loading ? '读取处方中…' : '查看建议并提交审批' }}
+                  <button
+                    type="button"
+                    class="g-btn primary farmer-btn-analyze"
+                    :class="{ 'is-loading': irrigation_plan_loading || advice_loading }"
+                    @click="toggle_irrigation"
+                    :disabled="irrigation_plan_loading || advice_loading"
+                    :aria-busy="(irrigation_plan_loading || advice_loading) ? 'true' : 'false'"
+                  >
+                    <span
+                      v-if="irrigation_plan_loading || advice_loading"
+                      class="material-symbols-outlined farmer-btn-spin"
+                      aria-hidden="true"
+                    >progress_activity</span>
+                    <app-icon v-else name="water_drop"></app-icon>
+                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并提交审批' }}
                   </button>
-                  <button type="button" class="g-btn secondary farmer-btn-light" :disabled="advice_loading" @click="open_advice_diagnosis">
-                    <app-icon :name="show_advice_diagnosis ? 'expand_less' : 'psychology'"></app-icon>{{ show_advice_diagnosis ? '收起诊断' : '查看智能诊断' }}
+                  <button
+                    type="button"
+                    class="g-btn secondary farmer-btn-light"
+                    :class="{ 'is-loading': advice_loading }"
+                    :disabled="advice_loading"
+                    :aria-busy="advice_loading ? 'true' : 'false'"
+                    @click="open_advice_diagnosis"
+                  >
+                    <span
+                      v-if="advice_loading"
+                      class="material-symbols-outlined farmer-btn-spin"
+                      aria-hidden="true"
+                    >progress_activity</span>
+                    <app-icon v-else :name="show_advice_diagnosis ? 'expand_less' : 'psychology'"></app-icon>
+                    {{ advice_loading ? '诊断中…' : (show_advice_diagnosis ? '收起诊断' : '查看智能诊断') }}
                   </button>
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
@@ -810,7 +850,7 @@
               </div>
 
               <div class="farmer-case-panel">
-                <div class="farmer-panel-header"><div><span class="farmer-section-kicker">I-23 · I-29</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
+                <div class="farmer-panel-header"><div><span class="farmer-section-kicker">案例确认</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
                 <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或创建灌溉审批工单。</p>
                 <button type="button" v-for="item in similar_cases" :key="item.id" class="farmer-case-item" @click="selected_case_id = item.id">
                   <app-icon name="history"></app-icon>
@@ -923,8 +963,19 @@
                     <button class="g-btn secondary farmer-btn-light" @click="mark_read(selected_message)" :disabled="selected_message.read">
                       {{ selected_message.read ? '已读' : '标记已读' }}
                     </button>
-                    <button class="g-btn primary farmer-btn-analyze" @click="generate_analysis(selected_message)" :disabled="analyzing">
-                      <app-icon name="auto_awesome"></app-icon>
+                    <button
+                      class="g-btn primary farmer-btn-analyze"
+                      :class="{ 'is-loading': analyzing }"
+                      @click="generate_analysis(selected_message)"
+                      :disabled="analyzing"
+                      :aria-busy="analyzing ? 'true' : 'false'"
+                    >
+                      <span
+                        v-if="analyzing"
+                        class="material-symbols-outlined farmer-btn-spin"
+                        aria-hidden="true"
+                      >progress_activity</span>
+                      <app-icon v-else name="auto_awesome"></app-icon>
                       {{ analyzing ? '生成中…' : '生成分析' }}
                     </button>
                   </div>
@@ -1418,6 +1469,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260827-merge-farmer"></script>
+  <script type="module" src="js/farmer.js?v=20260827-crop-pack-1.1"></script>
 </body>
 </html>

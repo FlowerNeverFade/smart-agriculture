@@ -640,15 +640,15 @@ export const MOCK_DATA = {
   cropPackDetails: [
     {
       cropCode: "tomato",
-      version: "1.0.0",
+      version: "1.1.0",
       schemaVersion: "1.0",
       status: "ACTIVE",
       identity: { name: "番茄", variety: "demonstration", region: "重庆", environment: "greenhouse" },
       stages: [
-        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28, airHumidityLow: 60, airHumidityHigh: 80 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/seedling.md" },
-        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 55, airHumidityHigh: 80 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/vegetative.md" },
-        { code: "flowering", sequence: 3, label: "开花坐果期", target: { soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/flowering.md" },
-        { code: "fruiting", sequence: 4, label: "果实成熟期", target: { soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/fruiting.md" }
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28, airHumidityLow: 60, airHumidityHigh: 80, lightLow: 15000, lightHigh: 30000, co2Low: 400, co2High: 800, phLow: 5.8, phHigh: 6.8, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/seedling.md" },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 55, airHumidityHigh: 80, lightLow: 20000, lightHigh: 40000, co2Low: 500, co2High: 900, phLow: 5.8, phHigh: 6.8, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/vegetative.md" },
+        { code: "flowering", sequence: 3, label: "开花坐果期", target: { soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75, lightLow: 25000, lightHigh: 45000, co2Low: 600, co2High: 1000, phLow: 5.8, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/flowering.md" },
+        { code: "fruiting", sequence: 4, label: "果实成熟期", target: { soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75, lightLow: 25000, lightHigh: 50000, co2Low: 600, co2High: 1000, phLow: 5.8, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/fruiting.md" }
       ],
       metrics: [
         { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
@@ -674,7 +674,7 @@ export const MOCK_DATA = {
       prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
-      knowledgeVersion: "kb-1.0.0",
+      knowledgeVersion: "kb-1.1.0",
       ruleVersion: "rule-1.0.0",
       knowledge: {
         documents: ["knowledge/seedling.md", "knowledge/vegetative.md", "knowledge/flowering.md", "knowledge/fruiting.md", "knowledge/irrigation.md"],
@@ -682,8 +682,8 @@ export const MOCK_DATA = {
         byStage: {
           seedling: [
             "苗期根系浅、叶片面积小，优先保持根区湿润和夜间保温，避免忽干忽湿。",
-            "土壤湿度目标 30%~50%，气温 18~28°C；低于苗期湿度下限先复测，再决定是否补水。",
-            "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。"
+            "土壤湿度目标 30%~50%，气温 18~28°C；光照参考 15000~30000 lux，CO₂ 400~800 ppm，土壤酸碱度 pH 5.8~6.8。",
+            "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。光照/CO₂/pH 本期为演示参考。"
           ],
           vegetative: [
             "营养生长期需水量上升，土壤湿度目标 25%~45%。",
@@ -711,7 +711,7 @@ export const MOCK_DATA = {
           "- 灌溉时长受 900 秒安全上限和 120 分钟冷却约束",
           "- 数据质量不足时先巡田复测，不直接下发控制命令",
           "",
-          "> 证据范围：作物：番茄，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+          "> 证据范围：作物：番茄，阶段：fruiting，地区：重庆，知识版本：kb-1.1.0"
         ]
       },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
@@ -719,15 +719,15 @@ export const MOCK_DATA = {
     },
     {
       cropCode: "cucumber",
-      version: "1.0.0",
+      version: "1.1.0",
       schemaVersion: "1.0",
       status: "ACTIVE",
       identity: { name: "黄瓜", variety: "demonstration", region: "重庆", environment: "greenhouse" },
       stages: [
-        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28, airHumidityLow: 65, airHumidityHigh: 85 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/seedling.md" },
-        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30, airHumidityLow: 60, airHumidityHigh: 85 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/vegetative.md" },
-        { code: "flowering", sequence: 3, label: "初花期", target: { soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/flowering.md" },
-        { code: "fruiting", sequence: 4, label: "采收盛期", target: { soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/fruiting.md" }
+        { code: "seedling", sequence: 1, label: "苗期", target: { soilMoistureLow: 32, soilMoistureHigh: 52, airTemperatureLow: 19, airTemperatureHigh: 28, airHumidityLow: 65, airHumidityHigh: 85, lightLow: 12000, lightHigh: 28000, co2Low: 400, co2High: 800, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "COLD_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/seedling.md" },
+        { code: "vegetative", sequence: 2, label: "营养生长期", target: { soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 19, airTemperatureHigh: 30, airHumidityLow: 60, airHumidityHigh: 85, lightLow: 18000, lightHigh: 35000, co2Low: 500, co2High: 900, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/vegetative.md" },
+        { code: "flowering", sequence: 3, label: "初花期", target: { soilMoistureLow: 26, soilMoistureHigh: 46, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80, lightLow: 20000, lightHigh: 40000, co2Low: 600, co2High: 1000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "INSPECTION", intervalDays: 2, priority: "MEDIUM" }], knowledgeRef: "knowledge/flowering.md" },
+        { code: "fruiting", sequence: 4, label: "采收盛期", target: { soilMoistureLow: 24, soilMoistureHigh: 44, airTemperatureLow: 19, airTemperatureHigh: 32, airHumidityLow: 55, airHumidityHigh: 80, lightLow: 20000, lightHigh: 45000, co2Low: 600, co2High: 1000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ["WATER_DEFICIT", "HEAT_STRESS"], taskTemplates: [{ actionType: "IRRIGATION_CHECK", intervalDays: 1, priority: "HIGH" }], knowledgeRef: "knowledge/fruiting.md" }
       ],
       metrics: [
         { code: "SOIL_MOISTURE", label: "土壤湿度", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } },
@@ -753,7 +753,7 @@ export const MOCK_DATA = {
       prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
-      knowledgeVersion: "kb-1.0.0",
+      knowledgeVersion: "kb-1.1.0",
       ruleVersion: "rule-1.0.0",
       knowledge: {
         documents: ["knowledge/seedling.md", "knowledge/vegetative.md", "knowledge/flowering.md", "knowledge/fruiting.md", "knowledge/irrigation.md"],
@@ -761,8 +761,8 @@ export const MOCK_DATA = {
         byStage: {
           seedling: [
             "黄瓜苗期喜湿怕涝，根系浅，土壤湿度目标 32%~52%，气温 19~28°C。",
-            "夜间低温优先保温，不要把短时读数波动当成缺水。",
-            "低质量或漂移数据只能触发巡田、复测，不能直接生成可执行处方。"
+            "光照参考 12000~28000 lux，CO₂ 400~800 ppm，土壤酸碱度 pH 5.5~6.5；夜间低温优先保温。",
+            "低质量或漂移数据只能触发巡田、复测，不能直接生成可执行处方。光照/CO₂/pH 本期为演示参考。"
           ],
           vegetative: [
             "营养生长期需保持较稳定的根区水分，土壤湿度目标 28%~48%。",
@@ -790,7 +790,7 @@ export const MOCK_DATA = {
           "- 数据质量 DEGRADED/BAD 时只触发巡田和复测",
           "- 根区水分保持稳定，避免过湿积水",
           "",
-          "> 证据范围：作物：黄瓜，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
+          "> 证据范围：作物：黄瓜，阶段：fruiting，地区：重庆，知识版本：kb-1.1.0"
         ]
       },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },

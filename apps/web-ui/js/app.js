@@ -1950,9 +1950,10 @@ function manualEnvMetrics(pack, stage) {
     SOIL_MOISTURE: '土壤湿度',
     AIR_TEMPERATURE: '空气温度',
     AIR_HUMIDITY: '空气湿度',
-    WATER_LEVEL: '水位',
-    LIGHT: '光照',
-    CO2: '二氧化碳',
+    WATER_LEVEL: '水箱水位',
+    LIGHT: '光照强度',
+    CO2: 'CO2',
+    PH: '土壤酸碱度',
     SOIL_EC: '土壤电导率',
     NPK_RATIO: '氮磷钾'
   };
@@ -1970,8 +1971,25 @@ function manualEnvMetrics(pack, stage) {
       note: '阶段环境湿度目标'
     });
   }
+  const stageTargets = [
+    { code: 'LIGHT', low: target.lightLow, high: target.lightHigh, unit: 'lux', note: '阶段模型参考区间' },
+    { code: 'CO2', low: target.co2Low, high: target.co2High, unit: 'ppm', note: '阶段模型参考区间' },
+    { code: 'PH', low: target.phLow, high: target.phHigh, unit: 'pH', note: '阶段模型参考区间' },
+    { code: 'WATER_LEVEL', low: target.waterLevelLow, high: target.waterLevelHigh, unit: '%', note: '可监测指标' }
+  ];
+  stageTargets.forEach((item) => {
+    if (item.low == null && item.high == null) return;
+    const profile = (pack.metrics || []).find((metric) => metric.code === item.code) || {};
+    items.push({
+      code: item.code,
+      label: adminMetricLabel(item.code, profile.label || metricLabels[item.code]),
+      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      unit: profile.unit || item.unit,
+      availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
+      note: item.note
+    });
+  });
   const covered = new Set(items.map((item) => item.code));
-  covered.add('WATER_LEVEL');
   (pack.metrics || []).forEach((metric) => {
     if (covered.has(metric.code)) return;
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
@@ -1995,6 +2013,9 @@ function buildStageGuide(pack, stage) {
   ];
   if (target.airHumidityLow != null || target.airHumidityHigh != null) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
+  if (target.lightLow != null || target.lightHigh != null) {
+    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);

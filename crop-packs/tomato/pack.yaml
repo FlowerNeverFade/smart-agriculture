@@ -1,15 +1,29 @@
 cropCode: tomato
-version: 1.0.0
+version: 1.1.0
 schemaVersion: '1.0'
 status: ACTIVE
 identity: {name: 番茄, variety: demonstration, region: 重庆, environment: greenhouse}
 ruleVersion: rule-1.0.0
-knowledgeVersion: kb-1.0.0
+knowledgeVersion: kb-1.1.0
 stages:
   - code: seedling
     sequence: 1
     label: 苗期
-    target: {soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28, airHumidityLow: 60, airHumidityHigh: 80}
+    target:
+      soilMoistureLow: 30
+      soilMoistureHigh: 50
+      airTemperatureLow: 18
+      airTemperatureHigh: 28
+      airHumidityLow: 60
+      airHumidityHigh: 80
+      lightLow: 15000
+      lightHigh: 30000
+      co2Low: 400
+      co2High: 800
+      phLow: 5.8
+      phHigh: 6.8
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, COLD_STRESS]
     taskTemplates:
       - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
@@ -17,7 +31,21 @@ stages:
   - code: vegetative
     sequence: 2
     label: 营养生长期
-    target: {soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 55, airHumidityHigh: 80}
+    target:
+      soilMoistureLow: 25
+      soilMoistureHigh: 45
+      airTemperatureLow: 18
+      airTemperatureHigh: 30
+      airHumidityLow: 55
+      airHumidityHigh: 80
+      lightLow: 20000
+      lightHigh: 40000
+      co2Low: 500
+      co2High: 900
+      phLow: 5.8
+      phHigh: 6.8
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
@@ -25,7 +53,21 @@ stages:
   - code: flowering
     sequence: 3
     label: 开花坐果期
-    target: {soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75}
+    target:
+      soilMoistureLow: 23
+      soilMoistureHigh: 43
+      airTemperatureLow: 18
+      airTemperatureHigh: 32
+      airHumidityLow: 50
+      airHumidityHigh: 75
+      lightLow: 25000
+      lightHigh: 45000
+      co2Low: 600
+      co2High: 1000
+      phLow: 5.8
+      phHigh: 6.5
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
@@ -33,7 +75,21 @@ stages:
   - code: fruiting
     sequence: 4
     label: 果实成熟期
-    target: {soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75}
+    target:
+      soilMoistureLow: 20
+      soilMoistureHigh: 40
+      airTemperatureLow: 18
+      airTemperatureHigh: 32
+      airHumidityLow: 50
+      airHumidityHigh: 75
+      lightLow: 25000
+      lightHigh: 50000
+      co2Low: 600
+      co2High: 1000
+      phLow: 5.8
+      phHigh: 6.5
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
