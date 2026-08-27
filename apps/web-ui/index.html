@@ -1952,14 +1952,14 @@
         <div class="admin-table-wrap">
           <table class="perm-matrix">
             <thead><tr>
-              <th>功能模块</th><th>🧑‍🌾 种植农户</th><th>👑 农场管理员</th><th>⚙️ 系统管理员</th>
+              <th>功能模块</th><th>种植农户</th><th>农场管理员</th><th>系统管理员</th>
             </tr></thead>
             <tbody>
               <tr v-for="perm in permissionMatrix" :key="perm.module">
-                <td>{{ perm.module }}</td>
-                <td>{{ perm.farmer }}</td>
-                <td>{{ perm.farmAdmin }}</td>
-                <td>{{ perm.sysAdmin }}</td>
+                <td v-html="formatPerm(perm.module)"></td>
+                <td v-html="formatPerm(perm.farmer)"></td>
+                <td v-html="formatPerm(perm.farmAdmin)"></td>
+                <td v-html="formatPerm(perm.sysAdmin)"></td>
               </tr>
             </tbody>
           </table>
