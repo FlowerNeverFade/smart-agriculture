@@ -129,7 +129,15 @@ class CropPackCatalog {
             try {
                 return require(cropCode, version);
             } catch (ApiException ignored) {
-                // Unknown demonstration crops fall back to the first published pack.
+                // Prefer the latest pack for the same crop when a stale
+                // cropPackVersion is still stored on plots/batches.
+                if (version != null && !version.isBlank()) {
+                    try {
+                        return require(cropCode, null);
+                    } catch (ApiException ignoredAgain) {
+                        // Unknown demonstration crops fall back below.
+                    }
+                }
             }
         }
         if (packs.isEmpty()) {

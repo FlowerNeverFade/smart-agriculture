@@ -942,10 +942,11 @@ class AgriApplicationTest {
         if (batch == null) {
             batch = new java.util.LinkedHashMap<>();
             batch.put("batchId", "batch-" + plotId); batch.put("farmId", "farm-demo"); batch.put("plotId", plotId);
-            batch.put("cropCode", "tomato"); batch.put("stageCode", "seedling"); batch.put("cropPackVersion", "1.0.0");
+            batch.put("cropCode", "tomato"); batch.put("stageCode", "seedling"); batch.put("cropPackVersion", "1.1.0");
             store.save("crop-batch", "batch-" + plotId, batch);
         } else {
             batch.put("stageCode", "seedling");
+            batch.put("cropPackVersion", "1.1.0");
             store.save("crop-batch", Jsons.text(batch, "batchId", "batch-" + plotId), batch);
         }
 
