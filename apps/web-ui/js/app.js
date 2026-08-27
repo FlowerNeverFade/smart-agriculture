@@ -2209,11 +2209,13 @@ const AdminRulesView = {
     const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
     const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
     const expandedKnowledge = ref(null);
+    const leftPacks = computed(() => props.state.adminCropPacks.filter((_, i) => i % 2 === 0));
+    const rightPacks = computed(() => props.state.adminCropPacks.filter((_, i) => i % 2 !== 0));
     const toggleKnowledge = (packId, index) => {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, leftPacks, rightPacks, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
   }
 };
 

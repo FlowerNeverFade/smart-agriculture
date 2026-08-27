@@ -1756,7 +1756,8 @@
           <button class="g-btn primary" @click="openCreatePack"><span class="material-symbols-outlined">add</span> 新增作物包</button>
         </div>
         <div class="pack-grid">
-          <div class="pack-card" v-for="pack in state.adminCropPacks" :key="pack.id" @click="togglePack(pack.id)">
+          <div class="pack-grid-column" v-for="(colPacks, colIdx) in [leftPacks, rightPacks]" :key="colIdx">
+            <div class="pack-card" v-for="pack in colPacks" :key="pack.id" @click="togglePack(pack.id)">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
@@ -1787,6 +1788,7 @@
                 <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><span class="material-symbols-outlined">delete</span>删除</button>
               </div>
             </div>
+          </div>
           </div>
         </div>
 

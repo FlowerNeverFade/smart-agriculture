@@ -309,8 +309,16 @@
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+.pack-grid-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .pack-grid { grid-template-columns: 1fr; }
 }
 
 .pack-card {
