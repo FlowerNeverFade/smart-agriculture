@@ -64,6 +64,17 @@ export const MOCK_DATA = {
       sourceMode: "SIMULATED"
     },
     {
+      userId: "demo-farmer-d",
+      username: "farmer-d",
+      displayName: "赵霞",
+      role: "FARMER",
+      roleLabel: "种植农户",
+      farmIds: ["farm-demo"],
+      plotIds: ["plot-a01", "plot-a02"],
+      status: "ACTIVE",
+      sourceMode: "SIMULATED"
+    },
+    {
       userId: "demo-farmer-c",
       username: "farmer-c",
       displayName: "王强",
@@ -496,6 +507,24 @@ export const MOCK_DATA = {
       assigneeName: "张明",
       dueAt: new Date(Date.now() + 80 * 60 * 1000).toISOString(),
       createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      provenance: "SIMULATED"
+    },
+    {
+      workOrderId: "wo-overdue-a01",
+      workItemId: "wo-overdue-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      sourceType: "CROP_PLAN",
+      sourceRef: "task-template-tomato-scouting",
+      actionType: "FIELD_OPERATION",
+      title: "温室1 番茄病斑复查与记录",
+      reason: "检查前次标记叶片并补充病斑扩散情况",
+      priority: "HIGH",
+      status: "IN_PROGRESS",
+      assigneeId: "user-farmer",
+      assigneeName: "张明",
+      dueAt: new Date(Date.now() - 95 * 60 * 1000).toISOString(),
+      createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
       provenance: "SIMULATED"
     },
     {

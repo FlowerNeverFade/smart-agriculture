@@ -178,6 +178,37 @@ async function mountIndex() {
     && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
     && !window.document.querySelector('.admin-ai-chat h2'));
 
+  window.location.hash = '#view=work-orders&tab=tasks&farmId=farm-demo';
+  const workOrdersReady = await waitFor(() => Boolean(window.document.querySelector('.work-lifecycle.is-embedded-manager')), 3500);
+  const workSummaryLabels = [...window.document.querySelectorAll('.work-summary button span')].map((element) => element.textContent.trim());
+  const statusOptions = [...window.document.querySelectorAll('.work-filters label:first-child option')].map((element) => element.textContent.trim());
+  ok('农务任务导航与状态下拉统一为五个互斥分区', workOrdersReady
+    && JSON.stringify(workSummaryLabels) === JSON.stringify(['进行中', '待分配', '待验收', '已逾期', '已完成'])
+    && JSON.stringify(statusOptions) === JSON.stringify(workSummaryLabels));
+  ok('返工任务在进行中卡片显示返工标记', workOrdersReady
+    && Boolean(window.document.querySelector('.work-order-card.status-rejected .work-rework'))
+    && !workSummaryLabels.some((label) => label.includes('返工')));
+
+  window.location.hash = '#view=work-orders&tab=tasks&scope=overdue&farmId=farm-demo';
+  const overdueReady = await waitFor(() => Boolean(window.document.querySelector('.work-overdue-disposition'))
+    && window.document.querySelectorAll('.work-order-card.is-overdue').length > 0, 3500);
+  const manualDisposition = window.document.querySelector('.work-overdue-manual-action');
+  manualDisposition?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const assignmentReady = await waitFor(() => Boolean(window.document.querySelector('.work-dialog-small select')), 1500);
+  const eligiblePeople = window.document.querySelectorAll('.work-dialog-small select option').length - 1;
+  ok('逾期任务支持单独选择有地块权限的人员处置', overdueReady && assignmentReady && eligiblePeople >= 2);
+  window.document.querySelector('.work-dialog-small .g-modal-header .icon-only')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await waitFor(() => !window.document.querySelector('.work-dialog-small'), 800);
+  const selectAllOverdue = window.document.querySelector('.work-overdue-disposition-actions input[type="checkbox"]');
+  selectAllOverdue?.click();
+  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-disposition-actions .g-btn.primary:not(:disabled)')), 800);
+  const batchReassignButton = window.document.querySelector('.work-overdue-disposition-actions .g-btn.primary');
+  const batchEnabled = Boolean(batchReassignButton && !batchReassignButton.disabled);
+  batchReassignButton?.click();
+  const overdueReassigned = await waitFor(() => window.document.querySelector('.work-order-card.is-overdue')?.textContent.includes('赵霞'), 2000);
+  ok('逾期任务可全选并一键重新分配且负责人立即更新', overdueReady && batchEnabled && overdueReassigned,
+    `ready=${overdueReady} enabled=${batchEnabled} checked=${selectAllOverdue?.checked} toast=${window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'none'} card=${window.document.querySelector('.work-order-card.is-overdue')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 180) || 'none'}`);
+
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);
   ok('地块详情显示独立策略设置', detail);
@@ -200,6 +231,7 @@ async function mountIndex() {
   } else {
     ok('SVG 模式不依赖 ECharts', typeof window.echarts === 'undefined');
   }
+  await waitFor(() => !window.document.querySelector('.g-toast'), 4000);
   dom.window.close();
 }
 

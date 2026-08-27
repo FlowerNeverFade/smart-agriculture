@@ -1,6 +1,6 @@
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260826-live-refresh';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260827-work-order-flow-v1';
 
 const { ref, computed, watch, inject } = Vue;
 
