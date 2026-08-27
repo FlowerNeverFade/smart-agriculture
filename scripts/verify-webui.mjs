@@ -42,6 +42,7 @@ const appSource = read('apps/web-ui/js/app.js');
 const apiSource = read('apps/web-ui/js/api.js');
 const farmerSource = read('apps/web-ui/js/farmer.js');
 const liveDataSource = read('apps/web-ui/js/live-data.js');
+const resourceSource = read('apps/web-ui/js/modules/admin-resource-center.js');
 const farmerStyle = read('apps/web-ui/css/farmer.css');
 const openApi = read('docs/api/openapi.yaml');
 
@@ -67,6 +68,8 @@ ok('农户首页优先事项与建议闭环契约', farmerDashboard.includes('�
 ok('农户首页隐藏内部能力编号', !farmerDashboard.includes('I-16 · I-27') && !farmerDashboard.includes('I-18 · I-26'));
 ok('首页地块摘要不渲染原始指标且详情保留趋势', !farmerDashboard.includes('farmer-plot-overview-metrics') && farmerHtml.includes('环境与肥力指标趋势'));
 ok('农户灌溉安全边界', farmerSource.includes("open_suggestion('IRRIGATION'") && farmerSource.includes("action: 'IRRIGATION_REQUEST'") && !farmerSource.includes('executeIrrigation('));
+ok('设备组件暴露来源标签并接入安全开关', resourceSource.includes('healthLabel, sourceLabel, deviceTypeLabel')
+  && resourceSource.includes('controlDevice(device)') && apiSource.includes('/control'));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitFor = async (predicate, timeout = 5000) => {
@@ -212,6 +215,14 @@ async function mountIndex() {
     && Boolean(window.document.querySelector('.admin-ai-message-list.is-empty .admin-ai-empty-state .admin-ai-suggestions'))
     && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
     && !window.document.querySelector('.admin-ai-chat h2'));
+
+  window.location.hash = '#view=resource-coordination&tab=devices&farmId=farm-demo';
+  const equipmentReady = await waitFor(() => Boolean(window.document.querySelector('.admin-equipment-center'))
+    && Boolean(window.document.querySelector('.admin-device-panel')), 3500);
+  const equipmentCards = window.document.querySelectorAll('.admin-device-card:not(.admin-add-device-card)');
+  ok('设备真实数据到达后页面仍保持可见', equipmentReady && equipmentCards.length > 0,
+    `cards=${equipmentCards.length}`);
+  ok('设备卡片提供在线/离线控制入口', equipmentReady && Boolean(window.document.querySelector('.admin-device-control-button')));
 
   window.location.hash = '#view=work-orders&tab=tasks&farmId=farm-demo';
   const workOrdersReady = await waitFor(() => Boolean(window.document.querySelector('.work-lifecycle.is-embedded-manager')), 3500);

@@ -114,6 +114,23 @@ test('demo device binding and farmer membership mutations remain visible on rere
   assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), false);
 });
 
+test('demo device control switches actual status immediately and remains idempotent', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  const device = (await service.getDevices({ farmId: 'farm-demo' })).find(item => item.plotId);
+  assert.ok(device);
+  const target = String(device.status).toUpperCase() === 'ONLINE' ? 'OFFLINE' : 'ONLINE';
+  const key = `device-control-test-${device.deviceId}-${Date.now()}`;
+  const first = await service.controlDevice(device.deviceId, { targetStatus: target, idempotencyKey: key });
+  assert.equal(first.commandStatus, 'SUCCEEDED');
+  assert.equal(first.device.status, target);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === device.deviceId)?.status, target);
+  const restored = await service.controlDevice(device.deviceId, { targetStatus: device.status, idempotencyKey: `${key}-restore` });
+  assert.equal(restored.device.status, device.status);
+  const unbound = (await service.getDevices({ farmId: 'farm-demo' })).find(item => !item.plotId);
+  if (unbound) await assert.rejects(service.controlDevice(unbound.deviceId, { targetStatus: 'OFFLINE', idempotencyKey: `${key}-unbound` }), /设备尚未绑定/);
+});
+
 test('demo alert closure remains visible after refreshing alerts', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';

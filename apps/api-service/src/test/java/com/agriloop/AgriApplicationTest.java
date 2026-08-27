@@ -806,6 +806,46 @@ class AgriApplicationTest {
     }
 
     @Test
+    void simulatedDeviceControlUpdatesStatusAndSuppressesTelemetryUntilReenabled() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String deviceId = "mock-device-control-" + System.nanoTime();
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "device-control-seed-" + deviceId), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", "plot-a01"), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 32.0), Map.entry("unit", "%"), Map.entry("sourceMode", "SIMULATION"),
+                Map.entry("dataOrigin", "SIMULATOR"), Map.entry("ts", Instant.now().toString())));
+        Map<String, Object> offline = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "OFFLINE", "idempotencyKey", "test-offline-" + deviceId), admin);
+        assertThat(offline).containsEntry("commandStatus", "SUCCEEDED");
+        assertThat(Jsons.map(new ObjectMapper(), offline.get("device"))).containsEntry("status", "OFFLINE");
+        Map<String, Object> suppressed = engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "device-control-suppressed-" + deviceId), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", "plot-a01"), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 31.0), Map.entry("unit", "%"), Map.entry("sourceMode", "SIMULATION"),
+                Map.entry("ts", Instant.now().toString())));
+        assertThat(suppressed).containsEntry("suppressed", true).containsEntry("reason", "DEVICE_CONTROL_OFFLINE");
+        Map<String, Object> online = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "ONLINE", "idempotencyKey", "test-online-" + deviceId), admin);
+        assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
+        assertThat(Jsons.map(new ObjectMapper(), online.get("device"))).containsEntry("status", "ONLINE");
+    }
+
+    @Test
+    void realDeviceControlChangesStatusOnlyAfterAck() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String deviceId = "real-device-control-" + System.nanoTime();
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "plotId", "plot-a01", "bindingState", "BOUND",
+                "status", "ONLINE", "sourceMode", "REAL", "dataOrigin", "HARDWARE")));
+        Map<String, Object> pending = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "OFFLINE", "idempotencyKey", "real-offline-" + deviceId), admin);
+        assertThat(pending).containsEntry("commandStatus", "PENDING").containsEntry("status", "ONLINE");
+        Map<String, Object> command = store.find("command", String.valueOf(pending.get("commandId")));
+        engine.handleDeviceControlAck(command, Map.of("status", "SUCCEEDED", "receivedAt", Instant.now().toString()));
+        assertThat(store.find("device", deviceId)).containsEntry("status", "OFFLINE").containsEntry("controlStatus", "SUCCEEDED");
+    }
+
+    @Test
     void memberScopeUpdatePreservesOtherFarmAndRejectsRoleMutation() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
         String suffix = String.valueOf(System.nanoTime());

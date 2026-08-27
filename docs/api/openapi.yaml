@@ -314,6 +314,8 @@ paths:
     post: {tags: [management], description: 设备与地块必须属于同一农场，且地块必须为 ACTIVE, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备但不改变心跳状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 跨农场或停用地块绑定被拒绝}}}
   /api/v1/devices/{deviceId}/unbind:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 解绑设备}}}
+  /api/v1/devices/{deviceId}/control:
+    post: {tags: [management], description: 仅农场管理员可控制已绑定设备；模拟设备即时完成，REAL/HARDWARE 设备必须等待 MQTT ACK，失败或超时不伪造实际状态, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DeviceControlRequest'}}}}, responses: {'200': {description: 控制命令及最新设备记录}, '400': {description: 目标状态或幂等键无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备未绑定或没有控制通道}}}
   /api/v1/devices/{deviceId}/heartbeat:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 心跳恢复}}}
 components:
@@ -416,6 +418,22 @@ components:
         status: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
         actualWaterLitre: {type: number, minimum: 0}
         receivedAt: {type: string, format: date-time}
+    DeviceControlRequest:
+      type: object
+      required: [targetStatus, idempotencyKey]
+      properties:
+        targetStatus: {type: string, enum: [ONLINE, OFFLINE]}
+        idempotencyKey: {type: string, minLength: 1, maxLength: 200}
+    DeviceControlResponse:
+      type: object
+      required: [commandId, deviceId, targetStatus, commandStatus, status, device]
+      properties:
+        commandId: {type: string}
+        deviceId: {type: string}
+        targetStatus: {type: string, enum: [ONLINE, OFFLINE]}
+        commandStatus: {type: string, enum: [PENDING, SUCCEEDED, FAILED, TIMEOUT]}
+        status: {type: string, enum: [ONLINE, OFFLINE]}
+        device: {type: object, additionalProperties: true}
     FarmMember:
       type: object
       required: [userId, username, displayName, role, roleLabel, farmIds, plotIds, status]

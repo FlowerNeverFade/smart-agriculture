@@ -147,6 +147,7 @@ class Publisher:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.client = None
+        self.offline = False
         if not args.mqtt:
             return
         if mqtt is None:
@@ -157,10 +158,42 @@ class Publisher:
             self.client = mqtt.Client(client_id=f"agriloop-hardware-{uuid.uuid4().hex[:8]}")
         if args.mqtt_username:
             self.client.username_pw_set(args.mqtt_username, args.mqtt_password)
+        self.client.on_message = self._on_message
         self.client.connect(args.mqtt_host, args.mqtt_port, 30)
+        self.client.subscribe(f"agri/{args.farm_id}/{args.plot_id}/command", qos=1)
         self.client.loop_start()
 
+    def apply_control_payload(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        if str(payload.get("deviceId") or "") != self.args.device_id:
+            return None
+        target = str(payload.get("targetStatus") or "").upper()
+        if target not in {"ONLINE", "OFFLINE"}:
+            return None
+        self.offline = target == "OFFLINE"
+        return {
+            "ackId": f"ack-{uuid.uuid4().hex[:12]}",
+            "commandId": payload.get("commandId"),
+            "deviceId": self.args.device_id,
+            "targetStatus": target,
+            "status": "SUCCEEDED",
+            "receivedAt": iso_now(),
+            "result": "BEARPI_DEVICE_SWITCH",
+        }
+
+    def _on_message(self, _client: Any, _userdata: Any, message: Any) -> None:
+        try:
+            payload = json.loads(message.payload.decode("utf-8"))
+            ack = self.apply_control_payload(payload)
+            if ack is None:
+                return
+            topic = f"agri/{self.args.farm_id}/{self.args.plot_id}/command/ack"
+            _client.publish(topic, json.dumps(ack, ensure_ascii=False), qos=1)
+        except (ValueError, TypeError, UnicodeDecodeError):
+            return
+
     def send(self, event: dict[str, Any]) -> None:
+        if self.offline:
+            return
         topic = f"agri/{self.args.farm_id}/{self.args.plot_id}/telemetry"
         if self.client is None:
             print(json.dumps(event, ensure_ascii=False), flush=True)
@@ -170,7 +203,7 @@ class Publisher:
             raise RuntimeError(f"MQTT 发布失败，rc={info.rc}")
 
     def heartbeat(self, status: dict[str, Any]) -> None:
-        if self.client is None:
+        if self.client is None or self.offline:
             return
         topic = f"agri/{self.args.farm_id}/{self.args.plot_id}/device/status"
         self.client.publish(topic, json.dumps(status, ensure_ascii=False), qos=1)

@@ -842,6 +842,8 @@ class MqttCommandGateway {
         if (!"simulation".equalsIgnoreCase(properties.getMode())) return;
         org.eclipse.paho.client.mqttv3.MqttClient client = null;
         try {
+            String farmId = Jsons.text(command, "farmId", "farm-demo");
+            if (!farmId.matches("[A-Za-z0-9_-]{1,120}")) throw new IllegalArgumentException("unsafe farm id");
             String plotId = Jsons.text(command, "plotId", "plot-a01");
             if (!plotId.matches("[A-Za-z0-9_-]{1,120}")) throw new IllegalArgumentException("unsafe plot id");
             client = new org.eclipse.paho.client.mqttv3.MqttClient(properties.getMqttUrl(), properties.getMqttClientId() + "-command-" + UUID.randomUUID().toString().substring(0, 8));
@@ -850,7 +852,7 @@ class MqttCommandGateway {
             if (StringUtils.hasText(properties.getMqttUsername())) { options.setUserName(properties.getMqttUsername()); options.setPassword(properties.getMqttPassword().toCharArray()); }
             client.connect(options);
             org.eclipse.paho.client.mqttv3.MqttMessage message = new org.eclipse.paho.client.mqttv3.MqttMessage(mapper.writeValueAsBytes(command)); message.setQos(1);
-            client.publish("agri/farm-demo/" + plotId + "/command", message); available.set(true);
+            client.publish("agri/" + farmId + "/" + plotId + "/command", message); available.set(true);
         } catch (Exception ignored) { available.set(false); }
         finally { if (client != null) { try { if (client.isConnected()) client.disconnect(); } catch (Exception ignored) { } try { client.close(); } catch (Exception ignored) { } } }
     }
@@ -1235,6 +1237,8 @@ class AgriEngine {
             Map.entry("forecastHours", new double[]{1, 12}));
     private static final Set<String> OPEN_ALERT_STATUSES = Set.of("ACTIVE", "ACKED", "ESCALATED");
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
+    private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
+    private static final Set<String> DEVICE_CONTROL_TERMINAL = Set.of("SUCCEEDED", "FAILED", "TIMEOUT");
     private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int INSPECTION_PHOTO_MAX_COUNT = 6;
     private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -1888,18 +1892,33 @@ class AgriEngine {
                         "reason", "REAL_SOURCE_ACTIVE", "event", event, "activeRealEvent", real);
             }
         }
+        String plotId = Jsons.text(event, "plotId", "plot-a01");
+        String deviceId = Jsons.text(event, "deviceId", "mock-" + plotId);
+        Map<String, Object> controlledDevice = store.find("device", deviceId);
+        String controlStatus = Jsons.text(controlledDevice, "controlStatus", "").toUpperCase(Locale.ROOT);
+        String desiredStatus = Jsons.text(controlledDevice, "desiredStatus", "").toUpperCase(Locale.ROOT);
+        boolean realControlPending = controlledDevice != null && !deviceIsSimulated(controlledDevice) && "PENDING".equals(controlStatus);
+        if (controlledDevice != null && "SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
+            Map<String, Object> suppression = new LinkedHashMap<>();
+            suppression.put("eventId", Jsons.text(event, "eventId", "")); suppression.put("deviceId", deviceId);
+            suppression.put("plotId", plotId); suppression.put("reason", "DEVICE_CONTROL_OFFLINE");
+            suppression.put("suppressedAt", Instant.now().toString());
+            store.logEvent("telemetry.suppressed", suppression);
+            return Map.of("accepted", true, "duplicate", false, "suppressed", true,
+                    "reason", "DEVICE_CONTROL_OFFLINE", "event", event);
+        }
         boolean inserted = store.saveTelemetry(event);
         if (!inserted) return Map.of("accepted", false, "duplicate", true, "eventId", event.get("eventId"), "quality", event.get("quality"));
         publishTelemetryStream(event);
-        String plotId = Jsons.text(event, "plotId", "plot-a01");
-        String deviceId = Jsons.text(event, "deviceId", "mock-" + plotId);
         Map<String, Object> device = store.find("device", deviceId);
         if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
         Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
         boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
                 && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
-        device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
-        device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        if (!realControlPending) {
+            device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
+            device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        }
         device.put("sourceMode", sourceMode);
         device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
         device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
@@ -2260,9 +2279,162 @@ class AgriEngine {
 
     Map<String, Object> heartbeat(String deviceId, Map<String, Object> input, UserPrincipal principal) {
         Map<String, Object> device = requireRecord("device", deviceId); ensurePlotAccess(principal, Jsons.text(device, "plotId", ""));
+        String controlStatus = Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT);
+        String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
+        if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
+            Map<String, Object> result = new LinkedHashMap<>(device);
+            result.put("heartbeatSuppressed", true); result.put("suppressionReason", "DEVICE_CONTROL_OFFLINE");
+            return result;
+        }
+        if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus)) {
+            Map<String, Object> result = new LinkedHashMap<>(device);
+            result.put("heartbeatSuppressed", true); result.put("suppressionReason", "DEVICE_CONTROL_PENDING");
+            return result;
+        }
         device.put("status", "ONLINE"); device.put("lastSeen", Jsons.text(input, "ts", Instant.now().toString()));
         device.put("healthScore", Jsons.number(input, "healthScore", Jsons.number(device, "healthScore", .98)));
         device.put("heartbeat", Jsons.copy(mapper, input)); store.save("device", deviceId, device); events.publish("device.heartbeat", device); return device;
+    }
+
+    void ingestDeviceStatus(Map<String, Object> input) {
+        String deviceId = Jsons.text(input, "deviceId", "");
+        if (deviceId.isBlank()) return;
+        Map<String, Object> current = store.find("device", deviceId);
+        Map<String, Object> device = current == null ? new LinkedHashMap<>() : new LinkedHashMap<>(current);
+        device.putAll(Jsons.copy(mapper, input)); device.put("deviceId", deviceId);
+        String controlStatus = Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT);
+        String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
+        if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
+            device.put("status", "OFFLINE");
+        } else if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus) && current != null) {
+            device.put("status", Jsons.text(current, "status", "OFFLINE"));
+        }
+        store.save("device", deviceId, device);
+        events.publish("device.updated", device);
+    }
+
+    Map<String, Object> controlDevice(String deviceId, Map<String, Object> input, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以控制设备");
+        }
+        Map<String, Object> device = requireRecord("device", deviceId);
+        String plotId = Jsons.text(device, "plotId", "").trim();
+        if (plotId.isBlank() || !"BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "BOUND"))) {
+            throw new ApiException(HttpStatus.CONFLICT, "DEVICE_CONTROL_UNAVAILABLE", "设备尚未绑定地块，暂不可控制");
+        }
+        ensurePlotAccess(principal, plotId);
+        String targetStatus = Jsons.text(input, "targetStatus", "").trim().toUpperCase(Locale.ROOT);
+        if (!DEVICE_CONTROL_TARGETS.contains(targetStatus)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_TARGET_STATUS_INVALID", "设备目标状态只能是 ONLINE 或 OFFLINE");
+        }
+        String rawKey = Jsons.text(input, "idempotencyKey", "").trim();
+        if (rawKey.isBlank() || rawKey.length() > 200) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "设备控制必须携带有效 idempotencyKey");
+        }
+        String key = "device-control:" + deviceId + ":" + rawKey;
+        Map<String, Object> old = idempotentCommands.get(key);
+        if (old == null) {
+            Map<String, Object> durableKey = store.find("idempotency", key);
+            if (durableKey != null) {
+                String commandId = Jsons.text(durableKey, "commandId", "");
+                old = commandId.isBlank() ? null : store.find("command", commandId);
+                if (old != null) idempotentCommands.put(key, old);
+            }
+        }
+        if (old != null) return deviceControlResponse(old, store.find("device", deviceId));
+
+        String sourceMode = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
+        boolean simulated = deviceIsSimulated(device);
+        boolean real = "REAL".equals(sourceMode) || "HARDWARE".equals(sourceMode);
+        if (!simulated && !real) {
+            throw new ApiException(HttpStatus.CONFLICT, "DEVICE_CONTROL_UNAVAILABLE", "设备没有可用的控制通道");
+        }
+        Instant now = Instant.now();
+        Map<String, Object> command = new LinkedHashMap<>();
+        String commandId = Jsons.id("device-cmd");
+        command.put("commandId", commandId); command.put("type", "DEVICE_STATUS_SET");
+        command.put("farmId", Jsons.text(device, "farmId", farmIdForPlot(plotId)));
+        command.put("plotId", plotId); command.put("deviceId", deviceId);
+        command.put("targetStatus", targetStatus); command.put("sourceMode", simulated ? "SIMULATION" : "REAL");
+        command.put("idempotencyKey", key); command.put("status", "PENDING"); command.put("commandStatus", "PENDING");
+        command.put("requestedBy", principal.userId); command.put("requestedAt", now.toString());
+        device.put("desiredStatus", targetStatus); device.put("controlStatus", "PENDING");
+        device.put("lastControlCommandId", commandId); device.put("lastControlAt", now.toString()); device.remove("lastControlError");
+        store.save("command", commandId, command); store.save("device", deviceId, device);
+        idempotentCommands.put(key, command);
+        store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", commandId, "createdAt", now.toString()));
+        events.publish("device.control.requested", command); store.logEvent("DEVICE_CONTROL_REQUESTED", command);
+
+        if (simulated) {
+            Map<String, Object> ack = new LinkedHashMap<>();
+            ack.put("ackId", Jsons.id("ack")); ack.put("commandId", commandId); ack.put("deviceId", deviceId);
+            ack.put("targetStatus", targetStatus); ack.put("status", "SUCCEEDED"); ack.put("receivedAt", Instant.now().toString());
+            ack.put("result", "SIMULATED_DEVICE_SWITCH");
+            handleDeviceControlAck(command, ack);
+        } else {
+            mqttCommands.publish(command);
+            command.put("transport", mqttCommands.available() ? "MQTT" : "MQTT_PENDING");
+            store.save("command", commandId, command);
+        }
+        return deviceControlResponse(command, store.find("device", deviceId));
+    }
+
+    private boolean deviceIsSimulated(Map<String, Object> device) {
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
+        return Set.of("SIMULATION", "SIMULATED").contains(source) || deviceId.startsWith("mock-");
+    }
+
+    private Map<String, Object> deviceControlResponse(Map<String, Object> command, Map<String, Object> device) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("commandId", Jsons.text(command, "commandId", ""));
+        response.put("deviceId", Jsons.text(command, "deviceId", Jsons.text(device, "deviceId", "")));
+        response.put("targetStatus", Jsons.text(command, "targetStatus", ""));
+        response.put("commandStatus", Jsons.text(command, "commandStatus", Jsons.text(command, "status", "PENDING")));
+        response.put("status", Jsons.text(device, "status", "OFFLINE"));
+        response.put("device", device == null ? Map.of() : new LinkedHashMap<>(device));
+        response.put("latestDevice", device == null ? Map.of() : new LinkedHashMap<>(device));
+        response.put("command", new LinkedHashMap<>(command));
+        return response;
+    }
+
+    void handleDeviceControlAck(Map<String, Object> command, Map<String, Object> input) {
+        if (command == null || !"DEVICE_STATUS_SET".equals(Jsons.text(command, "type", ""))) return;
+        Map<String, Object> ack = new LinkedHashMap<>(input == null ? Map.of() : input);
+        String status = Jsons.text(ack, "status", "TIMEOUT").trim().toUpperCase(Locale.ROOT);
+        if (!DEVICE_CONTROL_TERMINAL.contains(status)) status = "FAILED";
+        ack.put("status", status); ack.put("commandId", Jsons.text(command, "commandId", ""));
+        ack.put("deviceId", Jsons.text(command, "deviceId", "")); ack.put("receivedAt", Jsons.text(ack, "receivedAt", Instant.now().toString()));
+        command.put("ack", ack); command.put("status", status); command.put("commandStatus", status);
+        store.save("command", Jsons.text(command, "commandId", ""), command); ackByCommand.put(Jsons.text(command, "commandId", ""), ack);
+        Map<String, Object> device = store.find("device", Jsons.text(command, "deviceId", ""));
+        if (device != null) {
+            String target = Jsons.text(command, "targetStatus", "").toUpperCase(Locale.ROOT);
+            if ("SUCCEEDED".equals(status) && DEVICE_CONTROL_TARGETS.contains(target)) {
+                device.put("status", target); device.put("desiredStatus", target); device.put("controlStatus", "SUCCEEDED");
+                device.put("lastControlCommandId", Jsons.text(command, "commandId", "")); device.put("lastControlAt", ack.get("receivedAt"));
+                device.remove("lastControlError");
+                if ("OFFLINE".equals(target)) device.put("offlineAt", ack.get("receivedAt")); else device.remove("offlineAt");
+            } else {
+                device.put("controlStatus", status); device.put("lastControlCommandId", Jsons.text(command, "commandId", ""));
+                device.put("lastControlAt", ack.get("receivedAt"));
+                device.put("lastControlError", Jsons.text(ack, "result", Jsons.text(ack, "reason", "设备未确认控制指令")));
+            }
+            store.save("device", Jsons.text(command, "deviceId", ""), device);
+            events.publish("device.control.updated", device); events.publish("device.updated", device);
+        }
+        events.publish("command.ack", ack); store.logEvent("DEVICE_CONTROL_ACK", ack);
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    void expireDeviceControlCommands() {
+        Instant cutoff = Instant.now().minusSeconds(15);
+        for (Map<String, Object> command : store.list("command")) {
+            if (!"DEVICE_STATUS_SET".equals(Jsons.text(command, "type", "")) || !"PENDING".equals(Jsons.text(command, "commandStatus", Jsons.text(command, "status", "")))) continue;
+            if (Jsons.instant(command.get("requestedAt"), Instant.now()).isAfter(cutoff)) continue;
+            Map<String, Object> ack = new LinkedHashMap<>(); ack.put("status", "TIMEOUT"); ack.put("reason", "设备在 15 秒内未返回控制回执");
+            ack.put("receivedAt", Instant.now().toString()); handleDeviceControlAck(command, ack);
+        }
     }
 
     Map<String, Object> transitionAlert(String alertId, String status, UserPrincipal principal) {
@@ -5187,6 +5359,11 @@ class AgriController {
     @PostMapping("/devices/{deviceId}/unbind")
     ResponseEntity<?> unbindDevice(@PathVariable String deviceId, Authentication a) { return ok(adminManagement.unbindDevice(deviceId, principal(a))); }
 
+    @PostMapping("/devices/{deviceId}/control")
+    ResponseEntity<?> controlDevice(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(engine.controlDevice(deviceId, body == null ? Map.of() : body, principal(a)));
+    }
+
     @PostMapping("/devices/{deviceId}/heartbeat")
     ResponseEntity<?> heartbeat(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { return ok(engine.heartbeat(deviceId, body, principal(a))); }
 
@@ -5257,8 +5434,17 @@ class MqttBridge {
                         try {
                             Map<String, Object> body = new ObjectMapper().readValue(message.getPayload(), Map.class);
                             if (topic.endsWith("/telemetry")) engine.ingest(body);
-                            else if (topic.endsWith("/device/status")) { String id = Jsons.text(body, "deviceId", ""); if (!id.isBlank()) store.save("device", id, body); }
-                            else if (topic.endsWith("/command/ack")) { String commandId = Jsons.text(body, "commandId", ""); if (!commandId.isBlank()) { Map<String, Object> c = store.find("command", commandId); if (c != null && c.get("ack") == null) { c.put("ack", body); c.put("status", Jsons.text(body, "status", "TIMEOUT")); store.save("command", commandId, c); engine.evaluateCommand(c, body); } } }
+                            else if (topic.endsWith("/device/status")) engine.ingestDeviceStatus(body);
+                            else if (topic.endsWith("/command/ack")) {
+                                String commandId = Jsons.text(body, "commandId", "");
+                                if (!commandId.isBlank()) {
+                                    Map<String, Object> c = store.find("command", commandId);
+                                    if (c != null && c.get("ack") == null) {
+                                        if ("DEVICE_STATUS_SET".equals(Jsons.text(c, "type", ""))) engine.handleDeviceControlAck(c, body);
+                                        else { c.put("ack", body); c.put("status", Jsons.text(body, "status", "TIMEOUT")); store.save("command", commandId, c); engine.evaluateCommand(c, body); }
+                                    }
+                                }
+                            }
                         } catch (Exception ignored) { store.save("dead-letter", Jsons.id("dlq"), Map.of("topic", topic, "reason", "INVALID_MESSAGE", "receivedAt", Instant.now().toString())); }
                     }
                     public void deliveryComplete(org.eclipse.paho.client.mqttv3.IMqttDeliveryToken token) { }

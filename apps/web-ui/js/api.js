@@ -6,7 +6,7 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260827-alert-verification-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
@@ -164,7 +164,9 @@ export class ApiService {
         plotId: item.plotId || plot?.plotId || null,
         status: item.status || 'OFFLINE',
         bindingState: (item.plotId || plot?.plotId) ? 'BOUND' : 'UNBOUND',
-        sourceMode: 'SIMULATED'
+        sourceMode: 'SIMULATED',
+        desiredStatus: item.status || 'OFFLINE',
+        controlStatus: 'SUCCEEDED'
       }];
     }));
     this.demoSimulationStrategies = new Map((MOCK_DATA.plots || []).map((plot) => {
@@ -2193,7 +2195,7 @@ export class ApiService {
     }
     const deviceId = input.deviceId || `device-demo-${Date.now().toString(36)}`;
     if (this.demoDevices.has(deviceId)) throw new ApiError('设备编号已存在', { status: 409, code: 'DEVICE_EXISTS' });
-    const device = { ...input, deviceId, plotId: null, status: 'OFFLINE', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    const device = { ...input, deviceId, plotId: null, status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
     this.demoDevices.set(deviceId, device);
     return { ...device };
   }
@@ -2225,6 +2227,32 @@ export class ApiService {
     const saved = { ...device, previousPlotId: device.plotId, plotId: null, bindingState: 'UNBOUND', status: 'OFFLINE', unboundAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
     this.demoDevices.set(deviceId, saved);
     return { ...saved };
+  }
+
+  async controlDevice(deviceId, input = {}) {
+    const targetStatus = String(input.targetStatus || '').trim().toUpperCase();
+    if (!['ONLINE', 'OFFLINE'].includes(targetStatus)) throw new ApiError('设备目标状态无效', { status: 400, code: 'DEVICE_TARGET_STATUS_INVALID' });
+    const idempotencyKey = String(input.idempotencyKey || '').trim();
+    if (!idempotencyKey) throw new ApiError('设备控制缺少幂等键', { status: 400, code: 'IDEMPOTENCY_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/control`, {
+        method: 'POST', body: JSON.stringify({ targetStatus, idempotencyKey })
+      });
+      if (resp?.data?.commandId) return resp.data;
+      throw new ApiError('后端返回了无效的设备控制结果', { code: 'DEVICE_CONTROL_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(deviceId);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    if (!device.plotId || device.bindingState === 'UNBOUND') throw new ApiError('设备尚未绑定地块，暂不可控制', { status: 409, code: 'DEVICE_CONTROL_UNAVAILABLE' });
+    const now = new Date().toISOString();
+    const commandId = `device-cmd-${Date.now().toString(36)}`;
+    const saved = { ...device, status: targetStatus, desiredStatus: targetStatus, controlStatus: 'SUCCEEDED', lastControlCommandId: commandId, lastControlAt: now };
+    delete saved.lastControlError;
+    this.demoDevices.set(deviceId, saved);
+    return {
+      commandId, deviceId, targetStatus, commandStatus: 'SUCCEEDED', status: targetStatus,
+      device: { ...saved }, latestDevice: { ...saved }, command: { commandId, deviceId, targetStatus, commandStatus: 'SUCCEEDED' }
+    };
   }
 
   async getCropBatches(filters = {}) {
