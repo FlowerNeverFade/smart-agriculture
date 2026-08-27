@@ -2209,13 +2209,32 @@ const AdminRulesView = {
     const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
     const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
     const expandedKnowledge = ref(null);
-    const leftPacks = computed(() => props.state.adminCropPacks.filter((_, i) => i % 2 === 0));
-    const rightPacks = computed(() => props.state.adminCropPacks.filter((_, i) => i % 2 !== 0));
+    const masonryCols = ref(3);
+    const updateMasonryCols = () => {
+      if (window.innerWidth < 768) masonryCols.value = 1;
+      else if (window.innerWidth < 1100) masonryCols.value = 2;
+      else if (window.innerWidth < 1600) masonryCols.value = 3;
+      else masonryCols.value = 4;
+    };
+    onMounted(() => {
+      updateMasonryCols();
+      window.addEventListener('resize', updateMasonryCols);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', updateMasonryCols);
+    });
+    const masonryColumns = computed(() => {
+      const cols = Array.from({ length: masonryCols.value }, () => []);
+      props.state.adminCropPacks.forEach((pack, i) => {
+        cols[i % masonryCols.value].push(pack);
+      });
+      return cols;
+    });
     const toggleKnowledge = (packId, index) => {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, leftPacks, rightPacks, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
   }
 };
 

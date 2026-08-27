@@ -309,7 +309,6 @@
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 .pack-grid-column {

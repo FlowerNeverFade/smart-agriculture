@@ -1755,8 +1755,8 @@
           <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中</div>
           <button class="g-btn primary" @click="openCreatePack"><span class="material-symbols-outlined">add</span> 新增作物包</button>
         </div>
-        <div class="pack-grid">
-          <div class="pack-grid-column" v-for="(colPacks, colIdx) in [leftPacks, rightPacks]" :key="colIdx">
+        <div class="pack-grid" :style="{ gridTemplateColumns: `repeat(${masonryCols}, 1fr)` }">
+          <div class="pack-grid-column" v-for="(colPacks, colIdx) in masonryColumns" :key="colIdx">
             <div class="pack-card" v-for="pack in colPacks" :key="pack.id" @click="togglePack(pack.id)">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
