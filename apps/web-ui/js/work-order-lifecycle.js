@@ -187,6 +187,8 @@ export const WorkOrderLifecycleView = {
       .filter((order) => workOrderMatchesSummaryScope(order, scopeFilter.value))
       .filter((order) => {
         const status = workStatus(order.status);
+        // 农户任务界面不展示「待分配」队列，只看已分配给自己的执行项。
+        if (isFarmer.value && status === 'OPEN') return false;
         if (statusFilter.value === 'ACTIVE') return !TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'FINISHED') return TERMINAL_STATUSES.has(status);
         if (statusFilter.value === 'OVERDUE') return isOverdue(order);
@@ -224,12 +226,13 @@ export const WorkOrderLifecycleView = {
     }));
 
     const summary = computed(() => {
-      const lifecycle = adminWorkLifecycleSummary(scopedOrders.value);
+      const visibleOrders = scopedOrders.value.filter((order) => !(isFarmer.value && workStatus(order.status) === 'OPEN'));
+      const lifecycle = adminWorkLifecycleSummary(visibleOrders);
       return {
         ...lifecycle,
         total: lifecycle.all - lifecycle.finished,
         progressing: lifecycle.assigned + lifecycle.inProgress + lifecycle.rejected,
-        overdue: scopedOrders.value.filter(isOverdue).length
+        overdue: visibleOrders.filter(isOverdue).length
       };
     });
     const attentionSummary = computed(() => adminWorkAttentionSummary(scopedOrders.value));
@@ -570,7 +573,8 @@ export const WorkOrderLifecycleView = {
       }
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
-        statusFilter.value = String(params.status).toUpperCase();
+        const nextStatus = String(params.status).toUpperCase();
+        statusFilter.value = (isFarmer.value && nextStatus === 'OPEN') ? 'ACTIVE' : nextStatus;
       } else {
         statusFilter.value = canManage.value || nextScope === 'today' ? '' : 'ACTIVE';
       }
@@ -661,7 +665,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-else class="work-summary" aria-label="任务概况">
         <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' && !scopeFilter }" @click="applyStatusFilter('ACTIVE')"><span>未结束</span><strong>{{ summary.total }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+        <button v-if="!isFarmer" type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'PROGRESSING' && !scopeFilter }" @click="applyStatusFilter('PROGRESSING')"><span>执行与返工</span><strong>{{ summary.progressing }}</strong></button>
         <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
@@ -704,7 +708,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-else class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter">
-          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
+          <option value="ACTIVE">未结束</option><option value="">全部状态</option><option v-if="!isFarmer" value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
         <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>

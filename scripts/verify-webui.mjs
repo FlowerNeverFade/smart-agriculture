@@ -45,6 +45,12 @@ const liveDataSource = read('apps/web-ui/js/live-data.js');
 const farmerStyle = read('apps/web-ui/css/farmer.css');
 const openApi = read('docs/api/openapi.yaml');
 
+const dashboardStart = farmerHtml.indexOf('key="dashboard"');
+const plotsStart = farmerHtml.indexOf('key="plots"');
+const farmerDashboard = dashboardStart >= 0 && plotsStart > dashboardStart
+  ? farmerHtml.slice(dashboardStart, plotsStart)
+  : '';
+
 ok('入口脚本带版本参数', /js\/app\.js\?v=[^"']+/.test(indexHtml));
 ok('五个地块场景已注册', ['NORMAL', 'DROUGHT', 'HEAVY_RAIN', 'SENSOR_DRIFT', 'DEVICE_OFFLINE'].every((code) => apiSource.includes(`code: '${code}'`)));
 ok('模拟策略 REST 与重置接口已接线', ['/simulation`', '/simulation/reset`', 'PLOT_SIMULATION_DEFAULTS'].every((part) => apiSource.includes(part)) && openApi.includes('/api/v1/plots/{plotId}/simulation/reset'));
@@ -57,6 +63,10 @@ ok('正式会话具备实时刷新与事件流重连', appSource.includes('LIVE_
 ok('硬件 REAL 状态优先', liveDataSource.includes('hardwareBound') && appSource.includes('hardwareLabel'));
 ok('系统管理员总览指标循环作用域安全', !indexHtml.includes('v-for="metric in telemetryMetrics" v-if='));
 ok('无冲突标记', ![indexHtml, appSource, apiSource, farmerHtml, farmerSource].some((source) => /^(?:<<<<<<<|=======|>>>>>>>)(?: |$)/m.test(source)));
+ok('农户首页优先事项与建议闭环契约', farmerDashboard.includes('今天先做什么') && farmerDashboard.includes('today_priorities') && farmerHtml.includes('farmer-suggestion-flow') && farmerHtml.includes('提交管理员审批') && farmerSource.includes('submitDecisionFeedback'));
+ok('农户首页隐藏内部能力编号', !farmerDashboard.includes('I-16 · I-27') && !farmerDashboard.includes('I-18 · I-26'));
+ok('首页地块摘要不渲染原始指标且详情保留曲线', !farmerDashboard.includes('farmer-plot-overview-metrics') && farmerHtml.includes('六项指标趋势'));
+ok('农户灌溉安全边界', farmerSource.includes("open_suggestion('IRRIGATION'") && farmerSource.includes("action: 'IRRIGATION_REQUEST'") && !farmerSource.includes('executeIrrigation('));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitFor = async (predicate, timeout = 5000) => {

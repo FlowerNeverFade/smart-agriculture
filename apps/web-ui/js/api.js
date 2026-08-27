@@ -1767,6 +1767,53 @@ export class ApiService {
     };
   }
 
+  /**
+   * Persist a farmer decision outcome without changing a strategy or issuing
+   * a control command.  Farmers use this contract to request administrator
+   * approval and to record the result of an inspection/task; direct
+   * irrigation execution remains guarded by irrigation:approve.
+   */
+  async submitDecisionFeedback(traceId, input = {}) {
+    if (!traceId) {
+      throw new ApiError('提交建议反馈前必须明确决策记录', { status: 400, code: 'TRACE_CONTEXT_REQUIRED' });
+    }
+    const payload = { ...input, traceId };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/feedback`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      return resp?.data || resp;
+    }
+    const feedback = {
+      feedbackId: `feedback-demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...payload,
+      actorId: this._demoActorId(),
+      decision: payload.decision || 'ACCEPTED',
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+    this.decisionCache.feedback ||= new Map();
+    this.decisionCache.feedback.set(feedback.feedbackId, feedback);
+    return feedback;
+  }
+
+  async getSimilarCases(traceId, params = {}) {
+    if (!traceId) {
+      throw new ApiError('缺少决策 traceId', { status: 400, code: 'TRACE_ID_REQUIRED' });
+    }
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams(
+        Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+      ).toString();
+      const suffix = query ? `?${query}` : '';
+      const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(traceId)}/similar-cases${suffix}`);
+      const data = resp?.data ?? resp;
+      return Array.isArray(data) ? data : (data?.cases || []);
+    }
+    return [];
+  }
+
   async getDecisionPassport(traceId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decision-passports/${encodeURIComponent(traceId)}`);

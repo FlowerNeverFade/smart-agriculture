@@ -3793,4 +3793,20 @@ const app = createApp({
 });
 
 app.component('app-icon', AppIcon);
-app.mount('#app');
+
+const indexSession = api.readSession();
+const indexUser = presentRoleUser(indexSession?.user);
+if (indexUser?.role === 'FARMER') {
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  const view = hash.split(/[?&/]/)[0];
+  const farmerHash = {
+    'risk-forecast': 'tools/risk',
+    'crop-manual': 'tools/manual',
+    'work-orders': 'tools',
+    'decision-console': 'advice',
+    dashboard: 'dashboard'
+  }[view] || 'tools';
+  window.location.replace(`farmer.html#${farmerHash}`);
+} else {
+  app.mount('#app');
+}

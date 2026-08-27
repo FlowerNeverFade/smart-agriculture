@@ -376,6 +376,213 @@ export function agentResponseSource(response = {}, sessionMode = 'live') {
   return adapter ? '规则与知识' : '智能助手';
 }
 
+const AGENT_INTENT_LABELS = Object.freeze({
+  IRRIGATION_RECOMMENDATION: '灌溉建议',
+  DIAGNOSIS: '风险诊断',
+  RISK_DIAGNOSIS: '风险诊断',
+  RISK_FORECAST: '风险预测',
+  TODAY_WORK: '今日农务',
+  PLOT_STATUS: '地块状态',
+  GREETING: '问候',
+  CLARIFICATION: '澄清',
+  CAPABILITY_QUERY: '能力说明',
+  FOLLOW_UP: '追问',
+  RETEST_CHECKLIST: '复测清单'
+});
+
+const AGENT_PROVENANCE_LABELS = Object.freeze({
+  OBSERVED: '观测',
+  RETRIEVED: '检索',
+  DERIVED: '推导',
+  SIMULATED: '模拟',
+  USER_PROVIDED: '人工'
+});
+
+function agentToolOutput(response = {}, name = '') {
+  return asArray(response.tools).find((tool) => tool?.name === name)?.output;
+}
+
+function formatAgentConfidence(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const percent = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+  return `${percent}%`;
+}
+
+function agentProvenanceLabel(value) {
+  const key = String(value || '').trim().toUpperCase();
+  return AGENT_PROVENANCE_LABELS[key] || key || '—';
+}
+
+/**
+ * Flatten knowledge/tool/context evidence from an agent response for chat UI.
+ */
+export function normalizeAgentEvidence(response = {}) {
+  const items = [];
+  asArray(response.knowledgeEvidence).forEach((entry, index) => {
+    const source = text(entry.source || entry.title, '知识片段');
+    items.push({
+      id: `knowledge-${index}`,
+      type: 'knowledge',
+      label: source.split('/').pop() || source,
+      detail: source,
+      scope: text(entry.scope, '—'),
+      provenance: agentProvenanceLabel(entry.provenance)
+    });
+  });
+  asArray(response.tools).forEach((tool, index) => {
+    const plotId = text(tool?.input?.plotId, '');
+    items.push({
+      id: `tool-${index}`,
+      type: 'tool',
+      label: text(tool?.name, '工具调用'),
+      detail: plotId ? `地块 ${plotId}` : '受控工具输出',
+      scope: plotId || '—',
+      provenance: '观测',
+      durationMs: tool?.durationMs
+    });
+  });
+  const context = response.context || {};
+  if (context.cropPackVersion) {
+    items.push({
+      id: 'context-pack',
+      type: 'version',
+      label: `Crop Pack v${context.cropPackVersion}`,
+      detail: `规则 ${text(context.ruleVersion, '—')} · 知识 ${text(context.knowledgeVersion, '—')}`,
+      scope: text(context.stageCode, '—'),
+      provenance: '推导'
+    });
+  }
+  return items.slice(0, 8);
+}
+
+/**
+ * Build a farmer-facing decision card from deterministic agent output.
+ * The card only links into existing approval / diagnosis / task flows.
+ */
+export function normalizeAgentDecisionCard(response = {}, plot = null) {
+  const intent = String(response.intent || '').toUpperCase();
+  const traceId = text(response.traceId, '');
+  const plotId = text(response.plotId || plot?.plotId, '');
+  const plotName = text(plot?.name, plotId || '关联地块');
+  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS'].includes(intent)) {
+    return null;
+  }
+
+  if (intent === 'IRRIGATION_RECOMMENDATION') {
+    const plan = response.plan || agentToolOutput(response, 'generate_irrigation_plan') || {};
+    const readiness = String(plan.readinessStatus || '').toUpperCase();
+    const executable = Boolean(plan.executable) && readiness !== 'NEEDS_EVIDENCE' && readiness !== 'UNAVAILABLE';
+    const water = plan.waterLitre ?? plan.howMuch?.waterLitre;
+    const durationSeconds = plan.durationSeconds ?? plan.howMuch?.durationSeconds;
+    const durationMinutes = Number.isFinite(Number(durationSeconds)) ? Math.round(Number(durationSeconds) / 6) / 10 : null;
+    return {
+      kind: 'IRRIGATION',
+      title: '灌溉审批建议卡',
+      summary: executable
+        ? `建议补水约 ${water ?? '—'} L${durationMinutes != null ? `，时长约 ${durationMinutes} 分钟` : ''}`
+        : '当前证据或安全门未通过，仅可作为参考，需人工复核',
+      plotId,
+      plotName,
+      traceId,
+      executable,
+      actionLabel: executable ? '查看处方并提交审批' : '查看处方与安全门',
+      note: executable ? '农户只能提交审批，不会直接控制水泵。' : '请先巡田、复测或联系管理员。'
+    };
+  }
+
+  if (intent === 'DIAGNOSIS' || intent === 'RISK_DIAGNOSIS') {
+    const diagnosis = response.diagnosis
+      || agentToolOutput(response, 'evaluate_diagnosis')
+      || agentToolOutput(response, 'diagnose_root_cause')
+      || {};
+    const cause = text(diagnosis.primaryCause || diagnosis.riskType, '待分析');
+    const confidence = formatAgentConfidence(diagnosis.confidence ?? response.confidence);
+    return {
+      kind: 'DIAGNOSIS',
+      title: '诊断结论卡',
+      summary: `主因 ${cause}${confidence ? `，置信度 ${confidence}` : ''}`,
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '查看智能诊断',
+      note: '诊断结论需结合支持/反对证据与就绪度后再行动。'
+    };
+  }
+
+  if (intent === 'TODAY_WORK') {
+    const work = response.workItems || agentToolOutput(response, 'get_today_work_items') || [];
+    const count = Array.isArray(work) ? work.length : 0;
+    return {
+      kind: 'TASK',
+      title: '今日农务卡',
+      summary: count ? `关联 ${count} 项待处理农务` : '当前暂无待办，可继续按计划巡查',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '查看今日农务',
+      note: '任务结果提交后等待管理员验收。'
+    };
+  }
+
+  if (intent === 'RISK_FORECAST') {
+    const forecast = response.result || agentToolOutput(response, 'get_risk_forecast') || {};
+    const ttr = Number(forecast.timeToRiskMinutes);
+    return {
+      kind: 'FORECAST',
+      title: '风险预测卡',
+      summary: Number.isFinite(ttr) && ttr > 0 ? `预计约 ${ttr} 分钟后进入风险区间` : '已生成短期含水率预测曲线',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '打开风险预警',
+      note: '预测基于当前策略与遥测窗口，样本不足时会标记 UNAVAILABLE。'
+    };
+  }
+
+  if (intent === 'RETEST_CHECKLIST') {
+    return {
+      kind: 'INSPECTION',
+      title: '复测与补证卡',
+      summary: '建议先完成现场巡田或传感器复测，再重新评估处方',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '去巡田 / 申请复测',
+      note: '补证记录会进入诊断证据链，不会覆盖遥测。'
+    };
+  }
+
+  return null;
+}
+
+/** Normalize a full farmer QA turn for rendering evidence, traceId and decision cards. */
+export function normalizeAgentTurn(response = {}, question = '', options = {}) {
+  const plot = options.plot || null;
+  const sessionMode = options.sessionMode || 'live';
+  const intent = String(response.intent || '').toUpperCase();
+  return {
+    id: `qa-${Date.now()}`,
+    question,
+    answer: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。'),
+    sourceLabel: agentResponseSource(response, sessionMode),
+    traceId: text(response.traceId, ''),
+    intent,
+    intentLabel: AGENT_INTENT_LABELS[intent] || '农事建议',
+    confidence: formatAgentConfidence(response.confidence),
+    degraded: Boolean(response.degraded),
+    evidence: normalizeAgentEvidence(response),
+    decisionCard: normalizeAgentDecisionCard(response, plot),
+    plotId: text(plot?.plotId || response.plotId, ''),
+    plotName: text(plot?.name, ''),
+    dataOrigin: sessionMode === 'live' ? 'BACKEND' : 'SIMULATED'
+  };
+}
+
 function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -516,7 +723,11 @@ export function mergePlotTelemetryWindow(plot = {}, points = []) {
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const plotId = text(work.plotId || work.plot_id, '');
   const plot = plotMap.get(plotId) || {};
-  const status = normalizeWorkStatus(work.status);
+  const rawStatus = text(work.status, 'OPEN').trim().toUpperCase();
+  let status = normalizeWorkStatus(rawStatus);
+  // Keep farmer-facing "not started" distinct from admin "unassigned".
+  if (rawStatus === 'PENDING') status = 'PENDING';
+  else if (status === 'OPEN' && (work.assigneeId || work.assignee_id)) status = 'ASSIGNED';
   const createdAt = work.createdAt || work.created_at || work.created_iso;
   const dueAt = work.dueAt || work.due_at || work.due_iso;
   const issuer = text(work.createdByName || work.createdBy || work.issuer, '—');
@@ -541,7 +752,25 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   };
 }
 
-function messageBase({ id, category, title, snippet, body, sender, at, read = false, plotId = '' }) {
+function messageBase({
+  id,
+  category,
+  title,
+  snippet,
+  body,
+  sender,
+  at,
+  read = false,
+  plotId = '',
+  plotName = '',
+  alertId = '',
+  alertLevel = '',
+  alertStatus = '',
+  alertSource = '',
+  linkedWorkOrderId = '',
+  workOrderId = '',
+  taskStatus = ''
+} = {}) {
   return {
     id,
     category,
@@ -553,8 +782,29 @@ function messageBase({ id, category, title, snippet, body, sender, at, read = fa
     time_iso: at || null,
     time_label: relativeTime(at),
     plotId: plotId || null,
+    plotName: plotName || null,
+    alertId: alertId || null,
+    alertLevel: alertLevel || null,
+    alertStatus: alertStatus || null,
+    alertSource: alertSource || null,
+    linkedWorkOrderId: linkedWorkOrderId || null,
+    workOrderId: workOrderId || null,
+    taskStatus: taskStatus || null,
     dataOrigin: 'BACKEND'
   };
+}
+
+function findLinkedWorkOrder(tasks = [], alert = {}) {
+  const alertKey = text(alert.alertId || alert.id, '');
+  if (!alertKey) return '';
+  return asArray(tasks).find((task) => (
+    text(task.sourceRef, '') === alertKey
+    || text(task.linkedAlert, '') === alertKey
+    || text(task.source_ref, '') === alertKey
+  ))?.workOrderId || asArray(tasks).find((task) => (
+    text(task.sourceRef, '') === alertKey
+    || text(task.linkedAlert, '') === alertKey
+  ))?.id || '';
 }
 
 export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [], plots = [] } = {}) {
@@ -576,17 +826,31 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       seenAlertKeys.add(dedupeKey);
     }
     const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
+    const alertId = text(alert.alertId || alert.id, `${plotId}:${alert.createdAt || alert.raisedAt}`);
     const title = text(alert.title, `${plotName}出现${levelLabel(alert.level, '提示')}告警`);
     const message = text(alert.message || alert.summary, '请打开告警详情查看后端提供的处理建议。');
+    const linkedWorkOrderId = findLinkedWorkOrder(tasks, alert);
     messages.push(messageBase({
-      id: `alert:${text(alert.alertId || alert.id, `${plotId}:${alert.createdAt || alert.raisedAt}`)}`,
+      id: `alert:${alertId}`,
       category: 'alert',
       title,
       snippet: message,
-      body: [message, `来源：${sourceLabel(alert.source, '规则引擎')}`, `当前状态：${alertStatusLabel(status, '未知')}`],
+      body: [
+        message,
+        `级别：${levelLabel(alert.level, '提示')}`,
+        `来源：${sourceLabel(alert.source, '规则引擎')}`,
+        `当前状态：${alertStatusLabel(status, '未知')}`,
+        linkedWorkOrderId ? `关联任务：${linkedWorkOrderId}` : '关闭与派单由农场管理员在告警台账处理'
+      ],
       sender: 'AgriLoop 规则引擎',
       at: alert.updatedAt || alert.createdAt || alert.raisedAt,
       plotId,
+      plotName,
+      alertId,
+      alertLevel: text(alert.level, 'MEDIUM').toUpperCase(),
+      alertStatus: status,
+      alertSource: source,
+      linkedWorkOrderId,
       read: status === 'CLOSED' || status === 'RESOLVED'
     }));
   });
@@ -601,6 +865,9 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       sender: normalized.issuer,
       at: task.createdAt || normalized.created_iso,
       plotId: normalized.plot_id,
+      plotName: normalized.plot_name,
+      workOrderId: text(task.workOrderId || task.id, normalized.id),
+      taskStatus: normalized.status,
       read: normalizeWorkStatus(normalized.status) === 'DONE' || normalizeWorkStatus(normalized.status) === 'CANCELLED'
     }));
   });
@@ -617,6 +884,7 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       sender: text(record.operatorName || record.operatorId, '现场记录'),
       at: record.observedAt || record.createdAt,
       plotId,
+      plotName,
       read: true
     }));
   });
