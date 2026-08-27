@@ -256,7 +256,7 @@
             </div>
             <div class="manager-plot-card-tools">
               <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
-              <div class="manager-health-score">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
+              <div class="manager-health-score" :class="`is-${healthTone(plot)}`">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="plotMenuId === plot.plotId"
                         :aria-label="`${plot.name}地块操作`" @click.stop="togglePlotMenu(plot.plotId)">
@@ -973,30 +973,6 @@
         </div>
       </transition>
     </div>
-  </template>
-
-  <template id="tmpl-resource-coordination">
-    <section class="simple-operations-view" aria-labelledby="resource-view-title">
-      <header class="simple-view-header">
-        <div><h1 id="resource-view-title">设备与灌溉</h1><p>先确认采集设备状态，再进入对应地块处理灌溉方案。</p></div>
-      </header>
-      <div class="simple-summary-row">
-        <div><span>采集设备</span><strong>{{ devices.length }}</strong></div>
-        <div><span>当前在线</span><strong>{{ onlineCount }}</strong></div>
-        <div><span>需要检查</span><strong>{{ devices.length - onlineCount }}</strong></div>
-      </div>
-      <div class="simple-data-panel">
-        <div class="simple-device-head" aria-hidden="true"><span>设备</span><span>绑定地块</span><span>状态</span><span>最后更新</span><span>健康分</span><span>操作</span></div>
-        <article class="simple-device-row" v-for="device in devices" :key="device.plotId">
-          <span><strong>{{ device.deviceId }}</strong><small>采集终端</small></span>
-          <span>{{ device.plotName }}</span>
-          <span class="device-state" :class="device.status === 'ONLINE' ? 'is-online' : 'is-offline'"><i></i>{{ statusLabel(device.status) }}</span>
-          <span>{{ device.lastSeen }}</span>
-          <span>{{ device.healthScore }}</span>
-          <button type="button" class="text-action" @click="openIrrigation(device.plotId)">查看灌溉</button>
-        </article>
-      </div>
-    </section>
   </template>
 
   <template id="tmpl-farm-members">

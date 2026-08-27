@@ -1,8 +1,18 @@
 import { api } from './api.js';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
+import {
+  adminWorkActionMeta,
+  adminWorkAttentionSummary,
+  adminWorkLifecycleSummary,
+  managerSummaryTarget,
+  normalizeAdminWorkActionType,
+  normalizeAdminWorkStatus,
+  normalizeWorkSummaryScope,
+  workOrderMatchesAttention,
+  workOrderMatchesSummaryScope
+} from './admin-state.js';
 import { roleCan } from './roles.js';
 
-const { ref, computed, watch, inject, nextTick } = Vue;
+const { ref, computed, watch, inject, nextTick, onMounted, onBeforeUnmount } = Vue;
 
 const STATUS_META = Object.freeze({
   OPEN: { label: '待分配', tone: 'warning', step: '还没有负责人' },
@@ -14,8 +24,8 @@ const STATUS_META = Object.freeze({
   CANCELLED: { label: '已取消', tone: 'muted', step: '任务不再执行' }
 });
 
-const STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_STATUSES = new Set(['DONE', 'CANCELLED']);
+const TYPE_ORDER = Object.freeze(['INSPECTION', 'FIELD_INSPECTION', 'FIELD_OPERATION', 'IRRIGATION_REVIEW', 'IRRIGATION_CHECK', 'DEVICE_CHECK', 'FERTILIZATION']);
 const INSPECTION_LABELS = Object.freeze({
   soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
   crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' },
@@ -23,8 +33,11 @@ const INSPECTION_LABELS = Object.freeze({
 });
 
 function workStatus(value) {
-  const status = String(value || 'OPEN').trim().toUpperCase();
-  return STATUS_ALIASES[status] || status;
+  return normalizeAdminWorkStatus(value);
+}
+
+function sourceCode(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function actorId(user) {
@@ -85,8 +98,11 @@ export const WorkOrderLifecycleView = {
     const memberLoadError = ref('');
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
-    const statusFilter = ref('ACTIVE');
+    const statusFilter = ref(canManage.value ? '' : 'ACTIVE');
     const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
+    const actionTypeFilter = ref('');
+    const attentionFilter = ref('');
+    const sourceFilter = ref('');
     const plotFilter = ref('');
     const assigneeFilter = ref('');
     const keyword = ref('');
@@ -139,7 +155,33 @@ export const WorkOrderLifecycleView = {
       });
     });
 
-    const isOverdue = (order) => !TERMINAL_STATUSES.has(workStatus(order.status)) && order.dueAt && new Date(order.dueAt).getTime() < Date.now();
+    const isOverdue = (order) => workOrderMatchesAttention(order, 'OVERDUE');
+    const actionTypeMeta = (actionType) => adminWorkActionMeta(actionType);
+    const taskTypeOptions = computed(() => {
+      const counts = new Map();
+      for (const order of scopedOrders.value) {
+        const code = normalizeAdminWorkActionType(order?.actionType) || 'UNKNOWN';
+        const current = counts.get(code);
+        counts.set(code, { count: (current?.count || 0) + 1, raw: current?.raw || String(order?.actionType || '').trim() });
+      }
+      return [...counts.entries()]
+        .map(([code, item]) => ({ ...actionTypeMeta(item.raw), code, count: item.count }))
+        .sort((a, b) => {
+          const aRank = TYPE_ORDER.indexOf(a.code);
+          const bRank = TYPE_ORDER.indexOf(b.code);
+          return (aRank < 0 ? TYPE_ORDER.length : aRank) - (bRank < 0 ? TYPE_ORDER.length : bRank) || a.label.localeCompare(b.label, 'zh-CN');
+        });
+    });
+    const sourceOptions = computed(() => {
+      const counts = new Map();
+      for (const order of scopedOrders.value) {
+        const code = sourceCode(order?.sourceType) || 'UNKNOWN';
+        counts.set(code, (counts.get(code) || 0) + 1);
+      }
+      return [...counts.entries()]
+        .map(([code, count]) => ({ code, label: sourceLabel(code === 'UNKNOWN' ? '' : code), count }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+    });
 
     const filteredOrders = computed(() => scopedOrders.value
       .filter((order) => workOrderMatchesSummaryScope(order, scopeFilter.value))
@@ -151,11 +193,14 @@ export const WorkOrderLifecycleView = {
         if (statusFilter.value === 'PROGRESSING') return ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(status);
         return !statusFilter.value || status === statusFilter.value;
       })
+      .filter((order) => !actionTypeFilter.value || normalizeAdminWorkActionType(order.actionType) === actionTypeFilter.value)
+      .filter((order) => workOrderMatchesAttention(order, attentionFilter.value))
+      .filter((order) => !sourceFilter.value || sourceCode(order.sourceType) === sourceFilter.value)
       .filter((order) => !plotFilter.value || order.plotId === plotFilter.value)
       .filter((order) => !assigneeFilter.value || order.assigneeId === assigneeFilter.value)
       .filter((order) => {
         const query = keyword.value.trim().toLowerCase();
-        return !query || [order.title, order.reason, order.workOrderId, plotName(order.plotId), farmerName(order)]
+        return !query || [order.title, order.reason, order.workOrderId, plotName(order.plotId), farmerName(order), actionTypeMeta(order.actionType).label, sourceLabel(order.sourceType)]
           .some((value) => String(value || '').toLowerCase().includes(query));
       })
       .sort((a, b) => {
@@ -178,13 +223,16 @@ export const WorkOrderLifecycleView = {
       return !isFarmer.value || (order.assigneeId === currentActorId.value && status === 'IN_PROGRESS');
     }));
 
-    const summary = computed(() => ({
-      total: scopedOrders.value.filter((order) => !TERMINAL_STATUSES.has(workStatus(order.status))).length,
-      open: scopedOrders.value.filter((order) => workStatus(order.status) === 'OPEN').length,
-      progressing: scopedOrders.value.filter((order) => ['ASSIGNED', 'IN_PROGRESS', 'REJECTED'].includes(workStatus(order.status))).length,
-      submitted: scopedOrders.value.filter((order) => workStatus(order.status) === 'SUBMITTED').length,
-      overdue: scopedOrders.value.filter(isOverdue).length
-    }));
+    const summary = computed(() => {
+      const lifecycle = adminWorkLifecycleSummary(scopedOrders.value);
+      return {
+        ...lifecycle,
+        total: lifecycle.all - lifecycle.finished,
+        progressing: lifecycle.assigned + lifecycle.inProgress + lifecycle.rejected,
+        overdue: scopedOrders.value.filter(isOverdue).length
+      };
+    });
+    const attentionSummary = computed(() => adminWorkAttentionSummary(scopedOrders.value));
 
     const pageTitle = computed(() => canManage.value ? '农务任务' : isFarmer.value ? '我的农务' : '工单审计');
     const pageHint = computed(() => canManage.value
@@ -202,9 +250,31 @@ export const WorkOrderLifecycleView = {
       const target = managerSummaryTarget(scope, currentFarmId.value);
       if (target) emit('navigate', target.view, target.params);
     };
+    const setActionTypeFilter = (actionType) => {
+      const normalized = normalizeAdminWorkActionType(actionType);
+      actionTypeFilter.value = actionTypeFilter.value === normalized ? '' : normalized;
+    };
+    const setAttentionFilter = (attention) => {
+      const normalized = String(attention || '').trim().toUpperCase();
+      const current = scopeFilter.value === 'overdue' ? 'OVERDUE' : attentionFilter.value;
+      attentionFilter.value = current === normalized ? '' : normalized;
+      if (scopeFilter.value) clearSummaryScope();
+    };
+    const resetManagerFilters = () => {
+      actionTypeFilter.value = '';
+      attentionFilter.value = '';
+      sourceFilter.value = '';
+      plotFilter.value = '';
+      assigneeFilter.value = '';
+      keyword.value = '';
+      clearSummaryScope();
+    };
+    const hasManagerFilters = computed(() => Boolean(
+      scopeFilter.value || statusFilter.value || actionTypeFilter.value || attentionFilter.value || sourceFilter.value || plotFilter.value || assigneeFilter.value || keyword.value
+    ));
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
-    const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
+    const priorityLabel = (priority) => ({ HIGH: '高优先级', MEDIUM: '中优先级', LOW: '低优先级' }[String(priority || '').toUpperCase()] || '低优先级');
     const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建' }[String(source || '').toUpperCase()] || '系统任务');
     const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
     const formatTime = (value) => {
@@ -382,6 +452,17 @@ export const WorkOrderLifecycleView = {
       openDetail(order);
     };
 
+    const closeActiveDialogOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      if (showDetailModal.value) closeDetail();
+      else if (showTaskModal.value) showTaskModal.value = false;
+      else if (showAssignModal.value) showAssignModal.value = false;
+      else if (showSubmitModal.value) showSubmitModal.value = false;
+      else if (showReviewModal.value) showReviewModal.value = false;
+      else if (showCancelModal.value) showCancelModal.value = false;
+      else if (showInspectionModal.value) showInspectionModal.value = false;
+    };
+
     const loadInspections = async (announce = false) => {
       if (inspectionLoading.value) return false;
       const plotIds = props.state.plots.map((plot) => plot.plotId).filter(Boolean);
@@ -475,17 +556,44 @@ export const WorkOrderLifecycleView = {
       window.setTimeout(() => target?.classList.remove('is-highlighted'), 3200);
     };
 
-    watch(() => props.routeParams, (params) => {
+    watch(() => props.routeParams, (params, previousParams) => {
       const nextScope = normalizeWorkSummaryScope(params?.scope);
+      const previousScope = normalizeWorkSummaryScope(previousParams?.scope);
       scopeFilter.value = nextScope;
+      if (nextScope && nextScope !== previousScope) {
+        actionTypeFilter.value = '';
+        attentionFilter.value = '';
+        sourceFilter.value = '';
+        plotFilter.value = '';
+        assigneeFilter.value = '';
+        keyword.value = '';
+      }
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       if (params?.status && [...Object.keys(STATUS_META), 'ACTIVE', 'FINISHED', 'OVERDUE', 'PROGRESSING'].includes(String(params.status).toUpperCase())) {
         statusFilter.value = String(params.status).toUpperCase();
       } else {
-        statusFilter.value = nextScope === 'today' ? '' : 'ACTIVE';
+        statusFilter.value = canManage.value || nextScope === 'today' ? '' : 'ACTIVE';
       }
       if (params?.highlight) focusHighlightedTask(params.highlight);
     }, { immediate: true, deep: true });
+
+    watch(currentFarmId, (farmId, previousFarmId) => {
+      if (!previousFarmId || farmId === previousFarmId) return;
+      showDetailModal.value = false;
+      showTaskModal.value = false;
+      showAssignModal.value = false;
+      showSubmitModal.value = false;
+      showReviewModal.value = false;
+      showCancelModal.value = false;
+      showInspectionModal.value = false;
+      activeOrder.value = null;
+      actionTypeFilter.value = '';
+      attentionFilter.value = '';
+      sourceFilter.value = '';
+      plotFilter.value = '';
+      assigneeFilter.value = '';
+      keyword.value = '';
+    });
 
     watch(() => props.state.plots.map((plot) => plot.plotId).join('|'), (plotIds) => {
       if (!plotIds) return;
@@ -500,17 +608,21 @@ export const WorkOrderLifecycleView = {
       if (selected && selected.plotId !== inspectionForm.value.plotId) inspectionForm.value.workOrderId = '';
     });
 
+    onMounted(() => document.addEventListener('keydown', closeActiveDialogOnEscape));
+    onBeforeUnmount(() => document.removeEventListener('keydown', closeActiveDialogOnEscape));
+
     return {
       role, canManage, canInspect, isFarmer, isAuditor, isEmbeddedManager, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
-      statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
-      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
+      statusFilter, scopeFilter, scopeLabel, actionTypeFilter, attentionFilter, sourceFilter, plotFilter, assigneeFilter, keyword,
+      scopedOrders, filteredOrders, summary, attentionSummary, taskTypeOptions, sourceOptions, hasManagerFilters,
+      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, actionTypeMeta, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
       openCreate, createTask, openAssign, refreshFarmMembers, assignTask, startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
-      clearSummaryScope, applyStatusFilter, applySummaryScope,
+      clearSummaryScope, applyStatusFilter, applySummaryScope, setActionTypeFilter, setAttentionFilter, resetManagerFilters,
       loadInspections, openInspection, onInspectionPhotos, submitInspection
     };
   },
@@ -530,7 +642,24 @@ export const WorkOrderLifecycleView = {
         </div>
       </header>
 
-      <div class="work-summary" aria-label="任务概况">
+      <section v-if="canManage" class="work-queue-section" aria-labelledby="work-queue-title">
+        <header class="work-queue-heading">
+          <div><strong id="work-queue-title">任务进度</strong><span>每项任务只归入一个执行阶段</span></div>
+          <button type="button" class="work-all-tasks" :class="{ 'is-active': !hasManagerFilters }" @click="resetManagerFilters">
+            <span>全部任务</span><b>{{ summary.all }}</b>
+          </button>
+        </header>
+        <div class="work-summary is-lifecycle-summary" aria-label="任务生命周期">
+          <button type="button" data-status="open" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+          <button type="button" data-status="assigned" :class="{ 'is-active': statusFilter === 'ASSIGNED' && !scopeFilter }" @click="applyStatusFilter('ASSIGNED')"><span>待执行</span><strong>{{ summary.assigned }}</strong></button>
+          <button type="button" data-status="in-progress" :class="{ 'is-active': statusFilter === 'IN_PROGRESS' && !scopeFilter }" @click="applyStatusFilter('IN_PROGRESS')"><span>执行中</span><strong>{{ summary.inProgress }}</strong></button>
+          <button type="button" data-status="submitted" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+          <button type="button" data-status="rejected" :class="{ 'is-active': statusFilter === 'REJECTED' && !scopeFilter }" @click="applyStatusFilter('REJECTED')"><span>需返工</span><strong>{{ summary.rejected }}</strong></button>
+          <button type="button" data-status="finished" :class="{ 'is-active': statusFilter === 'FINISHED' && !scopeFilter }" @click="applyStatusFilter('FINISHED')"><span>已结束</span><strong>{{ summary.finished }}</strong></button>
+        </div>
+      </section>
+
+      <div v-else class="work-summary" aria-label="任务概况">
         <button type="button" :class="{ 'is-active': statusFilter === 'ACTIVE' && !scopeFilter }" @click="applyStatusFilter('ACTIVE')"><span>未结束</span><strong>{{ summary.total }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
         <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
@@ -543,12 +672,41 @@ export const WorkOrderLifecycleView = {
         <button type="button" @click="clearSummaryScope">查看全部任务</button>
       </div>
 
-      <div class="work-filters">
+      <section v-if="canManage" class="work-manager-filters" aria-label="任务分类与筛选">
+        <div class="work-filter-group">
+          <header><div><strong>任务类型</strong><span>按实际农务划分</span></div></header>
+          <div class="work-filter-chips">
+            <button type="button" class="work-filter-chip" :class="{ 'is-active': !actionTypeFilter }" :aria-pressed="!actionTypeFilter" @click="actionTypeFilter = ''"><span>全部类型</span><b>{{ summary.all }}</b></button>
+            <button v-for="option in taskTypeOptions" :key="option.code" type="button" class="work-filter-chip work-type-filter" :class="['tone-' + option.tone, { 'is-active': actionTypeFilter === option.code }]" :aria-pressed="actionTypeFilter === option.code" @click="setActionTypeFilter(option.code)">
+              <app-icon :name="option.icon"></app-icon><span>{{ option.label }}</span><b>{{ option.count }}</b>
+            </button>
+          </div>
+        </div>
+
+        <div class="work-filter-group">
+          <header><div><strong>重点关注</strong><span>跨状态查看时间与优先级异常</span></div></header>
+          <div class="work-filter-chips">
+            <button type="button" class="work-filter-chip attention-overdue" :class="{ 'is-active': scopeFilter === 'overdue' || attentionFilter === 'OVERDUE' }" :aria-pressed="scopeFilter === 'overdue' || attentionFilter === 'OVERDUE'" @click="setAttentionFilter('OVERDUE')"><span>已逾期</span><b>{{ attentionSummary.overdue }}</b></button>
+            <button type="button" class="work-filter-chip attention-today" :class="{ 'is-active': attentionFilter === 'DUE_TODAY' }" :aria-pressed="attentionFilter === 'DUE_TODAY'" @click="setAttentionFilter('DUE_TODAY')"><span>今日到期</span><b>{{ attentionSummary.dueToday }}</b></button>
+            <button type="button" class="work-filter-chip attention-upcoming" :class="{ 'is-active': attentionFilter === 'UPCOMING' }" :aria-pressed="attentionFilter === 'UPCOMING'" @click="setAttentionFilter('UPCOMING')"><span>未来 7 天</span><b>{{ attentionSummary.upcoming }}</b></button>
+            <button type="button" class="work-filter-chip attention-high" :class="{ 'is-active': attentionFilter === 'HIGH' }" :aria-pressed="attentionFilter === 'HIGH'" @click="setAttentionFilter('HIGH')"><span>高优先级</span><b>{{ attentionSummary.high }}</b></button>
+          </div>
+        </div>
+
+        <div class="work-filters is-manager-controls">
+          <label><span>任务来源</span><select class="g-select" v-model="sourceFilter"><option value="">全部来源</option><option v-for="source in sourceOptions" :key="source.code" :value="source.code">{{ source.label }}（{{ source.count }}）</option></select></label>
+          <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+          <label><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
+          <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、类型、地块或负责人"></label>
+        </div>
+        <footer class="work-filter-footer"><span>当前显示 {{ filteredOrders.length }} / {{ summary.all }} 项任务</span><button type="button" :disabled="!hasManagerFilters" @click="resetManagerFilters">清除筛选</button></footer>
+      </section>
+
+      <div v-else class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter">
           <option value="ACTIVE">未结束</option><option value="">全部状态</option><option value="OPEN">待分配</option><option value="ASSIGNED">待执行</option><option value="IN_PROGRESS">进行中</option><option value="SUBMITTED">待验收</option><option value="REJECTED">需返工</option><option value="PROGRESSING">执行与返工</option><option value="OVERDUE">已逾期</option><option value="FINISHED">已结束</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-        <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
         <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
       </div>
 
@@ -560,11 +718,15 @@ export const WorkOrderLifecycleView = {
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div v-if="canManage" class="work-order-classification">
+                <span class="work-type-label" :class="'tone-' + actionTypeMeta(order.actionType).tone"><app-icon :name="actionTypeMeta(order.actionType).icon"></app-icon>{{ actionTypeMeta(order.actionType).label }}</span>
+                <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span><span class="work-priority" :class="'priority-' + String(order.priority || 'LOW').toLowerCase()">{{ priorityLabel(order.priority) }}</span></div>
+              </div>
+              <div v-else class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
-            <span class="work-priority" :class="'priority-' + String(order.priority || 'LOW').toLowerCase()">{{ priorityLabel(order.priority) }}</span>
+            <span v-if="!canManage" class="work-priority" :class="'priority-' + String(order.priority || 'LOW').toLowerCase()">{{ priorityLabel(order.priority) }}</span>
           </header>
 
           <dl class="work-order-facts">
@@ -600,7 +762,7 @@ export const WorkOrderLifecycleView = {
             </div>
           </footer>
           <footer v-else class="work-summary-card-footer">
-            <span>完整结果与操作记录</span>
+            <span class="work-card-source">来源 · {{ sourceLabel(order.sourceType) }}<template v-if="relatedInspections(order).length"> · 巡田证据 {{ relatedInspections(order).length }}</template></span>
             <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
           </footer>
         </article>
@@ -638,7 +800,7 @@ export const WorkOrderLifecycleView = {
           </div>
           <div class="g-modal-body work-detail-body">
             <div class="work-detail-status-row">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-type-label" :class="'tone-' + actionTypeMeta(activeOrder.actionType).tone"><app-icon :name="actionTypeMeta(activeOrder.actionType).icon"></app-icon>{{ actionTypeMeta(activeOrder.actionType).label }}</span><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span class="work-source">来源 · {{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
             <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
@@ -680,7 +842,7 @@ export const WorkOrderLifecycleView = {
           <div class="g-modal-body work-form-grid">
             <label class="span-2"><span>任务标题</span><input class="g-input" v-model="taskForm.title" maxlength="80" required placeholder="例如：复测 A01 土壤湿度"></label>
             <label><span>地块</span><select class="g-select" v-model="taskForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-            <label><span>优先级</span><select class="g-select" v-model="taskForm.priority"><option value="HIGH">紧急</option><option value="MEDIUM">中</option><option value="LOW">普通</option></select></label>
+            <label><span>优先级</span><select class="g-select" v-model="taskForm.priority"><option value="HIGH">高</option><option value="MEDIUM">中</option><option value="LOW">低</option></select></label>
             <label><span>任务类型</span><select class="g-select" v-model="taskForm.actionType"><option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option></select></label>
             <label><span>截止时间</span><input type="datetime-local" class="g-input" v-model="taskForm.dueAt" required></label>
             <label class="span-2"><span>执行说明</span><textarea class="g-input" rows="4" v-model="taskForm.reason" required placeholder="用通俗的话说明要做什么，以及怎样算完成"></textarea></label>

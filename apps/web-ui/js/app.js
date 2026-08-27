@@ -10,7 +10,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -107,7 +107,6 @@ const ICON_CLASS = Object.freeze({
   expand_less: 'ph-caret-up',
   lock_reset: 'ph-lock-key-open',
   help: 'ph-question',
-  arrow_forward: 'ph-arrow-right',
   login: 'ph-sign-in',
   update: 'ph-arrow-up',
   settings: 'ph-gear',
@@ -124,7 +123,8 @@ const ICON_CLASS = Object.freeze({
   agriculture: 'ph-plant',
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
-  history: 'ph-clock-counter-clockwise'
+  history: 'ph-clock-counter-clockwise',
+  chevron_right: 'ph-caret-right'
 });
 
 const AppIcon = {
@@ -141,11 +141,10 @@ const NAV_CATALOG = Object.freeze([
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI告警分析与智能处理', SYSTEM_ADMIN: '决策审计' } },
   { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
-  { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
+  { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
   { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
   { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
@@ -402,13 +401,6 @@ const EMPTY_RISK_FORECAST_CONFIG = Object.freeze({
   scenarioCatalog: []
 });
 
-const EMPTY_VALUE_LEDGER = Object.freeze({
-  summary: { plannedWaterLitres: '—', actualWaterLitres: '—', savedWaterLitres: '—', savedElectricityKwh: '—', labourSavedHours: '—', totalSavedRmb: '—' },
-  provenance: [],
-  counterfactual: [],
-  daily: []
-});
-
 function liveStatusValue(status, fallback = 'UNKNOWN') {
   return String(status || fallback).trim().toUpperCase();
 }
@@ -576,6 +568,7 @@ const DashboardView = {
     }));
     const formatMetric = (metric) => formatMetricValue(metric);
     const healthScore = (plot) => formatHealthScore(plot?.healthScore);
+    const healthTone = (plot) => adminHealthTone(plot?.healthScore);
     const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
     const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
@@ -740,6 +733,7 @@ const DashboardView = {
       plotMetrics,
       formatMetric,
       healthScore,
+      healthTone,
       cardTone,
       metricTone,
       metricVisualIcon,
@@ -1850,25 +1844,6 @@ const WorkOrdersView = {
   }
 };
 
-const ResourceCoordinationView = {
-  template: '#tmpl-resource-coordination',
-  props: ['state', 'routeParams'],
-  setup(props, { emit }) {
-    const devices = computed(() => props.state.plots.map((plot) => ({
-      deviceId: plot.deviceId || '—',
-      plotId: plot.plotId,
-      plotName: plot.name,
-      status: normalizedStatus(plot.deviceStatus),
-      lastSeen: plot.lastSeen || '—',
-      healthScore: formatHealthScore(plot.healthScore)
-    })));
-    const onlineCount = computed(() => devices.value.filter((device) => device.status === 'ONLINE').length);
-    const statusLabel = (status) => status === 'ONLINE' ? '在线' : status === 'OFFLINE' ? '离线' : '状态未知';
-    const openIrrigation = (plotId) => emit('navigate', 'decision-console', { plotId, highlight: 'diagnosis' });
-    return { devices, onlineCount, statusLabel, openIrrigation };
-  }
-};
-
 const FarmMembersView = {
   template: '#tmpl-farm-members',
   props: ['state', 'routeParams'],
@@ -2176,8 +2151,6 @@ const ValueLedgerView = {
     return { provenanceLabel };
   }
 };
-
-
 
 // ---- SYSTEM ADMIN COMPONENTS ----
 
@@ -2707,7 +2680,6 @@ const app = createApp({
     'farm-members-view': AdminMemberManagementView,
     'crop-manual-view': CropManualView,
     'crop-packs-view': CropPacksView,
-    'value-ledger-view': ValueLedgerView,
     'admin-overview-view': AdminOverviewView,
     'admin-ops-view': AdminOpsView,
     'admin-audit-view': AdminAuditView,
@@ -2762,7 +2734,6 @@ const app = createApp({
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
-      valueLedger: isDemoSession ? MOCK_DATA.valueLedger : EMPTY_VALUE_LEDGER,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
       farmerTasks: isDemoSession ? (MOCK_DATA.farmer_tasks || []).map((item) => ({ ...item })) : [],
       farmerProfile: isDemoSession ? (MOCK_DATA.farmer_profile || {}) : {},
@@ -3369,6 +3340,16 @@ const app = createApp({
       const route = parseHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && route.params?.farmId && route.params.farmId !== state.value.adminContext.farmId) {
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
+      }
+      const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
+        ? legacyAdminTabTarget(route.view, route.params?.tab, route.params?.farmId || state.value.adminContext.farmId)
+        : null;
+      if (legacyTarget) {
+        const targetHash = routeHash(legacyTarget.view, legacyTarget.params);
+        window.history.replaceState(null, '', targetHash);
+        currentView.value = legacyTarget.view;
+        routeParams.value = legacyTarget.params;
+        return;
       }
       if (route.view === 'plot-detail') {
         const plot = (state.value.allPlots || state.value.plots).find((item) => item.plotId === route.params.plotId);
