@@ -531,7 +531,7 @@
 .admin-plot-summary .warning { color: var(--g-warning); }
 .admin-plot-summary .critical { color: var(--g-danger); }
 .admin-plot-summary .offline { color: var(--g-text-disabled); }
-.admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .admin-plot-card { padding: 16px; background: var(--g-bg-surface); border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); transition: transform 0.2s, box-shadow 0.2s; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
 .admin-plot-card { cursor: pointer; }
