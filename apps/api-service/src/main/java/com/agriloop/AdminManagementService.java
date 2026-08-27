@@ -71,6 +71,8 @@ class AdminManagementService {
         device.put("name", Jsons.text(input, "name", deviceId));
         device.put("type", requiredText(input, "type", "请选择设备类型"));
         device.put("status", "OFFLINE");
+        device.put("desiredStatus", "OFFLINE");
+        device.put("controlStatus", "SUCCEEDED");
         device.put("bindingState", "UNBOUND");
         device.put("plotId", null);
         device.put("lastSeen", null);
