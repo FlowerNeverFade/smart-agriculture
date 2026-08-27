@@ -640,9 +640,6 @@
                 <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
               </div>
               <div class="farmer-page-actions">
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('decision-console', advice_plot && advice_plot.plotId)">
-                  <app-icon name="psychology"></app-icon>查看完整诊断
-                </button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_tools('risk', advice_plot && advice_plot.plotId)">
                   <app-icon name="timeline"></app-icon>打开风险预警
                 </button>
@@ -1044,7 +1041,6 @@
                 <p class="role-summary">查看待办与执行进度；任务由农场管理员下达。巡田与补证请前往「巡田记录」。</p>
               </div>
               <div class="farmer-page-actions">
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('work-orders')"><app-icon name="assignment"></app-icon>查看工单中心</button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('inspections')"><app-icon name="fact_check"></app-icon>巡田记录</button>
               </div>
             </div>
