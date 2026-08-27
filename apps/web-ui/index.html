@@ -360,6 +360,13 @@
               <span class="g-form-label">地块面积（㎡）*</span>
               <input class="g-input" type="number" v-model.number="plotDraft.areaM2" min="1" step="0.1" required>
             </label>
+            <label class="g-form-group manager-form-span-2">
+              <span class="g-form-label">绑定设备（可多选）</span>
+              <select class="g-select manager-device-multi-select" v-model="plotDraft.deviceIds" multiple size="4">
+                <option v-for="device in deviceOptions" :key="device.deviceId" :value="device.deviceId">{{ deviceLabel(device) }}</option>
+              </select>
+              <small class="g-form-help">每台设备只能绑定一个地块；选择其他地块的设备，保存前会要求确认转移。</small>
+            </label>
             <p class="manager-form-note manager-form-span-2">保存后，农场总览、地块详情、设备绑定和任务选择中的地块信息会同时更新。</p>
           </div>
           <div class="g-modal-footer">

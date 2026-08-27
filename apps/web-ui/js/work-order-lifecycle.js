@@ -553,11 +553,11 @@ export const WorkOrderLifecycleView = {
         const verificationResult = review.value.verificationResult;
         const conclusion = verificationResult === 'CLEARED_NORMAL' ? '现场正常，关闭告警' : '确认异常，自动下发处置任务';
         const note = [isVerification && action === 'APPROVE' ? `核查结论：${conclusion}` : '', review.value.note.trim()].filter(Boolean).join('；');
-        const saved = await api.reviewWorkOrder(verificationOrder.workOrderId, { action, note });
+        const saved = await api.reviewWorkOrder(verificationOrder.workOrderId, { action, note, ...(isVerification && action === 'APPROVE' ? { verificationResult } : {}) });
         publishUpdate(saved);
         showReviewModal.value = false;
         if (isVerification && action === 'APPROVE') {
-          const resolution = await resolveApprovedVerification({ ...verificationOrder, ...saved }, verificationResult);
+          const resolution = saved?.verificationResolution || await resolveApprovedVerification({ ...verificationOrder, ...saved }, verificationResult);
           toast(resolution.mode === 'CLOSED'
             ? '核查结果已确认正常，原告警已自动关闭'
             : `核查结果已确认，处置任务已自动下发给 ${resolution.task.assigneeName || resolution.task.assigneeId}`);

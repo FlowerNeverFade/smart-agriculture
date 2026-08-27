@@ -535,6 +535,15 @@ const DashboardView = {
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const devices = computed(() => props.state.devices || []);
+    const deviceOptions = computed(() => devices.value
+      .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
+      .sort((a, b) => String(a.name || a.deviceId).localeCompare(String(b.name || b.deviceId), 'zh-CN')));
+    const deviceLabel = device => {
+      if (!device.plotId) return `${device.name || device.deviceId}（未绑定）`;
+      if (device.plotId === plotDraft.value.plotId) return `${device.name || device.deviceId}（当前地块）`;
+      return `${device.name || device.deviceId}（已绑定：${visiblePlots.value.find(plot => plot.plotId === device.plotId)?.name || device.plotId}）`;
+    };
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -546,7 +555,8 @@ const DashboardView = {
       cropVariety: '',
       stageCode: 'vegetative',
       growthCycleDays: 120,
-      areaM2: 100
+      areaM2: 100,
+      deviceIds: []
     });
     const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
@@ -601,7 +611,8 @@ const DashboardView = {
         cropVariety: plot.cropVariety || '',
         stageCode: plot.stageCode || 'vegetative',
         growthCycleDays: Number(plot.growthCycleDays || 120),
-        areaM2: Number(plot.areaM2 || 100)
+        areaM2: Number(plot.areaM2 || 100),
+        deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
       };
       plotEditor.value = { open: true, mode: 'edit' };
     };
@@ -646,19 +657,24 @@ const DashboardView = {
         healthScore: current?.healthScore ?? null,
         riskLevel: current?.riskLevel || 'LOW'
       };
+      const requestedDeviceIds = [...new Set((draft.deviceIds || []).filter(Boolean))];
+      const moving = devices.value.filter(device => requestedDeviceIds.includes(device.deviceId) && device.plotId && device.plotId !== draft.plotId);
+      if (moving.length && !window.confirm(`以下设备当前绑定在其他地块：${moving.map(device => device.name || device.deviceId).join('、')}。确认转移到“${payload.name}”吗？`)) return;
       plotSaving.value = true;
       try {
+        let saved;
         if (plotEditor.value.mode === 'edit') {
-          const saved = await api.updatePlot(draft.plotId, payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.updatePlot(draft.plotId, plotPayload);
           emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已更新，其他模块已同步`);
         } else {
-          const saved = await api.createPlot(payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.createPlot(plotPayload);
           emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已添加到农场`);
         }
+        const binding = await api.setPlotDevices(saved.plotId, requestedDeviceIds);
+        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: { ...saved, binding } });
+        toast(`${payload.name}${plotEditor.value.mode === 'edit' ? '已更新' : '已添加到农场'}，设备绑定已同步`);
         plotEditor.value.open = false;
       } catch (error) {
         toast(error.message || '保存地块失败', 'error');
@@ -735,6 +751,9 @@ const DashboardView = {
       isFarmAdmin,
       selectedFarmId,
       visiblePlots,
+      devices,
+      deviceOptions,
+      deviceLabel,
       managerSummary,
       openManagerSummary,
       plotMetrics,
@@ -1456,7 +1475,8 @@ const RoleAwareDecisionConsoleView = {
         <admin-alert-center v-if="!showChat" :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>
+        <admin-ai-chat v-else :state="state" :route-params="routeParams"
+                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"

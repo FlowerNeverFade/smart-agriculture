@@ -22,6 +22,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -79,6 +80,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * AgriLoop backend.  The project intentionally keeps the first delivery as a
@@ -1239,6 +1242,9 @@ class AgriEngine {
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
     private static final Set<String> DEVICE_CONTROL_TERMINAL = Set.of("SUCCEEDED", "FAILED", "TIMEOUT");
+    private static final Duration AGENT_ACTION_TTL = Duration.ofMinutes(10);
+    private static final Set<String> AGENT_MUTATION_TOOLS = Set.of("create_plot", "update_plot", "set_plot_devices",
+            "create_and_assign_work_order", "publish_alert_verification", "close_alert");
     private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int INSPECTION_PHOTO_MAX_COUNT = 6;
     private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -1254,6 +1260,7 @@ class AgriEngine {
     private final StringRedisTemplate redis;
     private final MqttCommandGateway mqttCommands;
     private final RedisStreamWorker streamWorker;
+    private final AdminManagementService adminManagement;
     private final Map<String, Instant> cooldowns = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> idempotentCommands = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
@@ -1267,7 +1274,8 @@ class AgriEngine {
 
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                CropPackCatalog cropPackCatalog,
-               PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands, RedisStreamWorker streamWorker) {
+               PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands,
+               RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
@@ -1279,7 +1287,7 @@ class AgriEngine {
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
-        this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker;
+        this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
     }
 
     @PostConstruct
@@ -2450,6 +2458,126 @@ class AgriEngine {
         if ("CLOSED".equals(normalized) || "RESOLVED".equals(normalized)) { alert.put("closedBy", principal.userId); alert.put("closedAt", now.toString()); }
         if ("ESCALATED".equals(normalized)) { alert.put("escalatedBy", principal.userId); alert.put("escalatedAt", now.toString()); }
         store.save("alert", alertId, alert); events.publish("alert." + normalized.toLowerCase(Locale.ROOT), alert); store.logEvent("alert." + normalized.toLowerCase(Locale.ROOT), alert); return alert;
+    }
+
+    /**
+     * Creates and assigns one alert verification work order. The lookup and
+     * duplicate guard live on the server so the card action, batch action and
+     * Agent all share the same source of truth.
+     */
+    synchronized Map<String, Object> publishAlertVerificationTask(String alertId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> alert = requireRecord("alert", alertId);
+        String plotId = Jsons.text(alert, "plotId", "").trim();
+        ensurePlotAccess(principal, plotId);
+        if (TERMINAL_ALERT_STATUSES.contains(Jsons.text(alert, "status", "").toUpperCase(Locale.ROOT))) {
+            throw new ApiException(HttpStatus.CONFLICT, "ALERT_TERMINAL", "已结束的告警不能再发布核查任务");
+        }
+        Map<String, Object> existing = store.list("work-order").stream()
+                .filter(work -> "ALERT".equalsIgnoreCase(Jsons.text(work, "sourceType", "")))
+                .filter(work -> alertId.equals(Jsons.text(work, "sourceRef", "")))
+                .filter(work -> "ALERT_VERIFICATION".equalsIgnoreCase(Jsons.text(work, "taskPurpose", "")))
+                .filter(work -> !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))))
+                .findFirst().orElse(null);
+        if (existing != null) {
+            Map<String, Object> reused = new LinkedHashMap<>();
+            reused.put("alertId", alertId);
+            reused.put("workOrder", normalizeWorkOrderForRead(existing));
+            reused.put("reused", true);
+            reused.put("taskPurpose", "ALERT_VERIFICATION");
+            return reused;
+        }
+
+        String farmId = Jsons.text(alert, "farmId", farmIdForPlot(plotId));
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        if (!farmId.equals(Jsons.text(plot, "farmId", farmId))) farmId = Jsons.text(plot, "farmId", farmId);
+        Map<String, Object> draft = new LinkedHashMap<>();
+        draft.put("farmId", farmId);
+        draft.put("plotId", plotId);
+        draft.put("title", "核查：" + Jsons.text(alert, "title", "地块告警"));
+        draft.put("reason", "请完成现场观察、便携仪复测并提交核查结果。" + Jsons.text(alert, "message", ""));
+        draft.put("sourceType", "ALERT");
+        draft.put("sourceRef", alertId);
+        draft.put("actionType", "INSPECTION");
+        draft.put("taskPurpose", "ALERT_VERIFICATION");
+        draft.put("followUpActionType", alertActionType(alert));
+        draft.put("priority", normalizePriority(Jsons.text(alert, "level", "MEDIUM")));
+        draft.put("dueAt", Instant.now().plus(alertDueHours(alert), ChronoUnit.HOURS).toString());
+        draft.put("provenance", "DERIVED");
+        Map<String, Object> preferred = null;
+        String requestedAssignee = Jsons.text(input == null ? Map.of() : input, "assigneeId", "").trim();
+        if (!requestedAssignee.isBlank()) {
+            preferred = store.userById(requestedAssignee);
+            if (preferred == null) throw new ApiException(HttpStatus.BAD_REQUEST, "ASSIGNEE_INVALID", "指定的农户不存在");
+            requireEligibleFarmer(requestedAssignee, draft);
+        } else {
+            preferred = chooseBestFarmerForPlot(farmId, plotId);
+        }
+        if (preferred == null) {
+            throw new ApiException(HttpStatus.CONFLICT, "ASSIGNEE_UNAVAILABLE", "暂无具备该地块权限的在岗农户");
+        }
+        Map<String, Object> created = createWorkOrder(draft, principal);
+        String workOrderId = Jsons.text(created, "workOrderId", "");
+        Map<String, Object> assigned = assignWorkOrder(workOrderId, Map.of(
+                "assigneeId", Jsons.text(preferred, "userId", ""),
+                "note", "告警现场核查：系统按地块权限与任务负载自动分配"), principal);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("alertId", alertId);
+        result.put("workOrder", assigned);
+        result.put("reused", false);
+        result.put("taskPurpose", "ALERT_VERIFICATION");
+        result.put("assigneeReason", farmerAssignmentReason(preferred, plotId));
+        return result;
+    }
+
+    private int alertDueHours(Map<String, Object> alert) {
+        return switch (Jsons.text(alert, "level", "MEDIUM").toUpperCase(Locale.ROOT)) {
+            case "CRITICAL" -> 1;
+            case "HIGH" -> 2;
+            case "LOW" -> 8;
+            default -> 4;
+        };
+    }
+
+    private String alertActionType(Map<String, Object> alert) {
+        String text = (Jsons.text(alert, "title", "") + " " + Jsons.text(alert, "message", "") + " " + Jsons.text(alert, "source", "")).toLowerCase(Locale.ROOT);
+        return text.matches(".*(device|sensor|设备|传感器|离线|漂移|fault).*") ? "INSPECTION" : "FIELD_OPERATION";
+    }
+
+    private Map<String, Object> chooseBestFarmerForPlot(String farmId, String plotId) {
+        return store.listUsers().stream()
+                .filter(user -> "FARMER".equals(RolePolicy.canonical(Jsons.text(user, "role", ""))))
+                .filter(user -> Jsons.bool(user, "enabled", true))
+                .filter(user -> {
+                    List<String> farmIds = Jsons.strings(user.get("farmIds"));
+                    List<String> plotIds = Jsons.strings(user.get("plotIds"));
+                    return (farmIds.contains(farmId) || farmIds.contains("*")) && (plotIds.contains(plotId) || plotIds.contains("*"));
+                })
+                .sorted(Comparator
+                        .comparingLong((Map<String, Object> user) -> store.list("work-order").stream()
+                                .filter(work -> Jsons.text(user, "userId", "").equals(Jsons.text(work, "assigneeId", "")))
+                                .filter(work -> !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))))
+                                .count())
+                        .thenComparing((Map<String, Object> user) -> -store.list("work-order").stream()
+                                .filter(work -> Jsons.text(user, "userId", "").equals(Jsons.text(work, "assigneeId", "")))
+                                .filter(work -> plotId.equals(Jsons.text(work, "plotId", "")))
+                                .count())
+                        .thenComparing(user -> Jsons.text(user, "username", "")))
+                .findFirst().orElse(null);
+    }
+
+    private String farmerAssignmentReason(Map<String, Object> farmer, String plotId) {
+        String userId = Jsons.text(farmer, "userId", "");
+        long activeLoad = store.list("work-order").stream()
+                .filter(work -> userId.equals(Jsons.text(work, "assigneeId", "")))
+                .filter(work -> !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))))
+                .count();
+        long plotExperience = store.list("work-order").stream()
+                .filter(work -> userId.equals(Jsons.text(work, "assigneeId", "")))
+                .filter(work -> plotId.equals(Jsons.text(work, "plotId", "")))
+                .count();
+        return Jsons.text(farmer, "displayName", Jsons.text(farmer, "username", userId))
+                + "具备该地块权限，当前进行中任务 " + activeLoad + " 项，过往处理该地块 " + plotExperience + " 次。";
     }
 
     Map<String, Object> acknowledgeCommand(String commandId, Map<String, Object> input, UserPrincipal principal) {
@@ -3657,6 +3785,12 @@ class AgriEngine {
         work.put("reviewedAt", now.toString());
         work.put("reviewedBy", principal.userId);
         work.put("reviewNote", note);
+        boolean verification = isAlertVerificationWork(work);
+        String verificationResult = Jsons.text(input, "verificationResult", "CONFIRMED_ABNORMAL").trim().toUpperCase(Locale.ROOT);
+        if (verification && approved && !Set.of("CONFIRMED_ABNORMAL", "CLEARED_NORMAL").contains(verificationResult)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VERIFICATION_RESULT_INVALID", "请选择现场正常或确认异常");
+        }
+        if (verification && approved) work.put("verificationResult", verificationResult);
         if (approved) {
             work.put("completedAt", now.toString());
             work.put("completedBy", principal.userId);
@@ -3669,7 +3803,72 @@ class AgriEngine {
         appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
                 note.isBlank() ? "验收通过" : note, List.of());
         saveWorkOrder(work, approved ? "completed" : "rejected");
+        if (verification && approved) {
+            Map<String, Object> result = new LinkedHashMap<>(work);
+            result.put("verificationResolution", resolveApprovedVerification(work, verificationResult, principal));
+            return result;
+        }
         return work;
+    }
+
+    private boolean isAlertVerificationWork(Map<String, Object> work) {
+        return "ALERT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
+                && "ALERT_VERIFICATION".equalsIgnoreCase(Jsons.text(work, "taskPurpose", ""));
+    }
+
+    private Map<String, Object> resolveApprovedVerification(Map<String, Object> verificationOrder,
+                                                            String verificationResult,
+                                                            UserPrincipal principal) {
+        String alertId = Jsons.text(verificationOrder, "sourceRef", "");
+        Map<String, Object> alert = store.find("alert", alertId);
+        if ("CLEARED_NORMAL".equals(verificationResult)) {
+            if (alert != null && !TERMINAL_ALERT_STATUSES.contains(Jsons.text(alert, "status", "").toUpperCase(Locale.ROOT))) {
+                alert = transitionAlert(alertId, "CLOSED", principal);
+            }
+            return Map.of("mode", "CLOSED", "alert", alert == null ? Map.of() : alert);
+        }
+
+        Map<String, Object> existingFollowUp = store.list("work-order").stream()
+                .filter(work -> "ALERT".equalsIgnoreCase(Jsons.text(work, "sourceType", "")))
+                .filter(work -> alertId.equals(Jsons.text(work, "sourceRef", "")))
+                .filter(work -> "ALERT_FOLLOW_UP".equalsIgnoreCase(Jsons.text(work, "taskPurpose", "")))
+                .filter(work -> !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))))
+                .findFirst().orElse(null);
+        if (existingFollowUp != null) return Map.of("mode", "DISPATCHED", "task", normalizeWorkOrderForRead(existingFollowUp));
+        if (alert == null) return Map.of("mode", "PENDING", "reason", "原告警记录不存在");
+
+        String farmId = Jsons.text(verificationOrder, "farmId", farmIdForPlot(Jsons.text(verificationOrder, "plotId", "")));
+        String plotId = Jsons.text(verificationOrder, "plotId", "");
+        Map<String, Object> assignee = store.userById(Jsons.text(verificationOrder, "assigneeId", ""));
+        if (assignee == null || !isEligibleFarmerForPlot(assignee, farmId, plotId)) assignee = chooseBestFarmerForPlot(farmId, plotId);
+        if (assignee == null) return Map.of("mode", "PENDING", "reason", "核查已完成，但暂无具备该地块权限的在岗农户");
+
+        Map<String, Object> draft = new LinkedHashMap<>();
+        draft.put("farmId", farmId);
+        draft.put("plotId", plotId);
+        draft.put("sourceType", "ALERT");
+        draft.put("sourceRef", alertId);
+        draft.put("actionType", Jsons.text(verificationOrder, "followUpActionType", "FIELD_OPERATION"));
+        draft.put("taskPurpose", "ALERT_FOLLOW_UP");
+        draft.put("parentVerificationWorkOrderId", Jsons.text(verificationOrder, "workOrderId", ""));
+        draft.put("title", "处置：" + Jsons.text(alert, "title", "地块告警"));
+        draft.put("reason", "现场核查已确认异常。核查结果：" + Jsons.text(verificationOrder, "resultSummary", "已确认异常") + "。请按核查证据完成处置。");
+        draft.put("priority", Jsons.text(verificationOrder, "priority", "MEDIUM"));
+        draft.put("dueAt", Instant.now().plus(2, ChronoUnit.HOURS).toString());
+        draft.put("provenance", "DERIVED");
+        Map<String, Object> created = createWorkOrder(draft, principal);
+        Map<String, Object> assigned = assignWorkOrder(Jsons.text(created, "workOrderId", ""), Map.of(
+                "assigneeId", Jsons.text(assignee, "userId", ""),
+                "note", "根据核查结果自动下发处置任务"), principal);
+        return Map.of("mode", "DISPATCHED", "task", assigned, "assigneeReason", farmerAssignmentReason(assignee, plotId));
+    }
+
+    private boolean isEligibleFarmerForPlot(Map<String, Object> user, String farmId, String plotId) {
+        return user != null
+                && "FARMER".equals(RolePolicy.canonical(Jsons.text(user, "role", "")))
+                && Jsons.bool(user, "enabled", true)
+                && (Jsons.strings(user.get("farmIds")).contains(farmId) || Jsons.strings(user.get("farmIds")).contains("*"))
+                && (Jsons.strings(user.get("plotIds")).contains(plotId) || Jsons.strings(user.get("plotIds")).contains("*"));
     }
 
     List<Map<String, Object>> farmMembers(String farmId, UserPrincipal principal) {
@@ -4037,6 +4236,189 @@ class AgriEngine {
         candidate.put("status", target); candidate.put("transitionedAt", Instant.now().toString()); candidate.put("reviewer", principal.userId); store.save("strategy-candidate", id, candidate); return candidate;
     }
 
+    /**
+     * Build a bounded, reviewable mutation proposal from natural language.  The
+     * parser intentionally only emits registered internal tools; it never
+     * executes a write while composing an answer.
+     */
+    private Map<String, Object> planAgentAction(String message, String plotId, UserPrincipal principal, String traceId) {
+        if (message == null || message.isBlank() || !principal.isFarmAdmin()) return null;
+        String text = message.trim();
+        String lower = text.toLowerCase(Locale.ROOT);
+        boolean asksWrite = lower.matches(".*(新增|新建|创建|修改|更新|编辑|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加).*");
+        if (!asksWrite) return null;
+
+        String resolvedPlotId = resolveAgentPlot(text, plotId, principal);
+        if (containsAny(text, "地块", "田", "棚") && containsAny(text, "新增", "新建", "创建", "添加")) {
+            Map<String, Object> args = new LinkedHashMap<>();
+            String name = quotedOrAfter(text, "地块", "田", "棚");
+            if (name.isBlank()) name = match(text, "(?:名称|叫做|命名为)\\s*[：:]?\\s*[“\\\"]?([^，。；;\\\"]+)");
+            String cropCode = cropCodeFrom(text);
+            String variety = match(text, "(?:品种|品名)\\s*[：:]?\\s*([^，。；;]+)");
+            Double area = decimalMatch(text, "(\\d+(?:\\.\\d+)?)\\s*(?:㎡|平方米|平米|m2)");
+            Long cycle = longMatch(text, "(\\d+)\\s*天");
+            if (!name.isBlank()) args.put("name", name.trim());
+            if (!cropCode.isBlank()) args.put("cropCode", cropCode);
+            if (!variety.isBlank()) args.put("cropVariety", variety.trim());
+            if (area != null) args.put("areaM2", area);
+            if (cycle != null) args.put("growthCycleDays", cycle);
+            args.put("stageCode", stageFrom(text));
+            args.put("farmId", principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("farm-demo"));
+            List<String> missing = new ArrayList<>();
+            if (name.isBlank()) missing.add("地块名称");
+            if (cropCode.isBlank()) missing.add("作物种类");
+            if (variety.isBlank()) missing.add("作物品种");
+            if (area == null) missing.add("面积（㎡）");
+            if (cycle == null) missing.add("生长周期（天）");
+            return missingProposalOrAction(missing, "create_plot", args, "新增地块", traceId, principal, resolvedPlotId);
+        }
+        if (containsAny(text, "绑定", "换绑", "解绑") && containsAny(text, "设备", "传感器", "控制器")) {
+            if (resolvedPlotId.isBlank()) return clarification("请指定要绑定设备的地块名称或编号，例如“把设备 sensor-01 绑定到 plot-a01”。");
+            List<String> deviceIds = resolveAgentDevices(text, principal);
+            if (containsAny(text, "解绑全部", "全部解绑")) deviceIds = List.of();
+            if (deviceIds.isEmpty() && !containsAny(text, "解绑全部", "全部解绑")) return clarification("请提供设备编号（可多个），例如“将 sensor-01、sensor-02 绑定到该地块”。");
+            Map<String, Object> args = new LinkedHashMap<>(); args.put("plotId", resolvedPlotId); args.put("deviceIds", deviceIds);
+            String summary = deviceIds.isEmpty() ? "解除该地块的全部设备绑定" : "将 " + String.join("、", deviceIds) + " 绑定到 " + resolvedPlotId;
+            return createAgentActionProposal("set_plot_devices", args, summary, traceId, principal, resolvedPlotId, List.of("devices", "plots", "overview"));
+        }
+        if (containsAny(text, "关闭", "结束") && containsAny(text, "告警", "报警")) {
+            String alertId = resolveAgentAlert(text, resolvedPlotId, principal);
+            if (alertId.isBlank()) return clarification("请指定告警编号，或先选择只有一条待处理告警的地块。");
+            return createAgentActionProposal("close_alert", Map.of("alertId", alertId), "关闭告警 " + alertId, traceId, principal, resolvedPlotId, List.of("alerts", "overview"));
+        }
+        if (containsAny(text, "核查", "复核") && containsAny(text, "发布", "下发", "创建")) {
+            String alertId = resolveAgentAlert(text, resolvedPlotId, principal);
+            if (alertId.isBlank()) return clarification("请指定要发布核查任务的告警编号或地块。");
+            return createAgentActionProposal("publish_alert_verification", Map.of("alertId", alertId), "发布告警核查任务 " + alertId, traceId, principal, resolvedPlotId, List.of("alerts", "workOrders", "overview"));
+        }
+        if (containsAny(text, "任务", "农务") && containsAny(text, "创建", "新增", "下发", "安排", "派发")) {
+            if (resolvedPlotId.isBlank()) return clarification("请指定任务所属地块。");
+            String title = quotedOrAfter(text, "任务", "农务");
+            if (title.isBlank()) title = match(text, "(?:任务内容|任务名称)\\s*[：:]?\\s*([^，。；;]+)");
+            if (title.isBlank()) return clarification("请补充任务内容，例如“在 plot-a01 创建任务：检查滴灌管路”。");
+            Map<String, Object> args = new LinkedHashMap<>(); args.put("farmId", farmIdForPlot(resolvedPlotId)); args.put("plotId", resolvedPlotId);
+            args.put("title", title.trim()); args.put("reason", text); args.put("actionType", "FIELD_OPERATION");
+            args.put("priority", containsAny(text, "紧急", "立即", "高优先") ? "HIGH" : "MEDIUM");
+            args.put("dueAt", Instant.now().plus(24, ChronoUnit.HOURS).toString());
+            String assigneeId = resolveAgentFarmer(text, resolvedPlotId);
+            if (!assigneeId.isBlank()) args.put("assigneeId", assigneeId);
+            return createAgentActionProposal("create_and_assign_work_order", args, "创建并下发任务：" + title.trim(), traceId, principal, resolvedPlotId, List.of("workOrders", "overview"));
+        }
+        if (containsAny(text, "修改", "更新", "编辑") && containsAny(text, "地块", "田", "棚")) {
+            if (resolvedPlotId.isBlank()) return clarification("请指定要修改的地块名称或编号。");
+            Map<String, Object> args = new LinkedHashMap<>(); args.put("plotId", resolvedPlotId);
+            String name = match(text, "(?:名称改为|改名为|名称)\\s*[：:]?\\s*([^，。；;]+)");
+            String variety = match(text, "(?:品种改为|品种)\\s*[：:]?\\s*([^，。；;]+)");
+            Double area = decimalMatch(text, "(?:面积改为|面积)\\s*[：:]?\\s*(\\d+(?:\\.\\d+)?)");
+            Long cycle = longMatch(text, "(?:周期改为|周期)\\s*[：:]?\\s*(\\d+)");
+            if (!name.isBlank()) args.put("name", name.trim());
+            if (!variety.isBlank()) args.put("cropVariety", variety.trim());
+            if (area != null) args.put("areaM2", area);
+            if (cycle != null) args.put("growthCycleDays", cycle);
+            if (args.size() == 1) return clarification("请说明要修改的字段，例如名称、品种、面积或生长周期。");
+            return createAgentActionProposal("update_plot", args, "更新地块 " + resolvedPlotId, traceId, principal, resolvedPlotId, List.of("plots", "overview"));
+        }
+        return null;
+    }
+
+    private Map<String, Object> missingProposalOrAction(List<String> missing, String tool, Map<String, Object> args,
+                                                        String summary, String traceId, UserPrincipal principal, String plotId) {
+        return missing.isEmpty() ? createAgentActionProposal(tool, args, summary, traceId, principal, plotId, List.of("plots", "overview"))
+                : clarification("还缺少：" + String.join("、", missing) + "。补充后我会生成操作预览，确认后才执行。");
+    }
+
+    private Map<String, Object> clarification(String message) { return Map.of("status", "NEEDS_INPUT", "clarification", message); }
+
+    private Map<String, Object> createAgentActionProposal(String tool, Map<String, Object> args, String summary, String traceId,
+                                                          UserPrincipal principal, String plotId, List<String> domains) {
+        if (!AGENT_MUTATION_TOOLS.contains(tool)) throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_TOOL_NOT_ALLOWED", "该操作不在 Agent 白名单中");
+        String actionId = Jsons.id("agent-action"); Instant now = Instant.now();
+        Map<String, Object> action = new LinkedHashMap<>(); action.put("actionId", actionId); action.put("userId", principal.userId);
+        action.put("farmId", plotId.isBlank() ? principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("") : farmIdForPlot(plotId));
+        action.put("plotId", plotId); action.put("toolName", tool); action.put("arguments", Jsons.copy(mapper, args)); action.put("summary", summary);
+        action.put("affectedDomains", domains); action.put("status", "AWAITING_CONFIRMATION"); action.put("createdAt", now.toString());
+        action.put("expiresAt", now.plus(AGENT_ACTION_TTL).toString()); action.put("traceId", traceId);
+        store.save("agent-action", actionId, action); events.publish("agent.action.proposed", action); store.logEvent("agent.action.proposed", action);
+        Map<String, Object> publicView = new LinkedHashMap<>(action); publicView.remove("userId"); publicView.put("requiresConfirmation", true); return publicView;
+    }
+
+    private String resolveAgentPlot(String text, String fallback, UserPrincipal principal) {
+        Matcher id = Pattern.compile("(?:plot[-_][A-Za-z0-9-]+)", Pattern.CASE_INSENSITIVE).matcher(text);
+        if (id.find() && canAccessPlot(principal, id.group())) return id.group();
+        String normalized = text.toLowerCase(Locale.ROOT);
+        List<Map<String, Object>> matches = store.list("plot").stream().filter(p -> canAccessPlot(principal, Jsons.text(p, "plotId", "")))
+                .filter(p -> !Jsons.text(p, "name", "").isBlank() && normalized.contains(Jsons.text(p, "name", "").toLowerCase(Locale.ROOT))).toList();
+        if (matches.size() == 1) return Jsons.text(matches.get(0), "plotId", "");
+        return fallback == null ? "" : fallback;
+    }
+
+    private List<String> resolveAgentDevices(String text, UserPrincipal principal) {
+        String normalized = text.toLowerCase(Locale.ROOT);
+        return store.list("device").stream().filter(d -> canAccessPlot(principal, Jsons.text(d, "plotId", "")) || principal.canAccessFarm(Jsons.text(d, "farmId", "")))
+                .filter(d -> normalized.contains(Jsons.text(d, "deviceId", "").toLowerCase(Locale.ROOT)) || normalized.contains(Jsons.text(d, "name", "").toLowerCase(Locale.ROOT)))
+                .map(d -> Jsons.text(d, "deviceId", "")).filter(s -> !s.isBlank()).distinct().toList();
+    }
+
+    private String resolveAgentAlert(String text, String plotId, UserPrincipal principal) {
+        Matcher matcher = Pattern.compile("(?:alert[-_][A-Za-z0-9-]+)", Pattern.CASE_INSENSITIVE).matcher(text);
+        if (matcher.find() && store.find("alert", matcher.group()) != null && canAccessPlot(principal, Jsons.text(store.find("alert", matcher.group()), "plotId", ""))) return matcher.group();
+        List<Map<String, Object>> matches = store.list("alert").stream().filter(a -> !TERMINAL_ALERT_STATUSES.contains(Jsons.text(a, "status", "").toUpperCase(Locale.ROOT)))
+                .filter(a -> plotId.isBlank() || plotId.equals(Jsons.text(a, "plotId", ""))).filter(a -> canAccessPlot(principal, Jsons.text(a, "plotId", ""))).toList();
+        return matches.size() == 1 ? Jsons.text(matches.get(0), "alertId", "") : "";
+    }
+
+    private String resolveAgentFarmer(String text, String plotId) {
+        String normalized = text.toLowerCase(Locale.ROOT);
+        return store.listUsers().stream().filter(u -> "FARMER".equals(RolePolicy.canonical(Jsons.text(u, "role", ""))))
+                .filter(u -> isEligibleFarmerForPlot(u, farmIdForPlot(plotId), plotId))
+                .filter(u -> normalized.contains(Jsons.text(u, "username", "").toLowerCase(Locale.ROOT)) || normalized.contains(Jsons.text(u, "displayName", "").toLowerCase(Locale.ROOT)))
+                .map(u -> Jsons.text(u, "userId", "")).findFirst().orElse("");
+    }
+
+    private String cropCodeFrom(String text) { if (containsAny(text, "番茄", "西红柿", "tomato")) return "tomato"; if (containsAny(text, "黄瓜", "cucumber")) return "cucumber"; if (containsAny(text, "辣椒", "pepper")) return "pepper"; if (containsAny(text, "草莓", "strawberry")) return "strawberry"; return ""; }
+    private String stageFrom(String text) { if (containsAny(text, "苗期", "育苗")) return "seedling"; if (containsAny(text, "开花")) return "flowering"; if (containsAny(text, "结果")) return "fruiting"; return "vegetative"; }
+    private boolean containsAny(String text, String... values) { for (String value : values) if (text.toLowerCase(Locale.ROOT).contains(value.toLowerCase(Locale.ROOT))) return true; return false; }
+    private String quotedOrAfter(String text, String... markers) { Matcher q = Pattern.compile("[“\\\"]([^”\\\"]+)[”\\\"]").matcher(text); if (q.find()) return q.group(1).trim(); for (String marker : markers) { int i = text.indexOf(marker); if (i >= 0) { String tail = text.substring(i + marker.length()).replaceFirst("^[：:]", "").trim(); if (!tail.isBlank()) return tail.split("[，。；;]")[0].trim(); } } return ""; }
+    private String match(String text, String regex) { Matcher m = Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text); return m.find() ? m.group(1).trim() : ""; }
+    private Double decimalMatch(String text, String regex) { String value = match(text, regex); try { return value.isBlank() ? null : Double.valueOf(value); } catch (NumberFormatException ignored) { return null; } }
+    private Long longMatch(String text, String regex) { String value = match(text, regex); try { return value.isBlank() ? null : Long.valueOf(value); } catch (NumberFormatException ignored) { return null; } }
+
+    Map<String, Object> confirmAgentAction(String actionId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal); Map<String, Object> action = requireRecord("agent-action", actionId);
+        if (!principal.userId.equals(Jsons.text(action, "userId", ""))) throw new ApiException(HttpStatus.FORBIDDEN, "AGENT_ACTION_FORBIDDEN", "无权确认该 Agent 操作");
+        String status = Jsons.text(action, "status", ""); if ("SUCCEEDED".equals(status)) return action;
+        if (!"AWAITING_CONFIRMATION".equals(status)) throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_STATE_INVALID", "该操作已处理或不可再确认");
+        if (Instant.now().isAfter(Jsons.instant(action.get("expiresAt"), Instant.EPOCH))) { action.put("status", "EXPIRED"); store.save("agent-action", actionId, action); throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_EXPIRED", "操作预览已过期，请重新生成"); }
+        String idempotencyKey = Jsons.text(input, "idempotencyKey", "agent-confirm:" + actionId); Map<String, Object> prior = store.find("agent-action-idempotency", idempotencyKey); if (prior != null) return prior;
+        action.put("status", "EXECUTING"); action.put("confirmedBy", principal.userId); action.put("confirmedAt", Instant.now().toString()); store.save("agent-action", actionId, action);
+        try {
+            Map<String, Object> args = Jsons.map(mapper, action.get("arguments")); Map<String, Object> result = executeAgentAction(Jsons.text(action, "toolName", ""), args, principal);
+            action.put("status", "SUCCEEDED"); action.put("result", result); action.put("idempotencyKey", idempotencyKey); action.put("completedAt", Instant.now().toString());
+            store.save("agent-action", actionId, action); store.save("agent-action-idempotency", idempotencyKey, action); events.publish("agent.action.completed", action); store.logEvent("agent.action.completed", action); return action;
+        } catch (RuntimeException error) {
+            action.put("status", "FAILED"); action.put("error", error.getMessage() == null ? "执行失败" : error.getMessage()); action.put("completedAt", Instant.now().toString()); store.save("agent-action", actionId, action); events.publish("agent.action.failed", action); throw error;
+        }
+    }
+
+    private Map<String, Object> executeAgentAction(String tool, Map<String, Object> args, UserPrincipal principal) {
+        return switch (tool) {
+            case "create_plot" -> adminManagement.createPlot(args, principal);
+            case "update_plot" -> { String id = Jsons.text(args, "plotId", ""); Map<String, Object> copy = new LinkedHashMap<>(args); copy.remove("plotId"); yield adminManagement.updatePlot(id, copy, principal); }
+            case "set_plot_devices" -> adminManagement.setPlotDevices(Jsons.text(args, "plotId", ""), args, principal);
+            case "publish_alert_verification" -> publishAlertVerificationTask(Jsons.text(args, "alertId", ""), args, principal);
+            case "close_alert" -> transitionAlert(Jsons.text(args, "alertId", ""), "CLOSED", principal);
+            case "create_and_assign_work_order" -> { Map<String, Object> created = createWorkOrder(args, principal); String assignee = Jsons.text(args, "assigneeId", ""); if (assignee.isBlank()) { Map<String, Object> farmer = chooseBestFarmerForPlot(Jsons.text(args, "farmId", ""), Jsons.text(args, "plotId", "")); if (farmer == null) throw new ApiException(HttpStatus.CONFLICT, "ASSIGNEE_UNAVAILABLE", "暂无具备地块权限的在岗农户"); assignee = Jsons.text(farmer, "userId", ""); } yield assignWorkOrder(Jsons.text(created, "workOrderId", ""), Map.of("assigneeId", assignee, "note", "Agent 确认后下发"), principal); }
+            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_TOOL_NOT_ALLOWED", "不支持的 Agent 操作");
+        };
+    }
+
+    Map<String, Object> cancelAgentAction(String actionId, UserPrincipal principal) {
+        requireFarmAdmin(principal); Map<String, Object> action = requireRecord("agent-action", actionId);
+        if (!principal.userId.equals(Jsons.text(action, "userId", ""))) throw new ApiException(HttpStatus.FORBIDDEN, "AGENT_ACTION_FORBIDDEN", "无权取消该 Agent 操作");
+        if (!"AWAITING_CONFIRMATION".equals(Jsons.text(action, "status", ""))) throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_STATE_INVALID", "该操作已处理");
+        action.put("status", "CANCELED"); action.put("canceledBy", principal.userId); action.put("canceledAt", Instant.now().toString()); store.save("agent-action", actionId, action); events.publish("agent.action.canceled", action); return action;
+    }
+
     Map<String, Object> agentChat(Map<String, Object> input, UserPrincipal principal) {
         String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
         String plotId = Jsons.text(input, "plotId", "plot-a01");
@@ -4060,7 +4442,14 @@ class AgriEngine {
         answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
         boolean fastPath = false;
-        if (isGreeting(message)) {
+        Map<String, Object> actionProposal = planAgentAction(message, plotId, principal, traceId);
+        if (actionProposal != null) {
+            answer.put("intent", "AGENT_ACTION");
+            if (actionProposal.containsKey("actionId")) answer.put("actionProposal", actionProposal);
+            answer.put("summary", Jsons.text(actionProposal, "summary", "需要补充信息"));
+            answer.put("narrative", Jsons.text(actionProposal, "clarification", Jsons.text(actionProposal, "summary", "已生成操作预览，等待确认执行。")));
+            answer.put("narrativeProvenance", "DERIVED"); answer.put("adapter", "rules-agent"); fastPath = true;
+        } else if (isGreeting(message)) {
             // Greetings and other social pleasantries do not need a 27B inference call.
             // Keeping this deterministic also prevents a one-word message from causing
             // the model to echo the whole telemetry context.
@@ -4560,6 +4949,7 @@ class AgriEngine {
         assistantEntry.put("traceId", traceId); assistantEntry.put("adapter", Jsons.text(answer, "adapter", "rules"));
         assistantEntry.put("degraded", Jsons.bool(answer, "degraded", false));
         if (answer.containsKey("llm")) assistantEntry.put("llm", publicProjection(answer.get("llm")));
+        if (answer.containsKey("actionProposal")) assistantEntry.put("actionProposal", publicProjection(answer.get("actionProposal")));
         assistantEntry.put("knowledgeEvidence", answer.get("knowledgeEvidence"));
         assistantEntry.put("createdAt", now.plusMillis(1).toString());
         store.save("agent-message", Jsons.text(assistantEntry, "messageId", ""), assistantEntry);
@@ -4961,38 +5351,19 @@ class AgriController {
 
     @PostMapping("/plots")
     ResponseEntity<?> createPlot(@RequestBody Map<String, Object> body, Authentication a) {
-        UserPrincipal p = principal(a);
-        if (!p.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以新增地块");
-        String farmId = Jsons.text(body, "farmId", "").trim();
-        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ID_REQUIRED", "请选择地块所属农场");
-        if (!p.farmIds.contains("*") && !p.farmIds.contains(farmId)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权在该农场新增地块");
-        }
-        validatePlot(body);
-        String id = Jsons.text(body, "plotId", Jsons.id("plot"));
-        if (store.find("plot", id) != null) throw new ApiException(HttpStatus.CONFLICT, "PLOT_EXISTS", "地块编号已存在");
-        Map<String, Object> plot = new LinkedHashMap<>(body);
-        plot.put("plotId", id); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
-        plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", p.userId);
-        store.save("plot", id, plot); engine.syncSimulationConfiguration(); events.publish("plot.created", plot); store.logEvent("plot.created", plot);
-        return ok(plot);
+        return ok(adminManagement.createPlot(body == null ? Map.of() : body, principal(a)));
     }
 
     @PatchMapping("/plots/{plotId}")
     ResponseEntity<?> updatePlot(@PathVariable String plotId, @RequestBody Map<String, Object> body, Authentication a) {
-        UserPrincipal p = principal(a);
-        if (!p.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以编辑地块");
-        Map<String, Object> current = store.find("plot", plotId);
-        if (current == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在");
-        engine.ensurePlotAccess(p, plotId);
-        Map<String, Object> updated = new LinkedHashMap<>(current);
-        for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
-            if (body.containsKey(field)) updated.put(field, body.get(field));
-        }
-        validatePlot(updated);
-        updated.put("plotId", plotId); updated.put("updatedAt", Instant.now().toString()); updated.put("updatedBy", p.userId);
-        store.save("plot", plotId, updated); events.publish("plot.updated", updated); store.logEvent("plot.updated", updated);
-        return ok(updated);
+        return ok(adminManagement.updatePlot(plotId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PutMapping("/plots/{plotId}/devices")
+    ResponseEntity<?> setPlotDevices(@PathVariable String plotId,
+                                     @RequestBody(required = false) Map<String, Object> body,
+                                     Authentication a) {
+        return ok(adminManagement.setPlotDevices(plotId, body == null ? Map.of() : body, principal(a)));
     }
 
     @PostMapping("/plots/{plotId}/deactivate")
@@ -5193,6 +5564,18 @@ class AgriController {
     @PostMapping("/agent/chat")
     ResponseEntity<?> chat(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.agentChat(body, principal(a))); }
 
+    @PostMapping("/agent/actions/{actionId}/confirm")
+    ResponseEntity<?> confirmAgentAction(@PathVariable String actionId,
+                                         @RequestBody(required = false) Map<String, Object> body,
+                                         Authentication a) {
+        return ok(engine.confirmAgentAction(actionId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/agent/actions/{actionId}/cancel")
+    ResponseEntity<?> cancelAgentAction(@PathVariable String actionId, Authentication a) {
+        return ok(engine.cancelAgentAction(actionId, principal(a)));
+    }
+
     @GetMapping("/agent/history")
     ResponseEntity<?> agentHistory(@RequestParam(required = false) String conversationId,
                                    @RequestParam(defaultValue = "40") int limit, Authentication a) {
@@ -5210,7 +5593,13 @@ class AgriController {
             Map.of("name", "generate_irrigation_plan", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
             Map.of("name", "evaluate_diagnosis", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
             Map.of("name", "get_today_work_items", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
-            Map.of("name", "get_plot_status", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"))); }
+            Map.of("name", "get_plot_status", "schemaVersion", "tool-schema-1.0", "sideEffect", "READ_ONLY"),
+            Map.of("name", "create_plot", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"),
+            Map.of("name", "update_plot", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"),
+            Map.of("name", "set_plot_devices", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"),
+            Map.of("name", "create_and_assign_work_order", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"),
+            Map.of("name", "publish_alert_verification", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"),
+            Map.of("name", "close_alert", "schemaVersion", "tool-schema-1.0", "sideEffect", "MUTATION_REQUIRES_CONFIRMATION"))); }
 
     @GetMapping("/agent/runs/{traceId}")
     ResponseEntity<?> agentRun(@PathVariable String traceId, Authentication a) { return ok(engine.agentRun(traceId, principal(a))); }
@@ -5310,6 +5699,13 @@ class AgriController {
 
     @PostMapping("/alerts/{alertId}/close")
     ResponseEntity<?> closeAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "CLOSED", principal(a))); }
+
+    @PostMapping("/alerts/{alertId}/verification-task")
+    ResponseEntity<?> alertVerificationTask(@PathVariable String alertId,
+                                             @RequestBody(required = false) Map<String, Object> body,
+                                             Authentication a) {
+        return ok(engine.publishAlertVerificationTask(alertId, body == null ? Map.of() : body, principal(a)));
+    }
 
     @PostMapping("/alerts/{alertId}/escalate")
     ResponseEntity<?> escalateAlert(@PathVariable String alertId, Authentication a) { return ok(engine.transitionAlert(alertId, "ESCALATED", principal(a))); }

@@ -170,3 +170,30 @@ test('demo alert actions and alert-sourced task creation preserve their frozen c
   assert.equal(task.sourceRef, 'alert-contract-1');
   assert.equal((await service.getWorkOrders({ farmId: 'farm-demo' })).some(item => item.workOrderId === task.workOrderId), true);
 });
+
+test('new demo devices persist source metadata and plot binding can transfer as a set', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const first = await service.registerDevice({ deviceId: 'device-source-test', name: '来源测试设备', type: 'ENVIRONMENTAL_SENSOR', farmId: 'farm-demo' });
+  assert.equal(first.sourceMode, 'SIMULATION');
+  assert.equal(first.dataOrigin, 'SIMULATOR');
+  const bound = await service.setPlotDevices('plot-a01', [first.deviceId]);
+  assert.deepEqual(bound.deviceIds, [first.deviceId]);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === first.deviceId).plotId, 'plot-a01');
+  const moved = await service.setPlotDevices('plot-a02', [first.deviceId]);
+  assert.deepEqual(moved.movedDeviceIds, [first.deviceId]);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === first.deviceId).plotId, 'plot-a02');
+});
+
+test('demo Agent mutation uses preview then explicit confirmation', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const response = await service.agentChat('请在 plot-a01 创建任务：检查滴灌管路', 'plot-a01');
+  assert.equal(response.actionProposal.status, 'AWAITING_CONFIRMATION');
+  const result = await service.confirmAgentAction(response.actionProposal.actionId);
+  assert.equal(result.status, 'SUCCEEDED');
+  const repeated = await service.confirmAgentAction(response.actionProposal.actionId);
+  assert.equal(repeated.status, 'SUCCEEDED');
+});

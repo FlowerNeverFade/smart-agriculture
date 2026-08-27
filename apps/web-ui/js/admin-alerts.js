@@ -185,6 +185,7 @@ export const AdminAlertCenter = {
     const existingTask = alert => (props.state.workOrders || []).find(order => normalized(order?.sourceType) === 'ALERT'
       && String(order?.sourceRef || order?.alertId || '') === String(alertKey(alert)));
     const isVerificationTask = task => normalized(task?.taskPurpose) === 'ALERT_VERIFICATION';
+    const verificationBusy = alert => busyKey.value === 'batch:verify' || busyKey.value === `${alertKey(alert)}:verify`;
     const isDispatched = alert => Boolean(existingTask(alert)?.assigneeId);
     const sortedAlerts = computed(() => [...(props.state.alerts || [])].sort((a, b) => {
       const rank = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -305,46 +306,26 @@ export const AdminAlertCenter = {
       const alerts = requested.filter(alert => !isClosed(alert) && !existingTask(alert)?.assigneeId);
       if (!alerts.length) return toast('请先选择需要现场核查的告警，或先运行 AI 智能处理', 'error');
       if (busyKey.value) return;
-      busyKey.value = 'batch:verify';
+      busyKey.value = alerts.length === 1 ? `${alertKey(alerts[0])}:verify` : 'batch:verify';
       let published = 0;
       const failed = [];
       for (const alert of alerts) {
-        const assignment = selectFarmer(alert);
-        if (!assignment?.member?.userId) {
-          failed.push(`${plotName(alert.plotId)}：没有具备地块权限的在岗农户`);
-          continue;
-        }
         try {
           const audit = auditFor(alert);
-          const draft = {
-            farmId: props.state.adminContext?.farmId || alert.farmId || '',
-            plotId: alert.plotId,
-            title: `核查：${alert.title || '地块告警'}`,
-            reason: `${audit?.reason || '现有证据不足'}。请完成现场观察、便携仪复测并提交核查结果。`,
-            sourceType: 'ALERT',
-            sourceRef: alertKey(alert),
-            actionType: 'INSPECTION',
-            taskPurpose: 'ALERT_VERIFICATION',
-            followUpActionType: actionTypeFor(alert, audit),
-            priority: workPriority(alert.level),
-            status: 'OPEN',
-            dueAt: new Date(Date.now() + dueHours(alert.level) * 60 * 60 * 1000).toISOString(),
-            provenance: props.state.sessionMode === 'demo' ? 'SIMULATED' : 'DERIVED'
-          };
-          let task = existingTask(alert);
-          if (!task) {
-            const created = await api.createWorkOrder(draft);
-            const taskId = created?.workOrderId || created?.workItemId;
-            if (!taskId) throw new Error('核查任务创建成功，但后端没有返回任务编号');
-            task = { ...draft, ...(created || {}), workOrderId: taskId, workItemId: created?.workItemId || taskId };
-            replaceById(props.state.workOrders, 'workOrderId', task);
+          let task;
+          if (props.state.sessionMode !== 'demo' && typeof api.publishAlertVerificationTask === 'function') {
+            const response = await api.publishAlertVerificationTask(alertKey(alert), { idempotencyKey: `alert-verification:${alertKey(alert)}` });
+            task = response?.workOrder || response?.task || response;
+          } else {
+            const assignment = selectFarmer(alert);
+            if (!assignment?.member?.userId) throw new Error(`暂无具备 ${plotName(alert.plotId)} 权限的在岗农户`);
+            const draft = { farmId: props.state.adminContext?.farmId || alert.farmId || '', plotId: alert.plotId, title: `核查：${alert.title || '地块告警'}`, reason: `${audit?.reason || '现有证据不足'}。请完成现场观察并提交核查结果。`, sourceType: 'ALERT', sourceRef: alertKey(alert), actionType: 'INSPECTION', taskPurpose: 'ALERT_VERIFICATION', followUpActionType: actionTypeFor(alert, audit), priority: workPriority(alert.level), dueAt: new Date(Date.now() + dueHours(alert.level) * 3600000).toISOString(), provenance: props.state.sessionMode === 'demo' ? 'SIMULATED' : 'DERIVED' };
+            const created = await api.createWorkOrder(draft); const taskId = created?.workOrderId || created?.workItemId; if (!taskId) throw new Error('核查任务创建成功，但后端没有返回任务编号');
+            const assignedResponse = await api.assignWorkOrder(taskId, { assigneeId: assignment.member.userId, note: `告警现场核查：${assignment.reason}` });
+            task = { ...draft, ...(created || {}), ...(assignedResponse || {}), assigneeId: assignment.member.userId, assigneeName: memberName(assignment.member), status: assignedResponse?.status || 'ASSIGNED', workOrderId: taskId, workItemId: taskId };
           }
-          const taskId = task.workOrderId || task.workItemId;
-          const response = await api.assignWorkOrder(taskId, {
-            assigneeId: assignment.member.userId,
-            note: `告警现场核查：${assignment.reason}`
-          });
-          const assigned = finalizedAssignedTask(task, response, alert, assignment.member);
+          if (!task?.workOrderId) throw new Error('核查任务发布成功，但后端没有返回任务编号');
+          const assigned = finalizedAssignedTask(task, {}, alert, task.assigneeName ? { displayName: task.assigneeName } : {});
           replaceById(props.state.workOrders, 'workOrderId', assigned);
           aiAudits.value = {
             ...aiAudits.value,
@@ -353,7 +334,7 @@ export const AdminAlertCenter = {
               highConfidence: false,
               status: 'VERIFICATION_DISPATCHED',
               label: '核查任务已下发',
-              farmerName: memberName(assignment.member),
+              farmerName: assigned.assigneeName || '',
               reason: '等待农户提交现场核查结果；管理员确认结果后系统会自动下发处置任务。'
             }
           };
@@ -493,7 +474,7 @@ export const AdminAlertCenter = {
       busyKey,
       selectedIds,
       visibleAlerts,
-      alertKey,
+      alertKey, verificationBusy,
       selectableAlerts,
       selectedAlerts,
       allVisibleSelected,
@@ -592,7 +573,10 @@ export const AdminAlertCenter = {
           </div>
           <footer class="admin-alert-card-footer">
             <span>来源：{{ sourceLabel(alert.source) }}</span>
-            <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
+            <div class="admin-alert-card-actions">
+              <button v-if="!isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
+              <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
+            </div>
           </footer>
         </article>
       </div>
@@ -630,7 +614,7 @@ export const AdminAlertCenter = {
               <button v-if="!existingTask(activeAlert)?.assigneeId && (!auditFor(activeAlert) || auditFor(activeAlert).highConfidence)" class="g-btn primary" type="button" :disabled="busyKey !== ''" @click="aiProcess([activeAlert])">
                 <app-icon name="auto_awesome"></app-icon><span>AI智能处理</span>
               </button>
-              <button v-if="!existingTask(activeAlert)?.assigneeId && auditFor(activeAlert) && !auditFor(activeAlert).highConfidence" class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click="publishVerificationTasks([activeAlert])">
+              <button v-if="!existingTask(activeAlert)?.assigneeId" class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click="publishVerificationTasks([activeAlert])">
                 <app-icon name="fact_check"></app-icon><span>发布核查任务</span>
               </button>
               <button v-if="existingTask(activeAlert)?.assigneeId" class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="openAssignedTask(activeAlert)">
