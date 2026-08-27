@@ -308,8 +308,7 @@
 
 /* ---- Pack Cards ---- */
 .pack-grid {
-  column-width: 280px;
-  column-gap: 16px;
+  /* Using inline flex layout for Vue masonry */
 }
 
 .pack-card {
@@ -319,8 +318,6 @@
   padding: 20px;
   transition: box-shadow 0.2s, border-color 0.2s;
   cursor: pointer;
-  break-inside: avoid;
-  margin-bottom: 16px;
 }
 
 .pack-card:hover { box-shadow: var(--g-shadow-2); border-color: var(--g-primary); }
