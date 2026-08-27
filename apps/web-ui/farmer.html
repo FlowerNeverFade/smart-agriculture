@@ -540,7 +540,7 @@
                 </div>
                 <dl class="farmer-plot-overview-metrics">
                   <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
-                    <dt>{{ metric.label }}</dt>
+                    <dt>{{ metric_label(code, metric.label) }}</dt>
                     <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
@@ -549,7 +549,7 @@
 
             <div v-if="selected_plot && batch_timeline.length" class="g-card farmer-batch-panel">
               <div class="farmer-panel-header">
-                <div><span class="farmer-section-kicker">I-19 · 作物全周期</span><h3>{{ selected_plot.name }} · 批次阶段</h3><p class="farmer-panel-hint">阶段来自作物模型包；任务仍复用统一工单，不建立第二套计划。</p></div>
+                <div><span class="farmer-section-kicker">作物全周期</span><h3>{{ selected_plot.name }} · 批次阶段</h3><p class="farmer-panel-hint">阶段来自作物模型包；任务仍复用统一工单，不建立第二套计划。</p></div>
                 <span class="g-badge primary">{{ selected_plot.cropName }} · {{ selected_plot.stageLabel }}</span>
               </div>
               <ol class="farmer-batch-timeline">
@@ -1114,7 +1114,7 @@
                         </div>
                         <div class="farmer-plot-metrics">
                           <div v-for="(metric, code) in selected_task.plot.metrics" :key="code" class="farmer-metric-item">
-                            <span class="farmer-metric-label">{{ metric.label }}</span>
+                            <span class="farmer-metric-label">{{ metric_label(code, metric.label) }}</span>
                             <span class="farmer-metric-value" :class="'metric-' + metric.status">{{ metric.value }} {{ metric.unit }}</span>
                             <span class="farmer-metric-target">目标 {{ metric.target }}</span>
                           </div>
@@ -1381,7 +1381,7 @@
                 <div class="farmer-cm-metrics">
                   <div v-for="metric in crop_manual_metrics_list" :key="metric.code" class="farmer-cm-metric">
                     <div class="farmer-cm-metric-head">
-                      <span>{{ metric.label }}</span>
+                      <span>{{ metric_label(metric.code, metric.label) }}</span>
                       <span class="g-badge" :class="metric.availability === 'SUPPORTED' ? 'success' : 'primary'">{{ availability_label(metric.availability) }}</span>
                     </div>
                     <strong>{{ metric.range }}<small v-if="metric.unit">{{ metric.unit }}</small></strong>

@@ -10,6 +10,7 @@ import {
   dueLabel,
   displayText,
   mergePlotTelemetryWindow,
+  metricLabel,
   metricStatusLabel,
   normalizeAgentTurn,
   normalizeFarmerTask,
@@ -159,7 +160,6 @@ const PLOT_CHART_SPECS = [
   { code: 'LIGHT', label: '光照强度', unit: '勒克斯', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
   { code: 'CO2', label: '二氧化碳浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
   { code: 'RAINFALL', label: '降雨强度', unit: '毫米/小时', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
-  { code: 'SOIL_EC', label: '土壤电导率', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
 ];
 
@@ -1917,6 +1917,7 @@ const app = createApp({
     const category_label = (category) => CATEGORY_LABELS[category] || sourceLabel(category, category || '系统');
     const source_label = (value) => sourceLabel(value, '—');
     const device_status_label = (value) => genericStatusLabel(value, '状态未知');
+    const metric_label = (value, fallback = '未知指标') => metricLabel(value, fallback);
     const metric_status_label = (value) => metricStatusLabel(value, '未知');
     const request_status_label = (value) => status_label(value);
     const scenario_label = (value) => scenarioLabel(value, '未设置');
@@ -3474,6 +3475,7 @@ const app = createApp({
       category_label,
       source_label,
       device_status_label,
+      metric_label,
       metric_status_label,
       request_status_label,
       scenario_label,

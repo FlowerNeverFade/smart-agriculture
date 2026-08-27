@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { metricLabel } from '../js/live-data.js';
 
 const storage = new Map();
 globalThis.localStorage ||= {
@@ -51,4 +52,18 @@ test('farmer page renders P0 evidence, quality, dual-track and read-only executi
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
   assert.doesNotMatch(source, /api\.executeIrrigation\(/);
+});
+
+test('farmer plot cards hide soil EC charts and localize metric codes', async () => {
+  const [html, source] = await Promise.all([
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
+    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
+  ]);
+  assert.doesNotMatch(source, /code:\s*['"]SOIL_EC['"]/);
+  assert.doesNotMatch(html, /I-19\s*·/);
+  assert.match(html, /metric_label\(code, metric\.label\)/);
+  assert.match(html, /metric_label\(metric\.code, metric\.label\)/);
+  assert.equal(metricLabel('AIR_HUMIDITY'), '空气湿度');
+  assert.equal(metricLabel('LIGHT'), '光照');
+  assert.equal(metricLabel('PH'), '酸碱度');
 });
