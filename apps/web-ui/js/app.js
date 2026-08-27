@@ -1795,14 +1795,20 @@ const ValueLedgerView = {
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['navigate'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const showEvents = ref(true);
     const farmFilter = ref('all');
-    const statusFilter = ref('all');
+    const statusFilter = ref('abnormal');
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
       const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
-      const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
+      let statusMatches = true;
+      if (statusFilter.value === 'abnormal') {
+        statusMatches = plot.status !== 'HEALTHY';
+      } else if (statusFilter.value !== 'all') {
+        statusMatches = plot.status === statusFilter.value;
+      }
       return farmMatches && statusMatches;
     }));
     const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
@@ -1827,7 +1833,10 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS };
+    const goToOps = (plot) => {
+      emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
+    };
+    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, goToOps };
   }
 };
 

@@ -1367,24 +1367,19 @@
               <option value="all">全部农场</option>
               <option v-for="farm in plotFarms" :key="farm" :value="farm">{{ farm }}</option>
             </select>
-            <select v-model="statusFilter" aria-label="按健康状态筛选">
-              <option value="all">全部状态</option>
-              <option value="HEALTHY">健康 {{ plotSummary.healthy }}</option>
-              <option value="WARNING">预警 {{ plotSummary.warning }}</option>
-              <option value="CRITICAL">告警 {{ plotSummary.critical }}</option>
-              <option value="OFFLINE">离线 {{ plotSummary.offline }}</option>
-            </select>
             <span class="admin-landscape-count">{{ filteredPlots.length }} / {{ plotSummary.total }} 个地块</span>
           </div>
         </div>
-        <div class="admin-plot-summary">
-          <span class="healthy"><i></i>健康 {{ plotSummary.healthy }}</span>
-          <span class="warning"><i></i>预警 {{ plotSummary.warning }}</span>
-          <span class="critical"><i></i>告警 {{ plotSummary.critical }}</span>
-          <span class="offline"><i></i>离线 {{ plotSummary.offline }}</span>
+        <div class="admin-plot-summary interactive-filters">
+          <span class="abnormal" :class="{active: statusFilter === 'abnormal'}" @click="statusFilter = 'abnormal'"><i></i>仅异常</span>
+          <span class="healthy" :class="{active: statusFilter === 'HEALTHY'}" @click="statusFilter = 'HEALTHY'"><i></i>健康 {{ plotSummary.healthy }}</span>
+          <span class="warning" :class="{active: statusFilter === 'WARNING'}" @click="statusFilter = 'WARNING'"><i></i>预警 {{ plotSummary.warning }}</span>
+          <span class="critical" :class="{active: statusFilter === 'CRITICAL'}" @click="statusFilter = 'CRITICAL'"><i></i>告警 {{ plotSummary.critical }}</span>
+          <span class="offline" :class="{active: statusFilter === 'OFFLINE'}" @click="statusFilter = 'OFFLINE'"><i></i>离线 {{ plotSummary.offline }}</span>
+          <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
