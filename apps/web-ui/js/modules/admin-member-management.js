@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { sourceLabel } from '../live-data.js';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -91,7 +92,7 @@ export const AdminMemberManagementView = {
       busyUserId, memberMenuId, memberEditor, memberDraft,
       farmId, members, plots, toggleEditorPlot,
       toggleMemberMenu, openCreateMember, openEditMember, closeMemberEditor,
-      submitMember, deleteMember, memberPlots, openAssignments
+      submitMember, deleteMember, memberPlots, openAssignments, sourceLabel
     };
   },
   template: `
@@ -104,7 +105,7 @@ export const AdminMemberManagementView = {
           <article v-for="member in members" :key="member.userId" class="admin-member-card">
             <header>
               <span class="admin-member-avatar">{{ String(member.username || '?').slice(0, 1).toUpperCase() }}</span>
-              <div class="admin-member-identity"><strong>{{ member.username }}</strong><small>种植农户 · {{ member.sourceMode || (state.sessionMode === 'demo' ? 'SIMULATED' : 'ACCOUNT') }}</small></div>
+              <div class="admin-member-identity"><strong>{{ member.username }}</strong><small>种植农户 · {{ sourceLabel(member.sourceMode || (state.sessionMode === 'demo' ? 'SIMULATED' : 'ACCOUNT')) }}</small></div>
               <div class="admin-member-card-actions" @click.stop>
                 <button type="button" class="manager-more-button" :aria-expanded="memberMenuId === member.userId" :aria-label="member.username + '成员操作'" @click.stop="toggleMemberMenu(member.userId)"><app-icon name="more_vertical"></app-icon></button>
                 <div v-if="memberMenuId === member.userId" class="manager-plot-menu admin-member-menu" role="menu">

@@ -8,14 +8,51 @@ import {
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
+  displayText,
   mergePlotTelemetryWindow,
+  metricStatusLabel,
   normalizeFarmerTask,
   normalizePlot,
   normalizeWorkStatus,
+  provenanceLabel,
+  resourceTypeLabel,
+  scenarioLabel,
+  sourceLabel,
+  statusLabel as genericStatusLabel,
   workStatusLabel
 } from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+
+// Keep farmer.html independent from the remote Google icon font.  The same
+// local Phosphor set is used by the shared admin shell, so icon geometry and
+// fallback behaviour stay consistent when the server has no internet access.
+const FARMER_ICON_CLASS = Object.freeze({
+  menu: 'ph-list', light_mode: 'ph-sun', dark_mode: 'ph-moon', logout: 'ph-sign-out',
+  expand_more: 'ph-caret-down', expand_less: 'ph-caret-up', close: 'ph-x',
+  agriculture: 'ph-plant', manage_accounts: 'ph-user-gear', admin_panel_settings: 'ph-user-gear',
+  today: 'ph-calendar-check', date_range: 'ph-calendar', lock_reset: 'ph-lock-key-open', help: 'ph-question',
+  dashboard: 'ph-squares-four', grass: 'ph-plant', task: 'ph-check-square', fact_check: 'ph-clipboard-text',
+  water_drop: 'ph-drop', forum: 'ph-chat-circle', apps: 'ph-squares-four', assignment: 'ph-clipboard-text',
+  error: 'ph-x-circle', warning: 'ph-warning', warning_amber: 'ph-warning', sync: 'ph-arrows-clockwise',
+  arrow_forward: 'ph-arrow-right', build_circle: 'ph-wrench', verified: 'ph-seal-check',
+  event_available: 'ph-calendar-check', psychology: 'ph-brain', timeline: 'ph-chart-line-up',
+  stop_circle: 'ph-stop-circle', water: 'ph-drop', check_circle: 'ph-check-circle', thumb_up: 'ph-thumbs-up',
+  edit_note: 'ph-note-pencil', schedule: 'ph-clock', history: 'ph-clock-counter-clockwise',
+  radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
+  smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
+  insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
+  science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass'
+});
+
+const FarmerAppIcon = {
+  props: { name: { type: String, default: 'check_circle' } },
+  setup(props) {
+    const iconClass = computed(() => FARMER_ICON_CLASS[props.name] || 'ph-circle');
+    return { iconClass };
+  },
+  template: '<span class="material-symbols-outlined ph" :class="iconClass" aria-hidden="true"></span>'
+};
 
 const STATUS_LABELS = {
   OPEN: '待分配',
@@ -53,32 +90,32 @@ const CROP_ICONS = {
 const PLOT_CHART_SPECS = [
   { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 60, amplitude: 3, precision: 1, color: 'var(--g-success)' },
   { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: 10, max: 40, amplitude: 1.8, precision: 1, color: 'var(--g-primary)' },
-  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
-  { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
-  { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
-  { code: 'RAINFALL', label: '降雨强度', unit: 'mm/h', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
-  { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
+  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
+  { code: 'LIGHT', label: '光照强度', unit: '勒克斯', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
+  { code: 'CO2', label: '二氧化碳浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
+  { code: 'RAINFALL', label: '降雨强度', unit: '毫米/小时', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
+  { code: 'SOIL_EC', label: '土壤电导率', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
 ];
 
 const CHART_RANGE_OPTIONS = [
   {
     id: '7h',
-    label: '7h',
+    label: '7 小时',
     title: '近 7 小时',
     amplitude_scale: 0.35,
-    labels: ['6h前', '5h前', '4h前', '3h前', '2h前', '1h前', '现在']
+    labels: ['6 小时前', '5 小时前', '4 小时前', '3 小时前', '2 小时前', '1 小时前', '现在']
   },
   {
     id: '24h',
-    label: '24h',
+    label: '24 小时',
     title: '近 24 小时',
     amplitude_scale: 0.7,
-    labels: ['24h前', '20h前', '16h前', '12h前', '8h前', '4h前', '现在']
+    labels: ['24 小时前', '20 小时前', '16 小时前', '12 小时前', '8 小时前', '4 小时前', '现在']
   },
   {
     id: '7d',
-    label: '7天',
+    label: '7 天',
     title: '近 7 天',
     amplitude_scale: 1,
     labels: ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天']
@@ -120,15 +157,15 @@ function farmer_hash_for(view_id) {
 let crop_pack_catalog = MOCK_DATA.cropPackDetails || [];
 
 const FARMER_SIMILAR_CASES = Object.freeze([
-  { id: 'case-042', title: '番茄结果期轻度缺水', result: '分两次补水后 3 小时回到目标区间，效果评价为有效。', similarity: '87%', source: 'SIMULATED · 已完成评价案例' },
-  { id: 'case-038', title: '高温时段延后灌溉', result: '改到傍晚执行后蒸散压力下降，未出现重复告警。', similarity: '81%', source: 'SIMULATED · 已完成评价案例' }
+  { id: 'case-042', title: '番茄结果期轻度缺水', result: '分两次补水后 3 小时回到目标区间，效果评价为有效。', similarity: '87%', source: '演示数据 · 已完成评价案例' },
+  { id: 'case-038', title: '高温时段延后灌溉', result: '改到傍晚执行后蒸散压力下降，未出现重复告警。', similarity: '81%', source: '演示数据 · 已完成评价案例' }
 ]);
 
 const FARMER_REPORT_CATALOG = Object.freeze({
   daily: {
     title: '今日农务日报',
     period: '今日 00:00—当前',
-    source: 'SIMULATED',
+    source: '演示数据',
     items: [
       { label: '今日待办', value: '3 项', note: '含 1 项高优先级核验' },
       { label: '执行中', value: '1 项', note: '番茄疏花打杈' },
@@ -139,11 +176,11 @@ const FARMER_REPORT_CATALOG = Object.freeze({
   weekly: {
     title: '本周农情周报',
     period: '本周一—今日',
-    source: 'SIMULATED',
+    source: '演示数据',
     items: [
       { label: '完成任务', value: '12 项', note: '完成率 86%' },
       { label: '巡田记录', value: '7 条', note: '均保留人工来源' },
-      { label: '计划用水', value: '860 L', note: '模拟排程口径' },
+      { label: '计划用水', value: '860 升', note: '模拟排程口径' },
       { label: '风险变化', value: '下降 2 条', note: '不代表真实收益' }
     ]
   }
@@ -163,7 +200,8 @@ function parse_npk(value) {
 }
 
 function format_chart_axis_value(value, precision = 0) {
-  if (Math.abs(value) >= 1000) return `${Number((value / 1000).toFixed(1))}k`;
+  if (Math.abs(value) >= 10000) return `${Number((value / 10000).toFixed(1))} 万`;
+  if (Math.abs(value) >= 1000) return `${Number((value / 1000).toFixed(1))} 千`;
   return Number(value.toFixed(precision)).toString();
 }
 
@@ -771,7 +809,7 @@ const app = createApp({
     const qa_input = ref('');
     const latest_answer = ref('');
     const qa_history = ref([]);
-    const qa_source_label = ref(is_formal_session ? '后端 AI' : '演示规则');
+    const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示规则');
 
     const nav_items = computed(() => {
       const unread = messages.value.filter((m) => !m.read).length;
@@ -869,13 +907,13 @@ const app = createApp({
     const degradation_banner = computed(() => {
       if (!is_live.value) {
         return {
-          tone: 'mock', icon: 'science', mode: 'MOCK', title: '当前为模拟演示模式',
+          tone: 'mock', icon: 'science', mode: '演示模式', title: '当前为模拟演示模式',
           detail: '天气、预测、排程和报告均使用可重复的模拟数据；不会控制真实水泵或修改生产策略。'
         };
       }
       if (risk_forecast.value && String(risk_forecast.value.status).toUpperCase() !== 'AVAILABLE') {
         return {
-          tone: 'warning', icon: 'wifi_off', mode: 'UNAVAILABLE', title: '风险预测暂不可用',
+          tone: 'warning', icon: 'wifi_off', mode: '暂不可用', title: '风险预测暂不可用',
           detail: risk_forecast.value.reason || risk_forecast.value.unavailableReason || '样本、数据质量或设备状态不足，请先巡田或复测。'
         };
       }
@@ -966,16 +1004,16 @@ const app = createApp({
       const slot = `${String(Math.floor(startMinutes / 60)).padStart(2, '0')}:${String(startMinutes % 60).padStart(2, '0')}`;
       return {
         requested, allocated, slot, hasConflict,
-        summary: hasConflict ? `仅分配 ${allocated}/${requested} L` : `已分配 ${allocated} L · ${slot}`,
-        explanation: hasConflict ? `受可用水量限制，仍有 ${unmet} L 未满足，请等待管理员调整。` : '当前分配未超过可用水量，暂未发现地块间冲突。',
-        provenance: plan.provenance || (is_live.value ? 'BACKEND' : 'SIMULATED')
+        summary: hasConflict ? `仅分配 ${allocated}/${requested} 升` : `已分配 ${allocated} 升 · ${slot}`,
+        explanation: hasConflict ? `受可用水量限制，仍有 ${unmet} 升未满足，请等待管理员调整。` : '当前分配未超过可用水量，暂未发现地块间冲突。',
+        provenance: provenanceLabel(plan.provenance || (is_live.value ? 'BACKEND' : 'SIMULATED'))
       };
     });
 
     const similar_cases = computed(() => FARMER_SIMILAR_CASES);
     const active_report = computed(() => {
       const base = FARMER_REPORT_CATALOG[active_report_key.value] || FARMER_REPORT_CATALOG.daily;
-      return { ...base, generatedAt: data_updated_label.value };
+      return { ...base, sourceLabel: sourceLabel(base.source), generatedAt: data_updated_label.value };
     });
 
     const navigate = (view_id, { sync_hash = true } = {}) => {
@@ -1043,9 +1081,14 @@ const app = createApp({
       window.location.replace('login.html');
     };
 
-    const status_label = (status) => STATUS_LABELS[status] || status;
-    const priority_label = (priority) => PRIORITY_LABELS[priority] || priority;
-    const category_label = (category) => CATEGORY_LABELS[category] || category;
+    const status_label = (status) => STATUS_LABELS[status] || workStatusLabel(status);
+    const priority_label = (priority) => PRIORITY_LABELS[priority] || (String(priority || '').toUpperCase() === 'CRITICAL' ? '紧急' : priority || '普通');
+    const category_label = (category) => CATEGORY_LABELS[category] || sourceLabel(category, category || '系统');
+    const source_label = (value) => sourceLabel(value, '—');
+    const device_status_label = (value) => genericStatusLabel(value, '状态未知');
+    const metric_status_label = (value) => metricStatusLabel(value, '未知');
+    const request_status_label = (value) => status_label(value);
+    const scenario_label = (value) => scenarioLabel(value, '未设置');
     const crop_icon = (crop_code) => CROP_ICONS[crop_code] || '🌱';
     const plot_band_status = (plot) => resolve_moisture_band_status(plot);
     const plot_band_label = (plot) => BAND_STATUS_LABELS[resolve_moisture_band_status(plot)] || '正常';
@@ -1407,11 +1450,11 @@ const app = createApp({
         analysis_source_label.value = agentResponseSource(result, 'live');
       } catch (error) {
         if (error.is_network || !is_live.value) {
-          analysis_error.value = '当前为离线模式，AI 概括服务不可用。请启动后端服务后再试，或联系农场管理员获取人工分析。';
+          analysis_error.value = '当前为离线模式，智能概括服务不可用。请启动后端服务后再试，或联系农场管理员获取人工分析。';
         } else {
-          analysis_error.value = error.message || 'AI 分析服务暂时不可用，请稍后重试。';
+          analysis_error.value = error.message || '智能分析服务暂时不可用，请稍后重试。';
         }
-        analysis_source_label.value = 'AI 暂不可用';
+        analysis_source_label.value = '智能分析暂不可用';
       } finally {
         analyzing.value = false;
       }
@@ -1526,7 +1569,7 @@ const app = createApp({
           qa_input.value = '';
           return;
         } catch (error) {
-          qa_source_label.value = 'AI 暂不可用';
+          qa_source_label.value = '智能问答暂不可用';
           show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
           return;
         }
@@ -1928,6 +1971,13 @@ const app = createApp({
       status_label,
       priority_label,
       category_label,
+      source_label,
+      device_status_label,
+      metric_status_label,
+      request_status_label,
+      scenario_label,
+      resource_type_label: resourceTypeLabel,
+      displayText,
       crop_icon,
       plot_band_status,
       plot_band_label,
@@ -1976,6 +2026,7 @@ const app = createApp({
 
 const _session = api.readSession();
 const _session_user = presentRoleUser(_session?.user);
+app.component('app-icon', FarmerAppIcon);
 if (!_session || !_session_user) {
   window.location.replace('login.html');
 } else if (_session_user.role !== 'FARMER') {

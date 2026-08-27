@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { adminMetricLabel, alertAcknowledgementAction } from './admin-state.js';
+import { sourceLabel as localizedSourceLabel } from './live-data.js';
 
 const { ref, computed, inject, watch } = Vue;
 
@@ -45,7 +46,7 @@ export const AdminAlertCenter = {
     const plotName = plotId => props.state.plots.find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
     const statusLabel = status => STATUS_LABELS[normalized(status)] || '状态未知';
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
-    const sourceLabel = source => adminMetricLabel(source, source || '系统规则');
+    const sourceLabel = source => localizedSourceLabel(source, adminMetricLabel(source, '系统规则'));
     const existingTask = alert => props.state.workOrders.find(order => order.sourceType === 'ALERT' && order.sourceRef === alert.alertId);
     const acknowledgementAction = alert => alertAcknowledgementAction(alert?.status);
     const nextStep = alert => {
@@ -154,7 +155,7 @@ export const AdminAlertCenter = {
               <div><dt>发生时间</dt><dd>{{ readableTime(alert.raisedAt || alert.createdAt) }}</dd></div>
             </dl>
           </div>
-          <footer class="admin-alert-card-footer"><span>来源：{{ sourceLabel(alert.source) }}</span><strong>查看详情 <span class="material-symbols-outlined">arrow_forward</span></strong></footer>
+          <footer class="admin-alert-card-footer"><span>来源：{{ sourceLabel(alert.source) }}</span><strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong></footer>
         </article>
       </div>
 

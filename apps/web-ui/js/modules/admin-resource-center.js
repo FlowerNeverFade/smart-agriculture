@@ -1,6 +1,7 @@
 import { api } from '../api.js';
-import { adminDeviceTypeLabel, formatHealthScore, normalizeAdminTab } from '../admin-state.js';
+import { formatHealthScore, normalizeAdminTab } from '../admin-state.js';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
+import { deviceTypeLabel as localizedDeviceTypeLabel, provenanceLabel, scenarioLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js';
 
 const { ref, computed, watch, inject } = Vue;
 
@@ -30,7 +31,7 @@ export const AdminResourceCenterView = {
     const activeDevice = computed(() => devices.value.find(device => device.deviceId === activeDeviceId.value) || null);
     const ledgers = computed(() => props.state.valueLedgers || []);
     const simulator = computed(() => props.state.simulatorStatus || { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' });
-    const simulatorMessage = computed(() => SIMULATOR_REASONS[simulator.value.reason] || simulator.value.reason || '模拟器状态暂不可用。');
+    const simulatorMessage = computed(() => SIMULATOR_REASONS[simulator.value.reason] || (simulator.value.reason && statusLabel(simulator.value.reason, simulator.value.reason)) || '模拟器状态暂不可用。');
     const upsertDevice = device => {
       if (!device?.deviceId) return;
       const index = props.state.devices.findIndex(item => item.deviceId === device.deviceId);
@@ -138,7 +139,8 @@ export const AdminResourceCenterView = {
     };
     const plotName = plotId => plots.value.find(plot => plot.plotId === plotId)?.name || plotId || '未绑定';
     const bindingLabel = device => (device?.plotId || String(device?.bindingState || '').toUpperCase() === 'BOUND') ? '已绑定' : '未绑定';
-    const deviceStatusLabel = status => ({ ONLINE: '在线', DEGRADED: '状态异常', OFFLINE: '离线' })[String(status || 'OFFLINE').toUpperCase()] || '状态未知';
+    const deviceStatusLabel = status => serviceStatusLabel(status, '状态未知');
+    const ledgerStatusLabel = status => statusLabel(status, '待补充');
     const deviceLastSeen = device => device?.lastSeen || device?.lastHeartbeat || null;
     const readableTime = value => {
       if (!value) return '尚无数据';
@@ -155,7 +157,8 @@ export const AdminResourceCenterView = {
     return {
       activeTab, busy, farmId, plots, devices, activeDevice, ledgers, simulator, simulatorMessage, bindSelections, deviceForm, ledgerForm,
       showDeviceRegistration, setTab, registerDevice, bind, unbind, createLedger, controlSimulator, refreshSimulator, plotName,
-      bindingLabel, deviceStatusLabel, deviceLastSeen, readableTime, healthLabel, deviceTypeLabel: adminDeviceTypeLabel, display, metric,
+      bindingLabel, deviceStatusLabel, ledgerStatusLabel, deviceLastSeen, readableTime, healthLabel, deviceTypeLabel: localizedDeviceTypeLabel, display, metric,
+      sourceLabel, provenanceLabel, scenarioLabel, serviceStatusLabel,
       openDeviceRegistration, closeDeviceRegistration, openDeviceDetail, closeDeviceDetail, openDeviceFromKeyboard
     };
   },
@@ -185,7 +188,7 @@ export const AdminResourceCenterView = {
                 <div><dt>最近数据</dt><dd>{{ readableTime(deviceLastSeen(device)) }}</dd></div>
                 <div><dt>健康评分</dt><dd>{{ healthLabel(device) }}</dd></div>
               </dl>
-              <footer><span>{{ device.sourceMode || '设备事实' }}</span><strong>查看详情 <span class="material-symbols-outlined">arrow_forward</span></strong></footer>
+              <footer><span>{{ sourceLabel(device.sourceMode || 'DEVICE') }}</span><strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong></footer>
             </article>
             <button type="button" class="admin-device-card admin-add-device-card" @click="openDeviceRegistration">
               <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
@@ -201,12 +204,12 @@ export const AdminResourceCenterView = {
 
       <div v-else-if="activeTab === 'value'" class="admin-split-layout">
         <section class="admin-panel">
-          <div class="admin-panel-title"><div><span>新建对账</span><h2>录入用水事实</h2></div><em>USER_PROVIDED</em></div>
+          <div class="admin-panel-title"><div><span>新建对账</span><h2>录入用水事实</h2></div><em>人工提供</em></div>
           <div class="admin-form-grid one-column">
             <label><span>地块</span><select v-model="ledgerForm.plotId"><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-            <label><span>计划用水（L）</span><input type="number" min="0" step="0.1" v-model="ledgerForm.plannedWaterLitres" placeholder="缺少时可留空"></label>
-            <label><span>实际用水（L）</span><input type="number" min="0" step="0.1" v-model="ledgerForm.actualWaterLitres" placeholder="缺少时可留空"></label>
-            <label><span>水价（元/L）</span><input type="number" min="0" step="0.001" v-model="ledgerForm.waterPricePerLitre" placeholder="留空使用后端农场配置"></label>
+            <label><span>计划用水（升）</span><input type="number" min="0" step="0.1" v-model="ledgerForm.plannedWaterLitres" placeholder="缺少时可留空"></label>
+            <label><span>实际用水（升）</span><input type="number" min="0" step="0.1" v-model="ledgerForm.actualWaterLitres" placeholder="缺少时可留空"></label>
+            <label><span>水价（元/升）</span><input type="number" min="0" step="0.001" v-model="ledgerForm.waterPricePerLitre" placeholder="留空使用后端农场配置"></label>
           </div>
           <p class="admin-hint">第一版只计算计划、实际、偏差、节水量和水费；没有产量或价格事实时不展示收益。</p>
           <button class="g-btn primary" :disabled="busy" @click="createLedger">保存对账</button>
@@ -215,9 +218,9 @@ export const AdminResourceCenterView = {
           <div class="admin-panel-title"><div><span>事实账本</span><h2>价值对账记录</h2></div><em>{{ ledgers.length }} 条</em></div>
           <div class="admin-ledger-list">
             <article v-for="ledger in ledgers" :key="ledger.valueLedgerId">
-              <header><strong>{{ plotName(ledger.plotId) }}</strong><span>{{ ledger.status }}</span></header>
-              <dl><div><dt>计划用水</dt><dd>{{ metric(ledger, 'plannedWaterLitres') }} L</dd></div><div><dt>实际用水</dt><dd>{{ metric(ledger, 'actualWaterLitres') }} L</dd></div><div><dt>节水量</dt><dd>{{ metric(ledger, 'waterSavingLitres') }} L</dd></div><div><dt>水费</dt><dd>¥ {{ metric(ledger, 'waterCost') }}</dd></div></dl>
-              <footer>{{ ledger.sourceMode || '—' }} · 计划 {{ ledger.plannedSource || '—' }} / 实际 {{ ledger.actualSource || '—' }}</footer>
+              <header><strong>{{ plotName(ledger.plotId) }}</strong><span>{{ ledgerStatusLabel(ledger.status) }}</span></header>
+              <dl><div><dt>计划用水</dt><dd>{{ metric(ledger, 'plannedWaterLitres') }} 升</dd></div><div><dt>实际用水</dt><dd>{{ metric(ledger, 'actualWaterLitres') }} 升</dd></div><div><dt>节水量</dt><dd>{{ metric(ledger, 'waterSavingLitres') }} 升</dd></div><div><dt>水费</dt><dd>¥ {{ metric(ledger, 'waterCost') }}</dd></div></dl>
+              <footer>{{ sourceLabel(ledger.sourceMode) }} · 计划 {{ sourceLabel(ledger.plannedSource) }} / 实际 {{ sourceLabel(ledger.actualSource) }}</footer>
             </article>
             <p v-if="!ledgers.length" class="admin-empty">还没有对账记录；系统不会用模拟收益填空。</p>
           </div>
@@ -225,9 +228,9 @@ export const AdminResourceCenterView = {
       </div>
 
       <section v-else class="admin-panel admin-simulator-panel">
-        <div class="admin-panel-title"><div><span>Supervisor</span><h2>遥测模拟器控制</h2></div><em>{{ simulator.status || 'UNAVAILABLE' }}</em></div>
+        <div class="admin-panel-title"><div><span>模拟器控制服务</span><h2>遥测模拟器控制</h2></div><em>{{ serviceStatusLabel(simulator.status) }}</em></div>
         <div v-if="!simulator.available" class="admin-unavailable"><app-icon name="info"></app-icon><div><strong>当前环境不可控制模拟器</strong><p>{{ simulatorMessage }}</p></div></div>
-        <div v-else class="admin-simulator-state"><i :class="String(simulator.status || '').toLowerCase()"></i><div><span>当前状态</span><strong>{{ simulator.status }}</strong><small>{{ simulator.program || '—' }}</small></div></div>
+        <div v-else class="admin-simulator-state"><i :class="String(simulator.status || '').toLowerCase()"></i><div><span>当前状态</span><strong>{{ serviceStatusLabel(simulator.status) }}</strong><small>{{ simulator.program || '—' }}</small></div></div>
         <div class="admin-action-row"><button class="g-btn secondary" :disabled="busy" @click="refreshSimulator">刷新状态</button><button class="g-btn primary" :disabled="busy || !simulator.available || simulator.status === 'RUNNING'" @click="controlSimulator('start')">启动</button><button class="g-btn danger" :disabled="busy || !simulator.available || simulator.status !== 'RUNNING'" @click="controlSimulator('stop')">停止</button></div>
       </section>
 
@@ -261,7 +264,7 @@ export const AdminResourceCenterView = {
               <div><dt>最近数据</dt><dd>{{ readableTime(deviceLastSeen(activeDevice)) }}</dd></div>
               <div><dt>注册时间</dt><dd>{{ readableTime(activeDevice.registeredAt) }}</dd></div>
               <div><dt>健康评分</dt><dd>{{ healthLabel(activeDevice) }}</dd></div>
-              <div><dt>数据来源</dt><dd>{{ display(activeDevice.sourceMode) }}</dd></div>
+              <div><dt>数据来源</dt><dd>{{ sourceLabel(activeDevice.sourceMode) }}</dd></div>
               <div><dt>所属农场</dt><dd>{{ display(activeDevice.farmId || farmId) }}</dd></div>
             </dl>
             <div v-if="!activeDevice.plotId" class="admin-device-binding-editor">

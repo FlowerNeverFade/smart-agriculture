@@ -23,7 +23,23 @@ import {
   mapStrategyCandidate,
   mapTimelineRecord,
   normalizePlot,
-  relativeTime
+  relativeTime,
+  alertStatusLabel,
+  deviceTypeLabel,
+  displayText,
+  eventTypeLabel,
+  levelLabel,
+  metricStatusLabel,
+  priorityLabel as localizedPriorityLabel,
+  provenanceLabel,
+  resourceTypeLabel,
+  scenarioLabel,
+  serviceNameLabel,
+  serviceStatusLabel,
+  modeLabel,
+  sourceLabel as localizedSourceLabel,
+  statusLabel as localizedStatusLabel,
+  workStatusLabel
 } from './live-data.js';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
@@ -84,7 +100,29 @@ const ICON_CLASS = Object.freeze({
   more_vertical: 'ph-dots-three-vertical',
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
-  add: 'ph-plus'
+  add: 'ph-plus',
+  expand_more: 'ph-caret-down',
+  expand_less: 'ph-caret-up',
+  lock_reset: 'ph-lock-key-open',
+  help: 'ph-question',
+  arrow_forward: 'ph-arrow-right',
+  login: 'ph-sign-in',
+  update: 'ph-arrow-up',
+  settings: 'ph-gear',
+  notifications_active: 'ph-bell',
+  notifications: 'ph-bell',
+  sensors: 'ph-broadcast',
+  grid_view: 'ph-squares-four',
+  play_arrow: 'ph-play',
+  stop: 'ph-stop',
+  category: 'ph-tag',
+  compare_arrows: 'ph-arrows-left-right',
+  replay: 'ph-arrow-counter-clockwise',
+  speed: 'ph-gauge',
+  agriculture: 'ph-plant',
+  manage_accounts: 'ph-user-gear',
+  tune: 'ph-sliders',
+  history: 'ph-clock-counter-clockwise'
 });
 
 const AppIcon = {
@@ -375,17 +413,18 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    ['PostgreSQL', systemStatus.database],
-    ['Redis Streams', systemStatus.redis],
-    ['MQTT Broker', systemStatus.mqtt],
-    ['SSE Gateway', 'UP'],
-    ['API Service', 'UP'],
-    ['AI 服务', systemStatus.ai]
+    { name: 'PostgreSQL 数据库', status: systemStatus.database },
+    { name: 'Redis 消息流', status: systemStatus.redis },
+    { name: 'MQTT 消息代理', status: systemStatus.mqtt },
+    { name: 'SSE 实时推送', status: 'UP' },
+    { name: '接口服务', status: 'UP' },
+    { name: '智能模型服务', status: systemStatus.ai, isAi: true }
   ];
-  return entries.map(([name, status]) => ({
+  return entries.map(({ name, status, isAi = false }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
-    mode: name === 'AI 服务' ? (status || '—') : undefined,
+    statusLabel: serviceStatusLabel(status, '未知'),
+    mode: isAi ? (status || '—') : undefined,
     sourceMode: 'BACKEND'
   }));
 }
@@ -465,7 +504,7 @@ function presentSystemEvent(event) {
   const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
   const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
   const silent = isSilentSystemEventType(type);
-  const title = payload.title || payload.summary || payload.message || (silent ? '实时数据已更新' : `${type} 事件已到达`);
+  const title = displayText(payload.title || payload.summary || payload.message || (silent ? '实时数据已更新' : `${eventTypeLabel(type)}已到达`));
   return {
     id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`,
     type,
@@ -723,7 +762,11 @@ const DashboardView = {
       confirmDeletePlot,
       createTask,
       handleAction,
-      visibleActions
+      visibleActions,
+      metricStatusLabel,
+      localizedSourceLabel,
+      localizedStatusLabel,
+      displayText
     };
   }
 };
@@ -1201,6 +1244,7 @@ const PlotDetailModal = {
       healthScore: formatHealthScore,
       statusLabel,
       dueLabel,
+      displayText,
       openView,
       close: () => emit('close')
     };
@@ -1228,7 +1272,7 @@ const DecisionConsoleView = {
     // Chat Logic
     const chatInput = ref('');
     const chatHistory = ref([
-      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop AI' }
+      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop 智能助手' }
     ]);
     const isTyping = ref(false);
     const chatBox = ref(null);
@@ -1255,7 +1299,7 @@ const DecisionConsoleView = {
             dataOrigin: 'BACKEND'
           });
         } catch (error) {
-          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: 'AI 暂不可用' });
+          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: '智能服务暂不可用' });
         } finally {
           isTyping.value = false;
           scrollToBottom();
@@ -1267,9 +1311,9 @@ const DecisionConsoleView = {
         isTyping.value = false;
         let reply = '基于当前环境遥测与生长模型，系统判断您的要求在安全阈值内，已为您记录参考。';
         if (userMessage.includes('为什么') || userMessage.includes('原因')) {
-          reply = '我注意到当前的土壤湿度连续低于 20%（番茄结果期基线）。同时，空气温度 26.4°C 加速了蒸散，且传感器数据质量评分为 GOOD（排除了硬件漂移）。因此诊断为真实水分胁迫。';
+          reply = '我注意到当前的土壤湿度连续低于 20%（番茄结果期基线）。同时，空气温度 26.4°C 加速了蒸散，且传感器数据质量评分为正常（排除了硬件漂移）。因此诊断为真实水分胁迫。';
         } else if (userMessage.includes('处方') || userMessage.includes('水')) {
-          reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18L/min 恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
+          reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18 升/分钟恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
         }
         
         chatHistory.value.push({ role: 'agent', content: reply, sourceLabel: '演示规则' });
@@ -1314,19 +1358,19 @@ const DecisionConsoleView = {
         dualChart.setOption({
           backgroundColor: 'transparent',
           tooltip: { trigger: 'axis' },
-          legend: { data: ['执行处方 (With Action)', '不执行 (No Action)'], textStyle: { color: textColor } },
-          xAxis: { type: 'category', data: ['0h', '1h', '2h', '3h', '4h'], axisLabel: { color: textColor } },
+          legend: { data: ['执行处方（有干预）', '不执行（无干预）'], textStyle: { color: textColor } },
+          xAxis: { type: 'category', data: ['0 小时', '1 小时', '2 小时', '3 小时', '4 小时'], axisLabel: { color: textColor } },
           yAxis: { type: 'value', min: 10, max: 35, axisLabel: { color: textColor } },
           series: [
             {
-              name: '执行处方 (With Action)',
+              name: '执行处方（有干预）',
               type: 'line',
               smooth: true,
               itemStyle: { color: '#1e8e3e' },
               data: [16.8, 30.0, 28.5, 27.0, 26.1]
             },
             {
-              name: '不执行 (No Action)',
+              name: '不执行（无干预）',
               type: 'line',
               smooth: true,
               itemStyle: { color: '#d93025' },
@@ -1365,7 +1409,7 @@ const DecisionConsoleView = {
         }
       } else {
         props.state.workOrders.unshift({
-          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153L 灌溉处方',
+          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153 升灌溉处方',
           reason: '演示决策下发', status: 'OPEN', priority: 'HIGH', sourceMode: 'SIMULATED'
         });
         toast('演示工单已创建');
@@ -1376,7 +1420,8 @@ const DecisionConsoleView = {
     return { 
       diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution
+      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution,
+      displayText
     };
   }
 };
@@ -1542,7 +1587,7 @@ const RiskForecastView = {
           upper: Number(point.upper ?? point.expected ?? point.value)
         }))
         .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
-      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute}m`);
+      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute} 分钟`);
       const values = points.map((point) => point.expected);
       const baseMoisture = Number(currentPlotBaseMoisture.value);
       const finiteValues = values.filter(Number.isFinite);
@@ -1629,7 +1674,7 @@ const RiskForecastView = {
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
     onBeforeUnmount(() => { observer.disconnect(); chart?.dispose(); chart = null; });
     
-    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings };
+    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings, scenarioLabel, displayText };
   }
 };
 
@@ -1780,6 +1825,11 @@ const WorkOrdersView = {
       form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
     };
 
+    const inspectionObservationLabel = (group, value) => ({
+      soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
+      crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' }
+    }[group]?.[String(value || '').toUpperCase()] || value || '—');
+
     return {
       showFormModal,
       showWorkOrderModal,
@@ -1789,7 +1839,11 @@ const WorkOrdersView = {
       submitWorkOrder,
       highlightNewOrder,
       canRecordInspection,
-      canCreateWorkOrder
+      canCreateWorkOrder,
+      resourceTypeLabel,
+      priorityLabel: localizedPriorityLabel,
+      workStatusLabel,
+      inspectionObservationLabel
     };
   }
 };
@@ -1840,7 +1894,7 @@ const FarmMembersView = {
       if (member.role !== 'FARMER') return '负责农场管理';
       return normalizedStatus(member?.status) === 'ACTIVE' ? '可分配任务' : '已停用，不能分配';
     };
-    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? 'SIMULATED' : '正式账号';
+    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? '演示数据' : '正式账号';
     const refreshMembers = async (announce = true) => {
       if (!currentFarmId.value) {
         loadError.value = '当前账号没有可读取的农场范围';
@@ -1889,7 +1943,13 @@ const RoleAwareWorkOrdersView = {
 
 const CropPacksView = {
   template: '#tmpl-crop-packs',
-  props: ['state', 'routeParams']
+  props: ['state', 'routeParams'],
+  setup() {
+    const riskFocusLabel = (value) => RISK_FOCUS_LABELS[value] || value || '—';
+    const ruleOperatorLabel = (value) => ({ LT: '低于', LTE: '不高于', GT: '高于', GTE: '不低于', EQ: '等于' }[String(value || '').toUpperCase()] || value || '—');
+    const varietyLabel = (value) => ({ demonstration: '示范品种', greenhouse: '设施栽培' }[String(value || '').trim().toLowerCase()] || value || '—');
+    return { riskFocusLabel, ruleOperatorLabel, metricLabel: adminMetricLabel, varietyLabel, displayText };
+  }
 };
 
 const RISK_FOCUS_LABELS = {
@@ -1908,8 +1968,8 @@ function manualEnvMetrics(pack, stage) {
     AIR_HUMIDITY: '空气湿度',
     WATER_LEVEL: '水位',
     LIGHT: '光照',
-    CO2: 'CO2',
-    SOIL_EC: '土壤 EC',
+    CO2: '二氧化碳',
+    SOIL_EC: '土壤电导率',
     NPK_RATIO: '氮磷钾'
   };
   const items = [
@@ -1958,7 +2018,7 @@ function buildStageGuide(pack, stage) {
   if (stage.taskTemplates?.length) {
     const tasks = stage.taskTemplates.map((task) => {
       const action = TASK_ACTION_LABELS[task.actionType] || task.actionType;
-      return `${action}（每 ${task.intervalDays} 天，优先级 ${task.priority}）`;
+      return `${action}（每 ${task.intervalDays} 天，优先级${localizedPriorityLabel(task.priority)}）`;
     }).join('；');
     lines.push(`建议农务节奏：${tasks}。`);
   }
@@ -1971,7 +2031,7 @@ function buildStageGuide(pack, stage) {
     const op = rule.operator === 'LT' ? '低于' : '高于';
     const bound = rule.threshold ?? stageBound[rule.code];
     const boundText = bound == null ? '阶段目标' : String(bound);
-    return `${rule.code}：${rule.metric} ${op} ${boundText} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
+    return `${RISK_FOCUS_LABELS[rule.code] || rule.code}：${adminMetricLabel(rule.metric)}${op}${boundText}，且持续 ${rule.durationMinutes} 分钟时需重点关注`;
   });
   if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
   const stageKnowledge = pack.knowledge?.byStage?.[stage.code];
@@ -2111,7 +2171,7 @@ const ValueLedgerView = {
     const observer = new MutationObserver(() => renderChart());
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
 
-    return {};
+    return { provenanceLabel };
   }
 };
 
@@ -2214,7 +2274,7 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
+    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics, serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText };
   }
 };
 
@@ -2259,7 +2319,7 @@ const AdminOpsView = {
       }
     };
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert };
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText };
   }
 };
 
@@ -2297,7 +2357,7 @@ const AdminAuditView = {
       expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
     };
 
-    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, localizedStatusLabel, provenanceLabel, levelLabel, displayText };
   }
 };
 
@@ -2331,7 +2391,7 @@ const AdminSimulatorView = {
       try {
         const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
         syncSimulator(status);
-        toast(simRunning.value ? '模拟器已启动，状态来自 Supervisor' : '模拟器已停止，状态来自 Supervisor');
+        toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
       } catch (error) {
         toast(error.message || '模拟器控制失败', 'error');
       } finally { simBusy.value = false; }
@@ -2354,7 +2414,7 @@ const AdminSimulatorView = {
           .map((event) => ({
             time: new Date(event.ts || event.createdAt || 0).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             action: `${event.metric || event.eventType || '情景'}：${event.value ?? event.message ?? '已记录'}`,
-            agent: event.branchId || event.source || '后端仿真'
+            agent: event.branchId || localizedSourceLabel(event.source, '后端仿真')
           }));
         replayEvents.value = events.length ? events : [{ time: '—', action: '后端未提供该运行的事件明细', agent: '后端记录' }];
       } catch (error) {
@@ -2433,7 +2493,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, simBusy, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
+    return { simRunning, simBusy, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, scenarioLabel, localizedStatusLabel };
   }
 };
 
@@ -2467,7 +2527,7 @@ const AdminRulesView = {
     };
     const savePack = () => {
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 由后端版本目录维护，当前页面只提供读取，未修改本地假数据。', 'error');
+        toast('正式作物模型包由后端版本目录维护，当前页面只提供读取，未修改本地演示数据。', 'error');
         return;
       }
       const form = packForm.value;
@@ -2491,7 +2551,7 @@ const AdminRulesView = {
     };
     const deletePack = (pack) => {
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 暂无删除接口，未修改后端数据。', 'error');
+        toast('正式作物模型包暂无删除接口，未修改后端数据。', 'error');
         return;
       }
       if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
@@ -2501,7 +2561,7 @@ const AdminRulesView = {
     };
     const togglePackStatus = (pack) => {
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 状态由后端发布流程维护，当前只读。', 'error');
+        toast('正式作物模型包状态由后端发布流程维护，当前只读。', 'error');
         return;
       }
       pack.status = pack.status === 'published' ? 'draft' : 'published';
@@ -2511,7 +2571,7 @@ const AdminRulesView = {
       try {
         const saved = await api.transitionStrategyCandidate(candidate.id, status);
         candidate.status = String(saved?.status || status).toLowerCase();
-        toast(`策略候选已更新为 ${candidate.status}，后端记录已同步`);
+        toast(`策略候选已更新为“${localizedStatusLabel(candidate.status)}”，后端记录已同步`);
       } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
     };
     const addStage = () => packForm.value.stages.push('');
@@ -2523,7 +2583,7 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
+    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText };
   }
 };
 
@@ -2563,7 +2623,7 @@ const AdminSettingsView = {
       { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
-      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ Crop Pack/版本发布' },
+      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
       { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
     ];
 
@@ -2629,7 +2689,7 @@ const AdminSettingsView = {
       toast('用户创建成功');
     };
 
-    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser, toggleUser };
+    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText };
   }
 };
 
@@ -3152,12 +3212,14 @@ const app = createApp({
         runId: run.runId,
         scenarioId: run.scenarioId || run.runId,
         type: run.scenario || run.scenarioId || '—',
+        typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
         seed: run.seed,
         plotId: run.plotId,
         startTime: run.startedAt || run.createdAt || '—',
         endTime: run.completedAt || run.endedAt || null,
         events: Number(run.events || run.mainEvents || run.replayEvents || 0),
         status: liveStatusValue(run.status, 'UNKNOWN'),
+        statusLabel: localizedStatusLabel(run.status, '未知'),
         dataOrigin: 'BACKEND'
       }));
       state.value.adminCropPacks = adminCropPacks;

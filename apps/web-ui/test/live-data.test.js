@@ -5,13 +5,28 @@ import {
   agentResponseSource,
   agentResponseText,
   buildFarmerMessages,
+  displayText,
   mapStrategyCandidate,
   mapTimelineRecord,
   mergePlotTelemetryWindow,
   normalizeFarmerTask,
   normalizeWorkStatus,
-  relativeTime
+  relativeTime,
+  scenarioLabel,
+  serviceNameLabel,
+  serviceStatusLabel,
+  sourceLabel
 } from '../js/live-data.js';
+
+test('presentation helpers localize shared technical labels without changing identifiers', () => {
+  assert.equal(serviceNameLabel('MQTT Broker'), 'MQTT 消息代理');
+  assert.equal(serviceStatusLabel('DEGRADED'), '降级');
+  assert.equal(sourceLabel('SIMULATED'), '模拟数据');
+  assert.equal(scenarioLabel('SENSOR_DRIFT'), '传感器漂移');
+  assert.equal(displayText('WATER_DEFICIT · READY · 153L / 8m30s'), '缺水风险 · 就绪 · 153 升 / 8 分 30 秒');
+  assert.equal(displayText('Crop Pack rules-only Time-to-Risk'), '作物模型包 规则兜底 风险到达时间');
+  assert.equal(displayText('plot-a01'), 'plot-a01');
+});
 
 test('fresh telemetry updates farmer card values without a full overview reload', () => {
   const plot = {

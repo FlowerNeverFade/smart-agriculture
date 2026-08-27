@@ -520,7 +520,7 @@ export const WorkOrderLifecycleView = {
       :aria-label="isEmbeddedManager ? '任务列表' : null">
       <header class="work-lifecycle-header" :class="{ 'is-actions-only': isEmbeddedManager }">
         <div v-if="!isEmbeddedManager">
-          <p class="work-lifecycle-kicker">WORK ORDERS</p>
+          <p class="work-lifecycle-kicker">农务工单</p>
           <h1 id="work-lifecycle-title">{{ pageTitle }}</h1>
           <p>{{ pageHint }}</p>
         </div>
@@ -609,7 +609,7 @@ export const WorkOrderLifecycleView = {
 
       <section class="inspection-history" aria-labelledby="inspection-history-title">
         <header>
-          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">最近巡田证据</h2><span>人工记录不会覆盖传感器数据，每条都保留人员、时间和关联任务。</span></div>
+          <div><p class="work-lifecycle-kicker">人工证据</p><h2 id="inspection-history-title">最近巡田证据</h2><span>人工记录不会覆盖传感器数据，每条都保留人员、时间和关联任务。</span></div>
           <button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button>
         </header>
         <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
@@ -622,7 +622,7 @@ export const WorkOrderLifecycleView = {
               <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
               <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
               <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
-              <span>现场照片：{{ (record.photos || []).length }} 张 · USER_PROVIDED</span>
+              <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
             </div>
             <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
           </article>
@@ -734,7 +734,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showInspectionModal" class="g-modal-overlay" @click.self="showInspectionModal = false" @keydown.esc="showInspectionModal = false">
         <form class="g-modal work-dialog inspection-dialog" @submit.prevent="submitInspection">
-          <div class="g-modal-header"><div><small>人工核验 · USER_PROVIDED</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>人工核验 · 人工提供</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-grid">
             <p class="inspection-guidance span-2">请只记录现场看到或实际测到的情况。保存后会生成唯一证据编号，不会修改传感器原始数据。</p>
             <label><span>地块</span><select class="g-select" v-model="inspectionForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>

@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { roleCan } from '../roles.js';
+import { priorityLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js';
 
 const { ref, computed, watch, onMounted } = Vue;
 
@@ -123,17 +124,17 @@ export const AdminResourcePlanningView = {
     return {
       rows, loading, error, result, priorities, plots, farmId, isDemo, canManage, selectedRows, allConfirmed,
       requestedTotal, capacity, allocatedTotal, shortageTotal, resultRows, devices, evaluate,
-      loadRestrictedExample, allocationTone
+      loadRestrictedExample, allocationTone, priorityLabel, serviceStatusLabel, sourceLabel, statusLabel
     };
   },
   template: `
     <section class="rp-root" aria-labelledby="resource-title">
       <header class="rp-hero">
         <div><span>水资源安排 · 只试算不扣减</span><h2 id="resource-title">多地块灌溉用水试算</h2><p>管理员逐块核对需水量和先后顺序，系统按农场现有水量给出分配结果。</p></div>
-        <div class="rp-mode"><strong>{{ isDemo ? 'SIMULATED' : 'ESTIMATED' }}</strong><small>试算结果不会修改真实剩余水量</small></div>
+        <div class="rp-mode"><strong>{{ isDemo ? '模拟试算' : '估算试算' }}</strong><small>试算结果不会修改真实剩余水量</small></div>
       </header>
 
-      <div v-if="error" class="rp-error"><strong>{{ error.code || 'RESOURCE_PLAN_FAILED' }}</strong><span>{{ error.message || error }}</span></div>
+      <div v-if="error" class="rp-error"><strong>资源试算失败</strong><span>{{ error.message || error }}</span></div>
       <div v-if="!canManage" class="rp-empty">当前身份没有安排农场水资源的权限。</div>
 
       <template v-else>
@@ -153,7 +154,7 @@ export const AdminResourcePlanningView = {
                 <tr v-for="row in rows" :key="row.plotId" :class="{'is-muted': !row.included}">
                   <td><input type="checkbox" v-model="row.included" @change="row.confirmed = false; result = null"></td>
                   <td><strong>{{ row.name }}</strong><small>{{ row.plotId }} · {{ row.cropName }}</small></td>
-                  <td><input class="rp-number" type="number" min="1" step="1" v-model.number="row.requestedLitres" :disabled="!row.included" @input="row.confirmed = false; result = null"><em>USER_PROVIDED</em></td>
+                  <td><input class="rp-number" type="number" min="1" step="1" v-model.number="row.requestedLitres" :disabled="!row.included" @input="row.confirmed = false; result = null"><em>人工提供</em></td>
                   <td><select v-model="row.priority" :disabled="!row.included" @change="row.confirmed = false; result = null"><option v-for="item in priorities" :key="item.value" :value="item.value">{{ item.label }}</option></select></td>
                   <td><label class="rp-confirm"><input type="checkbox" v-model="row.confirmed" :disabled="!row.included">{{ row.confirmed ? '已核对' : '请核对' }}</label></td>
                 </tr>
@@ -165,19 +166,19 @@ export const AdminResourcePlanningView = {
 
         <section v-if="result" class="rp-card">
           <div class="rp-card-heading"><div><span>第二步</span><h3>分配结果</h3></div><strong class="rp-result-state" :class="result.status === 'FEASIBLE' ? 'success' : 'warning'">{{ result.status === 'FEASIBLE' ? '水量充足' : '水量不足' }}</strong></div>
-          <div class="rp-result-banner"><div><span>农场可用</span><strong>{{ capacity }} L</strong></div><i>→</i><div><span>本次分配</span><strong>{{ allocatedTotal }} L</strong></div><i>→</i><div><span>尚未满足</span><strong>{{ shortageTotal }} L</strong></div><em>ESTIMATED · 只试算，不回写</em></div>
+          <div class="rp-result-banner"><div><span>农场可用</span><strong>{{ capacity }} 升</strong></div><i>→</i><div><span>本次分配</span><strong>{{ allocatedTotal }} 升</strong></div><i>→</i><div><span>尚未满足</span><strong>{{ shortageTotal }} 升</strong></div><em>估算结果 · 只试算，不回写</em></div>
           <div class="rp-allocation-list">
             <article v-for="item in resultRows" :key="item.plotId" :class="'tone-' + allocationTone(item.status)">
-              <div><strong>{{ item.name }}</strong><span>{{ item.plotId }} · {{ item.priority }}</span></div>
-              <div><span>申请 {{ item.requestedLitres }} L</span><strong>分配 {{ item.allocatedLitres }} L</strong></div>
-              <p v-if="item.reason">{{ item.reason }}（缺 {{ item.unmetLitres }} L）</p><p v-else>本地块申请已全部满足</p>
+              <div><strong>{{ item.name }}</strong><span>{{ item.plotId }} · {{ priorityLabel(item.priority) }}</span></div>
+              <div><span>申请 {{ item.requestedLitres }} 升</span><strong>分配 {{ item.allocatedLitres }} 升</strong></div>
+              <p v-if="item.reason">{{ item.reason }}（缺 {{ item.unmetLitres }} 升）</p><p v-else>本地块申请已全部满足</p>
             </article>
           </div>
         </section>
 
         <section class="rp-card rp-device-card">
           <div class="rp-card-heading"><div><span>只读信息</span><h3>相关设备在线状态</h3></div><small>设备管理由对应模块负责</small></div>
-          <div class="rp-device-grid"><article v-for="device in devices" :key="device.id"><i :class="String(device.status).toLowerCase()"></i><div><strong>{{ device.id }}</strong><span>{{ device.plotName }}</span></div><b>{{ device.status }}</b></article></div>
+          <div class="rp-device-grid"><article v-for="device in devices" :key="device.id"><i :class="String(device.status).toLowerCase()"></i><div><strong>{{ device.id }}</strong><span>{{ device.plotName }}</span></div><b>{{ serviceStatusLabel(device.status) }}</b></article></div>
         </section>
       </template>
     </section>
