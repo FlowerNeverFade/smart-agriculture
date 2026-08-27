@@ -1384,7 +1384,7 @@
           <span class="offline"><i></i>离线 {{ plotSummary.offline }}</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="openPlotMetrics(plot)">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
@@ -1405,27 +1405,7 @@
         </div>
       </section>
 
-      <div class="admin-modal-overlay" v-if="showPlotModal" @click.self="showPlotModal = false">
-        <div class="admin-modal admin-modal-wide">
-          <div class="admin-modal-header">
-            <h3>{{ selectedPlot?.id }} · 监测指标</h3>
-            <button class="g-btn icon-only" @click="showPlotModal = false"><span class="material-symbols-outlined">close</span></button>
-          </div>
-          <div class="admin-modal-body">
-            <p class="admin-modal-hint">指标类型来自后端遥测合同，仅可从六项标准指标中选择。</p>
-            <div class="admin-metric-picker admin-plot-metric-picker">
-              <label v-for="metric in telemetryMetrics" :key="metric.code"><input type="checkbox" :value="metric.code" v-model="plotMetricForm"> {{ metric.label }} <small>{{ metric.code }}</small></label>
-            </div>
-            <div class="admin-telemetry-preview" v-if="selectedPlot">
-              <div class="admin-preview-title">最近遥测 <span v-if="telemetryLoading">正在同步...</span></div>
-              <template v-for="metric in telemetryMetrics" :key="metric.code">
-                <span v-if="plotMetricForm.includes(metric.code)"><strong>{{ selectedPlot.metrics[metric.code] }}</strong>{{ metric.label }}</span>
-              </template>
-            </div>
-          </div>
-          <div class="admin-modal-footer"><button class="g-btn" @click="showPlotModal = false">取消</button><button class="g-btn primary" :disabled="!plotMetricForm.length" @click="savePlotMetrics">保存监测配置</button></div>
-        </div>
-      </div>
+
     </div>
   </template>
 

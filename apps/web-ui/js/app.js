@@ -1800,42 +1800,6 @@ const AdminOverviewView = {
     const showEvents = ref(true);
     const farmFilter = ref('all');
     const statusFilter = ref('all');
-    const selectedPlot = ref(null);
-    const showPlotModal = ref(false);
-    const plotMetricForm = ref([]);
-    const telemetryLoading = ref(false);
-    const openPlotMetrics = async (plot) => {
-      selectedPlot.value = plot;
-      plotMetricForm.value = [...(plot.monitoredMetrics || TELEMETRY_METRICS.map(metric => metric.code))];
-      showPlotModal.value = true;
-      await refreshPlotMetrics();
-    };
-    const refreshPlotMetrics = async () => {
-      if (!selectedPlot.value) return;
-      telemetryLoading.value = true;
-      try {
-        const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
-          const points = await api.getTelemetry(selectedPlot.value.id, metric, 1);
-          return [metric, points[points.length - 1]];
-        }));
-        results.forEach((result) => {
-          if (result.status !== 'fulfilled') return;
-          const [metric, point] = result.value;
-          if (point) selectedPlot.value.metrics[metric] = `${point.value} ${point.unit || ''}`.trim();
-        });
-      } finally {
-        telemetryLoading.value = false;
-      }
-    };
-    const savePlotMetrics = () => {
-      if (props.state.sessionMode === 'live') {
-        toast('正式会话只读显示后端遥测指标，监测项配置请通过设备配置接口维护', 'error');
-        showPlotModal.value = false;
-        return;
-      }
-      if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
-      showPlotModal.value = false;
-    };
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
       const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
       const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
@@ -1863,7 +1827,7 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics };
+    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS };
   }
 };
 
