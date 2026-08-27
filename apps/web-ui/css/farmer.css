@@ -1385,11 +1385,11 @@
 .farmer-operation-status { margin-top: 12px; color: var(--g-success); font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .farmer-question-form { display: flex; gap: 8px; margin: 12px 0; }
 .farmer-question-form input,
-.farmer-form-card input,
+.farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
 .farmer-form-card select,
 .farmer-form-card textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; }
 .farmer-question-form input:focus,
-.farmer-form-card input:focus,
+.farmer-form-card input:not([type="checkbox"]):not([type="radio"]):focus,
 .farmer-form-card select:focus,
 .farmer-form-card textarea:focus { outline: 2px solid var(--g-primary); outline-offset: 1px; }
 .farmer-qa-answer { display: flex; align-items: flex-start; gap: 8px; padding: 12px; border-radius: var(--g-radius); background: var(--g-success-bg); color: var(--g-text-primary); line-height: 1.6; font-size: 13px; }
@@ -1924,7 +1924,8 @@
 .farmer-case-item p { margin: 2px 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.4; }
 .farmer-case-item small { color: var(--g-text-secondary); font-size: 9px; }
 .farmer-confirm-check { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
-.farmer-confirm-check input { margin-top: 2px; accent-color: var(--g-success); }
+.farmer-confirm-check input { flex: 0 0 auto; width: auto; margin-top: 2px; padding: 0; border: 0; background: transparent; accent-color: var(--g-success); }
+.farmer-confirm-check span { flex: 1 1 auto; min-width: 0; }
 .farmer-confirm-button { width: 100%; justify-content: center; }
 .farmer-confirm-button:disabled { cursor: not-allowed; opacity: .48; }
 .farmer-case-note { display: block; margin-top: 8px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
@@ -2231,7 +2232,7 @@
 .farmer-suggestion-blocked > .material-symbols-outlined { font-size: 20px; }
 .farmer-suggestion-blocked strong { display: block; color: var(--g-text-primary); font-size: 13px; }
 .farmer-suggestion-blocked p { margin: 3px 0 8px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
-.farmer-suggestion-confirm-check { margin: 0; padding: 10px; border-radius: var(--g-radius); background: var(--g-bg-subtle); font-size: 12px; }
+.farmer-suggestion-confirm-check { margin: 0; padding: 10px 12px; border-radius: var(--g-radius); background: var(--g-bg-subtle); font-size: 12px; line-height: 1.55; }
 .farmer-suggestion-inline-action { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 9px 11px; border: 1px dashed var(--g-border); border-radius: var(--g-radius); color: var(--g-text-secondary); font-size: 12px; }
 .farmer-suggestion-inline-action .g-btn { min-height: 38px; }
 .farmer-recovery-card { display: flex; align-items: flex-start; gap: 11px; padding: 16px; border-radius: var(--g-radius); background: var(--g-warning-bg); color: var(--g-warning); }

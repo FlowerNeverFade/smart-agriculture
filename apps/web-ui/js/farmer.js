@@ -73,7 +73,7 @@ const PLOT_CHART_SPECS = [
   { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: 10, max: 40, amplitude: 1.8, precision: 1, color: 'var(--g-primary)' },
   { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, amplitude: 2.2, precision: 1, color: 'var(--g-info)' },
   { code: 'LIGHT', label: '光照强度', unit: 'lux', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
-  { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
+  { code: 'CO2', label: 'CO2 浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-purple)' },
   { code: 'RAINFALL', label: '降雨强度', unit: 'mm/h', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
   { code: 'SOIL_EC', label: '土壤 EC 值', unit: 'mS/cm', min: 0, max: 3, amplitude: 0.12, precision: 2, color: 'var(--g-danger)' },
   { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
@@ -1461,7 +1461,10 @@ const app = createApp({
     });
 
     const tools_plot = computed(() => plots.value.find((plot) => plot.plotId === tools_plot_id.value) || plots.value[0] || null);
-    const tools_scenarios = computed(() => PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description })));
+    // 农户情景假设只做环境/质量对照；设备离线保留在管理端与模拟器，不作为 What-if 选项。
+    const tools_scenarios = computed(() => PLOT_SIMULATION_SCENARIOS
+      .filter((item) => item.code !== 'DEVICE_OFFLINE')
+      .map((item) => ({ ...item, desc: item.description })));
     const tools_forecast_chart = computed(() => {
       const moisture = Number(tools_plot.value?.metrics?.SOIL_MOISTURE?.value);
       const scenario = tools_scenarios.value.find((item) => item.code === tools_scenario.value);
@@ -1543,7 +1546,8 @@ const app = createApp({
     };
 
     const change_tools_scenario = (scenario) => {
-      tools_scenario.value = scenario?.code === 'STORM' ? 'HEAVY_RAIN' : (scenario?.code || 'NORMAL');
+      const code = scenario?.code === 'STORM' ? 'HEAVY_RAIN' : (scenario?.code || 'NORMAL');
+      tools_scenario.value = code === 'DEVICE_OFFLINE' ? 'NORMAL' : code;
     };
 
     const select_crop_manual = (code) => {
