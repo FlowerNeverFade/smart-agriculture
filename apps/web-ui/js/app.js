@@ -2364,7 +2364,6 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
-    const selectedScenario = ref('NORMAL');
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -2379,9 +2378,6 @@ const AdminSimulatorView = {
           scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
         };
       });
-      if (plotScenarios.value.length && !plotScenarios.value.some((plot) => plot.scenario !== 'NORMAL')) {
-        selectedScenario.value = 'NORMAL';
-      }
     }, { immediate: true });
 
     const globalScenario = computed({
@@ -2396,13 +2392,6 @@ const AdminSimulatorView = {
         }
       }
     });
-    const applyScenario = (scenario) => {
-      const code = typeof scenario === 'string' ? scenario : scenario?.id;
-      if (!code) return;
-      selectedScenario.value = code;
-      globalScenario.value = code;
-      toast(`已将“${typeof scenario === 'string' ? code : scenario.label}”应用到全部地块`);
-    };
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2528,7 +2517,7 @@ const AdminSimulatorView = {
     ];
 
     return {
-      simRunning, simBusy, selectedScenario, plotScenarios, globalScenario, applyScenario, scenarios,
+      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
       scenarioLabel, localizedStatusLabel

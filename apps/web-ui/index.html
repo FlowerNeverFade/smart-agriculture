@@ -7,6 +7,7 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
   <link rel="stylesheet" href="css/style.css?v=20260826-live-refresh">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
@@ -1621,14 +1622,6 @@
             <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
           </select>
         </div>
-      </div>
-      <div class="g-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px">
-        <button v-for="sc in scenarios" :key="sc.id" type="button"
-             class="scenario-btn" :class="{active: selectedScenario === sc.id}"
-             @click="applyScenario(sc)">
-          <div style="font-weight:500;margin-bottom:4px">{{ sc.icon }} {{ sc.label }}</div>
-          <div style="font-size:12px;color:var(--g-text-secondary)">{{ sc.desc }}</div>
-        </button>
       </div>
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
