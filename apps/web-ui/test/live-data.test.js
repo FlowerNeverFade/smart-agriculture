@@ -8,6 +8,9 @@ import {
   mapStrategyCandidate,
   mapTimelineRecord,
   mergePlotTelemetryWindow,
+  normalizeAgentDecisionCard,
+  normalizeAgentEvidence,
+  normalizeAgentTurn,
   normalizeFarmerTask,
   normalizeWorkStatus,
   relativeTime
@@ -94,6 +97,35 @@ test('farmer inbox collapses duplicate active alerts for the same plot and sourc
   assert.deepEqual(messages.map((item) => item.id), ['alert:alert-3', 'alert:alert-2']);
 });
 
+test('farmer inbox preserves alert metadata and linked work order', () => {
+  const messages = buildFarmerMessages({
+    alerts: [{
+      alertId: 'alert-water-a01',
+      plotId: 'plot-a01',
+      level: 'HIGH',
+      status: 'ACTIVE',
+      source: 'SOIL_MOISTURE',
+      title: '缺水',
+      message: '土壤偏干',
+      raisedAt: '2026-08-26T10:00:00Z'
+    }],
+    tasks: [{
+      workOrderId: 'wo-alert-a01',
+      plotId: 'plot-a01',
+      sourceRef: 'alert-water-a01',
+      title: '核对告警',
+      reason: '需要审批',
+      status: 'OPEN',
+      createdAt: '2026-08-26T10:01:00Z'
+    }],
+    plots: [{ plotId: 'plot-a01', name: '温室1' }]
+  });
+  const alertMessage = messages.find((item) => item.category === 'alert');
+  assert.equal(alertMessage.alertLevel, 'HIGH');
+  assert.equal(alertMessage.linkedWorkOrderId, 'wo-alert-a01');
+  assert.equal(alertMessage.plotName, '温室1');
+});
+
 test('system-admin records preserve backend strategy and audit states', () => {
   assert.equal(mapStrategyCandidate({ candidateId: 'c-1', status: 'ROLLED_BACK' }).status, 'rolled_back');
   const timeline = mapTimelineRecord({
@@ -104,4 +136,26 @@ test('system-admin records preserve backend strategy and audit states', () => {
   assert.equal(timeline.typeLabel, '巡田');
   assert.equal(timeline.timeIso, '2026-08-26T10:04:00Z');
   assert.equal(timeline.dataOrigin, 'BACKEND');
+});
+
+test('agent turn normalizer exposes evidence, traceId and irrigation decision card', () => {
+  const response = {
+    traceId: 'run-demo-001',
+    intent: 'IRRIGATION_RECOMMENDATION',
+    confidence: 0.95,
+    narrative: '建议先补水 153 升。',
+    knowledgeEvidence: [{ source: 'crop-packs/tomato/knowledge/irrigation.md', scope: 'PLOT', provenance: 'RETRIEVED' }],
+    tools: [{ name: 'generate_irrigation_plan', input: { plotId: 'plot-a01' }, output: { executable: true, readinessStatus: 'READY', waterLitre: 153, durationSeconds: 510 } }],
+    context: { cropPackVersion: '1.0.0', ruleVersion: 'rule-1', knowledgeVersion: 'k-1', stageCode: 'fruiting' }
+  };
+  const evidence = normalizeAgentEvidence(response);
+  assert.equal(evidence.length, 3);
+  const card = normalizeAgentDecisionCard(response, { plotId: 'plot-a01', name: '温室1' });
+  assert.equal(card.kind, 'IRRIGATION');
+  assert.equal(card.plotName, '温室1');
+  const turn = normalizeAgentTurn(response, '温室1 需要浇多少水？', { plot: { plotId: 'plot-a01', name: '温室1' }, sessionMode: 'demo' });
+  assert.equal(turn.traceId, 'run-demo-001');
+  assert.equal(turn.evidence.length, 3);
+  assert.equal(turn.decisionCard.actionLabel, '查看处方并提交审批');
+  assert.match(turn.answer, /153/);
 });

@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-info">
-  <link rel="stylesheet" href="css/farmer.css?v=20260827-confirm">
+  <link rel="stylesheet" href="css/farmer.css?v=20260827-message-filters">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -179,16 +179,77 @@
               <button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="qa_busy">{{ qa_busy ? '思考中…' : '发送' }}</button>
             </div>
           </form>
-          <div class="farmer-ai-consult-answer" v-if="latest_answer">
-            <span class="material-symbols-outlined">forum</span>
-            <p>{{ latest_answer }}</p>
+          <div v-if="qa_active_turn" class="farmer-ai-consult-answer-wrap">
+            <div class="farmer-ai-consult-answer is-compact">
+              <span class="material-symbols-outlined">forum</span>
+              <div class="farmer-ai-consult-answer-body">
+                <div class="farmer-ai-consult-meta is-compact">
+                  <span class="g-badge" :class="qa_active_turn.degraded ? 'warning' : 'success'">{{ qa_active_turn.sourceLabel }}</span>
+                  <span v-if="qa_active_turn.intentLabel" class="farmer-ai-consult-intent">{{ qa_active_turn.intentLabel }}</span>
+                </div>
+                <p>{{ qa_active_turn.answer }}</p>
+                <div class="farmer-ai-consult-quick-actions">
+                  <button
+                    v-if="qa_active_turn.decisionCard"
+                    type="button"
+                    class="g-btn primary farmer-btn-analyze"
+                    @click="open_qa_decision_action(qa_active_turn)"
+                  >
+                    {{ qa_active_turn.decisionCard.actionLabel }}
+                    <span class="material-symbols-outlined">arrow_forward</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="g-btn secondary farmer-btn-light farmer-ai-details-toggle"
+                    :aria-expanded="qa_details_open ? 'true' : 'false'"
+                    @click="toggle_qa_details"
+                  >
+                    <span class="material-symbols-outlined">{{ qa_details_open ? 'expand_less' : 'fact_check' }}</span>
+                    {{ qa_details_open ? '收起依据' : '查看依据与追踪' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-if="qa_details_open" class="farmer-ai-consult-details">
+              <div v-if="qa_active_turn.confidence || qa_active_turn.traceId" class="farmer-ai-consult-detail-block">
+                <div v-if="qa_active_turn.confidence" class="farmer-ai-consult-meta">
+                  <span>置信度 {{ qa_active_turn.confidence }}</span>
+                </div>
+                <div v-if="qa_active_turn.traceId" class="farmer-ai-consult-trace">
+                  <span class="material-symbols-outlined">tag</span>
+                  <code>{{ qa_active_turn.traceId }}</code>
+                </div>
+              </div>
+              <div v-if="qa_active_turn.evidence && qa_active_turn.evidence.length" class="farmer-ai-evidence-list">
+                <strong>证据引用</strong>
+                <ul>
+                  <li v-for="item in qa_active_turn.evidence" :key="item.id">
+                    <span class="farmer-ai-evidence-type">{{ item.type === 'knowledge' ? '知识' : (item.type === 'tool' ? '工具' : '版本') }}</span>
+                    <span class="farmer-ai-evidence-label" :title="item.detail">{{ item.label }}</span>
+                    <small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small>
+                  </li>
+                </ul>
+              </div>
+              <article v-if="qa_active_turn.decisionCard" class="farmer-ai-decision-card is-detail">
+                <header>
+                  <span class="material-symbols-outlined">verified_user</span>
+                  <div>
+                    <strong>{{ qa_active_turn.decisionCard.title }}</strong>
+                    <p>{{ qa_active_turn.decisionCard.summary }}</p>
+                  </div>
+                </header>
+                <p class="farmer-ai-decision-note">{{ qa_active_turn.decisionCard.note }}</p>
+              </article>
+            </div>
           </div>
           <div class="farmer-ai-consult-history" v-if="qa_history.length">
+            <strong class="farmer-ai-consult-history-title">最近提问</strong>
             <button
               type="button"
               v-for="item in qa_history"
               :key="item.id"
-              @click="qa_input = item.question; latest_answer = item.answer; qa_source_label = item.sourceLabel || qa_source_label"
+              :class="{ active: qa_active_turn && qa_active_turn.id === item.id }"
+              @click="select_qa_history(item)"
             >{{ item.question }}</button>
           </div>
         </div>
@@ -763,25 +824,46 @@
             <div class="farmer-page-header">
               <div>
                 <h2>消息中心</h2>
-                <p class="role-summary">按时序查看农场管理员下发的通知与系统提醒，点击消息查看完整内容并可生成 AI 概括。</p>
+                <p class="role-summary">统一查看告警、任务和通知；告警关闭与派单由农场管理员处理，你可从这里跳转去执行。</p>
               </div>
               <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
             </div>
 
+            <div class="farmer-message-filters" role="tablist" aria-label="消息分类">
+              <button
+                v-for="option in message_filter_options"
+                :key="option.id"
+                type="button"
+                class="farmer-message-filter-btn"
+                :class="['filter-' + option.id, { active: message_filter === option.id }]"
+                :aria-selected="message_filter === option.id"
+                role="tab"
+                @click="message_filter = option.id"
+              >
+                <span class="farmer-message-filter-icon" aria-hidden="true">
+                  <span class="material-symbols-outlined">{{ option.icon }}</span>
+                </span>
+                <span class="farmer-message-filter-text">{{ option.label }}</span>
+                <span class="farmer-message-filter-count">{{ message_filter_counts[option.id] || 0 }}</span>
+              </button>
+            </div>
+
             <div class="farmer-message-layout">
               <div class="farmer-message-list">
-                <div v-for="msg in sorted_messages" :key="msg.id"
+                <div v-for="msg in filtered_messages" :key="msg.id"
                      class="farmer-message-item"
                      :class="{active: selected_message && selected_message.id === msg.id, unread: !msg.read}"
                      @click="open_message(msg)">
                   <div class="farmer-message-head">
                     <span class="farmer-message-tag" :class="'tag-' + msg.category">{{ category_label(msg.category) }}</span>
+                    <span v-if="msg.category === 'alert' && msg.alertLevel" class="farmer-message-level">{{ alert_level_label(msg.alertLevel) }}</span>
                     <span class="farmer-message-time">{{ msg.time_label }}</span>
                   </div>
                   <h4 class="farmer-message-title">{{ msg.title }}</h4>
                   <p class="farmer-message-snippet">{{ msg.snippet }}</p>
+                  <small v-if="msg.plotName" class="farmer-message-plot">{{ msg.plotName }}</small>
                 </div>
-                <div v-if="!messages.length" class="farmer-empty">暂无消息</div>
+                <div v-if="!filtered_messages.length" class="farmer-empty">{{ message_filter === 'all' ? '暂无消息' : '该分类暂无消息' }}</div>
               </div>
 
               <div class="farmer-message-detail">
@@ -796,15 +878,43 @@
                       <h3>{{ selected_message.title }}</h3>
                       <p class="farmer-detail-meta">
                         来自 {{ selected_message.sender }} · {{ selected_message.time_label }}
+                        <template v-if="selected_message.plotName"> · {{ selected_message.plotName }}</template>
                       </p>
                     </div>
                     <button class="g-btn icon-only farmer-btn-light" @click="close_message" title="关闭">
                       <span class="material-symbols-outlined">close</span>
                     </button>
                   </div>
+
+                  <div v-if="selected_message.category === 'alert'" class="farmer-message-alert-meta">
+                    <div><small>告警级别</small><strong>{{ alert_level_label(selected_message.alertLevel) }}</strong></div>
+                    <div><small>当前状态</small><strong>{{ alert_status_label(selected_message.alertStatus) }}</strong></div>
+                    <div><small>规则来源</small><strong>{{ selected_message.alertSource || '—' }}</strong></div>
+                    <div v-if="selected_message.alertId"><small>告警编号</small><strong class="farmer-message-code">{{ selected_message.alertId }}</strong></div>
+                  </div>
+                  <p v-if="selected_message.category === 'alert'" class="farmer-message-alert-note">
+                    <span class="material-symbols-outlined">info</span>
+                    农户端仅查看与跟进；关闭告警、批量处理和审计在管理员告警台账完成。
+                  </p>
+
                   <div class="farmer-detail-body">
                     <p v-for="(paragraph, idx) in selected_message.body_paragraphs" :key="idx">{{ paragraph }}</p>
                   </div>
+
+                  <div v-if="message_actions(selected_message).length" class="farmer-message-action-grid">
+                    <button
+                      v-for="action in message_actions(selected_message)"
+                      :key="action.id"
+                      type="button"
+                      class="g-btn"
+                      :class="action.id === message_actions(selected_message)[0].id ? 'primary farmer-btn-analyze' : 'secondary farmer-btn-light'"
+                      @click="handle_message_action(selected_message, action.id)"
+                    >
+                      <span class="material-symbols-outlined">{{ action.icon }}</span>
+                      {{ action.label }}
+                    </button>
+                  </div>
+
                   <div class="farmer-detail-footer">
                     <button class="g-btn secondary farmer-btn-light" @click="mark_read(selected_message)" :disabled="selected_message.read">
                       {{ selected_message.read ? '已读' : '标记已读' }}
@@ -1303,6 +1413,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260827-chart-color"></script>
+  <script type="module" src="js/farmer.js?v=20260827-messages"></script>
 </body>
 </html>
