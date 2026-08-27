@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { agentResponseSource, agentResponseText } from '../live-data.js';
+import { agentResponseSource, agentResponseText } from '../live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, inject, onMounted, nextTick, watch } = Vue;
 

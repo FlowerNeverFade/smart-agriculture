@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { formatHealthScore, normalizeAdminTab } from '../admin-state.js';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
-import { deviceTypeLabel as localizedDeviceTypeLabel, provenanceLabel, scenarioLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js';
+import { deviceTypeLabel as localizedDeviceTypeLabel, provenanceLabel, scenarioLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, watch, inject } = Vue;
 

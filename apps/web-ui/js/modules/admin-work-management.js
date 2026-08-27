@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, watch, inject } = Vue;
 

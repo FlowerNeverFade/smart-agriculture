@@ -20,7 +20,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js';
+} from './live-data.js?v=20260827-boot-fix-1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
 
