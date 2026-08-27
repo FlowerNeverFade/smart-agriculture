@@ -1651,7 +1651,7 @@
         <div class="admin-section-title"><span class="material-symbols-outlined">category</span> 场景配置矩阵</div>
         <div style="display:flex; gap: 8px; align-items: center">
           <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
-          <select @change="applyGlobalScenario($event.target.value); $event.target.value = ''" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+          <select v-model="globalScenario" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
             <option value="">-- 选择场景 --</option>
             <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
           </select>

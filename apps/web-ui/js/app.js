@@ -1980,10 +1980,18 @@ const AdminSimulatorView = {
       });
     }, { immediate: true });
 
-    const applyGlobalScenario = (sc) => {
-      if (!sc) return;
-      plotScenarios.value.forEach(p => p.scenario = sc);
-    };
+    const globalScenario = computed({
+      get: () => {
+        if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
+        const first = plotScenarios.value[0].scenario;
+        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+      },
+      set: (val) => {
+        if (val) {
+          plotScenarios.value.forEach(p => p.scenario = val);
+        }
+      }
+    });
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2108,7 +2116,7 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, simBusy, plotScenarios, applyGlobalScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
+    return { simRunning, simBusy, plotScenarios, globalScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
   }
 };
 
