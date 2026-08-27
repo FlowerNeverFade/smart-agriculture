@@ -423,7 +423,13 @@ function adminServiceCards(systemStatus = {}) {
   }));
 }
 
-function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {}, alerts = [], devices = [], recentEvents = [] } = {}) {
+function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
+  overview = overview || {};
+  systemStatus = systemStatus || {};
+  simulator = simulator || {};
+  alerts = alerts || [];
+  devices = devices || [];
+  recentEvents = recentEvents || [];
   const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
   const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
@@ -450,7 +456,8 @@ function adminOverviewFromLive({ overview = {}, systemStatus = {}, simulator = {
       running: simStatus === 'RUNNING',
       scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
-      startTime: simulator.startedAt || null
+      startTime: simulator.startedAt || null,
+      history: simulator.history || []
     },
     services: adminServiceCards(systemStatus),
     recentEvents: Array.isArray(recentEvents) ? recentEvents.slice(0, 20) : [],
@@ -2157,11 +2164,12 @@ const ValueLedgerView = {
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['navigate'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const showEvents = ref(true);
     const farmFilter = ref('all');
-    const statusFilter = ref('all');
+    const statusFilter = ref('abnormal');
     const selectedPlot = ref(null);
     const showPlotModal = ref(false);
     const plotMetricForm = ref([]);
@@ -2224,7 +2232,12 @@ const AdminOverviewView = {
     };
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
       const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
-      const statusMatches = statusFilter.value === 'all' || plot.status === statusFilter.value;
+      let statusMatches = true;
+      if (statusFilter.value === 'abnormal') {
+        statusMatches = plot.status !== 'HEALTHY';
+      } else if (statusFilter.value !== 'all') {
+        statusMatches = plot.status === statusFilter.value;
+      }
       return farmMatches && statusMatches;
     }));
     const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
@@ -2249,7 +2262,15 @@ const AdminOverviewView = {
       if (plot.status === 'CRITICAL') return 28;
       return 0;
     };
-    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading, openPlotMetrics, refreshPlotMetrics, savePlotMetrics, serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText };
+    const goToOps = (plot) => {
+      emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
+    };
+    return {
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
+      telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
+      openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
+      serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
+    };
   }
 };
 
@@ -2344,6 +2365,44 @@ const AdminSimulatorView = {
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
     const selectedScenario = ref('NORMAL');
+    const plotScenarios = ref([]);
+    const plots = computed(() => props.state.allPlots || props.state.plots || []);
+
+    watch(plots, (newPlots) => {
+      plotScenarios.value = newPlots.map(p => {
+        const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
+        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        return {
+          plotId: p.plotId,
+          name: p.name || p.plotName || p.plotId,
+          cropName: p.cropName || p.cropCode || '未知作物',
+          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
+        };
+      });
+      if (plotScenarios.value.length && !plotScenarios.value.some((plot) => plot.scenario !== 'NORMAL')) {
+        selectedScenario.value = 'NORMAL';
+      }
+    }, { immediate: true });
+
+    const globalScenario = computed({
+      get: () => {
+        if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
+        const first = plotScenarios.value[0].scenario;
+        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+      },
+      set: (val) => {
+        if (val) {
+          plotScenarios.value.forEach(p => p.scenario = val);
+        }
+      }
+    });
+    const applyScenario = (scenario) => {
+      const code = typeof scenario === 'string' ? scenario : scenario?.id;
+      if (!code) return;
+      selectedScenario.value = code;
+      globalScenario.value = code;
+      toast(`已将“${typeof scenario === 'string' ? code : scenario.label}”应用到全部地块`);
+    };
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2468,7 +2527,12 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, simBusy, selectedScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, scenarioLabel, localizedStatusLabel };
+    return {
+      simRunning, simBusy, selectedScenario, plotScenarios, globalScenario, applyScenario, scenarios,
+      adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
+      scenarioLabel, localizedStatusLabel
+    };
   }
 };
 
@@ -2534,12 +2598,19 @@ const AdminRulesView = {
         if (index >= 0) props.state.adminCropPacks.splice(index, 1);
       }
     };
-    const togglePackStatus = (pack) => {
+    const togglePackStatus = async (pack) => {
+      const nextStatus = pack.status === 'published' ? 'draft' : 'published';
       if (isLiveSession.value) {
-        toast('正式作物模型包状态由后端发布流程维护，当前只读。', 'error');
+        try {
+          await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
+          pack.status = nextStatus;
+          toast(`作物模型包状态已更新为“${localizedStatusLabel(nextStatus)}”`);
+        } catch (error) {
+          toast(error.message || 'Crop Pack 状态更新失败', 'error');
+        }
         return;
       }
-      pack.status = pack.status === 'published' ? 'draft' : 'published';
+      pack.status = nextStatus;
     };
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
@@ -2554,11 +2625,37 @@ const AdminRulesView = {
     const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
     const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
     const expandedKnowledge = ref(null);
+    const masonryCols = ref(3);
+    const updateMasonryCols = () => {
+      if (window.innerWidth < 768) masonryCols.value = 1;
+      else if (window.innerWidth < 1100) masonryCols.value = 2;
+      else if (window.innerWidth < 1600) masonryCols.value = 3;
+      else masonryCols.value = 4;
+    };
+    onMounted(() => {
+      updateMasonryCols();
+      window.addEventListener('resize', updateMasonryCols);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', updateMasonryCols);
+    });
+    const masonryColumns = computed(() => {
+      const cols = Array.from({ length: masonryCols.value }, () => []);
+      props.state.adminCropPacks.forEach((pack, i) => {
+        cols[i % masonryCols.value].push(pack);
+      });
+      return cols;
+    });
     const toggleKnowledge = (packId, index) => {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText };
+    return {
+      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons,
+      expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
+      deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
+    };
   }
 };
 
@@ -2634,12 +2731,35 @@ const AdminSettingsView = {
       user.enabled = !user.enabled;
     };
 
-    const createUser = () => {
+    const createUser = async () => {
+      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       if (isLiveSession.value) {
-        toast('正式账号创建请走注册/授权流程，当前页面不会写入浏览器假数据。', 'error');
+        try {
+          const user = await api.createFarmMember({
+            farmId: newUser.value.farmId || 'farm-demo',
+            username: newUser.value.username,
+            password: newUser.value.password,
+            role: newUser.value.role,
+            plotIds: []
+          });
+          props.state.adminUsers.push({
+            userId: user.userId || 'user-' + Date.now(),
+            username: user.username || newUser.value.username,
+            role: user.role || newUser.value.role,
+            roleLabel: roleLabels[user.role || newUser.value.role],
+            farmName: '远程农场',
+            plotIds: user.plotIds || [],
+            enabled: user.enabled !== false,
+            createdAt: new Date().toISOString().split('T')[0]
+          });
+          toast(`账号 ${newUser.value.username} 创建成功`);
+          showCreateUser.value = false;
+          newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+        } catch (error) {
+          toast(error.message || '账号创建失败', 'error');
+        }
         return;
       }
-      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       props.state.adminUsers.push({
         userId: 'user-' + Date.now(),
         username: newUser.value.username,
@@ -2664,7 +2784,18 @@ const AdminSettingsView = {
       toast('用户创建成功');
     };
 
-    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText };
+      const formatPerm = (text) => {
+        if (!text) return '';
+        return text
+          .replace('👁', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">visibility</span>')
+          .replace('✅', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-success)">check_circle</span>')
+          .replace('❌', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-danger)">cancel</span>')
+          .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
+      };
+    return {
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText
+    };
   }
 };
 
@@ -2692,6 +2823,7 @@ const app = createApp({
     const isDark = ref(false);
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     const showProfileMenu = ref(false);
+    const showFarmMenu = ref(false);
     const showAccountModal = ref(false);
     const passwordForm = ref({ current: '', next: '', confirm: '' });
     const passwordError = ref('');
@@ -2847,6 +2979,7 @@ const app = createApp({
       }
     });
 
+    const selectedFarm = computed(() => state.value.farms.find(f => f.farmId === selectedFarmId.value) || {});
     const accountProfile = computed(() => buildAccountProfile(state.value.currentUser, {
       state: state.value,
       farms: state.value.farms,
@@ -2894,6 +3027,17 @@ const app = createApp({
     const closeProfileMenu = () => {
       showProfileMenu.value = false;
     };
+
+    const handleGlobalClick = (e) => {
+      if (!e.target.closest('.account-profile-anchor')) {
+        closeProfileMenu();
+      }
+      if (!e.target.closest('.g-header-center')) {
+        showFarmMenu.value = false;
+      }
+    };
+    onMounted(() => document.addEventListener('click', handleGlobalClick, true));
+    onBeforeUnmount(() => document.removeEventListener('click', handleGlobalClick, true));
 
     const openAccountModal = () => {
       closeProfileMenu();
@@ -3200,7 +3344,7 @@ const app = createApp({
       state.value.adminStrategyCandidates = adminStrategyCandidates;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
-      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: state.value.simulatorStatus, alerts, devices, recentEvents });
+      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 
@@ -3609,6 +3753,8 @@ const app = createApp({
       isDark,
       isSidebarOpen,
       showProfileMenu,
+      showFarmMenu,
+      selectedFarm,
       showAccountModal,
       passwordForm,
       passwordError,

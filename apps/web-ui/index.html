@@ -70,7 +70,7 @@
   </style>
 </head>
 <body>
-  <div id="app" v-cloak :class="roleClass" @click="closeProfileMenu">
+  <div id="app" v-cloak :class="roleClass">
     <header class="g-header" :class="{ 'farmer-header': isFarmer }">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
@@ -78,9 +78,18 @@
       </div>
 
       <div class="g-header-center">
-        <select class="g-select g-header-farm-select" v-model="selectedFarmId" aria-label="选择当前农场">
-          <option v-for="farm in state.farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}</option>
-        </select>
+        <button type="button" class="g-header-farm-select-btn" @click.stop="showFarmMenu = !showFarmMenu">
+          <span>{{ selectedFarm.name || '选择农场' }}{{ selectedFarm.region ? ' · ' + selectedFarm.region : '' }}</span>
+          <span class="material-symbols-outlined" style="font-size: 20px; color: var(--g-text-secondary);">expand_more</span>
+        </button>
+        <div v-if="showFarmMenu" class="g-header-farm-menu" @click.stop>
+          <button type="button" class="g-header-farm-option"
+                  v-for="farm in state.farms" :key="farm.farmId"
+                  :class="{ active: farm.farmId === selectedFarmId }"
+                  @click="selectedFarmId = farm.farmId; showFarmMenu = false">
+            {{ farm.name }}{{ farm.region ? ' · ' + farm.region : '' }}
+          </button>
+        </div>
       </div>
       <div class="g-header-right">
         <button class="g-btn icon-only" @click="toggleTheme" title="切换主题" aria-label="切换主题"><app-icon :name="isDark ? 'light_mode' : 'dark_mode'"></app-icon></button>
@@ -91,7 +100,7 @@
         <div class="account-profile-anchor ml-2">
           <button type="button" class="account-profile-trigger" aria-label="打开个人中心" aria-haspopup="dialog"
                   :aria-expanded="showProfileMenu ? 'true' : 'false'" @click.stop="toggleProfileMenu">
-            <span class="g-user-avatar" aria-hidden="true">{{ state.currentUser.avatar }}</span>
+            <span class="g-user-avatar" :class="{'material-symbols-outlined': state.currentUser.role === 'SYSTEM_ADMIN'}" aria-hidden="true">{{ state.currentUser.role === 'SYSTEM_ADMIN' ? 'admin_panel_settings' : state.currentUser.avatar }}</span>
             <span class="g-user-identity">
               <strong>{{ state.currentUser.username }}</strong>
               <small>{{ state.currentUser.roleLabel }}</small>
@@ -1352,14 +1361,16 @@
             <span class="admin-landscape-count">显示 {{ filteredPlots.length }} / 共 {{ plotSummary.total }} 个地块</span>
           </div>
         </div>
-        <div class="admin-plot-summary">
-          <span class="healthy"><i></i>健康 {{ plotSummary.healthy }}</span>
-          <span class="warning"><i></i>预警 {{ plotSummary.warning }}</span>
-          <span class="critical"><i></i>告警 {{ plotSummary.critical }}</span>
-          <span class="offline"><i></i>离线 {{ plotSummary.offline }}</span>
+        <div class="admin-plot-summary interactive-filters">
+          <span class="abnormal" :class="{active: statusFilter === 'abnormal'}" @click="statusFilter = 'abnormal'"><i></i>仅异常</span>
+          <span class="healthy" :class="{active: statusFilter === 'HEALTHY'}" @click="statusFilter = 'HEALTHY'"><i></i>健康 {{ plotSummary.healthy }}</span>
+          <span class="warning" :class="{active: statusFilter === 'WARNING'}" @click="statusFilter = 'WARNING'"><i></i>预警 {{ plotSummary.warning }}</span>
+          <span class="critical" :class="{active: statusFilter === 'CRITICAL'}" @click="statusFilter = 'CRITICAL'"><i></i>告警 {{ plotSummary.critical }}</span>
+          <span class="offline" :class="{active: statusFilter === 'OFFLINE'}" @click="statusFilter = 'OFFLINE'"><i></i>离线 {{ plotSummary.offline }}</span>
+          <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="openPlotMetrics(plot)">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
@@ -1380,27 +1391,6 @@
         </div>
       </section>
 
-      <div class="admin-modal-overlay" v-if="showPlotModal" @click.self="showPlotModal = false">
-        <div class="admin-modal admin-modal-wide">
-          <div class="admin-modal-header">
-            <h3>{{ selectedPlot?.id }} · 监测指标</h3>
-            <button class="g-btn icon-only" @click="showPlotModal = false"><app-icon name="close"></app-icon></button>
-          </div>
-          <div class="admin-modal-body">
-            <p class="admin-modal-hint">指标类型来自后端遥测合同，仅可从八项标准指标中选择。</p>
-            <div class="admin-metric-picker admin-plot-metric-picker">
-              <label v-for="metric in telemetryMetrics" :key="metric.code"><input type="checkbox" :value="metric.code" v-model="plotMetricForm"> {{ metric.label }} <small>{{ metric.code }}</small></label>
-            </div>
-            <div class="admin-telemetry-preview" v-if="selectedPlot">
-              <div class="admin-preview-title">最近遥测 <span v-if="telemetryLoading">正在同步…</span></div>
-              <template v-for="metric in telemetryMetrics" :key="metric.code">
-                <span v-if="plotMetricForm.includes(metric.code)"><strong>{{ selectedPlot.metrics[metric.code] }}</strong>{{ metric.label }}</span>
-              </template>
-            </div>
-          </div>
-          <div class="admin-modal-footer"><button class="g-btn" @click="showPlotModal = false">取消</button><button class="g-btn primary" :disabled="!plotMetricForm.length" @click="savePlotMetrics">保存监测配置</button></div>
-        </div>
-      </div>
     </div>
   </template>
 
@@ -1623,15 +1613,44 @@
 
       <!-- Scenario Selection -->
       <div class="admin-section-head">
-        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景选择</div>
+        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置矩阵</div>
+        <div style="display:flex; gap: 8px; align-items: center">
+          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
+          <select v-model="globalScenario" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+            <option value="">-- 选择场景 --</option>
+            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+          </select>
+        </div>
       </div>
       <div class="g-grid" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px">
-        <div v-for="sc in scenarios" :key="sc.id"
+        <button v-for="sc in scenarios" :key="sc.id" type="button"
              class="scenario-btn" :class="{active: selectedScenario === sc.id}"
-             @click="selectedScenario = sc.id">
+             @click="applyScenario(sc)">
           <div style="font-weight:500;margin-bottom:4px">{{ sc.icon }} {{ sc.label }}</div>
           <div style="font-size:12px;color:var(--g-text-secondary)">{{ sc.desc }}</div>
-        </div>
+        </button>
+      </div>
+      <div class="admin-table-wrap" style="margin-bottom: 24px">
+        <table class="admin-table">
+          <thead><tr>
+            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="plot in plotScenarios" :key="plot.plotId">
+              <td style="font-family:var(--g-mono);font-size:11px">{{ plot.plotId }}</td>
+              <td style="font-weight:500">{{ plot.name }}</td>
+              <td><span class="status-pill info">{{ plot.cropName }}</span></td>
+              <td>
+                <select v-model="plot.scenario" style="width:100%; max-width: 200px; padding: 6px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+                  <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+                </select>
+              </td>
+            </tr>
+            <tr v-if="!plotScenarios || plotScenarios.length === 0">
+              <td colspan="4" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <!-- History -->
@@ -1709,8 +1728,9 @@
           <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中</div>
           <button class="g-btn primary" @click="openCreatePack"><app-icon name="add"></app-icon> 新增作物包</button>
         </div>
-        <div class="pack-grid">
-          <div class="pack-card" v-for="pack in state.adminCropPacks" :key="pack.id" @click="togglePack(pack.id)">
+        <div class="pack-grid" :style="{ gridTemplateColumns: `repeat(${masonryCols}, 1fr)` }">
+          <div class="pack-grid-column" v-for="(colPacks, colIdx) in masonryColumns" :key="colIdx">
+            <div class="pack-card" v-for="pack in colPacks" :key="pack.id" @click="togglePack(pack.id)">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
@@ -1741,6 +1761,7 @@
                 <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
               </div>
             </div>
+          </div>
           </div>
         </div>
 
@@ -1904,14 +1925,14 @@
         <div class="admin-table-wrap">
           <table class="perm-matrix">
             <thead><tr>
-              <th>功能模块</th><th>🧑‍🌾 种植农户</th><th>👑 农场管理员</th><th>⚙️ 系统管理员</th>
+              <th>功能模块</th><th>种植农户</th><th>农场管理员</th><th>系统管理员</th>
             </tr></thead>
             <tbody>
               <tr v-for="perm in permissionMatrix" :key="perm.module">
-                <td>{{ perm.module }}</td>
-                <td>{{ perm.farmer }}</td>
-                <td>{{ perm.farmAdmin }}</td>
-                <td>{{ perm.sysAdmin }}</td>
+                <td v-html="formatPerm(perm.module)"></td>
+                <td v-html="formatPerm(perm.farmer)"></td>
+                <td v-html="formatPerm(perm.farmAdmin)"></td>
+                <td v-html="formatPerm(perm.sysAdmin)"></td>
               </tr>
             </tbody>
           </table>

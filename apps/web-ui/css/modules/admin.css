@@ -309,8 +309,15 @@
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+}
+.pack-grid-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .pack-grid { grid-template-columns: 1fr; }
 }
 
 .pack-card {
@@ -503,7 +510,7 @@
 .admin-overview-main { display: flex; flex-direction: column; min-width: 0; gap: 12px; }
 .admin-overview-label { margin: 2px 0 14px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
 .admin-overview-events { min-width: 0; }
-.admin-overview-events > .g-card { max-height: 320px; overflow-y: auto; box-sizing: border-box; padding: 10px 14px !important; }
+.admin-overview-events > .g-card { max-height: 320px; overflow-y: auto; box-sizing: border-box; padding: 10px 14px !important; box-shadow: none; border: 1px solid var(--g-border-subtle); }
 .admin-overview-events .event-timeline { max-height: none; box-sizing: border-box; }
 
 /* removed: no collapse mode */
@@ -513,13 +520,18 @@
 .admin-landscape-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .admin-landscape-actions select { padding: 7px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font-size: 12px; }
 .admin-plot-summary { display: flex; gap: 18px; margin: -4px 0 14px; font-size: 12px; color: var(--g-text-secondary); }
+.admin-plot-summary.interactive-filters span { cursor: pointer; padding: 4px 10px; border-radius: 20px; border: 1px solid transparent; transition: all 0.2s; opacity: 0.7; }
+.admin-plot-summary.interactive-filters span:hover { background: var(--g-bg-subtle); opacity: 0.9; }
+.admin-plot-summary.interactive-filters span.active { background: var(--g-bg-subtle); font-weight: 500; opacity: 1; border-color: currentColor; }
 .admin-plot-summary span { display: inline-flex; align-items: center; gap: 6px; }
 .admin-plot-summary i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.admin-plot-summary .abnormal { color: var(--g-warning); }
+.admin-plot-summary .all { color: var(--g-text-secondary); }
 .admin-plot-summary .healthy { color: var(--g-success); }
 .admin-plot-summary .warning { color: var(--g-warning); }
 .admin-plot-summary .critical { color: var(--g-danger); }
 .admin-plot-summary .offline { color: var(--g-text-disabled); }
-.admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .admin-plot-card { padding: 16px; background: var(--g-bg-surface); border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); transition: transform 0.2s, box-shadow 0.2s; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
 .admin-plot-card { cursor: pointer; }
@@ -602,7 +614,7 @@
   .service-matrix { grid-template-columns: repeat(2, 1fr); }
   .admin-overview-layout { grid-template-columns: 1fr; }
 
-  .admin-overview-events > .g-card { height: 360px; }
+  .admin-overview-events > .g-card { height: 360px; box-shadow: none; border: 1px solid var(--g-border-subtle); }
 }
 
 @media (max-width: 640px) {
@@ -845,11 +857,11 @@
   outline-offset: 2px;
 }
 
-.role-farm-admin .g-header .g-header-farm-select {
-  border: 1px solid var(--admin-glass-control-outline);
+.role-farm-admin .g-header .g-header-farm-select-btn {
+  border: none;
   border-radius: 12px;
-  background: var(--admin-liquid-control);
-  box-shadow: var(--admin-liquid-control-shadow);
+  background: transparent;
+  box-shadow: none;
 }
 
 .role-farm-admin .g-header .g-header-farm-select:hover {

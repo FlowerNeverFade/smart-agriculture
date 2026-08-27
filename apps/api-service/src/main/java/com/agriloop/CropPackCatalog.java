@@ -105,6 +105,15 @@ class CropPackCatalog {
         return packs.stream().map(pack -> Jsons.copy(mapper, pack)).toList();
     }
 
+    void updateStatus(String cropCode, String version, String status) {
+        for (Map<String, Object> pack : packs) {
+            if (cropCode.equalsIgnoreCase(Jsons.text(pack, "cropCode", "")) &&
+                (version == null || version.isBlank() || version.equals(Jsons.text(pack, "version", "")))) {
+                pack.put("status", status);
+            }
+        }
+    }
+
     Map<String, Object> require(String cropCode, String version) {
         return packs.stream()
                 .filter(pack -> cropCode != null && cropCode.equalsIgnoreCase(Jsons.text(pack, "cropCode", "")))
