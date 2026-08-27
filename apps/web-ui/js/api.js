@@ -945,12 +945,22 @@ export class ApiService {
     if (!member || (!member.plotIds?.includes(work.plotId) && !member.plotIds?.includes('*'))) {
       throw new ApiError('请选择有权处理这块地的种植农户', { status: 400, code: 'ASSIGNEE_SCOPE_MISMATCH' });
     }
+    const assignedAt = new Date();
+    let dueAt = work.dueAt || null;
+    if (input.dueAt) {
+      const renewedDueAt = new Date(input.dueAt);
+      if (Number.isNaN(renewedDueAt.getTime()) || renewedDueAt.getTime() <= assignedAt.getTime()) {
+        throw new ApiError('新处理时限必须晚于当前时间', { status: 400, code: 'WORK_ORDER_DUE_AT_INVALID' });
+      }
+      dueAt = renewedDueAt.toISOString();
+    }
     return this._saveDemoTransition(work, {
       status: 'ASSIGNED',
       assigneeId: member.userId,
       assigneeName: member.displayName || member.username,
-      assignedAt: new Date().toISOString(),
-      assignedBy: this._demoActorId()
+      assignedAt: assignedAt.toISOString(),
+      assignedBy: this._demoActorId(),
+      dueAt
     }, work.status === 'OPEN' ? 'ASSIGN' : 'REASSIGN', input.note || `分配给${member.displayName || member.username}`);
   }
 

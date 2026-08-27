@@ -3385,6 +3385,19 @@ class AgriEngine {
         work.put("assigneeName", Jsons.text(assignee, "displayName", Jsons.text(assignee, "username", assigneeId)));
         work.put("assignedBy", principal.userId);
         work.put("assignedAt", now.toString());
+        String dueAtInput = Jsons.text(input, "dueAt", "").trim();
+        if (!dueAtInput.isBlank()) {
+            Instant renewedDueAt;
+            try {
+                renewedDueAt = Instant.parse(dueAtInput);
+            } catch (java.time.format.DateTimeParseException error) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_ORDER_DUE_AT_INVALID", "新处理时限格式不正确");
+            }
+            if (!renewedDueAt.isAfter(now)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_ORDER_DUE_AT_INVALID", "新处理时限必须晚于当前时间");
+            }
+            work.put("dueAt", renewedDueAt.toString());
+        }
         clearAttemptResult(work);
         updateWorkOrderAudit(work, principal, now);
         appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,

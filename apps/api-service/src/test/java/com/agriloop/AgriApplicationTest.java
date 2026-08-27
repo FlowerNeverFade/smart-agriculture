@@ -395,8 +395,11 @@ class AgriApplicationTest {
         String workOrderId = String.valueOf(created.get("workOrderId"));
         assertThat(created).containsEntry("status", "OPEN").containsEntry("assigneeId", null).containsEntry("farmId", "farm-demo");
 
-        Map<String, Object> assigned = engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer", "note", "请在午前完成"), admin);
-        assertThat(assigned).containsEntry("status", "ASSIGNED").containsEntry("assigneeId", "user-farmer");
+        String renewedDueAt = Instant.now().plusSeconds(7200).toString();
+        Map<String, Object> assigned = engine.assignWorkOrder(workOrderId, Map.of(
+                "assigneeId", "user-farmer", "note", "请在午前完成", "dueAt", renewedDueAt), admin);
+        assertThat(assigned).containsEntry("status", "ASSIGNED").containsEntry("assigneeId", "user-farmer")
+                .containsEntry("dueAt", renewedDueAt);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionWorkOrder(workOrderId, Map.of("action", "START"), otherFarmer))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_ASSIGNEE_REQUIRED"));
 
@@ -415,6 +418,25 @@ class AgriApplicationTest {
         List<Map<String, Object>> history = Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), completed.get("history"));
         assertThat(history).extracting(entry -> entry.get("action")).containsExactly("CREATE", "ASSIGN", "START", "SUBMIT", "APPROVE");
         assertThat(history).allSatisfy(entry -> assertThat(entry).containsKeys("actorId", "actorRole", "at", "toStatus", "evidenceRefs"));
+    }
+
+    @Test
+    void overdueReassignmentRequiresAFutureRenewedDueAt() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "plotId", "plot-a01", "title", "处置逾期任务", "reason", "验证新的处理时限",
+                "dueAt", Instant.now().minusSeconds(3600).toString()), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.assignWorkOrder(workOrderId, Map.of(
+                        "assigneeId", "user-farmer", "dueAt", Instant.now().minusSeconds(60).toString()), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_DUE_AT_INVALID"));
+
+        String renewedDueAt = Instant.now().plusSeconds(14400).toString();
+        assertThat(engine.assignWorkOrder(workOrderId, Map.of(
+                "assigneeId", "user-farmer", "dueAt", renewedDueAt), admin))
+                .containsEntry("status", "ASSIGNED")
+                .containsEntry("dueAt", renewedDueAt);
     }
 
     @Test

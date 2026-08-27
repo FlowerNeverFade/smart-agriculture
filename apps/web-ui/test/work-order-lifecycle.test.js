@@ -21,6 +21,7 @@ const {
   chooseWorkOrderAssignee,
   finalizedWorkOrderAssignment,
   isReworkOrder,
+  overdueRecoveryDueAt,
   workOrderLane
 } = await import('../js/work-order-lifecycle.js');
 
@@ -90,10 +91,24 @@ test('分配接口缺少字段时仍立即补齐进行中任务的负责人和�
   assert.equal(workOrderLane({ ...saved, dueAt: future }, now), 'IN_PROGRESS');
 });
 
-test('逾期页提供全选、批量重新分配和单任务人员处置', () => {
+test('逾期处置生成未来时限并使任务离开逾期分区', () => {
+  const renewedDueAt = overdueRecoveryDueAt({ priority: 'HIGH' }, now);
+  assert.equal(renewedDueAt, '2026-08-27T12:00:00.000Z');
+  const saved = finalizedWorkOrderAssignment(
+    { workOrderId: 'wo-overdue', status: 'IN_PROGRESS', dueAt: past },
+    { status: 'ASSIGNED' },
+    { userId: 'farmer-2', displayName: '赵霞' },
+    renewedDueAt
+  );
+  assert.equal(saved.dueAt, renewedDueAt);
+  assert.equal(workOrderLane(saved, now), 'IN_PROGRESS');
+});
+
+test('逾期页提供全选、一键重新分配、一键处置和单任务人员处置', () => {
   assert.match(WorkOrderLifecycleView.template, /逾期任务处置/);
   assert.match(WorkOrderLifecycleView.template, /全选当前任务/);
   assert.match(WorkOrderLifecycleView.template, /一键重新分配/);
+  assert.match(WorkOrderLifecycleView.template, /一键处置/);
   assert.match(WorkOrderLifecycleView.template, /选择人员处置/);
 });
 

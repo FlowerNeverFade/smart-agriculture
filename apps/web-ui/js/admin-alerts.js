@@ -1,4 +1,4 @@
-import { api } from './api.js';
+import { api } from './api.js?v=20260826-live-refresh';
 import { adminMetricLabel } from './admin-state.js';
 
 const { ref, computed, inject, watch } = Vue;
@@ -357,7 +357,10 @@ export const AdminAlertCenter = {
       for (const alert of alerts) {
         try {
           const diagnosis = await api.evaluateDiagnosis(alert.plotId, {
-            traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`
+            traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`,
+            ...(props.state.sessionMode === 'demo' && alert.diagnosisScenario
+              ? { scenarioId: alert.diagnosisScenario }
+              : {})
           });
           const audit = assessAlertCredibility(alert, diagnosis);
           const assignment = audit.highConfidence ? selectFarmer(alert) : null;

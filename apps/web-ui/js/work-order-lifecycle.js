@@ -74,7 +74,7 @@ export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '')
   return ranked[0] || null;
 }
 
-export function finalizedWorkOrderAssignment(order, response, member) {
+export function finalizedWorkOrderAssignment(order, response, member, renewedDueAt = '') {
   return {
     ...order,
     ...(response || {}),
@@ -82,8 +82,14 @@ export function finalizedWorkOrderAssignment(order, response, member) {
     workItemId: response?.workItemId || response?.workOrderId || order?.workItemId || order?.workOrderId,
     status: response?.status || 'ASSIGNED',
     assigneeId: response?.assigneeId || member?.userId || order?.assigneeId || null,
-    assigneeName: response?.assigneeName || member?.displayName || member?.username || order?.assigneeName || null
+    assigneeName: response?.assigneeName || member?.displayName || member?.username || order?.assigneeName || null,
+    dueAt: renewedDueAt || response?.dueAt || order?.dueAt || null
   };
+}
+
+export function overdueRecoveryDueAt(order, now = Date.now()) {
+  const hours = ({ HIGH: 4, MEDIUM: 8, LOW: 24 })[String(order?.priority || 'MEDIUM').toUpperCase()] || 8;
+  return new Date(now + hours * 60 * 60 * 1000).toISOString();
 }
 
 function actorId(user) {
@@ -158,7 +164,7 @@ export const WorkOrderLifecycleView = {
     const showCancelModal = ref(false);
     const showInspectionModal = ref(false);
     const activeOrder = ref(null);
-    const assignment = ref({ assigneeId: '', note: '' });
+    const assignment = ref({ assigneeId: '', note: '', dueAt: '' });
     const submission = ref({ resultSummary: '', evidenceText: '' });
     const review = ref({ note: '' });
     const cancellation = ref({ note: '' });
@@ -353,7 +359,12 @@ export const WorkOrderLifecycleView = {
 
     const openAssign = async (order) => {
       activeOrder.value = order;
-      assignment.value = { assigneeId: order.assigneeId || '', note: '' };
+      const renewedDueAt = isOverdue(order) ? overdueRecoveryDueAt(order, lifecycleNow.value) : '';
+      assignment.value = {
+        assigneeId: order.assigneeId || '',
+        note: '',
+        dueAt: renewedDueAt ? new Date(new Date(renewedDueAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''
+      };
       syncAssignmentFromMembers(order);
       showAssignModal.value = true;
       await refreshFarmMembers(false);
@@ -365,10 +376,13 @@ export const WorkOrderLifecycleView = {
         return;
       }
       const member = props.state.farmMembers.find((item) => item.userId === assignment.value.assigneeId);
+      const renewedDueAt = assignment.value.dueAt ? new Date(assignment.value.dueAt).toISOString() : '';
+      const input = { ...assignment.value, ...(renewedDueAt ? { dueAt: renewedDueAt } : {}) };
       const saved = await runAction(async () => finalizedWorkOrderAssignment(
         activeOrder.value,
-        await api.assignWorkOrder(activeOrder.value.workOrderId, assignment.value),
-        member
+        await api.assignWorkOrder(activeOrder.value.workOrderId, input),
+        member,
+        renewedDueAt
       ), activeOrder.value.assigneeId ? '任务已重新分配并进入进行中' : '任务已分配并进入进行中');
       if (saved) showAssignModal.value = false;
     };
@@ -388,7 +402,7 @@ export const WorkOrderLifecycleView = {
       selectedOverdueIds.value = next;
     };
 
-    const autoReassignOverdue = async () => {
+    const processOverdueTasks = async (mode = 'DISPOSE') => {
       const targets = selectedOverdueOrders.value.slice();
       if (!targets.length) {
         toast('请先选择需要处置的逾期任务', 'error');
@@ -401,29 +415,39 @@ export const WorkOrderLifecycleView = {
       const failures = [];
       try {
         for (const order of targets) {
-          const choice = chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
+          const currentMember = eligibleFarmers(order).find((member) => member.userId === order.assigneeId);
+          const choice = mode === 'DISPOSE' && currentMember
+            ? { member: currentMember, activeLoad: memberActiveTaskCount(currentMember.userId) }
+            : chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
           if (!choice) {
             failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
             continue;
           }
           try {
+            const renewedDueAt = overdueRecoveryDueAt(order, lifecycleNow.value);
+            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务继续处置';
             const response = await api.assignWorkOrder(order.workOrderId, {
               assigneeId: choice.member.userId,
-              note: `逾期任务重新分配：当前进行中任务 ${choice.activeLoad} 项`
+              dueAt: renewedDueAt,
+              note: `${actionLabel}：新处理时限 ${formatTime(renewedDueAt)}，当前进行中任务 ${choice.activeLoad} 项`
             });
-            publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member));
+            publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member, renewedDueAt));
             reassigned += 1;
           } catch (error) {
             failures.push(`${order.title || order.workOrderId}：${error?.message || '重新分配失败'}`);
           }
         }
         selectedOverdueIds.value = new Set();
-        if (reassigned) toast(`已重新分配 ${reassigned} 项逾期任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
+        const successLabel = mode === 'REASSIGN' ? '重新分配' : '处置';
+        if (reassigned) toast(`已${successLabel} ${reassigned} 项逾期任务并转入进行中${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
         else toast(failures[0] || '没有可重新分配的逾期任务', 'error');
       } finally {
         isBusy.value = false;
       }
     };
+
+    const autoReassignOverdue = () => processOverdueTasks('REASSIGN');
+    const autoDisposeOverdue = () => processOverdueTasks('DISPOSE');
 
     const startTask = (order, restart = false) => runAction(
       () => api.transitionWorkOrder(order.workOrderId, { action: restart ? 'RESTART' : 'START', note: restart ? '按退回意见重新处理' : '开始执行任务' }),
@@ -637,7 +661,7 @@ export const WorkOrderLifecycleView = {
       isOverdue, orderLane, isReworkOrder, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
-      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue,
+      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
       clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect,
@@ -683,11 +707,12 @@ export const WorkOrderLifecycleView = {
       </div>
 
       <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
-        <div><strong>逾期任务处置</strong><span>可逐项指定人员，也可全选后按权限和当前任务量自动重新分配。</span></div>
+        <div><strong>逾期任务处置</strong><span>一键处置由原负责人继续处理；一键重新分配会更换合适农户。完成后均转入进行中。</span></div>
         <div class="work-overdue-disposition-actions">
           <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
           <span>已选 {{ selectedOverdueOrders.length }} 项</span>
-          <button type="button" class="g-btn primary compact" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>{{ isBusy ? '正在处置' : '一键重新分配' }}</button>
+          <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
+          <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
         </div>
       </section>
 
@@ -839,6 +864,7 @@ export const WorkOrderLifecycleView = {
               <button type="button" class="g-btn secondary compact" :disabled="memberLoading" @click="refreshFarmMembers(true)">{{ memberLoading ? '读取中' : '刷新人员' }}</button>
             </div>
             <label><span>种植农户</span><select class="g-select" v-model="assignment.assigneeId" required :disabled="memberLoading"><option value="" disabled>{{ memberLoading ? '正在读取成员' : '请选择' }}</option><option v-for="member in eligibleFarmers(activeOrder)" :key="member.userId" :value="member.userId">{{ assignmentMemberLabel(member) }}</option></select><small v-if="memberLoadError">成员刷新失败：{{ memberLoadError }}</small><small v-else-if="!memberLoading && !eligibleFarmers(activeOrder).length">暂无拥有该地块权限的活跃农户。</small></label>
+            <label v-if="assignment.dueAt"><span>新处理时限</span><input type="datetime-local" class="g-input" v-model="assignment.dueAt" required><small>重新安排后任务将进入进行中，不再停留在已逾期。</small></label>
             <label><span>分配说明（选填）</span><textarea class="g-input" rows="3" v-model="assignment.note" placeholder="例如：请在中午前完成复测"></textarea></label>
           </div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showAssignModal = false">取消</button><button type="submit" class="g-btn primary" :disabled="isBusy || memberLoading || !assignment.assigneeId">确认分配</button></div>

@@ -21,7 +21,8 @@ const {
   finalizedAssignedTask,
   finalizedClosedAlert
 } = await import('../js/admin-alerts.js');
-const { api } = await import('../js/api.js');
+const { api } = await import('../js/api.js?v=20260826-live-refresh');
+const { MOCK_DATA } = await import('../js/mock-data.js');
 
 test('AI 派单只选择在岗且有地块权限的农户', () => {
   const members = [
@@ -103,6 +104,15 @@ test('告警页面保留 main 卡片详情结构并提供新的批量入口', ()
   assert.doesNotMatch(AdminAlertCenter.template, /<h2/);
 });
 
+test('演示告警覆盖自动下发和多种人工审核场景', () => {
+  const activeAlerts = MOCK_DATA.alerts.filter(alert => !['CLOSED', 'RESOLVED'].includes(alert.status));
+  assert.ok(activeAlerts.length >= 7);
+  assert.ok(activeAlerts.filter(alert => alert.diagnosisScenario === 'drought').length >= 2);
+  assert.ok(activeAlerts.some(alert => alert.ruleState === 'CANDIDATE'));
+  assert.ok(activeAlerts.some(alert => alert.diagnosisScenario === 'sensor-drift'));
+  assert.ok(activeAlerts.some(alert => alert.diagnosisScenario === 'device-offline'));
+});
+
 test('管理员入口使用新名称且 AI 对话正文字号不小于 16px', () => {
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   const chatSource = readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8');
@@ -152,7 +162,12 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
   };
 
   try {
-    api.evaluateDiagnosis = async () => ({ confidence: 0.94, primaryCause: 'WATER_DEFICIT', missingInformation: [] });
+    let diagnosisInput;
+    alertToDispatch.diagnosisScenario = 'drought';
+    api.evaluateDiagnosis = async (_plotId, input) => {
+      diagnosisInput = input;
+      return { confidence: 0.94, primaryCause: 'WATER_DEFICIT', missingInformation: [] };
+    };
     api.createWorkOrder = async () => ({ workItemId: 'wo-ai-1', status: 'OPEN' });
     api.assignWorkOrder = async () => ({ workItemId: 'wo-ai-1' });
     let finishClose;
@@ -166,6 +181,7 @@ test('AI 处理和关闭后会立即更新本地列表状态', async () => {
     assert.equal(view.dispatchedCount.value, 1);
     assert.equal(state.workOrders[0].assigneeId, 'farmer-1');
     assert.equal(state.workOrders[0].sourceRef, 'alert-dispatch');
+    assert.equal(diagnosisInput.scenarioId, 'drought');
 
     view.filter.value = 'ALL';
     const closing = view.closeAlerts([alertToClose]);

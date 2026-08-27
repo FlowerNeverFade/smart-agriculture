@@ -434,6 +434,7 @@ components:
       properties:
         assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
         note: {type: string, description: 分配说明}
+        dueAt: {type: string, format: date-time, description: 可选；重新处置逾期任务时设置晚于当前时间的新处理时限}
     InspectionCreateRequest:
       type: object
       required: [farmId, plotId, observedAt]

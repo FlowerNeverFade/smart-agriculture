@@ -152,6 +152,20 @@ async function mountIndex() {
   ok('告警中心已移除旧操作入口', alertCenter
     && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
     && !window.document.querySelector('.admin-alert-view h2'));
+  const initialAlertCards = window.document.querySelectorAll('.admin-alert-card').length;
+  ok('告警中心提供至少七条不同场景的演示告警', initialAlertCards >= 7, `cards=${initialAlertCards}`);
+  const selectAllAlerts = window.document.querySelector('.admin-alert-select-all input');
+  selectAllAlerts?.click();
+  const aiProcessButton = window.document.querySelector('.admin-alert-batch-actions .g-btn.primary');
+  aiProcessButton?.click();
+  const aiProcessed = await waitFor(() => {
+    const summary = window.document.querySelector('.admin-alert-ai-summary')?.textContent || '';
+    return summary.includes('本次已分析 7 条告警')
+      && summary.includes('智能下发 2 条')
+      && summary.includes('保留人工审核 5 条');
+  }, 2500);
+  ok('AI 智能处理可自动下发高可信告警并保留不确定项', aiProcessed,
+    window.document.querySelector('.admin-alert-ai-summary')?.textContent.replace(/\s+/g, ' ').trim() || 'no summary');
   const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
   window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);
@@ -199,15 +213,34 @@ async function mountIndex() {
   ok('逾期任务支持单独选择有地块权限的人员处置', overdueReady && assignmentReady && eligiblePeople >= 2);
   window.document.querySelector('.work-dialog-small .g-modal-header .icon-only')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   await waitFor(() => !window.document.querySelector('.work-dialog-small'), 800);
-  const selectAllOverdue = window.document.querySelector('.work-overdue-disposition-actions input[type="checkbox"]');
-  selectAllOverdue?.click();
-  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-disposition-actions .g-btn.primary:not(:disabled)')), 800);
-  const batchReassignButton = window.document.querySelector('.work-overdue-disposition-actions .g-btn.primary');
+  const initialOverdueCards = [...window.document.querySelectorAll('.work-order-card.is-overdue')];
+  const reassignedOrderId = initialOverdueCards[0]?.dataset.workOrderId;
+  const disposedOrderId = initialOverdueCards[1]?.dataset.workOrderId;
+  initialOverdueCards[0]?.querySelector('.work-overdue-card-select input')?.click();
+  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-reassign:not(:disabled)')), 800);
+  const batchReassignButton = window.document.querySelector('.work-overdue-reassign');
   const batchEnabled = Boolean(batchReassignButton && !batchReassignButton.disabled);
   batchReassignButton?.click();
-  const overdueReassigned = await waitFor(() => window.document.querySelector('.work-order-card.is-overdue')?.textContent.includes('赵霞'), 2000);
-  ok('逾期任务可全选并一键重新分配且负责人立即更新', overdueReady && batchEnabled && overdueReassigned,
-    `ready=${overdueReady} enabled=${batchEnabled} checked=${selectAllOverdue?.checked} toast=${window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'none'} card=${window.document.querySelector('.work-order-card.is-overdue')?.textContent.replace(/\s+/g, ' ').trim().slice(0, 180) || 'none'}`);
+  const reassignedLeftOverdue = await waitFor(() => window.document.querySelectorAll('.work-order-card.is-overdue').length === 1, 2000);
+  const remainingOverdueCard = window.document.querySelector('.work-order-card.is-overdue');
+  remainingOverdueCard?.querySelector('.work-overdue-card-select input')?.click();
+  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-dispose:not(:disabled)')), 800);
+  const disposeButton = window.document.querySelector('.work-overdue-dispose');
+  const disposeEnabled = Boolean(disposeButton && !disposeButton.disabled);
+  disposeButton?.click();
+  const disposedLeftOverdue = await waitFor(() => window.document.querySelectorAll('.work-order-card.is-overdue').length === 0, 2000);
+
+  window.location.hash = '#view=work-orders&tab=tasks&status=IN_PROGRESS&farmId=farm-demo';
+  const recoveredTasksVisible = await waitFor(() => {
+    const reassignedCard = window.document.querySelector(`[data-work-order-id="${reassignedOrderId}"]`);
+    const disposedCard = window.document.querySelector(`[data-work-order-id="${disposedOrderId}"]`);
+    return reassignedCard?.textContent.includes('赵霞') && disposedCard?.textContent.includes('张明');
+  }, 2500);
+  ok('逾期一键重新分配会更换农户并立即转入进行中', overdueReady && initialOverdueCards.length >= 2
+    && batchEnabled && reassignedLeftOverdue && recoveredTasksVisible,
+  `reassigned=${reassignedOrderId} toast=${window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'none'}`);
+  ok('逾期一键处置会保留原负责人并立即转入进行中', disposeEnabled && disposedLeftOverdue && recoveredTasksVisible,
+    `disposed=${disposedOrderId} remaining=${window.document.querySelectorAll('.work-order-card.is-overdue').length}`);
 
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);
