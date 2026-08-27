@@ -89,7 +89,9 @@ export function workStatusLabel(value) {
 
 export function relativeTime(value, now = Date.now()) {
   const date = dateValue(value);
-  if (!date) return '—';
+  // A missing backend timestamp is sometimes serialised as `0`/epoch.  It
+  // must not appear in a user-facing card as "20,000 days ago".
+  if (!date || date.getTime() < Date.UTC(2000, 0, 1)) return '—';
   const diff = Math.max(0, now - date.getTime());
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return '刚刚';
@@ -167,6 +169,36 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
+}
+
+/**
+ * Merge a fresh mixed-metric telemetry window into an existing plot card.
+ * The newest sample updates the visible value as well as the history. This
+ * keeps the fast farmer poll useful without waiting for a full overview.
+ */
+export function mergePlotTelemetryWindow(plot = {}, points = []) {
+  const history = { ...(plot.history || {}) };
+  Object.entries(plot.metrics || {}).forEach(([code, metric]) => {
+    if (!history[code] && Array.isArray(metric?.history)) history[code] = metric.history.slice();
+  });
+  const grouped = {};
+  (Array.isArray(points) ? points : []).forEach((point) => {
+    const code = text(point?.metric, '');
+    if (!code) return;
+    (grouped[code] ||= []).push(point);
+  });
+  const latest = {};
+  Object.entries(grouped).forEach(([code, samples]) => {
+    const ordered = samples.slice().sort((left, right) => (
+      dateValue(left?.ts || left?.observedAt)?.getTime() || 0
+    ) - (
+      dateValue(right?.ts || right?.observedAt)?.getTime() || 0
+    ));
+    if (!ordered.length) return;
+    history[code] = ordered;
+    latest[code] = ordered[ordered.length - 1];
+  });
+  return normalizePlot({ ...plot, history }, { history, latest });
 }
 
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
@@ -464,6 +496,22 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
   const traceId = text(record.traceId || record.diagnosisId || record.planId || record.commandId || record.workOrderId || record.inspectionId, `event-${index + 1}`);
   const at = entry.at || record.createdAt || record.evaluatedAt || record.observedAt;
   const result = ['REJECTED', 'FAILED', 'ERROR', 'CANCELLED'].includes(text(record.status).toUpperCase()) ? 'REJECT' : ['DONE', 'COMPLETED', 'PASS', 'APPROVED'].includes(text(record.status).toUpperCase()) ? 'PASS' : 'PENDING';
+  const explicitSummary = record.summary || record.message || record.title || record.reason || record.evidenceSummary;
+  const derivedSummary = type === 'DIAGNOSIS'
+    ? `诊断完成：${text(record.primaryCause || record.riskType, '待确认')}`
+    : type === 'ALERT'
+      ? `告警：${text(record.title || record.source || record.level, '平台规则')}`
+      : type === 'IRRIGATION-PLAN'
+        ? `生成灌溉处方${record.waterLitre !== undefined ? ` · ${record.waterLitre} L` : ''}`
+        : type === 'COMMAND'
+          ? `控制命令：${text(record.action || record.commandType, '已提交')}`
+          : type === 'READINESS'
+            ? `决策就绪度：${text(record.readinessStatus || record.status, '待评估')}`
+            : type === 'INSPECTION'
+              ? `巡田记录：${text(record.notes || record.observation, '已提交')}`
+              : type === 'WORK-ORDER'
+                ? `工单：${text(record.title || record.actionType, '已更新')}`
+                : `${type} 事件`;
   return {
     traceId,
     time: relativeTime(at),
@@ -472,7 +520,7 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
     plotId,
     type,
     typeLabel: ({ DIAGNOSIS: '诊断', READINESS: '就绪度', 'IRRIGATION-PLAN': '处方', COMMAND: '命令', EVALUATION: '评价', INSPECTION: '巡田', 'WORK-ORDER': '工单', ALERT: '告警' }[type] || type),
-    summary: text(record.summary || record.message || record.title || record.reason || record.evidenceSummary, '后端审计记录'),
+    summary: text(explicitSummary, derivedSummary),
     result,
     passport: {
       trigger: text(record.source || record.sourceType, '后端记录'),

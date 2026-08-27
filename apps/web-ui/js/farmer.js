@@ -8,13 +8,14 @@ import {
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
+  mergePlotTelemetryWindow,
   normalizeFarmerTask,
   normalizePlot,
   normalizeWorkStatus,
   workStatusLabel
 } from './live-data.js';
 
-const { createApp, ref, computed, onMounted, watch } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, watch } = Vue;
 
 const STATUS_LABELS = {
   OPEN: '待分配',
@@ -1603,17 +1604,8 @@ const app = createApp({
       const nextPlots = snapshot.map((plot, index) => {
         const result = telemetryResults[index];
         if (result?.status !== 'fulfilled') return plot;
-        const history = {};
-        (result.value || []).forEach((point) => {
-          const metric = String(point?.metric || '').trim();
-          if (!metric) return;
-          (history[metric] ||= []).push(point);
-        });
-        const metrics = { ...plot.metrics };
-        Object.entries(history).forEach(([code, points]) => {
-          metrics[code] = { ...(metrics[code] || {}), history: points };
-        });
-        return { ...plot, metrics, history, healthScore: compute_plot_health_score({ ...plot, metrics }) };
+        const merged = mergePlotTelemetryWindow(plot, result.value || []);
+        return { ...merged, healthScore: compute_plot_health_score(merged) };
       });
       // Preserve references when the farmer is reading messages; only swap plots.
       replace_ref_array(plots, nextPlots);
@@ -1677,15 +1669,8 @@ const app = createApp({
         normalizedPlots = normalizedPlots.map((plot, index) => {
           const result = telemetryResults[index];
           if (result?.status !== 'fulfilled') return plot;
-          const history = {};
-          (result.value || []).forEach((point) => {
-            const metric = String(point?.metric || '').trim();
-            if (!metric) return;
-            (history[metric] ||= []).push(point);
-          });
-          const metrics = { ...plot.metrics };
-          Object.entries(history).forEach(([code, points]) => { metrics[code] = { ...(metrics[code] || {}), history: points }; });
-          return { ...plot, metrics, history };
+          const merged = mergePlotTelemetryWindow(plot, result.value || []);
+          return { ...merged, healthScore: compute_plot_health_score(merged) };
         });
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
@@ -1754,6 +1739,16 @@ const app = createApp({
 
     let workspace_refresh_timer = null;
     let telemetry_refresh_timer = null;
+    let live_workspace_poll_timer = null;
+    let live_telemetry_poll_timer = null;
+    let live_poll_visibility_handler = null;
+    let live_poll_online_handler = null;
+    let live_workspace_poll_in_flight = false;
+    let live_telemetry_poll_in_flight = false;
+    let live_events_stop = null;
+    let live_events_connecting = false;
+    let live_health_probe_in_flight = false;
+    let farmer_enhancements_refresh_in_flight = false;
     const schedule_live_refresh = (scope = 'workspace') => {
       if (!is_formal_session) return;
       if (scope === 'telemetry') {
@@ -1769,8 +1764,108 @@ const app = createApp({
       if (workspace_refresh_timer) return;
       workspace_refresh_timer = window.setTimeout(async () => {
         workspace_refresh_timer = null;
-        await load_live_workspace({ announce: false });
+        const refreshed = await load_live_workspace({ announce: false });
+        if (refreshed) await load_farmer_enhancements();
       }, 800);
+    };
+
+    const poll_live_workspace = async () => {
+      if (!is_formal_session || document.hidden || live_workspace_poll_in_flight) return;
+      live_workspace_poll_in_flight = true;
+      try {
+        const refreshed = await load_live_workspace({ announce: false });
+        if (refreshed) await load_farmer_enhancements();
+        is_live.value = api.isLive;
+        if (api.isLive) connect_live_events({ announce: false });
+      }
+      finally { live_workspace_poll_in_flight = false; }
+    };
+    const poll_live_telemetry = async () => {
+      if (!is_formal_session || document.hidden || current_view.value === 'messages' || live_telemetry_poll_in_flight) return;
+      live_telemetry_poll_in_flight = true;
+      try {
+        await refresh_plot_telemetry();
+        is_live.value = api.isLive;
+        if (api.isLive) connect_live_events({ announce: false });
+      }
+      finally { live_telemetry_poll_in_flight = false; }
+    };
+    const stop_live_polling = () => {
+      if (live_workspace_poll_timer) window.clearInterval(live_workspace_poll_timer);
+      if (live_telemetry_poll_timer) window.clearInterval(live_telemetry_poll_timer);
+      if (workspace_refresh_timer) window.clearTimeout(workspace_refresh_timer);
+      if (telemetry_refresh_timer) window.clearTimeout(telemetry_refresh_timer);
+      live_workspace_poll_timer = null;
+      live_telemetry_poll_timer = null;
+      workspace_refresh_timer = null;
+      telemetry_refresh_timer = null;
+      if (live_poll_visibility_handler) document.removeEventListener('visibilitychange', live_poll_visibility_handler);
+      if (live_poll_online_handler) window.removeEventListener('online', live_poll_online_handler);
+      live_poll_visibility_handler = null;
+      live_poll_online_handler = null;
+    };
+    const start_live_polling = () => {
+      stop_live_polling();
+      if (!is_formal_session) return;
+      // SSE normally updates immediately; these low-frequency polls recover
+      // from missed events and keep secondary resources (tasks, inspections,
+      // crop batches and device state) current as well.
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, 5000);
+      live_workspace_poll_timer = window.setInterval(poll_live_workspace, 15000);
+      live_poll_visibility_handler = () => {
+        if (!document.hidden) {
+          poll_live_telemetry();
+          poll_live_workspace();
+        }
+      };
+      live_poll_online_handler = () => {
+        poll_live_telemetry();
+        poll_live_workspace();
+      };
+      document.addEventListener('visibilitychange', live_poll_visibility_handler);
+      window.addEventListener('online', live_poll_online_handler);
+      poll_live_telemetry();
+      ensure_live_connection();
+    };
+
+    const handle_live_event = (event) => {
+      const type = String(event?.data?.eventType || event?.type || '').toLowerCase();
+      if (['connected', 'heartbeat'].includes(type)) return;
+      // Telemetry only refreshes plot metrics. Rebuilding the whole workspace
+      // for every sample makes the message center flicker and is unnecessary.
+      if (type.includes('telemetry') || type.includes('device.heartbeat')) {
+        schedule_live_refresh('telemetry');
+        return;
+      }
+      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
+        schedule_live_refresh('workspace');
+      }
+    };
+    const connect_live_events = async ({ announce = true } = {}) => {
+      if (!is_formal_session || !api.isLive || live_events_stop || live_events_connecting) return false;
+      live_events_connecting = true;
+      try {
+        live_events_stop = await api.subscribeEvents(handle_live_event);
+        return true;
+      } catch (error) {
+        if (announce) show_toast(`实时同步暂不可用：${error.message || '事件流连接失败'}`, 'error');
+        return false;
+      } finally {
+        live_events_connecting = false;
+      }
+    };
+    const ensure_live_connection = () => {
+      if (!is_formal_session || document.hidden) return;
+      if (api.isLive) {
+        connect_live_events({ announce: false });
+        return;
+      }
+      if (live_health_probe_in_flight) return;
+      live_health_probe_in_flight = true;
+      api.checkHealth().then((healthy) => {
+        is_live.value = healthy;
+        if (healthy) connect_live_events({ announce: false });
+      }).catch(() => {}).finally(() => { live_health_probe_in_flight = false; });
     };
 
     const open_message = (msg) => {
@@ -2457,30 +2552,37 @@ const app = createApp({
     };
 
     const load_farmer_enhancements = async () => {
-      const forecastPlot = plots.value.slice().sort((a, b) => health_score(a) - health_score(b))[0] || plots.value[0];
-      const forecastPromise = forecastPlot
-        ? api.getRiskForecast(forecastPlot.plotId, 'SOIL_MOISTURE')
-        : Promise.resolve({ status: 'UNAVAILABLE', reason: '没有可预测的地块' });
-      const demands = plots.value.map((plot) => {
-        const band = resolve_moisture_band_status(plot);
-        return {
-          plotId: plot.plotId,
-          requestedLitres: band === 'ALERT' ? 153 : (band === 'WARN' ? 96 : 60),
-          priority: band === 'ALERT' ? 'HIGH' : (band === 'WARN' ? 'MEDIUM' : 'LOW'),
-          windowStart: '18:00',
-          windowEnd: '20:00'
-        };
-      });
-      const resourcePromise = api.evaluateResourcePlan({
-        scope: farm.value.farmId || 'farm-demo',
-        constraints: { waterCapacityLitres: MOCK_DATA.resourceProfile?.remainingLitres || 0 },
-        demands
-      });
-      const [forecastResult, resourceResult] = await Promise.allSettled([forecastPromise, resourcePromise]);
-      risk_forecast.value = forecastResult.status === 'fulfilled'
-        ? forecastResult.value
-        : { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
-      resource_plan.value = resourceResult.status === 'fulfilled' ? resourceResult.value : null;
+      if (farmer_enhancements_refresh_in_flight) return false;
+      farmer_enhancements_refresh_in_flight = true;
+      try {
+        const forecastPlot = plots.value.slice().sort((a, b) => health_score(a) - health_score(b))[0] || plots.value[0];
+        const forecastPromise = forecastPlot
+          ? api.getRiskForecast(forecastPlot.plotId, 'SOIL_MOISTURE')
+          : Promise.resolve({ status: 'UNAVAILABLE', reason: '没有可预测的地块' });
+        const demands = plots.value.map((plot) => {
+          const band = resolve_moisture_band_status(plot);
+          return {
+            plotId: plot.plotId,
+            requestedLitres: band === 'ALERT' ? 153 : (band === 'WARN' ? 96 : 60),
+            priority: band === 'ALERT' ? 'HIGH' : (band === 'WARN' ? 'MEDIUM' : 'LOW'),
+            windowStart: '18:00',
+            windowEnd: '20:00'
+          };
+        });
+        const resourcePromise = api.evaluateResourcePlan({
+          scope: farm.value.farmId || 'farm-demo',
+          constraints: { waterCapacityLitres: MOCK_DATA.resourceProfile?.remainingLitres || 0 },
+          demands
+        });
+        const [forecastResult, resourceResult] = await Promise.allSettled([forecastPromise, resourcePromise]);
+        risk_forecast.value = forecastResult.status === 'fulfilled'
+          ? forecastResult.value
+          : { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        resource_plan.value = resourceResult.status === 'fulfilled' ? resourceResult.value : null;
+        return true;
+      } finally {
+        farmer_enhancements_refresh_in_flight = false;
+      }
     };
 
     onMounted(async () => {
@@ -2502,24 +2604,7 @@ const app = createApp({
       if (is_formal_session) {
         await load_live_workspace({ announce: true });
         is_live.value = api.isLive;
-        try {
-          await api.subscribeEvents((event) => {
-            const type = String(event?.data?.eventType || event?.type || '').toLowerCase();
-            if (['connected', 'heartbeat'].includes(type)) return;
-            // Telemetry only refreshes plot metrics.  Rebuilding the whole
-            // workspace on every sample made the message center flicker as if
-            // the same notice were arriving again and again.
-            if (type.includes('telemetry') || type.includes('device.heartbeat')) {
-              schedule_live_refresh('telemetry');
-              return;
-            }
-            if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
-              schedule_live_refresh('workspace');
-            }
-          });
-        } catch (error) {
-          show_toast(`实时同步暂不可用：${error.message || '事件流连接失败'}`, 'error');
-        }
+        await connect_live_events();
       }
       await load_farmer_enhancements();
       await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
@@ -2527,6 +2612,7 @@ const app = createApp({
         if (tools_tab.value === 'manual') await load_crop_manual();
         else await load_tools_forecast();
       }
+      start_live_polling();
     });
 
     watch([current_view, tools_tab, tools_plot_id, tools_scenario, crop_manual_code, crop_manual_stage], () => {
@@ -2537,6 +2623,14 @@ const app = createApp({
 
     watch(advice_selected_plot, (plot, previous) => {
       if (plot?.plotId && plot.plotId !== previous?.plotId) load_irrigation_plan(plot.plotId, { silent: true });
+    });
+
+    onBeforeUnmount(() => {
+      stop_live_polling();
+      window.removeEventListener('hashchange', apply_farmer_hash);
+      live_events_stop?.();
+      live_events_stop = null;
+      api.sseAbortController?.abort();
     });
 
     return {

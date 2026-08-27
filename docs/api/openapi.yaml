@@ -160,7 +160,7 @@ paths:
       tags: [telemetry]
       parameters:
         - {$ref: '#/components/parameters/PlotId'}
-        - {name: metric, in: query, schema: {type: string}}
+        - {name: metric, in: query, description: 可选；不填返回地块全部指标, schema: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL, RAINFALL]}}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
         - {name: limit, in: query, schema: {type: integer, default: 1000, maximum: 10000}}
@@ -175,7 +175,7 @@ paths:
       tags: [telemetry]
       responses: {'200': {description: SSE 实时事件流, content: {text/event-stream: {schema: {type: string}}}}}
   /api/v1/plots/{plotId}/risk-forecast:
-    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}, {name: metric, in: query, schema: {type: string, default: SOIL_MOISTURE}}], responses: {'200': {description: 预测或明确弃权}}}
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}, {name: metric, in: query, description: 预测指标；与地块详情曲线选择一致, schema: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL, RAINFALL], default: SOIL_MOISTURE}}], responses: {'200': {description: 预测或明确弃权}}}
   /api/v1/plots/{plotId}/timeline:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 决策时间轴}}}
   /api/v1/forecasts/evaluate:

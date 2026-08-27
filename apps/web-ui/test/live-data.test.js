@@ -7,9 +7,41 @@ import {
   buildFarmerMessages,
   mapStrategyCandidate,
   mapTimelineRecord,
+  mergePlotTelemetryWindow,
   normalizeFarmerTask,
-  normalizeWorkStatus
+  normalizeWorkStatus,
+  relativeTime
 } from '../js/live-data.js';
+
+test('fresh telemetry updates farmer card values without a full overview reload', () => {
+  const plot = {
+    plotId: 'plot-a01',
+    metrics: {
+      SOIL_MOISTURE: { label: '土壤湿度', value: 28, unit: '%', history: [] },
+      AIR_TEMPERATURE: { label: '空气温度', value: 25, unit: '°C', history: [] }
+    }
+  };
+  const merged = mergePlotTelemetryWindow(plot, [
+    { metric: 'SOIL_MOISTURE', value: 31.2, unit: '%', ts: '2026-08-26T10:00:00Z', quality: { status: 'GOOD' } },
+    { metric: 'SOIL_MOISTURE', value: 32.7, unit: '%', ts: '2026-08-26T10:00:05Z', quality: { status: 'GOOD' } },
+    { metric: 'AIR_TEMPERATURE', value: 26.4, unit: '°C', ts: '2026-08-26T10:00:05Z', quality: { status: 'GOOD' } }
+  ]);
+  assert.equal(merged.metrics.SOIL_MOISTURE.value, 32.7);
+  assert.equal(merged.metrics.SOIL_MOISTURE.observedAt, '2026-08-26T10:00:05Z');
+  assert.equal(merged.metrics.SOIL_MOISTURE.history.length, 2);
+  assert.equal(merged.metrics.AIR_TEMPERATURE.value, 26.4);
+});
+
+test('timeline cards ignore epoch placeholders and keep actionable summaries', () => {
+  assert.equal(relativeTime(0, Date.parse('2026-08-26T00:00:00Z')), '—');
+  const record = mapTimelineRecord({
+    type: 'diagnosis',
+    at: '2026-08-26T10:00:00Z',
+    record: { plotId: 'plot-a01', riskType: 'DEVICE_FAULT', diagnosisId: 'diag-1' }
+  });
+  assert.equal(record.summary, '诊断完成：DEVICE_FAULT');
+  assert.equal(record.typeLabel, '诊断');
+});
 
 test('agent surfaces show the generated narrative instead of the card summary', () => {
   const response = {

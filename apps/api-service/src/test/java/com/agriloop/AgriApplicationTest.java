@@ -564,6 +564,18 @@ class AgriApplicationTest {
         assertThat(trial.get("status")).isEqualTo("INFEASIBLE");
         assertThat(capacityAfter).isEqualTo(capacityBefore);
 
+        UserPrincipal farmer = new UserPrincipal("user-farmer-preview", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> preview = engine.resourcePlan(Map.of("scope", "farm-demo", "demands", List.of(
+                Map.of("plotId", "plot-a01", "requestedLitres", 80, "priority", "HIGH")
+        )), farmer);
+        assertThat(preview).containsEntry("trialOnly", true).containsEntry("readOnly", true)
+                .containsEntry("provenance", "DERIVED").containsEntry("sourceMode", "ESTIMATED");
+        assertThat(store.find("resource-plan", String.valueOf(preview.get("resourcePlanId")))).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.resourcePlan(Map.of("scope", "farm-demo", "demands", List.of(
+                        Map.of("plotId", "plot-a02", "requestedLitres", 80, "priority", "HIGH")
+                )), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
+
         String approvalPlanId = "plan-approval-" + System.nanoTime();
         store.save("irrigation-plan", approvalPlanId, new java.util.LinkedHashMap<>(Map.of(
                 "planId", approvalPlanId, "plotId", "plot-a01", "readinessStatus", "READY",
@@ -1058,6 +1070,43 @@ class AgriApplicationTest {
                 .isLessThan(Jsons.number(droughtCurve.get(0), "expected", 0));
         assertThat(Jsons.number(rainCurve.get(rainCurve.size() - 1), "expected", 0))
                 .isGreaterThan(Jsons.number(rainCurve.get(0), "expected", 0));
+    }
+
+    @Test
+    void normalForecastAnchorsEveryMetricAndDoesNotAmplifyShortWindowNoise() {
+        String plotId = "plot-multimetric-forecast-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期",
+                "cropPackVersion", "1.0.0", "metrics", Map.of(
+                        "SOIL_MOISTURE", Map.of("value", 32.1, "unit", "%"),
+                        "AIR_TEMPERATURE", Map.of("value", 26.4, "unit", "°C")))));
+        Instant start = Instant.now().minusSeconds(160);
+        for (int i = 0; i < 8; i++) {
+            double soil = 30.0 + i * .3;
+            double temperature = 25.7 + i * .1;
+            engine.ingest(Map.of("eventId", "normal-soil-" + plotId + "-" + i, "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", soil, "unit", "%",
+                    "sourceMode", "SIMULATION", "scenarioId", "normal", "ts", start.plusSeconds(i * 20L).toString()));
+            engine.ingest(Map.of("eventId", "normal-temp-" + plotId + "-" + i, "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "AIR_TEMPERATURE", "value", temperature, "unit", "°C",
+                    "sourceMode", "SIMULATION", "scenarioId", "normal", "ts", start.plusSeconds(i * 20L + 1).toString()));
+        }
+        UserPrincipal admin = new UserPrincipal("user-system-normal-forecast", "sysadmin", "SYSTEM_ADMIN",
+                List.of("farm-demo"), List.of("*"));
+        engine.updatePlotSimulation(plotId, Map.of("scenario", "NORMAL"), admin);
+
+        Map<String, Object> soilForecast = engine.forecast(plotId, "SOIL_MOISTURE");
+        Map<String, Object> temperatureForecast = engine.forecast(plotId, "AIR_TEMPERATURE");
+        List<Map<String, Object>> soilCurve = Jsons.maps(new ObjectMapper(), soilForecast.get("curve"));
+        List<Map<String, Object>> temperatureCurve = Jsons.maps(new ObjectMapper(), temperatureForecast.get("curve"));
+
+        assertThat(soilForecast).containsEntry("status", "AVAILABLE").containsEntry("metric", "SOIL_MOISTURE");
+        assertThat(temperatureForecast).containsEntry("status", "AVAILABLE").containsEntry("metric", "AIR_TEMPERATURE");
+        assertThat(Jsons.number(soilCurve.get(0), "expected", 0)).isEqualTo(32.1);
+        assertThat(Jsons.number(temperatureCurve.get(0), "expected", 0)).isEqualTo(26.4);
+        assertThat(Math.abs(Jsons.number(soilCurve.get(soilCurve.size() - 1), "expected", 0)
+                - Jsons.number(soilCurve.get(0), "expected", 0))).isLessThan(5.0);
     }
 
     @Test
