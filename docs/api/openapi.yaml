@@ -182,7 +182,23 @@ paths:
   /api/v1/plots/{plotId}/timeline:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 决策时间轴}}}
   /api/v1/forecasts/evaluate:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: forecast_snapshot}}}
+    post:
+      tags: [decision]
+      description: 使用当前遥测锚点和未保存策略执行只读确定性试算；不会写入 forecast、地块策略、事件或审计记录。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ForecastEvaluationRequest'}}}}
+      responses:
+        '200':
+          description: 只读试算快照；persisted 固定为 false，requestVersion 原样回显
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiEnvelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ForecastEvaluationResult'}
+        '400': {description: 场景、参数或干旱/积水阈值无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/rules/evaluate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 规则评估}}}
   /api/v1/rules:
@@ -439,6 +455,30 @@ components:
           type: object
           description: 地块专属参数；服务端按参数边界裁剪并拒绝干旱阈值不小于积水阈值。
           additionalProperties: {type: number}
+    ForecastEvaluationRequest:
+      type: object
+      required: [plotId]
+      properties:
+        plotId: {type: string}
+        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL, RAINFALL], default: SOIL_MOISTURE}
+        scenario: {type: string, enum: [NORMAL, DROUGHT, HEAVY_RAIN, SENSOR_DRIFT, DEVICE_OFFLINE], description: 省略时继承当前地块策略}
+        parameters: {type: object, additionalProperties: {type: number}, description: 仅作用于本次试算，越界值会被裁剪并在 warnings 中说明}
+        requestVersion: {description: 客户端竞态序号，服务端不解释并原样回显, oneOf: [{type: string}, {type: integer}]}
+    ForecastEvaluationResult:
+      type: object
+      required: [plotId, metric, status, persisted, modelMode, dataSource, inputSnapshot, warnings]
+      properties:
+        plotId: {type: string}
+        metric: {type: string}
+        status: {type: string, enum: [AVAILABLE, UNAVAILABLE]}
+        persisted: {type: boolean, enum: [false]}
+        requestVersion: {nullable: true, oneOf: [{type: string}, {type: integer}]}
+        modelMode: {type: string, enum: [DETERMINISTIC_WHAT_IF]}
+        dataSource: {type: string, enum: [OBSERVED_PLUS_STRATEGY, SIMULATION_STRATEGY]}
+        curve: {type: array, items: {type: object, additionalProperties: true}}
+        inputSnapshot: {type: object, additionalProperties: true}
+        explanation: {type: object, additionalProperties: true}
+        warnings: {type: array, items: {type: string}}
     VirtualCommandRequest:
       type: object
       required: [plotId, idempotencyKey, confirmed]

@@ -146,6 +146,9 @@ export function deviceRelatedWorkOrders(device, workOrders = []) {
 export function legacyAdminTabTarget(view, tab, farmId = '') {
   const normalizedView = String(view || '').trim().toLowerCase();
   const farmParams = farmId ? { farmId } : {};
+  if (normalizedView === 'risk-forecast') {
+    return { view: 'dashboard', params: farmParams };
+  }
   if (['simulator', 'admin-simulator'].includes(normalizedView)) {
     return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
   }

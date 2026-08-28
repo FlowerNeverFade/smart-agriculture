@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260828-v58';
 import { adminMetricLabel } from '../admin-state.js';
 import { canExecuteIrrigation } from '../roles.js';
 import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';

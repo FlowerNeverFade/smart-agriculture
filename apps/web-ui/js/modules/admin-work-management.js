@@ -1,7 +1,7 @@
-import { api } from '../api.js?v=20260826-live-refresh';
+import { api } from '../api.js?v=20260828-v58';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260827-work-order-flow-v3';
-import { AdminResourcePlanningView } from './admin-resource-planning.js';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260828-v58';
 import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;

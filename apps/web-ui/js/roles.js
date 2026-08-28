@@ -14,7 +14,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     description: '负责全场运营、任务安排、风险审批与资源调度。',
     avatar: '👑',
     defaultView: 'dashboard',
-    views: Object.freeze(['dashboard', 'work-orders', 'decision-console', 'risk-forecast', 'resource-coordination', 'farm-members']),
+    views: Object.freeze(['dashboard', 'work-orders', 'decision-console', 'resource-coordination', 'farm-members']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'inspection:create', 'work-order:manage',
       'irrigation:request', 'irrigation:execute', 'irrigation:approve', 'simulator:control', 'strategy:manage',
@@ -27,7 +27,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     description: '查看分配地块、提交巡田记录并确认和执行灌溉建议。',
     avatar: '🧑‍🌾',
     defaultView: 'dashboard',
-    views: Object.freeze(['dashboard', 'decision-console', 'risk-forecast', 'work-orders', 'crop-manual']),
+    views: Object.freeze(['dashboard', 'decision-console', 'work-orders', 'crop-manual']),
     permissions: Object.freeze(['plots:read', 'diagnosis:read', 'inspection:create', 'work-order:request', 'irrigation:request', 'irrigation:execute'])
   }),
   SYSTEM_ADMIN: Object.freeze({

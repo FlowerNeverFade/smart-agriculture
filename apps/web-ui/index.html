@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260827-work-order-flow-v3">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin.css?v=20260828-role-glass-v578-2">
 
@@ -737,85 +737,6 @@
   </template>
 
   <!-- Risk Forecast Template -->
-  <template id="tmpl-risk-forecast">
-    <div>
-      <div class="flex justify-between items-center relative" style="position: sticky; top: -24px; z-index: 100; background: var(--g-bg-base); padding: 24px 24px 16px 24px; margin: -24px -24px 24px -24px; border-bottom: 1px solid var(--g-border);">
-        <h2 style="margin: 0;">未来风险确定性推演</h2>
-        <div style="position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;">
-          <span class="text-muted" style="font-size:14px; font-weight:500">推演目标:</span>
-          <select class="g-select" style="width:200px" v-model="selectedPlotId" @change="changePlot">
-            <option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">
-              {{ plot.name }}（{{ displayText(plot.cropVariety) }}）
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div class="g-grid" style="grid-template-columns: 3fr 1fr">
-        <div class="g-card" :class="{'highlight-pulse': highlightChart}">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="flex items-center gap-2">
-              <app-icon name="analytics" style="color:var(--g-primary)"></app-icon>
-              综合地块含水率推演模型
-            </h3>
-            <span class="g-badge primary">初始基线：{{ currentPlotBaseMoisture }}%</span>
-            <div class="risk-forecast-actions">
-              <button v-if="canConfigureSimulation && forecast?.status === 'RESET'" type="button" class="g-btn text" @click="loadForecast" :disabled="loading">重新生成预测</button>
-              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="resetForecast('FORECAST')" :disabled="loading">重置预测曲线</button>
-              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="openPlotSettings">调整地块策略</button>
-            </div>
-          </div>
-          <div id="riskChart" style="width: 100%; height: 450px;"></div>
-        </div>
-
-        <div>
-          <h3 class="mb-4">情景假设</h3>
-          <div class="flex" style="flex-direction:column; gap:12px; margin-bottom: 24px">
-            <div class="scenario-btn"
-                 v-for="scenario in scenarioOptions"
-                 :key="scenario.code"
-                 :class="{active: currentScenario === scenario.code}"
-                 @click="changeScenario(scenario)">
-              <div style="font-size:16px; font-weight:500; margin-bottom:4px">{{ scenario.emoji }} {{ scenario.label }}</div>
-              <div class="text-muted" style="font-size:12px; margin-bottom:8px">{{ scenario.desc }}</div>
-              <div class="flex justify-between items-center">
-                <span class="g-badge" style="background:var(--g-bg-base); border:1px solid var(--g-border-subtle)">
-                  {{ scenario.description || scenario.desc }}
-                </span>
-                <span v-if="scenario.ttrMinutes" class="g-badge" :style="{backgroundColor: scenario.color, color:'#fff'}">
-                  预计风险时间：{{ scenario.ttrMinutes }} 分钟
-                </span>
-              </div>
-            </div>
-          <p v-if="loading" class="text-muted">正在读取后端预测结果…</p>
-          <p v-if="error" class="text-muted" style="color:var(--g-warning)">{{ error }}</p>
-          </div>
-
-          <h3 class="mb-4">算法说明</h3>
-          <div class="metric-box">
-            <ul class="gates-list">
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">推演内核</span><span class="g-badge purple">Agri-LSTM-v2.1</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">置信区间</span><span class="text-muted" style="font-size:12px">± 1.2% (高信度)</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">时间窗口</span><span class="text-muted" style="font-size:12px">未来 4 小时</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">输入因子</span><span class="text-muted" style="font-size:12px">土壤温度、历史作物蒸散量（ETc）、气象预报</span></div>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    </div>
-  </template>
-
-  <!-- Work Orders Template -->
   <template id="tmpl-work-orders">
     <div>
       <div class="flex justify-between items-center mb-4">
@@ -1242,7 +1163,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260828-merge-main"></script>
+  <script type="module" src="js/app.js?v=20260828-v58"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->

@@ -64,14 +64,15 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(passport.evaluations.at(-1).commandId, firstCommand.commandId);
 });
 
-test('farmer page renders P0 evidence, quality, dual-track and read-only execution surfaces', async () => {
+test('farmer page keeps P0 evidence and execution surfaces after retiring the standalone risk tool', async () => {
   const [html, source] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '只读双轨试算', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
     assert.match(html, new RegExp(marker));
   }
+  assert.doesNotMatch(html, /tools_tab === 'risk'|只读双轨试算/);
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);

@@ -360,7 +360,7 @@ export const MOCK_DATA = {
         assumptions: ["无降水/无外界灌溉", "棚室通风与外部光热保持稳定"]
       },
       actions: [
-        { label: "查看风险曲线与推演", type: "secondary", action: "open-subview", view: "risk-forecast", plotId: "plot-a01" },
+        { label: "查看地块趋势与试算", type: "secondary", action: "open-subview", view: "plot-detail", plotId: "plot-a01" },
         { label: "一键情景模拟对比", type: "ghost", action: "open-subview", view: "scenario-replay" }
       ]
     },
@@ -1190,12 +1190,6 @@ export const MOCK_DATA = {
       title: "今日农务与巡田核验中心",
       desc: "农事工单流转、巡田观察证据录入、人机证据融合与现场照片/参数核验",
       tags: ["CAP-01", "CAP-02", "CAP-03"],
-      status: "模块独立路由就绪 · 可单独定制"
-    },
-    "risk-forecast": {
-      title: "未来风险预测与推演",
-      desc: "1/2/4 小时确定性趋势推演、风险到达时间倒计时、置信区间与气象失效假设",
-      tags: ["CAP-09"],
       status: "模块独立路由就绪 · 可单独定制"
     },
     "resource-coordination": {

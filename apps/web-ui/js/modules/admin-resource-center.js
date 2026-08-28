@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260828-v58';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,

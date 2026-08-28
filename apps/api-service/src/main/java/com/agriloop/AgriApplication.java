@@ -3340,6 +3340,75 @@ class AgriEngine {
     }
 
     /**
+     * Evaluate an unsaved plot strategy with the same deterministic model used
+     * by persisted forecasts.  This endpoint is deliberately read-only: it
+     * neither changes the plot strategy nor writes a forecast/event record.
+     */
+    Map<String, Object> evaluateForecast(Map<String, Object> input, UserPrincipal principal) {
+        String plotId = Jsons.text(input, "plotId", "").trim();
+        if (plotId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CONTEXT_REQUIRED", "请先选择地块");
+        ensurePlotAccess(principal, plotId);
+        requireRecord("plot", plotId);
+
+        String metric = Jsons.text(input, "metric", "SOIL_MOISTURE").trim().toUpperCase(Locale.ROOT);
+        Map<String, Object> current = simulationRecord(plotId);
+        String scenario = canonicalSimulationScenario(Jsons.text(input, "scenario", Jsons.text(current, "scenario", "NORMAL")));
+        boolean scenarioChanged = !scenario.equals(Jsons.text(current, "scenario", "NORMAL"));
+        Map<String, Object> parameters = scenarioChanged
+                ? simulationDefaults(scenario, plotId)
+                : new LinkedHashMap<>(Jsons.map(mapper, current.get("parameters")));
+        Map<String, Object> supplied = Jsons.map(mapper, input.get("parameters"));
+        List<String> warnings = new ArrayList<>();
+        for (String key : supplied.keySet()) {
+            if (!SIMULATION_PARAMETER_LIMITS.containsKey(key)) warnings.add("已忽略未知参数：" + key);
+        }
+        for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+            String key = entry.getKey();
+            if (!supplied.containsKey(key)) continue;
+            double[] range = entry.getValue();
+            double fallback = Jsons.number(parameters, key, (range[0] + range[1]) / 2.0);
+            double requested = Jsons.number(supplied, key, fallback);
+            double bounded = round(clamp(requested, fallback, range[0], range[1]));
+            parameters.put(key, bounded);
+            if (Double.compare(requested, bounded) != 0) {
+                warnings.add(key + " 已限制在 " + range[0] + "–" + range[1] + " 范围内");
+            }
+        }
+        if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
+
+        Map<String, Object> whatIf = new LinkedHashMap<>(current);
+        whatIf.put("plotId", plotId);
+        whatIf.put("scenario", scenario);
+        whatIf.put("parameters", parameters);
+        whatIf.put("sourceMode", "WHAT_IF");
+        Map<String, Object> projection = new LinkedHashMap<>(forecastForSimulation(plotId, metric, whatIf, false));
+        Object requestVersion = input.get("requestVersion");
+        Map<String, Object> inputWindow = Jsons.map(mapper, projection.get("inputWindow"));
+        String dataSource = Jsons.text(inputWindow, "mode", "SIMULATION_STRATEGY");
+        if ("UNAVAILABLE".equals(Jsons.text(projection, "status", ""))) {
+            warnings.add("当前数据条件不足，未生成可执行曲线");
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("plotId", plotId); snapshot.put("metric", projection.getOrDefault("metric", metric));
+        snapshot.put("scenario", scenario); snapshot.put("parameters", new LinkedHashMap<>(parameters));
+        snapshot.put("startValue", projection.get("startValue")); snapshot.put("startTimestamp", projection.get("startTimestamp"));
+        snapshot.put("requestVersion", requestVersion); snapshot.put("evaluatedAt", Instant.now().toString());
+        projection.put("persisted", false);
+        projection.put("requestVersion", requestVersion);
+        projection.put("modelMode", "DETERMINISTIC_WHAT_IF");
+        projection.put("dataSource", dataSource);
+        projection.put("inputSnapshot", snapshot);
+        projection.put("explanation", Map.of(
+                "summary", "使用当前遥测锚点与未保存的地块策略进行只读确定性试算",
+                "strategySource", scenarioChanged ? "SCENARIO_DEFAULTS_WITH_OVERRIDES" : "CURRENT_STRATEGY_WITH_OVERRIDES",
+                "persistence", "NONE"));
+        projection.put("warnings", warnings);
+        return projection;
+    }
+
+    /**
      * Forecasts are strategy-aware projections rather than a straight line
      * through a tiny, stable sample window.  Observed telemetry still anchors
      * the starting point, while the selected plot strategy contributes bounded
@@ -5807,7 +5876,9 @@ class AgriController {
     ResponseEntity<?> forecast(@PathVariable String plotId, @RequestParam(defaultValue = "SOIL_MOISTURE") String metric, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.forecast(plotId, metric)); }
 
     @PostMapping("/forecasts/evaluate")
-    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) { String plot = Jsons.text(body, "plotId", "plot-a01"); engine.ensurePlotAccess(principal(a), plot); return ok(engine.forecast(plot, Jsons.text(body, "metric", "SOIL_MOISTURE"))); }
+    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.evaluateForecast(body, principal(a)));
+    }
 
     @GetMapping("/plots/{plotId}/timeline")
     ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {

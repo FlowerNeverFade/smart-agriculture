@@ -1148,6 +1148,78 @@ class AgriApplicationTest {
     }
 
     @Test
+    void readOnlyForecastEvaluationEchoesVersionAndNeverPersistsStrategyOrForecast() {
+        String plotId = "plot-what-if-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期",
+                "cropPackVersion", "1.0.0", "metrics", Map.of("SOIL_MOISTURE", Map.of("value", 45.0, "unit", "%")))));
+        Instant start = Instant.now().minusSeconds(8 * 60L);
+        for (int i = 0; i < 8; i++) {
+            engine.ingest(Map.of("eventId", "what-if-" + plotId + "-" + i, "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 45.0, "unit", "%",
+                    "sourceMode", "SIMULATION", "scenarioId", "normal", "ts", start.plusSeconds(i * 60L).toString()));
+        }
+        UserPrincipal admin = new UserPrincipal("user-what-if", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        Map<String, Object> beforeStrategy = engine.plotSimulation(plotId, admin);
+        int forecastCount = store.list("forecast").size();
+
+        Map<String, Object> drought = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "DROUGHT", "requestVersion", "preview-17",
+                "parameters", Map.of("soilMoistureTrendPerHour", -5.0, "forecastHours", 2)), admin);
+        Map<String, Object> rain = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "HEAVY_RAIN", "requestVersion", "preview-18",
+                "parameters", Map.of("rainfallRate", 48.0, "forecastHours", 2)), admin);
+        List<Map<String, Object>> droughtCurve = Jsons.maps(new ObjectMapper(), drought.get("curve"));
+        List<Map<String, Object>> rainCurve = Jsons.maps(new ObjectMapper(), rain.get("curve"));
+
+        assertThat(drought).containsEntry("persisted", false)
+                .containsEntry("requestVersion", "preview-17")
+                .containsEntry("modelMode", "DETERMINISTIC_WHAT_IF")
+                .containsKeys("dataSource", "inputSnapshot", "explanation", "warnings");
+        assertThat(Jsons.number(droughtCurve.get(0), "expected", 0)).isEqualTo(45.0);
+        assertThat(Jsons.number(droughtCurve.get(droughtCurve.size() - 1), "expected", 0)).isLessThan(45.0);
+        assertThat(Jsons.number(rainCurve.get(rainCurve.size() - 1), "expected", 0)).isGreaterThan(45.0);
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+        Map<String, Object> afterStrategy = engine.plotSimulation(plotId, admin);
+        assertThat(afterStrategy.get("scenario")).isEqualTo(beforeStrategy.get("scenario"));
+        assertThat(afterStrategy.get("parameters")).isEqualTo(beforeStrategy.get("parameters"));
+        assertThat(afterStrategy.get("revision")).isEqualTo(beforeStrategy.get("revision"));
+
+        Map<String, Object> bounded = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "scenario", "DROUGHT", "parameters", Map.of("volatility", 99)), admin);
+        Map<String, Object> boundedSnapshot = Jsons.map(new ObjectMapper(), bounded.get("inputSnapshot"));
+        assertThat(Jsons.number(Jsons.map(new ObjectMapper(), boundedSnapshot.get("parameters")), "volatility", 0)).isEqualTo(3.0);
+        assertThat(Jsons.strings(bounded.get("warnings"))).anyMatch(value -> value.contains("volatility"));
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of(
+                        "plotId", plotId, "scenario", "DROUGHT",
+                        "parameters", Map.of("riskThreshold", 85, "waterloggingThreshold", 80)), admin))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("SIMULATION_THRESHOLD_INVALID"));
+        UserPrincipal outsider = new UserPrincipal("user-outsider", "farmer-x", "FARMER", List.of("farm-other"), List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of("plotId", plotId), outsider))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("PLOT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of("scenario", "DROUGHT"), admin))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("PLOT_CONTEXT_REQUIRED"));
+    }
+
+    @Test
+    void readOnlyForecastEvaluationReturnsUnavailableWithoutInventingCurve() {
+        String plotId = "plot-what-if-empty-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期")));
+        UserPrincipal admin = new UserPrincipal("user-what-if-empty", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        int forecastCount = store.list("forecast").size();
+        Map<String, Object> evaluated = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "NORMAL", "requestVersion", 3), admin);
+        assertThat(evaluated).containsEntry("status", "UNAVAILABLE").containsEntry("persisted", false).containsEntry("requestVersion", 3);
+        assertThat(Jsons.maps(new ObjectMapper(), evaluated.get("curve"))).isEmpty();
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+    }
+
+    @Test
     void normalForecastAnchorsEveryMetricAndDoesNotAmplifyShortWindowNoise() {
         String plotId = "plot-multimetric-forecast-" + System.nanoTime();
         store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
