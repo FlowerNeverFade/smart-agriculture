@@ -169,7 +169,7 @@ export class ApiService {
         controlStatus: 'SUCCEEDED'
       }];
     }));
-    this.demoSimulationStrategies = new Map((MOCK_DATA.plots || []).map((plot) => {
+    this.demoSimulationStrategies = this.loadDemoSimulationStrategies() || new Map((MOCK_DATA.plots || []).map((plot) => {
       const scenario = normalizePlotSimulationScenario(plot.simulation?.scenario || 'NORMAL');
       return [plot.plotId, {
         plotId: plot.plotId,
@@ -727,7 +727,55 @@ export class ApiService {
       revision: Number(previous.revision || 0) + 1, updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION'
     };
     this.demoSimulationStrategies.set(plotId, next);
+    this.persistDemoSimulationStrategies();
     return next;
+  }
+
+  /** demo 模式：从 localStorage 恢复地块模拟策略（刷新后保留）。 */
+  loadDemoSimulationStrategies() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('demoSimulationStrategies') : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const map = new Map();
+      Object.entries(parsed).forEach(([plotId, value]) => {
+        if (!plotId || !value || typeof value !== 'object') return;
+        const scenario = normalizePlotSimulationScenario(value.scenario || 'NORMAL');
+        map.set(plotId, {
+          plotId,
+          scenario,
+          parameters: cloneSimulationParameters(scenario, value.parameters),
+          revision: Number(value.revision || 1) || 1,
+          sourceMode: 'SIMULATION',
+          updatedAt: value.updatedAt || new Date().toISOString(),
+          hardware: { bindingState: 'UNBOUND', status: 'NOT_BOUND', usability: 'NOT_BOUND', label: '未绑定硬件' },
+          simulatorDevice: { status: 'ONLINE', label: '模拟数据运行中' }
+        });
+      });
+      return map.size ? map : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /** demo 模式：把地块模拟策略写入 localStorage。 */
+  persistDemoSimulationStrategies() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const plain = {};
+      this.demoSimulationStrategies.forEach((value, plotId) => {
+        plain[plotId] = {
+          scenario: value?.scenario || 'NORMAL',
+          parameters: value?.parameters || {},
+          revision: Number(value?.revision || 1) || 1,
+          updatedAt: value?.updatedAt || new Date().toISOString()
+        };
+      });
+      localStorage.setItem('demoSimulationStrategies', JSON.stringify(plain));
+    } catch (error) {
+      // localStorage 不可用时静默失败（demo 模式降级为内存态）
+    }
   }
 
   async resetPlotSimulation(plotId, target = 'ALL') {
