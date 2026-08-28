@@ -1218,6 +1218,84 @@ const app = createApp({
         };
       })
       .filter(Boolean));
+
+    // 农户只读查看管理员维护的地块模拟策略，并复用同一风险预测合同。
+    const plot_simulation = ref(null);
+    const plot_simulation_forecast = ref(null);
+    const plot_simulation_loading = ref(false);
+    const plot_simulation_error = ref('');
+    const plot_simulation_parameter_meta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', decimals: 2 },
+      timeScale: { label: '时间倍率', unit: '倍', decimals: 0 },
+      temperatureBias: { label: '温度偏移', unit: '°C', decimals: 1 },
+      humidityBias: { label: '湿度偏移', unit: '%RH', decimals: 0 },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', decimals: 1 },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', decimals: 2 },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', decimals: 2 },
+      offlineRatio: { label: '离线比例', unit: '%', decimals: 0, scale: 100 },
+      riskThreshold: { label: '干旱阈值', unit: '%', decimals: 1 },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', decimals: 1 },
+      forecastHours: { label: '预测时长', unit: '小时', decimals: 0 }
+    });
+    const plot_simulation_options = computed(() => {
+      const catalog = plot_simulation.value?.scenarioCatalog;
+      return Array.isArray(catalog) && catalog.length ? catalog : PLOT_SIMULATION_SCENARIOS;
+    });
+    const plot_simulation_scenario = computed(() => {
+      const code = String(plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
+      return plot_simulation_options.value.find((item) => item.code === code) || PLOT_SIMULATION_SCENARIOS[0];
+    });
+    const plot_simulation_device_label = computed(() => plot_simulation.value?.simulatorDevice?.label || '模拟数据运行中');
+    const plot_simulation_device_status = computed(() => String(plot_simulation.value?.simulatorDevice?.status || '').toUpperCase());
+    const plot_simulation_parameter_summary = computed(() => {
+      const params = plot_simulation.value?.parameters || {};
+      return Object.entries(plot_simulation_parameter_meta)
+        .map(([key, meta]) => {
+          const raw = Number(params[key]);
+          if (!Number.isFinite(raw)) return null;
+          const value = raw * (meta.scale || 1);
+          return { key, label: meta.label, value: value.toFixed(meta.decimals), unit: meta.unit };
+        })
+        .filter(Boolean);
+    });
+    const plot_simulation_chart = computed(() => {
+      const forecast = plot_simulation_forecast.value;
+      const status = String(forecast?.status || '').toUpperCase();
+      if (!forecast || status === 'UNAVAILABLE') return null;
+      return forecast_chart_model(
+        forecast,
+        Number(selected_plot.value?.metrics?.SOIL_MOISTURE?.value),
+        'var(--g-success)',
+        FORECAST_CHART_LAYOUT
+      );
+    });
+    let plot_simulation_request_version = 0;
+    const load_plot_simulation = async (plotId = selected_plot.value?.plotId) => {
+      const requestVersion = ++plot_simulation_request_version;
+      if (!plotId) {
+        plot_simulation.value = null;
+        plot_simulation_forecast.value = null;
+        plot_simulation_error.value = '没有可查看的地块';
+        return;
+      }
+      plot_simulation_loading.value = true;
+      plot_simulation_error.value = '';
+      const [configResult, forecastResult] = await Promise.allSettled([
+        api.getPlotSimulation(plotId),
+        api.getRiskForecast(plotId, 'SOIL_MOISTURE')
+      ]);
+      if (requestVersion !== plot_simulation_request_version) return;
+      plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
+      plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
+      const errors = [configResult, forecastResult]
+        .filter((result) => result.status === 'rejected')
+        .map((result) => result.reason?.message || '地块模拟策略读取失败');
+      if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') {
+        errors.push(plot_simulation_forecast.value.reason || plot_simulation_forecast.value.unavailableReason || '样本、数据质量或设备状态不足');
+      }
+      plot_simulation_error.value = [...new Set(errors)].join('；');
+      plot_simulation_loading.value = false;
+    };
     const advice_selected_plot = ref(plots.value[0] || null);
     const advice_plot = computed(() => advice_selected_plot.value || plots.value[0] || null);
     const select_advice_plot = (plot_id) => {
@@ -2806,6 +2884,7 @@ const app = createApp({
     const open_plot = (plot) => {
       navigate('plots');
       selected_plot.value = plot;
+      if (plot?.plotId) tools_plot_id.value = plot.plotId;
     };
 
     const open_tools = (tab = 'risk', plot_id = '') => {
@@ -3671,6 +3750,7 @@ const app = createApp({
       }
       set_workspace_progress(88, '正在加载预警与资源协同…');
       await load_farmer_enhancements();
+      await load_plot_simulation(selected_plot.value?.plotId);
       await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
       if (current_view.value === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
@@ -3730,6 +3810,7 @@ const app = createApp({
 
     watch(selected_plot, (plot) => {
       plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
+      void load_plot_simulation(plot?.plotId);
     });
 
     watch(advice_selected_plot, (plot, previous) => {
@@ -3784,6 +3865,17 @@ const app = createApp({
       show_chart_tooltip,
       hide_chart_tooltip,
       plot_charts,
+      plot_simulation,
+      plot_simulation_forecast,
+      plot_simulation_loading,
+      plot_simulation_error,
+      plot_simulation_options,
+      plot_simulation_scenario,
+      plot_simulation_device_label,
+      plot_simulation_device_status,
+      plot_simulation_parameter_summary,
+      plot_simulation_chart,
+      load_plot_simulation,
       advice_plot,
       advice_selected_plot,
       select_advice_plot,

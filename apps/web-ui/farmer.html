@@ -659,6 +659,77 @@
                 </article>
               </div>
             </div>
+
+            <div v-if="selected_plot" class="g-card farmer-plot-simulation-panel">
+              <div class="farmer-panel-header">
+                <div>
+                  <span class="farmer-section-kicker">风险预测 · 地块模拟策略</span>
+                  <h3>{{ selected_plot.name }} · 模拟策略与预测曲线</h3>
+                  <p class="farmer-panel-hint">策略由管理员维护；农户可查看当前情景、参数摘要和策略预测，历史实测曲线见上方指标趋势。</p>
+                </div>
+                <span class="g-badge" :class="plot_simulation_loading ? 'warning' : (plot_simulation_error ? 'warning' : 'success')">
+                  {{ plot_simulation_loading ? '读取中' : (plot_simulation_scenario ? plot_simulation_scenario.label : '未设置') }}
+                </span>
+              </div>
+
+              <div class="farmer-plot-simulation-meta">
+                <span>模拟器：{{ plot_simulation_device_label }}</span>
+                <span>状态：{{ plot_simulation_device_status === 'ONLINE' ? '在线' : (plot_simulation_device_status || '未知') }}</span>
+                <span>来源：{{ plot_simulation && plot_simulation.sourceMode ? plot_simulation.sourceMode : 'SIMULATION' }}</span>
+                <span v-if="plot_simulation && plot_simulation.revision">策略版本 {{ plot_simulation.revision }}</span>
+              </div>
+
+              <div class="farmer-plot-simulation-scenarios" role="group" aria-label="地块模拟场景（只读）">
+                <span
+                  v-for="scenario in plot_simulation_options"
+                  :key="scenario.code"
+                  class="farmer-plot-simulation-scenario"
+                  :class="{active: plot_simulation_scenario && plot_simulation_scenario.code === scenario.code}"
+                  :aria-current="plot_simulation_scenario && plot_simulation_scenario.code === scenario.code ? 'true' : undefined"
+                >{{ scenario.emoji }} {{ scenario.label }}</span>
+              </div>
+
+              <div class="farmer-plot-simulation-grid">
+                <div class="farmer-plot-simulation-params">
+                  <div v-for="item in plot_simulation_parameter_summary" :key="item.key" class="farmer-plot-simulation-param">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}<small>{{ item.unit }}</small></strong>
+                  </div>
+                  <p v-if="!plot_simulation_parameter_summary.length" class="farmer-panel-hint">暂无可展示的策略参数。</p>
+                </div>
+
+                <div class="farmer-plot-simulation-chart">
+                  <div v-if="plot_simulation_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true">
+                    <span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取策略预测曲线…</span>
+                  </div>
+                  <div v-else-if="plot_simulation_chart" class="farmer-chart-interactive">
+                    <svg class="farmer-chart-svg farmer-moisture-svg" :viewBox="plot_simulation_chart.viewBox || '0 0 360 260'" role="img" :aria-label="selected_plot.name + '策略预测曲线'"
+                         @mousemove="show_chart_tooltip($event, plot_simulation_chart, 'plot-simulation')" @mouseleave="hide_chart_tooltip">
+                      <line v-for="line in plot_simulation_chart.grid" :key="'ps-grid-' + line.y" class="farmer-chart-grid-line" :x1="plot_simulation_chart.plotLeft" :y1="line.y" :x2="plot_simulation_chart.plotRight" :y2="line.y"></line>
+                      <text v-for="line in plot_simulation_chart.grid" :key="'ps-label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                      <line v-if="plot_simulation_chart.boundaryY != null" class="farmer-alert-threshold-line" :x1="plot_simulation_chart.plotLeft" :y1="plot_simulation_chart.boundaryY" :x2="plot_simulation_chart.plotRight" :y2="plot_simulation_chart.boundaryY"></line>
+                      <polygon v-if="plot_simulation_chart.bandPolygon" class="farmer-chart-confidence-band" :points="plot_simulation_chart.bandPolygon"></polygon>
+                      <polyline v-for="series in plot_simulation_chart.series" :key="'ps-series-' + series.label" class="farmer-chart-line" :class="{'is-moisture': series.primary, 'is-dashed': series.dashed}" :points="series.points" :stroke="series.color"></polyline>
+                      <text v-for="tick in plot_simulation_chart.xTicks" :key="'ps-tick-' + tick.x + tick.label" class="farmer-chart-axis-label" :x="tick.x" :y="tick.y" :text-anchor="tick.anchor">{{ tick.label }}</text>
+                    </svg>
+                    <div v-if="chart_tooltip && chart_tooltip.key === 'plot-simulation'" class="farmer-chart-tooltip" :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
+                      <strong>{{ chart_tooltip.label }}</strong>
+                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ Number(item.value).toFixed(1) }}%</span>
+                    </div>
+                    <div v-if="plot_simulation_chart.legend && plot_simulation_chart.legend.length" class="farmer-chart-legend" aria-label="策略曲线图例">
+                      <span v-for="item in plot_simulation_chart.legend" :key="'ps-legend-' + item.label" class="farmer-chart-legend-item"><i class="farmer-legend-swatch" :class="'is-' + (item.style || 'solid')" :style="{'--legend-color': item.color}"></i>{{ item.label }}</span>
+                    </div>
+                  </div>
+                  <p v-else class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的策略预测曲线' }}</p>
+                  <p v-if="plot_simulation_forecast && plot_simulation_forecast.uncertaintyNote" class="farmer-panel-hint">{{ plot_simulation_forecast.uncertaintyNote }}</p>
+                </div>
+              </div>
+
+              <div class="farmer-form-footer farmer-plot-simulation-footer">
+                <span class="farmer-panel-hint">只读展示，不会修改策略或写回主状态。</span>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_tools('risk', selected_plot.plotId)">在风险预警中展开</button>
+              </div>
+            </div>
           </section>
 
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">

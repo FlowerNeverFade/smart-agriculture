@@ -62,11 +62,26 @@ test('farmer page renders P0 evidence, quality, dual-track and read-only executi
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '不干预 / 执行处方', '知识证据与工具审计', '确认并开始虚拟浇水', '水库水位']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '不干预 / 执行处方', '知识证据与工具审计', '确认并开始虚拟浇水', '水库水位', '地块模拟策略', '策略预测曲线', '策略由管理员维护']) {
     assert.match(html, new RegExp(marker));
   }
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
   assert.match(source, /api\.executeIrrigation\(/);
+  assert.match(source, /getPlotSimulation/);
+  assert.match(source, /load_plot_simulation/);
+  assert.match(source, /plot_simulation_chart/);
+});
+
+test('farmer can read the plot strategy and risk forecast without changing it', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read'] } });
+  const strategy = await service.getPlotSimulation('plot-a01');
+  const forecast = await service.getRiskForecast('plot-a01', 'SOIL_MOISTURE');
+  assert.equal(strategy.plotId, 'plot-a01');
+  assert.ok(strategy.scenario);
+  assert.ok(Array.isArray(strategy.scenarioCatalog) && strategy.scenarioCatalog.length >= 4);
+  assert.ok(Array.isArray(forecast.curve) && forecast.curve.length > 1);
+  assert.equal(forecast.metric, 'SOIL_MOISTURE');
 });
