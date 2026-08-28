@@ -84,6 +84,8 @@ paths:
     post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建 ACTIVE 地块, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}:
     patch: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 修改作物、品种、生长阶段、生长周期或面积}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/plots/{plotId}/devices:
+    put: {tags: [farm], description: 以完整集合方式维护地块设备绑定；设备可从其他地块直接转移，移除或转移后状态重置为 OFFLINE, parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的设备绑定集合}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 地块停用或跨农场设备绑定被拒绝}}}
     delete: {tags: [farm], description: 仅永久删除已经停用且没有历史依赖的地块；不级联清理历史, parameters: [{$ref: '#/components/parameters/PlotId'}, {name: confirmName, in: query, required: true, schema: {type: string}, description: 必须与地块完整名称一致}], responses: {'200': {description: 地块永久删除成功}, '400': {description: 地块名称确认不匹配}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 地块仍活跃或存在遥测、设备、批次、告警、任务、诊断或审计依赖；details.counts 返回分类数量}}}
   /api/v1/plots/{plotId}/deactivate:
     post: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 将地块标记为 INACTIVE}, '403': {$ref: '#/components/responses/Forbidden'}}}
@@ -251,6 +253,10 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
+  /api/v1/agent/actions/{actionId}/confirm:
+    post: {tags: [decision], description: 管理员确认 10 分钟内的 Agent 操作预览；服务端重新校验权限、范围和幂等键后执行白名单工具, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
+  /api/v1/agent/actions/{actionId}/cancel:
+    post: {tags: [decision], description: 取消待确认的 Agent 操作预览, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 操作已取消}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已处理}}}
   /api/v1/agent/tools:
     get: {tags: [decision], responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
   /api/v1/agent/runs/{traceId}:
@@ -320,6 +326,8 @@ paths:
     post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 确认告警}}}
   /api/v1/alerts/{alertId}/close:
     post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 关闭告警}}}
+  /api/v1/alerts/{alertId}/verification-task:
+    post: {tags: [management], description: 单条发布现场核查任务；按地块权限和当前负载自动选择农户，重复请求复用未结束核查任务, parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 核查任务与分配依据}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 告警已结束或暂无可分配农户}}}
   /api/v1/alerts/{alertId}/escalate:
     post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 升级告警}}}
   /api/v1/resource-plans/evaluate:
@@ -338,11 +346,13 @@ paths:
     post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 审批/激活/回滚}}}
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
-    post: {tags: [management], description: 注册设备；初始固定 OFFLINE/UNBOUND，心跳前不得显示在线, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
+    post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
   /api/v1/devices/{deviceId}/bind:
     post: {tags: [management], description: 设备与地块必须属于同一农场，且地块必须为 ACTIVE, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备但不改变心跳状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 跨农场或停用地块绑定被拒绝}}}
   /api/v1/devices/{deviceId}/unbind:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 解绑设备}}}
+  /api/v1/devices/{deviceId}/control:
+    post: {tags: [management], description: 仅农场管理员可控制已绑定设备；模拟设备即时完成，REAL/HARDWARE 设备必须等待 MQTT ACK，失败或超时不伪造实际状态, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DeviceControlRequest'}}}}, responses: {'200': {description: 控制命令及最新设备记录}, '400': {description: 目标状态或幂等键无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备未绑定或没有控制通道}}}
   /api/v1/devices/{deviceId}/heartbeat:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 心跳恢复}}}
 components:
@@ -445,6 +455,22 @@ components:
         status: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
         actualWaterLitre: {type: number, minimum: 0}
         receivedAt: {type: string, format: date-time}
+    DeviceControlRequest:
+      type: object
+      required: [targetStatus, idempotencyKey]
+      properties:
+        targetStatus: {type: string, enum: [ONLINE, OFFLINE]}
+        idempotencyKey: {type: string, minLength: 1, maxLength: 200}
+    DeviceControlResponse:
+      type: object
+      required: [commandId, deviceId, targetStatus, commandStatus, status, device]
+      properties:
+        commandId: {type: string}
+        deviceId: {type: string}
+        targetStatus: {type: string, enum: [ONLINE, OFFLINE]}
+        commandStatus: {type: string, enum: [PENDING, SUCCEEDED, FAILED, TIMEOUT]}
+        status: {type: string, enum: [ONLINE, OFFLINE]}
+        device: {type: object, additionalProperties: true}
     FarmMember:
       type: object
       required: [userId, username, displayName, role, roleLabel, farmIds, plotIds, status]
@@ -463,6 +489,7 @@ components:
       properties:
         assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
         note: {type: string, description: 分配说明}
+        dueAt: {type: string, format: date-time, description: 可选；重新处置逾期任务时设置晚于当前时间的新处理时限}
     InspectionCreateRequest:
       type: object
       required: [farmId, plotId, observedAt]

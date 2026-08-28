@@ -17,7 +17,8 @@ function normalizeHistoryMessage(item = {}) {
     role,
     content: item.content || item.message || item.summary || '',
     time: messageTime(item.createdAt || item.timestamp),
-    source: role === 'assistant' ? (item.sourceLabel || item.source || '历史回答') : ''
+    source: role === 'assistant' ? (item.sourceLabel || item.source || '历史回答') : '',
+    actionProposal: item.actionProposal || null
   };
 }
 
@@ -30,7 +31,8 @@ export const AdminAiChatView = {
     state: { type: Object, required: true },
     routeParams: { type: Object, default: () => ({}) }
   },
-  setup(props) {
+  emits: ['data-invalidated'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const input = ref('');
     const selectedPlotId = ref(
@@ -44,6 +46,14 @@ export const AdminAiChatView = {
     const loadingHistory = ref(false);
     const sending = ref(false);
     const messageList = ref(null);
+    const actionBusy = ref('');
+    // Keep the template independent from Vue's ref auto-unwrapping details.
+    // The app ships the view as a runtime-compiled plain component object, and
+    // binding a ref object directly to `disabled` makes both action buttons
+    // permanently disabled in that path.  These closures always read the
+    // current ref value and return primitive booleans/strings to the template.
+    const isActionBusy = () => Boolean(actionBusy.value);
+    const isActionRunning = actionId => actionBusy.value === actionId;
 
     const selectedPlotName = computed(() => props.state.plots
       ?.find(item => item.plotId === selectedPlotId.value)?.name || '全农场');
@@ -114,7 +124,8 @@ export const AdminAiChatView = {
           role: 'assistant',
           content: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。'),
           time: messageTime(),
-          source: agentResponseSource(response, props.state.sessionMode)
+          source: agentResponseSource(response, props.state.sessionMode),
+          actionProposal: response?.actionProposal || null
         });
       } catch (error) {
         messages.value.push({
@@ -129,6 +140,26 @@ export const AdminAiChatView = {
         sending.value = false;
         scrollToBottom();
       }
+    };
+
+    const confirmAction = async proposal => {
+      if (!proposal?.actionId || actionBusy.value) return;
+      actionBusy.value = proposal.actionId;
+      try {
+        const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `ui-agent:${proposal.actionId}` });
+        proposal.status = result?.status || 'SUCCEEDED';
+        proposal.result = result?.result || result;
+        messages.value.push({ id: `agent-result-${Date.now()}`, role: 'assistant', content: `已确认执行：${proposal.summary || '操作'}。${result?.status === 'SUCCEEDED' ? '操作已完成，相关页面正在同步。' : '操作未成功完成。'}`, time: messageTime(), source: 'Agent 执行结果' });
+        emit('data-invalidated', { domains: result?.affectedDomains || proposal.affectedDomains || ['plots', 'devices', 'workOrders', 'alerts', 'overview'], record: result });
+      } catch (error) { proposal.status = 'FAILED'; toast(error.message || 'Agent 操作执行失败', 'error'); }
+      finally { actionBusy.value = ''; }
+    };
+    const cancelAction = async proposal => {
+      if (!proposal?.actionId || actionBusy.value) return;
+      actionBusy.value = proposal.actionId;
+      try { const result = await api.cancelAgentAction(proposal.actionId); proposal.status = result?.status || 'CANCELED'; toast('已取消这项 Agent 操作'); }
+      catch (error) { toast(error.message || '取消操作失败', 'error'); }
+      finally { actionBusy.value = ''; }
     };
 
     const startNewConversation = () => {
@@ -155,12 +186,16 @@ export const AdminAiChatView = {
       messages,
       loadingHistory,
       sending,
+      actionBusy,
+      isActionBusy,
+      isActionRunning,
       messageList,
       suggestions,
       selectedPlotName,
       send,
       startNewConversation,
-      handleKeydown
+      handleKeydown,
+      confirmAction, cancelAction
     };
   },
   template: `
@@ -209,6 +244,15 @@ export const AdminAiChatView = {
             <div class="admin-ai-bubble">
               <span class="admin-ai-message-author">{{ message.role === 'user' ? '我' : 'AgriLoop AI' }}</span>
               <p>{{ message.content }}</p>
+              <div v-if="message.actionProposal" class="admin-ai-action-card">
+                <div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>操作预览</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div>
+                <p>{{ message.actionProposal.summary }}</p>
+                <small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small>
+                <div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'">
+                  <button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button>
+                  <button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button>
+                </div>
+              </div>
               <small>{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div>
           </article>

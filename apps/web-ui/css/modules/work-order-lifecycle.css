@@ -328,6 +328,7 @@
 
 .work-status,
 .work-source,
+.work-rework,
 .work-overdue,
 .work-priority,
 .work-type-label {
@@ -364,6 +365,7 @@
 .work-status.tone-review { color: var(--g-primary); border-color: color-mix(in srgb, var(--g-primary) 35%, var(--g-border)); background: var(--g-primary-bg); }
 .work-status.tone-danger { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-status.tone-success { color: var(--g-success); border-color: color-mix(in srgb, var(--g-success) 35%, var(--g-border)); background: var(--g-success-bg); }
+.work-rework { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-overdue { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-priority { flex: 0 0 auto; background: transparent; }
 .work-priority.priority-high { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 42%, var(--g-border)); }
@@ -529,6 +531,36 @@
 .work-empty .material-symbols-outlined { margin-bottom: 10px; font-size: 38px; }
 .work-empty h2 { margin-bottom: 6px; font-size: 18px; font-weight: 600; }
 .work-empty p { font-size: 13px; }
+
+.work-overdue-disposition {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--g-danger) 30%, var(--g-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--g-danger-bg) 64%, var(--g-bg-surface));
+}
+
+.work-overdue-disposition > div:first-child { display: grid; gap: 3px; }
+.work-overdue-disposition > div:first-child strong { color: var(--g-text-primary); font-size: 13px; }
+.work-overdue-disposition > div:first-child span { color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.work-overdue-disposition-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 10px; }
+.work-overdue-disposition-actions > label,
+.work-overdue-card-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--g-text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.work-overdue-disposition-actions input,
+.work-overdue-card-select input { width: 15px; height: 15px; margin: 0; accent-color: var(--g-primary); }
+.work-overdue-disposition-actions > span { color: var(--g-text-secondary); font-size: 11px; }
 
 .work-dialog { border: 1px solid var(--g-border); border-radius: 10px; }
 .work-dialog-small { max-width: 520px; }
@@ -747,6 +779,30 @@
 
 .work-summary-card-footer .material-symbols-outlined { font-size: 16px; }
 
+.work-summary-card-footer.has-disposition {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+}
+
+.work-overdue-manual-action {
+  min-width: 0;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 0;
+  color: var(--g-primary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-overdue-manual-action:hover { text-decoration: underline; }
+.work-overdue-manual-action:disabled { cursor: not-allowed; opacity: .55; }
+
 .work-detail-dialog {
   width: min(760px, calc(100vw - 32px));
   max-width: 760px;
@@ -814,6 +870,8 @@
 .work-detail-next strong { color: var(--g-text-primary); font-size: 12px; }
 
 @media (max-width: 700px) {
+  .work-overdue-disposition { align-items: stretch; flex-direction: column; }
+  .work-overdue-disposition-actions { align-items: stretch; flex-wrap: wrap; }
   .work-order-card.is-manager-summary .work-order-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     margin: 0 14px;
@@ -828,4 +886,6 @@
   .work-detail-facts > div:last-child { border-bottom: 0; }
   .work-detail-footer { align-items: stretch; flex-direction: column; }
   .work-detail-footer .work-card-actions { justify-content: flex-end; }
+  .work-summary-card-footer.has-disposition { grid-template-columns: auto 1fr; }
+  .work-summary-card-footer.has-disposition > strong { grid-column: 1 / -1; justify-self: end; }
 }

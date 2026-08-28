@@ -659,6 +659,10 @@
 .admin-device-card > footer > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-device-card > footer strong { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 4px; color: var(--g-primary); font-size: 12px; }
 .admin-device-card > footer .material-symbols-outlined { font-size: 16px; }
+.admin-device-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.admin-device-control-button { border: 1px solid color-mix(in srgb, var(--g-primary) 35%, var(--g-border)); background: var(--g-primary-bg); color: var(--g-primary); white-space: nowrap; }
+.admin-device-control-button.offline { border-color: color-mix(in srgb, #c2413c 34%, var(--g-border)); background: color-mix(in srgb, #c2413c 8%, var(--g-bg-base)); color: #b23631; }
+.admin-device-control-button:disabled { cursor: not-allowed; opacity: .55; }
 
 .admin-add-device-card {
   align-items: center;
@@ -679,6 +683,10 @@
 .admin-device-dialog .g-modal-body { min-height: 0; overflow-y: auto; }
 .admin-device-detail-body { display: grid; gap: 16px; }
 .admin-device-detail-facts { margin: 0; }
+.admin-device-control-pending { margin-left: auto; color: #9a6700; font-size: 11px; font-weight: 700; }
+.admin-device-control-panel { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 58%, var(--g-bg-base)); }
+.admin-device-control-panel strong { font-size: 13px; }
+.admin-device-control-panel p { margin: 4px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
 .admin-device-detail-facts dd { white-space: normal; }
 .admin-device-binding-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); }
 .admin-device-binding-editor label { display: grid; gap: 6px; }

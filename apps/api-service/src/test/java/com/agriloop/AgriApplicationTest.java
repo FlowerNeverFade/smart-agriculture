@@ -22,6 +22,17 @@ class AgriApplicationTest {
     @Autowired AdminManagementService adminManagement;
 
     @Test
+    void legacyPlotAllowsPartialMetadataUpdate() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+        String plotId = "plot-legacy-partial-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "旧地块", "cropCode", "tomato", "areaM2", 80)));
+        Map<String, Object> updated = adminManagement.updatePlot(plotId, Map.of("name", "旧地块（已改名）"), admin);
+        assertThat(updated.get("name")).isEqualTo("旧地块（已改名）");
+        store.delete("plot", plotId);
+    }
+
+    @Test
     void farmAdminCanCreateUpdateDeactivateRestoreAndSafelyDeletePlot() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
@@ -395,8 +406,11 @@ class AgriApplicationTest {
         String workOrderId = String.valueOf(created.get("workOrderId"));
         assertThat(created).containsEntry("status", "OPEN").containsEntry("assigneeId", null).containsEntry("farmId", "farm-demo");
 
-        Map<String, Object> assigned = engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer", "note", "请在午前完成"), admin);
-        assertThat(assigned).containsEntry("status", "ASSIGNED").containsEntry("assigneeId", "user-farmer");
+        String renewedDueAt = Instant.now().plusSeconds(7200).toString();
+        Map<String, Object> assigned = engine.assignWorkOrder(workOrderId, Map.of(
+                "assigneeId", "user-farmer", "note", "请在午前完成", "dueAt", renewedDueAt), admin);
+        assertThat(assigned).containsEntry("status", "ASSIGNED").containsEntry("assigneeId", "user-farmer")
+                .containsEntry("dueAt", renewedDueAt);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.transitionWorkOrder(workOrderId, Map.of("action", "START"), otherFarmer))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_ASSIGNEE_REQUIRED"));
 
@@ -415,6 +429,25 @@ class AgriApplicationTest {
         List<Map<String, Object>> history = Jsons.maps(new com.fasterxml.jackson.databind.ObjectMapper(), completed.get("history"));
         assertThat(history).extracting(entry -> entry.get("action")).containsExactly("CREATE", "ASSIGN", "START", "SUBMIT", "APPROVE");
         assertThat(history).allSatisfy(entry -> assertThat(entry).containsKeys("actorId", "actorRole", "at", "toStatus", "evidenceRefs"));
+    }
+
+    @Test
+    void overdueReassignmentRequiresAFutureRenewedDueAt() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "plotId", "plot-a01", "title", "处置逾期任务", "reason", "验证新的处理时限",
+                "dueAt", Instant.now().minusSeconds(3600).toString()), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.assignWorkOrder(workOrderId, Map.of(
+                        "assigneeId", "user-farmer", "dueAt", Instant.now().minusSeconds(60).toString()), admin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_DUE_AT_INVALID"));
+
+        String renewedDueAt = Instant.now().plusSeconds(14400).toString();
+        assertThat(engine.assignWorkOrder(workOrderId, Map.of(
+                "assigneeId", "user-farmer", "dueAt", renewedDueAt), admin))
+                .containsEntry("status", "ASSIGNED")
+                .containsEntry("dueAt", renewedDueAt);
     }
 
     @Test
@@ -781,6 +814,46 @@ class AgriApplicationTest {
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("DEVICE_PLOT_FARM_MISMATCH"));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.bindDevice(deviceId, Map.of("plotId", inactivePlotId), admin))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_INACTIVE"));
+    }
+
+    @Test
+    void simulatedDeviceControlUpdatesStatusAndSuppressesTelemetryUntilReenabled() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String deviceId = "mock-device-control-" + System.nanoTime();
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "device-control-seed-" + deviceId), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", "plot-a01"), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 32.0), Map.entry("unit", "%"), Map.entry("sourceMode", "SIMULATION"),
+                Map.entry("dataOrigin", "SIMULATOR"), Map.entry("ts", Instant.now().toString())));
+        Map<String, Object> offline = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "OFFLINE", "idempotencyKey", "test-offline-" + deviceId), admin);
+        assertThat(offline).containsEntry("commandStatus", "SUCCEEDED");
+        assertThat(Jsons.map(new ObjectMapper(), offline.get("device"))).containsEntry("status", "OFFLINE");
+        Map<String, Object> suppressed = engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "device-control-suppressed-" + deviceId), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", "plot-a01"), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 31.0), Map.entry("unit", "%"), Map.entry("sourceMode", "SIMULATION"),
+                Map.entry("ts", Instant.now().toString())));
+        assertThat(suppressed).containsEntry("suppressed", true).containsEntry("reason", "DEVICE_CONTROL_OFFLINE");
+        Map<String, Object> online = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "ONLINE", "idempotencyKey", "test-online-" + deviceId), admin);
+        assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
+        assertThat(Jsons.map(new ObjectMapper(), online.get("device"))).containsEntry("status", "ONLINE");
+    }
+
+    @Test
+    void realDeviceControlChangesStatusOnlyAfterAck() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        String deviceId = "real-device-control-" + System.nanoTime();
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "plotId", "plot-a01", "bindingState", "BOUND",
+                "status", "ONLINE", "sourceMode", "REAL", "dataOrigin", "HARDWARE")));
+        Map<String, Object> pending = engine.controlDevice(deviceId,
+                Map.of("targetStatus", "OFFLINE", "idempotencyKey", "real-offline-" + deviceId), admin);
+        assertThat(pending).containsEntry("commandStatus", "PENDING").containsEntry("status", "ONLINE");
+        Map<String, Object> command = store.find("command", String.valueOf(pending.get("commandId")));
+        engine.handleDeviceControlAck(command, Map.of("status", "SUCCEEDED", "receivedAt", Instant.now().toString()));
+        assertThat(store.find("device", deviceId)).containsEntry("status", "OFFLINE").containsEntry("controlStatus", "SUCCEEDED");
     }
 
     @Test

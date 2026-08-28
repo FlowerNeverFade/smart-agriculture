@@ -370,6 +370,7 @@ def run(args: argparse.Namespace) -> int:
     branch = args.branch
     client = None
     http_client = None
+    disabled_devices: set[str] = set()
     if args.http:
         try:
             http_client = HttpIngestClient(args.api_url, args.api_user, args.api_password, args.api_role)
@@ -382,7 +383,38 @@ def run(args: argparse.Namespace) -> int:
             client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"agriloop-sim-{uuid.uuid4().hex[:8]}")
             if args.mqtt_username:
                 client.username_pw_set(args.mqtt_username, args.mqtt_password)
+
+            def on_command(_client, _userdata, message):
+                try:
+                    payload = json.loads(message.payload.decode("utf-8"))
+                    device_id = str(payload.get("deviceId") or "")
+                    target = str(payload.get("targetStatus") or "").upper()
+                    if not device_id or target not in {"ONLINE", "OFFLINE"}:
+                        return
+                    expected_id = device_id.lower()
+                    if not expected_id.startswith("mock-"):
+                        return
+                    if target == "OFFLINE":
+                        disabled_devices.add(device_id)
+                    else:
+                        disabled_devices.discard(device_id)
+                    ack_topic = message.topic.rsplit("/", 1)[0] + "/command/ack"
+                    ack = {
+                        "ackId": f"ack-{uuid.uuid4().hex[:12]}",
+                        "commandId": payload.get("commandId"),
+                        "deviceId": device_id,
+                        "targetStatus": target,
+                        "status": "SUCCEEDED",
+                        "receivedAt": datetime.now(UTC8).isoformat(),
+                        "result": "SIMULATED_DEVICE_SWITCH",
+                    }
+                    _client.publish(ack_topic, json.dumps(ack, ensure_ascii=False), qos=1)
+                except (ValueError, TypeError, UnicodeDecodeError):
+                    return
+
+            client.on_message = on_command
             client.connect(args.mqtt_host, args.mqtt_port, 30)
+            client.subscribe("agri/+/+/command", qos=1)
             client.loop_start()
         except OSError as error:
             client = None
@@ -441,7 +473,9 @@ def run(args: argparse.Namespace) -> int:
 
                 offline_ratio = params["offlineRatio"] if plot_scenario == "device-offline" else 0.0
                 phase = (index + sum(ord(char) for char in plot_id)) % 20
-                is_offline = offline_ratio > 0 and phase < max(1, round(offline_ratio * 20))
+                device_id = f"mock-{plot_id}"
+                controlled_offline = device_id in disabled_devices
+                is_offline = controlled_offline or (offline_ratio > 0 and phase < max(1, round(offline_ratio * 20)))
                 if not is_offline:
                     evolve_state(states[plot_id], rng, plot_scenario, ts, index, params, args.interval)
                 for metric, unit, _low, _high in METRICS:
@@ -466,7 +500,7 @@ def run(args: argparse.Namespace) -> int:
                         print(json.dumps(event, ensure_ascii=False))
                     count += 1
                 status = {
-                    "deviceId": f"mock-{plot_id}", "farmId": "farm-demo", "plotId": plot_id,
+                    "deviceId": device_id, "farmId": "farm-demo", "plotId": plot_id,
                     "status": "OFFLINE" if is_offline else "ONLINE",
                     "lastSeen": now_iso(ts), "sourceMode": "SIMULATION", "dataOrigin": "SIMULATOR",
                     "provenance": "OBSERVED", "scenarioId": plot_scenario,

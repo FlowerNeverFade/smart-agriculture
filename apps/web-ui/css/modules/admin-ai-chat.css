@@ -246,6 +246,20 @@
   padding: 2px 0;
 }
 
+.admin-ai-action-card {
+  margin-top: 12px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--admin-orange, var(--g-primary)) 36%, var(--g-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--admin-orange-bg, var(--g-primary-bg)) 42%, var(--g-bg-surface));
+}
+.admin-ai-action-heading { display: flex; align-items: center; gap: 7px; color: var(--g-text-primary); }
+.admin-ai-action-heading .material-symbols-outlined { color: var(--admin-orange, var(--g-primary)); font-size: 18px; }
+.admin-ai-action-heading span { margin-left: auto; color: var(--g-text-secondary); font-size: 12px; }
+.admin-ai-action-card p { margin: 8px 0 5px; color: var(--g-text-primary); font-size: 14px; line-height: 1.5; }
+.admin-ai-action-card small { color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.admin-ai-action-buttons { display: flex; gap: 8px; margin-top: 11px; }
+
 .admin-ai-message.user .admin-ai-bubble {
   max-width: min(680px, 82%);
   padding: 11px 15px;

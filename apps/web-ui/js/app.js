@@ -1,13 +1,13 @@
 import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
-import { MOCK_DATA } from './mock-data.js?v=1787649000001';
+import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { AdminAlertCenter } from './admin-alerts.js';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
-import { AdminWorkManagementView } from './modules/admin-work-management.js';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
@@ -88,6 +88,7 @@ const ICON_CLASS = Object.freeze({
   bolt: 'ph-lightning',
   policy: 'ph-shield-check',
   smart_toy: 'ph-robot',
+  head_circuit: 'ph-head-circuit',
   auto_awesome: 'ph-sparkle',
   hourglass_empty: 'ph-hourglass',
   send: 'ph-paper-plane-tilt',
@@ -407,18 +408,20 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    { name: 'PostgreSQL 数据库', status: systemStatus.database },
-    { name: 'Redis 消息流', status: systemStatus.redis },
-    { name: 'MQTT 消息代理', status: systemStatus.mqtt },
-    { name: 'SSE 实时推送', status: 'UP' },
-    { name: '接口服务', status: 'UP' },
+    { name: 'PostgreSQL 数据库', status: systemStatus.database, latencyMs: systemStatus.databaseLatencyMs },
+    { name: 'Redis 消息流', status: systemStatus.redis, latencyMs: systemStatus.redisLatencyMs },
+    { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
+    { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
+    { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '智能模型服务', status: systemStatus.ai, isAi: true }
   ];
-  return entries.map(({ name, status, isAi = false }) => ({
+  return entries.map(({ name, status, isAi = false, latencyMs }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
     statusLabel: serviceStatusLabel(status, '未知'),
     mode: isAi ? (status || '—') : undefined,
+    latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
+    latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
     sourceMode: 'BACKEND'
   }));
 }
@@ -565,6 +568,15 @@ const DashboardView = {
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const devices = computed(() => props.state.devices || []);
+    const deviceOptions = computed(() => devices.value
+      .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
+      .sort((a, b) => String(a.name || a.deviceId).localeCompare(String(b.name || b.deviceId), 'zh-CN')));
+    const deviceLabel = device => {
+      if (!device.plotId) return `${device.name || device.deviceId}（未绑定）`;
+      if (device.plotId === plotDraft.value.plotId) return `${device.name || device.deviceId}（当前地块）`;
+      return `${device.name || device.deviceId}（已绑定：${visiblePlots.value.find(plot => plot.plotId === device.plotId)?.name || device.plotId}）`;
+    };
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -576,7 +588,8 @@ const DashboardView = {
       cropVariety: '',
       stageCode: 'vegetative',
       growthCycleDays: 120,
-      areaM2: 100
+      areaM2: 100,
+      deviceIds: []
     });
     const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
@@ -631,7 +644,8 @@ const DashboardView = {
         cropVariety: plot.cropVariety || '',
         stageCode: plot.stageCode || 'vegetative',
         growthCycleDays: Number(plot.growthCycleDays || 120),
-        areaM2: Number(plot.areaM2 || 100)
+        areaM2: Number(plot.areaM2 || 100),
+        deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
       };
       plotEditor.value = { open: true, mode: 'edit' };
     };
@@ -676,19 +690,24 @@ const DashboardView = {
         healthScore: current?.healthScore ?? null,
         riskLevel: current?.riskLevel || 'LOW'
       };
+      const requestedDeviceIds = [...new Set((draft.deviceIds || []).filter(Boolean))];
+      const moving = devices.value.filter(device => requestedDeviceIds.includes(device.deviceId) && device.plotId && device.plotId !== draft.plotId);
+      if (moving.length && !window.confirm(`以下设备当前绑定在其他地块：${moving.map(device => device.name || device.deviceId).join('、')}。确认转移到“${payload.name}”吗？`)) return;
       plotSaving.value = true;
       try {
+        let saved;
         if (plotEditor.value.mode === 'edit') {
-          const saved = await api.updatePlot(draft.plotId, payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.updatePlot(draft.plotId, plotPayload);
           emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已更新，其他模块已同步`);
         } else {
-          const saved = await api.createPlot(payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.createPlot(plotPayload);
           emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已添加到农场`);
         }
+        const binding = await api.setPlotDevices(saved.plotId, requestedDeviceIds);
+        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: { ...saved, binding } });
+        toast(`${payload.name}${plotEditor.value.mode === 'edit' ? '已更新' : '已添加到农场'}，设备绑定已同步`);
         plotEditor.value.open = false;
       } catch (error) {
         toast(error.message || '保存地块失败', 'error');
@@ -765,6 +784,9 @@ const DashboardView = {
       isFarmAdmin,
       selectedFarmId,
       visiblePlots,
+      devices,
+      deviceOptions,
+      deviceLabel,
       managerSummary,
       openManagerSummary,
       plotMetrics,
@@ -1486,7 +1508,8 @@ const RoleAwareDecisionConsoleView = {
         <admin-alert-center v-if="!showChat" :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>
+        <admin-ai-chat v-else :state="state" :route-params="routeParams"
+                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
@@ -2415,7 +2438,6 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
-    const selectedScenario = ref('NORMAL');
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -2430,9 +2452,6 @@ const AdminSimulatorView = {
           scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
         };
       });
-      if (plotScenarios.value.length && !plotScenarios.value.some((plot) => plot.scenario !== 'NORMAL')) {
-        selectedScenario.value = 'NORMAL';
-      }
     }, { immediate: true });
 
     const globalScenario = computed({
@@ -2447,13 +2466,6 @@ const AdminSimulatorView = {
         }
       }
     });
-    const applyScenario = (scenario) => {
-      const code = typeof scenario === 'string' ? scenario : scenario?.id;
-      if (!code) return;
-      selectedScenario.value = code;
-      globalScenario.value = code;
-      toast(`已将“${typeof scenario === 'string' ? code : scenario.label}”应用到全部地块`);
-    };
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2579,7 +2591,7 @@ const AdminSimulatorView = {
     ];
 
     return {
-      simRunning, simBusy, selectedScenario, plotScenarios, globalScenario, applyScenario, scenarios,
+      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
       scenarioLabel, localizedStatusLabel
@@ -3239,7 +3251,11 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
-        systemStatus: api.getSystemStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })(),
         scenarios: api.getScenarioRuns()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
@@ -3472,9 +3488,7 @@ const app = createApp({
       if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
       state.value.adminOverview.recentEvents.unshift(systemEvent);
       state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
-      const payload = event?.data?.payload || event?.data || {};
-      if (!shouldAnnounceSystemToast(systemEvent, payload)) return;
-      showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+      // 系统事件仅记入最近事件列表，不再弹出 toast 通知，避免高频事件堆积遮挡视线。
     };
     const connectLiveEvents = async ({ announce = true } = {}) => {
       if (state.value.sessionMode !== 'live' || !api.isLive || liveEventsStop || liveEventsConnecting) return false;
