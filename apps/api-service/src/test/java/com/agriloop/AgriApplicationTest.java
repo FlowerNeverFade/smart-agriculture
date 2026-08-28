@@ -1386,7 +1386,7 @@ class AgriApplicationTest {
 
         Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "farmer-readonly", "plotId", "plot-a01", "seed", 42,
                 "leftBranch", "EXECUTE", "rightBranch", "NO_ACTION"), farmer);
-        assertThat(compare).containsEntry("readOnly", true).containsEntry("comparisonVersion", "branch-compare-v2");
+        assertThat(compare).containsEntry("readOnly", true).containsEntry("comparisonVersion", "branch-compare-v4");
         assertThat(Jsons.map(new ObjectMapper(), compare.get("branches"))).containsKeys("EXECUTE", "NO_ACTION");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.compareScenario(Map.of(
                         "scenarioId", "forbidden", "plotId", "plot-a01", "seed", 42), otherFarmer))

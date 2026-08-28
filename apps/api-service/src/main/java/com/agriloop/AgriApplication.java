@@ -5242,14 +5242,139 @@ class AgriEngine {
     }
 
     Map<String, Object> compareScenario(Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SCENARIO_FORBIDDEN", "只有管理员可以比较情景分支");
+        String plotId = Jsons.text(input, "plotId", "plot-a01");
+        ensurePlotAccess(principal, plotId);
         String scenarioId = Jsons.text(input, "scenarioId", "");
-        if (scenarioId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "SCENARIO_ID_REQUIRED", "需要 scenarioId");
-        String left = Jsons.text(input, "leftBranch", "EXECUTE"); String right = Jsons.text(input, "rightBranch", "NO_ACTION");
-        List<Map<String, Object>> all = store.list("scenario-event").stream().filter(e -> scenarioId.equals(Jsons.text(e, "scenarioId", ""))).toList();
-        Map<String, Object> result = new LinkedHashMap<>(); result.put("scenarioId", scenarioId); result.put("leftBranch", branchSummary(all, left)); result.put("rightBranch", branchSummary(all, right));
-        result.put("sameSeed", Jsons.whole(input, "seed", 42)); result.put("readOnly", true); result.put("comparisonVersion", "branch-compare-v1");
+        long seed = Jsons.whole(input, "seed", 42);
+        String scenarioRaw = Jsons.text(input, "scenario", "");
+        if (scenarioRaw.isBlank() && !scenarioId.isBlank()) {
+            String prefix = scenarioId.split("-")[0].toUpperCase(Locale.ROOT).replace('-', '_');
+            scenarioRaw = switch (prefix) {
+                case "DROUGHT", "HEAVY", "HEAVY_RAIN", "STORM" -> prefix.startsWith("HEAVY") || "STORM".equals(prefix) ? "HEAVY_RAIN" : prefix;
+                case "SENSOR", "SENSOR_DRIFT", "DRIFT" -> "SENSOR_DRIFT";
+                default -> "DROUGHT";
+            };
+        }
+        if (scenarioRaw.isBlank()) scenarioRaw = "DROUGHT";
+        String scenario = canonicalScenarioForRun(scenarioRaw);
+        if ("NORMAL".equals(scenario)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SCENARIO_COMPARE_INVALID", "正常运行情景无需双轨对照");
+        }
+        if (scenarioId.isBlank()) scenarioId = scenario.toLowerCase(Locale.ROOT) + "-" + seed;
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> latestMetric = Jsons.map(mapper, latestMetrics(plotId).get("SOIL_MOISTURE"));
+        double startMoisture = Jsons.number(latestMetric, "value", baselineMetricValue(plotId, "SOIL_MOISTURE"));
+        Map<String, Object> parameters = simulationDefaults(scenario, plotId);
+        Random random = new Random(seed);
+        double jumpBoost = 11.8 + random.nextDouble() * 2.8;
+        double rainBoost = ("HEAVY_RAIN".equals(scenario) ? 32.0 : 0.0) * (0.8 + random.nextDouble() * 0.4);
+        double driftRate = Jsons.number(parameters, "driftRatePerHour", 2.4) * (0.9 + random.nextDouble() * 0.2);
+        double decayK = 0.03 + random.nextDouble() * 0.012;
+        double droughtTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -3.6);
+        double rainPeak = "HEAVY_RAIN".equals(scenario) ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+        String operator = "HEAVY_RAIN".equals(scenario) ? "GT" : "LT";
+        double boundary = "HEAVY_RAIN".equals(scenario)
+                ? Jsons.number(parameters, "waterloggingThreshold", 82)
+                : Jsons.number(parameters, "riskThreshold", 20);
+        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+        Map<String, Object> branches = new LinkedHashMap<>();
+        branches.put("NO_ACTION", scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator));
+        branches.put("EXECUTE", scenarioBranchPayload("EXECUTE", executePoints, boundary, operator));
+        Map<String, Object> frozenSnapshot = new LinkedHashMap<>();
+        frozenSnapshot.put("plotId", plotId);
+        frozenSnapshot.put("plotName", Jsons.text(plot, "name", plotId));
+        frozenSnapshot.put("startMoisture", round(startMoisture));
+        frozenSnapshot.put("capturedAt", Instant.now().toString());
+        frozenSnapshot.put("snapshotLabel", "冻结快照（只读，不写回主状态）");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "AVAILABLE");
+        result.put("scenarioId", scenarioId);
+        result.put("scenario", scenario);
+        result.put("plotId", plotId);
+        result.put("seed", seed);
+        result.put("branches", branches);
+        result.put("leftBranch", branches.get("EXECUTE"));
+        result.put("rightBranch", branches.get("NO_ACTION"));
+        result.put("sameSeed", seed);
+        result.put("frozenSnapshot", frozenSnapshot);
+        result.put("stressBoundary", boundary);
+        result.put("readOnly", true);
+        result.put("comparisonVersion", "branch-compare-v4");
+        result.put("note", "双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态");
+        result.put("provenance", "SIMULATED");
         return result;
+    }
+
+    private List<Map<String, Object>> buildScenarioBranchPoints(String scenario, double startMoisture, boolean execute,
+                                                                  double droughtTrend, double rainPeak, double driftRate,
+                                                                  double decayK, double jumpBoost) {
+        List<Map<String, Object>> points = new ArrayList<>();
+        for (int index = 0; index <= 48; index++) {
+            int minute = index * 5;
+            double hours = minute / 60.0;
+            double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("minute", minute);
+            point.put("value", round(value));
+            points.add(point);
+        }
+        return points;
+    }
+
+    private double scenarioMoistureAtMinute(String scenario, int minute, double hours, double startMoisture, boolean execute,
+                                            double droughtTrend, double rainPeak, double driftRate, double decayK, double jumpBoost) {
+        double value;
+        if ("HEAVY_RAIN".equals(scenario)) {
+            double wetting = minute <= 45
+                    ? startMoisture + rainPeak * (minute / 45.0)
+                    : (startMoisture + rainPeak) * Math.exp(-decayK * (minute - 45) / 45.0);
+            if (!execute) value = wetting;
+            else {
+                double managedPeak = startMoisture + rainPeak * 0.72;
+                value = minute <= 45
+                        ? startMoisture + rainPeak * 0.72 * (minute / 45.0)
+                        : managedPeak * Math.exp(-decayK * 1.35 * (minute - 45) / 45.0);
+            }
+        } else if ("SENSOR_DRIFT".equals(scenario)) {
+            double physical = startMoisture + droughtTrend * hours * 0.15;
+            if (!execute) value = startMoisture + driftRate * hours;
+            else if (minute < 30) value = startMoisture + driftRate * hours;
+            else {
+                double driftAt30 = startMoisture + driftRate * 0.5;
+                double blend = 1 - Math.exp(-(minute - 30) / 35.0);
+                value = driftAt30 + (physical - driftAt30) * blend;
+            }
+        } else if ("DROUGHT".equals(scenario)) {
+            value = startMoisture + droughtTrend * hours;
+            if (execute && minute >= 30) {
+                double atExec = startMoisture + droughtTrend * 0.5;
+                value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (minute - 30)));
+            }
+        } else {
+            double natural = Math.max(0, startMoisture - minute * 0.025);
+            value = execute && minute >= 30
+                    ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (minute - 30)))
+                    : natural;
+        }
+        return clamp(value, 0, 100);
+    }
+
+    private Map<String, Object> scenarioBranchPayload(String branchId, List<Map<String, Object>> points, double boundary, String operator) {
+        Integer timeToRisk = null;
+        for (Map<String, Object> point : points) {
+            double value = Jsons.number(point, "value", 0);
+            if (("LT".equals(operator) && value <= boundary) || ("GT".equals(operator) && value >= boundary)) {
+                timeToRisk = (int) Jsons.whole(point, "minute", 0);
+                break;
+            }
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("branchId", branchId);
+        payload.put("points", points);
+        payload.put("timeToRiskMinutes", timeToRisk);
+        payload.put("provenance", "SIMULATED");
+        return payload;
     }
 
     private Map<String, Object> branchSummary(List<Map<String, Object>> eventsForScenario, String branch) {
