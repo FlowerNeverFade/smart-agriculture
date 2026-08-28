@@ -173,6 +173,7 @@ POST /api/v1/agent/actions/{actionId}/cancel
 - 发布代码：本地 `main@601fe08`，同步 `/srv/agriloop` 与 `/srv/farm-admin`，两套目录 `DEPLOYED_COMMIT` 均为 `601fe08`。
 - `:api-service:test` 52/52、`bootJar`、本地 Web Node 61/61、Vite 构建通过；Supervisor 的 API、模拟器、Nginx、cron、Qwen 服务均 RUNNING，公网 `/actuator/health` 为 `UP`。
 - 公网黑盒通过：模拟设备绑定后在线/离线幂等控制、设备详情与地块编辑跨地块转移、单条告警核查幂等、核查正常自动关闭告警、Agent 创建地块/创建任务预览确认、取消、幂等和 FARMER 越权 403。
+- 验收数据留存：Agent 创建的“名称 Agent验收临时地块”已停用；因模拟器产生遥测历史而不能物理删除，验收模拟设备均已解绑，后续清理前请保留该依赖记录。
 - 额外修复 `601fe08`：真实设备首次遥测不再被初始化的 OFFLINE 控制状态误抑制，只有存在实际控制命令后才按确认离线保护。
 - 未操作真实 BearPi，未推送 GitHub。
 
