@@ -407,18 +407,20 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    { name: 'PostgreSQL 数据库', status: systemStatus.database },
-    { name: 'Redis 消息流', status: systemStatus.redis },
-    { name: 'MQTT 消息代理', status: systemStatus.mqtt },
-    { name: 'SSE 实时推送', status: 'UP' },
-    { name: '接口服务', status: 'UP' },
+    { name: 'PostgreSQL 数据库', status: systemStatus.database, latencyMs: systemStatus.databaseLatencyMs },
+    { name: 'Redis 消息流', status: systemStatus.redis, latencyMs: systemStatus.redisLatencyMs },
+    { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
+    { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
+    { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '智能模型服务', status: systemStatus.ai, isAi: true }
   ];
-  return entries.map(({ name, status, isAi = false }) => ({
+  return entries.map(({ name, status, isAi = false, latencyMs }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
     statusLabel: serviceStatusLabel(status, '未知'),
     mode: isAi ? (status || '—') : undefined,
+    latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
+    latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
     sourceMode: 'BACKEND'
   }));
 }
@@ -3177,7 +3179,11 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
-        systemStatus: api.getSystemStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })(),
         scenarios: api.getScenarioRuns()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
