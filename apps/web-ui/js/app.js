@@ -2453,7 +2453,8 @@ const AdminSimulatorView = {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
+          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
     }, { immediate: true });
@@ -2518,6 +2519,19 @@ const AdminSimulatorView = {
         if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
       } catch (error) {
         toast(error.message || '场景配置保存失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const togglePlotSimulation = async (plot) => {
+      if (!plot || !plot.plotId || simBusy.value) return;
+      const target = plot;
+      simBusy.value = true;
+      try {
+        const nextEnabled = !target.enabled;
+        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        target.enabled = nextEnabled;
+        toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
+      } catch (error) {
+        toast(error.message || '地块模拟启停失败', 'error');
       } finally { simBusy.value = false; }
     };
     const openReplay = async (run) => {
@@ -2620,7 +2634,7 @@ const AdminSimulatorView = {
     return {
       simRunning, simBusy, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel
     };
   }

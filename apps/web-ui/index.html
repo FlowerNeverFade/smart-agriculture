@@ -1633,7 +1633,7 @@
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
           <thead><tr>
-            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th>
+            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th><th>模拟</th>
           </tr></thead>
           <tbody>
             <tr v-for="plot in plotScenarios" :key="plot.plotId">
@@ -1645,9 +1645,17 @@
                   <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
                 </select>
               </td>
+              <td>
+                <button v-if="plot.enabled !== false" class="g-btn danger sm" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="stop"></app-icon> 停止
+                </button>
+                <button v-else class="g-btn primary sm" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="play_arrow"></app-icon> 启动
+                </button>
+              </td>
             </tr>
             <tr v-if="!plotScenarios || plotScenarios.length === 0">
-              <td colspan="4" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
+              <td colspan="5" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
             </tr>
           </tbody>
         </table>

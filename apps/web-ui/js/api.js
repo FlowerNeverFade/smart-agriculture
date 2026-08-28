@@ -710,11 +710,11 @@ export class ApiService {
     };
   }
 
-  async updatePlotSimulation(plotId, { scenario = 'NORMAL', parameters = {} } = {}) {
+  async updatePlotSimulation(plotId, { scenario = 'NORMAL', parameters = {}, enabled } = {}) {
     const normalized = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/simulation`, {
-        method: 'PUT', body: JSON.stringify({ scenario: normalized, parameters })
+        method: 'PUT', body: JSON.stringify({ scenario: normalized, parameters, enabled })
       });
       const result = resp?.data || resp;
       if (result?.plotId) return result;
@@ -726,6 +726,7 @@ export class ApiService {
       parameters: cloneSimulationParameters(normalized, parameters),
       revision: Number(previous.revision || 0) + 1, updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION'
     };
+    if (typeof enabled === 'boolean') next.enabled = enabled;
     this.demoSimulationStrategies.set(plotId, next);
     this.persistDemoSimulationStrategies();
     return next;

@@ -1502,6 +1502,7 @@ class AgriEngine {
         saved.put("revision", Jsons.whole(current, "revision", 0) + 1);
         saved.put("updatedAt", Instant.now().toString()); saved.put("updatedBy", principal.userId);
         saved.put("sourceMode", "SIMULATION");
+        if (input.containsKey("enabled")) saved.put("enabled", Jsons.bool(input, "enabled", true));
         store.save("plot-simulation", plotId, saved);
         boolean delivered = syncSimulationConfiguration();
         Map<String, Object> event = new LinkedHashMap<>(saved); event.put("configDelivered", delivered);
@@ -1668,6 +1669,7 @@ class AgriEngine {
                     Map<String, Object> compact = new LinkedHashMap<>();
                     compact.put("scenario", Jsons.text(record, "scenario", "NORMAL").toLowerCase(Locale.ROOT).replace('_', '-'));
                     compact.put("revision", Jsons.whole(record, "revision", 1)); compact.put("parameters", record.get("parameters"));
+                    compact.put("enabled", Jsons.bool(record, "enabled", true));
                     plots.put(plotId, compact);
                 }
                 Map<String, Object> payload = new LinkedHashMap<>();
