@@ -10,14 +10,14 @@
 
 - 仓库：`smart-agriculture-main-local`
 - 分支：`main`
-- 最新本地提交：`7a3c9f6 feat: add device binding and executable agent workflows`
-- 相对 `origin/main`：本地领先 9 个提交
+- 最新本地提交：`075504c docs: note retained acceptance fixtures`（代码发布提交 `601fe08`）
+- 相对 `origin/main`：本地领先 12 个提交
 - GitHub：本轮没有推送
 - 工作区：提交后无未提交改动（接手前请重新执行 `git status` 确认）
 - 本地预览入口：`http://127.0.0.1:4173/login.html`
 - 服务器路径：`/srv/agriloop`、`/srv/farm-admin`
 - SSH：`connect.westd.seetacloud.com:22602`
-- 当前阻塞：服务器已关机，22602 端口连接被拒绝；不要把远程未部署状态误认为功能失败。
+- 服务器状态：已完成原地升级并通过公网验收；后续变更仍需先备份并保留回滚点。
 
 ## 3. 本日完成内容
 
