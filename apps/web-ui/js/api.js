@@ -186,6 +186,9 @@ export class ApiService {
     this.demoCropPlans = new Map();
     this.demoAgentActions = new Map();
     this.demoValueLedgers = [];
+    this.demoWaterProfile = { ...(MOCK_DATA.resourceProfile || {}), farmId: 'farm-demo', dailyQuotaLitres: Number(MOCK_DATA.resourceProfile?.dailyQuotaLitres ?? MOCK_DATA.resourceProfile?.capacityLitres ?? 900), flowRateLitresPerMinute: Number(MOCK_DATA.resourceProfile?.flowRateLitresPerMinute || 18), timezone: 'Asia/Shanghai', futureQuotas: [...(MOCK_DATA.resourceProfile?.futureQuotas || [])] };
+    this.demoWaterBalance = { dailyQuotaLitres: this.demoWaterProfile.dailyQuotaLitres, reservedLitres: 0, actualUsedLitres: Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0), remainingLitres: Math.max(0, this.demoWaterProfile.dailyQuotaLitres - Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0)), revision: 1 };
+    this.demoResourcePlans = new Map();
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
       farmIds: member.farmIds || ['farm-demo']
@@ -1413,9 +1416,9 @@ export class ApiService {
         body: JSON.stringify(input)
       });
       const plan = response?.data || response;
-      return { ...plan, trialOnly: true, provenance: plan?.provenance || 'DERIVED', sourceMode: 'ESTIMATED' };
+      return { ...plan, trialOnly: Boolean(plan?.trialOnly), provenance: plan?.provenance || 'DERIVED', sourceMode: plan?.sourceMode || 'AI_RULES' };
     }
-    const capacity = Number(MOCK_DATA.resourceProfile?.capacityLitres || 0);
+    const capacity = Number(MOCK_DATA.resourceProfile?.remainingLitres ?? MOCK_DATA.resourceProfile?.dailyQuotaLitres ?? MOCK_DATA.resourceProfile?.capacityLitres ?? 0);
     let remaining = capacity;
     const allocations = [];
     const conflicts = [];
@@ -1445,6 +1448,74 @@ export class ApiService {
       sourceMode: 'ESTIMATED',
       trialOnly: true
     };
+  }
+
+  async getWaterResourceProfile(farmId = '', date = '') {
+    if (this.sessionMode === 'live') {
+      const params = new URLSearchParams(); if (farmId) params.set('farmId', farmId); if (date) params.set('date', date);
+      const resp = await this._fetch(`/api/v1/resource-profiles/water${params.toString() ? `?${params}` : ''}`);
+      return resp?.data || resp;
+    }
+    const balance = { ...this.demoWaterBalance, businessDate: date || new Date().toISOString().slice(0, 10), farmId: farmId || 'farm-demo' };
+    return { ...this.demoWaterProfile, ...balance, balance };
+  }
+
+  async updateWaterQuota({ farmId = 'farm-demo', dailyQuotaLitres, effectiveFrom } = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/resource-profiles/water', { method: 'PUT', body: JSON.stringify({ farmId, dailyQuotaLitres, effectiveFrom }) });
+      return resp?.data || resp;
+    }
+    const next = { effectiveFrom, dailyQuotaLitres: Number(dailyQuotaLitres) };
+    this.demoWaterProfile.futureQuotas = [...(this.demoWaterProfile.futureQuotas || []).filter(item => item.effectiveFrom !== effectiveFrom), next].sort((a, b) => String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)));
+    return this.getWaterResourceProfile(farmId);
+  }
+
+  async listResourcePlans({ farmId = '', businessDate = '', status = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const params = new URLSearchParams(); if (farmId) params.set('farmId', farmId); if (businessDate) params.set('businessDate', businessDate); if (status) params.set('status', status);
+      const resp = await this._fetch(`/api/v1/resource-plans${params.toString() ? `?${params}` : ''}`); const data = resp?.data || resp; return Array.isArray(data) ? data : (data?.plans || []);
+    }
+    return [...this.demoResourcePlans.values()].filter(plan => !farmId || plan.farmId === farmId).filter(plan => !businessDate || plan.businessDate === businessDate).filter(plan => !status || plan.status === status);
+  }
+
+  async evaluateAutoResourcePlan({ farmId = 'farm-demo', businessDate = '', ...rest } = {}) {
+    let plan = await this.evaluateResourcePlan({ farmId, businessDate, mode: 'AUTO', ...rest });
+    if (this.sessionMode !== 'live') {
+      const date = businessDate || new Date().toISOString().slice(0, 10);
+      if (!(plan.allocations || []).length) {
+        const plots = (MOCK_DATA.plots || []).filter(item => (item.farmId || 'farm-demo') === farmId);
+        const allocations = plots.map((plot, index) => {
+          const moisture = Number(plot.metrics?.SOIL_MOISTURE?.value ?? 0);
+          const target = Number(String(plot.metrics?.SOIL_MOISTURE?.target || '').match(/(\d+(?:\.\d+)?)/)?.[1] || 30);
+          const area = Number(plot.areaM2 ?? plot.area ?? 0);
+          const requested = Math.max(0, Math.round(area * 0.08 * Math.max(0, target - moisture) * 10) / 10);
+          const needScore = Math.max(.1, Math.min(1, (target - moisture) / Math.max(1, target)));
+          const start = new Date(Date.now() + (index + 1) * 60000);
+          return { plotId: plot.plotId, farmId, requestedLitres: requested, allocatedLitres: requested, unmetLitres: 0, needScore, readinessStatus: 'READY', deviceId: '', scheduledStart: start.toISOString(), scheduledEnd: new Date(start.getTime() + 300000).toISOString(), executionStatus: 'PENDING', explanation: '按土壤湿度缺口与作物阶段综合分析' };
+        });
+        plan = { resourcePlanId: `rp-demo-${Date.now()}`, farmId, businessDate: date, status: 'DRAFT', revision: 1, algorithmVersion: 'water-allocation-v2', allocations, totalRequestedLitres: allocations.reduce((sum, item) => sum + item.requestedLitres, 0), totalAllocatedLitres: allocations.reduce((sum, item) => sum + item.allocatedLitres, 0), totalUnmetLitres: 0, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), provenance: 'SIMULATED', sourceMode: 'AI_RULES' };
+      }
+      this.demoResourcePlans.set(plan.resourcePlanId, { ...plan, farmId, businessDate: date, status: 'DRAFT', revision: plan.revision || 1, expiresAt: plan.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString() });
+    }
+    return plan;
+  }
+
+  async adjustResourcePlan(resourcePlanId, input = {}) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(resourcePlanId)}`, { method: 'PATCH', body: JSON.stringify(input) }); return resp?.data || resp; }
+    const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' });
+    const changes = new Map((input.adjustments || []).map(item => [item.plotId, item])); const allocations = (plan.allocations || []).map(item => changes.has(item.plotId) ? { ...item, allocatedLitres: Number(changes.get(item.plotId).allocatedLitres), unmetLitres: Math.max(0, Number(item.requestedLitres || 0) - Number(changes.get(item.plotId).allocatedLitres)) } : { ...item });
+    const next = { ...plan, allocations, revision: Number(plan.revision || 1) + 1, adjustmentReason: input.reason, totalAllocatedLitres: allocations.reduce((sum, item) => sum + Number(item.allocatedLitres || 0), 0) }; this.demoResourcePlans.set(resourcePlanId, next); return next;
+  }
+
+  async confirmResourcePlan(resourcePlanId, input = {}) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(resourcePlanId)}/confirm`, { method: 'POST', body: JSON.stringify(input) }); return resp?.data || resp; }
+    const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' }); if (plan.status !== 'DRAFT' && plan.status !== 'CONFIRMED') throw new ApiError('当前计划不能确认', { status: 409, code: 'RESOURCE_PLAN_NOT_CONFIRMABLE' });
+    const allocated = (plan.allocations || []).map(item => ({ ...item, executionStatus: Number(item.allocatedLitres || 0) > 0 ? 'SCHEDULED' : 'FALLBACK_REQUIRED' })); const next = { ...plan, status: 'CONFIRMED', revision: Number(plan.revision || 1) + 1, confirmedAt: new Date().toISOString(), allocations }; this.demoResourcePlans.set(resourcePlanId, next); this.demoWaterBalance.reservedLitres += Number(next.totalAllocatedLitres || 0); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
+  }
+
+  async cancelResourcePlan(resourcePlanId) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(resourcePlanId)}/cancel`, { method: 'POST' }); return resp?.data || resp; }
+    const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' }); const next = { ...plan, status: 'CANCELLED', cancelledAt: new Date().toISOString() }; this.demoResourcePlans.set(resourcePlanId, next); this.demoWaterBalance.reservedLitres = Math.max(0, this.demoWaterBalance.reservedLitres - Number(plan.totalAllocatedLitres || 0)); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
   }
 
   async getAgentHistory(conversationId = '', limit = 40) {

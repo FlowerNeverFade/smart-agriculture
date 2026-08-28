@@ -680,13 +680,20 @@ export const MOCK_DATA = {
   ],
 
   resourceProfile: {
+    resourceProfileId: "water-farm-demo",
     resourcePlanId: "resource-default",
+    farmId: "farm-demo",
     resourceType: "WATER (示范农场集中蓄水池)",
     capacityLitres: 900.0,
-    dailyLimitLitres: 5000.0,
-    usedTodayLitres: 1240.0,
-    remainingLitres: 3760.0,
+    dailyQuotaLitres: 900.0,
+    dailyLimitLitres: 900.0,
+    usedTodayLitres: 180.0,
+    actualUsedLitres: 180.0,
+    reservedLitres: 0.0,
+    remainingLitres: 720.0,
     flowRateLitresPerMinute: 18.0,
+    timezone: "Asia/Shanghai",
+    futureQuotas: [],
     activeConflicts: 0,
     status: "FEASIBLE"
   },

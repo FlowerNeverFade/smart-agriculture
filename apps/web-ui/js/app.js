@@ -2876,6 +2876,7 @@ const app = createApp({
       simulatorStatus: isDemoSession ? { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' } : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
+      resourcePlans: isDemoSession ? [] : [],
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
@@ -2913,7 +2914,7 @@ const app = createApp({
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator'
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3134,6 +3135,8 @@ const app = createApp({
       if (wants('members')) jobs.members = api.getFarmMembers({ farmId });
       if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
+      if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
+      if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
       if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
@@ -3169,6 +3172,8 @@ const app = createApp({
       if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
       if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
       if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
+      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfile = results.resourceProfile.value || {};
+      if (results.resourcePlans?.status === 'fulfilled') state.value.resourcePlans = results.resourcePlans.value || [];
       if (results.cropPacks?.status === 'fulfilled') {
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
@@ -3594,7 +3599,8 @@ const app = createApp({
       }
       if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
       const normalized = [...new Set(domains.flatMap(domain => {
-        if (domain === 'resourcePlans') return ['overview'];
+        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
         return [domain];
       }))];
       await refreshFarmData(state.value.adminContext.farmId, normalized.length ? normalized : ['all']);
