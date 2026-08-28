@@ -296,7 +296,7 @@ export const MOCK_DATA = {
       id: "feed-102",
       type: "PRESCRIPTION",
       category: "结构化农业处方 · 就绪度通过",
-      title: "【温室 1 号棚】灌溉处方待审批（建议时长 8.5 分钟 / 153 升）",
+      title: "【温室 1 号棚】灌溉处方待执行（建议时长 8.5 分钟 / 153 升）",
       plotId: "plot-a01",
       plotName: "温室1（番茄 · 挂果采收期）",
       timestamp: "3 分钟前",
@@ -322,7 +322,7 @@ export const MOCK_DATA = {
         costEstimate: "约 0.61 元（水价 0.004 元/升）"
       },
       actions: [
-        { label: "⚡ 一键虚拟下发执行", type: "success", action: "execute-irrigation", planId: "plan-a01-20260822", plotId: "plot-a01" },
+        { label: "查看建议并执行", type: "success", action: "execute-irrigation", planId: "plan-a01-20260822", plotId: "plot-a01" },
         { label: "调处方参数", type: "secondary", action: "open-subview", view: "decision-console", plotId: "plot-a01" },
         { label: "查看决策护照", type: "ghost", action: "open-subview", view: "decision-passport", traceId: "run-20260822-001" }
       ]
@@ -1332,7 +1332,7 @@ export const MOCK_DATA = {
       body_paragraphs: [
         "地块 温室1近 3 个采样周期土壤湿度均低于 20% 目标下限，最新读数 16.8%。",
         "系统已完成干旱与传感器漂移分流校验，置信度 92%，判定为真实缺水。",
-        "建议尽快结合现场巡田核实，并联系农场管理员审批补水处方。"
+        "建议先结合现场巡田核实；安全门通过后，当前操作人可确认并执行补水处方。"
       ],
       sender: "AgriLoop 监测内核",
       read: false,
@@ -1387,12 +1387,12 @@ export const MOCK_DATA = {
     {
       id: "msg-005",
       category: "alert",
-      title: "【提醒】温室1灌溉处方待您确认",
-      snippet: "系统已生成 温室1灌溉处方（建议时长 8.5 分钟 / 153 升），等待农场管理员审批。",
+      title: "【提醒】温室1灌溉处方待您确认执行",
+      snippet: "系统已生成 温室1灌溉处方（建议时长 8.5 分钟 / 153 升），通过安全门后可由当前操作人确认执行。",
       body_paragraphs: [
         "系统已针对 温室1缺水风险生成结构化灌溉处方。",
         "建议时长 8.5 分钟，水量 153 升，预计土壤湿度由 16.8% 回升至 30.0%。",
-        "处方已提交农场管理员审批，审批通过后将通知您执行。"
+        "处方无需管理员审批；请核对地块、水量和安全门后确认执行，系统将回传虚拟命令 ACK 与效果评价。"
       ],
       sender: "处方决策引擎",
       read: false,
@@ -1773,7 +1773,7 @@ export const MOCK_DATA = {
         { code: "PERCEPTION", label: "感知", status: "DONE", tool: "telemetry-reader", summary: "读取 A01 遥测快照" },
         { code: "DIAGNOSIS", label: "诊断", status: "DONE", tool: "root-cause-engine", summary: "缺水风险置信度 92%" },
         { code: "PRESCRIPTION", label: "处方", status: "DONE", tool: "prescription-builder", summary: "生成 153 升 / 8 分 30 秒处方" },
-        { code: "SAFETY", label: "安全", status: "PENDING", tool: "safety-gate", summary: "等待管理员审批" },
+        { code: "SAFETY", label: "安全", status: "PENDING", tool: "safety-gate", summary: "等待当前操作人确认" },
         { code: "EFFECT", label: "效果", status: "PENDING", tool: "effect-evaluator", summary: "待执行后评估" }
       ],
       unifiedEntry: {
@@ -1844,18 +1844,18 @@ export const MOCK_DATA = {
     // I-12 人在回路安全闸门
     humanInLoopGate: {
       planId: "plan-a01-20260822",
-      approvalStatus: "PENDING",
+      approvalStatus: "NOT_REQUIRED",
       approverId: null,
       ruleArbitration: {
         triggered: true,
         ruleVersion: "rule-1.0.0",
-        decision: "BLOCK_UNTIL_APPROVED",
-        reason: "高风险动作需人工确认，未审批前禁止执行"
+        decision: "ALLOW_WITH_OPERATOR_CONFIRMATION",
+        reason: "安全门通过后需当前操作人明确确认，无需管理员审批"
       },
       interception: {
         attemptedAction: "execute-irrigation",
-        blocked: true,
-        message: "处方待审批，演示按钮已被安全闸门拦截"
+        blocked: false,
+        message: "处方通过安全门，等待当前操作人确认执行"
       }
     },
 

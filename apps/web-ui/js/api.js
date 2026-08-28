@@ -7,7 +7,7 @@
  * UI instead of being silently presented as real data.
  */
 import { MOCK_DATA } from './mock-data.js';
-import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
+import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -1649,7 +1649,7 @@ export class ApiService {
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
     const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
     const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = canExecuteIrrigation(this.user);
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
@@ -1685,7 +1685,10 @@ export class ApiService {
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
       readinessStatus,
-      requiresApproval: true,
+      requiresApproval: false,
+      requiresAdminApproval: false,
+      confirmationRequired: true,
+      executionMode: 'OPERATOR_CONFIRMED',
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
@@ -1710,7 +1713,7 @@ export class ApiService {
     const status = plan.readinessStatus || 'HUMAN_REVIEW';
     const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
     const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = canExecuteIrrigation(this.user);
     const hardGates = {
       requiredMetrics: 'PASS',
       freshness: deviceOffline ? 'FAIL' : 'PASS',
@@ -1798,9 +1801,9 @@ export class ApiService {
 
   /**
    * Persist a farmer decision outcome without changing a strategy or issuing
-   * a control command.  Farmers use this contract to request administrator
-   * approval and to record the result of an inspection/task; direct
-   * irrigation execution remains guarded by irrigation:approve.
+   * a control command.  Farmers use this contract to record inspection/task
+   * feedback; legacy approval requests remain supported for old records, but
+   * current irrigation execution uses the separate guarded execute capability.
    */
   async submitDecisionFeedback(traceId, input = {}) {
     if (!traceId) {
@@ -1956,11 +1959,12 @@ export class ApiService {
     if (!plotId) {
       throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     }
-    if (!roleCan(this.user, 'irrigation:approve')) {
+    if (!canExecuteIrrigation(this.user)) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     }
-    if (options.approved !== true) {
-      throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
+    const confirmed = options.confirmed === true || options.approved === true;
+    if (!confirmed) {
+      throw new ApiError('执行前需要当前操作人明确确认（人工确认），无需管理员审批', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     }
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/commands/virtual', {
@@ -1969,7 +1973,11 @@ export class ApiService {
           planId,
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
+          confirmed: true,
+          // Keep the old field for already deployed admin pages and servers.
           approved: true,
+          approvalRequired: false,
+          confirmationMode: 'OPERATOR_CONFIRMED',
           source: options.source || 'web-decision-console',
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
@@ -1987,8 +1995,21 @@ export class ApiService {
     if (!plan || plan.plotId !== plotId) {
       throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
     }
-    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false) {
+    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false || options.confirmed === false) {
       throw new ApiError('处方未通过安全门或尚未人工确认', { status: 409, code: 'IRRIGATION_NOT_READY' });
+    }
+
+    const existing = [...this.decisionCache.commands.values()].find((item) => (
+      options.idempotencyKey && item.idempotencyKey === options.idempotencyKey
+    ));
+    if (existing) {
+      if (existing.plotId !== plotId) {
+        throw new ApiError('幂等键已绑定其他地块的灌溉命令', { status: 409, code: 'IDEMPOTENCY_PLOT_MISMATCH' });
+      }
+      if (existing.planId !== planId) {
+        throw new ApiError('幂等键已绑定其他灌溉处方', { status: 409, code: 'IDEMPOTENCY_PLAN_MISMATCH' });
+      }
+      return { ...existing };
     }
 
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
@@ -2004,6 +2025,11 @@ export class ApiService {
       plotId,
       planId,
       traceId: plan.traceId,
+      idempotencyKey: options.idempotencyKey || `cmd-demo-${planId}`,
+      approvalRequired: false,
+      confirmationMode: 'OPERATOR_CONFIRMED',
+      confirmedBy: this._demoActorId(),
+      confirmedAt: new Date().toISOString(),
       status: outcome,
       type: "IRRIGATION_START",
       waterLitre: plannedWater,

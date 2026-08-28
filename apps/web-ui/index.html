@@ -626,7 +626,7 @@
 
             <div class="flex gap-2">
               <button class="g-btn primary" style="flex:1" @click="openExecution">
-                <app-icon name="bolt"></app-icon> 虚拟执行
+                <app-icon name="bolt"></app-icon> 查看建议并执行
               </button>
               <button class="g-btn secondary" @click="showPassportModal = true">
                 <app-icon name="policy"></app-icon> 决策护照
@@ -677,12 +677,12 @@
               <button class="g-btn icon-only" @click="showDualTrackModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
-              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“下发处方 (执行)”与“不下发处方 (不执行)”的演化结果。</p>
+              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“执行处方”与“不执行处方”的演化结果；确认后由当前操作人直接创建虚拟命令。</p>
               <div id="dualTrackChart" style="width: 100%; height: 350px;"></div>
             </div>
             <div class="g-modal-footer">
               <button class="g-btn secondary" @click="showDualTrackModal = false">取消</button>
-              <button class="g-btn primary" @click="confirmExecution">正式下发指令</button>
+              <button class="g-btn primary" :disabled="executionBusy" @click="confirmExecution">{{ executionBusy ? '执行中…' : '确认并执行' }}</button>
             </div>
           </div>
         </div>

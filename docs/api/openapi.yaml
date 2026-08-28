@@ -4,7 +4,8 @@ info:
   version: 1.3.1
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
-    require JWT; command actions require idempotencyKey and approval.
+    require JWT; command actions require idempotencyKey and an explicit
+    current-operator confirmation. The executor is virtual in this release.
 servers:
   - url: http://localhost:8080
   - url: http://127.0.0.1:8080
@@ -430,12 +431,15 @@ components:
           additionalProperties: {type: number}
     VirtualCommandRequest:
       type: object
-      required: [plotId, idempotencyKey, approved]
+      required: [plotId, idempotencyKey, confirmed]
       properties:
         plotId: {type: string}
         planId: {type: string}
         idempotencyKey: {type: string, minLength: 8}
-        approved: {type: boolean}
+        confirmed: {type: boolean, description: 当前操作人已核对处方并确认执行；不要求管理员审批}
+        approved: {type: boolean, deprecated: true, description: 旧版管理员页面兼容字段；新调用请使用 confirmed}
+        approvalRequired: {type: boolean, default: false, description: 固定为 false，保留安全确认而非管理员审批}
+        confirmationMode: {type: string, enum: [OPERATOR_CONFIRMED]}
         outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
     CommandAck:
       type: object

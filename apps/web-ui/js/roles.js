@@ -17,18 +17,18 @@ export const ROLE_DEFINITIONS = Object.freeze({
     views: Object.freeze(['dashboard', 'work-orders', 'decision-console', 'risk-forecast', 'resource-coordination', 'farm-members']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'inspection:create', 'work-order:manage',
-      'irrigation:request', 'irrigation:approve', 'simulator:control', 'strategy:manage',
+      'irrigation:request', 'irrigation:execute', 'irrigation:approve', 'simulator:control', 'strategy:manage',
       'resource:manage', 'strategy:read', 'value:manage'
     ])
   }),
   FARMER: Object.freeze({
     code: 'FARMER',
     label: '种植农户',
-    description: '查看分配地块、提交巡田记录并确认农事建议。',
+    description: '查看分配地块、提交巡田记录并确认和执行灌溉建议。',
     avatar: '🧑‍🌾',
     defaultView: 'dashboard',
     views: Object.freeze(['dashboard', 'decision-console', 'risk-forecast', 'work-orders', 'crop-manual']),
-    permissions: Object.freeze(['plots:read', 'diagnosis:read', 'inspection:create', 'work-order:request', 'irrigation:request'])
+    permissions: Object.freeze(['plots:read', 'diagnosis:read', 'inspection:create', 'work-order:request', 'irrigation:request', 'irrigation:execute'])
   }),
   SYSTEM_ADMIN: Object.freeze({
     code: 'SYSTEM_ADMIN',
@@ -39,7 +39,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     views: Object.freeze(['admin-overview', 'admin-ops', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'work-order:audit', 'simulator:control',
-      'strategy:manage', 'value:audit', 'platform:manage', 'irrigation:approve'
+      'strategy:manage', 'value:audit', 'platform:manage', 'irrigation:execute', 'irrigation:approve'
     ])
   })
 });
@@ -83,6 +83,13 @@ export function roleCan(roleOrUser, permission) {
   const role = typeof roleOrUser === 'object' ? roleOrUser?.role : roleOrUser;
   if (!String(role || '').trim()) return false;
   return roleDefinition(role)?.permissions.includes(permission) || false;
+}
+
+// Direct irrigation is a distinct capability from the legacy approval
+// permission.  Keeping the alias makes older admin sessions and pages work
+// while allowing farmers to execute only the guarded virtual irrigation flow.
+export function canExecuteIrrigation(roleOrUser) {
+  return roleCan(roleOrUser, 'irrigation:execute') || roleCan(roleOrUser, 'irrigation:approve');
 }
 
 export function roleViews(roleOrUser) {

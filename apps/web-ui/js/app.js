@@ -1,6 +1,6 @@
 import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
 import { MOCK_DATA } from './mock-data.js?v=1787649000001';
-import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
@@ -586,7 +586,7 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
       ];
     });
 
@@ -747,7 +747,7 @@ const DashboardView = {
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
-      if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
+      if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
       return true;
     });
@@ -755,8 +755,8 @@ const DashboardView = {
       if (action.action === 'open-subview') {
         // [INTERCONNECTIVITY] Navigate with context payload
         emit('navigate', action.view, { highlight: 'diagnosis' });
-      } else if (action.action === 'execute-irrigation' && !roleCan(props.state.currentUser, 'irrigation:approve')) {
-        toast('当前身份只能提交建议，灌溉执行需由农场管理员审批', 'error');
+      } else if (action.action === 'execute-irrigation' && !canExecuteIrrigationRole(props.state.currentUser)) {
+        toast('当前身份没有灌溉执行权限', 'error');
       } else {
         toast('执行成功: ' + action.label);
       }
@@ -1365,16 +1365,16 @@ const DecisionConsoleView = {
     // Modals
     const showPassportModal = ref(false);
     const showDualTrackModal = ref(false);
-    const canApproveIrrigation = computed(() => roleCan(props.state.currentUser, 'irrigation:approve'));
+    const canExecuteIrrigation = computed(() => canExecuteIrrigationRole(props.state.currentUser));
+    const executionBusy = ref(false);
     let dualChart = null;
 
     const openExecution = () => {
-      if (canApproveIrrigation.value) {
+      if (canExecuteIrrigation.value) {
         showDualTrackModal.value = true;
         return;
       }
-      toast('灌溉建议已提交给农场管理员审批');
-      emit('navigate', 'work-orders', { highlight: 'approval-request' });
+      toast('当前身份没有灌溉执行权限', 'error');
     };
 
     watch(showDualTrackModal, async (newVal) => {
@@ -1415,45 +1415,48 @@ const DecisionConsoleView = {
     });
 
     const confirmExecution = async () => {
-      if (!canApproveIrrigation.value) {
+      if (!canExecuteIrrigation.value) {
         showDualTrackModal.value = false;
         toast('当前身份没有灌溉执行权限', 'error');
         return;
       }
       showDualTrackModal.value = false;
       const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
-      if (props.state.sessionMode === 'live') {
-        try {
-          const saved = await api.createWorkOrder({
-            farmId: props.state.adminContext?.farmId || props.state.farms[0]?.farmId,
-            plotId,
-            title: '执行灌溉处方',
-            reason: '已通过当前决策护照的人工确认，等待执行工单流转',
-            actionType: 'IRRIGATION_REVIEW',
-            sourceType: 'AGENT',
-            priority: 'HIGH',
-            provenance: 'DERIVED'
-          });
-          props.state.workOrders.unshift(saved);
-          emit('data-invalidated', { domains: ['workOrders', 'overview'], farmId: saved.farmId, plotId: saved.plotId, record: saved });
-          toast('灌溉执行申请已写入后端工单，农场管理员可继续审批');
-        } catch (error) {
-          toast(error.message || '灌溉执行申请失败', 'error');
-        }
-      } else {
-        props.state.workOrders.unshift({
-          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153 升灌溉处方',
-          reason: '演示决策下发', status: 'OPEN', priority: 'HIGH', sourceMode: 'SIMULATED'
+      if (!plotId || executionBusy.value) return;
+      executionBusy.value = true;
+      try {
+        const traceId = props.routeParams?.traceId || `legacy-irrigation-${plotId}`;
+        const diagnosisResult = props.state.sessionMode === 'live'
+          ? await api.evaluateDiagnosis(plotId, { traceId })
+          : null;
+        const plan = await api.estimateIrrigation({
+          plotId,
+          traceId,
+          ...(diagnosisResult?.diagnosisId ? { diagnosisId: diagnosisResult.diagnosisId } : {})
         });
-        toast('演示工单已创建');
+        if (plan?.executable !== true || plan?.readinessStatus !== 'READY') {
+          throw new Error('当前处方未通过安全门，暂不能执行灌溉');
+        }
+        await api.executeIrrigation(plan.planId, plotId, {
+          confirmed: true,
+          approved: true,
+          idempotencyKey: `legacy-irrigation-${plan.planId}`,
+          source: 'legacy-decision-console',
+          ...(props.state.sessionMode === 'demo' ? { outcome: 'SUCCEEDED' } : {})
+        });
+        emit('data-invalidated', { domains: ['commands', 'overview'], plotId, record: plan });
+        toast(props.state.sessionMode === 'demo' ? '演示灌溉已执行，不会控制真实水泵' : '灌溉命令已提交，等待设备回执');
+      } catch (error) {
+        toast(error.message || '灌溉执行失败', 'error');
+      } finally {
+        executionBusy.value = false;
       }
-      emit('navigate', 'work-orders', { highlight: 'new-order' });
     };
 
     return { 
       diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution,
+      showPassportModal, showDualTrackModal, canExecuteIrrigation, executionBusy, openExecution, confirmExecution,
       displayText
     };
   }
@@ -2742,8 +2745,8 @@ const AdminSettingsView = {
       { module: '地块监测', farmer: '👁 只读 (分配地块)', farmAdmin: '✅ 全部地块', sysAdmin: '👁 只读 (排查)' },
       { module: '农务工单', farmer: '✅ 接受/完成', farmAdmin: '✅ 创建/分派/验收', sysAdmin: '👁 审计记录' },
       { module: '告警处理', farmer: '👁 自己地块', farmAdmin: '✅ 确认/关闭/升级', sysAdmin: '✅ 系统级告警' },
-      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断/审批', sysAdmin: '❌ 不提供入口' },
-      { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
+      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断', sysAdmin: '❌ 不提供入口' },
+      { module: '灌溉控制', farmer: '✅ 确认并执行', farmAdmin: '✅ 确认并执行', sysAdmin: '✅ 受控执行' },
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
       { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },

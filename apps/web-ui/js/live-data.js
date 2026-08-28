@@ -458,7 +458,7 @@ export function normalizeAgentEvidence(response = {}) {
 
 /**
  * Build a farmer-facing decision card from deterministic agent output.
- * The card only links into existing approval / diagnosis / task flows.
+ * The card only links into existing guarded execution / diagnosis / task flows.
  */
 export function normalizeAgentDecisionCard(response = {}, plot = null) {
   const intent = String(response.intent || '').toUpperCase();
@@ -478,7 +478,7 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
     const durationMinutes = Number.isFinite(Number(durationSeconds)) ? Math.round(Number(durationSeconds) / 6) / 10 : null;
     return {
       kind: 'IRRIGATION',
-      title: '灌溉审批建议卡',
+      title: '灌溉执行建议卡',
       summary: executable
         ? `建议补水约 ${water ?? '—'} L${durationMinutes != null ? `，时长约 ${durationMinutes} 分钟` : ''}`
         : '当前证据或安全门未通过，仅可作为参考，需人工复核',
@@ -486,8 +486,8 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
       plotName,
       traceId,
       executable,
-      actionLabel: executable ? '查看处方并提交审批' : '查看处方与安全门',
-      note: executable ? '农户只能提交审批，不会直接控制水泵。' : '请先巡田、复测或联系管理员。'
+      actionLabel: executable ? '查看建议并执行' : '查看处方与安全门',
+      note: executable ? '当前用户可在安全门通过并确认后执行虚拟灌溉。' : '请先巡田、复测或联系管理员。'
     };
   }
 

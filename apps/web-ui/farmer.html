@@ -791,7 +791,7 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，执行审批由农场管理员处理。' : '演示模式不会控制真实水泵。' }}</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，当前操作人确认后即可执行。' : '演示模式不会控制真实水泵。' }}</p>
                 <div class="farmer-advice-actions">
                   <button
                     type="button"
@@ -807,7 +807,7 @@
                       aria-hidden="true"
                     >progress_activity</span>
                     <app-icon v-else name="water_drop"></app-icon>
-                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并提交审批' }}
+                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并执行' }}
                   </button>
                   <button
                     type="button"
@@ -828,8 +828,8 @@
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
-                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不提交灌溉申请</p>
-                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '需管理员审批，农户不会直接控制水泵' : '处方仅供当前地块参考，提交前会再次检查安全门' }}</p>
+                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
+                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
                 <div v-if="show_advice_diagnosis && advice_diagnosis_summary" class="farmer-fold-section farmer-advice-diagnosis-panel">
                   <div class="farmer-panel-header">
@@ -871,14 +871,14 @@
                       <div><span>冷却窗口</span><strong>{{ irrigation_guard.state }}</strong><small v-if="irrigation_guard.remainingSeconds">剩余 {{ Math.ceil(irrigation_guard.remainingSeconds / 60) }} 分钟 · 至 {{ format_suggestion_time(irrigation_guard.cooldownUntil) }}</small><small v-else>当前无执行冷却 · {{ irrigation_guard.cooldownMinutes }} 分钟策略</small></div>
                     </div>
                     <div v-if="advice_execution_summary.workOrderId || advice_execution_summary.command" class="farmer-execution-evidence">
-                      <strong>审批、执行与效果</strong>
-                      <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || '未提交' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
-                      <div><span>命令 / ACK</span><b>{{ advice_execution_summary.command?.commandId || '等待管理员执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                      <strong>执行与效果</strong>
+                      <div><span>审批状态</span><b>{{ advice_execution_summary.workOrderId || '无需管理员审批' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                      <div><span>命令 / ACK</span><b>{{ advice_execution_summary.command?.commandId || '等待设备执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
                       <div><span>实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待回执' }}</em></div>
                       <div><span>前后对比</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
                     </div>
                     <p v-if="irrigation_plan?.why || advice_plan?.why" class="farmer-panel-hint">处方说明：{{ irrigation_plan?.why || advice_plan?.why }}</p>
-                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 农户可查看结论并通过建议流提交审批，不能直接虚拟执行。</small>
+                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 当前操作人可直接执行虚拟灌溉；系统仍保留安全门、幂等和冷却保护。</small>
                   </div>
                 </div>
 
@@ -915,13 +915,13 @@
 
               <div class="farmer-case-panel">
                 <div class="farmer-panel-header"><div><span class="farmer-section-kicker">案例确认</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
-                <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或创建灌溉审批工单。</p>
+                <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或查看当前灌溉执行结果。</p>
                 <button type="button" v-for="item in similar_cases" :key="item.id" class="farmer-case-item" @click="selected_case_id = item.id">
                   <app-icon name="history"></app-icon>
                   <div><strong>{{ item.title }}</strong><p>{{ item.result }}</p><small>相似度 {{ item.similarity }} · {{ source_label(item.source) }}</small></div>
                   <app-icon :name="selected_case_id === item.id ? 'radio_button_checked' : 'radio_button_unchecked'"></app-icon>
                 </button>
-                <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用仍需经过安全检查与审批。</span></label>
+                <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用前仍需经过安全检查。</span></label>
                 <button type="button" class="g-btn primary farmer-btn-analyze farmer-confirm-button" :disabled="feedback_busy || advice_loading || !human_confirmation_checked || !selected_case_id" @click="confirm_suggestion"><app-icon name="verified_user"></app-icon>{{ decision_confirmation || '确认采用建议' }}</button>
                 <small class="farmer-case-note">反馈只形成待复核记录，不会静默修改阈值、处方或生产策略。</small>
               </div>
@@ -1485,7 +1485,7 @@
 
             <section v-else-if="suggestion_flow_stage === 'CONFIRM'" class="farmer-suggestion-stage">
               <div v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-danger-summary">
-                <div class="farmer-danger-summary-head"><span class="material-symbols-outlined">warning</span><strong>请核对灌溉申请</strong><span class="farmer-danger-badge">需要管理员审批</span></div>
+                <div class="farmer-danger-summary-head"><span class="material-symbols-outlined">warning</span><strong>请核对灌溉处方</strong><span class="farmer-danger-badge">当前操作人确认</span></div>
                 <div class="farmer-suggestion-facts">
                   <div><small>地块 / 作物</small><strong>{{ suggestion_plot ? suggestion_plot.name + ' · ' + suggestion_plot.cropName : '—' }}</strong></div>
                   <div><small>计划水量</small><strong>{{ irrigation_amount === '—' ? '—' : irrigation_amount + ' L' }}</strong></div>
@@ -1499,24 +1499,24 @@
                 <span class="material-symbols-outlined">fact_check</span>
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
-              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能提交</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认提交管理员审批' : '，并确认按提示操作' }}。</span></label>
+              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认立即执行虚拟灌溉' : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
-                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '提交中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并提交管理员审批' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '执行中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并执行' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
               </div>
             </section>
 
             <section v-else-if="suggestion_flow_stage === 'RESULT' && active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-suggestion-stage">
-              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>审批申请已记录</strong><p>农户不能自行填写执行成功。管理员执行后，这里只读显示命令 ACK、遥测前后值和效果评价。</p></div></div>
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>灌溉命令已提交</strong><p>当前操作人已确认执行；农户不能自行填写执行成功，页面只读显示系统 ACK、遥测前后值和效果评价。</p></div></div>
               <div class="farmer-execution-evidence is-modal">
-                <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || suggestion_result?.workOrderId || '等待同步' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
-                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '尚未创建命令' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                <div><span>审批状态</span><b>{{ advice_execution_summary.workOrderId || suggestion_result?.workOrderId || '无需管理员审批' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '等待设备执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
                 <div><span>ACK 实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待设备回执' }}</em></div>
                 <div><span>效果验证</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
               </div>
               <div class="farmer-suggestion-inline-action"><span>效果证据不足时：</span><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection"><span class="material-symbols-outlined">fact_check</span>提交巡田复测</button></div>
-              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新审批 / ACK / 效果' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">关闭</button></div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新命令 / ACK / 效果' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">关闭</button></div>
             </section>
 
             <form v-else-if="suggestion_flow_stage === 'RESULT'" class="farmer-suggestion-stage" @submit.prevent="submit_suggestion_result">
@@ -1528,7 +1528,7 @@
                 <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际执行时长（秒）<input v-model="suggestion_result_form.actual_duration_seconds" type="number" min="0" step="1" placeholder="选填"></label>
               </div>
               <label>处理备注<textarea v-model.trim="suggestion_result_form.note" rows="4" required placeholder="请记录现场看到的情况、采取的动作和结果"></textarea></label>
-              <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会让农户直接控制水泵。</p>
+              <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会绕过系统安全门执行水泵动作。</p>
               <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_suggestion_flow">稍后填写</button><button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="suggestion_busy">{{ suggestion_busy ? '保存中…' : '保存结果并查看恢复状态' }}</button></div>
             </form>
 
