@@ -371,6 +371,7 @@ def run(args: argparse.Namespace) -> int:
     client = None
     http_client = None
     disabled_devices: set[str] = set()
+    states = {plot_id: initial_state(plot_id, rng) for plot_id, _crop in PLOTS}
     if args.http:
         try:
             http_client = HttpIngestClient(args.api_url, args.api_user, args.api_password, args.api_role)
@@ -387,6 +388,27 @@ def run(args: argparse.Namespace) -> int:
             def on_command(_client, _userdata, message):
                 try:
                     payload = json.loads(message.payload.decode("utf-8"))
+                    command_type = str(payload.get("type") or "").upper()
+                    if command_type == "IRRIGATION_START":
+                        plot_id = str(payload.get("plotId") or "")
+                        state = states.get(plot_id)
+                        if not plot_id or state is None:
+                            return
+                        planned_water = max(0.0, float(payload.get("waterLitre") or 0.0))
+                        capacity = 900.0
+                        state["soil"] = _clamp(state["soil"] + 10.0, 4.0, 92.0)
+                        state["water"] = _clamp(state["water"] - planned_water / capacity * 100.0, 0.0, 100.0)
+                        ack_topic = message.topic.rsplit("/", 1)[0] + "/command/ack"
+                        _client.publish(ack_topic, json.dumps({
+                            "ackId": f"ack-{uuid.uuid4().hex[:12]}",
+                            "commandId": payload.get("commandId"),
+                            "plotId": plot_id,
+                            "status": "SUCCEEDED",
+                            "actualWaterLitre": planned_water,
+                            "receivedAt": datetime.now(UTC8).isoformat(),
+                            "result": "VIRTUAL_IRRIGATION_APPLIED",
+                        }, ensure_ascii=False), qos=1)
+                        return
                     device_id = str(payload.get("deviceId") or "")
                     target = str(payload.get("targetStatus") or "").upper()
                     if not device_id or target not in {"ONLINE", "OFFLINE"}:
@@ -432,7 +454,6 @@ def run(args: argparse.Namespace) -> int:
     start = datetime.now(UTC8) - timedelta(minutes=args.minutes)
     count = 0
     index = 0
-    states = {plot_id: initial_state(plot_id, rng) for plot_id, _crop in PLOTS}
     plot_configs: dict[str, dict] = {}
     config_signatures: dict[str, str] = {}
     plot_config_path = Path(args.plot_config).expanduser() if args.plot_config else None

@@ -39,16 +39,34 @@ test('demo P0 contracts expose deterministic guard and dual branches', async () 
   assert.equal(firstApproval.approvalStatus, 'PENDING');
 });
 
+test('farmer can execute a virtual irrigation and update both simulated metrics', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:request'] } });
+  const before = (await service.getPlots({ farmId: 'farm-demo' })).find((plot) => plot.plotId === 'plot-a01');
+  const plan = await service.estimateIrrigation({ plotId: 'plot-a01', traceId: 'trace-virtual-demo' });
+  assert.equal(plan.executable, true);
+  const command = await service.executeIrrigation(plan.planId, plan.plotId, {
+    approved: true,
+    executionMode: 'FARMER_VIRTUAL',
+    idempotencyKey: 'virtual-demo-key'
+  });
+  assert.equal(command.status, 'SUCCEEDED');
+  const after = (await service.getPlots({ farmId: 'farm-demo' })).find((plot) => plot.plotId === 'plot-a01');
+  assert.ok(after.metrics.SOIL_MOISTURE.value > before.metrics.SOIL_MOISTURE.value);
+  assert.ok(after.metrics.WATER_LEVEL.value < before.metrics.WATER_LEVEL.value);
+  assert.equal(command.ack.sensorEffect.sourceMode, 'SIMULATION');
+});
+
 test('farmer page renders P0 evidence, quality, dual-track and read-only execution surfaces', async () => {
   const [html, source] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '执行 / 不执行双轨对比', '知识证据与工具审计', '农户不能自行填写执行成功']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '不干预 / 执行处方', '知识证据与工具审计', '确认并开始虚拟浇水', '水库水位']) {
     assert.match(html, new RegExp(marker));
   }
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
-  assert.doesNotMatch(source, /api\.executeIrrigation\(/);
+  assert.match(source, /api\.executeIrrigation\(/);
 });

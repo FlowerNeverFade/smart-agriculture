@@ -607,7 +607,7 @@ const FEEDBACK_DECISION_MAP = Object.freeze({
 });
 
 const READINESS_STATUS_LABELS = Object.freeze({
-  READY: '可以提交审批',
+  READY: '可确认执行',
   NEEDS_EVIDENCE: '需要补充检查',
   HUMAN_REVIEW: '等待人工复核',
   UNAVAILABLE: '当前不可执行'
@@ -627,7 +627,7 @@ const READINESS_GATE_LABELS = Object.freeze({
 const EVIDENCE_LABELS = Object.freeze({
   FLOW_RATE_CALIBRATION: '检查流量计校准', PORTABLE_METER_COMPARISON: '使用便携仪复测',
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
-  MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '等待管理员审批',
+  MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '虚拟浇水权限未满足',
   GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
   DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据'
 });
@@ -1373,14 +1373,15 @@ const app = createApp({
     const advice_execution_summary = computed(() => {
       const commands = advice_passport.value?.commands || [];
       const evaluations = advice_passport.value?.evaluations || [];
-      const command = commands[commands.length - 1] || null;
+      const localCommand = suggestion_result.value?.commandId ? suggestion_result.value : null;
+      const command = localCommand || commands[commands.length - 1] || null;
       const evaluation = command
-        ? evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
+        ? command.evaluation || evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
         : null;
       const expected = evaluation?.expected || {};
       const actual = evaluation?.actual || {};
       return {
-        approvalStatus: suggestion_result.value?.approvalStatus || (suggestion_result.value?.workOrderId ? 'PENDING' : 'NOT_REQUESTED'),
+        approvalStatus: suggestion_result.value?.confirmationType === 'FARMER_SELF_CONFIRMATION' ? '已确认并执行' : suggestion_result.value?.approvalStatus || (suggestion_result.value?.workOrderId ? 'PENDING' : 'NOT_REQUESTED'),
         workOrderId: suggestion_result.value?.workOrderId || null,
         command,
         evaluation,
@@ -1388,7 +1389,9 @@ const app = createApp({
         ackAt: command?.ack?.receivedAt || null,
         actualWater: command?.ack?.actualWaterLitre ?? actual.waterLitre,
         before: actual.soilMoistureBefore ?? expected.soilMoistureBefore,
-        after: actual.soilMoistureAfter,
+        after: actual.soilMoistureAfter ?? suggestion_result.value?.ack?.sensorEffect?.soilMoistureAfter,
+        waterBefore: actual.waterLevelBefore ?? suggestion_result.value?.ack?.sensorEffect?.waterLevelBefore,
+        waterAfter: actual.waterLevelAfter ?? suggestion_result.value?.ack?.sensorEffect?.waterLevelAfter,
         score: Number.isFinite(Number(evaluation?.effectivenessScore)) ? Math.round(Number(evaluation.effectivenessScore) * 100) : null
       };
     });
@@ -1759,7 +1762,7 @@ const app = createApp({
           kind: 'IRRIGATION',
           statusLabel: '需要补水',
           issue: '土壤湿度低于目标',
-          detail: '查看补水建议，确认地块和水量后提交审批。',
+          detail: '查看补水建议，确认地块和水量后开始虚拟浇水。',
           actionLabel: '查看补水建议',
           icon: 'water_drop'
         };
@@ -1864,7 +1867,7 @@ const app = createApp({
       const irrigationSteps = [
         { id: 'VIEW', label: '查看建议' },
         { id: 'CONFIRM', label: '确认处方' },
-        { id: 'RESULT', label: '审批与执行证据' },
+        { id: 'RESULT', label: '命令与执行证据' },
         { id: 'RECOVERY', label: '效果评价' }
       ];
       const fieldActionSteps = [
@@ -1942,12 +1945,13 @@ const app = createApp({
       if (status === 'NEEDS_EVIDENCE') return '数据质量或诊断证据不足，请先巡田或复测。';
       if (status === 'UNAVAILABLE') return '设备或预测服务不可用，请先检查设备并联系管理员。';
       if (status === 'BLOCKED') return '安全门未通过，不能提交灌溉申请，请先补充证据。';
+      if (status === 'HUMAN_REVIEW' || plan.executable !== true) return '当前数据需要人工复核，暂不能执行虚拟浇水。';
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
       const duration = Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds);
       const start = plan.when?.start || plan.recommendedWindow?.start;
       const end = plan.when?.end || plan.recommendedWindow?.end;
-      if (!Number.isFinite(water) || water <= 0) return '处方缺少有效水量，不能提交审批。';
-      if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能提交审批。';
+      if (!Number.isFinite(water) || water <= 0) return '处方缺少有效水量，不能执行虚拟浇水。';
+      if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能执行虚拟浇水。';
       if (!start || !end) return '处方缺少执行时间窗口，请先补充证据。';
       return '';
     });
@@ -2866,7 +2870,7 @@ const app = createApp({
     const suggestion_recovery_detail = computed(() => {
       if (!active_suggestion.value) return '';
       if (suggestion_recovery_status.value) return suggestion_recovery_status.value;
-      if (active_suggestion.value.kind === 'IRRIGATION') return '提交审批后，等待管理员执行并复测湿度。';
+      if (active_suggestion.value.kind === 'IRRIGATION') return '确认后由虚拟执行器立即浇水，并回写土壤湿度与水库水位。';
       if (active_suggestion.value.kind === 'TASK') return '任务结果已提交，等待管理员验收。';
       return '已确认处理，等待现场复测或设备心跳恢复。';
     });
@@ -2892,7 +2896,7 @@ const app = createApp({
         task,
         title,
         reason,
-        actionLabel: context.actionLabel || (kind === 'IRRIGATION' ? '提交管理员审批' : (kind === 'TASK' ? '开始并填写结果' : '进入现场核验')),
+        actionLabel: context.actionLabel || (kind === 'IRRIGATION' ? '确认并虚拟浇水' : (kind === 'TASK' ? '开始并填写结果' : '进入现场核验')),
         traceId: context.traceId || null
       };
       suggestion_flow_stage.value = 'VIEW';
@@ -2934,26 +2938,33 @@ const app = createApp({
       try {
         if (active.kind === 'IRRIGATION') {
           const plan = irrigation_plan.value;
-          const key = suggestion_idempotency_key.value || `farmer-approval-${plan.planId}-${Date.now()}`;
+          const key = suggestion_idempotency_key.value || `farmer-virtual-irrigation-${plan.planId}-${Date.now()}`;
           suggestion_idempotency_key.value = key;
-          if (!suggestion_result.value) {
-            suggestion_result.value = await api.submitDecisionFeedback(plan.traceId || active.traceId || `farmer-${plan.planId}`, {
-              decision: 'REQUEST_APPROVAL',
-              action: 'IRRIGATION_REQUEST',
-              status: 'PENDING_APPROVAL',
-              plotId: active.plotId,
-              planId: plan.planId,
-              waterLitre: Number(plan.waterLitre ?? plan.howMuch?.waterLitre),
-              durationSeconds: Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds),
-              requestedWindow: plan.when || plan.recommendedWindow,
+          if (!suggestion_result.value?.commandId) {
+            const command = await api.executeIrrigation(plan.planId, active.plotId, {
+              approved: true,
+              executionMode: 'FARMER_VIRTUAL',
               idempotencyKey: key,
-              requiresApproval: true,
-              provenance: is_live.value ? 'BACKEND' : 'SIMULATED'
+              source: 'farmer-irrigation-system'
             });
+            let settled = command;
+            if (is_live.value && command?.commandId) {
+              for (let attempt = 0; attempt < 20 && !['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(String(settled?.status || '').toUpperCase()); attempt++) {
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                settled = await api.getCommand(command.commandId);
+              }
+              const evaluation = await api.getCommandEvaluation(command.commandId);
+              settled = { ...settled, evaluation };
+            }
+            suggestion_result.value = settled;
+            if (is_formal_session) await refresh_plot_telemetry();
           }
-          suggestion_recovery_status.value = '已提交管理员审批，执行后等待复测。';
+          const outcome = String(suggestion_result.value?.status || suggestion_result.value?.ack?.status || '').toUpperCase();
+          suggestion_recovery_status.value = outcome === 'SUCCEEDED'
+            ? '虚拟浇水已完成：土壤湿度上升，水库水位已扣减。'
+            : outcome === 'PARTIAL' ? '虚拟浇水部分完成：已记录实际用水和传感器变化。' : '虚拟浇水未成功，系统保留失败回执且未伪造效果。';
           suggestion_flow_stage.value = 'RESULT';
-          show_toast(is_live.value ? '灌溉申请已提交管理员审批' : '演示申请已记录，不会控制真实水泵');
+          show_toast(outcome === 'SUCCEEDED' ? '浇水完成，传感器数据已更新' : '浇水结果已记录', outcome === 'SUCCEEDED' ? 'success' : 'error');
         } else if (active.kind === 'TASK') {
           const task = active.task;
           const status = farmer_task_status(task);
@@ -3039,7 +3050,7 @@ const app = createApp({
         }
         suggestion_result.value = saved;
         suggestion_recovery_status.value = active.kind === 'IRRIGATION'
-          ? '结果已记录；等待管理员执行后复测湿度。'
+          ? '结果已记录；请刷新传感器确认湿度与水位变化。'
           : (active.kind === 'TASK' ? '结果已提交，等待管理员验收。' : '结果已记录，等待现场复测或设备心跳恢复。');
         suggestion_flow_stage.value = 'RECOVERY';
         show_toast('处理结果已记录');
@@ -3110,7 +3121,7 @@ const app = createApp({
     };
 
     const toggle_irrigation = () => {
-      // 农户没有 irrigation:approve，按钮只进入处方确认和管理员审批闭环。
+      // 农户进入受控的虚拟浇水确认闭环；真实设备仍由后端安全门拒绝。
       open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
 

@@ -193,6 +193,49 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerVirtualIrrigationUpdatesSoilAndReservoirWithoutAdminWorkOrder() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-virtual-water-" + suffix;
+        String deviceId = "mock-" + plotId;
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "虚拟灌溉测试田",
+                "cropCode", "tomato", "stageCode", "vegetative", "areaM2", 80)));
+        UserPrincipal farmer = new UserPrincipal("farmer-virtual-" + suffix, "farmer", "FARMER",
+                List.of("farm-demo"), List.of(plotId));
+        Instant observedAt = Instant.now();
+        engine.ingest(Map.of("eventId", "virtual-soil-before-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", deviceId, "metric", "SOIL_MOISTURE", "value", 16.0, "unit", "%",
+                "ts", observedAt.toString(), "sourceMode", "SIMULATION", "scenarioId", "drought",
+                "quality", Map.of("status", "GOOD", "confidence", .99)));
+        engine.ingest(Map.of("eventId", "virtual-water-before-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", deviceId, "metric", "WATER_LEVEL", "value", 82.0, "unit", "%",
+                "ts", observedAt.plusMillis(1).toString(), "sourceMode", "SIMULATION", "scenarioId", "drought",
+                "quality", Map.of("status", "GOOD", "confidence", .99)));
+
+        Map<String, Object> plan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-" + suffix), farmer);
+        assertThat(plan).containsEntry("readinessStatus", "READY").containsEntry("executable", true);
+        Map<String, Object> command = engine.createCommand(Map.of(
+                "plotId", plotId, "planId", plan.get("planId"), "idempotencyKey", "farmer-virtual-" + suffix,
+                "approved", true, "executionMode", "FARMER_VIRTUAL", "source", "farmer-irrigation-system"), farmer);
+        assertThat(command).containsEntry("confirmationType", "FARMER_SELF_CONFIRMATION");
+
+        String commandId = String.valueOf(command.get("commandId"));
+        Map<String, Object> completed = command;
+        for (int attempt = 0; attempt < 30 && !"SUCCEEDED".equals(completed.get("status")); attempt++) {
+            Thread.sleep(100);
+            completed = engine.commandById(commandId, farmer);
+        }
+        assertThat(completed).containsEntry("status", "SUCCEEDED");
+        Map<String, Object> evaluation = engine.commandEvaluation(commandId, farmer);
+        assertThat(evaluation).containsEntry("status", "COMPLETED");
+        Map<String, Object> effect = Jsons.map(new ObjectMapper(), evaluation.get("sensorEffect"));
+        assertThat(Jsons.number(effect, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(effect, "soilMoistureBefore", 0));
+        assertThat(Jsons.number(effect, "waterLevelAfter", 100)).isLessThan(Jsons.number(effect, "waterLevelBefore", 0));
+        assertThat(Jsons.bool(effect, "telemetryAccepted", false)).isTrue();
+        assertThat(store.list("work-order").stream().noneMatch(work -> commandId.equals(Jsons.text(work, "commandId", "")))).isTrue();
+    }
+
+    @Test
     void diagnosisExplanationKeepsRuleFactsAndLeavesAuditableFallback() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("scenarioId", "normal", "traceId", "test-diagnosis-explanation"));

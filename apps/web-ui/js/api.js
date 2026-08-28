@@ -148,7 +148,8 @@ export class ApiService {
       plans: new Map(),
       readiness: new Map(),
       commands: new Map(),
-      evaluations: new Map()
+      evaluations: new Map(),
+      commandIdempotency: new Map()
     };
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
@@ -802,7 +803,7 @@ export class ApiService {
     const now = Date.now();
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
     const profile = telemetryMetricProfile(code);
-    const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const targetPlot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const metricRecord = targetPlot?.metrics?.[code] || {};
     const configuredBase = Number(metricRecord.value);
     const baseValue = Number.isFinite(configuredBase) ? configuredBase : profile.defaultValue;
@@ -1757,7 +1758,7 @@ export class ApiService {
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
     const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
     const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = roleCan(this.user, 'irrigation:approve') || this.user?.role === 'FARMER';
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
@@ -1818,7 +1819,7 @@ export class ApiService {
     const status = plan.readinessStatus || 'HUMAN_REVIEW';
     const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
     const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = roleCan(this.user, 'irrigation:approve') || this.user?.role === 'FARMER';
     const hardGates = {
       requiredMetrics: 'PASS',
       freshness: deviceOffline ? 'FAIL' : 'PASS',
@@ -2064,7 +2065,8 @@ export class ApiService {
     if (!plotId) {
       throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     }
-    if (!roleCan(this.user, 'irrigation:approve')) {
+    const farmerVirtual = options.executionMode === 'FARMER_VIRTUAL' && this.user?.role === 'FARMER';
+    if (!roleCan(this.user, 'irrigation:approve') && !farmerVirtual) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     }
     if (options.approved !== true) {
@@ -2078,17 +2080,23 @@ export class ApiService {
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
           approved: true,
+          executionMode: options.executionMode || 'SIMULATED',
           source: options.source || 'web-decision-console',
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });
       if (resp && resp.data) {
-        const command = { ...resp.data, executionMode: 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
+        const command = { ...resp.data, executionMode: resp.data.executionMode || options.executionMode || 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
         this.decisionCache.commands.set(command.commandId, command);
         return command;
       }
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
+    }
+
+    const demoIdempotencyKey = options.idempotencyKey || '';
+    if (demoIdempotencyKey && this.decisionCache.commandIdempotency.has(demoIdempotencyKey)) {
+      return this.decisionCache.commandIdempotency.get(demoIdempotencyKey);
     }
 
     const plan = this.decisionCache.plans.get(planId);
@@ -2117,7 +2125,9 @@ export class ApiService {
       waterLitre: plannedWater,
       durationSeconds: plannedDuration,
       transport: "MQTT_VIRTUAL_ACTUATOR",
-      executionMode: 'SIMULATED',
+      executionMode: farmerVirtual ? 'FARMER_VIRTUAL' : 'SIMULATED',
+      sourceMode: 'SIMULATION',
+      confirmationType: farmerVirtual ? 'FARMER_SELF_CONFIRMATION' : 'ADMIN_CONFIRMATION',
       provenance: 'SIMULATED',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
@@ -2138,8 +2148,30 @@ export class ApiService {
         provenance: 'SIMULATED'
       }
     };
+    const demoPlot = this.demoPlots.get(plotId);
+    if (outcome === 'SUCCEEDED' || outcome === 'PARTIAL') {
+      const ratio = outcome === 'PARTIAL' ? .4 : 1;
+      const soilBefore = Number(demoPlot?.metrics?.SOIL_MOISTURE?.value ?? plan.expectedResult?.from ?? 20);
+      const soilAfter = Math.min(100, Number((soilBefore + 10 * ratio).toFixed(1)));
+      const waterBefore = Number(demoPlot?.metrics?.WATER_LEVEL?.value ?? 80);
+      const waterAfter = Math.max(0, Number((waterBefore - actualWater / 900 * 100).toFixed(1)));
+      const updated = {
+        ...(demoPlot || {}),
+        metrics: {
+          ...(demoPlot?.metrics || {}),
+          SOIL_MOISTURE: { ...(demoPlot?.metrics?.SOIL_MOISTURE || {}), value: soilAfter, sourceMode: 'SIMULATION', dataOrigin: 'VIRTUAL_ACTUATOR', quality: { status: 'GOOD', freshnessMs: 0, confidence: .99 } },
+          WATER_LEVEL: { ...(demoPlot?.metrics?.WATER_LEVEL || {}), value: waterAfter, sourceMode: 'SIMULATION', dataOrigin: 'VIRTUAL_ACTUATOR', quality: { status: 'GOOD', freshnessMs: 0, confidence: .99 } }
+        }
+      };
+      this.demoPlots.set(plotId, updated);
+      command.ack.sensorEffect = { soilMoistureBefore: soilBefore, soilMoistureAfter: soilAfter, waterLevelBefore: waterBefore, waterLevelAfter: waterAfter, actualWaterLitre: actualWater, sourceMode: 'SIMULATION' };
+      command.evaluation.actualMoisture = `${soilAfter.toFixed(1)}%`;
+      command.evaluation.actual = { soilMoistureBefore: soilBefore, soilMoistureAfter: soilAfter, waterLevelBefore: waterBefore, waterLevelAfter: waterAfter, waterLitre: actualWater };
+      command.evaluation.sensorEffect = command.ack.sensorEffect;
+    }
     this.decisionCache.commands.set(command.commandId, command);
     this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId, planId });
+    if (demoIdempotencyKey) this.decisionCache.commandIdempotency.set(demoIdempotencyKey, command);
     return command;
   }
 

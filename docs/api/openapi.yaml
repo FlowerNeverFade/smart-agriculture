@@ -446,6 +446,8 @@ components:
         planId: {type: string}
         idempotencyKey: {type: string, minLength: 8}
         approved: {type: boolean}
+        executionMode: {type: string, enum: [SIMULATED, FARMER_VIRTUAL]}
+        source: {type: string}
         outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
     CommandAck:
       type: object
@@ -454,6 +456,10 @@ components:
         commandId: {type: string}
         status: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
         actualWaterLitre: {type: number, minimum: 0}
+        sensorEffect:
+          type: object
+          description: 仅模拟虚拟执行回写的土壤湿度与水库水位 before/after。
+          additionalProperties: true
         receivedAt: {type: string, format: date-time}
     DeviceControlRequest:
       type: object

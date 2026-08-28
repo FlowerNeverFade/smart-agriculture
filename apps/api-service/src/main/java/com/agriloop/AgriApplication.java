@@ -3018,7 +3018,8 @@ class AgriEngine {
         boolean drift = "sensor-drift".equalsIgnoreCase(Jsons.text(soil, "scenarioId", ""))
                 || "BAD".equals(qualityStatus) || "SENSOR_DRIFT".equals(diagnosisCause);
         boolean resourcePass = store.find("resource-profile", "resource-default") != null;
-        boolean permissionPass = principal == null || principal.canControl();
+        boolean permissionPass = principal == null || principal.canControl()
+                || canFarmerRunVirtualIrrigation(principal, plotId);
         boolean safetyPass = plan == null || Jsons.whole(plan, "durationSeconds", 0) <= properties.getMaxIrrigationSeconds();
         Map<String, String> gates = new LinkedHashMap<>(); gates.put("requiredMetrics", metricPass ? "PASS" : "FAIL"); gates.put("freshness", freshnessPass ? "PASS" : "FAIL");
         gates.put("dataQuality", qualityPass ? "PASS" : qualityNeedsReview ? "REVIEW" : "FAIL"); gates.put("deviceHealth", devicePass ? "PASS" : "FAIL"); gates.put("resourceCapacity", resourcePass ? "PASS" : "FAIL");
@@ -3221,7 +3222,15 @@ class AgriEngine {
         }
         if (old != null) return old;
         String plotId = Jsons.text(request, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
-        if (!principal.canControl()) throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无控制权限");
+        boolean farmerVirtual = principal.isFarmer()
+                && "FARMER_VIRTUAL".equalsIgnoreCase(Jsons.text(request, "executionMode", ""));
+        if (!principal.canControl() && !farmerVirtual) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无控制权限");
+        }
+        if (farmerVirtual && !canFarmerRunVirtualIrrigation(principal, plotId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "VIRTUAL_IRRIGATION_UNAVAILABLE",
+                    "农户自助浇水仅限虚拟传感器和虚拟执行器；真实来源、设备异常或非虚拟命令模式下必须停止操作");
+        }
         String planId = Jsons.text(request, "planId", ""); Map<String, Object> plan = store.find("irrigation-plan", planId);
         if (plan == null) plan = irrigationPlan(Map.of("plotId", plotId), principal);
         Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", planId), principal);
@@ -3243,9 +3252,13 @@ class AgriEngine {
         Instant lastAction = cooldowns.get(plotId);
         if (lastAction != null && Duration.between(lastAction, Instant.now()).toMinutes() < 120) throw new ApiException(HttpStatus.CONFLICT, "COOLDOWN_ACTIVE", "地块仍处于灌溉冷却窗口");
         Map<String, Object> command = new LinkedHashMap<>(); command.put("commandId", Jsons.id("cmd")); command.put("plotId", plotId); command.put("planId", plan.get("planId"));
+        Map<String, Object> actuator = deviceForPlot(plotId);
         command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", Jsons.number(plan, "waterLitre", 0));
+        command.put("farmId", farmIdForPlot(plotId)); command.put("deviceId", Jsons.text(actuator, "deviceId", "mock-" + plotId));
         command.put("idempotencyKey", key); command.put("status", "APPROVED"); command.put("requestedBy", principal.userId); command.put("approvedBy", principal.userId);
         command.put("approvedAt", Instant.now().toString()); command.put("riskLevel", "MEDIUM"); command.put("source", Jsons.text(request, "source", "api"));
+        command.put("executionMode", farmerVirtual ? "FARMER_VIRTUAL" : "SIMULATED"); command.put("sourceMode", "SIMULATION");
+        command.put("confirmationType", farmerVirtual ? "FARMER_SELF_CONFIRMATION" : "ADMIN_CONFIRMATION");
         store.save("command", Jsons.text(command, "commandId", ""), command); idempotentCommands.put(key, command); events.publish("command.approved", command); store.logEvent("command.approved", command);
         store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", command.get("commandId"), "createdAt", Instant.now().toString()));
         cooldowns.put(plotId, Instant.now());
@@ -3264,7 +3277,10 @@ class AgriEngine {
             ack.put("actualWaterLitre", "SUCCEEDED".equals(outcome) ? Jsons.number(command, "waterLitre", 0) : "PARTIAL".equals(outcome) ? Jsons.number(command, "waterLitre", 0) * .55 : 0);
             ack.put("result", "SUCCEEDED".equals(outcome) ? "GOOD" : "TIMEOUT".equals(outcome) ? "NO_ACK" : "EXECUTION_FAILED");
             ackByCommand.put(Jsons.text(command, "commandId", ""), ack); command.put("status", outcome); command.put("ack", ack); store.save("command", Jsons.text(command, "commandId", ""), command);
-            events.publish("command.ack", ack); store.logEvent("command.ack", ack); evaluateCommand(command, ack);
+            events.publish("command.ack", ack); store.logEvent("command.ack", ack);
+            Map<String, Object> evaluation = evaluateCommand(command, ack);
+            ack.put("sensorEffect", evaluation.get("sensorEffect")); command.put("ack", ack);
+            store.save("command", Jsons.text(command, "commandId", ""), command);
         });
     }
 
@@ -3273,7 +3289,7 @@ class AgriEngine {
         if (!evaluatedCommands.add(commandId)) return commandEvaluation(commandId);
         Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
         double before = Jsons.number(soil, "value", 0); String ackStatus = Jsons.text(ack, "status", "TIMEOUT");
-        double actualWater = Jsons.number(ack, "actualWaterLitre", 0); double after = "SUCCEEDED".equals(ackStatus) ? Math.min(100, before + 10) : "PARTIAL".equals(ackStatus) ? before + 4 : before;
+        double actualWater = Jsons.number(ack, "actualWaterLitre", 0); double after = "SUCCEEDED".equals(ackStatus) ? Math.min(100, before + 10) : "PARTIAL".equals(ackStatus) ? Math.min(100, before + 4) : before;
         String status = "TIMEOUT".equals(ackStatus) || "FAILED".equals(ackStatus) ? "INCONCLUSIVE" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "COMPLETED";
         String result = "SUCCEEDED".equals(ackStatus) && after > before ? "GOOD" : "PARTIAL".equals(ackStatus) ? "NO_EFFECT" : "EXECUTION_FAILED";
         // A cooldown protects the resource after water was actually delivered.
@@ -3286,13 +3302,64 @@ class AgriEngine {
         evaluation.put("plotId", plotId);
         Map<String, Object> evaluationPlot = store.find("plot", plotId);
         evaluation.put("farmId", evaluationPlot == null ? null : Jsons.text(evaluationPlot, "farmId", ""));
-        evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", before + 10, "waterLitre", expectedWater));
-        evaluation.put("actual", Map.of("soilMoistureBefore", before, "soilMoistureAfter", after, "waterLitre", actualWater));
+        Map<String, Object> sensorEffect = applyVirtualIrrigationTelemetry(command, ackStatus, before, after, actualWater);
+        evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", Math.min(100, before + 10), "waterLitre", expectedWater));
+        Map<String, Object> actual = new LinkedHashMap<>(); actual.put("soilMoistureBefore", before); actual.put("soilMoistureAfter", after); actual.put("waterLitre", actualWater);
+        if (!sensorEffect.isEmpty()) {
+            actual.put("waterLevelBefore", sensorEffect.get("waterLevelBefore")); actual.put("waterLevelAfter", sensorEffect.get("waterLevelAfter"));
+        }
+        evaluation.put("actual", actual); evaluation.put("sensorEffect", sensorEffect);
         evaluation.put("planActualDiff", Map.of("waterLitrePct", Math.round(diff * 10000.0) / 100.0, "soilMoisturePoint", after - (before + 10)));
         evaluation.put("effectivenessScore", status.equals("COMPLETED") && "GOOD".equals(result) ? .94 : status.equals("PARTIAL") ? .45 : 0.0); evaluation.put("result", result);
         evaluation.put("evidenceWindow", Map.of("beforeMinutes", 30, "afterMinutes", 30)); evaluation.put("createdAt", Instant.now().toString());
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
         return evaluation;
+    }
+
+    private boolean canFarmerRunVirtualIrrigation(UserPrincipal principal, String plotId) {
+        if (principal == null || !principal.canRequestIrrigation()
+                || !"virtual".equalsIgnoreCase(properties.getCommandMode())) return false;
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        Map<String, Object> water = latest.get("WATER_LEVEL") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        if (soil.isEmpty() || water.isEmpty()) return false;
+        if ("REAL".equalsIgnoreCase(Jsons.text(soil, "sourceMode", ""))
+                || "REAL".equalsIgnoreCase(Jsons.text(water, "sourceMode", ""))) return false;
+        Map<String, Object> device = deviceForPlot(plotId);
+        return !device.isEmpty() && deviceIsSimulated(device)
+                && !"OFFLINE".equalsIgnoreCase(Jsons.text(device, "status", "OFFLINE"));
+    }
+
+    private Map<String, Object> applyVirtualIrrigationTelemetry(Map<String, Object> command, String ackStatus,
+                                                                 double soilBefore, double soilAfter, double actualWater) {
+        if (!Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus) || actualWater <= 0
+                || !"SIMULATION".equalsIgnoreCase(Jsons.text(command, "sourceMode", ""))) return Map.of();
+        String plotId = Jsons.text(command, "plotId", "");
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> water = latest.get("WATER_LEVEL") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        double waterBefore = Jsons.number(water, "value", 100);
+        Map<String, Object> resource = store.find("resource-profile", "resource-default");
+        double capacity = Math.max(1, Jsons.number(resource, "capacityLitres", properties.getDailyWaterLimitLitres()));
+        double waterAfter = round(Math.max(0, waterBefore - actualWater / capacity * 100));
+        double roundedSoilAfter = round(soilAfter);
+        Instant observedAt = Instant.now();
+        String commandId = Jsons.text(command, "commandId", Jsons.id("cmd"));
+        String farmId = Jsons.text(command, "farmId", farmIdForPlot(plotId));
+        String deviceId = Jsons.text(command, "deviceId", "mock-" + plotId);
+        Map<String, Object> common = new LinkedHashMap<>(); common.put("farmId", farmId); common.put("plotId", plotId);
+        common.put("deviceId", deviceId); common.put("ts", observedAt.toString()); common.put("scenarioId", "virtual-irrigation");
+        common.put("sourceMode", "SIMULATION"); common.put("provenance", "OBSERVED"); common.put("dataOrigin", "VIRTUAL_ACTUATOR");
+        common.put("quality", Map.of("status", "GOOD", "freshnessMs", 0, "confidence", .99)); common.put("commandId", commandId);
+        Map<String, Object> soilEvent = new LinkedHashMap<>(common); soilEvent.put("eventId", commandId + "-soil-effect");
+        soilEvent.put("metric", "SOIL_MOISTURE"); soilEvent.put("value", roundedSoilAfter); soilEvent.put("unit", "%");
+        Map<String, Object> waterEvent = new LinkedHashMap<>(common); waterEvent.put("eventId", commandId + "-water-effect");
+        waterEvent.put("metric", "WATER_LEVEL"); waterEvent.put("value", waterAfter); waterEvent.put("unit", "%");
+        Map<String, Object> soilResult = ingest(soilEvent); Map<String, Object> waterResult = ingest(waterEvent);
+        Map<String, Object> effect = new LinkedHashMap<>(); effect.put("soilMoistureBefore", round(soilBefore)); effect.put("soilMoistureAfter", roundedSoilAfter);
+        effect.put("waterLevelBefore", round(waterBefore)); effect.put("waterLevelAfter", waterAfter); effect.put("actualWaterLitre", round(actualWater));
+        effect.put("soilEventId", commandId + "-soil-effect"); effect.put("waterEventId", commandId + "-water-effect");
+        effect.put("telemetryAccepted", Jsons.bool(soilResult, "accepted", false) && Jsons.bool(waterResult, "accepted", false));
+        effect.put("sourceMode", "SIMULATION"); return effect;
     }
 
     Map<String, Object> commandEvaluation(String commandId) {
