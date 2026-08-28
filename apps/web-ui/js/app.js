@@ -424,9 +424,6 @@ function adminServiceCards(systemStatus = {}) {
     sourceMode: 'BACKEND'
   }));
 }
-    sourceMode: 'BACKEND'
-  }));
-}
 
 function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
   overview = overview || {};
