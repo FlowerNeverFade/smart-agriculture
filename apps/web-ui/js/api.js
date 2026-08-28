@@ -1124,11 +1124,11 @@ export class ApiService {
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
-  async createFarmMember({ farmId, username, password, displayName = '', plotIds = [] } = {}) {
+  async createFarmMember({ farmId, username, password, displayName = '', role = 'FARMER', plotIds = [] } = {}) {
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/farm-members', {
         method: 'POST',
-        body: JSON.stringify({ farmId, username, password, displayName, plotIds })
+        body: JSON.stringify({ farmId, username, password, displayName, role, plotIds })
       });
       if (response?.data?.userId) {
         return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
@@ -1142,14 +1142,16 @@ export class ApiService {
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
+    const memberRole = String(role || 'FARMER').toUpperCase();
+    const memberRoleLabel = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' }[memberRole] || '种植农户';
     const member = normalizeFarmMember({
       userId,
       username: normalized,
       displayName: displayName || normalized,
-      role: 'FARMER',
-      roleLabel: '种植农户',
+      role: memberRole,
+      roleLabel: memberRoleLabel,
       farmIds: [farmId],
-      plotIds,
+      plotIds: memberRole === 'SYSTEM_ADMIN' ? ['*'] : plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
