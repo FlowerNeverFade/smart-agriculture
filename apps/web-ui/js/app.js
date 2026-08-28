@@ -3410,7 +3410,7 @@ const app = createApp({
       if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
       state.value.adminOverview.recentEvents.unshift(systemEvent);
       state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
-      showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+      // 系统事件仅记入最近事件列表，不再弹出 toast 通知，避免高频事件堆积遮挡视线。
     };
     const connectLiveEvents = async ({ announce = true } = {}) => {
       if (state.value.sessionMode !== 'live' || !api.isLive || liveEventsStop || liveEventsConnecting) return false;
