@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260827-p0-closure-merge">
+  <link rel="stylesheet" href="css/farmer.css?v=20260827-load-progress">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -19,6 +19,33 @@
 </head>
 <body>
   <div id="farmer_app" v-cloak @click="on_app_click">
+    <div
+      class="farmer-load-progress"
+      :class="{ active: workspace_loading }"
+      role="progressbar"
+      :aria-valuenow="workspace_load_progress"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-busy="workspace_loading ? 'true' : 'false'"
+      :aria-label="workspace_load_label || '数据加载中'"
+    >
+      <span :style="{ width: (workspace_loading ? Math.max(workspace_load_progress, 8) : 0) + '%' }"></span>
+    </div>
+
+    <div v-if="bootstrap_loading" class="farmer-boot-overlay" aria-live="polite">
+      <div class="farmer-boot-card">
+        <div class="farmer-boot-mark" aria-hidden="true">
+          <span class="material-symbols-outlined">agriculture</span>
+        </div>
+        <strong>正在加载农户数据</strong>
+        <p>{{ workspace_load_label || '请稍候…' }}</p>
+        <div class="farmer-boot-bar" aria-hidden="true">
+          <span :style="{ width: Math.max(workspace_load_progress, 8) + '%' }"></span>
+        </div>
+        <small>{{ Math.max(workspace_load_progress, 0) }}%</small>
+      </div>
+    </div>
+
     <header class="g-header farmer-header">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggle_sidebar" title="折叠导航">
@@ -35,8 +62,9 @@
           <app-icon name="logout"></app-icon>
         </button>
         <span class="farmer-data-freshness" title="数据更新时间">
-          <span class="farmer-freshness-dot" :class="{live: is_live}"></span>
-          数据更新于 {{ data_updated_label }}
+          <span class="farmer-freshness-dot" :class="{ live: is_live && !workspace_loading, loading: workspace_loading }"></span>
+          <template v-if="workspace_loading">{{ workspace_load_label || '数据加载中…' }}</template>
+          <template v-else>数据更新于 {{ data_updated_label }}</template>
         </span>
         <div class="farmer-account-anchor account-profile-anchor">
           <button
@@ -640,9 +668,6 @@
                 <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
               </div>
               <div class="farmer-page-actions">
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('decision-console', advice_plot && advice_plot.plotId)">
-                  <app-icon name="psychology"></app-icon>查看完整诊断
-                </button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_tools('risk', advice_plot && advice_plot.plotId)">
                   <app-icon name="timeline"></app-icon>打开风险预警
                 </button>
@@ -1044,7 +1069,6 @@
                 <p class="role-summary">查看待办与执行进度；任务由农场管理员下达。巡田与补证请前往「巡田记录」。</p>
               </div>
               <div class="farmer-page-actions">
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_shared_view('work-orders')"><app-icon name="assignment"></app-icon>查看工单中心</button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('inspections')"><app-icon name="fact_check"></app-icon>巡田记录</button>
               </div>
             </div>
@@ -1531,6 +1555,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260827-p0-closure-merge"></script>
+  <script type="module" src="js/farmer.js?v=20260827-load-progress"></script>
 </body>
 </html>

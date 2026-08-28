@@ -862,6 +862,35 @@ const app = createApp({
     const is_sidebar_open = ref(true);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
+    const bootstrap_loading = ref(true);
+    const workspace_loading = ref(false);
+    const workspace_load_progress = ref(0);
+    const workspace_load_label = ref('正在准备农户数据…');
+    let workspace_progress_hide_timer = null;
+
+    const set_workspace_progress = (progress, label = '') => {
+      workspace_load_progress.value = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
+      if (label) workspace_load_label.value = label;
+    };
+
+    const begin_workspace_progress = (label = '正在加载数据…') => {
+      if (workspace_progress_hide_timer) {
+        window.clearTimeout(workspace_progress_hide_timer);
+        workspace_progress_hide_timer = null;
+      }
+      workspace_loading.value = true;
+      set_workspace_progress(6, label);
+    };
+
+    const finish_workspace_progress = (label = '加载完成') => {
+      set_workspace_progress(100, label);
+      if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
+      workspace_progress_hide_timer = window.setTimeout(() => {
+        workspace_loading.value = false;
+        workspace_load_progress.value = 0;
+        workspace_progress_hide_timer = null;
+      }, 320);
+    };
 
     const show_toast = (message, type = 'success') => {
       const id = Date.now() + Math.random();
@@ -2073,11 +2102,14 @@ const app = createApp({
       return true;
     };
 
-    const load_live_workspace = async ({ announce = false } = {}) => {
+    const load_live_workspace = async ({ announce = false, trackProgress = false } = {}) => {
       if (!is_formal_session) return false;
       const version = ++workspace_request_version;
       load_error.value = '';
+      const showProgress = Boolean(trackProgress || announce || bootstrap_loading.value);
+      if (showProgress) begin_workspace_progress('正在读取农场与地块…');
       try {
+        if (showProgress) set_workspace_progress(18, '正在读取农场、任务与告警…');
         const results = await Promise.allSettled([
           api.getFarms(),
           api.getPlots({ includeInactive: true }),
@@ -2117,6 +2149,7 @@ const app = createApp({
             return { ...normalized, healthScore: compute_plot_health_score(normalized) };
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        if (showProgress) set_workspace_progress(52, '正在同步地块遥测…');
         const telemetryResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
         normalizedPlots = normalizedPlots.map((plot, index) => {
           const result = telemetryResults[index];
@@ -2124,6 +2157,7 @@ const app = createApp({
           const merged = mergePlotTelemetryWindow(plot, result.value || []);
           return { ...merged, healthScore: compute_plot_health_score(merged) };
         });
+        if (showProgress) set_workspace_progress(78, '正在整理巡田与消息…');
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
         const inspectionResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getInspections(plot.plotId)));
@@ -2170,6 +2204,7 @@ const app = createApp({
         if (!inspection_form.value.plot_id || !plotMap.has(inspection_form.value.plot_id)) inspection_form.value.plot_id = normalizedPlots[0]?.plotId || '';
         if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
         data_updated_label.value = '刚刚';
+        if (showProgress) set_workspace_progress(94, '正在完成工作台初始化…');
         return true;
       } catch (error) {
         if (version !== workspace_request_version) return false;
@@ -2186,6 +2221,10 @@ const app = createApp({
         farm.value = {};
         if (announce) show_toast(`正式农户数据读取失败：${load_error.value}`, 'error');
         return false;
+      } finally {
+        if (showProgress && version === workspace_request_version && !bootstrap_loading.value) {
+          finish_workspace_progress(load_error.value ? '加载未完成' : '数据已更新');
+        }
       }
     };
 
@@ -2673,7 +2712,7 @@ const app = createApp({
           if (passportResult.status === 'fulfilled' && passportResult.value) advice_passport.value = passportResult.value;
           if (guardResult.status === 'fulfilled' && guardResult.value) irrigation_guard.value = guardResult.value;
         }
-        if (is_formal_session) {
+      if (is_formal_session) {
           await refresh_plot_telemetry();
           await load_live_workspace({ announce: false });
         }
@@ -2977,10 +3016,10 @@ const app = createApp({
         qa_audit.value = audit;
         apply_qa_turn(turn);
         qa_history.value = [turn, ...qa_history.value].slice(0, 6);
-        qa_input.value = '';
-      } catch (error) {
+          qa_input.value = '';
+        } catch (error) {
         qa_source_label.value = '智能问答暂不可用';
-        show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
+          show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
       } finally {
         qa_busy.value = false;
       }
@@ -3241,6 +3280,8 @@ const app = createApp({
     };
 
     onMounted(async () => {
+      bootstrap_loading.value = true;
+      begin_workspace_progress('正在准备农户工作台…');
 
       const saved_theme = localStorage.getItem('agriloop-theme');
       if (saved_theme === 'dark') {
@@ -3255,12 +3296,17 @@ const app = createApp({
         apply_farmer_hash();
       }
       window.addEventListener('hashchange', apply_farmer_hash);
+      set_workspace_progress(12, '正在检查服务状态…');
       is_live.value = await api.checkHealth();
       if (is_formal_session) {
-        await load_live_workspace({ announce: true });
+        await load_live_workspace({ announce: true, trackProgress: true });
         is_live.value = api.isLive;
+        set_workspace_progress(96, '正在连接实时事件…');
         await connect_live_events();
+      } else {
+        set_workspace_progress(55, '正在载入演示数据…');
       }
+      set_workspace_progress(88, '正在加载预警与资源协同…');
       await load_farmer_enhancements();
       await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
       if (current_view.value === 'advice' && advice_plot.value?.plotId) {
@@ -3271,6 +3317,8 @@ const app = createApp({
         else await load_tools_forecast();
       }
       start_live_polling();
+      bootstrap_loading.value = false;
+      finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
     });
 
     watch([current_view, tools_tab, tools_plot_id, tools_scenario, crop_manual_code, crop_manual_stage], () => {
@@ -3297,6 +3345,7 @@ const app = createApp({
     });
 
     onBeforeUnmount(() => {
+      if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
       stop_live_polling();
       window.removeEventListener('hashchange', apply_farmer_hash);
       live_events_stop?.();
@@ -3308,6 +3357,10 @@ const app = createApp({
       is_formal_session,
       is_live,
       load_error,
+      bootstrap_loading,
+      workspace_loading,
+      workspace_load_progress,
+      workspace_load_label,
       is_dark,
       is_sidebar_open,
       data_updated_label,

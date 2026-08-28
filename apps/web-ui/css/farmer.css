@@ -1541,6 +1541,9 @@
   background: var(--g-bg-subtle);
   font-size: 12px;
   white-space: nowrap;
+  max-width: min(42vw, 280px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .farmer-freshness-dot {
   width: 8px;
@@ -1550,6 +1553,104 @@
   flex: 0 0 auto;
 }
 .farmer-freshness-dot.live { background: var(--g-success); }
+.farmer-freshness-dot.loading {
+  background: var(--g-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--g-primary) 45%, transparent);
+  animation: farmer-freshness-pulse 1.2s ease-out infinite;
+}
+@keyframes farmer-freshness-pulse {
+  70% { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.farmer-load-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1400;
+  height: 3px;
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in srgb, var(--g-border-subtle) 70%, transparent);
+  transition: opacity .2s ease;
+}
+.farmer-load-progress.active { opacity: 1; }
+.farmer-load-progress span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 0 2px 2px 0;
+  background: linear-gradient(90deg, var(--g-primary), color-mix(in srgb, var(--g-success) 80%, var(--g-primary)));
+  transition: width .35s ease;
+}
+
+.farmer-boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1350;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--g-primary-bg) 80%, transparent), transparent 45%),
+    color-mix(in srgb, var(--g-bg) 82%, transparent);
+  backdrop-filter: blur(6px);
+}
+.farmer-boot-card {
+  width: min(100%, 360px);
+  padding: 28px 24px 22px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 18px;
+  background: var(--g-surface);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--g-text) 12%, transparent);
+  text-align: center;
+}
+.farmer-boot-mark {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+}
+.farmer-boot-mark .material-symbols-outlined {
+  font-size: 28px;
+}
+.farmer-boot-card strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--g-text);
+}
+.farmer-boot-card p {
+  margin: 8px 0 16px;
+  color: var(--g-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 1.5em;
+}
+.farmer-boot-bar {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--g-bg-subtle);
+}
+.farmer-boot-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--g-primary), var(--g-success));
+  transition: width .35s ease;
+}
+.farmer-boot-card small {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-variant-numeric: tabular-nums;
+}
 
 .farmer-stats-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));

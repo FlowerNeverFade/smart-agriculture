@@ -482,11 +482,20 @@ function mapSystemMembers(members, farms) {
 // intentionally not user notifications.  The simulator emits a batch of
 // these events every second, so surfacing each one as a toast makes the admin
 // workbench unusable while adding no actionable information.
+// alert.updated is also silent: open alerts keep receiving occurrence bumps
+// from rules, and toasting “土壤持续偏干” on every bump is noise.
 const SILENT_SYSTEM_EVENT_TYPES = new Set([
   'telemetry.received',
   'device.heartbeat',
-  'scenario.telemetry'
+  'scenario.telemetry',
+  'alert.updated'
 ]);
+
+// Only announce a new alert toast once per plot+source within the cooldown.
+// Duplicate ACTIVE alerts (or reconnect storms) must not keep interrupting
+// the farm admin with the same drought warning.
+const ALERT_TOAST_COOLDOWN_MS = 5 * 60 * 1000;
+const recentAlertToastKeys = new Map();
 
 function systemEventType(event) {
   return String(event?.data?.eventType || event?.type || 'system').trim().toLowerCase();
@@ -497,6 +506,27 @@ function isSilentSystemEventType(type) {
   return SILENT_SYSTEM_EVENT_TYPES.has(normalized)
     || normalized.includes('telemetry')
     || normalized.includes('heartbeat');
+}
+
+function shouldAnnounceSystemToast(systemEvent, payload = {}) {
+  if (systemEvent?.silent) return false;
+  const type = String(systemEvent?.type || '').toLowerCase();
+  if (!type.startsWith('alert.')) return true;
+  // Updates are already silent; created/escalated still need plot-level cooldown.
+  const key = [
+    String(payload.plotId || payload.plot_id || '').trim(),
+    String(payload.source || '').trim().toUpperCase(),
+    String(payload.title || systemEvent.title || '').trim()
+  ].join('|');
+  const now = Date.now();
+  const last = recentAlertToastKeys.get(key) || 0;
+  if (now - last < ALERT_TOAST_COOLDOWN_MS) return false;
+  recentAlertToastKeys.set(key, now);
+  if (recentAlertToastKeys.size > 128) {
+    const oldest = recentAlertToastKeys.keys().next().value;
+    if (oldest) recentAlertToastKeys.delete(oldest);
+  }
+  return true;
 }
 
 function presentSystemEvent(event) {
@@ -3442,6 +3472,8 @@ const app = createApp({
       if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
       state.value.adminOverview.recentEvents.unshift(systemEvent);
       state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+      const payload = event?.data?.payload || event?.data || {};
+      if (!shouldAnnounceSystemToast(systemEvent, payload)) return;
       showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
     };
     const connectLiveEvents = async ({ announce = true } = {}) => {
