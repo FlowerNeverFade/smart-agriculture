@@ -69,7 +69,7 @@ test('farmer page renders P0 evidence, quality, dual-track and read-only executi
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '执行 / 不执行双轨对比', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '只读双轨试算', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
     assert.match(html, new RegExp(marker));
   }
   assert.match(source, /getIrrigationGuard/);

@@ -6,7 +6,7 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js';
+import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
@@ -164,7 +164,9 @@ export class ApiService {
         plotId: item.plotId || plot?.plotId || null,
         status: item.status || 'OFFLINE',
         bindingState: (item.plotId || plot?.plotId) ? 'BOUND' : 'UNBOUND',
-        sourceMode: 'SIMULATED'
+        sourceMode: 'SIMULATED',
+        desiredStatus: item.status || 'OFFLINE',
+        controlStatus: 'SUCCEEDED'
       }];
     }));
     this.demoSimulationStrategies = new Map((MOCK_DATA.plots || []).map((plot) => {
@@ -182,6 +184,7 @@ export class ApiService {
     }));
     this.demoCropBatches = new Map();
     this.demoCropPlans = new Map();
+    this.demoAgentActions = new Map();
     this.demoValueLedgers = [];
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
@@ -647,6 +650,35 @@ export class ApiService {
     return { ...saved };
   }
 
+  async setPlotDevices(plotId, deviceIds = []) {
+    const ids = [...new Set((Array.isArray(deviceIds) ? deviceIds : []).map(value => String(value || '').trim()).filter(Boolean))];
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/devices`, { method: 'PUT', body: JSON.stringify({ deviceIds: ids }) });
+      const result = resp?.data || resp;
+      if (result?.plotId) return result;
+      throw new ApiError('后端返回了无效的地块设备绑定结果', { code: 'PLOT_DEVICES_INVALID', payload: resp });
+    }
+    const plot = this.demoPlots.get(plotId);
+    if (!plot) throw new ApiError('没有找到该地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const all = [...this.demoDevices.values()].filter(device => device.farmId === plot.farmId);
+    if (ids.some(id => !all.some(device => device.deviceId === id))) throw new ApiError('设备不存在或不属于当前农场', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    const selected = new Set(ids); const devices = []; const movedDeviceIds = []; const unboundDeviceIds = [];
+    all.forEach(device => {
+      const onPlot = device.plotId === plotId; const should = selected.has(device.deviceId);
+      if (onPlot && !should) {
+        const saved = { ...device, previousPlotId: plotId, plotId: null, bindingState: 'UNBOUND', status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED' };
+        this.demoDevices.set(device.deviceId, saved); devices.push(saved); unboundDeviceIds.push(device.deviceId); return;
+      }
+      if (!onPlot && should) {
+        if (device.plotId) movedDeviceIds.push(device.deviceId);
+        const saved = { ...device, previousPlotId: device.plotId || undefined, plotId, bindingState: 'BOUND', status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED' };
+        this.demoDevices.set(device.deviceId, saved); devices.push(saved); return;
+      }
+      if (onPlot) devices.push({ ...device });
+    });
+    return { plotId, deviceIds: ids, devices, movedDeviceIds, unboundDeviceIds, updatedAt: new Date().toISOString() };
+  }
+
   async getPlotSimulation(plotId = 'plot-a01') {
     if (!plotId) throw new ApiError('缺少地块编号', { status: 400, code: 'PLOT_ID_REQUIRED' });
     if (this.sessionMode === 'live') {
@@ -968,12 +1000,22 @@ export class ApiService {
     if (!member || (!member.plotIds?.includes(work.plotId) && !member.plotIds?.includes('*'))) {
       throw new ApiError('请选择有权处理这块地的种植农户', { status: 400, code: 'ASSIGNEE_SCOPE_MISMATCH' });
     }
+    const assignedAt = new Date();
+    let dueAt = work.dueAt || null;
+    if (input.dueAt) {
+      const renewedDueAt = new Date(input.dueAt);
+      if (Number.isNaN(renewedDueAt.getTime()) || renewedDueAt.getTime() <= assignedAt.getTime()) {
+        throw new ApiError('新处理时限必须晚于当前时间', { status: 400, code: 'WORK_ORDER_DUE_AT_INVALID' });
+      }
+      dueAt = renewedDueAt.toISOString();
+    }
     return this._saveDemoTransition(work, {
       status: 'ASSIGNED',
       assigneeId: member.userId,
       assigneeName: member.displayName || member.username,
-      assignedAt: new Date().toISOString(),
-      assignedBy: this._demoActorId()
+      assignedAt: assignedAt.toISOString(),
+      assignedBy: this._demoActorId(),
+      dueAt
     }, work.status === 'OPEN' ? 'ASSIGN' : 'REASSIGN', input.note || `分配给${member.displayName || member.username}`);
   }
 
@@ -1227,6 +1269,65 @@ export class ApiService {
   async closeAlert(alertId) { return this.transitionAlert(alertId, 'close'); }
   async escalateAlert(alertId) { return this.transitionAlert(alertId, 'escalate'); }
 
+  async publishAlertVerificationTask(alertId, input = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/alerts/${encodeURIComponent(alertId)}/verification-task`, { method: 'POST', body: JSON.stringify(input) });
+      return resp?.data || resp;
+    }
+    const alert = this.demoAlerts.get(alertId);
+    if (!alert) throw new ApiError('没有找到该告警', { status: 404, code: 'ALERT_NOT_FOUND' });
+    const existing = [...this.demoWorkOrders.values()].find(order => order.sourceRef === alertId && order.taskPurpose === 'ALERT_VERIFICATION' && !['DONE', 'CANCELLED'].includes(normalizeWorkOrderStatus(order.status)));
+    if (existing) return { alertId, workOrder: cloneWorkOrder(existing), reused: true, taskPurpose: 'ALERT_VERIFICATION' };
+    const farmers = [...this.demoFarmMembers.values()].filter(member => member.role === 'FARMER' && member.farmIds.includes(alert.farmId || 'farm-demo'));
+    const assignee = farmers.find(member => member.plotIds.includes(alert.plotId)) || farmers[0];
+    if (!assignee) throw new ApiError('暂无可分配的农户', { status: 409, code: 'ASSIGNEE_UNAVAILABLE' });
+    const created = await this.createWorkOrder({ farmId: alert.farmId || 'farm-demo', plotId: alert.plotId, sourceType: 'ALERT', sourceRef: alertId, taskPurpose: 'ALERT_VERIFICATION', actionType: 'INSPECTION', title: `核查：${alert.title || '地块告警'}`, reason: alert.message || '现场核查告警', priority: alert.level || 'MEDIUM', dueAt: new Date(Date.now() + 2 * 3600000).toISOString(), followUpActionType: 'FIELD_OPERATION', provenance: 'DERIVED' });
+    const assigned = await this.assignWorkOrder(created.workOrderId, { assigneeId: assignee.userId, note: '发布告警核查任务' });
+    return { alertId, workOrder: assigned, reused: false, taskPurpose: 'ALERT_VERIFICATION' };
+  }
+
+  async confirmAgentAction(actionId, input = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}/confirm`, { method: 'POST', body: JSON.stringify(input) });
+      return resp?.data || resp;
+    }
+    const action = this.demoAgentActions.get(actionId);
+    if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    if (action.status !== 'AWAITING_CONFIRMATION') return { ...action };
+    const message = action.message || '';
+    let result;
+    if (action.toolName === 'close_alert') {
+      const alert = [...this.demoAlerts.values()].find(item => item.plotId === action.plotId && !['CLOSED', 'RESOLVED'].includes(item.status));
+      if (!alert) throw new ApiError('当前地块没有待处理告警', { status: 404, code: 'ALERT_NOT_FOUND' });
+      result = await this.closeAlert(alert.alertId || alert.id);
+    } else if (action.toolName === 'publish_alert_verification') {
+      const alert = [...this.demoAlerts.values()].find(item => item.plotId === action.plotId && !['CLOSED', 'RESOLVED'].includes(item.status));
+      if (!alert) throw new ApiError('当前地块没有待处理告警', { status: 404, code: 'ALERT_NOT_FOUND' });
+      result = await this.publishAlertVerificationTask(alert.alertId || alert.id);
+    } else if (action.toolName === 'create_and_assign_work_order') {
+      result = await this.createWorkOrder({ farmId: 'farm-demo', plotId: action.plotId, title: message.replace(/^.*?(任务|农务)[：:]?/, '').trim() || 'Agent 创建任务', reason: message, actionType: 'FIELD_OPERATION', priority: 'MEDIUM' });
+      const farmer = [...this.demoFarmMembers.values()].find(member => member.role === 'FARMER' && (member.plotIds.includes(action.plotId) || member.plotIds.includes('*')));
+      if (farmer) result = await this.assignWorkOrder(result.workOrderId, { assigneeId: farmer.userId, note: 'Agent 确认后下发' });
+    } else {
+      result = { message: '演示 Agent 已完成操作预览确认', plotId: action.plotId };
+    }
+    const saved = { ...action, status: 'SUCCEEDED', result, completedAt: new Date().toISOString() };
+    this.demoAgentActions.set(actionId, saved);
+    return saved;
+  }
+
+  async cancelAgentAction(actionId) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}/cancel`, { method: 'POST', body: '{}' });
+      return resp?.data || resp;
+    }
+    const action = this.demoAgentActions.get(actionId);
+    if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    const saved = { ...action, status: 'CANCELED', canceledAt: new Date().toISOString() };
+    this.demoAgentActions.set(actionId, saved);
+    return saved;
+  }
+
   async getInspections(plotId = '') {
     if (this.sessionMode === 'live') {
       const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
@@ -1377,6 +1478,13 @@ export class ApiService {
     const lower = (message || '').toLowerCase();
     const traceId = 'run-' + Math.random().toString(36).substring(2, 10);
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    if (/(新增|新建|创建|修改|更新|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/.test(message || '') && this.user?.role === 'FARM_ADMIN') {
+      const toolName = /(关闭).*(告警|报警)/.test(message) ? 'close_alert' : /(核查|复核).*(发布|下发|创建)/.test(message) ? 'publish_alert_verification' : /(绑定|换绑|解绑).*(设备|传感器)/.test(message) ? 'set_plot_devices' : /(任务|农务)/.test(message) ? 'create_and_assign_work_order' : /(修改|更新|编辑).*(地块|田|棚)/.test(message) ? 'update_plot' : 'create_plot';
+      const actionId = `demo-agent-${Date.now().toString(36)}`;
+      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
+      this.demoAgentActions.set(actionId, { ...proposal, message, plotId });
+      return { traceId, conversationId: conversationId || `conversation-${this._demoActorId()}`, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好操作内容，请核对预览后确认执行。', actionProposal: proposal, tools: [], confidence: 1 };
+    }
 
     if (lower.includes('灌溉') || lower.includes('浇水') || lower.includes('处方') || lower.includes('irrigation')) {
       return {
@@ -2115,10 +2223,11 @@ export class ApiService {
     const curve = Array.isArray(source.curve) && source.curve.length
       ? source.curve.map(p => ({ minute: Number(p.minute), expected: toFinite(p.expected ?? p.value), lower: toFinite(p.lower ?? p.expected ?? p.value), upper: toFinite(p.upper ?? p.expected ?? p.value) }))
       : (live ? horizons : this.interpolateForecastCurve(start, horizons, maxHorizon || 240));
-    const unavailable = String(source.status || '').toUpperCase() !== 'AVAILABLE';
+    const unavailable = String(source.status || '').toUpperCase() === 'UNAVAILABLE';
+    const status = unavailable ? (source.status || 'UNAVAILABLE') : String(source.status || 'AVAILABLE').toUpperCase();
     return {
       ...source,
-      status: unavailable ? (source.status || 'UNAVAILABLE') : 'AVAILABLE',
+      status,
       plotId, metric,
       generatedAt: source.generatedAt || source.issuedAt || new Date().toISOString(),
       inputWindowMinutes: toFinite(source.inputWindowMinutes ?? source.inputWindow?.minutes ?? source.inputWindow?.validSamples ?? cfg.inputWindowMinutes),
@@ -2259,7 +2368,7 @@ export class ApiService {
   async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '' } = {}) {
     const normalizedScenario = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
+      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
       const server = resp?.data || resp;
       return { ...(server || {}), scenario: normalizedScenario, seed, plotId, dataOrigin: 'BACKEND', provenance: 'BACKEND' };
     }
@@ -2277,27 +2386,50 @@ export class ApiService {
     const jumpBoost = 11.8 + rnd() * 2.8;
     const rainBoost = (def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
     const driftRate = (def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
-    const kBase = Math.log(16.8 / cfg.stressBoundary) / (def.ttrMinutes || 72);
-    const k = kBase * (def.decayFactor || 1) * kFactor;
-    const build = execute => Array.from({ length: 49 }, (_, i) => {
+    const decayK = 0.03 + rnd() * 0.012;
+    const trend = def.code === 'DROUGHT' ? -3.6 : def.code === 'SENSOR_DRIFT' ? -0.18 : 0;
+    const rainPeak = def.code === 'STORM' ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+    const build = (execute) => Array.from({ length: 49 }, (_, i) => {
       const t = i * 5;
-      const phys = x => start * Math.exp(-k * x);
+      const hours = t / 60;
       let value;
       if (def.code === 'STORM') {
-        value = t <= 45 ? start + rainBoost * (t / 45) : (start + rainBoost) * Math.exp(-k * (t - 45));
-        if (execute && t >= 30) value = Math.min(value + jumpBoost, 42);
-      } else if (execute && t >= 30) {
-        value = Math.min(phys(30) + jumpBoost, 42) * Math.exp(-k * 0.55 * (t - 30));
-      } else value = phys(t);
-      if (def.code === 'SENSOR_DRIFT') value += driftRate * (t / 60);
-      return { minute: t, value: Number(Math.max(value, 0).toFixed(2)) };
+        const wetting = t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
+        if (!execute) value = wetting;
+        else {
+          const managedPeak = start + rainPeak * 0.72;
+          value = t <= 45 ? start + rainPeak * 0.72 * (t / 45) : managedPeak * Math.exp(-decayK * 1.35 * (t - 45) / 45);
+        }
+      } else if (def.code === 'SENSOR_DRIFT') {
+        const physical = start + trend * hours * 0.15;
+        if (!execute) value = start + driftRate * hours;
+        else if (t < 30) value = start + driftRate * hours;
+        else {
+          const driftAt30 = start + driftRate * 0.5;
+          const blend = 1 - Math.exp(-(t - 30) / 35);
+          value = driftAt30 + (physical - driftAt30) * blend;
+        }
+      } else if (def.code === 'DROUGHT') {
+        value = start + trend * hours;
+        if (execute && t >= 30) {
+          const atExec = start + trend * 0.5;
+          value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (t - 30)));
+        }
+      } else {
+        const natural = Math.max(0, start - t * 0.025);
+        value = execute && t >= 30 ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (t - 30))) : natural;
+      }
+      return { minute: t, value: Number(Math.max(0, Math.min(100, value)).toFixed(2)) };
     });
+    const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
+    const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
       status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: def.code, scenarioLabel: def.label, seed, plotId,
       frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: cfg.stressBoundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
       seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
-      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: `⚡ 虚拟执行 (补水 ≈${jumpBoost.toFixed(1)}%)` }],
-      branches: { EXECUTE: { label: '分支 A · 执行灌溉处方', points: build(true), color: '#3fb950' }, NO_ACTION: { label: '分支 B · 不采取措施放任干旱', points: build(false), color: '#f85149' } },
+      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],
+      branches: { EXECUTE: { label: executeLabel, points: build(true), color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: build(false), color: '#f85149' } },
+      comparisonVersion: 'branch-compare-v4',
       note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态', provenance: 'SIMULATED'
     };
   }
@@ -2325,7 +2457,10 @@ export class ApiService {
     }
     const deviceId = input.deviceId || `device-demo-${Date.now().toString(36)}`;
     if (this.demoDevices.has(deviceId)) throw new ApiError('设备编号已存在', { status: 409, code: 'DEVICE_EXISTS' });
-    const device = { ...input, deviceId, plotId: null, status: 'OFFLINE', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    const requestedSourceMode = String(input.sourceMode || 'SIMULATION').toUpperCase();
+    if (!['SIMULATION', 'SIMULATED', 'REAL'].includes(requestedSourceMode)) throw new ApiError('设备接入方式只能是模拟设备或真实设备', { status: 400, code: 'DEVICE_SOURCE_INVALID' });
+    const sourceMode = requestedSourceMode === 'REAL' ? 'REAL' : 'SIMULATION';
+    const device = { ...input, farmId: input.farmId || 'farm-demo', deviceId, plotId: null, status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode, dataOrigin: sourceMode === 'REAL' ? 'HARDWARE' : 'SIMULATOR' };
     this.demoDevices.set(deviceId, device);
     return { ...device };
   }
@@ -2341,7 +2476,7 @@ export class ApiService {
     if (!device || !plot) throw new ApiError('没有找到设备或地块', { status: 404, code: 'DEVICE_OR_PLOT_NOT_FOUND' });
     if (device.farmId !== plot.farmId) throw new ApiError('设备和地块不属于同一农场', { status: 409, code: 'DEVICE_PLOT_FARM_MISMATCH' });
     if (String(plot.status).toUpperCase() === 'INACTIVE') throw new ApiError('停用地块不能绑定设备', { status: 409, code: 'PLOT_INACTIVE' });
-    const saved = { ...device, plotId, bindingState: 'BOUND', boundAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    const saved = { ...device, previousPlotId: device.plotId || undefined, plotId, bindingState: 'BOUND', boundAt: new Date().toISOString(), status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED' };
     this.demoDevices.set(deviceId, saved);
     return { ...saved };
   }
@@ -2354,9 +2489,35 @@ export class ApiService {
     }
     const device = this.demoDevices.get(deviceId);
     if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
-    const saved = { ...device, previousPlotId: device.plotId, plotId: null, bindingState: 'UNBOUND', status: 'OFFLINE', unboundAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+    const saved = { ...device, previousPlotId: device.plotId, plotId: null, bindingState: 'UNBOUND', status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED', unboundAt: new Date().toISOString() };
     this.demoDevices.set(deviceId, saved);
     return { ...saved };
+  }
+
+  async controlDevice(deviceId, input = {}) {
+    const targetStatus = String(input.targetStatus || '').trim().toUpperCase();
+    if (!['ONLINE', 'OFFLINE'].includes(targetStatus)) throw new ApiError('设备目标状态无效', { status: 400, code: 'DEVICE_TARGET_STATUS_INVALID' });
+    const idempotencyKey = String(input.idempotencyKey || '').trim();
+    if (!idempotencyKey) throw new ApiError('设备控制缺少幂等键', { status: 400, code: 'IDEMPOTENCY_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/control`, {
+        method: 'POST', body: JSON.stringify({ targetStatus, idempotencyKey })
+      });
+      if (resp?.data?.commandId) return resp.data;
+      throw new ApiError('后端返回了无效的设备控制结果', { code: 'DEVICE_CONTROL_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(deviceId);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    if (!device.plotId || device.bindingState === 'UNBOUND') throw new ApiError('设备尚未绑定地块，暂不可控制', { status: 409, code: 'DEVICE_CONTROL_UNAVAILABLE' });
+    const now = new Date().toISOString();
+    const commandId = `device-cmd-${Date.now().toString(36)}`;
+    const saved = { ...device, status: targetStatus, desiredStatus: targetStatus, controlStatus: 'SUCCEEDED', lastControlCommandId: commandId, lastControlAt: now };
+    delete saved.lastControlError;
+    this.demoDevices.set(deviceId, saved);
+    return {
+      commandId, deviceId, targetStatus, commandStatus: 'SUCCEEDED', status: targetStatus,
+      device: { ...saved }, latestDevice: { ...saved }, command: { commandId, deviceId, targetStatus, commandStatus: 'SUCCEEDED' }
+    };
   }
 
   async getCropBatches(filters = {}) {

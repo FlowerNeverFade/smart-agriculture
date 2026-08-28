@@ -7,7 +7,7 @@ import {
   deviceRelatedWorkOrders,
   formatHealthScore
 } from '../admin-state.js';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-device-control-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -29,6 +29,7 @@ export const AdminResourceCenterView = {
   setup(props, { emit }) {
     const toast = inject('toast');
     const busy = ref(false);
+    const controlBusyId = ref('');
     const showDeviceRegistration = ref(false);
     const activeDeviceId = ref('');
     const bindSelections = ref({});
@@ -36,7 +37,7 @@ export const AdminResourceCenterView = {
     const typeFilter = ref('ALL');
     const bindingFilter = ref('ALL');
     const keyword = ref('');
-    const deviceForm = ref({ deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR' });
+    const deviceForm = ref({ deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' });
     const farmId = computed(() => props.state.adminContext?.farmId || '');
     const plots = computed(() => (props.state.allPlots || props.state.plots || []).filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'));
     const devices = computed(() => props.state.devices || []);
@@ -83,7 +84,7 @@ export const AdminResourceCenterView = {
     };
     const openDeviceRegistration = () => {
       activeDeviceId.value = '';
-      deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR' };
+      deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
       showDeviceRegistration.value = true;
     };
     const closeDeviceRegistration = () => {
@@ -92,6 +93,7 @@ export const AdminResourceCenterView = {
     const openDeviceDetail = device => {
       showDeviceRegistration.value = false;
       activeDeviceId.value = device?.deviceId || '';
+      if (device?.deviceId) bindSelections.value[device.deviceId] = device.plotId || '';
     };
     const closeDeviceDetail = () => {
       if (!busy.value) activeDeviceId.value = '';
@@ -132,7 +134,7 @@ export const AdminResourceCenterView = {
       try {
         const device = await api.registerDevice({ ...deviceForm.value, farmId: farmId.value });
         upsertDevice(device);
-        deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR' };
+        deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
         showDeviceRegistration.value = false;
         emit('data-invalidated', { domains: ['devices'], record: device });
         toast('设备已注册并显示在列表中，请继续选择地块完成绑定');
@@ -142,6 +144,7 @@ export const AdminResourceCenterView = {
     const bind = async device => {
       const plotId = bindSelections.value[device.deviceId];
       if (!plotId) return toast('请选择要绑定的地块', 'error');
+      if (device.plotId && device.plotId !== plotId && !window.confirm(`该设备当前绑定在“${plotName(device.plotId)}”，确认转移到“${plotName(plotId)}”吗？`)) return;
       busy.value = true;
       try {
         const saved = await api.bindDevice(device.deviceId, plotId);
@@ -162,6 +165,41 @@ export const AdminResourceCenterView = {
         toast('设备已解绑');
       } catch (error) { toast(error.message || '设备解绑失败', 'error'); }
       finally { busy.value = false; }
+    };
+
+    const controlKind = device => {
+      const source = String(device?.sourceMode || device?.dataOrigin || '').trim().toUpperCase();
+      const id = String(device?.deviceId || '').toLowerCase();
+      if (source === 'SIMULATION' || source === 'SIMULATED' || id.startsWith('mock-')) return 'SIMULATED';
+      if (source === 'REAL' || source === 'HARDWARE') return 'REAL';
+      return 'UNMANAGED';
+    };
+    const controlAvailable = device => Boolean(device?.plotId) && controlKind(device) !== 'UNMANAGED';
+    const controlPending = device => String(device?.controlStatus || '').toUpperCase() === 'PENDING';
+    const controlButtonLabel = device => {
+      if (controlPending(device)) return String(device?.desiredStatus || '').toUpperCase() === 'OFFLINE' ? '正在关闭…' : '正在开启…';
+      return String(device?.status || '').toUpperCase() === 'ONLINE' ? '关闭设备' : '开启设备';
+    };
+    const controlUnavailableReason = device => !device?.plotId ? '请先绑定地块' : controlKind(device) === 'UNMANAGED' ? '设备来源未确认，无法安全控制' : '';
+    const controlDevice = async device => {
+      if (!device?.deviceId || !controlAvailable(device) || controlPending(device) || controlBusyId.value) {
+        if (device && !controlAvailable(device)) toast(controlUnavailableReason(device), 'error');
+        return;
+      }
+      const targetStatus = String(device.status || '').toUpperCase() === 'ONLINE' ? 'OFFLINE' : 'ONLINE';
+      if (targetStatus === 'OFFLINE' && !window.confirm(`确认关闭 ${device.name || device.deviceId}？关闭后将停止该设备的遥测上报。`)) return;
+      controlBusyId.value = device.deviceId;
+      try {
+        const randomKey = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const result = await api.controlDevice(device.deviceId, { targetStatus, idempotencyKey: `ui-${device.deviceId}-${targetStatus}-${randomKey}` });
+        const saved = result?.device || result?.latestDevice || result;
+        upsertDevice(saved);
+        emit('data-invalidated', { domains: ['devices', 'plots', 'overview'], record: saved });
+        const commandStatus = String(result?.commandStatus || saved?.controlStatus || '').toUpperCase();
+        if (commandStatus === 'PENDING') toast(`已发送${targetStatus === 'ONLINE' ? '开启' : '关闭'}指令，等待设备回执`);
+        else toast(`${targetStatus === 'ONLINE' ? '设备已开启' : '设备已关闭'}${controlKind(device) === 'REAL' ? '（已收到设备回执）' : ''}`);
+      } catch (error) { toast(error.message || '设备控制失败', 'error'); }
+      finally { controlBusyId.value = ''; }
     };
 
     function plotName(plotId) {
@@ -199,12 +237,13 @@ export const AdminResourceCenterView = {
     };
 
     return {
-      busy, farmId, plots, devices, visibleDevices, summary, typeOptions, activeDevice, activeDeviceAlerts, activeDeviceTasks,
+      busy, controlBusyId, farmId, plots, devices, visibleDevices, summary, typeOptions, activeDevice, activeDeviceAlerts, activeDeviceTasks,
       statusFilter, typeFilter, bindingFilter, keyword, bindSelections, deviceForm, showDeviceRegistration,
       registerDevice, bind, unbind, setSummaryFilter, summaryFilterActive, resetFilters,
-      bindingLabel, deviceStatusLabel, deviceLastSeen, readableTime, healthLabel, deviceTypeLabel: deviceTypeLabel || adminDeviceTypeLabel, display,
+      bindingLabel, deviceStatusLabel, deviceLastSeen, readableTime, healthLabel, sourceLabel, deviceTypeLabel: deviceTypeLabel || adminDeviceTypeLabel, display,
       alertStatusLabel, alertLevelLabel, taskStatusLabel, plotName, openAlertCenter, openRelatedTask, createDeviceTask,
-      openDeviceRegistration, closeDeviceRegistration, openDeviceDetail, closeDeviceDetail, openDeviceFromKeyboard
+      openDeviceRegistration, closeDeviceRegistration, openDeviceDetail, closeDeviceDetail, openDeviceFromKeyboard,
+      controlKind, controlAvailable, controlPending, controlButtonLabel, controlUnavailableReason, controlDevice
     };
   },
   template: `
@@ -242,7 +281,15 @@ export const AdminResourceCenterView = {
               <div><dt>最近数据</dt><dd>{{ readableTime(deviceLastSeen(device)) }}</dd></div>
               <div><dt>健康评分</dt><dd>{{ healthLabel(device) }}</dd></div>
             </dl>
-             <footer><span>{{ sourceLabel(device.sourceMode || 'DEVICE') }}</span><strong>查看详情 <app-icon name="chevron_right"></app-icon></strong></footer>
+             <footer>
+               <span>{{ sourceLabel(device.sourceMode || device.dataOrigin || 'DEVICE') }}</span>
+               <div class="admin-device-card-actions">
+                 <button type="button" class="g-btn compact admin-device-control-button" :class="{offline: String(device.status || '').toUpperCase() === 'ONLINE'}" :disabled="!controlAvailable(device) || controlPending(device) || controlBusyId === device.deviceId" :title="controlAvailable(device) ? controlButtonLabel(device) : controlUnavailableReason(device)" @click.stop="controlDevice(device)">
+                   {{ controlBusyId === device.deviceId ? '处理中…' : controlButtonLabel(device) }}
+                 </button>
+                 <strong>查看详情 <app-icon name="chevron_right"></app-icon></strong>
+               </div>
+             </footer>
           </article>
           <button type="button" class="admin-device-card admin-add-device-card" @click="openDeviceRegistration">
             <span class="manager-add-plot-icon"><app-icon name="add"></app-icon></span>
@@ -262,6 +309,7 @@ export const AdminResourceCenterView = {
               <label><span>设备编号</span><input v-model.trim="deviceForm.deviceId" required placeholder="例如 SENSOR-A04"></label>
               <label><span>设备名称</span><input v-model.trim="deviceForm.name" required placeholder="例如 A04 环境采集器"></label>
               <label><span>设备类型</span><select v-model="deviceForm.type"><option value="ENVIRONMENTAL_SENSOR">环境传感器</option><option value="IRRIGATION_CONTROLLER">灌溉控制器</option><option value="FLOW_METER">流量计</option></select></label>
+              <label><span>接入方式</span><select v-model="deviceForm.sourceMode"><option value="SIMULATION">模拟设备</option><option value="REAL">真实设备（MQTT）</option></select></label>
             </div>
             <p class="admin-hint">登记和绑定不会把设备标记为在线；只有后端收到心跳或遥测后才显示在线。</p>
           </div>
@@ -276,6 +324,11 @@ export const AdminResourceCenterView = {
             <div class="admin-device-detail-status">
               <div class="admin-device-status" :class="String(activeDevice.status || 'offline').toLowerCase()"><i></i><span>{{ deviceStatusLabel(activeDevice.status) }}</span></div>
               <span class="admin-binding-state" :class="activeDevice.plotId ? 'bound' : 'unbound'">{{ bindingLabel(activeDevice) }}</span>
+              <span v-if="controlPending(activeDevice)" class="admin-device-control-pending">{{ controlButtonLabel(activeDevice) }}</span>
+            </div>
+            <div class="admin-device-control-panel">
+              <div><strong>设备开关</strong><p v-if="controlAvailable(activeDevice)">{{ controlKind(activeDevice) === 'REAL' ? '真实设备：等待 MQTT 设备回执后更新状态。' : '模拟设备：切换后立即暂停或恢复模拟遥测。' }}</p><p v-else>{{ controlUnavailableReason(activeDevice) }}</p></div>
+              <button type="button" class="g-btn compact admin-device-control-button" :class="{offline: String(activeDevice.status || '').toUpperCase() === 'ONLINE'}" :disabled="!controlAvailable(activeDevice) || controlPending(activeDevice) || controlBusyId === activeDevice.deviceId" @click.stop="controlDevice(activeDevice)">{{ controlBusyId === activeDevice.deviceId ? '处理中…' : controlButtonLabel(activeDevice) }}</button>
             </div>
             <dl class="admin-device-detail-facts">
               <div><dt>设备编号</dt><dd>{{ activeDevice.deviceId }}</dd></div>
@@ -284,14 +337,13 @@ export const AdminResourceCenterView = {
               <div><dt>最近数据</dt><dd>{{ readableTime(deviceLastSeen(activeDevice)) }}</dd></div>
               <div><dt>注册时间</dt><dd>{{ readableTime(activeDevice.registeredAt) }}</dd></div>
               <div><dt>健康评分</dt><dd>{{ healthLabel(activeDevice) }}</dd></div>
-               <div><dt>数据来源</dt><dd>{{ sourceLabel(activeDevice.sourceMode) }}</dd></div>
+               <div><dt>数据来源</dt><dd>{{ sourceLabel(activeDevice.sourceMode || activeDevice.dataOrigin || 'DEVICE') }}</dd></div>
               <div><dt>所属农场</dt><dd>{{ display(activeDevice.farmId || farmId) }}</dd></div>
             </dl>
-            <div v-if="!activeDevice.plotId" class="admin-device-binding-editor">
-              <label><span>绑定地块</span><select v-model="bindSelections[activeDevice.deviceId]"><option value="">请选择地块</option><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-              <p>绑定只建立设备与地块关系；收到心跳后才会显示在线。</p>
+            <div class="admin-device-binding-editor">
+              <label><span>{{ activeDevice.plotId ? '绑定地块（可直接换绑）' : '绑定地块' }}</span><select v-model="bindSelections[activeDevice.deviceId]"><option value="">未绑定</option><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}{{ plot.plotId === activeDevice.plotId ? '（当前）' : '' }}</option></select></label>
+              <p>{{ activeDevice.plotId ? '选择其他地块可直接转移，确认后旧地块关系会同步解除。' : '绑定只建立设备与地块关系；收到心跳或模拟开关确认后才会显示在线。' }}</p>
             </div>
-            <p v-else class="admin-device-detail-note">当前绑定到 {{ plotName(activeDevice.plotId) }}。解除绑定不会删除设备事实。</p>
 
             <div class="admin-device-related-grid">
               <section>
@@ -314,8 +366,8 @@ export const AdminResourceCenterView = {
           <div class="g-modal-footer admin-device-detail-footer">
             <button type="button" class="g-btn secondary" :disabled="busy" @click="closeDeviceDetail">关闭</button>
             <button v-if="activeDevice.plotId" type="button" class="g-btn g-btn-tonal" :disabled="busy" @click="createDeviceTask(activeDevice)">新建农务任务</button>
-            <button v-if="!activeDevice.plotId" type="button" class="g-btn primary" :disabled="busy || !bindSelections[activeDevice.deviceId]" @click="bind(activeDevice)">绑定设备</button>
-            <button v-else type="button" class="g-btn secondary" :disabled="busy" @click="unbind(activeDevice)">解除绑定</button>
+            <button type="button" class="g-btn primary" :disabled="busy || !bindSelections[activeDevice.deviceId] || bindSelections[activeDevice.deviceId] === activeDevice.plotId" @click="bind(activeDevice)">{{ activeDevice.plotId ? '保存绑定' : '绑定设备' }}</button>
+            <button v-if="activeDevice.plotId" type="button" class="g-btn secondary" :disabled="busy" @click="unbind(activeDevice)">解除绑定</button>
           </div>
         </section>
       </div>

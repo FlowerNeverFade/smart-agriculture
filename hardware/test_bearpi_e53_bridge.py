@@ -1,7 +1,7 @@
 import argparse
 import unittest
 
-from hardware.bearpi_e53_bridge import make_event, parse_line, parse_lines
+from hardware.bearpi_e53_bridge import Publisher, make_event, parse_line, parse_lines
 
 
 class BearPiParserTest(unittest.TestCase):
@@ -29,6 +29,17 @@ class BearPiParserTest(unittest.TestCase):
             [metric for metric, _value, _unit in parse_lines(["Temperature is 25", "Humidity is 70"])],
             ["AIR_TEMPERATURE", "AIR_HUMIDITY"],
         )
+
+    def test_device_control_stops_and_restores_bearpi_publishing(self):
+        args = argparse.Namespace(mqtt=False, farm_id="farm-demo", plot_id="plot-a01", device_id="bearpi-test")
+        publisher = Publisher(args)
+        assert publisher.offline is False
+        ack = publisher.apply_control_payload({"commandId": "cmd-1", "deviceId": "bearpi-test", "targetStatus": "OFFLINE"})
+        assert ack["status"] == "SUCCEEDED"
+        assert publisher.offline is True
+        publisher.apply_control_payload({"commandId": "cmd-2", "deviceId": "bearpi-test", "targetStatus": "ONLINE"})
+        assert publisher.offline is False
+        assert publisher.apply_control_payload({"deviceId": "other", "targetStatus": "OFFLINE"}) is None
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ const appSource = read('apps/web-ui/js/app.js');
 const apiSource = read('apps/web-ui/js/api.js');
 const farmerSource = read('apps/web-ui/js/farmer.js');
 const liveDataSource = read('apps/web-ui/js/live-data.js');
+const resourceSource = read('apps/web-ui/js/modules/admin-resource-center.js');
 const farmerStyle = read('apps/web-ui/css/farmer.css');
 const openApi = read('docs/api/openapi.yaml');
 
@@ -68,6 +69,8 @@ ok('农户首页隐藏内部能力编号', !farmerDashboard.includes('I-16 · I-
 ok('首页地块摘要不渲染原始指标且详情保留曲线', !farmerDashboard.includes('farmer-plot-overview-metrics') && farmerHtml.includes('环境与肥力指标趋势'));
 ok('农户灌溉安全边界', farmerSource.includes("open_suggestion('IRRIGATION'") && farmerSource.includes('api.executeIrrigation(plan.planId') && farmerSource.includes('confirmed: true') && farmerSource.includes('farmer-irrigation-'));
 ok('共享入口支持当前操作人直接执行', appSource.includes('canExecuteIrrigationRole') && appSource.includes('api.executeIrrigation(plan.planId') && farmerHtml.includes('查看建议并执行'));
+ok('设备组件暴露来源标签并接入安全开关', resourceSource.includes('healthLabel, sourceLabel, deviceTypeLabel')
+  && resourceSource.includes('controlDevice(device)') && apiSource.includes('/control'));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitFor = async (predicate, timeout = 5000) => {
@@ -159,10 +162,35 @@ async function mountIndex() {
   ok('告警中心保留 main 卡片网格与批量入口', alertCenter
     && Boolean(window.document.querySelector('.admin-alert-batch-bar'))
     && batchBarText.includes('全选当前列表')
-    && batchBarText.includes('AI智能处理'));
+    && batchBarText.includes('AI智能处理')
+    && batchBarText.includes('一键发布核查任务'));
   ok('告警中心已移除旧操作入口', alertCenter
     && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
     && !window.document.querySelector('.admin-alert-view h2'));
+  const initialAlertCards = window.document.querySelectorAll('.admin-alert-card').length;
+  ok('告警中心提供至少七条不同场景的演示告警', initialAlertCards >= 7, `cards=${initialAlertCards}`);
+  const selectAllAlerts = window.document.querySelector('.admin-alert-select-all input');
+  selectAllAlerts?.click();
+  const aiProcessButton = window.document.querySelector('.admin-alert-batch-actions .g-btn.primary');
+  aiProcessButton?.click();
+  const aiProcessed = await waitFor(() => {
+    const summary = window.document.querySelector('.admin-alert-ai-summary')?.textContent || '';
+    return summary.includes('本次已分析 7 条告警')
+      && summary.includes('智能下发 2 条')
+      && summary.includes('需现场核查 5 条');
+  }, 2500);
+  ok('AI 智能处理可自动下发高可信告警并保留不确定项', aiProcessed,
+    window.document.querySelector('.admin-alert-ai-summary')?.textContent.replace(/\s+/g, ' ').trim() || 'no summary');
+  const verificationButton = window.document.querySelector('.admin-alert-verify-action');
+  verificationButton?.click();
+  const verificationPublished = await waitFor(() => {
+    const firstTab = window.document.querySelector('.admin-alert-tabs button:first-child')?.textContent || '';
+    return firstTab.includes('待审核 0');
+  }, 3000);
+  ok('AI 不确定告警可一键发布现场核查任务', verificationPublished,
+    window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'no toast');
+  window.document.querySelector('.admin-alert-tabs button:nth-child(4)')?.click();
+  await waitFor(() => window.document.querySelectorAll('.admin-alert-card').length === initialAlertCards, 1200);
   const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
   window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);
@@ -189,6 +217,64 @@ async function mountIndex() {
     && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
     && !window.document.querySelector('.admin-ai-chat h2'));
 
+  window.location.hash = '#view=resource-coordination&tab=devices&farmId=farm-demo';
+  const equipmentReady = await waitFor(() => Boolean(window.document.querySelector('.admin-equipment-center'))
+    && Boolean(window.document.querySelector('.admin-device-panel')), 3500);
+  const equipmentCards = window.document.querySelectorAll('.admin-device-card:not(.admin-add-device-card)');
+  ok('设备真实数据到达后页面仍保持可见', equipmentReady && equipmentCards.length > 0,
+    `cards=${equipmentCards.length}`);
+  ok('设备卡片提供在线/离线控制入口', equipmentReady && Boolean(window.document.querySelector('.admin-device-control-button')));
+
+  window.location.hash = '#view=work-orders&tab=tasks&farmId=farm-demo';
+  const workOrdersReady = await waitFor(() => Boolean(window.document.querySelector('.work-lifecycle.is-embedded-manager')), 3500);
+  const workSummaryLabels = [...window.document.querySelectorAll('.work-summary button span')].map((element) => element.textContent.trim());
+  const statusOptions = [...window.document.querySelectorAll('.work-filters label:first-child option')].map((element) => element.textContent.trim());
+  ok('农务任务导航与状态下拉统一为五个互斥分区', workOrdersReady
+    && JSON.stringify(workSummaryLabels) === JSON.stringify(['进行中', '待分配', '待验收', '已逾期', '已完成'])
+    && JSON.stringify(statusOptions) === JSON.stringify(workSummaryLabels));
+  ok('返工任务在进行中卡片显示返工标记', workOrdersReady
+    && Boolean(window.document.querySelector('.work-order-card.status-rejected .work-rework'))
+    && !workSummaryLabels.some((label) => label.includes('返工')));
+
+  window.location.hash = '#view=work-orders&tab=tasks&scope=overdue&farmId=farm-demo';
+  const overdueReady = await waitFor(() => Boolean(window.document.querySelector('.work-overdue-disposition'))
+    && window.document.querySelectorAll('.work-order-card.is-overdue').length > 0, 3500);
+  const manualDisposition = window.document.querySelector('.work-overdue-manual-action');
+  manualDisposition?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const assignmentReady = await waitFor(() => Boolean(window.document.querySelector('.work-dialog-small select')), 1500);
+  const eligiblePeople = window.document.querySelectorAll('.work-dialog-small select option').length - 1;
+  ok('逾期任务支持单独选择有地块权限的人员处置', overdueReady && assignmentReady && eligiblePeople >= 2);
+  window.document.querySelector('.work-dialog-small .g-modal-header .icon-only')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await waitFor(() => !window.document.querySelector('.work-dialog-small'), 800);
+  const initialOverdueCards = [...window.document.querySelectorAll('.work-order-card.is-overdue')];
+  const reassignedOrderId = initialOverdueCards[0]?.dataset.workOrderId;
+  const disposedOrderId = initialOverdueCards[1]?.dataset.workOrderId;
+  initialOverdueCards[0]?.querySelector('.work-overdue-card-select input')?.click();
+  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-reassign:not(:disabled)')), 800);
+  const batchReassignButton = window.document.querySelector('.work-overdue-reassign');
+  const batchEnabled = Boolean(batchReassignButton && !batchReassignButton.disabled);
+  batchReassignButton?.click();
+  const reassignedLeftOverdue = await waitFor(() => window.document.querySelectorAll('.work-order-card.is-overdue').length === 1, 2000);
+  const remainingOverdueCard = window.document.querySelector('.work-order-card.is-overdue');
+  remainingOverdueCard?.querySelector('.work-overdue-card-select input')?.click();
+  await waitFor(() => Boolean(window.document.querySelector('.work-overdue-dispose:not(:disabled)')), 800);
+  const disposeButton = window.document.querySelector('.work-overdue-dispose');
+  const disposeEnabled = Boolean(disposeButton && !disposeButton.disabled);
+  disposeButton?.click();
+  const disposedLeftOverdue = await waitFor(() => window.document.querySelectorAll('.work-order-card.is-overdue').length === 0, 2000);
+
+  window.location.hash = '#view=work-orders&tab=tasks&status=IN_PROGRESS&farmId=farm-demo';
+  const recoveredTasksVisible = await waitFor(() => {
+    const reassignedCard = window.document.querySelector(`[data-work-order-id="${reassignedOrderId}"]`);
+    const disposedCard = window.document.querySelector(`[data-work-order-id="${disposedOrderId}"]`);
+    return reassignedCard?.textContent.includes('赵霞') && disposedCard?.textContent.includes('张明');
+  }, 2500);
+  ok('逾期一键重新分配会更换农户并立即转入进行中', overdueReady && initialOverdueCards.length >= 2
+    && batchEnabled && reassignedLeftOverdue && recoveredTasksVisible,
+  `reassigned=${reassignedOrderId} toast=${window.document.querySelector('.g-toast:last-child')?.textContent.replace(/\s+/g, ' ').trim() || 'none'}`);
+  ok('逾期一键处置会保留原负责人并立即转入进行中', disposeEnabled && disposedLeftOverdue && recoveredTasksVisible,
+    `disposed=${disposedOrderId} remaining=${window.document.querySelectorAll('.work-order-card.is-overdue').length}`);
+
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);
   ok('地块详情显示独立策略设置', detail);
@@ -211,6 +297,7 @@ async function mountIndex() {
   } else {
     ok('SVG 模式不依赖 ECharts', typeof window.echarts === 'undefined');
   }
+  await waitFor(() => !window.document.querySelector('.g-toast'), 4000);
   dom.window.close();
 }
 

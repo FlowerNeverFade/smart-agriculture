@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260827-load-progress">
+  <link rel="stylesheet" href="css/farmer.css?v=20260828-chart-fill">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -1283,70 +1283,128 @@
                 <span class="g-badge" :class="tools_forecast_error ? 'warning' : 'success'">{{ tools_plot ? tools_plot.name : '未选择地块' }}</span>
               </div>
 
-              <div class="farmer-advice-grid">
-                <article class="g-card farmer-advice-card farmer-moisture-chart-card">
+              <div v-if="tools_forecast_summary" class="farmer-forecast-summary">
+                <article class="g-card farmer-forecast-ttr" :class="'is-' + tools_forecast_summary.ttr.tone">
+                  <div class="farmer-forecast-ttr-head">
+                    <span class="farmer-section-kicker">风险越界倒计时</span>
+                    <span class="g-badge" :class="tools_forecast_summary.ttr.tone">{{ tools_forecast_summary.statusLabel }}</span>
+                  </div>
+                  <strong class="farmer-forecast-ttr-value">{{ tools_forecast_summary.ttr.label }}</strong>
+                  <p class="farmer-panel-hint">{{ tools_forecast_summary.ttr.detail }}</p>
+                  <div class="farmer-forecast-ttr-meta">
+                    <span>预测模型 {{ tools_forecast_summary.algorithm }}</span>
+                    <span v-if="tools_forecast_summary.robustSlopePerHour != null">趋势 {{ tools_forecast_summary.robustSlopePerHour }}%/小时</span>
+                    <span v-if="tools_forecast_summary.boundary">风险阈值 {{ tools_forecast_summary.boundary.value }}%</span>
+                  </div>
+                </article>
+
+                <article class="g-card farmer-forecast-horizons">
                   <div class="farmer-panel-header">
                     <div>
-                      <span class="farmer-section-kicker">未来含水率</span>
+                      <span class="farmer-section-kicker">短期预测</span>
+                      <h3>1 / 2 / 4 小时推演</h3>
+                    </div>
+                  </div>
+                  <div class="farmer-forecast-horizon-table" role="table" aria-label="风险预测锚点">
+                    <div class="farmer-forecast-horizon-row is-head" role="row">
+                      <span role="columnheader">时点</span>
+                      <span role="columnheader">预期含水率</span>
+                      <span role="columnheader">置信区间</span>
+                    </div>
+                    <div v-for="point in tools_forecast_summary.horizons" :key="'hz-' + point.minute" class="farmer-forecast-horizon-row" role="row">
+                      <span role="cell">{{ point.label }}</span>
+                      <span role="cell"><strong>{{ Number.isFinite(point.expected) ? point.expected.toFixed(1) : '—' }}%</strong></span>
+                      <span role="cell" class="is-muted">
+                        <template v-if="Number.isFinite(point.lower) && Number.isFinite(point.upper)">
+                          {{ point.lower.toFixed(1) }}% – {{ point.upper.toFixed(1) }}%
+                        </template>
+                        <template v-else>—</template>
+                      </span>
+                    </div>
+                  </div>
+                  <p v-if="tools_forecast_summary.uncertaintyNote" class="farmer-panel-hint">{{ tools_forecast_summary.uncertaintyNote }}</p>
+                </article>
+              </div>
+
+              <article class="g-card farmer-advice-card farmer-moisture-chart-card farmer-risk-chart-card">
+                  <div class="farmer-panel-header">
+                    <div>
+                      <span class="farmer-section-kicker">含水率推演</span>
                       <h3>{{ tools_plot ? tools_plot.name : '地块' }} · 风险预警曲线</h3>
                     </div>
                     <span class="g-badge primary">当前 {{ tools_plot && tools_plot.metrics && tools_plot.metrics.SOIL_MOISTURE ? tools_plot.metrics.SOIL_MOISTURE.value : '—' }}%</span>
                   </div>
-                  <div v-if="tools_forecast_chart" class="farmer-moisture-chart-wrap">
+
+                  <div class="farmer-risk-chart-layout">
+                    <div class="farmer-risk-chart-main" ref="tools_risk_chart_host">
+                      <div v-if="tools_chart_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true">
+                        <span class="farmer-chart-spinner" aria-hidden="true"></span>
+                        <span>{{ tools_scenario_loading ? '正在加载情景对照…' : '正在读取预警曲线…' }}</span>
+                      </div>
+                      <div v-else-if="tools_forecast_chart" class="farmer-moisture-chart-wrap">
                     <div class="farmer-chart-interactive">
-                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="'风险预警曲线'"
+                      <svg class="farmer-chart-svg farmer-moisture-svg" :viewBox="tools_forecast_chart.viewBox || '0 0 360 260'" role="img" aria-label="风险预警曲线"
                            @mousemove="show_chart_tooltip($event, tools_forecast_chart, 'tools-forecast')" @mouseleave="hide_chart_tooltip">
-                        <line v-for="line in tools_forecast_chart.grid" :key="'tf-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
+                        <line v-for="line in tools_forecast_chart.grid" :key="'tf-' + line.y" class="farmer-chart-grid-line" :x1="tools_forecast_chart.plotLeft" :y1="line.y" :x2="tools_forecast_chart.plotRight" :y2="line.y"></line>
                         <text v-for="line in tools_forecast_chart.grid" :key="'tt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                        <line v-if="tools_forecast_chart.boundaryY != null" class="farmer-alert-threshold-line" x1="32" :y1="tools_forecast_chart.boundaryY" x2="350" :y2="tools_forecast_chart.boundaryY"></line>
-                        <polyline class="farmer-chart-line is-moisture" :points="tools_forecast_chart.points" :stroke="tools_forecast_chart.color"></polyline>
+                        <line v-if="tools_forecast_chart.boundaryY != null" class="farmer-alert-threshold-line" :x1="tools_forecast_chart.plotLeft" :y1="tools_forecast_chart.boundaryY" :x2="tools_forecast_chart.plotRight" :y2="tools_forecast_chart.boundaryY"></line>
+                        <polygon v-if="tools_forecast_chart.bandPolygon" class="farmer-chart-confidence-band" :points="tools_forecast_chart.bandPolygon"></polygon>
+                        <polyline
+                          v-for="series in tools_forecast_chart.series"
+                          :key="series.label"
+                          class="farmer-chart-line"
+                          :class="{ 'is-moisture': series.primary, 'is-dashed': series.dashed, 'is-dual-track': series.dualTrack }"
+                          :points="series.points"
+                          :stroke="series.color"
+                        ></polyline>
+                        <text
+                          v-for="tick in tools_forecast_chart.xTicks"
+                          :key="'tx-' + tick.x + tick.label"
+                          class="farmer-chart-axis-label"
+                          :x="tick.x"
+                          :y="tick.y"
+                          :text-anchor="tick.anchor"
+                        >{{ tick.label }}</text>
                       </svg>
                       <div v-if="chart_tooltip && chart_tooltip.key === 'tools-forecast'" class="farmer-chart-tooltip"
                            :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
                         <strong>{{ chart_tooltip.label }}</strong>
-                        <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }}%</span>
+                        <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ Number(item.value).toFixed(1) }}%</span>
                       </div>
                     </div>
-                    <div class="farmer-chart-x-labels"><span>{{ tools_forecast_chart.labels[0] }}</span><span>{{ tools_forecast_chart.labels[Math.floor(tools_forecast_chart.labels.length / 2)] }}</span><span>{{ tools_forecast_chart.labels[tools_forecast_chart.labels.length - 1] }}</span></div>
-                  </div>
-                  <p v-else class="farmer-panel-hint">{{ tools_forecast_loading ? '正在读取预警结果…' : (tools_forecast_error || '暂无可绘制的预警曲线') }}</p>
-                  <p v-if="tools_forecast_error && tools_forecast_chart" class="farmer-panel-hint">{{ tools_forecast_error }}</p>
-                </article>
-
-                <article v-if="tools_compare_chart" class="g-card farmer-advice-card farmer-dual-track-card">
-                  <div class="farmer-panel-header"><div><span class="farmer-section-kicker">I-07 · I-13</span><h3>执行 / 不执行双轨对比</h3></div><span class="g-badge primary">Seed {{ tools_compare.seed }}</span></div>
-                  <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" aria-label="执行与不执行双轨比较曲线">
-                    <line v-for="line in tools_compare_chart.grid" :key="'dual-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
-                    <text v-for="line in tools_compare_chart.grid" :key="'dual-label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                    <polyline v-for="series in tools_compare_chart.series" :key="series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
-                  </svg>
-                  <div class="farmer-dual-track-summary"><div v-for="series in tools_compare_chart.series" :key="'summary-' + series.label"><i :style="{background: series.color}"></i><strong>{{ series.label }}</strong><span>最终 {{ series.finalMoisture }}% · 风险时间 {{ series.timeToRiskMinutes >= 0 ? series.timeToRiskMinutes + ' 分钟' : '未触发' }}</span></div></div>
-                  <small class="farmer-case-note">冻结快照 {{ tools_compare.frozenSnapshot?.snapshotHash || '—' }} · 两分支使用同一 seed，结果只读且不写回主状态。</small>
-                </article>
-
-                <article class="g-card farmer-advice-card">
-                  <div class="farmer-panel-header">
-                    <div>
-                      <span class="farmer-section-kicker">What-if</span>
-                      <h3>情景假设</h3>
+                    <div v-if="tools_forecast_chart.legend && tools_forecast_chart.legend.length" class="farmer-chart-legend" aria-label="曲线图例">
+                      <span v-for="item in tools_forecast_chart.legend" :key="'legend-' + item.label" class="farmer-chart-legend-item">
+                        <i class="farmer-legend-swatch" :class="'is-' + (item.style || (item.dashed ? 'dashed' : 'solid'))" :style="{ '--legend-color': item.color }"></i>
+                        {{ item.label }}
+                      </span>
                     </div>
+                    <p v-if="tools_forecast_chart.compareMeta" class="farmer-panel-hint">情景虚线为同一冻结快照下的只读双轨试算（种子 {{ tools_forecast_chart.compareMeta.seed }}），绿色实线为当前基准预测，二者均不写回主状态。</p>
+                      </div>
+                      <p v-else class="farmer-panel-hint farmer-chart-empty">{{ tools_forecast_error || '暂无可绘制的预警曲线' }}</p>
+                      <p v-if="tools_forecast_error && tools_forecast_chart" class="farmer-panel-hint">{{ tools_forecast_error }}</p>
+                    </div>
+
+                    <aside class="farmer-risk-chart-side" aria-label="情景对照">
+                      <span class="farmer-risk-side-label">情景选择</span>
+                      <div class="farmer-risk-scenarios" role="group">
+                        <button
+                          type="button"
+                          v-for="scenario in tools_scenarios"
+                          :key="scenario.code"
+                          class="farmer-risk-scenario"
+                          :class="{ active: tools_scenario === scenario.code }"
+                          :style="{ '--scenario-color': scenario.color }"
+                          :disabled="tools_chart_loading && tools_scenario !== scenario.code"
+                          @click="change_tools_scenario(scenario)"
+                        >
+                          <span>{{ scenario.emoji }}</span>
+                          <strong>{{ scenario.label }}</strong>
+                        </button>
+                      </div>
+                      <p class="farmer-panel-hint">{{ tools_active_scenario?.description || '选择情景后，叠加「不干预 / 执行处方」双轨曲线，与上方基准预测对照。' }} 结果仅供本页参考，不会回写主状态或控制设备。</p>
+                    </aside>
                   </div>
-                  <div class="farmer-tools-scenarios">
-                    <button
-                      type="button"
-                      v-for="scenario in tools_scenarios"
-                      :key="scenario.code"
-                      class="farmer-tools-scenario"
-                      :class="{ active: tools_scenario === scenario.code }"
-                      @click="change_tools_scenario(scenario)"
-                    >
-                      <strong>{{ scenario.emoji }} {{ scenario.label }}</strong>
-                      <span>{{ scenario.description }}</span>
-                    </button>
-                  </div>
-                  <p class="farmer-panel-hint">情景只用于本页对照，不会回写主状态或控制设备。</p>
                 </article>
-              </div>
             </div>
 
             <div v-else class="farmer-tools-manual">
@@ -1555,6 +1613,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260827-load-progress"></script>
+  <script type="module" src="js/farmer.js?v=20260828-baseline-slope"></script>
 </body>
 </html>
