@@ -388,6 +388,42 @@ python simulator/runner.py --scenario normal --seed 42 --http --interval 5 --con
 
 然后打开 `http://127.0.0.1:3000/login.html`（账号 `farmer` / `demo123`）。
 
+### Windows 本地虚拟浇水验证（推荐）
+
+首次运行先准备 Java 17、Python 3.10+ 和 Node.js，并在仓库根目录执行：
+
+```powershell
+python -m pip install -r simulator/requirements.txt
+Set-Location apps/web-ui
+npm install
+Set-Location ../..
+```
+
+分别打开 3 个 PowerShell 窗口：
+
+```powershell
+# 窗口 1：standalone API（无需 PostgreSQL/Redis/MQTT）
+.\gradlew.bat :apps:api-service:bootRun
+
+# 窗口 2：前端开发服务器（自动把 /api 代理到 8080）
+Set-Location apps/web-ui
+npx vite
+
+# 窗口 3：HTTP 模拟器（持续推送干旱场景遥测）
+# 先在仓库根目录（smart-agriculture）执行下面命令
+python simulator/runner.py --scenario drought --seed 42 --http --interval 5 --continuous
+```
+
+浏览器打开 `http://127.0.0.1:3000/login.html`，点击“演示身份 → 种植农户”，进入“灌溉系统”，依次点击“查看建议并开始虚拟浇水” → “下一步：确认处方” → 勾选确认 → “确认并开始虚拟浇水”。结果卡应显示 `SUCCEEDED`、实际用水、土壤湿度上升和水库水位下降。三窗口均按 `Ctrl+C` 停止。
+
+只跑自动化验证时：
+
+```powershell
+Set-Location apps/web-ui; npm test; Set-Location ../..
+python -m unittest simulator.test_runner
+.\gradlew.bat :apps:api-service:compileJava --offline
+```
+
 关键配置：
 
 ```text
