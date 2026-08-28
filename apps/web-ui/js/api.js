@@ -2089,10 +2089,11 @@ export class ApiService {
     const curve = Array.isArray(source.curve) && source.curve.length
       ? source.curve.map(p => ({ minute: Number(p.minute), expected: toFinite(p.expected ?? p.value), lower: toFinite(p.lower ?? p.expected ?? p.value), upper: toFinite(p.upper ?? p.expected ?? p.value) }))
       : (live ? horizons : this.interpolateForecastCurve(start, horizons, maxHorizon || 240));
-    const unavailable = String(source.status || '').toUpperCase() !== 'AVAILABLE';
+    const unavailable = String(source.status || '').toUpperCase() === 'UNAVAILABLE';
+    const status = unavailable ? (source.status || 'UNAVAILABLE') : String(source.status || 'AVAILABLE').toUpperCase();
     return {
       ...source,
-      status: unavailable ? (source.status || 'UNAVAILABLE') : 'AVAILABLE',
+      status,
       plotId, metric,
       generatedAt: source.generatedAt || source.issuedAt || new Date().toISOString(),
       inputWindowMinutes: toFinite(source.inputWindowMinutes ?? source.inputWindow?.minutes ?? source.inputWindow?.validSamples ?? cfg.inputWindowMinutes),
@@ -2233,7 +2234,7 @@ export class ApiService {
   async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '' } = {}) {
     const normalizedScenario = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
+      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
       const server = resp?.data || resp;
       return { ...(server || {}), scenario: normalizedScenario, seed, plotId, dataOrigin: 'BACKEND', provenance: 'BACKEND' };
     }
@@ -2251,27 +2252,50 @@ export class ApiService {
     const jumpBoost = 11.8 + rnd() * 2.8;
     const rainBoost = (def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
     const driftRate = (def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
-    const kBase = Math.log(16.8 / cfg.stressBoundary) / (def.ttrMinutes || 72);
-    const k = kBase * (def.decayFactor || 1) * kFactor;
-    const build = execute => Array.from({ length: 49 }, (_, i) => {
+    const decayK = 0.03 + rnd() * 0.012;
+    const trend = def.code === 'DROUGHT' ? -3.6 : def.code === 'SENSOR_DRIFT' ? -0.18 : 0;
+    const rainPeak = def.code === 'STORM' ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+    const build = (execute) => Array.from({ length: 49 }, (_, i) => {
       const t = i * 5;
-      const phys = x => start * Math.exp(-k * x);
+      const hours = t / 60;
       let value;
       if (def.code === 'STORM') {
-        value = t <= 45 ? start + rainBoost * (t / 45) : (start + rainBoost) * Math.exp(-k * (t - 45));
-        if (execute && t >= 30) value = Math.min(value + jumpBoost, 42);
-      } else if (execute && t >= 30) {
-        value = Math.min(phys(30) + jumpBoost, 42) * Math.exp(-k * 0.55 * (t - 30));
-      } else value = phys(t);
-      if (def.code === 'SENSOR_DRIFT') value += driftRate * (t / 60);
-      return { minute: t, value: Number(Math.max(value, 0).toFixed(2)) };
+        const wetting = t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
+        if (!execute) value = wetting;
+        else {
+          const managedPeak = start + rainPeak * 0.72;
+          value = t <= 45 ? start + rainPeak * 0.72 * (t / 45) : managedPeak * Math.exp(-decayK * 1.35 * (t - 45) / 45);
+        }
+      } else if (def.code === 'SENSOR_DRIFT') {
+        const physical = start + trend * hours * 0.15;
+        if (!execute) value = start + driftRate * hours;
+        else if (t < 30) value = start + driftRate * hours;
+        else {
+          const driftAt30 = start + driftRate * 0.5;
+          const blend = 1 - Math.exp(-(t - 30) / 35);
+          value = driftAt30 + (physical - driftAt30) * blend;
+        }
+      } else if (def.code === 'DROUGHT') {
+        value = start + trend * hours;
+        if (execute && t >= 30) {
+          const atExec = start + trend * 0.5;
+          value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (t - 30)));
+        }
+      } else {
+        const natural = Math.max(0, start - t * 0.025);
+        value = execute && t >= 30 ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (t - 30))) : natural;
+      }
+      return { minute: t, value: Number(Math.max(0, Math.min(100, value)).toFixed(2)) };
     });
+    const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
+    const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
       status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: def.code, scenarioLabel: def.label, seed, plotId,
       frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: cfg.stressBoundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
       seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
-      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: `⚡ 虚拟执行 (补水 ≈${jumpBoost.toFixed(1)}%)` }],
-      branches: { EXECUTE: { label: '分支 A · 执行灌溉处方', points: build(true), color: '#3fb950' }, NO_ACTION: { label: '分支 B · 不采取措施放任干旱', points: build(false), color: '#f85149' } },
+      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],
+      branches: { EXECUTE: { label: executeLabel, points: build(true), color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: build(false), color: '#f85149' } },
+      comparisonVersion: 'branch-compare-v4',
       note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态', provenance: 'SIMULATED'
     };
   }
