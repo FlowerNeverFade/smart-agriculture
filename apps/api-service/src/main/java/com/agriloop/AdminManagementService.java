@@ -258,11 +258,43 @@ class AdminManagementService {
         for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
             if (input.containsKey(field)) updated.put(field, input.get(field));
         }
-        validatePlot(updated);
+        // Historical/demo plots may predate the complete Crop Pack metadata
+        // contract (for example they have a crop code but no variety or growth
+        // cycle).  A partial edit such as changing only the name must still be
+        // valid; validate fields explicitly supplied by the caller, while
+        // retaining the full invariant for already-complete records.
+        if (isCompletePlot(current) || isCompletePlot(updated)) validatePlot(updated);
+        else validatePlotPatch(input);
         updated.put("plotId", plotId); updated.put("updatedAt", Instant.now().toString()); updated.put("updatedBy", principal.userId);
         store.save("plot", plotId, updated);
         publish("plot.updated", updated);
         return updated;
+    }
+
+    private boolean isCompletePlot(Map<String, Object> plot) {
+        return !Jsons.text(plot, "name", "").isBlank()
+                && !Jsons.text(plot, "cropCode", "").isBlank()
+                && !Jsons.text(plot, "cropVariety", "").isBlank()
+                && Jsons.number(plot, "areaM2", 0) > 0
+                && Jsons.whole(plot, "growthCycleDays", 0) > 0;
+    }
+
+    private void validatePlotPatch(Map<String, Object> input) {
+        if (input.containsKey("name") && Jsons.text(input, "name", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_NAME_REQUIRED", "请填写地块名称");
+        }
+        if (input.containsKey("cropCode") && Jsons.text(input, "cropCode", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CROP_REQUIRED", "请选择作物种类");
+        }
+        if (input.containsKey("cropVariety") && Jsons.text(input, "cropVariety", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_VARIETY_REQUIRED", "请填写作物品种");
+        }
+        if (input.containsKey("areaM2") && Jsons.number(input, "areaM2", 0) <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
+        }
+        if (input.containsKey("growthCycleDays") && Jsons.whole(input, "growthCycleDays", 0) <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
+        }
     }
 
     Map<String, Object> unbindDevice(String deviceId, UserPrincipal principal) {

@@ -22,6 +22,17 @@ class AgriApplicationTest {
     @Autowired AdminManagementService adminManagement;
 
     @Test
+    void legacyPlotAllowsPartialMetadataUpdate() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+        String plotId = "plot-legacy-partial-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "旧地块", "cropCode", "tomato", "areaM2", 80)));
+        Map<String, Object> updated = adminManagement.updatePlot(plotId, Map.of("name", "旧地块（已改名）"), admin);
+        assertThat(updated.get("name")).isEqualTo("旧地块（已改名）");
+        store.delete("plot", plotId);
+    }
+
+    @Test
     void farmAdminCanCreateUpdateDeactivateRestoreAndSafelyDeletePlot() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());

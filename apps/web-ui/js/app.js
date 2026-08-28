@@ -5,7 +5,7 @@ import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';

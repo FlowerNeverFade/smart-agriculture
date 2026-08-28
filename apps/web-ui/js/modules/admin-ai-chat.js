@@ -47,6 +47,13 @@ export const AdminAiChatView = {
     const sending = ref(false);
     const messageList = ref(null);
     const actionBusy = ref('');
+    // Keep the template independent from Vue's ref auto-unwrapping details.
+    // The app ships the view as a runtime-compiled plain component object, and
+    // binding a ref object directly to `disabled` makes both action buttons
+    // permanently disabled in that path.  These closures always read the
+    // current ref value and return primitive booleans/strings to the template.
+    const isActionBusy = () => Boolean(actionBusy.value);
+    const isActionRunning = actionId => actionBusy.value === actionId;
 
     const selectedPlotName = computed(() => props.state.plots
       ?.find(item => item.plotId === selectedPlotId.value)?.name || '全农场');
@@ -180,6 +187,8 @@ export const AdminAiChatView = {
       loadingHistory,
       sending,
       actionBusy,
+      isActionBusy,
+      isActionRunning,
       messageList,
       suggestions,
       selectedPlotName,
@@ -240,8 +249,8 @@ export const AdminAiChatView = {
                 <p>{{ message.actionProposal.summary }}</p>
                 <small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small>
                 <div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'">
-                  <button type="button" class="g-btn primary compact" :disabled="actionBusy" @click="confirmAction(message.actionProposal)">{{ actionBusy === message.actionProposal.actionId ? '执行中…' : '确认执行' }}</button>
-                  <button type="button" class="g-btn secondary compact" :disabled="actionBusy" @click="cancelAction(message.actionProposal)">取消</button>
+                  <button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button>
+                  <button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button>
                 </div>
               </div>
               <small>{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
