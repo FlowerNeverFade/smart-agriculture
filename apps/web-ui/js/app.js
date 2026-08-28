@@ -2520,6 +2520,10 @@ const AdminSimulatorView = {
     };
     const togglePlotSimulation = async (plot) => {
       if (!plot || !plot.plotId || simBusy.value) return;
+      if (props.state.sessionMode !== 'live') {
+        toast('演示会话不能控制后端模拟器', 'error');
+        return;
+      }
       const target = plot;
       simBusy.value = true;
       try {

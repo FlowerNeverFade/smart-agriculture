@@ -1646,11 +1646,11 @@
                 </select>
               </td>
               <td>
-                <button v-if="plot.enabled !== false" class="g-btn danger sm" :disabled="simBusy" @click="togglePlotSimulation(plot)">
-                  <app-icon name="stop"></app-icon> 停止
+                <button v-if="plot.enabled !== false" class="g-btn text sm" style="font-size:12px; line-height:1; padding:2px 4px; min-height:auto" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="stop" style="font-size:14px"></app-icon> 停止
                 </button>
-                <button v-else class="g-btn primary sm" :disabled="simBusy" @click="togglePlotSimulation(plot)">
-                  <app-icon name="play_arrow"></app-icon> 启动
+                <button v-else class="g-btn text sm" style="font-size:12px; line-height:1; padding:2px 4px; min-height:auto" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="play_arrow" style="font-size:14px"></app-icon> 启动
                 </button>
               </td>
             </tr>
