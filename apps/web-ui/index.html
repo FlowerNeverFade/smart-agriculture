@@ -1653,6 +1653,14 @@
         </table>
       </div>
 
+      <!-- Scenario matrix actions -->
+      <div class="admin-section-actions" style="display:flex; align-items:center; gap:12px; margin-bottom:24px">
+        <button class="g-btn primary" :disabled="simBusy" @click="applyPlotScenarios">
+          <app-icon name="save"></app-icon> 保存场景配置
+        </button>
+        <span style="font-size:12px;color:var(--g-text-secondary)">保存后后端模拟器将按各地块所选场景生成遥测数据，刷新后保留。</span>
+      </div>
+
       <!-- History -->
       <div class="admin-section-head">
         <div class="admin-section-title"><app-icon name="history"></app-icon> 运行历史</div>
