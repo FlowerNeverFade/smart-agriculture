@@ -2134,6 +2134,13 @@ class AgriEngine {
                                                     String title, String message, String level, String ruleState,
                                                     int cooldownMinutes, double threshold, Map<String, Object> context,
                                                     Map<String, Object> rule) {
+        String previousTitle = Jsons.text(alert, "title", "");
+        String previousMessage = Jsons.text(alert, "message", "");
+        String previousLevel = Jsons.text(alert, "level", "");
+        String previousRuleState = Jsons.text(alert, "ruleState", "");
+        String previousStatus = Jsons.text(alert, "status", "ACTIVE");
+        Instant lastPublishedAt = Jsons.instant(alert.get("lastPublishedAt"),
+                Jsons.instant(alert.get("raisedAt"), Jsons.instant(alert.get("createdAt"), Instant.EPOCH)));
         List<Map<String, Object>> evidence = new ArrayList<>(Jsons.maps(mapper, alert.get("evidence")));
         evidence.add(event);
         if (evidence.size() > 8) evidence = new ArrayList<>(evidence.subList(evidence.size() - 8, evidence.size()));
@@ -2155,19 +2162,36 @@ class AgriEngine {
         alert.put("updatedAt", now.toString());
         String alertId = Jsons.text(alert, "alertId", "");
         store.save("alert", alertId, alert);
-        events.publish("alert.updated", alert);
-        store.logEvent("alert.updated", alert);
+        boolean materialChange = !title.equals(previousTitle)
+                || !message.equals(previousMessage)
+                || !level.equalsIgnoreCase(previousLevel)
+                || !ruleState.equalsIgnoreCase(previousRuleState)
+                || !Jsons.text(alert, "status", "ACTIVE").equalsIgnoreCase(previousStatus);
+        boolean dueForPublish = Duration.between(lastPublishedAt, now).toMinutes() >= 10;
+        if (materialChange || dueForPublish) {
+            alert.put("lastPublishedAt", now.toString());
+            store.save("alert", alertId, alert);
+            events.publish("alert.updated", alert);
+            store.logEvent("alert.updated", alert);
+        }
         Map<String, Object> reused = Jsons.copy(mapper, alert);
         reused.put("reused", true);
         return reused;
     }
 
     private Map<String, Object> findLatestMatchingAlert(String plotId, String source) {
-        return store.list("alert").stream()
+        Comparator<Map<String, Object>> byObserved = Comparator.comparing(alert -> Jsons.instant(alert.get("lastObservedAt"),
+                Jsons.instant(alert.get("raisedAt"), Jsons.instant(alert.get("createdAt"), Instant.EPOCH))));
+        List<Map<String, Object>> matches = store.list("alert").stream()
                 .filter(alert -> plotId.equals(Jsons.text(alert, "plotId", "")))
                 .filter(alert -> source.equals(Jsons.text(alert, "source", "")))
-                .max(Comparator.comparing(alert -> Jsons.instant(alert.get("lastObservedAt"),
-                        Jsons.instant(alert.get("raisedAt"), Jsons.instant(alert.get("createdAt"), Instant.EPOCH)))))
+                .toList();
+        // Prefer any open alert over a newer closed one; otherwise reopening after close
+        // would create a second ACTIVE while older ACTIVE rows still exist.
+        return matches.stream()
+                .filter(alert -> OPEN_ALERT_STATUSES.contains(Jsons.text(alert, "status", "")))
+                .max(byObserved)
+                .or(() -> matches.stream().max(byObserved))
                 .map(alert -> Jsons.copy(mapper, alert))
                 .orElse(null);
     }
@@ -3425,13 +3449,22 @@ class AgriEngine {
 
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
         StreamBuilder work = new StreamBuilder();
+        Set<String> coveredAlertRefs = new HashSet<>();
         store.list("work-order").stream()
                 .filter(w -> canAccessPlot(principal, Jsons.text(w, "plotId", "")))
                 .filter(w -> !"FARMER".equals(principal.role) || farmerCanSeeWorkOrder(w, principal))
                 .filter(w -> plotId == null || plotId.equals(Jsons.text(w, "plotId", "")))
-                .map(this::normalizeWorkOrderForRead).forEach(work::add);
+                .map(this::normalizeWorkOrderForRead)
+                .peek(w -> {
+                    if ("ALERT".equalsIgnoreCase(Jsons.text(w, "sourceType", ""))) {
+                        String ref = Jsons.text(w, "sourceRef", "").trim();
+                        if (!ref.isBlank()) coveredAlertRefs.add(ref);
+                    }
+                })
+                .forEach(work::add);
         store.list("alert").stream().filter(a -> canAccessPlot(principal, Jsons.text(a, "plotId", "")) &&
-                (plotId == null || plotId.equals(Jsons.text(a, "plotId", ""))) && !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).forEach(a -> work.add(Map.of(
+                (plotId == null || plotId.equals(Jsons.text(a, "plotId", ""))) && !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))
+                && !coveredAlertRefs.contains(Jsons.text(a, "alertId", ""))).forEach(a -> work.add(Map.of(
                 "workItemId", Jsons.text(a, "alertId", Jsons.id("wi")), "sourceType", "ALERT", "sourceRef", a.get("alertId"), "plotId", a.get("plotId"),
                 "priority", Jsons.text(a, "level", "MEDIUM"), "status", "OPEN", "reason", a.get("source"), "dueAt", Instant.now().plus(2, ChronoUnit.HOURS).toString())));
         store.list("diagnosis").stream().filter(d -> canAccessPlot(principal, Jsons.text(d, "plotId", "")) &&
@@ -3439,6 +3472,28 @@ class AgriEngine {
                 "workItemId", Jsons.text(d, "diagnosisId", Jsons.id("wi")), "sourceType", "DIAGNOSIS", "sourceRef", d.get("diagnosisId"), "plotId", d.get("plotId"),
                 "priority", Jsons.text(d, "primaryCause", "MEDIUM"), "status", "OPEN", "reason", "待处理根因诊断", "dueAt", Instant.now().plus(4, ChronoUnit.HOURS).toString())));
         return work.values.stream().sorted(Comparator.comparingInt((Map<String, Object> w) -> riskRank(Jsons.text(w, "priority", "LOW"))).reversed()).toList();
+    }
+
+    private Map<String, Object> findReusableAlertWorkOrder(String plotId, String sourceRef, String taskPurpose) {
+        boolean wantVerification = "ALERT_VERIFICATION".equalsIgnoreCase(taskPurpose);
+        List<Map<String, Object>> openAlertOrders = store.list("work-order").stream()
+                .filter(work -> "ALERT".equalsIgnoreCase(Jsons.text(work, "sourceType", "")))
+                .filter(work -> !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))))
+                .toList();
+        if (!sourceRef.isBlank()) {
+            Map<String, Object> byRef = openAlertOrders.stream()
+                    .filter(work -> sourceRef.equals(Jsons.text(work, "sourceRef", "")))
+                    .max(Comparator.comparing(work -> Jsons.instant(work.get("createdAt"), Instant.EPOCH)))
+                    .orElse(null);
+            if (byRef != null) return normalizeWorkOrderForRead(byRef);
+        }
+        return openAlertOrders.stream()
+                .filter(work -> plotId.equals(Jsons.text(work, "plotId", "")))
+                .filter(work -> wantVerification
+                        == "ALERT_VERIFICATION".equalsIgnoreCase(Jsons.text(work, "taskPurpose", "")))
+                .max(Comparator.comparing(work -> Jsons.instant(work.get("createdAt"), Instant.EPOCH)))
+                .map(this::normalizeWorkOrderForRead)
+                .orElse(null);
     }
 
     Map<String, Object> createWorkOrder(Map<String, Object> input, UserPrincipal principal) {
@@ -3456,6 +3511,13 @@ class AgriEngine {
         String farmId = Jsons.text(plot, "farmId", "");
         String requestedFarmId = Jsons.text(input, "farmId", farmId);
         if (!farmId.equals(requestedFarmId)) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_MISMATCH", "任务农场与地块不一致");
+        String sourceType = Jsons.text(input, "sourceType", "").trim().toUpperCase(Locale.ROOT);
+        String sourceRef = Jsons.text(input, "sourceRef", "").trim();
+        String taskPurpose = Jsons.text(input, "taskPurpose", "").trim();
+        if ("ALERT".equals(sourceType)) {
+            Map<String, Object> reusable = findReusableAlertWorkOrder(plotId, sourceRef, taskPurpose);
+            if (reusable != null) return reusable;
+        }
         Instant now = Instant.now();
         Map<String, Object> work = new LinkedHashMap<>(input);
         work.put("workOrderId", Jsons.id("wo"));
