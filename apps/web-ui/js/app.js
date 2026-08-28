@@ -88,6 +88,7 @@ const ICON_CLASS = Object.freeze({
   bolt: 'ph-lightning',
   policy: 'ph-shield-check',
   smart_toy: 'ph-robot',
+  head_circuit: 'ph-head-circuit',
   auto_awesome: 'ph-sparkle',
   hourglass_empty: 'ph-hourglass',
   send: 'ph-paper-plane-tilt',
@@ -407,18 +408,20 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    { name: 'PostgreSQL 数据库', status: systemStatus.database },
-    { name: 'Redis 消息流', status: systemStatus.redis },
-    { name: 'MQTT 消息代理', status: systemStatus.mqtt },
-    { name: 'SSE 实时推送', status: 'UP' },
-    { name: '接口服务', status: 'UP' },
+    { name: 'PostgreSQL 数据库', status: systemStatus.database, latencyMs: systemStatus.databaseLatencyMs },
+    { name: 'Redis 消息流', status: systemStatus.redis, latencyMs: systemStatus.redisLatencyMs },
+    { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
+    { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
+    { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '智能模型服务', status: systemStatus.ai, isAi: true }
   ];
-  return entries.map(({ name, status, isAi = false }) => ({
+  return entries.map(({ name, status, isAi = false, latencyMs }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
     statusLabel: serviceStatusLabel(status, '未知'),
     mode: isAi ? (status || '—') : undefined,
+    latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
+    latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
     sourceMode: 'BACKEND'
   }));
 }
@@ -2384,7 +2387,6 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
-    const selectedScenario = ref('NORMAL');
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -2399,9 +2401,6 @@ const AdminSimulatorView = {
           scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
         };
       });
-      if (plotScenarios.value.length && !plotScenarios.value.some((plot) => plot.scenario !== 'NORMAL')) {
-        selectedScenario.value = 'NORMAL';
-      }
     }, { immediate: true });
 
     const globalScenario = computed({
@@ -2416,13 +2415,6 @@ const AdminSimulatorView = {
         }
       }
     });
-    const applyScenario = (scenario) => {
-      const code = typeof scenario === 'string' ? scenario : scenario?.id;
-      if (!code) return;
-      selectedScenario.value = code;
-      globalScenario.value = code;
-      toast(`已将“${typeof scenario === 'string' ? code : scenario.label}”应用到全部地块`);
-    };
     const adminDualTrackModal = ref(false);
     const adminReplayModal = ref(false);
     const replayEvents = ref([]);
@@ -2548,7 +2540,7 @@ const AdminSimulatorView = {
     ];
 
     return {
-      simRunning, simBusy, selectedScenario, plotScenarios, globalScenario, applyScenario, scenarios,
+      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
       scenarioLabel, localizedStatusLabel
@@ -3208,7 +3200,11 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
-        systemStatus: api.getSystemStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })(),
         scenarios: api.getScenarioRuns()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
@@ -3441,7 +3437,7 @@ const app = createApp({
       if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
       state.value.adminOverview.recentEvents.unshift(systemEvent);
       state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
-      showToast(systemEvent.title, systemEvent.category === 'alert' ? 'error' : 'success');
+      // 系统事件仅记入最近事件列表，不再弹出 toast 通知，避免高频事件堆积遮挡视线。
     };
     const connectLiveEvents = async ({ announce = true } = {}) => {
       if (state.value.sessionMode !== 'live' || !api.isLive || liveEventsStop || liveEventsConnecting) return false;
