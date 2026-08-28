@@ -1906,7 +1906,20 @@ class AgriEngine {
         String controlStatus = Jsons.text(controlledDevice, "controlStatus", "").toUpperCase(Locale.ROOT);
         String desiredStatus = Jsons.text(controlledDevice, "desiredStatus", "").toUpperCase(Locale.ROOT);
         boolean realControlPending = controlledDevice != null && !deviceIsSimulated(controlledDevice) && "PENDING".equals(controlStatus);
-        if (controlledDevice != null && "SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
+        boolean confirmedOffline = controlledDevice != null
+                && "SUCCEEDED".equals(controlStatus)
+                && "OFFLINE".equals(desiredStatus);
+        // A newly registered REAL device starts with desiredStatus=OFFLINE and
+        // controlStatus=SUCCEEDED, but that is only an initial fact—not a
+        // confirmed physical shutdown.  Let its first hardware telemetry
+        // establish ONLINE/lastSeen.  Once an actual control command has been
+        // acknowledged, keep confirmed-offline devices from being revived by
+        // stale simulator/heartbeat traffic.  SIMULATION devices retain the
+        // immediate offline suppression contract.
+        boolean simulatorOffline = "SIMULATION".equals(sourceMode) && confirmedOffline;
+        boolean physicalOffline = !"SIMULATION".equals(sourceMode) && confirmedOffline
+                && !Jsons.text(controlledDevice, "lastControlCommandId", "").isBlank();
+        if (simulatorOffline || physicalOffline) {
             Map<String, Object> suppression = new LinkedHashMap<>();
             suppression.put("eventId", Jsons.text(event, "eventId", "")); suppression.put("deviceId", deviceId);
             suppression.put("plotId", plotId); suppression.put("reason", "DEVICE_CONTROL_OFFLINE");
