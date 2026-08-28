@@ -71,6 +71,7 @@ const ICON_CLASS = Object.freeze({
   logout: 'ph-sign-out',
   error: 'ph-x-circle',
   check_circle: 'ph-check-circle',
+  save: 'ph-floppy-disk',
   add_task: 'ph-note-pencil',
   calendar_today: 'ph-calendar-check',
   schedule: 'ph-clock',
@@ -2496,6 +2497,29 @@ const AdminSimulatorView = {
         toast(error.message || '模拟器控制失败', 'error');
       } finally { simBusy.value = false; }
     };
+    const applyPlotScenarios = async () => {
+      if (simBusy.value) return;
+      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      simBusy.value = true;
+      let updated = 0;
+      const failures = [];
+      try {
+        for (const plot of targets) {
+          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+          try {
+            await api.updatePlotSimulation(plot.plotId, { scenario });
+            updated += 1;
+          } catch (error) {
+            failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
+          }
+        }
+        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
+      } catch (error) {
+        toast(error.message || '场景配置保存失败', 'error');
+      } finally { simBusy.value = false; }
+    };
     const openReplay = async (run) => {
       selectedReplayScenario.value = run.scenarioId || run.runId || '—';
       adminReplayModal.value = true;
@@ -2596,7 +2620,7 @@ const AdminSimulatorView = {
     return {
       simRunning, simBusy, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios,
       scenarioLabel, localizedStatusLabel
     };
   }
