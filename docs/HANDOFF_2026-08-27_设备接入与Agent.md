@@ -10,9 +10,9 @@
 
 - 仓库：`smart-agriculture-main-local`
 - 分支：`main`
-- 最新本地提交：`cdca92f fix: enable agent action confirmation buttons`（文档随后更新）
-- 相对 `origin/main`：本地领先 12 个提交
-- GitHub：本轮没有推送
+- 最近功能提交：`cdca92f fix: enable agent action confirmation buttons`
+- GitHub 同步提交：`4e9326a merge: integrate latest GitHub main`，已推送到 `origin/main`（合并前远端为 `34a6a11`）
+- 服务器运行发布仍为已验收的 `cdca92f`，本次 GitHub 同步未改变服务器运行版本
 - 工作区：提交后无未提交改动（接手前请重新执行 `git status` 确认）
 - 本地预览入口：`http://127.0.0.1:4173/login.html`
 - 服务器路径：`/srv/agriloop`、`/srv/farm-admin`
@@ -176,7 +176,7 @@ POST /api/v1/agent/actions/{actionId}/cancel
 - 验收数据留存：Agent 创建的“名称 Agent验收临时地块”已停用；因模拟器产生遥测历史而不能物理删除，验收模拟设备均已解绑，后续清理前请保留该依赖记录。
 - 额外修复 `601fe08`：真实设备首次遥测不再被初始化的 OFFLINE 控制状态误抑制，只有存在实际控制命令后才按确认离线保护。
 - 额外修复 `cdca92f`：运行时编译的 AI 对话组件不再把 `ref` 对象直接绑定到 `disabled`，确认执行和取消按钮恢复可点击；确认后仍通过 `data-invalidated` 刷新地块、设备、任务、告警和总览数据域。历史元数据不完整的地块支持字段级局部修改。
-- 未操作真实 BearPi，未推送 GitHub。
+- 未操作真实 BearPi；GitHub `main` 已完成非强制推送，未改写既有历史。
 
 ## 7. 接手同学优先级
 
@@ -211,4 +211,4 @@ POST /api/v1/agent/actions/{actionId}/cancel
 
 ## 9. 交接结论
 
-本日代码开发目标已落地并完成远端验收，当前发布为本地 `main@cdca92f`。后续只需按用户页面集中验收；不要重新实现本轮功能，也不要推送 GitHub 或操作真实 BearPi。
+本日代码开发目标已落地并完成远端验收，服务器当前发布为 `main@cdca92f`；本地 `main` 已通过 `4e9326a` 与 GitHub 主分支同步。后续只需按用户页面集中验收；不要重新实现本轮功能，也不要操作真实 BearPi。
