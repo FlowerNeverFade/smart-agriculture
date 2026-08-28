@@ -1002,6 +1002,7 @@ final class UserPrincipal {
     boolean canControl() { return RolePolicy.canControl(role); }
     boolean canInspect() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
     boolean canRequestIrrigation() { return Set.of("FARMER", "FARM_ADMIN").contains(role); }
+    boolean isFarmer() { return "FARMER".equals(role); }
     boolean isFarmAdmin() { return "FARM_ADMIN".equals(role); }
     boolean isSystemAdmin() { return "SYSTEM_ADMIN".equals(role); }
     boolean isAdmin() { return RolePolicy.isAdmin(role); }
@@ -2955,14 +2956,25 @@ class AgriEngine {
         int maxHorizon = Math.max(60, (int) Math.round(forecastHours * 60));
         double strategyTrend = strategyTrendPerHour(usedMetric, scenario, parameters, observedSlopePerHour, points.size() >= minSamples);
         double driftRate = "SENSOR_DRIFT".equals(scenario) ? Jsons.number(parameters, "driftRatePerHour", 2.4) : 0;
+        double[] valueRange = metricRange(usedMetric);
         List<Map<String, Object>> curve = new ArrayList<>();
         for (int minute = 0; minute <= maxHorizon; minute += 5) {
             double hours = minute / 60.0;
-            double value = projectMetric(usedMetric, current, hours, strategyTrend, driftRate, scenario, parameters, plotId);
+            // Minute zero is the observed hand-off point, not a simulated
+            // sample.  Keeping it exact makes every metric continuous with
+            // the historical series even when the projection uses a
+            // plot-specific phase for later volatility.
+            double value = minute == 0 ? clamp(current, valueRange[0], valueRange[1])
+                    : projectMetric(usedMetric, current, hours, strategyTrend, driftRate, scenario, parameters, plotId);
             double spread = Math.max(.35, mad * (1 + minute / 240.0) + volatility * .22 * Math.sqrt(Math.max(1, minute / 5.0)));
-            double lower = clamp(value - spread, metricRange(usedMetric)[0], metricRange(usedMetric)[1]);
-            double upper = clamp(value + spread, metricRange(usedMetric)[0], metricRange(usedMetric)[1]);
-            Map<String, Object> point = new LinkedHashMap<>(); point.put("minute", minute); point.put("expected", round(clamp(value, metricRange(usedMetric)[0], metricRange(usedMetric)[1])));
+            double lower = clamp(value - spread, valueRange[0], valueRange[1]);
+            double upper = clamp(value + spread, valueRange[0], valueRange[1]);
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("minute", minute);
+            // Preserve the observed hand-off value at full precision.  Later
+            // points are rounded for a compact chart payload, but the first
+            // point must be exactly equal to the latest telemetry sample.
+            point.put("expected", minute == 0 ? value : round(value));
             point.put("lower", round(lower)); point.put("upper", round(upper)); point.put("scenario", scenario); curve.add(point);
         }
         String ruleCode = "AIR_TEMPERATURE".equals(usedMetric) ? "HEAT_STRESS" : "WATER_DEFICIT";
@@ -2989,6 +3001,8 @@ class AgriEngine {
         }).toList();
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", usedMetric);
         result.put("issuedAt", Instant.now().toString()); result.put("status", "AVAILABLE"); result.put("scenario", scenario); result.put("simulation", simulation);
+        result.put("startValue", curve.isEmpty() ? current : curve.get(0).get("expected"));
+        result.put("startTimestamp", last.get("ts"));
         result.put("curve", curve); result.put("horizons", horizons); result.put("timeToRiskMinutes", timeToRisk);
         result.put("riskBoundary", Map.of("operator", operator, "value", boundary, "unit", unitFor(usedMetric), "ruleCode", ruleCode));
         Map<String, Object> inputWindow = new LinkedHashMap<>(); inputWindow.put("validSamples", points.size()); inputWindow.put("mode", points.size() >= minSamples ? "OBSERVED_PLUS_STRATEGY" : "SIMULATION_STRATEGY");
@@ -3008,7 +3022,17 @@ class AgriEngine {
                                         double observedSlopePerHour, boolean enoughSamples) {
         if ("SOIL_MOISTURE".equals(metric)) {
             double configured = Jsons.number(params, "soilMoistureTrendPerHour", 0);
-            return "NORMAL".equals(scenario) && enoughSamples ? clamp(observedSlopePerHour * .65 + configured * .35, -12, 12) : configured;
+            // The simulator publishes frequent samples (normally every
+            // 20 seconds).  Extrapolating the first/last value of a tiny
+            // window by 65% amplified ordinary sensor noise into a dramatic
+            // 32% -> 80% line in the NORMAL scenario.  Keep the configured
+            // plot strategy authoritative and use only a small, bounded
+            // residual correction when there is enough history.
+            if ("NORMAL".equals(scenario) && enoughSamples) {
+                double residual = clamp(observedSlopePerHour, -2.5, 2.5);
+                return clamp(configured * .88 + residual * .12, -3.0, 3.0);
+            }
+            return configured;
         }
         if ("AIR_TEMPERATURE".equals(metric)) return Jsons.number(params, "temperatureBias", 0) * .75 + (enoughSamples ? observedSlopePerHour * .25 : 0);
         if ("AIR_HUMIDITY".equals(metric)) return Jsons.number(params, "humidityBias", 0) * .65 + (enoughSamples ? observedSlopePerHour * .25 : 0);
@@ -3019,13 +3043,16 @@ class AgriEngine {
     private double projectMetric(String metric, double current, double hours, double trend, double driftRate,
                                  String scenario, Map<String, Object> params, String plotId) {
         double volatility = Jsons.number(params, "volatility", 1.25);
-        double wave = Math.sin((hours * 2.6) + Math.abs(plotId.hashCode() % 17)) * volatility;
+        double phase = Math.abs(plotId.hashCode() % 17);
+        double wave = (Math.sin((hours * 2.6) + phase) - Math.sin(phase)) * volatility;
         double value;
         if ("AIR_TEMPERATURE".equals(metric) || "AIR_HUMIDITY".equals(metric)) {
             value = current + trend * (1 - Math.exp(-hours / 2.0)) + wave * ("AIR_HUMIDITY".equals(metric) ? 1.4 : .55);
         } else if ("RAINFALL".equals(metric)) {
             double rate = Math.max(0, Jsons.number(params, "rainfallRate", 0));
-            value = rate * (0.72 + .28 * Math.max(0, Math.sin(hours * 3.1 + 1.2))) + wave * .5;
+            double target = rate * (0.72 + .28 * Math.max(0, Math.sin(hours * 3.1 + 1.2)));
+            double ramp = 1 - Math.exp(-hours * 3.0);
+            value = current + (target - current) * ramp + wave * .5;
         } else {
             value = current + trend * hours + wave * ("LIGHT".equals(metric) ? 900 : "CO2".equals(metric) ? 18 : .35);
             if ("SENSOR_DRIFT".equals(scenario)) value += driftRate * hours;
@@ -3766,7 +3793,8 @@ class AgriEngine {
     }
 
     Map<String, Object> resourcePlan(Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "只有农场管理员可以安排农场资源");
+        boolean farmerPreview = principal.isFarmer();
+        if (!principal.isFarmAdmin() && !farmerPreview) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "当前身份不能试算或安排农场资源");
         String farmId = Jsons.text(input, "farmId", Jsons.text(input, "scope", "")).trim();
         if (farmId.isBlank()) farmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
         if (farmId.isBlank() || !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权安排该农场的水资源");
@@ -3790,7 +3818,15 @@ class AgriEngine {
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("resourcePlanId", Jsons.id("rp")); plan.put("status", unmet.isEmpty() ? "FEASIBLE" : "INFEASIBLE");
         plan.put("farmId", selectedFarmId); plan.put("scope", selectedFarmId); plan.put("window", Map.of("from", Instant.now().toString(), "to", Instant.now().plus(6, ChronoUnit.HOURS).toString()));
         plan.put("constraints", Map.of("waterCapacityLitres", capacity)); plan.put("allocations", allocations); plan.put("conflicts", conflicts); plan.put("unmetDemands", unmet); plan.put("algorithmVersion", "capacity-priority-v1");
-        store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.created", plan); return plan;
+        plan.put("trialOnly", farmerPreview); plan.put("readOnly", farmerPreview); plan.put("provenance", "DERIVED"); plan.put("sourceMode", "ESTIMATED");
+        // Farmers may inspect a capacity-constrained preview for their own
+        // plots, but a preview must never create a schedulable resource plan
+        // or publish an event that looks like an administrator decision.
+        if (!farmerPreview) {
+            store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan);
+            events.publish("resource.plan.created", plan);
+        }
+        return plan;
     }
 
     Map<String, Object> valueLedger(Map<String, Object> input, UserPrincipal principal) {

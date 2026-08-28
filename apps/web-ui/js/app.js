@@ -1,15 +1,16 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
 import { MOCK_DATA } from './mock-data.js?v=1787649000001';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
 import { AdminDecisionView } from './modules/admin-decision.js';
+import { AdminAiChatView } from './modules/admin-ai-chat.js';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -23,8 +24,24 @@ import {
   mapStrategyCandidate,
   mapTimelineRecord,
   normalizePlot,
-  relativeTime
-} from './live-data.js';
+  relativeTime,
+  alertStatusLabel,
+  deviceTypeLabel,
+  displayText,
+  eventTypeLabel,
+  levelLabel,
+  metricStatusLabel,
+  priorityLabel as localizedPriorityLabel,
+  provenanceLabel,
+  resourceTypeLabel,
+  scenarioLabel,
+  serviceNameLabel,
+  serviceStatusLabel,
+  modeLabel,
+  sourceLabel as localizedSourceLabel,
+  statusLabel as localizedStatusLabel,
+  workStatusLabel
+} from './live-data.js?v=20260827-boot-fix-1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
@@ -39,6 +56,7 @@ const ICON_CLASS = Object.freeze({
   group: 'ph-users',
   menu_book: 'ph-book-open',
   arrow_back: 'ph-arrow-left',
+  arrow_forward: 'ph-arrow-right',
   monitoring: 'ph-monitor',
   dns: 'ph-hard-drives',
   gavel: 'ph-gavel',
@@ -84,7 +102,29 @@ const ICON_CLASS = Object.freeze({
   more_vertical: 'ph-dots-three-vertical',
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
-  add: 'ph-plus'
+  add: 'ph-plus',
+  expand_more: 'ph-caret-down',
+  expand_less: 'ph-caret-up',
+  lock_reset: 'ph-lock-key-open',
+  help: 'ph-question',
+  login: 'ph-sign-in',
+  update: 'ph-arrow-up',
+  settings: 'ph-gear',
+  notifications_active: 'ph-bell',
+  notifications: 'ph-bell',
+  sensors: 'ph-broadcast',
+  grid_view: 'ph-squares-four',
+  play_arrow: 'ph-play',
+  stop: 'ph-stop',
+  category: 'ph-tag',
+  compare_arrows: 'ph-arrows-left-right',
+  replay: 'ph-arrow-counter-clockwise',
+  speed: 'ph-gauge',
+  agriculture: 'ph-plant',
+  manage_accounts: 'ph-user-gear',
+  tune: 'ph-sliders',
+  history: 'ph-clock-counter-clockwise',
+  chevron_right: 'ph-caret-right'
 });
 
 const AppIcon = {
@@ -98,14 +138,13 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警与诊断', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI告警分析与智能处理', SYSTEM_ADMIN: '决策审计' } },
   { id: 'risk-forecast', label: '风险推演', icon: 'timeline', labels: { FARMER: '风险预警' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
-  { id: 'resource-coordination', label: '设备与灌溉', icon: 'water_drop' },
+  { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
   { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'value-ledger', label: '价值对账', icon: 'account_balance_wallet', labels: { FARM_ADMIN: '价值对账', SYSTEM_ADMIN: '价值审计' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
   { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
@@ -125,6 +164,23 @@ const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_EC: 'soil_ec',
   NPK_RATIO: 'nutrition'
 });
+
+// The plot-detail simulator uses one axis at a time.  Keeping the unit and
+// physical range beside the label prevents a temperature/CO₂ curve from
+// being rendered with the soil-moisture 0–100% axis.
+const SIMULATION_METRIC_OPTIONS = Object.freeze([
+  { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 35, icon: 'water_drop' },
+  { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: -40, max: 80, decimals: 1, defaultValue: 25, icon: 'thermometer' },
+  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, decimals: 1, defaultValue: 68, icon: 'humidity' },
+  { code: 'LIGHT', label: '光照', unit: 'lux', min: 0, max: 100000, decimals: 0, defaultValue: 42000, icon: 'light_mode' },
+  { code: 'CO2', label: '二氧化碳', unit: 'ppm', min: 0, max: 10000, decimals: 0, defaultValue: 520, icon: 'eco' },
+  { code: 'PH', label: '酸碱度', unit: 'pH', min: 0, max: 14, decimals: 2, defaultValue: 6.25, icon: 'soil_ec' },
+  { code: 'WATER_LEVEL', label: '水位', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 78, icon: 'water_drop' },
+  { code: 'RAINFALL', label: '降雨量', unit: 'mm/h', min: 0, max: 250, decimals: 1, defaultValue: 0.2, icon: 'rainy' }
+]);
+const SIMULATION_METRIC_BY_CODE = Object.freeze(Object.fromEntries(
+  SIMULATION_METRIC_OPTIONS.map((item) => [item.code, item])
+));
 const FINISHED_WORK_STATUSES = Object.freeze(['DONE', 'COMPLETED', 'CANCELLED']);
 const CROP_OPTIONS = Object.freeze([
   { code: 'tomato', name: '番茄' },
@@ -168,6 +224,109 @@ function isAbnormalPlot(plot) {
 function formatMetricValue(metric) {
   if (!metric || metric.value === null || metric.value === undefined || metric.value === '') return '—';
   return String(metric.value);
+}
+
+function simulationMetricDefinition(code = 'SOIL_MOISTURE') {
+  return SIMULATION_METRIC_BY_CODE[String(code || '').toUpperCase()] || SIMULATION_METRIC_BY_CODE.SOIL_MOISTURE;
+}
+
+function finiteNumber(value, fallback = null) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function telemetryTimestamp(item) {
+  return new Date(item?.ts || item?.timestamp || item?.eventTs || 0).getTime();
+}
+
+function normalizedTelemetryPoints(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      ...item,
+      ts: item?.ts || item?.timestamp || item?.eventTs,
+      value: finiteNumber(item?.value)
+    }))
+    .filter((item) => telemetryTimestamp(item) > 0 && Number.isFinite(item.value))
+    .sort((left, right) => telemetryTimestamp(left) - telemetryTimestamp(right));
+}
+
+function normalizedForecastPoints(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      minute: finiteNumber(item?.minute ?? item?.minutes, 0),
+      expected: finiteNumber(item?.expected ?? item?.value),
+      lower: finiteNumber(item?.lower ?? item?.expected ?? item?.value),
+      upper: finiteNumber(item?.upper ?? item?.expected ?? item?.value)
+    }))
+    .filter((item) => Number.isFinite(item.minute) && Number.isFinite(item.expected))
+    .sort((left, right) => left.minute - right.minute);
+}
+
+/**
+ * Join a forecast to the last observed sample.  A server may generate a
+ * forecast a few milliseconds after the telemetry request (or use a slightly
+ * different rounding path); shifting the whole curve by that tiny delta keeps
+ * the first point physically continuous while preserving its shape.
+ */
+function alignForecastToHistory(curve, anchorValue, definition) {
+  const points = normalizedForecastPoints(curve);
+  const anchor = finiteNumber(anchorValue);
+  if (!points.length || !Number.isFinite(anchor)) return points;
+  const delta = anchor - points[0].expected;
+  const mapped = points.map((point, index) => {
+    const expected = clampNumber(point.expected + delta, definition.min, definition.max);
+    const lower = clampNumber(point.lower + delta, definition.min, definition.max);
+    const upper = clampNumber(point.upper + delta, definition.min, definition.max);
+    return {
+      ...point,
+      minute: Math.max(0, point.minute),
+      expected: index === 0 ? anchor : expected,
+      lower: Math.min(expected, lower),
+      upper: Math.max(expected, upper)
+    };
+  });
+  if (mapped[0].minute > 0) {
+    mapped.unshift({ minute: 0, expected: anchor, lower: anchor, upper: anchor });
+  } else {
+    mapped[0] = { ...mapped[0], minute: 0, expected: anchor, lower: Math.min(anchor, mapped[0].lower), upper: Math.max(anchor, mapped[0].upper) };
+  }
+  return mapped;
+}
+
+function chartAxisRange(definition, values = []) {
+  const finiteValues = values.map((value) => finiteNumber(value)).filter((value) => Number.isFinite(value));
+  if (definition.code === 'SOIL_MOISTURE' || definition.code === 'AIR_HUMIDITY' || definition.code === 'WATER_LEVEL') {
+    return { min: 0, max: 100 };
+  }
+  if (definition.code === 'PH') return { min: 0, max: 14 };
+  const observedMin = finiteValues.length ? Math.min(...finiteValues) : definition.min;
+  const observedMax = finiteValues.length ? Math.max(...finiteValues) : definition.max;
+  const span = Math.max(definition.code === 'AIR_TEMPERATURE' ? 4 : 1, observedMax - observedMin);
+  let min = observedMin - span * .12;
+  let max = observedMax + span * .12;
+  if (definition.min === 0) min = Math.max(0, min);
+  min = Math.max(definition.min, min);
+  max = Math.min(definition.max, max);
+  if (max - min < span * .45) {
+    const center = (min + max) / 2;
+    min = Math.max(definition.min, center - span * .3);
+    max = Math.min(definition.max, center + span * .3);
+  }
+  const step = definition.code === 'LIGHT' ? 1000 : definition.code === 'CO2' ? 50 : definition.code === 'RAINFALL' ? 5 : .5;
+  return {
+    min: Math.max(definition.min, Math.floor(min / step) * step),
+    max: Math.min(definition.max, Math.ceil(max / step) * step)
+  };
+}
+
+function formatCurveValue(value, definition) {
+  const number = finiteNumber(value);
+  if (!Number.isFinite(number)) return '—';
+  return number.toLocaleString('zh-CN', { maximumFractionDigits: definition.decimals, minimumFractionDigits: definition.decimals > 1 ? 1 : 0 });
 }
 
 function parseHashRoute(hash = window.location.hash) {
@@ -242,32 +401,29 @@ const EMPTY_RISK_FORECAST_CONFIG = Object.freeze({
   scenarioCatalog: []
 });
 
-const EMPTY_VALUE_LEDGER = Object.freeze({
-  summary: { plannedWaterLitres: '—', actualWaterLitres: '—', savedWaterLitres: '—', savedElectricityKwh: '—', labourSavedHours: '—', totalSavedRmb: '—' },
-  provenance: [],
-  counterfactual: [],
-  daily: []
-});
-
 function liveStatusValue(status, fallback = 'UNKNOWN') {
   return String(status || fallback).trim().toUpperCase();
 }
 
 function adminServiceCards(systemStatus = {}) {
   const entries = [
-    ['PostgreSQL', systemStatus.database, systemStatus.databaseLatencyMs],
-    ['Redis Streams', systemStatus.redis, systemStatus.redisLatencyMs],
-    ['MQTT Broker', systemStatus.mqtt, systemStatus.mqttLatencyMs],
-    ['SSE Gateway', 'UP', undefined],
-    ['API Service', 'UP', undefined],
-    ['AI 服务', systemStatus.ai, undefined]
+    { name: 'PostgreSQL 数据库', status: systemStatus.database, latencyMs: systemStatus.databaseLatencyMs },
+    { name: 'Redis 消息流', status: systemStatus.redis, latencyMs: systemStatus.redisLatencyMs },
+    { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
+    { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
+    { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
+    { name: '智能模型服务', status: systemStatus.ai, isAi: true }
   ];
-  return entries.map(([name, status, latencyMs]) => ({
+  return entries.map(({ name, status, isAi = false, latencyMs }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
-    mode: name === 'AI 服务' ? (status || '—') : undefined,
+    statusLabel: serviceStatusLabel(status, '未知'),
+    mode: isAi ? (status || '—') : undefined,
     latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
     latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
+    sourceMode: 'BACKEND'
+  }));
+}
     sourceMode: 'BACKEND'
   }));
 }
@@ -354,7 +510,7 @@ function presentSystemEvent(event) {
   const category = /alert|warning/i.test(type) ? 'alert' : /login|auth/i.test(type) ? 'login' : /command|ack|execution/i.test(type) ? 'system' : 'system';
   const icon = category === 'alert' ? 'warning' : category === 'login' ? 'login' : 'notifications';
   const silent = isSilentSystemEventType(type);
-  const title = payload.title || payload.summary || payload.message || (silent ? '实时数据已更新' : `${type} 事件已到达`);
+  const title = displayText(payload.title || payload.summary || payload.message || (silent ? '实时数据已更新' : `${eventTypeLabel(type)}已到达`));
   return {
     id: event?.data?.eventId || `event-${Date.now()}-${Math.random()}`,
     type,
@@ -424,6 +580,7 @@ const DashboardView = {
     }));
     const formatMetric = (metric) => formatMetricValue(metric);
     const healthScore = (plot) => formatHealthScore(plot?.healthScore);
+    const healthTone = (plot) => adminHealthTone(plot?.healthScore);
     const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
     const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
@@ -588,6 +745,7 @@ const DashboardView = {
       plotMetrics,
       formatMetric,
       healthScore,
+      healthTone,
       cardTone,
       metricTone,
       metricVisualIcon,
@@ -612,7 +770,11 @@ const DashboardView = {
       confirmDeletePlot,
       createTask,
       handleAction,
-      visibleActions
+      visibleActions,
+      metricStatusLabel,
+      localizedSourceLabel,
+      localizedStatusLabel,
+      displayText
     };
   }
 };
@@ -628,13 +790,20 @@ const PlotDetailModal = {
     const simulationHistory = ref([]);
     const simulationForecast = ref(null);
     const simulationBusy = ref(false);
+    const simulationMetric = ref('SOIL_MOISTURE');
+    const simulationMetricLoading = ref(false);
     const simulationChartEl = ref(null);
     const simulationChart = ref(null);
     const simulationPreviewDirty = ref(false);
+    let metricRequestSerial = 0;
+    let hydratingSimulation = false;
     const simulationScenarioOptions = computed(() => {
       const configured = simulation.value?.scenarioCatalog;
       return Array.isArray(configured) && configured.length ? configured : PLOT_SIMULATION_SCENARIOS;
     });
+    const simulationMetricOptions = computed(() => SIMULATION_METRIC_OPTIONS);
+    const selectedSimulationMetric = computed(() => simulationMetricDefinition(simulationMetric.value));
+    const simulationMetricLabel = computed(() => selectedSimulationMetric.value.label);
     const canConfigureSimulation = computed(() => roleCan(props.state?.currentUser, 'strategy:manage') || roleCan(props.state?.currentUser, 'simulator:control'));
     const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
     const parameterMeta = Object.freeze({
@@ -679,6 +848,10 @@ const PlotDetailModal = {
       const scenario = selectedSimulationScenario.value;
       if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
       if (simulationPreviewDirty.value) return '参数尚未保存，曲线为即时预览；点击“保存到此地块”后服务器模拟器会热加载。';
+      if (simulationForecast.value && String(simulationForecast.value.status || '').toUpperCase() !== 'AVAILABLE') {
+        const reason = simulationForecast.value.reason || '当前样本或设备状态未满足预测条件';
+        return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
+      }
       return `${scenario.label}已绑定到 ${props.plot?.name || props.plot?.plotId}，历史数据只清除模拟样本，硬件实测数据始终保留。`;
     });
 
@@ -686,76 +859,244 @@ const PlotDetailModal = {
       scenario: String(record?.scenario || 'NORMAL').toUpperCase(),
       parameters: { ...(record?.parameters || {}) }
     });
+
+    const plotMetricFallback = (metric) => {
+      const definition = simulationMetricDefinition(metric);
+      const configured = finiteNumber(props.plot?.metrics?.[metric]?.value);
+      return Number.isFinite(configured) ? configured : definition.defaultValue;
+    };
+
     const localPreviewCurve = () => {
-      const start = Number(props.plot?.metrics?.SOIL_MOISTURE?.value ?? 35);
+      const definition = selectedSimulationMetric.value;
+      const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
+      const start = historicalPoints.length ? historicalPoints.at(-1).value : plotMetricFallback(definition.code);
       const params = simulationForm.value.parameters || {};
-      const scenario = simulationForm.value.scenario;
-      const trend = Number(params.soilMoistureTrendPerHour || 0);
-      const volatility = Number(params.volatility || 1.25);
-      const drift = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
-      const rain = scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0;
+      const scenario = String(simulationForm.value.scenario || 'NORMAL').toUpperCase();
+      const volatility = Math.max(.2, Number(params.volatility || 1.25));
       const requestedHours = Number(params.forecastHours);
       const hours = Math.min(12, Math.max(1, Number.isFinite(requestedHours) ? requestedHours : 4));
       if (scenario === 'DEVICE_OFFLINE') return [];
+      const soilTrend = Number(params.soilMoistureTrendPerHour || 0)
+        + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0);
+      const drift = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
+      const trendByMetric = {
+        SOIL_MOISTURE: soilTrend + drift,
+        AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .75,
+        AIR_HUMIDITY: Number(params.humidityBias || 0) * .65,
+        LIGHT: scenario === 'DROUGHT' ? 900 : scenario === 'HEAVY_RAIN' ? -650 : 0,
+        CO2: scenario === 'HEAVY_RAIN' ? -22 : scenario === 'DROUGHT' ? 16 : 0,
+        PH: scenario === 'SENSOR_DRIFT' ? drift * .035 : 0,
+        WATER_LEVEL: scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .035 : scenario === 'DROUGHT' ? -1.2 : 0,
+        RAINFALL: 0
+      };
+      const trend = Number(trendByMetric[definition.code] || 0);
+      const waveAmplitude = {
+        SOIL_MOISTURE: .7,
+        AIR_TEMPERATURE: .28,
+        AIR_HUMIDITY: .85,
+        LIGHT: 850,
+        CO2: 14,
+        PH: .035,
+        WATER_LEVEL: .65,
+        RAINFALL: .7
+      }[definition.code] || .5;
+      const id = `${props.plot?.plotId || 'plot'}:${definition.code}:${scenario}`;
+      let hash = 0;
+      for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+      const phase = (hash % 628) / 100;
+      const initialWave = Math.sin(phase);
+      const rainfallRate = Math.max(0, Number(params.rainfallRate || 0));
+      const initialRainWave = .72 + .28 * Math.max(0, Math.sin(1.2));
       return Array.from({ length: hours * 12 + 1 }, (_, index) => {
         const minute = index * 5;
-        const expected = Math.max(0, Math.min(100, start + (trend + rain + drift) * minute / 60 + Math.sin(index / 2.7 + String(props.plot?.plotId || '').length) * volatility));
-        const spread = .6 + index * .04 * volatility;
-        return { minute, expected: Number(expected.toFixed(2)), lower: Number(Math.max(0, expected - spread).toFixed(2)), upper: Number(Math.min(100, expected + spread).toFixed(2)) };
+        const hoursFromStart = minute / 60;
+        const wave = (Math.sin(index / 2.7 + phase) - initialWave) * waveAmplitude * volatility;
+        const rainWave = definition.code === 'RAINFALL'
+          ? rainfallRate * ((.72 + .28 * Math.max(0, Math.sin(hoursFromStart * 3.1 + 1.2))) - initialRainWave)
+          : 0;
+        const expected = clampNumber(start + trend * hoursFromStart + rainWave + wave, definition.min, definition.max);
+        const spread = Math.max(definition.code === 'PH' ? .03 : definition.code === 'LIGHT' ? 120 : .45, (index ? index * .035 : 0) * volatility + (definition.code === 'LIGHT' ? 120 : 0));
+        return {
+          minute,
+          expected: Number(expected.toFixed(definition.decimals)),
+          lower: Number(clampNumber(expected - spread, definition.min, definition.max).toFixed(definition.decimals)),
+          upper: Number(clampNumber(expected + spread, definition.min, definition.max).toFixed(definition.decimals))
+        };
       });
     };
+
     const renderSimulationChart = async () => {
       await nextTick();
       if (!simulationChartEl.value || typeof echarts === 'undefined') return;
       if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
-      const historical = (simulationHistory.value || []).map((item) => [new Date(item?.ts).getTime(), Number(item?.value)])
-        .filter(([ts, value]) => Number.isFinite(ts) && Number.isFinite(value));
-      const now = Date.now();
-      const forecastPoints = simulationPreviewDirty.value || !simulationForecast.value?.curve?.length ? localPreviewCurve() : simulationForecast.value.curve;
-      const predicted = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.expected ?? item.value)]);
-      const lower = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.lower ?? item.expected ?? item.value)]);
-      const upper = (forecastPoints || []).map((item) => [now + Number(item.minute || 0) * 60000, Number(item.upper ?? item.expected ?? item.value)]);
+      const definition = selectedSimulationMetric.value;
+      const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
+      const historical = historicalPoints.map((item) => [telemetryTimestamp(item), item.value]);
+      const fallback = plotMetricFallback(definition.code);
+      const anchorPoint = historicalPoints.at(-1);
+      const anchorValue = anchorPoint?.value ?? fallback;
+      // telemetryTimestamp(undefined) intentionally returns epoch 0 for normalisation,
+      // but an empty history must use the current time instead of rendering at 1970.
+      const anchorTimestamp = anchorPoint ? telemetryTimestamp(anchorPoint) : NaN;
+      const forecastAvailable = String(simulationForecast.value?.status || '').toUpperCase() === 'AVAILABLE'
+        && Array.isArray(simulationForecast.value?.curve) && simulationForecast.value.curve.length > 0;
+      // A local curve is an explicit what-if preview only.  Never replace an
+      // authoritative UNAVAILABLE response (or a failed live request) with
+      // invented data that could look like a real forecast.
+      const forecastSource = simulationPreviewDirty.value
+        ? localPreviewCurve()
+        : forecastAvailable ? simulationForecast.value.curve : [];
+      const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
+      const forecastStart = Number.isFinite(anchorTimestamp) ? anchorTimestamp : Date.now();
+      const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
+      const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
+      const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      const axis = chartAxisRange(definition, [
+        ...historical.map((item) => item[1]),
+        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
+      ]);
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
       const textColor = dark ? '#e8eaed' : '#3c4043';
       simulationChart.value.setOption({
         backgroundColor: 'transparent', animation: false,
         tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
           const list = Array.isArray(items) ? items : [items];
-          const time = list[0]?.axisValue ? new Date(Number(list[0].axisValue)).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
-          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${Number(item.value[1]).toFixed(2)}%`).join('<br>')}`;
+          const axisValue = finiteNumber(list[0]?.axisValue);
+          const time = Number.isFinite(axisValue) ? new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
         legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
         grid: { left: 42, right: 18, top: 32, bottom: 30 },
         xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
-        yAxis: { type: 'value', min: 0, max: 100, name: '%', nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10 } },
+        yAxis: {
+          type: 'value', min: axis.min, max: axis.max, name: definition.unit,
+          nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => formatCurveValue(value, definition) }
+        },
         series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
+          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
         ]
       }, true);
     };
+
+    const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
+      const normalized = simulationMetricDefinition(metric).code;
+      const requestId = ++metricRequestSerial;
+      simulationMetricLoading.value = true;
+      try {
+        const [historyResult, forecastResult] = await Promise.allSettled([
+          api.getTelemetry(props.plot?.plotId, normalized, 120),
+          api.getRiskForecast(props.plot?.plotId, normalized)
+        ]);
+        if (requestId !== metricRequestSerial) return;
+        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+        else if (!preserveOnError) simulationHistory.value = [];
+        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+        else if (!preserveOnError) simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        if (resetPreview) simulationPreviewDirty.value = false;
+        await nextTick();
+        renderSimulationChart();
+      } finally {
+        if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
+      }
+    };
+
     const loadSimulation = async () => {
+      const metric = simulationMetric.value;
+      hydratingSimulation = true;
       try {
         const [configResult, historyResult, forecastResult] = await Promise.allSettled([
           api.getPlotSimulation(props.plot?.plotId),
-          api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120),
-          api.getRiskForecast(props.plot?.plotId, 'SOIL_MOISTURE')
+          api.getTelemetry(props.plot?.plotId, metric, 120),
+          api.getRiskForecast(props.plot?.plotId, metric)
         ]);
         if (configResult.status === 'fulfilled') {
           simulation.value = configResult.value;
           simulationForm.value = cloneForm(configResult.value);
         }
         if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value;
+        else simulationHistory.value = [];
+        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+        else simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         await nextTick();
         simulationPreviewDirty.value = false;
         renderSimulationChart();
       } catch (error) {
         toast?.(error.message || '地块模拟策略读取失败', 'error');
+      } finally {
+        hydratingSimulation = false;
       }
     };
+
+    let liveSeriesTimer = null;
+    let liveSeriesInFlight = false;
+    let liveSeriesQueued = false;
+    let liveSeriesKickTimer = null;
+    let liveConfigRefreshedAt = 0;
+    let liveSeriesVisibilityHandler = null;
+    const isLivePlot = () => props.state?.sessionMode === 'live' || api.sessionMode === 'live';
+    const refreshLiveSeries = async () => {
+      if (!isLivePlot() || document.hidden || simulationBusy.value || simulationMetricLoading.value) return;
+      if (liveSeriesInFlight) {
+        liveSeriesQueued = true;
+        return;
+      }
+      liveSeriesInFlight = true;
+      try {
+        await loadMetricSeries(simulationMetric.value, { preserveOnError: true });
+        // The simulator/device state is a separate resource from the curve;
+        // refresh it periodically without overwriting unsaved what-if inputs.
+        if (!simulationPreviewDirty.value && Date.now() - liveConfigRefreshedAt >= 10000) {
+          liveConfigRefreshedAt = Date.now();
+          try {
+            const latest = await api.getPlotSimulation(props.plot?.plotId);
+            if (latest && !simulationBusy.value) {
+              simulation.value = latest;
+              simulationForm.value = cloneForm(latest);
+            }
+          } catch (error) { /* keep the last known simulator state */ }
+        }
+      } finally {
+        liveSeriesInFlight = false;
+        if (liveSeriesQueued && !document.hidden) {
+          liveSeriesQueued = false;
+          if (!liveSeriesKickTimer) {
+            liveSeriesKickTimer = window.setTimeout(() => {
+              liveSeriesKickTimer = null;
+              refreshLiveSeries();
+            }, 120);
+          }
+        }
+      }
+    };
+    const stopLiveSeriesRefresh = () => {
+      if (liveSeriesTimer) window.clearInterval(liveSeriesTimer);
+      liveSeriesTimer = null;
+      if (liveSeriesKickTimer) window.clearTimeout(liveSeriesKickTimer);
+      liveSeriesKickTimer = null;
+      if (liveSeriesVisibilityHandler) document.removeEventListener('visibilitychange', liveSeriesVisibilityHandler);
+      liveSeriesVisibilityHandler = null;
+      liveSeriesQueued = false;
+    };
+    const startLiveSeriesRefresh = () => {
+      stopLiveSeriesRefresh();
+      if (!isLivePlot()) return;
+      liveSeriesTimer = window.setInterval(refreshLiveSeries, 4000);
+      liveSeriesVisibilityHandler = () => { if (!document.hidden) refreshLiveSeries(); };
+      document.addEventListener('visibilitychange', liveSeriesVisibilityHandler);
+      refreshLiveSeries();
+    };
+
+    const selectSimulationMetric = (eventOrCode) => {
+      const requested = typeof eventOrCode === 'string' ? eventOrCode : eventOrCode?.target?.value;
+      const normalized = simulationMetricDefinition(requested).code;
+      if (normalized === simulationMetric.value && !simulationMetricLoading.value) return;
+      simulationMetric.value = normalized;
+      loadMetricSeries(normalized);
+    };
+
     const selectSimulationScenario = (code) => {
       const normalized = String(code || 'NORMAL').toUpperCase();
       const scenario = simulationScenarioOptions.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
@@ -768,34 +1109,64 @@ const PlotDetailModal = {
       simulationBusy.value = true;
       try {
         const saved = await api.updatePlotSimulation(props.plot.plotId, simulationForm.value);
+        hydratingSimulation = true;
         simulation.value = saved; simulationForm.value = cloneForm(saved); simulationPreviewDirty.value = false;
+        hydratingSimulation = false;
         await loadSimulation();
         toast?.('该地块模拟策略已保存，服务器将从下一采样点应用', 'success');
         emit('data-invalidated', { domains: ['overview', 'plots'], plotId: props.plot.plotId, record: saved });
-      } catch (error) { toast?.(error.message || '模拟策略保存失败', 'error'); }
+      } catch (error) { hydratingSimulation = false; toast?.(error.message || '模拟策略保存失败', 'error'); }
       finally { simulationBusy.value = false; }
     };
     const resetSimulation = async (target) => {
       simulationBusy.value = true;
+      const metric = simulationMetric.value;
       try {
         const resetResult = await api.resetPlotSimulation(props.plot.plotId, target);
+        hydratingSimulation = true;
         simulation.value = resetResult;
         simulationForm.value = cloneForm(resetResult);
         simulationPreviewDirty.value = false;
+        hydratingSimulation = false;
+        const refreshes = [];
         if (target === 'HISTORY' || target === 'ALL') {
-          const refreshed = await api.getTelemetry(props.plot?.plotId, 'SOIL_MOISTURE', 120);
-          simulationHistory.value = refreshed || [];
+          refreshes.push(api.getTelemetry(props.plot?.plotId, metric, 120));
         }
-        if (target === 'FORECAST' || target === 'ALL') simulationForecast.value = null;
+        if (target === 'FORECAST' || target === 'ALL') refreshes.push(api.getRiskForecast(props.plot?.plotId, metric));
+        const refreshed = await Promise.allSettled(refreshes);
+        let resultIndex = 0;
+        if (target === 'HISTORY' || target === 'ALL') {
+          const historyResult = refreshed[resultIndex++];
+          if (historyResult?.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+          else simulationHistory.value = [];
+        }
+        if (target === 'FORECAST' || target === 'ALL') {
+          const forecastResult = refreshed[resultIndex++];
+          simulationForecast.value = forecastResult?.status === 'fulfilled'
+            ? (forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' })
+            : { status: 'UNAVAILABLE', reason: forecastResult?.reason?.message || '预测服务暂不可用' };
+        }
         await nextTick();
         renderSimulationChart();
+        emit('data-invalidated', { domains: ['overview', 'plots', 'telemetry'], plotId: props.plot.plotId, metric, resetTarget: target });
         toast?.(`${target === 'HISTORY' ? '历史' : target === 'FORECAST' ? '预测' : '历史与预测'}曲线已重置（硬件实测数据未删除）`, 'success');
-      } catch (error) { toast?.(error.message || '曲线重置失败', 'error'); }
+      } catch (error) { hydratingSimulation = false; toast?.(error.message || '曲线重置失败', 'error'); }
       finally { simulationBusy.value = false; }
     };
-    watch(simulationForm, () => { simulationPreviewDirty.value = true; renderSimulationChart(); }, { deep: true });
-    onMounted(loadSimulation);
-    onBeforeUnmount(() => { simulationChart.value?.dispose(); simulationChart.value = null; });
+    watch(simulationForm, () => {
+      if (hydratingSimulation || simulationBusy.value) return;
+      simulationPreviewDirty.value = true;
+      renderSimulationChart();
+    }, { deep: true });
+    onMounted(async () => {
+      await loadSimulation();
+      startLiveSeriesRefresh();
+    });
+    onBeforeUnmount(() => {
+      stopLiveSeriesRefresh();
+      simulationChart.value?.dispose();
+      simulationChart.value = null;
+    });
     const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
       code,
       label: adminMetricLabel(code, props.plot?.metrics?.[code]?.label),
@@ -832,7 +1203,7 @@ const PlotDetailModal = {
       return {
         tone: 'normal',
         title: '当前没有需要立即处理的问题',
-        detail: '六项关键数据和采集设备目前都在可用范围内，按计划巡田即可。'
+        detail: '关键环境数据和采集设备目前都在可用范围内，按计划巡田即可。'
       };
     });
     const statusLabel = (item) => {
@@ -859,6 +1230,10 @@ const PlotDetailModal = {
       simulationScenarioOptions,
       simulationFields,
       simulationBusy,
+      simulationMetric,
+      simulationMetricOptions,
+      simulationMetricLabel,
+      simulationMetricLoading,
       simulationChartEl,
       canConfigureSimulation,
       simulationDeviceLabel,
@@ -868,6 +1243,7 @@ const PlotDetailModal = {
       hardwareLastSeen,
       simulatorTone,
       simulationPreviewMessage,
+      selectSimulationMetric,
       selectSimulationScenario,
       saveSimulation,
       resetSimulation,
@@ -876,6 +1252,7 @@ const PlotDetailModal = {
       healthScore: formatHealthScore,
       statusLabel,
       dueLabel,
+      displayText,
       openView,
       close: () => emit('close')
     };
@@ -903,7 +1280,7 @@ const DecisionConsoleView = {
     // Chat Logic
     const chatInput = ref('');
     const chatHistory = ref([
-      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop AI' }
+      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop 智能助手' }
     ]);
     const isTyping = ref(false);
     const chatBox = ref(null);
@@ -930,7 +1307,7 @@ const DecisionConsoleView = {
             dataOrigin: 'BACKEND'
           });
         } catch (error) {
-          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: 'AI 暂不可用' });
+          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: '智能服务暂不可用' });
         } finally {
           isTyping.value = false;
           scrollToBottom();
@@ -942,9 +1319,9 @@ const DecisionConsoleView = {
         isTyping.value = false;
         let reply = '基于当前环境遥测与生长模型，系统判断您的要求在安全阈值内，已为您记录参考。';
         if (userMessage.includes('为什么') || userMessage.includes('原因')) {
-          reply = '我注意到当前的土壤湿度连续低于 20%（番茄结果期基线）。同时，空气温度 26.4°C 加速了蒸散，且传感器数据质量评分为 GOOD（排除了硬件漂移）。因此诊断为真实水分胁迫。';
+          reply = '我注意到当前的土壤湿度连续低于 20%（番茄结果期基线）。同时，空气温度 26.4°C 加速了蒸散，且传感器数据质量评分为正常（排除了硬件漂移）。因此诊断为真实水分胁迫。';
         } else if (userMessage.includes('处方') || userMessage.includes('水')) {
-          reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18L/min 恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
+          reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18 升/分钟恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
         }
         
         chatHistory.value.push({ role: 'agent', content: reply, sourceLabel: '演示规则' });
@@ -989,19 +1366,19 @@ const DecisionConsoleView = {
         dualChart.setOption({
           backgroundColor: 'transparent',
           tooltip: { trigger: 'axis' },
-          legend: { data: ['执行处方 (With Action)', '不执行 (No Action)'], textStyle: { color: textColor } },
-          xAxis: { type: 'category', data: ['0h', '1h', '2h', '3h', '4h'], axisLabel: { color: textColor } },
+          legend: { data: ['执行处方（有干预）', '不执行（无干预）'], textStyle: { color: textColor } },
+          xAxis: { type: 'category', data: ['0 小时', '1 小时', '2 小时', '3 小时', '4 小时'], axisLabel: { color: textColor } },
           yAxis: { type: 'value', min: 10, max: 35, axisLabel: { color: textColor } },
           series: [
             {
-              name: '执行处方 (With Action)',
+              name: '执行处方（有干预）',
               type: 'line',
               smooth: true,
               itemStyle: { color: '#1e8e3e' },
               data: [16.8, 30.0, 28.5, 27.0, 26.1]
             },
             {
-              name: '不执行 (No Action)',
+              name: '不执行（无干预）',
               type: 'line',
               smooth: true,
               itemStyle: { color: '#d93025' },
@@ -1040,7 +1417,7 @@ const DecisionConsoleView = {
         }
       } else {
         props.state.workOrders.unshift({
-          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153L 灌溉处方',
+          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153 升灌溉处方',
           reason: '演示决策下发', status: 'OPEN', priority: 'HIGH', sourceMode: 'SIMULATED'
         });
         toast('演示工单已创建');
@@ -1051,39 +1428,40 @@ const DecisionConsoleView = {
     return { 
       diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution
+      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution,
+      displayText
     };
   }
 };
 
 const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
+  components: { AdminAlertCenter, AdminAiChat: AdminAiChatView, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props) {
-    const showDiagnosis = ref(Boolean(props.routeParams?.highlight === 'diagnosis' || props.routeParams?.section === 'diagnosis'));
+    const showChat = ref(Boolean(['diagnosis', 'chat'].includes(props.routeParams?.highlight) || ['diagnosis', 'chat'].includes(props.routeParams?.section)));
     watch(() => props.routeParams?.highlight, (value) => {
-      if (value === 'diagnosis') showDiagnosis.value = true;
+      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
     });
     watch(() => props.routeParams?.section, (value) => {
-      if (value === 'diagnosis') showDiagnosis.value = true;
-      if (value === 'alerts') showDiagnosis.value = false;
+      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
+      if (value === 'alerts') showChat.value = false;
     });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
-    return { showDiagnosis, isFarmAdmin, isFarmer };
+    return { showChat, isFarmAdmin, isFarmer };
   },
   template: `
     <div class="role-decision-shell">
       <template v-if="isFarmAdmin">
-        <nav class="admin-decision-tabs" aria-label="告警与诊断功能切换">
-          <button class="g-btn" :class="showDiagnosis ? 'g-btn-outline' : 'g-btn-primary'" type="button" @click="showDiagnosis = false">告警处置</button>
-          <button class="g-btn" :class="showDiagnosis ? 'g-btn-primary' : 'g-btn-outline'" type="button" @click="showDiagnosis = true">智能诊断与灌溉</button>
+        <nav class="admin-decision-tabs" aria-label="AI 告警分析与对话功能切换">
+          <button class="g-btn" :class="{ active: !showChat }" :aria-pressed="!showChat" type="button" @click="showChat = false">告警智能处理</button>
+          <button class="g-btn" :class="{ active: showChat }" :aria-pressed="showChat" type="button" @click="showChat = true">AI 对话助手</button>
         </nav>
-        <admin-alert-center v-if="!showDiagnosis" :state="state" @show-diagnosis="showDiagnosis = true" @navigate="(view, params) => $emit('navigate', view, params)"></admin-alert-center>
-        <admin-decision v-else :state="state" :route-params="routeParams"
-                        @navigate="(view, params) => $emit('navigate', view, params)"
-                        @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
+        <admin-alert-center v-if="!showChat" :state="state"
+                            @navigate="(view, params) => $emit('navigate', view, params)"
+                            @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
+        <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
@@ -1217,7 +1595,7 @@ const RiskForecastView = {
           upper: Number(point.upper ?? point.expected ?? point.value)
         }))
         .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
-      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute}m`);
+      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute} 分钟`);
       const values = points.map((point) => point.expected);
       const baseMoisture = Number(currentPlotBaseMoisture.value);
       const finiteValues = values.filter(Number.isFinite);
@@ -1304,7 +1682,7 @@ const RiskForecastView = {
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
     onBeforeUnmount(() => { observer.disconnect(); chart?.dispose(); chart = null; });
     
-    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings };
+    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings, scenarioLabel, displayText };
   }
 };
 
@@ -1455,6 +1833,11 @@ const WorkOrdersView = {
       form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
     };
 
+    const inspectionObservationLabel = (group, value) => ({
+      soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
+      crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' }
+    }[group]?.[String(value || '').toUpperCase()] || value || '—');
+
     return {
       showFormModal,
       showWorkOrderModal,
@@ -1464,27 +1847,12 @@ const WorkOrdersView = {
       submitWorkOrder,
       highlightNewOrder,
       canRecordInspection,
-      canCreateWorkOrder
+      canCreateWorkOrder,
+      resourceTypeLabel,
+      priorityLabel: localizedPriorityLabel,
+      workStatusLabel,
+      inspectionObservationLabel
     };
-  }
-};
-
-const ResourceCoordinationView = {
-  template: '#tmpl-resource-coordination',
-  props: ['state', 'routeParams'],
-  setup(props, { emit }) {
-    const devices = computed(() => props.state.plots.map((plot) => ({
-      deviceId: plot.deviceId || '—',
-      plotId: plot.plotId,
-      plotName: plot.name,
-      status: normalizedStatus(plot.deviceStatus),
-      lastSeen: plot.lastSeen || '—',
-      healthScore: formatHealthScore(plot.healthScore)
-    })));
-    const onlineCount = computed(() => devices.value.filter((device) => device.status === 'ONLINE').length);
-    const statusLabel = (status) => status === 'ONLINE' ? '在线' : status === 'OFFLINE' ? '离线' : '状态未知';
-    const openIrrigation = (plotId) => emit('navigate', 'decision-console', { plotId, highlight: 'diagnosis' });
-    return { devices, onlineCount, statusLabel, openIrrigation };
   }
 };
 
@@ -1515,7 +1883,7 @@ const FarmMembersView = {
       if (member.role !== 'FARMER') return '负责农场管理';
       return normalizedStatus(member?.status) === 'ACTIVE' ? '可分配任务' : '已停用，不能分配';
     };
-    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? 'SIMULATED' : '正式账号';
+    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? '演示数据' : '正式账号';
     const refreshMembers = async (announce = true) => {
       if (!currentFarmId.value) {
         loadError.value = '当前账号没有可读取的农场范围';
@@ -1564,7 +1932,13 @@ const RoleAwareWorkOrdersView = {
 
 const CropPacksView = {
   template: '#tmpl-crop-packs',
-  props: ['state', 'routeParams']
+  props: ['state', 'routeParams'],
+  setup() {
+    const riskFocusLabel = (value) => RISK_FOCUS_LABELS[value] || value || '—';
+    const ruleOperatorLabel = (value) => ({ LT: '低于', LTE: '不高于', GT: '高于', GTE: '不低于', EQ: '等于' }[String(value || '').toUpperCase()] || value || '—');
+    const varietyLabel = (value) => ({ demonstration: '示范品种', greenhouse: '设施栽培' }[String(value || '').trim().toLowerCase()] || value || '—');
+    return { riskFocusLabel, ruleOperatorLabel, metricLabel: adminMetricLabel, varietyLabel, displayText };
+  }
 };
 
 const RISK_FOCUS_LABELS = {
@@ -1583,8 +1957,8 @@ function manualEnvMetrics(pack, stage) {
     AIR_HUMIDITY: '空气湿度',
     WATER_LEVEL: '水位',
     LIGHT: '光照',
-    CO2: 'CO2',
-    SOIL_EC: '土壤 EC',
+    CO2: '二氧化碳',
+    SOIL_EC: '土壤电导率',
     NPK_RATIO: '氮磷钾'
   };
   const items = [
@@ -1633,7 +2007,7 @@ function buildStageGuide(pack, stage) {
   if (stage.taskTemplates?.length) {
     const tasks = stage.taskTemplates.map((task) => {
       const action = TASK_ACTION_LABELS[task.actionType] || task.actionType;
-      return `${action}（每 ${task.intervalDays} 天，优先级 ${task.priority}）`;
+      return `${action}（每 ${task.intervalDays} 天，优先级${localizedPriorityLabel(task.priority)}）`;
     }).join('；');
     lines.push(`建议农务节奏：${tasks}。`);
   }
@@ -1646,7 +2020,7 @@ function buildStageGuide(pack, stage) {
     const op = rule.operator === 'LT' ? '低于' : '高于';
     const bound = rule.threshold ?? stageBound[rule.code];
     const boundText = bound == null ? '阶段目标' : String(bound);
-    return `${rule.code}：${rule.metric} ${op} ${boundText} 且持续 ${rule.durationMinutes} 分钟需重点关注`;
+    return `${RISK_FOCUS_LABELS[rule.code] || rule.code}：${adminMetricLabel(rule.metric)}${op}${boundText}，且持续 ${rule.durationMinutes} 分钟时需重点关注`;
   });
   if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
   const stageKnowledge = pack.knowledge?.byStage?.[stage.code];
@@ -1786,11 +2160,9 @@ const ValueLedgerView = {
     const observer = new MutationObserver(() => renderChart());
     onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
 
-    return {};
+    return { provenanceLabel };
   }
 };
-
-
 
 // ---- SYSTEM ADMIN COMPONENTS ----
 
@@ -1803,6 +2175,66 @@ const AdminOverviewView = {
     const showEvents = ref(true);
     const farmFilter = ref('all');
     const statusFilter = ref('abnormal');
+    const selectedPlot = ref(null);
+    const showPlotModal = ref(false);
+    const plotMetricForm = ref([]);
+    const telemetryLoading = ref(false);
+    const openPlotMetrics = async (plot) => {
+      selectedPlot.value = plot;
+      plotMetricForm.value = [...(plot.monitoredMetrics || TELEMETRY_METRICS.map(metric => metric.code))];
+      showPlotModal.value = true;
+      await refreshPlotMetrics();
+    };
+    const refreshPlotMetrics = async () => {
+      if (!selectedPlot.value || telemetryLoading.value || document.hidden) return;
+      telemetryLoading.value = true;
+      try {
+        const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
+          const points = await api.getTelemetry(selectedPlot.value.id, metric, 1);
+          return [metric, points[points.length - 1]];
+        }));
+        results.forEach((result) => {
+          if (result.status !== 'fulfilled') return;
+          const [metric, point] = result.value;
+          if (point) selectedPlot.value.metrics[metric] = `${point.value} ${point.unit || ''}`.trim();
+        });
+      } finally {
+        telemetryLoading.value = false;
+      }
+    };
+    let plotMetricsRefreshTimer = null;
+    let plotMetricsVisibilityHandler = null;
+    const stopPlotMetricsRefresh = () => {
+      if (plotMetricsRefreshTimer) window.clearInterval(plotMetricsRefreshTimer);
+      plotMetricsRefreshTimer = null;
+      if (plotMetricsVisibilityHandler) document.removeEventListener('visibilitychange', plotMetricsVisibilityHandler);
+      plotMetricsVisibilityHandler = null;
+    };
+    const startPlotMetricsRefresh = () => {
+      stopPlotMetricsRefresh();
+      if (props.state?.sessionMode !== 'live') return;
+      plotMetricsRefreshTimer = window.setInterval(refreshPlotMetrics, 4000);
+      plotMetricsVisibilityHandler = () => { if (!document.hidden && showPlotModal.value) refreshPlotMetrics(); };
+      document.addEventListener('visibilitychange', plotMetricsVisibilityHandler);
+    };
+    watch(showPlotModal, (visible) => {
+      if (visible) {
+        startPlotMetricsRefresh();
+        refreshPlotMetrics();
+      } else {
+        stopPlotMetricsRefresh();
+      }
+    });
+    onBeforeUnmount(stopPlotMetricsRefresh);
+    const savePlotMetrics = () => {
+      if (props.state.sessionMode === 'live') {
+        toast('正式会话只读显示后端遥测指标，监测项配置请通过设备配置接口维护', 'error');
+        showPlotModal.value = false;
+        return;
+      }
+      if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
+      showPlotModal.value = false;
+    };
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
       const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
       let statusMatches = true;
@@ -1838,19 +2270,16 @@ const AdminOverviewView = {
     const goToOps = (plot) => {
       emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
     };
-    return { showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, telemetryMetrics: TELEMETRY_METRICS, goToOps };
+    return {
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
+      telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
+      openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
+      serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
+    };
   }
 };
 
-const TELEMETRY_METRICS = [
-  { code: 'SOIL_MOISTURE', label: '土壤湿度' },
-  { code: 'AIR_TEMPERATURE', label: '空气温度' },
-  { code: 'AIR_HUMIDITY', label: '空气湿度' },
-  { code: 'LIGHT', label: '光照' },
-  { code: 'CO2', label: 'CO2' },
-  { code: 'PH', label: 'PH' },
-  { code: 'WATER_LEVEL', label: '水位' }
-];
+const TELEMETRY_METRICS = SIMULATION_METRIC_OPTIONS.map(({ code, label }) => ({ code, label }));
 
 const AdminOpsView = {
   template: '#tmpl-admin-ops',
@@ -1891,7 +2320,7 @@ const AdminOpsView = {
       }
     };
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert };
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText };
   }
 };
 
@@ -1929,7 +2358,7 @@ const AdminAuditView = {
       expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
     };
 
-    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport };
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, localizedStatusLabel, provenanceLabel, levelLabel, displayText };
   }
 };
 
@@ -1941,16 +2370,17 @@ const AdminSimulatorView = {
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
     const plotScenarios = ref([]);
-    const plots = computed(() => props.state.plots || []);
-    
+    const plots = computed(() => props.state.allPlots || props.state.plots || []);
+
     watch(plots, (newPlots) => {
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
+        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
         return {
           plotId: p.plotId,
-          name: p.name,
+          name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : 'NORMAL'
+          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
         };
       });
     }, { immediate: true });
@@ -1989,7 +2419,7 @@ const AdminSimulatorView = {
       try {
         const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
         syncSimulator(status);
-        toast(simRunning.value ? '模拟器已启动，状态来自 Supervisor' : '模拟器已停止，状态来自 Supervisor');
+        toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
       } catch (error) {
         toast(error.message || '模拟器控制失败', 'error');
       } finally { simBusy.value = false; }
@@ -2012,7 +2442,7 @@ const AdminSimulatorView = {
           .map((event) => ({
             time: new Date(event.ts || event.createdAt || 0).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             action: `${event.metric || event.eventType || '情景'}：${event.value ?? event.message ?? '已记录'}`,
-            agent: event.branchId || event.source || '后端仿真'
+            agent: event.branchId || localizedSourceLabel(event.source, '后端仿真')
           }));
         replayEvents.value = events.length ? events : [{ time: '—', action: '后端未提供该运行的事件明细', agent: '后端记录' }];
       } catch (error) {
@@ -2091,7 +2521,12 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
-    return { simRunning, simBusy, plotScenarios, globalScenario, scenarios, adminDualTrackModal, selectedDualTrackScenario, openDualTrack, adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator };
+    return {
+      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
+      adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
+      scenarioLabel, localizedStatusLabel
+    };
   }
 };
 
@@ -2125,7 +2560,7 @@ const AdminRulesView = {
     };
     const savePack = () => {
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 由后端版本目录维护，当前页面只提供读取，未修改本地假数据。', 'error');
+        toast('正式作物模型包由后端版本目录维护，当前页面只提供读取，未修改本地演示数据。', 'error');
         return;
       }
       const form = packForm.value;
@@ -2149,7 +2584,7 @@ const AdminRulesView = {
     };
     const deletePack = (pack) => {
       if (isLiveSession.value) {
-        toast('正式 Crop Pack 暂无删除接口，未修改后端数据。', 'error');
+        toast('正式作物模型包暂无删除接口，未修改后端数据。', 'error');
         return;
       }
       if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
@@ -2163,7 +2598,7 @@ const AdminRulesView = {
         try {
           await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
           pack.status = nextStatus;
-          toast('Crop Pack 状态已更新为 ' + nextStatus);
+          toast(`作物模型包状态已更新为“${localizedStatusLabel(nextStatus)}”`);
         } catch (error) {
           toast(error.message || 'Crop Pack 状态更新失败', 'error');
         }
@@ -2176,7 +2611,7 @@ const AdminRulesView = {
       try {
         const saved = await api.transitionStrategyCandidate(candidate.id, status);
         candidate.status = String(saved?.status || status).toLowerCase();
-        toast(`策略候选已更新为 ${candidate.status}，后端记录已同步`);
+        toast(`策略候选已更新为“${localizedStatusLabel(candidate.status)}”，后端记录已同步`);
       } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
     };
     const addStage = () => packForm.value.stages.push('');
@@ -2209,7 +2644,12 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
-    return { activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack, deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc, toggleKnowledge, transitionCandidate };
+    return {
+      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons,
+      expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
+      deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
+    };
   }
 };
 
@@ -2249,7 +2689,7 @@ const AdminSettingsView = {
       { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
-      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ Crop Pack/版本发布' },
+      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
       { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
     ];
 
@@ -2346,7 +2786,10 @@ const AdminSettingsView = {
           .replace('❌', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-danger)">cancel</span>')
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
-    return { activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs, permissionMatrix, formatPerm, createUser, deleteUser, toggleUser };
+    return {
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText
+    };
   }
 };
 
@@ -2362,7 +2805,6 @@ const app = createApp({
     'farm-members-view': AdminMemberManagementView,
     'crop-manual-view': CropManualView,
     'crop-packs-view': CropPacksView,
-    'value-ledger-view': ValueLedgerView,
     'admin-overview-view': AdminOverviewView,
     'admin-ops-view': AdminOpsView,
     'admin-audit-view': AdminAuditView,
@@ -2418,7 +2860,6 @@ const app = createApp({
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
-      valueLedger: isDemoSession ? MOCK_DATA.valueLedger : EMPTY_VALUE_LEDGER,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
       farmerTasks: isDemoSession ? (MOCK_DATA.farmer_tasks || []).map((item) => ({ ...item })) : [],
       farmerProfile: isDemoSession ? (MOCK_DATA.farmer_profile || {}) : {},
@@ -2440,23 +2881,88 @@ const app = createApp({
     let systemRequestVersion = 0;
     let systemRefreshTimer = null;
     let farmRefreshTimer = null;
+    let systemRefreshInFlight = false;
+    let systemRefreshQueued = false;
+    let systemLastRefreshAt = 0;
+    let farmRefreshInFlight = false;
+    let farmRefreshQueued = false;
+    let farmLastRefreshAt = 0;
+    let livePollTimer = null;
+    let liveVisibilityHandler = null;
+    let liveOnlineHandler = null;
+    let liveEventsStop = null;
+    let liveEventsConnecting = false;
+    let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
-    const scheduleSystemRefresh = () => {
+    const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator'
+    ]);
+    const scheduleSystemRefresh = (delay = 450) => {
+      if (state.value.sessionMode !== 'live') return;
+      if (systemRefreshInFlight) {
+        systemRefreshQueued = true;
+        return;
+      }
       if (systemRefreshTimer) return;
+      const waitForThrottle = Math.max(0, 3000 - (Date.now() - systemLastRefreshAt));
       systemRefreshTimer = window.setTimeout(async () => {
         systemRefreshTimer = null;
-        await refreshSystemAdminData({ announceErrors: false });
-      }, 450);
+        if (document.hidden) {
+          systemRefreshQueued = true;
+          return;
+        }
+        if (systemRefreshInFlight) {
+          systemRefreshQueued = true;
+          return;
+        }
+        systemRefreshInFlight = true;
+        try {
+          await refreshSystemAdminData({ announceErrors: false });
+        } finally {
+          isLive.value = api.isLive;
+          systemLastRefreshAt = Date.now();
+          systemRefreshInFlight = false;
+          if (systemRefreshQueued && !document.hidden) {
+            systemRefreshQueued = false;
+            scheduleSystemRefresh(250);
+          }
+        }
+      }, Math.max(delay, waitForThrottle));
     };
-    const scheduleFarmRefresh = (domains = []) => {
+    const scheduleFarmRefresh = (domains = [], delay = 450) => {
       domains.forEach((domain) => pendingFarmDomains.add(domain));
+      if (state.value.sessionMode !== 'live') return;
+      if (farmRefreshInFlight) {
+        farmRefreshQueued = true;
+        return;
+      }
       if (farmRefreshTimer) return;
+      const waitForThrottle = Math.max(0, 1800 - (Date.now() - farmLastRefreshAt));
       farmRefreshTimer = window.setTimeout(async () => {
         farmRefreshTimer = null;
+        if (document.hidden) {
+          farmRefreshQueued = true;
+          return;
+        }
+        if (farmRefreshInFlight) {
+          farmRefreshQueued = true;
+          return;
+        }
         const requested = [...pendingFarmDomains];
         pendingFarmDomains.clear();
-        await refreshFarmData(state.value.adminContext.farmId, requested.length ? requested : ['overview', 'plots'], { announceErrors: false });
-      }, 450);
+        farmRefreshInFlight = true;
+        try {
+          await refreshFarmData(state.value.adminContext.farmId, requested.length ? requested : ['overview', 'plots'], { announceErrors: false });
+        } finally {
+          isLive.value = api.isLive;
+          farmLastRefreshAt = Date.now();
+          farmRefreshInFlight = false;
+          if (farmRefreshQueued && !document.hidden) {
+            farmRefreshQueued = false;
+            scheduleFarmRefresh([], 250);
+          }
+        }
+      }, Math.max(delay, waitForThrottle));
     };
     let requestContextChange = async () => {};
     const selectedFarmId = computed({
@@ -2676,7 +3182,11 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
-        systemStatus: api.getSystemStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })(),
         scenarios: api.getScenarioRuns()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
@@ -2817,12 +3327,14 @@ const app = createApp({
         runId: run.runId,
         scenarioId: run.scenarioId || run.runId,
         type: run.scenario || run.scenarioId || '—',
+        typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
         seed: run.seed,
         plotId: run.plotId,
         startTime: run.startedAt || run.createdAt || '—',
         endTime: run.completedAt || run.endedAt || null,
         events: Number(run.events || run.mainEvents || run.replayEvents || 0),
         status: liveStatusValue(run.status, 'UNKNOWN'),
+        statusLabel: localizedStatusLabel(run.status, '未知'),
         dataOrigin: 'BACKEND'
       }));
       state.value.adminCropPacks = adminCropPacks;
@@ -2832,6 +3344,95 @@ const app = createApp({
       state.value.adminAuditLogs = adminAuditLogs;
       state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
+    };
+
+    const runLivePoll = () => {
+      if (document.hidden || state.value.sessionMode !== 'live') return;
+      if (api.isLive) {
+        connectLiveEvents({ announce: false });
+      } else if (!liveHealthProbeInFlight) {
+        liveHealthProbeInFlight = true;
+        api.checkHealth().then((healthy) => {
+          isLive.value = healthy;
+          if (healthy) {
+            connectLiveEvents({ announce: false });
+            runLivePoll();
+          }
+        }).catch(() => {}).finally(() => { liveHealthProbeInFlight = false; });
+      }
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
+        scheduleSystemRefresh(0);
+      } else if (state.value.currentUser?.role === 'FARM_ADMIN') {
+        scheduleFarmRefresh(LIVE_FARM_REFRESH_DOMAINS, 0);
+      }
+    };
+    const stopLiveRefresh = () => {
+      if (livePollTimer) window.clearInterval(livePollTimer);
+      livePollTimer = null;
+      if (liveVisibilityHandler) document.removeEventListener('visibilitychange', liveVisibilityHandler);
+      if (liveOnlineHandler) window.removeEventListener('online', liveOnlineHandler);
+      liveVisibilityHandler = null;
+      liveOnlineHandler = null;
+      if (systemRefreshTimer) window.clearTimeout(systemRefreshTimer);
+      if (farmRefreshTimer) window.clearTimeout(farmRefreshTimer);
+      systemRefreshTimer = null;
+      farmRefreshTimer = null;
+      systemRefreshQueued = false;
+      farmRefreshQueued = false;
+      pendingFarmDomains.clear();
+    };
+    const startLiveRefresh = () => {
+      stopLiveRefresh();
+      if (state.value.sessionMode !== 'live') return;
+      const interval = state.value.currentUser?.role === 'SYSTEM_ADMIN' ? 12000 : 8000;
+      livePollTimer = window.setInterval(runLivePoll, interval);
+      liveVisibilityHandler = () => { if (!document.hidden) runLivePoll(); };
+      liveOnlineHandler = () => runLivePoll();
+      document.addEventListener('visibilitychange', liveVisibilityHandler);
+      window.addEventListener('online', liveOnlineHandler);
+      runLivePoll();
+    };
+    const handleLiveEvent = (event) => {
+      if (event.type === 'connected' || event.type === 'heartbeat') return;
+      const systemEvent = presentSystemEvent(event);
+      const eventId = String(event?.data?.eventId || '').trim();
+      if (eventId) {
+        if (seenSystemEventIds.has(eventId)) return;
+        seenSystemEventIds.add(eventId);
+        // Keep the dedupe set bounded during a long-running dashboard
+        // session; event IDs are only needed for the recent window.
+        if (seenSystemEventIds.size > 256) {
+          const oldest = seenSystemEventIds.values().next().value;
+          if (oldest) seenSystemEventIds.delete(oldest);
+        }
+      }
+      // Some proxies normalize the SSE event name to `message`; the payload
+      // still carries the authoritative eventType.
+      const domains = domainsForEventType(systemEvent.type || event.type);
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
+        scheduleFarmRefresh(domains, systemEvent.silent ? 450 : 120);
+      }
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
+        scheduleSystemRefresh(systemEvent.silent ? 450 : 120);
+      }
+      if (systemEvent.silent) return;
+      if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
+      state.value.adminOverview.recentEvents.unshift(systemEvent);
+      state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
+      // 系统事件仅记入最近事件列表，不再弹出 toast 通知，避免高频事件堆积遮挡视线。
+    };
+    const connectLiveEvents = async ({ announce = true } = {}) => {
+      if (state.value.sessionMode !== 'live' || !api.isLive || liveEventsStop || liveEventsConnecting) return false;
+      liveEventsConnecting = true;
+      try {
+        liveEventsStop = await api.subscribeEvents(handleLiveEvent);
+        return true;
+      } catch (error) {
+        if (announce) showToast('系统消息暂不可用：' + error.message, 'error');
+        return false;
+      } finally {
+        liveEventsConnecting = false;
+      }
     };
 
     const handleContextChanged = async ({ farmId, plotId = null, sessionMode = state.value.sessionMode } = {}, options = {}) => {
@@ -2881,6 +3482,16 @@ const app = createApp({
       const route = parseHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && route.params?.farmId && route.params.farmId !== state.value.adminContext.farmId) {
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
+      }
+      const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
+        ? legacyAdminTabTarget(route.view, route.params?.tab, route.params?.farmId || state.value.adminContext.farmId)
+        : null;
+      if (legacyTarget) {
+        const targetHash = routeHash(legacyTarget.view, legacyTarget.params);
+        window.history.replaceState(null, '', targetHash);
+        currentView.value = legacyTarget.view;
+        routeParams.value = legacyTarget.params;
+        return;
       }
       if (route.view === 'plot-detail') {
         const plot = (state.value.allPlots || state.value.plots).find((item) => item.plotId === route.params.plotId);
@@ -2955,7 +3566,7 @@ const app = createApp({
       state.value.plots = state.value.allPlots.filter(item => String(item.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
     };
 
-    const handleDataInvalidated = async ({ domains = [], record } = {}) => {
+    const handleDataInvalidated = async ({ domains = [], record, records = [], reason = '' } = {}) => {
       if (record?.workOrderId && domains.includes('workOrders')) {
         state.value.workOrders = [record, ...state.value.workOrders.filter((item) => item.workOrderId !== record.workOrderId)];
       }
@@ -2969,6 +3580,23 @@ const app = createApp({
         return [domain];
       }))];
       await refreshFarmData(state.value.adminContext.farmId, normalized.length ? normalized : ['all']);
+      if (reason === 'alerts-closed' && records.length) {
+        const closedById = new Map(records.map(item => [String(item?.alertId || item?.id || ''), { ...item, status: 'CLOSED' }]));
+        const presentIds = new Set(state.value.alerts.map(item => String(item?.alertId || item?.id || '')));
+        state.value.alerts = [
+          ...state.value.alerts.map(item => {
+            const closed = closedById.get(String(item?.alertId || item?.id || ''));
+            return closed ? { ...item, ...closed } : item;
+          }),
+          ...records.filter(item => !presentIds.has(String(item?.alertId || item?.id || ''))).map(item => ({ ...item, status: 'CLOSED' }))
+        ];
+        state.value.feedItems = buildLiveFeedItems({
+          alerts: state.value.alerts,
+          workOrders: state.value.workOrders,
+          inspections: state.value.inspections,
+          plots: state.value.allPlots
+        });
+      }
     };
 
     const openPlotDetail = async ({ plotId, trigger } = {}) => {
@@ -3038,8 +3666,9 @@ const app = createApp({
           const requestedFarm = initialRoute.params?.farmId || '';
           const farmId = selectAuthorizedFarm(state.value.farms, requestedFarm);
           if (!farmId) throw new Error('当前账户没有授权农场');
-          state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
-          await refreshFarmData(farmId, ['all']);
+           state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+           await refreshFarmData(farmId, ['all']);
+           farmLastRefreshAt = Date.now();
         } catch (error) {
           state.value.farms = [];
           state.value.plots = [];
@@ -3049,6 +3678,7 @@ const app = createApp({
       } else if (session.mode === 'live') {
         if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
           await refreshSystemAdminData();
+          systemLastRefreshAt = Date.now();
         } else {
           const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
             api.getFarms(), api.getOverview(), api.getPlots({ includeInactive: true }), api.getWorkOrders(), api.getAlerts()
@@ -3093,38 +3723,7 @@ const app = createApp({
       // failure. Use the service transport flag here so formal sessions can
       // start SSE after their REST refresh has proved the backend works.
       isLive.value = api.isLive;
-      if (api.isLive && session.mode === 'live') {
-        try {
-          await api.subscribeEvents((event) => {
-            if (event.type === 'connected' || event.type === 'heartbeat') return;
-            const systemEvent = presentSystemEvent(event);
-            const eventId = String(event?.data?.eventId || '').trim();
-            if (eventId) {
-              if (seenSystemEventIds.has(eventId)) return;
-              seenSystemEventIds.add(eventId);
-              // Keep the dedupe set bounded during a long-running dashboard
-              // session; event IDs are only needed for the recent window.
-              if (seenSystemEventIds.size > 256) {
-                const oldest = seenSystemEventIds.values().next().value;
-                if (oldest) seenSystemEventIds.delete(oldest);
-              }
-            }
-            const domains = domainsForEventType(event.type);
-            if (state.value.currentUser?.role === 'FARM_ADMIN' && domains.length) {
-              if (systemEvent.silent) scheduleFarmRefresh(domains);
-              else refreshFarmData(state.value.adminContext.farmId, domains, { announceErrors: false });
-            }
-            if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && domains.length) {
-              scheduleSystemRefresh();
-            }
-            if (systemEvent.silent) return;
-            if (!Array.isArray(state.value.adminOverview.recentEvents)) state.value.adminOverview.recentEvents = [];
-            state.value.adminOverview.recentEvents.unshift(systemEvent);
-            state.value.adminOverview.recentEvents = state.value.adminOverview.recentEvents.slice(0, 20);
-            // 系统事件仅记入最近事件列表，不再弹出 toast 通知，避免高频事件堆积遮挡视线。
-          });
-        } catch (error) { showToast('系统消息暂不可用：' + error.message, 'error'); }
-      }
+      if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
@@ -3132,6 +3731,15 @@ const app = createApp({
         window.history.replaceState(null, '', routeHash(currentView.value, params));
       }
       if (!state.value.allowedViews.includes(currentView.value)) navigate(currentRole.value.defaultView);
+      startLiveRefresh();
+    });
+
+    onBeforeUnmount(() => {
+      stopLiveRefresh();
+      liveEventsStop?.();
+      liveEventsStop = null;
+      api.sseAbortController?.abort();
+      window.removeEventListener('hashchange', applyHashRoute);
     });
 
     // Provide toast globally
@@ -3183,4 +3791,20 @@ const app = createApp({
 });
 
 app.component('app-icon', AppIcon);
-app.mount('#app');
+
+const indexSession = api.readSession();
+const indexUser = presentRoleUser(indexSession?.user);
+if (indexUser?.role === 'FARMER') {
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  const view = hash.split(/[?&/]/)[0];
+  const farmerHash = {
+    'risk-forecast': 'tools/risk',
+    'crop-manual': 'tools/manual',
+    'work-orders': 'tools',
+    'decision-console': 'advice',
+    dashboard: 'dashboard'
+  }[view] || 'tools';
+  window.location.replace(`farmer.html#${farmerHash}`);
+} else {
+  app.mount('#app');
+}

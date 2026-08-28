@@ -34,6 +34,318 @@ const STATUS_LABELS = Object.freeze({
   CANCELLED: '已取消'
 });
 
+// Stable codes stay in the API and in CSS class names, but they should not
+// leak into a user-facing card.  Keep the dictionaries here so the farmer,
+// farm-admin and system-admin shells all render the same concise wording.
+const SERVICE_STATUS_LABELS = Object.freeze({
+  UP: '正常', ONLINE: '正常', HEALTHY: '正常', ACTIVE: '运行中', RUNNING: '运行中',
+  DEGRADED: '降级', DOWN: '离线', OFFLINE: '离线', STOPPED: '已停止', INACTIVE: '已停用',
+  ERROR: '异常', FAILED: '失败', SUCCESS: '成功', SUCCEEDED: '成功', PARTIAL: '部分完成',
+  TIMEOUT: '超时', PASS: '通过', APPROVED: '已批准', REJECT: '否决', REJECTED: '已拒绝',
+  ACK: '已确认', ACKED: '已确认', ACKNOWLEDGED: '已确认', DONE: '已完成', COMPLETED: '已完成',
+  REVIEW: '待复核', READY: '就绪', RESET: '已重置', UNKNOWN: '未知', UNAVAILABLE: '不可用', AVAILABLE: '可用',
+  GOOD: '正常', PENDING: '待处理', TODO: '待处理', COMPUTED: '已生成', ALLOCATED: '已分配',
+  FEASIBLE: '可执行', INFEASIBLE: '不可满足', RECORDED: '已记录', PUBLISHED: '已发布', DRAFT: '草稿',
+  IN_PROGRESS: '进行中', SUBMITTED: '待验收', OPEN: '待处理', VALIDATED: '已验证', VERIFIED: '已验证',
+  ROLLED_BACK: '已回滚', CANCELLED: '已取消', ABORTED: '已中止', NOT_CONFIGURED: '未配置',
+  DEMO_SESSION: '演示会话', BACKEND_OFFLINE: '后端离线', FAIL: '失败',
+  HUMAN_REVIEW: '人工复核', NEEDS_EVIDENCE: '需要补证', INCONCLUSIVE: '无法判定', NOT_APPLICABLE: '不适用',
+  BOUND: '已绑定', UNBOUND: '未绑定', NOT_BOUND: '未绑定', ENABLED: '已启用', DISABLED: '已停用'
+});
+
+const SERVICE_NAME_LABELS = Object.freeze({
+  POSTGRESQL: 'PostgreSQL 数据库',
+  REDIS: 'Redis 消息流', REDIS_STREAMS: 'Redis 消息流',
+  MQTT: 'MQTT 消息代理', MQTT_BROKER: 'MQTT 消息代理',
+  SSE: 'SSE 实时推送', SSE_GATEWAY: 'SSE 实时推送',
+  API: '接口服务', API_SERVICE: '接口服务',
+  AI: '智能模型服务', LLM: '智能模型服务', QWEN_LLM: '智能模型服务',
+  SIMULATOR: '遥测模拟器', SIMULATION: '遥测模拟器',
+  DATABASE: '数据库服务', STORAGE: '存储服务', MESSAGING: '消息服务'
+});
+
+const MODE_LABELS = Object.freeze({
+  FULL: '完整模式', RULES_ONLY: '规则兜底', MOCK: '模拟模式', DEMO: '演示模式',
+  OPENAI: '智能模型', OPENAI_COMPATIBLE: '智能模型', STANDALONE: '独立模式',
+  RUNNING: '运行中', STOPPED: '已停止', AVAILABLE: '可用', UNAVAILABLE: '不可用'
+});
+
+const ALERT_STATUS_LABELS = Object.freeze({
+  ACTIVE: '未处理', OPEN: '未处理', UNACKNOWLEDGED: '未处理', ESCALATED: '已升级',
+  ACK: '已确认', ACKED: '已确认', ACKNOWLEDGED: '已确认', CLOSED: '已关闭', RESOLVED: '已解决'
+});
+
+const SOURCE_LABELS = Object.freeze({
+  BACKEND: '后端数据', API: '接口数据',
+  SIMULATED: '模拟数据', SIMULATION: '模拟数据', MOCK: '演示数据',
+  REAL: '真实设备', HARDWARE: '硬件数据',
+  OBSERVED: '现场观测', USER_PROVIDED: '人工提供', DERIVED: '推导结果',
+  ESTIMATED: '估算结果', RULE: '规则引擎', RULES: '规则引擎',
+  AI: '智能模型', LLM: '智能模型', AGENT: '智能助手', ACCOUNT: '正式账号', SYSTEM: '系统',
+  MANUAL: '人工录入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查',
+  HUMAN_OBSERVATION: '人工观察', FIELD_INSPECTION: '现场巡田', CORE_AI: '智能内核',
+  LEARNING: '案例学习', RULES_FAST_PATH: '规则快捷路径', SENSOR: '传感器', DEVICE: '设备',
+  SOIL_MOISTURE: '土壤湿度', DEVICE_FRESHNESS: '设备数据新鲜度',
+  WATER_DEFICIT_RULE: '缺水规则', SENSOR_DRIFT_RULE: '传感器漂移规则',
+  DEVICE_FAULT_RULE: '设备异常规则', HEAT_STRESS_RULE: '高温胁迫规则',
+  CROP_PACK: '作物模型包', PRESCRIPTION: '灌溉处方', FORECAST: '风险预测',
+  WORK_ORDER: '农务工单', INSPECTION: '巡田记录',
+  SIMULATOR: '模拟器', CONFIG: '系统配置', CONFIG_CHANGE: '配置变更'
+});
+
+const SCENARIO_LABELS = Object.freeze({
+  NORMAL: '正常运行', NORMAL_RUN: '正常运行',
+  DROUGHT: '干旱场景', HEAT_WAVE: '干旱场景',
+  HEAVY_RAIN: '暴雨场景', HEAVYRAIN: '暴雨场景', STORM: '暴雨场景', RAIN: '暴雨场景',
+  SENSOR_DRIFT: '传感器漂移', DEVICE_OFFLINE: '设备离线', OFFLINE: '设备离线',
+  EVIDENCE_CONFLICT: '证据冲突',
+  MULTI_SCENARIO: '多场景'
+});
+
+const PRIORITY_LABELS = Object.freeze({
+  CRITICAL: '紧急', HIGH: '高', MEDIUM: '中', LOW: '低', NORMAL: '普通'
+});
+
+const LEVEL_LABELS = Object.freeze({
+  CRITICAL: '严重', FATAL: '严重', ERROR: '错误', DANGER: '告警',
+  ALERT: '告警', WARNING: '警告', WARN: '预警', INFO: '信息', NOTICE: '提示',
+  HIGH: '高', MEDIUM: '中', LOW: '低', NORMAL: '正常'
+});
+
+const METRIC_STATUS_LABELS = Object.freeze({
+  GOOD: '正常', NORMAL: '正常', OK: '正常', ONLINE: '在线',
+  WARN: '预警', WARNING: '预警', ALERT: '告警', HIGH: '偏高', LOW: '偏低',
+  DEGRADED: '降级', BAD: '异常', ERROR: '异常', OFFLINE: '离线',
+  SUPPORTED: '已接入', SIMULATION_ONLY: '仅模拟', AVAILABLE: '可用',
+  UNAVAILABLE: '不可用', UNKNOWN: '未知', PASS: '通过', FAIL: '失败', PENDING: '待处理'
+});
+
+const DEVICE_TYPE_LABELS = Object.freeze({
+  ENVIRONMENTAL_SENSOR: '环境传感器', IRRIGATION_CONTROLLER: '灌溉控制器',
+  FLOW_METER: '流量计', WEATHER_STATION: '气象站', CAMERA: '摄像头',
+  GATEWAY: '网关', EDGE_GATEWAY: '边缘网关', WATER_PUMP: '水泵',
+  SENSOR: '传感器', SOIL_SENSOR: '土壤传感器', SOIL_MOISTURE_SENSOR: '土壤湿度传感器',
+  TEMPERATURE_HUMIDITY_SENSOR: '温湿度传感器', IRRIGATION_ACTUATOR: '灌溉执行器',
+  ACTUATOR: '执行器', POWER_METER: '电力计量器'
+});
+
+const RESOURCE_TYPE_LABELS = Object.freeze({
+  WATER: '水资源', WATER_RESOURCE: '水资源', ELECTRICITY: '电力', LABOUR: '人工工时',
+  LABOR: '人工工时', FERTILIZER: '肥料', UNKNOWN: '资源'
+});
+
+const METRIC_LABELS = Object.freeze({
+  SOIL_MOISTURE: '土壤湿度', SOIL_HUMIDITY: '土壤湿度', SOIL_TEMPERATURE: '土壤温度',
+  AIR_TEMPERATURE: '空气温度', AIR_TEMP: '空气温度', TEMPERATURE: '温度',
+  AIR_HUMIDITY: '空气湿度', HUMIDITY: '湿度', LIGHT: '光照', LIGHT_INTENSITY: '光照',
+  ILLUMINANCE: '光照', CO2: '二氧化碳', CO2_CONCENTRATION: '二氧化碳',
+  CARBON_DIOXIDE: '二氧化碳', SOIL_EC: '土壤电导率', EC: '电导率',
+  ELECTRICAL_CONDUCTIVITY: '电导率', NPK_RATIO: '氮磷钾', PH: '酸碱度',
+  SOIL_PH: '土壤酸碱度', WATER_LEVEL: '水位', WATER_FLOW: '水流量',
+  FLOW_RATE: '流量', WIND_SPEED: '风速', RAINFALL: '降雨量',
+  DATA_FRESHNESS: '数据新鲜度', DEVICE_HEALTH: '设备健康',
+  WATER_DEFICIT: '缺水风险', HEAT_STRESS: '高温胁迫', COLD_STRESS: '低温冷害',
+  DEVICE_FAULT: '设备异常', SENSOR_DRIFT: '传感器漂移'
+});
+
+function code(value) {
+  return String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+}
+
+function preserveChinese(value) {
+  return /[\u3400-\u9fff]/.test(String(value || ''));
+}
+
+export function serviceNameLabel(value, fallback = '服务') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw) && !/[A-Za-z]{2,}/.test(raw.split(/[（(]/)[0])) return raw;
+  return SERVICE_NAME_LABELS[code(raw)] || raw;
+}
+
+export function modeLabel(value, fallback = '未知模式') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return MODE_LABELS[code(raw)] || raw;
+}
+
+/** Generic status wording for cards that do not have a narrower domain. */
+export function statusLabel(value, fallback = '未知') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return SERVICE_STATUS_LABELS[code(raw)] || ALERT_STATUS_LABELS[code(raw)] || raw;
+}
+
+export function serviceStatusLabel(value, fallback = '未知') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return SERVICE_STATUS_LABELS[code(raw)] || fallback;
+}
+
+export function alertStatusLabel(value, fallback = '未知') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return ALERT_STATUS_LABELS[code(raw)] || statusLabel(raw, fallback);
+}
+
+export function sourceLabel(value, fallback = '—') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  // Composite source labels such as "SIMULATED · 演示数据" are common in
+  // older payloads.  Use the readable part and avoid repeating the code.
+  const parts = raw.split(/[·|/]+/).map((part) => part.trim()).filter(Boolean);
+  const mapped = SOURCE_LABELS[code(parts[0] || raw)];
+  if (mapped) {
+    const readableTail = parts.slice(1).find((part) => preserveChinese(part));
+    return readableTail && readableTail !== mapped ? `${mapped} · ${readableTail}` : mapped;
+  }
+  if (preserveChinese(raw)) return raw;
+  return parts.length > 1 && preserveChinese(parts[1]) ? parts[1] : raw;
+}
+
+export function scenarioLabel(value, fallback = '未设置') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  const normalized = code(raw);
+  if (SCENARIO_LABELS[normalized]) return SCENARIO_LABELS[normalized];
+  if (normalized.startsWith('MULTI_SCENARIO')) {
+    const count = raw.match(/\d+/)?.[0];
+    return count ? `多场景（${count}）` : '多场景';
+  }
+  return raw;
+}
+
+export function priorityLabel(value, fallback = '普通') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return PRIORITY_LABELS[code(raw)] || fallback;
+}
+
+export function levelLabel(value, fallback = '提示') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return LEVEL_LABELS[code(raw)] || fallback;
+}
+
+export function metricStatusLabel(value, fallback = '未知') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return METRIC_STATUS_LABELS[code(raw)] || fallback;
+}
+
+export function metricLabel(value, fallback = '未知指标') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return METRIC_LABELS[code(raw)] || fallback;
+}
+
+export function deviceTypeLabel(value, fallback = '类型未知') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return DEVICE_TYPE_LABELS[code(raw)] || raw;
+}
+
+export function resourceTypeLabel(value, fallback = '资源') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  const parts = raw.split(/[（(·|/]+/).map((part) => part.trim()).filter(Boolean);
+  const mapped = RESOURCE_TYPE_LABELS[code(parts[0] || raw)];
+  if (mapped) {
+    const readableTail = raw.match(/[（(].*?[）)]/)?.[0] || parts.slice(1).find((part) => preserveChinese(part));
+    return readableTail ? `${mapped}${readableTail}` : mapped;
+  }
+  if (preserveChinese(raw)) return raw;
+  return raw;
+}
+
+export function provenanceLabel(value, fallback = '—') {
+  return sourceLabel(value, fallback);
+}
+
+export function eventTypeLabel(value, fallback = '系统事件') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  const normalized = raw.toUpperCase().replace(/[._\s]+/g, '-');
+  const labels = {
+    DIAGNOSIS: '诊断', READINESS: '就绪度', 'IRRIGATION-PLAN': '灌溉处方',
+    COMMAND: '控制命令', EVALUATION: '效果评价', PRESCRIPTION: '灌溉处方', INSPECTION: '巡田',
+    'WORK-ORDER': '农务工单', ALERT: '告警', LOGIN: '登录', AUTH: '身份验证',
+    TELEMETRY: '遥测更新', 'TELEMETRY-RECEIVED': '遥测更新', HEARTBEAT: '设备心跳',
+    'DEVICE-HEARTBEAT': '设备心跳', 'SCENARIO-TELEMETRY': '情景数据',
+    'DEVICE-CHECK': '设备检查', 'CONFIG-CHANGE': '配置变更', 'RULE-PUBLISH': '规则发布',
+    SYSTEM: '系统事件'
+  };
+  return labels[normalized] || labels[normalized.replace(/-.*$/, '')] || raw;
+}
+
+// Translate technical tokens when they appear inside a sentence supplied by
+// the backend or by the demo fixture.  API/CSS identifiers remain untouched;
+// this helper is only used at presentation boundaries (cards, timelines and
+// chat metadata), so trace IDs and machine-readable payloads stay stable.
+const DISPLAY_TOKEN_LABELS = Object.freeze({
+  WATER_DEFICIT: '缺水风险', HEAT_STRESS: '高温胁迫', COLD_STRESS: '低温冷害',
+  DEVICE_FAULT: '设备异常', SENSOR_DRIFT: '传感器漂移', SOIL_MOISTURE: '土壤湿度',
+  AIR_TEMPERATURE: '空气温度', AIR_HUMIDITY: '空气湿度', WATER_LEVEL: '水位',
+  SOIL_EC: '土壤电导率', NPK_RATIO: '氮磷钾', RAINFALL: '降雨量',
+  DIAGNOSIS: '诊断', PRESCRIPTION: '处方', FORECAST: '预测', PREDICTION: '预测',
+  COMMAND: '命令', EVALUATION: '评价', INSPECTION: '巡田', DEVICE_CHECK: '设备检查',
+  WORK_ORDER: '农务工单', CROP_PACK: '作物模型包', CORE_AI: '智能内核',
+  BACKEND: '后端', SIMULATED: '模拟', SIMULATION: '模拟', MOCK: '演示',
+  HARDWARE: '硬件', REAL: '真实设备', USER_PROVIDED: '人工提供', DERIVED: '推导',
+  ESTIMATED: '估算', OBSERVED: '现场观测', RULES_ONLY: '规则兜底', FULL: '完整模式',
+  READY: '就绪', PENDING: '待处理', OPEN: '待处理', ASSIGNED: '已分配',
+  IN_PROGRESS: '进行中', SUBMITTED: '待验收', COMPLETED: '已完成', DONE: '已完成',
+  FAILED: '失败', ERROR: '异常', OFFLINE: '离线', ONLINE: '在线', ACTIVE: '运行中',
+  INACTIVE: '已停用', HEALTHY: '健康', WARNING: '警告', CRITICAL: '严重',
+  HIGH: '高', MEDIUM: '中', LOW: '低', GOOD: '正常', BAD: '异常', DEGRADED: '降级',
+  UP: '正常', DOWN: '离线', ACK: '已确认', BOUND: '已绑定', UNBOUND: '未绑定',
+  SECURITY: '安全', SYSTEM: '系统', LOGIN: '登录', CONFIG: '配置',
+  AGENT: '智能助手', AI: '智能模型', LLM: '大语言模型', RAG: '知识检索',
+  SCHEMA: '数据规范', REGISTRY: '注册表', CONSOLE: '控制台', FORECASTING: '预测',
+  DEMONSTRATION: '示范品种', GREENHOUSE: '设施栽培', SUPERVISOR: '控制服务'
+});
+
+export function displayText(value, fallback = '—') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  let result = raw
+    .replace(/\bTime-to-Risk\b/gi, '风险到达时间')
+    .replace(/\bCrop\s+Pack\b/gi, '作物模型包')
+    .replace(/\bWith\s+Action\b/gi, '有干预')
+    .replace(/\bNo\s+Action\b/gi, '无干预')
+    .replace(/\bRules[- ]only\b/gi, '规则兜底')
+    .replace(/\bOpenAI(?:-compatible)?\b/gi, '智能模型')
+    .replace(/\bN\/A\b/gi, '无')
+    .replace(/(\d+)\s*m\s*(\d+)\s*s\b/gi, '$1 分 $2 秒')
+    .replace(/(\d+(?:\.\d+)?)\s*L\s*\/\s*min\b/gi, '$1 升/分钟')
+    .replace(/(\d+(?:\.\d+)?)\s*L\b/gi, '$1 升')
+    .replace(/(\d+(?:\.\d+)?)\s*kWh\b/gi, '$1 千瓦时')
+    .replace(/(\d+(?:\.\d+)?)\s*ms\b/gi, '$1 毫秒')
+    .replace(/(\d+(?:\.\d+)?)\s*min\b/gi, '$1 分钟')
+    .replace(/(\d+(?:\.\d+)?)\s*m(?=\d|\b)/gi, '$1 分钟')
+    .replace(/(\d+(?:\.\d+)?)\s*s\b/gi, '$1 秒')
+    .replace(/(\d+(?:\.\d+)?)\s*h\b/gi, '$1 小时')
+    .replace(/\/h\b/gi, '/小时')
+    .replace(/\bvs\.?\b/gi, '与');
+  Object.entries(DISPLAY_TOKEN_LABELS)
+    .sort(([left], [right]) => right.length - left.length)
+    .forEach(([token, label]) => {
+      result = result.replace(new RegExp(`\\b${token}\\b`, 'gi'), label);
+    });
+  return result;
+}
+
 /**
  * The API keeps a short deterministic `summary` for cards and audits, while
  * `narrative` is the answer intended for a person to read.  Always prefer the
@@ -61,7 +373,214 @@ export function agentResponseSource(response = {}, sessionMode = 'live') {
   if (adapter === 'mock') return '模拟回答';
   if (response?.degraded) return '规则降级回答';
   if (adapter === 'rules-fast-path') return '规则快捷回答';
-  return adapter ? '规则 + 知识' : 'AI 助手';
+  return adapter ? '规则与知识' : '智能助手';
+}
+
+const AGENT_INTENT_LABELS = Object.freeze({
+  IRRIGATION_RECOMMENDATION: '灌溉建议',
+  DIAGNOSIS: '风险诊断',
+  RISK_DIAGNOSIS: '风险诊断',
+  RISK_FORECAST: '风险预测',
+  TODAY_WORK: '今日农务',
+  PLOT_STATUS: '地块状态',
+  GREETING: '问候',
+  CLARIFICATION: '澄清',
+  CAPABILITY_QUERY: '能力说明',
+  FOLLOW_UP: '追问',
+  RETEST_CHECKLIST: '复测清单'
+});
+
+const AGENT_PROVENANCE_LABELS = Object.freeze({
+  OBSERVED: '观测',
+  RETRIEVED: '检索',
+  DERIVED: '推导',
+  SIMULATED: '模拟',
+  USER_PROVIDED: '人工'
+});
+
+function agentToolOutput(response = {}, name = '') {
+  return asArray(response.tools).find((tool) => tool?.name === name)?.output;
+}
+
+function formatAgentConfidence(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  const percent = numeric <= 1 ? Math.round(numeric * 100) : Math.round(numeric);
+  return `${percent}%`;
+}
+
+function agentProvenanceLabel(value) {
+  const key = String(value || '').trim().toUpperCase();
+  return AGENT_PROVENANCE_LABELS[key] || key || '—';
+}
+
+/**
+ * Flatten knowledge/tool/context evidence from an agent response for chat UI.
+ */
+export function normalizeAgentEvidence(response = {}) {
+  const items = [];
+  asArray(response.knowledgeEvidence).forEach((entry, index) => {
+    const source = text(entry.source || entry.title, '知识片段');
+    items.push({
+      id: `knowledge-${index}`,
+      type: 'knowledge',
+      label: source.split('/').pop() || source,
+      detail: source,
+      scope: text(entry.scope, '—'),
+      provenance: agentProvenanceLabel(entry.provenance)
+    });
+  });
+  asArray(response.tools).forEach((tool, index) => {
+    const plotId = text(tool?.input?.plotId, '');
+    items.push({
+      id: `tool-${index}`,
+      type: 'tool',
+      label: text(tool?.name, '工具调用'),
+      detail: plotId ? `地块 ${plotId}` : '受控工具输出',
+      scope: plotId || '—',
+      provenance: '观测',
+      durationMs: tool?.durationMs
+    });
+  });
+  const context = response.context || {};
+  if (context.cropPackVersion) {
+    items.push({
+      id: 'context-pack',
+      type: 'version',
+      label: `Crop Pack v${context.cropPackVersion}`,
+      detail: `规则 ${text(context.ruleVersion, '—')} · 知识 ${text(context.knowledgeVersion, '—')}`,
+      scope: text(context.stageCode, '—'),
+      provenance: '推导'
+    });
+  }
+  return items.slice(0, 8);
+}
+
+/**
+ * Build a farmer-facing decision card from deterministic agent output.
+ * The card only links into existing approval / diagnosis / task flows.
+ */
+export function normalizeAgentDecisionCard(response = {}, plot = null) {
+  const intent = String(response.intent || '').toUpperCase();
+  const traceId = text(response.traceId, '');
+  const plotId = text(response.plotId || plot?.plotId, '');
+  const plotName = text(plot?.name, plotId || '关联地块');
+  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS'].includes(intent)) {
+    return null;
+  }
+
+  if (intent === 'IRRIGATION_RECOMMENDATION') {
+    const plan = response.plan || agentToolOutput(response, 'generate_irrigation_plan') || {};
+    const readiness = String(plan.readinessStatus || '').toUpperCase();
+    const executable = Boolean(plan.executable) && readiness !== 'NEEDS_EVIDENCE' && readiness !== 'UNAVAILABLE';
+    const water = plan.waterLitre ?? plan.howMuch?.waterLitre;
+    const durationSeconds = plan.durationSeconds ?? plan.howMuch?.durationSeconds;
+    const durationMinutes = Number.isFinite(Number(durationSeconds)) ? Math.round(Number(durationSeconds) / 6) / 10 : null;
+    return {
+      kind: 'IRRIGATION',
+      title: '灌溉审批建议卡',
+      summary: executable
+        ? `建议补水约 ${water ?? '—'} L${durationMinutes != null ? `，时长约 ${durationMinutes} 分钟` : ''}`
+        : '当前证据或安全门未通过，仅可作为参考，需人工复核',
+      plotId,
+      plotName,
+      traceId,
+      executable,
+      actionLabel: executable ? '查看处方并提交审批' : '查看处方与安全门',
+      note: executable ? '农户只能提交审批，不会直接控制水泵。' : '请先巡田、复测或联系管理员。'
+    };
+  }
+
+  if (intent === 'DIAGNOSIS' || intent === 'RISK_DIAGNOSIS') {
+    const diagnosis = response.diagnosis
+      || agentToolOutput(response, 'evaluate_diagnosis')
+      || agentToolOutput(response, 'diagnose_root_cause')
+      || {};
+    const cause = text(diagnosis.primaryCause || diagnosis.riskType, '待分析');
+    const confidence = formatAgentConfidence(diagnosis.confidence ?? response.confidence);
+    return {
+      kind: 'DIAGNOSIS',
+      title: '诊断结论卡',
+      summary: `主因 ${cause}${confidence ? `，置信度 ${confidence}` : ''}`,
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '查看智能诊断',
+      note: '诊断结论需结合支持/反对证据与就绪度后再行动。'
+    };
+  }
+
+  if (intent === 'TODAY_WORK') {
+    const work = response.workItems || agentToolOutput(response, 'get_today_work_items') || [];
+    const count = Array.isArray(work) ? work.length : 0;
+    return {
+      kind: 'TASK',
+      title: '今日农务卡',
+      summary: count ? `关联 ${count} 项待处理农务` : '当前暂无待办，可继续按计划巡查',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '查看今日农务',
+      note: '任务结果提交后等待管理员验收。'
+    };
+  }
+
+  if (intent === 'RISK_FORECAST') {
+    const forecast = response.result || agentToolOutput(response, 'get_risk_forecast') || {};
+    const ttr = Number(forecast.timeToRiskMinutes);
+    return {
+      kind: 'FORECAST',
+      title: '风险预测卡',
+      summary: Number.isFinite(ttr) && ttr > 0 ? `预计约 ${ttr} 分钟后进入风险区间` : '已生成短期含水率预测曲线',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '打开风险预警',
+      note: '预测基于当前策略与遥测窗口，样本不足时会标记 UNAVAILABLE。'
+    };
+  }
+
+  if (intent === 'RETEST_CHECKLIST') {
+    return {
+      kind: 'INSPECTION',
+      title: '复测与补证卡',
+      summary: '建议先完成现场巡田或传感器复测，再重新评估处方',
+      plotId,
+      plotName,
+      traceId,
+      executable: true,
+      actionLabel: '去巡田 / 申请复测',
+      note: '补证记录会进入诊断证据链，不会覆盖遥测。'
+    };
+  }
+
+  return null;
+}
+
+/** Normalize a full farmer QA turn for rendering evidence, traceId and decision cards. */
+export function normalizeAgentTurn(response = {}, question = '', options = {}) {
+  const plot = options.plot || null;
+  const sessionMode = options.sessionMode || 'live';
+  const intent = String(response.intent || '').toUpperCase();
+  return {
+    id: `qa-${Date.now()}`,
+    question,
+    answer: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。'),
+    sourceLabel: agentResponseSource(response, sessionMode),
+    traceId: text(response.traceId, ''),
+    intent,
+    intentLabel: AGENT_INTENT_LABELS[intent] || '农事建议',
+    confidence: formatAgentConfidence(response.confidence),
+    degraded: Boolean(response.degraded),
+    evidence: normalizeAgentEvidence(response),
+    decisionCard: normalizeAgentDecisionCard(response, plot),
+    plotId: text(plot?.plotId || response.plotId, ''),
+    plotName: text(plot?.name, ''),
+    dataOrigin: sessionMode === 'live' ? 'BACKEND' : 'SIMULATED'
+  };
 }
 
 function asArray(value) {
@@ -84,7 +603,7 @@ export function normalizeWorkStatus(value) {
 
 export function workStatusLabel(value) {
   const status = normalizeWorkStatus(value);
-  return STATUS_LABELS[status] || status;
+  return STATUS_LABELS[status] || statusLabel(status, '状态未知');
 }
 
 export function relativeTime(value, now = Date.now()) {
@@ -171,10 +690,44 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
   };
 }
 
+/**
+ * Merge a fresh mixed-metric telemetry window into an existing plot card.
+ * The newest sample updates the visible value as well as the history. This
+ * keeps the fast farmer poll useful without waiting for a full overview.
+ */
+export function mergePlotTelemetryWindow(plot = {}, points = []) {
+  const history = { ...(plot.history || {}) };
+  Object.entries(plot.metrics || {}).forEach(([code, metric]) => {
+    if (!history[code] && Array.isArray(metric?.history)) history[code] = metric.history.slice();
+  });
+  const grouped = {};
+  (Array.isArray(points) ? points : []).forEach((point) => {
+    const code = text(point?.metric, '');
+    if (!code) return;
+    (grouped[code] ||= []).push(point);
+  });
+  const latest = {};
+  Object.entries(grouped).forEach(([code, samples]) => {
+    const ordered = samples.slice().sort((left, right) => (
+      dateValue(left?.ts || left?.observedAt)?.getTime() || 0
+    ) - (
+      dateValue(right?.ts || right?.observedAt)?.getTime() || 0
+    ));
+    if (!ordered.length) return;
+    history[code] = ordered;
+    latest[code] = ordered[ordered.length - 1];
+  });
+  return normalizePlot({ ...plot, history }, { history, latest });
+}
+
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const plotId = text(work.plotId || work.plot_id, '');
   const plot = plotMap.get(plotId) || {};
-  const status = normalizeWorkStatus(work.status);
+  const rawStatus = text(work.status, 'OPEN').trim().toUpperCase();
+  let status = normalizeWorkStatus(rawStatus);
+  // Keep farmer-facing "not started" distinct from admin "unassigned".
+  if (rawStatus === 'PENDING') status = 'PENDING';
+  else if (status === 'OPEN' && (work.assigneeId || work.assignee_id)) status = 'ASSIGNED';
   const createdAt = work.createdAt || work.created_at || work.created_iso;
   const dueAt = work.dueAt || work.due_at || work.due_iso;
   const issuer = text(work.createdByName || work.createdBy || work.issuer, '—');
@@ -199,7 +752,25 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   };
 }
 
-function messageBase({ id, category, title, snippet, body, sender, at, read = false, plotId = '' }) {
+function messageBase({
+  id,
+  category,
+  title,
+  snippet,
+  body,
+  sender,
+  at,
+  read = false,
+  plotId = '',
+  plotName = '',
+  alertId = '',
+  alertLevel = '',
+  alertStatus = '',
+  alertSource = '',
+  linkedWorkOrderId = '',
+  workOrderId = '',
+  taskStatus = ''
+} = {}) {
   return {
     id,
     category,
@@ -211,8 +782,29 @@ function messageBase({ id, category, title, snippet, body, sender, at, read = fa
     time_iso: at || null,
     time_label: relativeTime(at),
     plotId: plotId || null,
+    plotName: plotName || null,
+    alertId: alertId || null,
+    alertLevel: alertLevel || null,
+    alertStatus: alertStatus || null,
+    alertSource: alertSource || null,
+    linkedWorkOrderId: linkedWorkOrderId || null,
+    workOrderId: workOrderId || null,
+    taskStatus: taskStatus || null,
     dataOrigin: 'BACKEND'
   };
+}
+
+function findLinkedWorkOrder(tasks = [], alert = {}) {
+  const alertKey = text(alert.alertId || alert.id, '');
+  if (!alertKey) return '';
+  return asArray(tasks).find((task) => (
+    text(task.sourceRef, '') === alertKey
+    || text(task.linkedAlert, '') === alertKey
+    || text(task.source_ref, '') === alertKey
+  ))?.workOrderId || asArray(tasks).find((task) => (
+    text(task.sourceRef, '') === alertKey
+    || text(task.linkedAlert, '') === alertKey
+  ))?.id || '';
 }
 
 export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [], plots = [] } = {}) {
@@ -234,17 +826,31 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       seenAlertKeys.add(dedupeKey);
     }
     const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
-    const title = text(alert.title, `${plotName}出现${text(alert.level, '提示')}告警`);
+    const alertId = text(alert.alertId || alert.id, `${plotId}:${alert.createdAt || alert.raisedAt}`);
+    const title = text(alert.title, `${plotName}出现${levelLabel(alert.level, '提示')}告警`);
     const message = text(alert.message || alert.summary, '请打开告警详情查看后端提供的处理建议。');
+    const linkedWorkOrderId = findLinkedWorkOrder(tasks, alert);
     messages.push(messageBase({
-      id: `alert:${text(alert.alertId || alert.id, `${plotId}:${alert.createdAt || alert.raisedAt}`)}`,
+      id: `alert:${alertId}`,
       category: 'alert',
       title,
       snippet: message,
-      body: [message, `来源：${text(alert.source, '规则引擎')}`, `当前状态：${status}`],
+      body: [
+        message,
+        `级别：${levelLabel(alert.level, '提示')}`,
+        `来源：${sourceLabel(alert.source, '规则引擎')}`,
+        `当前状态：${alertStatusLabel(status, '未知')}`,
+        linkedWorkOrderId ? `关联任务：${linkedWorkOrderId}` : '关闭与派单由农场管理员在告警台账处理'
+      ],
       sender: 'AgriLoop 规则引擎',
       at: alert.updatedAt || alert.createdAt || alert.raisedAt,
       plotId,
+      plotName,
+      alertId,
+      alertLevel: text(alert.level, 'MEDIUM').toUpperCase(),
+      alertStatus: status,
+      alertSource: source,
+      linkedWorkOrderId,
       read: status === 'CLOSED' || status === 'RESOLVED'
     }));
   });
@@ -259,6 +865,9 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       sender: normalized.issuer,
       at: task.createdAt || normalized.created_iso,
       plotId: normalized.plot_id,
+      plotName: normalized.plot_name,
+      workOrderId: text(task.workOrderId || task.id, normalized.id),
+      taskStatus: normalized.status,
       read: normalizeWorkStatus(normalized.status) === 'DONE' || normalizeWorkStatus(normalized.status) === 'CANCELLED'
     }));
   });
@@ -271,10 +880,11 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       category: 'notice',
       title: `巡田记录已提交：${plotName}`,
       snippet: note,
-      body: [note, `记录人：${text(record.operatorName || record.operatorId, '—')}`, `来源：${text(record.sourceType, 'HUMAN_OBSERVATION')}`],
+      body: [note, `记录人：${text(record.operatorName || record.operatorId, '—')}`, `来源：${sourceLabel(record.sourceType, '人工观察')}`],
       sender: text(record.operatorName || record.operatorId, '现场记录'),
       at: record.observedAt || record.createdAt,
       plotId,
+      plotName,
       read: true
     }));
   });
@@ -312,12 +922,18 @@ export function buildLiveFeedItems({ alerts = [], workOrders = [], inspections =
   const items = [];
   asArray(alerts).forEach((alert) => {
     const plotId = text(alert.plotId, '');
+    const title = text(alert.title, `${plotMap.get(plotId)?.name || plotId}告警`);
+    const summary = text(alert.message || alert.summary, '后端告警记录');
+    const category = levelLabel(alert.level, '告警');
     items.push({
       id: `alert:${text(alert.alertId || alert.id, Date.now())}`,
       type: 'ALERT',
-      category: text(alert.level, '告警'),
-      title: text(alert.title, `${plotMap.get(plotId)?.name || plotId}告警`),
-      summary: text(alert.message || alert.summary, '后端告警记录'),
+      category,
+      categoryLabel: displayText(category),
+      title,
+      titleLabel: displayText(title),
+      summary,
+      summaryLabel: displayText(summary),
       timestamp: relativeTime(alert.createdAt || alert.raisedAt),
       timestampIso: alert.createdAt || alert.raisedAt || alert.updatedAt || null,
       badge: { color: 'amber' },
@@ -326,12 +942,17 @@ export function buildLiveFeedItems({ alerts = [], workOrders = [], inspections =
     });
   });
   asArray(workOrders).forEach((order) => {
+    const title = text(order.title, '未命名任务');
+    const summary = `${text(order.reason, '暂无说明')} · ${workStatusLabel(order.status)}`;
     items.push({
       id: `work:${text(order.workOrderId || order.id, Date.now())}`,
       type: 'WORK_ORDER',
       category: '农务工单',
-      title: text(order.title, '未命名任务'),
-      summary: `${text(order.reason, '暂无说明')} · ${workStatusLabel(order.status)}`,
+      categoryLabel: '农务工单',
+      title,
+      titleLabel: displayText(title),
+      summary,
+      summaryLabel: displayText(summary),
       timestamp: relativeTime(order.updatedAt || order.createdAt),
       timestampIso: order.updatedAt || order.createdAt || null,
       badge: { color: 'green' },
@@ -341,12 +962,17 @@ export function buildLiveFeedItems({ alerts = [], workOrders = [], inspections =
   });
   asArray(inspections).forEach((record) => {
     const plotId = text(record.plotId, '');
+    const title = `巡田记录：${plotMap.get(plotId)?.name || plotId}`;
+    const summary = text(record.notes || record.evidenceSummary, '已收到现场观察');
     items.push({
       id: `inspection:${text(record.inspectionId, Date.now())}`,
       type: 'INFO',
       category: '人工观察',
-      title: `巡田记录：${plotMap.get(plotId)?.name || plotId}`,
-      summary: text(record.notes || record.evidenceSummary, '已收到现场观察'),
+      categoryLabel: '人工观察',
+      title,
+      titleLabel: displayText(title),
+      summary,
+      summaryLabel: displayText(summary),
       timestamp: relativeTime(record.observedAt || record.createdAt),
       timestampIso: record.observedAt || record.createdAt || null,
       badge: { color: 'green' },
@@ -388,20 +1014,26 @@ export function mapAdminPlot(plot, farmMap = new Map()) {
 }
 
 export function mapAdminDevice(device = {}, plotMap = new Map()) {
+  const rawType = text(device.type, '未知设备');
+  const rawStatus = text(device.status, 'UNKNOWN').toUpperCase();
   return {
     ...device,
     deviceId: text(device.deviceId || device.id, '—'),
     plotId: text(device.plotId, '未绑定'),
-    type: text(device.type, '未知设备'),
+    type: rawType,
+    typeLabel: deviceTypeLabel(rawType),
     lastHeartbeat: relativeTime(device.lastSeen || device.lastHeartbeat),
-    status: text(device.status, 'UNKNOWN').toUpperCase(),
+    status: rawStatus,
+    statusLabel: serviceStatusLabel(rawStatus),
     plotName: plotMap.get(String(device.plotId))?.name || '—',
+    sourceLabel: sourceLabel(device.sourceMode || device.dataOrigin, '后端数据'),
     dataOrigin: 'BACKEND'
   };
 }
 
 export function mapAdminAlert(alert = {}, plotMap = new Map()) {
   const status = text(alert.status, 'ACTIVE').toUpperCase();
+  const normalizedStatus = status === 'ACTIVE' ? 'OPEN' : status === 'ACKED' ? 'ACK' : status;
   return {
     ...alert,
     id: text(alert.alertId || alert.id, `alert-${Date.now()}`),
@@ -409,19 +1041,24 @@ export function mapAdminAlert(alert = {}, plotMap = new Map()) {
     level: text(alert.level, 'INFO').toUpperCase(),
     source: plotMap.get(String(alert.plotId))?.name || text(alert.source || alert.plotId, '系统'),
     summary: text(alert.message || alert.summary || alert.title, '后端告警记录'),
-    status: status === 'ACTIVE' ? 'OPEN' : status === 'ACKED' ? 'ACK' : status,
+    status: normalizedStatus,
+    statusLabel: alertStatusLabel(normalizedStatus),
+    levelLabel: levelLabel(alert.level, '提示'),
+    sourceLabel: sourceLabel(alert.source || alert.sourceType, '系统'),
     dataOrigin: 'BACKEND'
   };
 }
 
 export function mapCropPack(pack = {}) {
   const identity = pack.identity || {};
+  const rawStatus = text(pack.status, 'published').toLowerCase();
   return {
     ...pack,
     id: text(pack.id || pack.cropCode, `pack-${Date.now()}`),
     icon: CROP_LABELS[pack.cropCode] ? ({ tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓', pepper: '🌶️' }[pack.cropCode] || '🌱') : '🌱',
     name: text(identity.name || pack.cropName, text(pack.cropCode, '未命名作物')),
-    status: text(pack.status, 'published').toLowerCase(),
+    status: rawStatus,
+    statusLabel: rawStatus === 'published' ? '已发布' : '草稿',
     stages: asArray(pack.stages).map((stage) => typeof stage === 'string' ? stage : text(stage.label || stage.code, '未命名阶段')),
     knowledgeDocs: asArray(pack.knowledge?.content || pack.knowledgeDocs).map((doc) => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }),
     availableForPlanting: pack.availableForPlanting !== false,
@@ -430,13 +1067,16 @@ export function mapCropPack(pack = {}) {
 }
 
 export function mapAdminRule(rule = {}, index = 0) {
+  const rawStatus = text(rule.status, 'published').toLowerCase();
   return {
     ...rule,
     id: text(rule.id || rule.code, `rule-${index + 1}`),
     description: text(rule.description || rule.message || rule.code, '后端规则'),
     type: text(rule.type || rule.metric, '规则'),
     version: text(rule.version || rule.ruleVersion, '—'),
-    status: text(rule.status, 'published').toLowerCase(),
+    status: rawStatus,
+    statusLabel: rawStatus === 'published' ? '已发布' : '草稿',
+    typeLabel: metricLabel(rule.type || rule.metric, '规则'),
     dataOrigin: 'BACKEND'
   };
 }
@@ -444,13 +1084,16 @@ export function mapAdminRule(rule = {}, index = 0) {
 export function mapStrategyCandidate(candidate = {}, index = 0) {
   const rawStatus = text(candidate.status, 'pending').toUpperCase();
   const status = ({ DRAFT: 'pending', OFFLINE_VALIDATED: 'verified', APPROVED: 'approved', REJECTED: 'rejected', ACTIVE: 'active', SUPERSEDED: 'superseded', ROLLED_BACK: 'rolled_back' }[rawStatus] || rawStatus.toLowerCase());
+  const rawSource = text(candidate.source || candidate.provenance, 'backend').toLowerCase();
   return {
     ...candidate,
     id: text(candidate.id || candidate.candidateId || candidate.strategyId, `candidate-${index + 1}`),
     candidateId: text(candidate.candidateId || candidate.id || candidate.strategyId, `candidate-${index + 1}`),
-    source: text(candidate.source || candidate.provenance, 'backend').toLowerCase(),
+    source: rawSource,
+    sourceLabel: sourceLabel(rawSource, '后端数据'),
     description: text(candidate.description || candidate.summary || candidate.name, '后端策略候选'),
     status,
+    statusLabel: ({ pending: '待验证', verified: '已验证', approved: '已批准', rejected: '已拒绝', active: '生效中', superseded: '已替代', rolled_back: '已回滚' }[status] || statusLabel(status, '未知')),
     dataOrigin: 'BACKEND'
   };
 }
@@ -468,7 +1111,7 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
     : type === 'ALERT'
       ? `告警：${text(record.title || record.source || record.level, '平台规则')}`
       : type === 'IRRIGATION-PLAN'
-        ? `生成灌溉处方${record.waterLitre !== undefined ? ` · ${record.waterLitre} L` : ''}`
+        ? `生成灌溉处方${record.waterLitre !== undefined ? ` · ${record.waterLitre} 升` : ''}`
         : type === 'COMMAND'
           ? `控制命令：${text(record.action || record.commandType, '已提交')}`
           : type === 'READINESS'
@@ -485,11 +1128,11 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
     operator: text(record.operatorName || record.operatorId || record.createdBy || record.updatedBy, '—'),
     plotId,
     type,
-    typeLabel: ({ DIAGNOSIS: '诊断', READINESS: '就绪度', 'IRRIGATION-PLAN': '处方', COMMAND: '命令', EVALUATION: '评价', INSPECTION: '巡田', 'WORK-ORDER': '工单', ALERT: '告警' }[type] || type),
+    typeLabel: eventTypeLabel(type, '系统事件'),
     summary: text(explicitSummary, derivedSummary),
     result,
     passport: {
-      trigger: text(record.source || record.sourceType, '后端记录'),
+      trigger: sourceLabel(record.source || record.sourceType, '后端记录'),
       cropPack: text(record.cropPackVersion, '—'),
       ruleVersion: text(record.ruleVersion, '—'),
       ragRef: text(record.knowledgeVersion, '—'),
@@ -497,9 +1140,14 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
       diagnosis: text(record.primaryCause || record.riskType, '—'),
       prescription: text(record.waterLitre || record.resultSummary, '—'),
       toolCall: text(record.action || record.type, '—'),
-      safetyGates: text(record.readinessStatus || record.quality?.status, '—'),
-      riskLevel: text(record.riskLevel || record.level, '—'),
-      execution: record.status ? { status: text(record.status), evaluation: text(record.reviewNote || record.evaluation, '—') } : null
+      safetyGates: metricStatusLabel(record.readinessStatus || record.quality?.status, '—'),
+      riskLevel: levelLabel(record.riskLevel || record.level, '—'),
+      execution: record.status ? {
+        status: text(record.status),
+        rawStatus: text(record.status),
+        statusLabel: statusLabel(record.status),
+        evaluation: text(record.reviewNote || record.evaluation, '—')
+      } : null
     },
     dataOrigin: 'BACKEND'
   };

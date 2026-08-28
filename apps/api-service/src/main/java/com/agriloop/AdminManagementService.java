@@ -231,7 +231,7 @@ class AdminManagementService {
         if (!principal.isAdmin()) {
             requireManagedFarm(farmId, principal);
         }
-        
+
         String username = requiredText(input, "username", "请填写成员账号").toLowerCase(Locale.ROOT);
         if (!username.matches("^[a-z0-9][a-z0-9._-]{3,31}$")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_USERNAME_INVALID", "账号需为 4～32 位字母、数字、点、下划线或短横线");
@@ -241,12 +241,12 @@ class AdminManagementService {
                 || password.toLowerCase(Locale.ROOT).contains(username)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_PASSWORD_WEAK", "初始密码需为 8～64 位并包含字母和数字，且不能包含账号");
         }
-        
+
         String role = Jsons.text(input, "role", "FARMER");
         if (!principal.isAdmin() && !"FARMER".equals(role)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_FORBIDDEN", "非系统管理员只能创建农户账号");
         }
-        
+
         List<String> plotIds = "SYSTEM_ADMIN".equals(role) ? List.of("*") : validateMemberPlots(farmId, input.get("plotIds"), principal);
         Map<String, Object> member = new LinkedHashMap<>();
         member.put("userId", Jsons.id("user"));

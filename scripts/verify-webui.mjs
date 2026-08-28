@@ -45,16 +45,28 @@ const liveDataSource = read('apps/web-ui/js/live-data.js');
 const farmerStyle = read('apps/web-ui/css/farmer.css');
 const openApi = read('docs/api/openapi.yaml');
 
+const dashboardStart = farmerHtml.indexOf('key="dashboard"');
+const plotsStart = farmerHtml.indexOf('key="plots"');
+const farmerDashboard = dashboardStart >= 0 && plotsStart > dashboardStart
+  ? farmerHtml.slice(dashboardStart, plotsStart)
+  : '';
+
 ok('入口脚本带版本参数', /js\/app\.js\?v=[^"']+/.test(indexHtml));
 ok('五个地块场景已注册', ['NORMAL', 'DROUGHT', 'HEAVY_RAIN', 'SENSOR_DRIFT', 'DEVICE_OFFLINE'].every((code) => apiSource.includes(`code: '${code}'`)));
 ok('模拟策略 REST 与重置接口已接线', ['/simulation`', '/simulation/reset`', 'PLOT_SIMULATION_DEFAULTS'].every((part) => apiSource.includes(part)) && openApi.includes('/api/v1/plots/{plotId}/simulation/reset'));
 ok('降雨指标贯通前端', appSource.includes('RAINFALL') && apiSource.includes("'RAINFALL'") && farmerSource.includes("code: 'RAINFALL'"));
 ok('参数预览与保存控件存在', indexHtml.includes('simulationFields') && indexHtml.includes('保存到此地块') && appSource.includes('localPreviewCurve'));
 ok('历史/预测重置按钮存在', indexHtml.includes('重置历史曲线') && indexHtml.includes('重置预测曲线') && apiSource.includes('resetPlotSimulation'));
+ok('地块详情支持八类曲线并与历史锚点连续', indexHtml.includes('simulationMetricOptions') && appSource.includes('alignForecastToHistory') && appSource.includes('forecastStart + item.minute * 60000'));
 ok('三类曲线支持局部浮窗', appSource.includes("trigger: 'axis'") && farmerHtml.includes('show_chart_tooltip') && farmerStyle.includes('.farmer-chart-tooltip'));
+ok('正式会话具备实时刷新与事件流重连', appSource.includes('LIVE_FARM_REFRESH_DOMAINS') && appSource.includes('setInterval(runLivePoll') && farmerSource.includes('setInterval(poll_live_telemetry, 5000)') && farmerSource.includes('if (refreshed) await load_farmer_enhancements()') && apiSource.includes('system event stream reconnect failed'));
 ok('硬件 REAL 状态优先', liveDataSource.includes('hardwareBound') && appSource.includes('hardwareLabel'));
 ok('系统管理员总览指标循环作用域安全', !indexHtml.includes('v-for="metric in telemetryMetrics" v-if='));
 ok('无冲突标记', ![indexHtml, appSource, apiSource, farmerHtml, farmerSource].some((source) => /^(?:<<<<<<<|=======|>>>>>>>)(?: |$)/m.test(source)));
+ok('农户首页优先事项与建议闭环契约', farmerDashboard.includes('今天先做什么') && farmerDashboard.includes('today_priorities') && farmerHtml.includes('farmer-suggestion-flow') && farmerHtml.includes('提交管理员审批') && farmerSource.includes('submitDecisionFeedback'));
+ok('农户首页隐藏内部能力编号', !farmerDashboard.includes('I-16 · I-27') && !farmerDashboard.includes('I-18 · I-26'));
+ok('首页地块摘要不渲染原始指标且详情保留曲线', !farmerDashboard.includes('farmer-plot-overview-metrics') && farmerHtml.includes('六项指标趋势'));
+ok('农户灌溉安全边界', farmerSource.includes("open_suggestion('IRRIGATION'") && farmerSource.includes("action: 'IRRIGATION_REQUEST'") && !farmerSource.includes('executeIrrigation('));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const waitFor = async (predicate, timeout = 5000) => {
@@ -138,11 +150,57 @@ async function mountIndex() {
   ok('三角色主壳可挂载（演示会话）', mounted);
   if (!mounted) { dom.window.close(); return; }
 
+  window.location.hash = '#view=decision-console&farmId=farm-demo';
+  const alertCenter = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-view[aria-label="AI告警分析与智能处理"]')), 3500);
+  ok('农场管理员 AI 告警中心可打开', alertCenter);
+  await waitFor(() => Boolean(window.document.querySelector('.admin-alert-batch-bar')), 1500);
+  const batchBarText = window.document.querySelector('.admin-alert-batch-bar')?.textContent || '';
+  ok('告警中心保留 main 卡片网格与批量入口', alertCenter
+    && Boolean(window.document.querySelector('.admin-alert-batch-bar'))
+    && batchBarText.includes('全选当前列表')
+    && batchBarText.includes('AI智能处理'));
+  ok('告警中心已移除旧操作入口', alertCenter
+    && !/\u786e认收到|\u5347级处理|\u8f6c成任务|一键下发任务/.test(window.document.querySelector('.admin-alert-view')?.textContent || '')
+    && !window.document.querySelector('.admin-alert-view h2'));
+  const cardsBeforeSingleClose = window.document.querySelectorAll('.admin-alert-card').length;
+  window.document.querySelector('.admin-alert-card')?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const alertDetailReady = await waitFor(() => Boolean(window.document.querySelector('.admin-alert-detail')), 1000);
+  const detailCloseButton = window.document.querySelector('.admin-alert-detail-footer .admin-alert-close-action');
+  detailCloseButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const singleCloseRemovedCard = await waitFor(() => window.document.querySelectorAll('.admin-alert-card').length === cardsBeforeSingleClose - 1, 2000);
+  ok('详情关闭后卡片立即从未关闭列表移除', cardsBeforeSingleClose > 0 && alertDetailReady && singleCloseRemovedCard);
+  await waitFor(() => Boolean(window.document.querySelector('.admin-decision-tabs button:nth-child(2)')), 1500);
+  const chatTab = window.document.querySelector('.admin-decision-tabs button:nth-child(2)');
+  chatTab?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const chatReady = await waitFor(() => Boolean(window.document.querySelector('.admin-ai-chat textarea')), 3500);
+  if (!chatReady) {
+    console.warn('AI 对话切换调试：', window.document.querySelector('.role-decision-shell')?.innerHTML?.slice(0, 1600) || '未挂载');
+  }
+  ok('农场管理员完整 AI 对话页可切换', chatReady
+    && window.document.body.textContent.includes('新对话')
+    && window.document.body.textContent.includes('AI 可能会出错，请核对重要信息'));
+  await waitFor(() => chatReady && !window.document.querySelector('.admin-ai-history-loading'), 1500);
+  const newConversationButton = window.document.querySelector('.admin-ai-chat-tools .g-btn');
+  newConversationButton?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const suggestionsReady = await waitFor(() => window.document.querySelectorAll('.admin-ai-suggestions button').length === 4, 1500);
+  ok('新对话后经典空白页快捷问题和底部输入框可见', suggestionsReady
+    && Boolean(window.document.querySelector('.admin-ai-message-list.is-empty .admin-ai-empty-state .admin-ai-suggestions'))
+    && Boolean(window.document.querySelector('.admin-ai-compose-area .admin-ai-composer'))
+    && !window.document.querySelector('.admin-ai-chat h2'));
+
   window.location.hash = '#view=plot-detail&plotId=plot-a01';
   const detail = await waitFor(() => window.document.body.textContent.includes('地块模拟策略'), 3500);
   ok('地块详情显示独立策略设置', detail);
   ok('地块详情显示五个场景', detail && window.document.querySelectorAll('.plot-simulation-scenario').length === 5);
   ok('地块详情显示曲线悬浮提示文案', detail && window.document.body.textContent.includes('鼠标悬停查看局部数据'));
+  const metricSelector = window.document.querySelector('.plot-simulation-metric-picker select');
+  ok('地块详情显示八个曲线指标', detail && metricSelector?.querySelectorAll('option').length === 8);
+  if (metricSelector) {
+    metricSelector.value = 'AIR_TEMPERATURE';
+    metricSelector.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const switched = await waitFor(() => window.document.body.textContent.includes('空气温度：历史 + 策略预测'), 1500);
+    ok('曲线指标切换可刷新标题', switched);
+  }
 
   if (mode !== 'svg') {
     window.location.hash = '#view=risk-forecast';

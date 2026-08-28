@@ -26,7 +26,7 @@ Vue 3 渲染引擎发生了未捕获的运行时崩溃，导致根节点上的�
     eventsEmitted: Number(...),
     startTime: simulator.startedAt || null,
     // [本次新增] 防止模板层引发 undefined 迭代崩溃
-    history: simulator.history || [] 
+    history: simulator.history || []
   }
   ```
 - **修改 (Modify)**：在调用 `adminOverviewFromLive` 的地方，将 `state.value.adminSimHistory` 作为 `history` 参数，平滑透传给该函数，以保证刷新后模拟器历史记录依然可用且不为空。

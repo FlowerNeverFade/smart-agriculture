@@ -117,6 +117,17 @@ function profileStatus(user, role) {
   return { label: role === 'SYSTEM_ADMIN' ? '在线' : '在岗', tone: 'success' };
 }
 
+function scenarioText(value) {
+  const labels = {
+    NORMAL: '正常运行', NORMAL_RUN: '正常运行', DROUGHT: '干旱场景', HEAT_WAVE: '干旱场景',
+    HEAVY_RAIN: '暴雨场景', STORM: '暴雨场景', SENSOR_DRIFT: '传感器漂移', DEVICE_OFFLINE: '设备离线', OFFLINE: '设备离线'
+  };
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/[㐀-鿿]/.test(raw)) return raw;
+  return labels[raw.toUpperCase().replace(/[-\s]+/g, '_')] || raw;
+}
+
 function statsForFarmer(user, context, state) {
   const profile = context.profile || state?.farmerProfile || {};
   const tasks = resolveTasks(context, state, 'FARMER');
@@ -186,7 +197,7 @@ function statsForSystemAdmin(context, state) {
     { value: `${onlineServices}/${totalServices}`, label: '在线服务', detail: '平台服务节点' },
     { value: auditRecords.length, label: '决策审计', detail: '最近决策记录' },
     { value: publishedRules || (live ? 0 : '—'), label: '生效规则', detail: '已发布版本' },
-    { value: running ? '运行中' : '待机', label: '模拟器状态', detail: overview.simulator?.scenario ? `场景 ${overview.simulator.scenario}` : '可随时启动' },
+    { value: running ? '运行中' : '待机', label: '模拟器状态', detail: overview.simulator?.scenario ? `场景 ${scenarioText(overview.simulator.scenario)}` : '可随时启动' },
     { value: activeUsers || (live ? 0 : '—'), label: '启用账号', detail: '全平台账号' },
     { value: events || (live ? 0 : '—'), label: '今日事件', detail: `${devices.length || 0} 个设备接入` }
   ];

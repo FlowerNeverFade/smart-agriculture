@@ -372,6 +372,22 @@ java -jar apps/api-service/build/libs/api-service-0.1.0.jar
 python simulator/runner.py --scenario drought --mqtt --speed 20
 ```
 
+Docker 镜像拉取失败、或暂时只有 standalone API 时，可跳过 MQTT，改用 HTTP 直推（设备在线状态同样会刷新）：
+
+```bash
+# 终端 1：后端（需 Java 17）
+export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+./gradlew :apps:api-service:bootRun
+
+# 终端 2：前端（必须用 Vite，才能把 /api 代理到 8080）
+cd apps/web-ui && npx vite
+
+# 终端 3：模拟器 HTTP 直推（不要用 --mqtt，除非本机 1883 已有 Mosquitto）
+python simulator/runner.py --scenario normal --seed 42 --http --interval 5 --continuous
+```
+
+然后打开 `http://127.0.0.1:3000/login.html`（账号 `farmer` / `demo123`）。
+
 关键配置：
 
 ```text
