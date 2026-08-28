@@ -1633,7 +1633,11 @@
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
           <thead><tr>
-            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th><th>模拟</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块 ID</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块名称</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">当前种植</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">异常场景注入</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
             <tr v-for="plot in plotScenarios" :key="plot.plotId">
@@ -1646,11 +1650,11 @@
                 </select>
               </td>
               <td>
-                <button v-if="plot.enabled !== false" class="g-btn text sm" style="font-size:12px; line-height:1; padding:2px 4px; min-height:auto" :disabled="simBusy" @click="togglePlotSimulation(plot)">
-                  <app-icon name="stop" style="font-size:14px"></app-icon> 停止
+                <button v-if="plot.enabled !== false" class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="stop" style="font-size:16px"></app-icon> 停止
                 </button>
-                <button v-else class="g-btn text sm" style="font-size:12px; line-height:1; padding:2px 4px; min-height:auto" :disabled="simBusy" @click="togglePlotSimulation(plot)">
-                  <app-icon name="play_arrow" style="font-size:14px"></app-icon> 启动
+                <button v-else class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="play_arrow" style="font-size:16px"></app-icon> 启动
                 </button>
               </td>
             </tr>
