@@ -114,6 +114,23 @@ test('demo device binding and farmer membership mutations remain visible on rere
   assert.equal((await service.getFarmMembers({ farmId: 'farm-demo' })).some(item => item.userId === member.userId), false);
 });
 
+test('demo device control switches actual status immediately and remains idempotent', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  const device = (await service.getDevices({ farmId: 'farm-demo' })).find(item => item.plotId);
+  assert.ok(device);
+  const target = String(device.status).toUpperCase() === 'ONLINE' ? 'OFFLINE' : 'ONLINE';
+  const key = `device-control-test-${device.deviceId}-${Date.now()}`;
+  const first = await service.controlDevice(device.deviceId, { targetStatus: target, idempotencyKey: key });
+  assert.equal(first.commandStatus, 'SUCCEEDED');
+  assert.equal(first.device.status, target);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === device.deviceId)?.status, target);
+  const restored = await service.controlDevice(device.deviceId, { targetStatus: device.status, idempotencyKey: `${key}-restore` });
+  assert.equal(restored.device.status, device.status);
+  const unbound = (await service.getDevices({ farmId: 'farm-demo' })).find(item => !item.plotId);
+  if (unbound) await assert.rejects(service.controlDevice(unbound.deviceId, { targetStatus: 'OFFLINE', idempotencyKey: `${key}-unbound` }), /设备尚未绑定/);
+});
+
 test('demo alert closure remains visible after refreshing alerts', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';
@@ -152,4 +169,31 @@ test('demo alert actions and alert-sourced task creation preserve their frozen c
   assert.equal(task.sourceType, 'ALERT');
   assert.equal(task.sourceRef, 'alert-contract-1');
   assert.equal((await service.getWorkOrders({ farmId: 'farm-demo' })).some(item => item.workOrderId === task.workOrderId), true);
+});
+
+test('new demo devices persist source metadata and plot binding can transfer as a set', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const first = await service.registerDevice({ deviceId: 'device-source-test', name: '来源测试设备', type: 'ENVIRONMENTAL_SENSOR', farmId: 'farm-demo' });
+  assert.equal(first.sourceMode, 'SIMULATION');
+  assert.equal(first.dataOrigin, 'SIMULATOR');
+  const bound = await service.setPlotDevices('plot-a01', [first.deviceId]);
+  assert.deepEqual(bound.deviceIds, [first.deviceId]);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === first.deviceId).plotId, 'plot-a01');
+  const moved = await service.setPlotDevices('plot-a02', [first.deviceId]);
+  assert.deepEqual(moved.movedDeviceIds, [first.deviceId]);
+  assert.equal((await service.getDevices({ farmId: 'farm-demo' })).find(item => item.deviceId === first.deviceId).plotId, 'plot-a02');
+});
+
+test('demo Agent mutation uses preview then explicit confirmation', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const response = await service.agentChat('请在 plot-a01 创建任务：检查滴灌管路', 'plot-a01');
+  assert.equal(response.actionProposal.status, 'AWAITING_CONFIRMATION');
+  const result = await service.confirmAgentAction(response.actionProposal.actionId);
+  assert.equal(result.status, 'SUCCEEDED');
+  const repeated = await service.confirmAgentAction(response.actionProposal.actionId);
+  assert.equal(repeated.status, 'SUCCEEDED');
 });

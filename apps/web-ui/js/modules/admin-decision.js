@@ -210,6 +210,36 @@ export const AdminDecisionView = {
       }
     };
 
+    const loadApprovalPlan = async () => {
+      const requestedPlanId = props.routeParams?.planId;
+      if (!requestedPlanId || loading.value) return false;
+      loading.value = true;
+      error.value = null;
+      clearResult();
+      try {
+        plan.value = await api.getIrrigationPlan(requestedPlanId);
+        selectedPlotId.value = plan.value.plotId;
+        currentTraceId.value = props.routeParams?.traceId || plan.value.traceId;
+        passport.value = currentTraceId.value ? await api.getDecisionPassport(currentTraceId.value) : null;
+        diagnosis.value = (passport.value?.diagnoses || []).find(item => item.diagnosisId === plan.value.diagnosisId)
+          || (passport.value?.diagnoses || [])[0]
+          || await api.evaluateDiagnosis(plan.value.plotId, { traceId: currentTraceId.value });
+        readiness.value = await api.getDecisionReadiness('IRRIGATION_PLAN', plan.value.planId, {
+          farmId: farmId.value,
+          plotId: plan.value.plotId,
+          diagnosis: diagnosis.value,
+          plan: plan.value
+        });
+        return true;
+      } catch (caught) {
+        error.value = caught;
+        return false;
+      } finally {
+        loading.value = false;
+        if (diagnosis.value && currentTraceId.value) void requestAiExplanation();
+      }
+    };
+
     const choosePlot = () => {
       error.value = null;
       if (!selectedPlotId.value) return;
@@ -247,6 +277,7 @@ export const AdminDecisionView = {
           approved: true,
           idempotencyKey: `web-${currentTraceId.value}`,
           source: 'admin-decision-console',
+          workOrderId: props.routeParams?.workOrderId,
           ...(isDemo.value ? { outcome: demoOutcome.value } : {})
         });
         for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -279,7 +310,15 @@ export const AdminDecisionView = {
       runDecisionChain();
     });
 
+    watch(() => props.routeParams?.planId, (planId) => {
+      if (planId) void loadApprovalPlan();
+    });
+
     onMounted(() => {
+      if (props.routeParams?.planId) {
+        void loadApprovalPlan();
+        return;
+      }
       const routePlotId = props.routeParams?.plotId;
       if (routePlotId && plots.value.some((item) => item.plotId === routePlotId)) {
         selectedPlotId.value = routePlotId;
@@ -297,7 +336,7 @@ export const AdminDecisionView = {
       diagnosis, plan, readiness, command, evaluation, passport, evidenceRequest, plots, selectedPlot,
       aiExplanation, aiExplaining, aiExplanationError,
       farmId, isDemo, canApprove, risk, readinessView, gates, missingEvidence, canExecute, commandStatus,
-      isCommandSuccess, metrics, dataLabel, metricSource, executionLabel, passportCounts, decisionTraceId, humanTime, RISK_META, readableCode, runDecisionChain, choosePlot, createEvidenceRequest,
+      isCommandSuccess, metrics, dataLabel, metricSource, executionLabel, passportCounts, decisionTraceId, humanTime, RISK_META, readableCode, runDecisionChain, loadApprovalPlan, choosePlot, createEvidenceRequest,
       executePlan, refreshPassport, requestAiExplanation, asPercent,
       metricStatusLabel, provenanceLabel, sourceLabel, statusLabel
     };

@@ -129,7 +129,15 @@ class CropPackCatalog {
             try {
                 return require(cropCode, version);
             } catch (ApiException ignored) {
-                // Unknown demonstration crops fall back to the first published pack.
+                // Prefer the latest pack for the same crop when a stale
+                // cropPackVersion is still stored on plots/batches.
+                if (version != null && !version.isBlank()) {
+                    try {
+                        return require(cropCode, null);
+                    } catch (ApiException ignoredAgain) {
+                        // Unknown demonstration crops fall back below.
+                    }
+                }
             }
         }
         if (packs.isEmpty()) {
@@ -460,8 +468,12 @@ class CropPackCatalog {
         if (target.containsKey("airHumidityLow") || target.containsKey("airHumidityHigh")) {
             items.add(envMetric("AIR_HUMIDITY", pack,
                     rangeText(target.get("airHumidityLow"), target.get("airHumidityHigh")),
-                    "%RH", "SUPPORTED", "阶段核心管控指标"));
+                    "%RH", "SUPPORTED", "阶段环境湿度目标"));
         }
+        addStageTargetMetric(items, pack, target, "LIGHT", "lightLow", "lightHigh", "lux", "阶段模型参考区间");
+        addStageTargetMetric(items, pack, target, "CO2", "co2Low", "co2High", "ppm", "阶段模型参考区间");
+        addStageTargetMetric(items, pack, target, "PH", "phLow", "phHigh", "pH", "阶段模型参考区间");
+        addStageTargetMetric(items, pack, target, "WATER_LEVEL", "waterLevelLow", "waterLevelHigh", "%", "可监测指标");
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         items.forEach(item -> seen.add(Jsons.text(item, "code", "")));
         for (Map<String, Object> metric : Jsons.maps(mapper, pack.get("metrics"))) {
@@ -476,6 +488,15 @@ class CropPackCatalog {
                     AVAILABILITY_NOTES.getOrDefault(availability, "模型参考区间")));
         }
         return items;
+    }
+
+    private void addStageTargetMetric(List<Map<String, Object>> items, Map<String, Object> pack,
+                                      Map<String, Object> target, String code, String lowKey, String highKey,
+                                      String unit, String note) {
+        if (!target.containsKey(lowKey) && !target.containsKey(highKey)) return;
+        Map<String, Object> profile = metricProfile(pack, code);
+        String availability = Jsons.text(profile, "availability", "SIMULATION_ONLY");
+        items.add(envMetric(code, pack, rangeText(target.get(lowKey), target.get(highKey)), unit, availability, note));
     }
 
     private Map<String, Object> envMetric(String code, Map<String, Object> pack, String range, String unit,
@@ -509,6 +530,15 @@ class CropPackCatalog {
         lines.add(name + "（" + region + "）处于「" + label + "」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。");
         lines.add("适宜土壤湿度 " + target.get("soilMoistureLow") + "%~" + target.get("soilMoistureHigh")
                 + "%，空气温度 " + target.get("airTemperatureLow") + "~" + target.get("airTemperatureHigh") + "°C。");
+        if (target.containsKey("airHumidityLow") || target.containsKey("airHumidityHigh")) {
+            lines.add("适宜空气湿度 " + target.get("airHumidityLow") + "%~" + target.get("airHumidityHigh") + "%RH。");
+        }
+        if (target.containsKey("lightLow") || target.containsKey("lightHigh")) {
+            lines.add("本阶段光照参考 " + target.get("lightLow") + "~" + target.get("lightHigh")
+                    + " lux，CO₂ 参考 " + target.getOrDefault("co2Low", "—") + "~" + target.getOrDefault("co2High", "—")
+                    + " ppm，土壤酸碱度参考 pH " + target.getOrDefault("phLow", "—") + "~" + target.getOrDefault("phHigh", "—")
+                    + "；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。");
+        }
         List<String> risks = Jsons.strings(stage.get("riskFocus"));
         if (!risks.isEmpty()) {
             lines.add("本阶段重点防范：" + String.join("、", risks.stream().map(code -> RISK_LABELS.getOrDefault(code, code)).toList()) + "。");
@@ -585,6 +615,10 @@ class CropPackCatalog {
             case "SOIL_MOISTURE" -> numbers(target, "soilMoistureLow", "soilMoistureHigh");
             case "AIR_TEMPERATURE" -> numbers(target, "airTemperatureLow", "airTemperatureHigh");
             case "AIR_HUMIDITY" -> numbers(target, "airHumidityLow", "airHumidityHigh");
+            case "LIGHT" -> numbers(target, "lightLow", "lightHigh");
+            case "CO2" -> numbers(target, "co2Low", "co2High");
+            case "PH" -> numbers(target, "phLow", "phHigh");
+            case "WATER_LEVEL" -> numbers(target, "waterLevelLow", "waterLevelHigh");
             default -> null;
         };
     }

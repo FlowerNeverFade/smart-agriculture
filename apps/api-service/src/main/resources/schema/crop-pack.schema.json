@@ -29,7 +29,27 @@
           "code": {"type": "string"},
           "sequence": {"type": "integer"},
           "label": {"type": "string"},
-          "target": {"type": "object"},
+          "target": {
+            "type": "object",
+            "description": "Stage agronomic bands. Core SUPPORTED metrics use soil/air fields; SIMULATION_ONLY light/CO2/pH use stage model bands instead of sensor full-scale.",
+            "properties": {
+              "soilMoistureLow": {"type": "number"},
+              "soilMoistureHigh": {"type": "number"},
+              "airTemperatureLow": {"type": "number"},
+              "airTemperatureHigh": {"type": "number"},
+              "airHumidityLow": {"type": "number"},
+              "airHumidityHigh": {"type": "number"},
+              "lightLow": {"type": "number"},
+              "lightHigh": {"type": "number"},
+              "co2Low": {"type": "number"},
+              "co2High": {"type": "number"},
+              "phLow": {"type": "number"},
+              "phHigh": {"type": "number"},
+              "waterLevelLow": {"type": "number"},
+              "waterLevelHigh": {"type": "number"}
+            },
+            "additionalProperties": true
+          },
           "riskFocus": {"type": "array"},
           "taskTemplates": {"type": "array"},
           "rules": {"type": "array"},

@@ -30,6 +30,7 @@
 - [智能诊断与决策中枢](acceptance/DECISION_CONSOLE_ACCEPTANCE.md)
 - [后端远端验收](acceptance/REMOTE_ACCEPTANCE.md)
 - [Web 性能验收](acceptance/WEB_PERFORMANCE_ACCEPTANCE.md)
+- [农户端 P0 创新闭环](acceptance/FARMER_P0_ACCEPTANCE.md)
 
 ## 历史材料
 

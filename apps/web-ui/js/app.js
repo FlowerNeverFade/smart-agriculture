@@ -1,13 +1,13 @@
 import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
-import { MOCK_DATA } from './mock-data.js?v=1787649000001';
+import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { AdminAlertCenter } from './admin-alerts.js';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
-import { AdminWorkManagementView } from './modules/admin-work-management.js';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
@@ -485,11 +485,20 @@ function mapSystemMembers(members, farms) {
 // intentionally not user notifications.  The simulator emits a batch of
 // these events every second, so surfacing each one as a toast makes the admin
 // workbench unusable while adding no actionable information.
+// alert.updated is also silent: open alerts keep receiving occurrence bumps
+// from rules, and toasting “土壤持续偏干” on every bump is noise.
 const SILENT_SYSTEM_EVENT_TYPES = new Set([
   'telemetry.received',
   'device.heartbeat',
-  'scenario.telemetry'
+  'scenario.telemetry',
+  'alert.updated'
 ]);
+
+// Only announce a new alert toast once per plot+source within the cooldown.
+// Duplicate ACTIVE alerts (or reconnect storms) must not keep interrupting
+// the farm admin with the same drought warning.
+const ALERT_TOAST_COOLDOWN_MS = 5 * 60 * 1000;
+const recentAlertToastKeys = new Map();
 
 function systemEventType(event) {
   return String(event?.data?.eventType || event?.type || 'system').trim().toLowerCase();
@@ -500,6 +509,27 @@ function isSilentSystemEventType(type) {
   return SILENT_SYSTEM_EVENT_TYPES.has(normalized)
     || normalized.includes('telemetry')
     || normalized.includes('heartbeat');
+}
+
+function shouldAnnounceSystemToast(systemEvent, payload = {}) {
+  if (systemEvent?.silent) return false;
+  const type = String(systemEvent?.type || '').toLowerCase();
+  if (!type.startsWith('alert.')) return true;
+  // Updates are already silent; created/escalated still need plot-level cooldown.
+  const key = [
+    String(payload.plotId || payload.plot_id || '').trim(),
+    String(payload.source || '').trim().toUpperCase(),
+    String(payload.title || systemEvent.title || '').trim()
+  ].join('|');
+  const now = Date.now();
+  const last = recentAlertToastKeys.get(key) || 0;
+  if (now - last < ALERT_TOAST_COOLDOWN_MS) return false;
+  recentAlertToastKeys.set(key, now);
+  if (recentAlertToastKeys.size > 128) {
+    const oldest = recentAlertToastKeys.keys().next().value;
+    if (oldest) recentAlertToastKeys.delete(oldest);
+  }
+  return true;
 }
 
 function presentSystemEvent(event) {
@@ -538,6 +568,15 @@ const DashboardView = {
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const devices = computed(() => props.state.devices || []);
+    const deviceOptions = computed(() => devices.value
+      .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
+      .sort((a, b) => String(a.name || a.deviceId).localeCompare(String(b.name || b.deviceId), 'zh-CN')));
+    const deviceLabel = device => {
+      if (!device.plotId) return `${device.name || device.deviceId}（未绑定）`;
+      if (device.plotId === plotDraft.value.plotId) return `${device.name || device.deviceId}（当前地块）`;
+      return `${device.name || device.deviceId}（已绑定：${visiblePlots.value.find(plot => plot.plotId === device.plotId)?.name || device.plotId}）`;
+    };
     const plotMenuId = ref('');
     const plotSaving = ref(false);
     const plotEditor = ref({ open: false, mode: 'create' });
@@ -549,7 +588,8 @@ const DashboardView = {
       cropVariety: '',
       stageCode: 'vegetative',
       growthCycleDays: 120,
-      areaM2: 100
+      areaM2: 100,
+      deviceIds: []
     });
     const plotDraft = ref(emptyPlotDraft());
     const managerSummary = computed(() => {
@@ -604,7 +644,8 @@ const DashboardView = {
         cropVariety: plot.cropVariety || '',
         stageCode: plot.stageCode || 'vegetative',
         growthCycleDays: Number(plot.growthCycleDays || 120),
-        areaM2: Number(plot.areaM2 || 100)
+        areaM2: Number(plot.areaM2 || 100),
+        deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
       };
       plotEditor.value = { open: true, mode: 'edit' };
     };
@@ -649,19 +690,24 @@ const DashboardView = {
         healthScore: current?.healthScore ?? null,
         riskLevel: current?.riskLevel || 'LOW'
       };
+      const requestedDeviceIds = [...new Set((draft.deviceIds || []).filter(Boolean))];
+      const moving = devices.value.filter(device => requestedDeviceIds.includes(device.deviceId) && device.plotId && device.plotId !== draft.plotId);
+      if (moving.length && !window.confirm(`以下设备当前绑定在其他地块：${moving.map(device => device.name || device.deviceId).join('、')}。确认转移到“${payload.name}”吗？`)) return;
       plotSaving.value = true;
       try {
+        let saved;
         if (plotEditor.value.mode === 'edit') {
-          const saved = await api.updatePlot(draft.plotId, payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.updatePlot(draft.plotId, plotPayload);
           emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已更新，其他模块已同步`);
         } else {
-          const saved = await api.createPlot(payload);
+          const { deviceIds, ...plotPayload } = payload;
+          saved = await api.createPlot(plotPayload);
           emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
-          emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-          toast(`${payload.name}已添加到农场`);
         }
+        const binding = await api.setPlotDevices(saved.plotId, requestedDeviceIds);
+        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: { ...saved, binding } });
+        toast(`${payload.name}${plotEditor.value.mode === 'edit' ? '已更新' : '已添加到农场'}，设备绑定已同步`);
         plotEditor.value.open = false;
       } catch (error) {
         toast(error.message || '保存地块失败', 'error');
@@ -738,6 +784,9 @@ const DashboardView = {
       isFarmAdmin,
       selectedFarmId,
       visiblePlots,
+      devices,
+      deviceOptions,
+      deviceLabel,
       managerSummary,
       openManagerSummary,
       plotMetrics,
@@ -1459,7 +1508,8 @@ const RoleAwareDecisionConsoleView = {
         <admin-alert-center v-if="!showChat" :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"></admin-ai-chat>
+        <admin-ai-chat v-else :state="state" :route-params="routeParams"
+                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
@@ -1953,9 +2003,10 @@ function manualEnvMetrics(pack, stage) {
     SOIL_MOISTURE: '土壤湿度',
     AIR_TEMPERATURE: '空气温度',
     AIR_HUMIDITY: '空气湿度',
-    WATER_LEVEL: '水位',
-    LIGHT: '光照',
-    CO2: '二氧化碳',
+    WATER_LEVEL: '水箱水位',
+    LIGHT: '光照强度',
+    CO2: 'CO2',
+    PH: '土壤酸碱度',
     SOIL_EC: '土壤电导率',
     NPK_RATIO: '氮磷钾'
   };
@@ -1973,8 +2024,25 @@ function manualEnvMetrics(pack, stage) {
       note: '阶段环境湿度目标'
     });
   }
+  const stageTargets = [
+    { code: 'LIGHT', low: target.lightLow, high: target.lightHigh, unit: 'lux', note: '阶段模型参考区间' },
+    { code: 'CO2', low: target.co2Low, high: target.co2High, unit: 'ppm', note: '阶段模型参考区间' },
+    { code: 'PH', low: target.phLow, high: target.phHigh, unit: 'pH', note: '阶段模型参考区间' },
+    { code: 'WATER_LEVEL', low: target.waterLevelLow, high: target.waterLevelHigh, unit: '%', note: '可监测指标' }
+  ];
+  stageTargets.forEach((item) => {
+    if (item.low == null && item.high == null) return;
+    const profile = (pack.metrics || []).find((metric) => metric.code === item.code) || {};
+    items.push({
+      code: item.code,
+      label: adminMetricLabel(item.code, profile.label || metricLabels[item.code]),
+      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      unit: profile.unit || item.unit,
+      availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
+      note: item.note
+    });
+  });
   const covered = new Set(items.map((item) => item.code));
-  covered.add('WATER_LEVEL');
   (pack.metrics || []).forEach((metric) => {
     if (covered.has(metric.code)) return;
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
@@ -1998,6 +2066,9 @@ function buildStageGuide(pack, stage) {
   ];
   if (target.airHumidityLow != null || target.airHumidityHigh != null) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
+  if (target.lightLow != null || target.lightHigh != null) {
+    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);

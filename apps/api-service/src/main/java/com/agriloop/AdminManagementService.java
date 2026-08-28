@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Farm-manager mutation boundary introduced by the admin interface freeze.
@@ -49,6 +51,28 @@ class AdminManagementService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * Device records created by the frozen admin UI before source metadata was
+     * added are safe to classify as simulators when they carry a registeredBy
+     * actor. Telemetry-discovered records (including hardware) do not have that
+     * marker and are deliberately left untouched.
+     */
+    @PostConstruct
+    void backfillManagedDeviceSources() {
+        for (Map<String, Object> device : store.list("device")) {
+            String sourceMode = Jsons.text(device, "sourceMode", "").trim();
+            String dataOrigin = Jsons.text(device, "dataOrigin", "").trim();
+            String registeredBy = Jsons.text(device, "registeredBy", "").trim();
+            if (registeredBy.isBlank() || !sourceMode.isBlank() || !dataOrigin.isBlank()) continue;
+            device.put("sourceMode", "SIMULATION");
+            device.put("dataOrigin", "SIMULATOR");
+            device.putIfAbsent("desiredStatus", Jsons.text(device, "status", "OFFLINE"));
+            device.putIfAbsent("controlStatus", "SUCCEEDED");
+            store.save("device", Jsons.text(device, "deviceId", ""), device);
+            publish("device.source.backfilled", device);
+        }
+    }
+
     List<Map<String, Object>> devices(String farmId, UserPrincipal principal) {
         requireVisibleFarm(farmId, principal);
         return store.list("device").stream()
@@ -70,7 +94,16 @@ class AdminManagementService {
         device.put("farmId", farmId);
         device.put("name", Jsons.text(input, "name", deviceId));
         device.put("type", requiredText(input, "type", "请选择设备类型"));
+        String sourceMode = Jsons.text(input, "sourceMode", "SIMULATION").trim().toUpperCase(Locale.ROOT);
+        if ("SIMULATED".equals(sourceMode)) sourceMode = "SIMULATION";
+        if (!Set.of("SIMULATION", "REAL").contains(sourceMode)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_SOURCE_INVALID", "设备接入方式只能是模拟设备或真实设备");
+        }
+        device.put("sourceMode", sourceMode);
+        device.put("dataOrigin", "REAL".equals(sourceMode) ? "HARDWARE" : "SIMULATOR");
         device.put("status", "OFFLINE");
+        device.put("desiredStatus", "OFFLINE");
+        device.put("controlStatus", "SUCCEEDED");
         device.put("bindingState", "UNBOUND");
         device.put("plotId", null);
         device.put("lastSeen", null);
@@ -96,16 +129,172 @@ class AdminManagementService {
             throw new ApiException(HttpStatus.CONFLICT, "PLOT_INACTIVE", "停用地块不能绑定设备");
         }
         engine.ensurePlotAccess(principal, plotId);
+        String previousPlotId = Jsons.text(device, "plotId", "").trim();
         device.put("plotId", plotId);
         device.put("bindingState", "BOUND");
         device.put("boundAt", Instant.now().toString());
         device.put("boundBy", principal.userId);
-        // Binding is configuration only.  ONLINE can only be established by
-        // an actual heartbeat/telemetry event.
-        device.putIfAbsent("status", "OFFLINE");
+        // A transfer invalidates the previous plot's confirmed status. A new
+        // heartbeat or an explicit simulator control must confirm the device
+        // again at its new location.
+        if (!previousPlotId.isBlank() && !previousPlotId.equals(plotId)) {
+            device.put("previousPlotId", previousPlotId);
+            device.put("status", "OFFLINE");
+            device.put("desiredStatus", "OFFLINE");
+            device.put("controlStatus", "SUCCEEDED");
+            device.remove("lastControlError");
+        } else {
+            device.putIfAbsent("status", "OFFLINE");
+        }
         store.save("device", deviceId, device);
         publish("device.bound", device);
         return device;
+    }
+
+    @Transactional
+    Map<String, Object> setPlotDevices(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> plot = managedPlot(plotId, principal);
+        if ("INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE"))) {
+            throw new ApiException(HttpStatus.CONFLICT, "PLOT_INACTIVE", "停用地块不能绑定设备");
+        }
+        Object rawDeviceIds = input == null ? null : input.get("deviceIds");
+        if (!(rawDeviceIds instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_IDS_REQUIRED", "请提供要绑定的设备列表");
+        }
+        LinkedHashSet<String> requested = new LinkedHashSet<>();
+        for (Object value : (Collection<?>) rawDeviceIds) {
+            String deviceId = String.valueOf(value == null ? "" : value).trim();
+            if (!deviceId.isBlank()) requested.add(deviceId);
+        }
+        String farmId = Jsons.text(plot, "farmId", "");
+        List<Map<String, Object>> allFarmDevices = store.list("device").stream()
+                .filter(device -> farmId.equals(deviceFarmId(device)))
+                .toList();
+        Map<String, Map<String, Object>> byId = allFarmDevices.stream()
+                .collect(Collectors.toMap(device -> Jsons.text(device, "deviceId", ""), device -> device, (left, right) -> left, LinkedHashMap::new));
+        for (String deviceId : requested) {
+            Map<String, Object> device = byId.get(deviceId);
+            if (device == null) throw new ApiException(HttpStatus.NOT_FOUND, "DEVICE_NOT_FOUND", "设备不存在或不属于当前农场");
+        }
+
+        Instant now = Instant.now();
+        List<String> unbound = new ArrayList<>();
+        List<String> moved = new ArrayList<>();
+        List<Map<String, Object>> updatedDevices = new ArrayList<>();
+        for (Map<String, Object> device : allFarmDevices) {
+            String deviceId = Jsons.text(device, "deviceId", "");
+            String currentPlotId = Jsons.text(device, "plotId", "").trim();
+            boolean currentlyOnPlot = plotId.equals(currentPlotId);
+            boolean shouldBeOnPlot = requested.contains(deviceId);
+            if (currentlyOnPlot && shouldBeOnPlot) {
+                updatedDevices.add(new LinkedHashMap<>(device));
+                continue;
+            }
+            if (currentlyOnPlot && !shouldBeOnPlot) {
+                device.put("plotId", null);
+                device.put("bindingState", "UNBOUND");
+                device.put("status", "OFFLINE");
+                device.put("desiredStatus", "OFFLINE");
+                device.put("controlStatus", "SUCCEEDED");
+                device.put("previousPlotId", plotId);
+                device.put("unboundAt", now.toString());
+                device.put("unboundBy", principal.userId);
+                store.save("device", deviceId, device);
+                publish("device.unbound", device);
+                unbound.add(deviceId);
+                updatedDevices.add(new LinkedHashMap<>(device));
+                continue;
+            }
+            if (!currentlyOnPlot && shouldBeOnPlot) {
+                if (!currentPlotId.isBlank()) moved.add(deviceId);
+                device.put("plotId", plotId);
+                device.put("bindingState", "BOUND");
+                device.put("boundAt", now.toString());
+                device.put("boundBy", principal.userId);
+                if (!currentPlotId.isBlank()) device.put("previousPlotId", currentPlotId);
+                device.put("status", "OFFLINE");
+                device.put("desiredStatus", "OFFLINE");
+                device.put("controlStatus", "SUCCEEDED");
+                device.remove("lastControlError");
+                store.save("device", deviceId, device);
+                publish("device.bound", device);
+                updatedDevices.add(new LinkedHashMap<>(device));
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("deviceIds", new ArrayList<>(requested));
+        result.put("devices", updatedDevices);
+        result.put("movedDeviceIds", moved);
+        result.put("unboundDeviceIds", unbound);
+        result.put("updatedAt", now.toString());
+        result.put("updatedBy", principal.userId);
+        publish("plot.devices.updated", result);
+        return result;
+    }
+
+    Map<String, Object> createPlot(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        String farmId = Jsons.text(input, "farmId", "").trim();
+        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ID_REQUIRED", "请选择地块所属农场");
+        requireManagedFarm(farmId, principal);
+        validatePlot(input);
+        String plotId = Jsons.text(input, "plotId", Jsons.id("plot"));
+        if (store.find("plot", plotId) != null) throw new ApiException(HttpStatus.CONFLICT, "PLOT_EXISTS", "地块编号已存在");
+        Map<String, Object> plot = new LinkedHashMap<>(input);
+        plot.put("plotId", plotId); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
+        plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", principal.userId);
+        store.save("plot", plotId, plot);
+        engine.syncSimulationConfiguration();
+        publish("plot.created", plot);
+        return plot;
+    }
+
+    Map<String, Object> updatePlot(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> current = managedPlot(plotId, principal);
+        Map<String, Object> updated = new LinkedHashMap<>(current);
+        for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
+            if (input.containsKey(field)) updated.put(field, input.get(field));
+        }
+        // Historical/demo plots may predate the complete Crop Pack metadata
+        // contract (for example they have a crop code but no variety or growth
+        // cycle).  A partial edit such as changing only the name must still be
+        // valid; validate fields explicitly supplied by the caller, while
+        // retaining the full invariant for already-complete records.
+        if (isCompletePlot(current) || isCompletePlot(updated)) validatePlot(updated);
+        else validatePlotPatch(input);
+        updated.put("plotId", plotId); updated.put("updatedAt", Instant.now().toString()); updated.put("updatedBy", principal.userId);
+        store.save("plot", plotId, updated);
+        publish("plot.updated", updated);
+        return updated;
+    }
+
+    private boolean isCompletePlot(Map<String, Object> plot) {
+        return !Jsons.text(plot, "name", "").isBlank()
+                && !Jsons.text(plot, "cropCode", "").isBlank()
+                && !Jsons.text(plot, "cropVariety", "").isBlank()
+                && Jsons.number(plot, "areaM2", 0) > 0
+                && Jsons.whole(plot, "growthCycleDays", 0) > 0;
+    }
+
+    private void validatePlotPatch(Map<String, Object> input) {
+        if (input.containsKey("name") && Jsons.text(input, "name", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_NAME_REQUIRED", "请填写地块名称");
+        }
+        if (input.containsKey("cropCode") && Jsons.text(input, "cropCode", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CROP_REQUIRED", "请选择作物种类");
+        }
+        if (input.containsKey("cropVariety") && Jsons.text(input, "cropVariety", "").isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_VARIETY_REQUIRED", "请填写作物品种");
+        }
+        if (input.containsKey("areaM2") && Jsons.number(input, "areaM2", 0) <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
+        }
+        if (input.containsKey("growthCycleDays") && Jsons.whole(input, "growthCycleDays", 0) <= 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
+        }
     }
 
     Map<String, Object> unbindDevice(String deviceId, UserPrincipal principal) {
@@ -116,6 +305,8 @@ class AdminManagementService {
         device.put("plotId", null);
         device.put("bindingState", "UNBOUND");
         device.put("status", "OFFLINE");
+        device.put("desiredStatus", "OFFLINE");
+        device.put("controlStatus", "SUCCEEDED");
         device.put("unboundAt", Instant.now().toString());
         device.put("unboundBy", principal.userId);
         device.put("previousPlotId", previousPlotId);
@@ -634,6 +825,14 @@ class AdminManagementService {
         String value = Jsons.text(input, key, "").trim();
         if (value.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, key.toUpperCase(Locale.ROOT) + "_REQUIRED", message);
         return value;
+    }
+
+    private void validatePlot(Map<String, Object> plot) {
+        if (Jsons.text(plot, "name", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_NAME_REQUIRED", "请填写地块名称");
+        if (Jsons.text(plot, "cropCode", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CROP_REQUIRED", "请选择作物种类");
+        if (Jsons.text(plot, "cropVariety", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_VARIETY_REQUIRED", "请填写作物品种");
+        if (Jsons.number(plot, "areaM2", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
+        if (Jsons.whole(plot, "growthCycleDays", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
     }
 
     private LocalDate parseDate(Object value, LocalDate fallback) {
