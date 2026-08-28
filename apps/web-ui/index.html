@@ -1260,7 +1260,7 @@
           <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div><div class="admin-metric-sub">接口版本 {{ state.adminOverview.apiVersion }}</div></div>
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
-          <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="smart_toy"></app-icon></div>
+          <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
           <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
         </div>
       </div>
@@ -1936,7 +1936,7 @@
       <div v-if="activeTab === 'config'">
         <div class="g-grid" style="grid-template-columns: 1fr 1fr; gap: 20px">
           <div class="g-card" style="padding:20px">
-            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="smart_toy"></app-icon> 智能模型运行模式</div>
+            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式</div>
             <select v-model="state.adminOverview.aiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
               <option value="full">完整模式（智能模型 + 知识检索 + 规则）</option>
               <option value="rules-only">规则兜底（仅确定性规则）</option>

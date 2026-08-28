@@ -88,6 +88,7 @@ const ICON_CLASS = Object.freeze({
   bolt: 'ph-lightning',
   policy: 'ph-shield-check',
   smart_toy: 'ph-robot',
+  head_circuit: 'ph-head-circuit',
   auto_awesome: 'ph-sparkle',
   hourglass_empty: 'ph-hourglass',
   send: 'ph-paper-plane-tilt',
