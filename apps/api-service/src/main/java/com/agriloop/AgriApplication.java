@@ -2282,6 +2282,26 @@ class AgriEngine {
         // priority must win that race, otherwise the overview briefly shows
         // the simulator even though the hardware is already active.
         activeReal.forEach(latest::put);
+        Instant qualityWindowStart = now.minus(30, ChronoUnit.MINUTES);
+        int expectedSamples = 90; // simulator/default collection cadence: 20 seconds
+        latest.replaceAll((metric, sample) -> {
+            Map<String, Object> enriched = Jsons.copy(mapper, sample);
+            Map<String, Object> quality = Jsons.map(mapper, enriched.get("quality"));
+            long validSamples = samples.stream()
+                    .filter(item -> metric.equalsIgnoreCase(Jsons.text(item, "metric", "")))
+                    .filter(item -> !Jsons.instant(item.get("ts"), Instant.EPOCH).isBefore(qualityWindowStart))
+                    .filter(item -> !"BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, item.get("quality")), "status", "GOOD")))
+                    .count();
+            quality.put("freshnessMs", Math.max(0, Duration.between(Jsons.instant(enriched.get("ts"), now), now).toMillis()));
+            quality.put("validSamples", validSamples);
+            quality.put("expectedSamples", expectedSamples);
+            quality.put("completeness", round(Math.min(1.0, validSamples / (double) expectedSamples)));
+            quality.putIfAbsent("confidence", "GOOD".equalsIgnoreCase(Jsons.text(quality, "status", "GOOD")) ? .98 : .65);
+            quality.put("windowMinutes", 30);
+            quality.put("calculationVersion", "telemetry-quality-v1");
+            enriched.put("quality", quality);
+            return enriched;
+        });
         return new LinkedHashMap<>(latest);
     }
 
@@ -3119,6 +3139,74 @@ class AgriEngine {
         return plan;
     }
 
+    Map<String, Object> irrigationGuard(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> rule = cropPackCatalog.rule(context, "WATER_DEFICIT");
+        double threshold = Jsons.number(rule, "threshold", 20);
+        double hysteresis = Math.max(0, Jsons.number(rule, "hysteresis", 2));
+        int cooldownMinutes = (int) Math.max(1, Jsons.whole(rule, "cooldownMinutes", 120));
+        Map<String, Object> soil = latestMetrics(plotId).get("SOIL_MOISTURE") instanceof Map<?, ?> metric
+                ? Jsons.map(mapper, metric) : Map.of();
+        double moisture = Jsons.number(soil, "value", Double.NaN);
+        String hysteresisState = Double.isNaN(moisture) ? "UNAVAILABLE"
+                : moisture <= threshold ? "TRIGGERED"
+                : moisture <= threshold + hysteresis ? "HOLD"
+                : "RESET";
+
+        Map<String, Object> lastCommand = store.list("command").stream()
+                .filter(command -> plotId.equals(Jsons.text(command, "plotId", "")))
+                .filter(command -> Set.of("SUCCEEDED", "PARTIAL").contains(Jsons.text(command, "status", "").toUpperCase(Locale.ROOT)))
+                .max(Comparator.comparing(command -> Jsons.instant(
+                        Jsons.map(mapper, command.get("ack")).get("receivedAt"),
+                        Jsons.instant(command.get("cooldownStartedAt"), Jsons.instant(command.get("approvedAt"), Instant.EPOCH)))))
+                .map(command -> Jsons.copy(mapper, command)).orElse(null);
+        Instant startedAt = lastCommand == null ? null : Jsons.instant(
+                Jsons.map(mapper, lastCommand.get("ack")).get("receivedAt"),
+                Jsons.instant(lastCommand.get("cooldownStartedAt"), Jsons.instant(lastCommand.get("approvedAt"), null)));
+        Instant cooldownUntil = startedAt == null ? null : startedAt.plus(cooldownMinutes, ChronoUnit.MINUTES);
+        long remainingSeconds = cooldownUntil == null ? 0 : Math.max(0, Duration.between(Instant.now(), cooldownUntil).getSeconds());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("state", remainingSeconds > 0 ? "COOLDOWN_ACTIVE" : "AVAILABLE");
+        result.put("cooldownMinutes", cooldownMinutes);
+        result.put("cooldownStartedAt", startedAt == null ? null : startedAt.toString());
+        result.put("cooldownUntil", cooldownUntil == null ? null : cooldownUntil.toString());
+        result.put("remainingSeconds", remainingSeconds);
+        result.put("lastCommandId", lastCommand == null ? null : lastCommand.get("commandId"));
+        result.put("lastOutcome", lastCommand == null ? null : lastCommand.get("status"));
+        Map<String, Object> hysteresisView = new LinkedHashMap<>();
+        hysteresisView.put("state", hysteresisState);
+        hysteresisView.put("threshold", threshold);
+        hysteresisView.put("resetThreshold", threshold + hysteresis);
+        hysteresisView.put("currentValue", Double.isNaN(moisture) ? null : moisture);
+        hysteresisView.put("unit", Jsons.text(soil, "unit", "%"));
+        result.put("hysteresis", hysteresisView);
+        result.put("ruleVersion", context.get("ruleVersion"));
+        result.put("cropPackVersion", context.get("cropPackVersion"));
+        result.put("evaluatedAt", Instant.now().toString());
+        result.put("provenance", "DERIVED");
+        return result;
+    }
+
+    Map<String, Object> commandById(String commandId, UserPrincipal principal) {
+        Map<String, Object> command = requireRecord("command", commandId);
+        ensurePlotAccess(principal, Jsons.text(command, "plotId", ""));
+        return command;
+    }
+
+    Map<String, Object> irrigationPlanById(String planId, UserPrincipal principal) {
+        Map<String, Object> plan = requireRecord("irrigation-plan", planId);
+        ensurePlotAccess(principal, Jsons.text(plan, "plotId", ""));
+        return plan;
+    }
+
+    Map<String, Object> commandEvaluation(String commandId, UserPrincipal principal) {
+        Map<String, Object> command = commandById(commandId, principal);
+        return commandEvaluation(Jsons.text(command, "commandId", commandId));
+    }
+
     Map<String, Object> createCommand(Map<String, Object> request, UserPrincipal principal) {
         String key = Jsons.text(request, "idempotencyKey", "");
         if (key.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "动作接口必须携带 idempotencyKey");
@@ -3686,7 +3774,9 @@ class AgriEngine {
     Map<String, Object> createWorkOrder(Map<String, Object> input, UserPrincipal principal) {
         boolean evidenceRequest = "READINESS".equalsIgnoreCase(Jsons.text(input, "sourceType", ""))
                 || "INSPECTION".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
-        if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)) {
+        boolean irrigationReview = "IRRIGATION_REVIEW".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
+        if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)
+                && !(principal.canRequestIrrigation() && irrigationReview)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以派发工单");
         }
         String plotId = Jsons.text(input, "plotId", "").trim();
@@ -4241,9 +4331,42 @@ class AgriEngine {
     }
 
     Map<String, Object> feedback(String traceId, Map<String, Object> input, UserPrincipal principal) {
-        Map<String, Object> feedback = new LinkedHashMap<>(input); feedback.put("feedbackId", Jsons.text(input, "feedbackId", Jsons.id("feedback"))); feedback.put("traceId", traceId); feedback.put("actorId", principal.userId); feedback.put("createdAt", Instant.now().toString());
-        feedback.putIfAbsent("decision", "ACCEPTED"); store.save("feedback", Jsons.text(feedback, "feedbackId", ""), feedback); events.publish("decision.feedback", feedback);
         String planId = Jsons.text(input, "planId", ""); String evaluationId = Jsons.text(input, "evaluationId", "");
+        String decision = Jsons.text(input, "decision", "ACCEPTED").toUpperCase(Locale.ROOT);
+        String idempotencyKey = Jsons.text(input, "idempotencyKey", "").trim();
+        if ("REQUEST_APPROVAL".equals(decision)) {
+            if (planId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLAN_ID_REQUIRED", "提交审批必须关联灌溉处方");
+            if (idempotencyKey.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "提交审批必须携带幂等键");
+            Map<String, Object> repeated = store.list("feedback").stream()
+                    .filter(item -> idempotencyKey.equals(Jsons.text(item, "idempotencyKey", "")))
+                    .findFirst().orElse(null);
+            if (repeated != null) return repeated;
+            Map<String, Object> plan = irrigationPlanById(planId, principal);
+            String planTraceId = Jsons.text(plan, "traceId", "");
+            if (!planTraceId.isBlank() && !traceId.equals(planTraceId)) {
+                throw new ApiException(HttpStatus.CONFLICT, "TRACE_PLAN_MISMATCH", "决策记录与灌溉处方不一致");
+            }
+            Map<String, Object> approval = createWorkOrder(Map.ofEntries(
+                    Map.entry("farmId", farmIdForPlot(Jsons.text(plan, "plotId", ""))),
+                    Map.entry("plotId", Jsons.text(plan, "plotId", "")),
+                    Map.entry("title", "灌溉处方审批：" + Jsons.text(plan, "planId", "")),
+                    Map.entry("reason", "农户已核对处方，请管理员审批并执行虚拟命令"),
+                    Map.entry("actionType", "IRRIGATION_REVIEW"),
+                    Map.entry("sourceType", "DECISION"),
+                    Map.entry("sourceRef", planId),
+                    Map.entry("traceId", traceId),
+                    Map.entry("planId", planId),
+                    Map.entry("readinessId", Jsons.text(plan, "readinessId", "")),
+                    Map.entry("priority", "HIGH"),
+                    Map.entry("dueAt", Instant.now().plus(2, ChronoUnit.HOURS).toString()),
+                    Map.entry("idempotencyKey", idempotencyKey)
+            ), principal);
+            input = new LinkedHashMap<>(input);
+            input.put("workOrderId", approval.get("workOrderId"));
+            input.put("approvalStatus", "PENDING");
+        }
+        Map<String, Object> feedback = new LinkedHashMap<>(input); feedback.put("feedbackId", Jsons.text(input, "feedbackId", Jsons.id("feedback"))); feedback.put("traceId", traceId); feedback.put("actorId", principal.userId); feedback.put("createdAt", Instant.now().toString());
+        feedback.put("decision", decision); store.save("feedback", Jsons.text(feedback, "feedbackId", ""), feedback); events.publish("decision.feedback", feedback);
         Map<String, Object> evaluation = evaluationId.isBlank() ? null : store.find("evaluation", evaluationId);
         if (evaluation == null && !planId.isBlank()) evaluation = store.list("evaluation").stream().filter(e -> planId.equals(Jsons.text(e, "planId", ""))).findFirst().orElse(null);
         // A case is eligible only when an effect is complete, data quality was
@@ -5582,6 +5705,11 @@ class AgriController {
         return ok(engine.plotHealth(plotId));
     }
 
+    @GetMapping("/plots/{plotId}/irrigation-guard")
+    ResponseEntity<?> irrigationGuard(@PathVariable String plotId, Authentication a) {
+        return ok(engine.irrigationGuard(plotId, principal(a)));
+    }
+
     @GetMapping("/plots/{plotId}/simulation")
     ResponseEntity<?> plotSimulation(@PathVariable String plotId, Authentication a) {
         return ok(engine.plotSimulation(plotId, principal(a)));
@@ -5797,10 +5925,10 @@ class AgriController {
     ResponseEntity<?> commandAck(@PathVariable String commandId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { return ok(engine.acknowledgeCommand(commandId, body, principal(a))); }
 
     @GetMapping("/commands/{commandId}")
-    ResponseEntity<?> commandById(@PathVariable String commandId, Authentication a) { return ok(engine.record("command", commandId)); }
+    ResponseEntity<?> commandById(@PathVariable String commandId, Authentication a) { return ok(engine.commandById(commandId, principal(a))); }
 
     @GetMapping("/commands/{commandId}/evaluation")
-    ResponseEntity<?> evaluation(@PathVariable String commandId, Authentication a) { return ok(engine.commandEvaluation(commandId)); }
+    ResponseEntity<?> evaluation(@PathVariable String commandId, Authentication a) { return ok(engine.commandEvaluation(commandId, principal(a))); }
 
     @GetMapping("/work-items/today")
     ResponseEntity<?> today(@RequestParam(required = false) String farmId,
