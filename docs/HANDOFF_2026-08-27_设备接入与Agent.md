@@ -10,7 +10,7 @@
 
 - 仓库：`smart-agriculture-main-local`
 - 分支：`main`
-- 最新本地提交：`075504c docs: note retained acceptance fixtures`（代码发布提交 `601fe08`）
+- 最新本地提交：`cdca92f fix: enable agent action confirmation buttons`（文档随后更新）
 - 相对 `origin/main`：本地领先 12 个提交
 - GitHub：本轮没有推送
 - 工作区：提交后无未提交改动（接手前请重新执行 `git status` 确认）
@@ -170,11 +170,12 @@ POST /api/v1/agent/actions/{actionId}/cancel
 2026-08-28 已完成现有服务器原地升级：
 
 - 备份目录：`/srv/backups/agriloop-20260828-110354`（含两套目录、环境文件、Supervisor 配置和当前可运行 JAR；未记录任何凭据）。
-- 发布代码：本地 `main@601fe08`，同步 `/srv/agriloop` 与 `/srv/farm-admin`，两套目录 `DEPLOYED_COMMIT` 均为 `601fe08`。
-- `:api-service:test` 52/52、`bootJar`、本地 Web Node 61/61、Vite 构建通过；Supervisor 的 API、模拟器、Nginx、cron、Qwen 服务均 RUNNING，公网 `/actuator/health` 为 `UP`。
+- 发布代码：本地 `main@cdca92f`，同步 `/srv/agriloop` 与 `/srv/farm-admin`，两套目录 `DEPLOYED_COMMIT` 均为 `cdca92f`。
+- `:api-service:test` 53/53、`bootJar`、本地 Web Node 61/61、Vite 构建通过；Supervisor 的 API、模拟器、Nginx、cron、Qwen 服务均 RUNNING，公网 `/actuator/health` 为 `UP`。
 - 公网黑盒通过：模拟设备绑定后在线/离线幂等控制、设备详情与地块编辑跨地块转移、单条告警核查幂等、核查正常自动关闭告警、Agent 创建地块/创建任务预览确认、取消、幂等和 FARMER 越权 403。
 - 验收数据留存：Agent 创建的“名称 Agent验收临时地块”已停用；因模拟器产生遥测历史而不能物理删除，验收模拟设备均已解绑，后续清理前请保留该依赖记录。
 - 额外修复 `601fe08`：真实设备首次遥测不再被初始化的 OFFLINE 控制状态误抑制，只有存在实际控制命令后才按确认离线保护。
+- 额外修复 `cdca92f`：运行时编译的 AI 对话组件不再把 `ref` 对象直接绑定到 `disabled`，确认执行和取消按钮恢复可点击；确认后仍通过 `data-invalidated` 刷新地块、设备、任务、告警和总览数据域。历史元数据不完整的地块支持字段级局部修改。
 - 未操作真实 BearPi，未推送 GitHub。
 
 ## 7. 接手同学优先级
@@ -210,4 +211,4 @@ POST /api/v1/agent/actions/{actionId}/cancel
 
 ## 9. 交接结论
 
-本日代码开发目标已落地并完成远端验收，当前发布为本地 `main@601fe08`。后续只需按用户页面集中验收；不要重新实现本轮功能，也不要推送 GitHub 或操作真实 BearPi。
+本日代码开发目标已落地并完成远端验收，当前发布为本地 `main@cdca92f`。后续只需按用户页面集中验收；不要重新实现本轮功能，也不要推送 GitHub 或操作真实 BearPi。
