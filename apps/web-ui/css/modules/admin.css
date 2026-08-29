@@ -2413,3 +2413,1228 @@
     border: 1px solid CanvasText;
   }
 }
+
+/* ---- V5.8.1 FARM_ADMIN Liquid Glass restoration ----
+   Restore the verified sage workspace after the mainline integration while
+   keeping text, controls and embedded metric cells clearly readable. */
+.role-farm-admin {
+  --g-text-secondary: #46584e;
+  --g-text-disabled: #62746a;
+  --g-border: #aebfb4;
+  --g-border-subtle: #c7d4cc;
+  --admin-glass-surface: rgba(248, 252, 249, .68);
+  --admin-glass-surface-strong: rgba(251, 254, 252, .82);
+  --admin-glass-surface-soft: rgba(240, 248, 242, .52);
+  --admin-glass-cell: rgba(255, 255, 255, .60);
+  --admin-glass-edge: rgba(255, 255, 255, .82);
+  --admin-glass-outline: rgba(37, 79, 56, .40);
+  --admin-glass-control-outline: rgba(32, 74, 51, .58);
+  --admin-glass-depth: rgba(30, 74, 52, .17);
+  --admin-dashboard-card-surface: rgba(252, 255, 253, .91);
+  --admin-dashboard-summary-surface: rgba(253, 255, 254, .89);
+  --admin-dashboard-card-outline: rgba(26, 68, 45, .46);
+  --admin-dashboard-metric-tray: rgba(71, 119, 86, .18);
+  --admin-dashboard-metric-cell: rgba(255, 255, 255, .78);
+  --admin-dashboard-shadow:
+    0 22px 48px rgba(20, 61, 40, .24),
+    0 6px 14px rgba(20, 61, 40, .15),
+    0 1px 2px rgba(20, 61, 40, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .96),
+    inset 1px 0 0 rgba(255, 255, 255, .44),
+    inset 0 -1px 0 rgba(30, 77, 52, .11);
+  --admin-dashboard-shadow-raised:
+    0 30px 62px rgba(20, 61, 40, .29),
+    0 10px 22px rgba(20, 61, 40, .18),
+    0 2px 4px rgba(20, 61, 40, .11),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, .52),
+    inset 0 -1px 0 rgba(30, 77, 52, .12);
+  --admin-card-shadow: var(--admin-glass-shadow);
+  --admin-card-shadow-hover: var(--admin-glass-shadow-raised);
+}
+
+[data-theme="dark"] .role-farm-admin {
+  --g-text-secondary: #c0cbc4;
+  --g-text-disabled: #91a097;
+  --g-border: #596b61;
+  --g-border-subtle: #43534a;
+  --admin-glass-surface: rgba(22, 42, 34, .68);
+  --admin-glass-surface-strong: rgba(27, 48, 39, .82);
+  --admin-glass-surface-soft: rgba(35, 58, 48, .52);
+  --admin-glass-cell: rgba(74, 108, 89, .52);
+  --admin-glass-edge: rgba(255, 255, 255, .28);
+  --admin-glass-outline: rgba(226, 242, 232, .26);
+  --admin-glass-control-outline: rgba(235, 247, 239, .44);
+  --admin-glass-depth: rgba(0, 18, 10, .36);
+  --admin-dashboard-card-surface: rgba(29, 50, 41, .90);
+  --admin-dashboard-summary-surface: rgba(32, 54, 44, .88);
+  --admin-dashboard-card-outline: rgba(235, 247, 239, .36);
+  --admin-dashboard-metric-tray: rgba(8, 24, 16, .44);
+  --admin-dashboard-metric-cell: rgba(49, 75, 62, .78);
+  --admin-dashboard-shadow:
+    0 24px 50px rgba(0, 0, 0, .48),
+    0 7px 16px rgba(0, 0, 0, .28),
+    0 1px 3px rgba(0, 0, 0, .25),
+    inset 0 1px 0 rgba(255, 255, 255, .22),
+    inset 1px 0 0 rgba(255, 255, 255, .08),
+    inset 0 -1px 0 rgba(0, 0, 0, .30);
+  --admin-dashboard-shadow-raised:
+    0 32px 68px rgba(0, 0, 0, .58),
+    0 11px 24px rgba(0, 0, 0, .34),
+    0 2px 5px rgba(0, 0, 0, .28),
+    inset 0 1px 0 rgba(255, 255, 255, .27),
+    inset 1px 0 0 rgba(255, 255, 255, .10),
+    inset 0 -1px 0 rgba(0, 0, 0, .34);
+}
+
+/* ---- FARM_ADMIN Control Center environment ----
+   A responsive Liquid Glass workspace: colourful depth behind translucent
+   plates, bright inner highlights and restrained semantic accents. */
+.role-farm-admin {
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 12% 8%, rgba(241, 229, 194, .66) 0%, rgba(241, 229, 194, 0) 34%),
+    radial-gradient(ellipse at 83% 3%, rgba(183, 222, 198, .68) 0%, rgba(183, 222, 198, 0) 40%),
+    radial-gradient(ellipse at 18% 96%, rgba(94, 163, 128, .46) 0%, rgba(94, 163, 128, 0) 48%),
+    radial-gradient(ellipse at 94% 84%, rgba(122, 175, 153, .38) 0%, rgba(122, 175, 153, 0) 42%),
+    linear-gradient(145deg, #9fc4ac 0%, #d0dcc7 30%, #a6cfb7 61%, #86b69e 100%);
+  background-attachment: fixed;
+}
+
+.role-farm-admin .g-main {
+  background:
+    linear-gradient(180deg, rgba(250, 253, 248, .16), rgba(233, 246, 236, .05) 180px, rgba(205, 233, 215, .08));
+}
+
+.role-farm-admin :is(
+  .role-summary,
+  .text-muted,
+  .manager-dashboard-heading p,
+  .manager-plot-meta,
+  .manager-metric-label,
+  .manager-metric-target,
+  .work-order-heading > p,
+  .work-order-facts dt,
+  .admin-alert-description,
+  .admin-member-identity small,
+  .admin-member-assignment > span,
+  .admin-device-identity small,
+  .admin-device-card-facts dt,
+  .admin-device-card footer > span
+) {
+  font-weight: 500;
+}
+
+.role-farm-admin ::placeholder {
+  color: var(--g-text-disabled);
+  font-weight: 500;
+  opacity: 1;
+}
+
+[data-theme="dark"] .role-farm-admin {
+  background:
+    radial-gradient(ellipse at 14% 6%, rgba(183, 145, 83, .26) 0%, rgba(183, 145, 83, 0) 34%),
+    radial-gradient(ellipse at 84% 4%, rgba(65, 143, 109, .48) 0%, rgba(65, 143, 109, 0) 42%),
+    radial-gradient(ellipse at 20% 94%, rgba(39, 104, 75, .58) 0%, rgba(39, 104, 75, 0) 48%),
+    radial-gradient(ellipse at 94% 82%, rgba(54, 118, 96, .45) 0%, rgba(54, 118, 96, 0) 42%),
+    linear-gradient(145deg, #193d32 0%, #324c41 30%, #1c5944 61%, #25493c 100%);
+}
+
+.role-farm-admin .g-header {
+  background: rgba(240, 249, 242, .38);
+  border-bottom-color: var(--admin-glass-outline);
+  box-shadow: 0 9px 30px rgba(27, 69, 49, .14), inset 0 1px 0 rgba(255, 255, 255, .74), inset 0 -1px 0 rgba(36, 88, 63, .10);
+}
+
+.role-farm-admin .g-sidebar {
+  background: rgba(233, 247, 238, .34);
+  border-right-color: var(--admin-glass-outline);
+  box-shadow: 10px 0 36px rgba(27, 69, 49, .12), inset -1px 0 0 rgba(255, 255, 255, .34);
+}
+
+[data-theme="dark"] .role-farm-admin :is(.g-header, .g-sidebar) {
+  background: rgba(18, 37, 30, .46);
+}
+
+.role-farm-admin :is(.g-header, .g-sidebar) {
+  -webkit-backdrop-filter: blur(36px) saturate(132%);
+  backdrop-filter: blur(36px) saturate(132%);
+}
+
+.role-farm-admin .g-nav-item {
+  --nav-accent: var(--g-primary);
+  --nav-tint: var(--g-primary-bg);
+  position: relative;
+  height: 48px;
+  margin-bottom: 6px;
+  border: 1px solid var(--admin-glass-outline);
+  border-radius: 14px;
+  background: rgba(244, 251, 246, .12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
+  color: var(--g-text-primary);
+  text-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.role-farm-admin .g-nav-item[data-nav="work-orders"] {
+  --nav-accent: var(--admin-blue);
+  --nav-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .g-nav-item[data-nav="decision-console"] {
+  --nav-accent: var(--admin-orange);
+  --nav-tint: var(--admin-orange-bg);
+  gap: 10px;
+  padding-inline: 12px;
+}
+
+.role-farm-admin .g-nav-item[data-nav="decision-console"] .g-nav-label {
+  overflow: hidden;
+  font-size: 13px;
+  letter-spacing: -.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .g-nav-item[data-nav="resource-coordination"] {
+  --nav-accent: var(--admin-teal);
+  --nav-tint: var(--admin-teal-bg);
+}
+
+.role-farm-admin .g-nav-item[data-nav="farm-members"] {
+  --nav-accent: var(--admin-purple);
+  --nav-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .g-nav-item .material-symbols-outlined {
+  color: var(--nav-accent);
+}
+
+.role-farm-admin .g-nav-item:not(:disabled):hover {
+  border-color: var(--admin-glass-control-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .35), rgba(255, 255, 255, .12)),
+    color-mix(in srgb, var(--nav-accent) 7%, transparent);
+  box-shadow: 0 8px 18px rgba(14, 54, 91, .10), inset 0 1px 0 rgba(255, 255, 255, .54);
+  color: var(--g-text-primary);
+  transform: none;
+}
+
+.role-farm-admin .g-nav-item.active {
+  border-color: color-mix(in srgb, var(--nav-accent) 34%, var(--admin-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .44), rgba(255, 255, 255, .15)),
+    color-mix(in srgb, var(--nav-accent) 12%, transparent);
+  box-shadow: inset 3px 0 0 var(--nav-accent), 0 12px 25px rgba(14, 54, 91, .14), inset 0 1px 0 rgba(255, 255, 255, .66);
+  color: var(--nav-accent);
+}
+
+.role-farm-admin .g-nav-item:focus-visible {
+  outline-color: color-mix(in srgb, var(--nav-accent) 38%, transparent);
+}
+
+.role-farm-admin :is(.g-btn, .manager-more-button, .manager-plot-menu button, .text-action) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-liquid-control);
+  box-shadow: var(--admin-liquid-control-shadow);
+  color: var(--g-text-primary);
+  text-shadow: none;
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  backdrop-filter: blur(24px) saturate(135%);
+}
+
+.role-farm-admin :is(.g-btn, .manager-more-button, .manager-plot-menu button, .text-action):not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 24%, var(--admin-glass-control-outline));
+  background: var(--admin-liquid-control-hover);
+  box-shadow: var(--admin-liquid-control-shadow-hover);
+  transform: translateY(-1px);
+}
+
+.role-farm-admin .g-btn.primary {
+  border-color: color-mix(in srgb, var(--g-primary) 82%, #ffffff);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--g-primary) 91%, #ffffff), var(--g-primary));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--g-primary) 22%, transparent), inset 0 1px 0 rgba(255, 255, 255, .26);
+  color: #ffffff;
+}
+
+.role-farm-admin .g-btn.primary:not(:disabled):hover {
+  border-color: var(--g-primary-hover);
+  background: var(--g-primary-hover);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--g-primary) 28%, transparent), inset 0 1px 0 rgba(255, 255, 255, .24);
+}
+
+.role-farm-admin .g-btn.secondary {
+  color: var(--g-primary);
+}
+
+.role-farm-admin .g-btn.danger {
+  border-color: color-mix(in srgb, var(--g-danger) 78%, #ffffff);
+  background: var(--g-danger);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--g-danger) 20%, transparent);
+  color: #ffffff;
+  text-shadow: none;
+}
+
+.role-farm-admin :is(.g-header .g-btn, .g-header .account-profile-trigger, .g-header .g-header-farm-select) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-surface-soft);
+  box-shadow: 0 10px 26px rgba(30, 74, 52, .14), inset 0 1px 0 rgba(255, 255, 255, .82), inset 0 -1px 0 rgba(38, 92, 65, .10);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+  backdrop-filter: blur(28px) saturate(135%);
+}
+
+[data-theme="dark"] .role-farm-admin :is(.g-header .g-btn, .g-header .account-profile-trigger, .g-header .g-header-farm-select) {
+  background: rgba(35, 64, 51, .44);
+}
+
+[data-theme="dark"] .role-farm-admin .g-brand-logo {
+  filter: brightness(0) invert(1) opacity(.88);
+}
+
+.role-farm-admin .manager-dashboard-heading h1,
+.role-farm-admin .admin-section-header h1,
+.role-farm-admin .admin-alert-header h2,
+.role-farm-admin .work-lifecycle-header h1 {
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip {
+  gap: 12px;
+  min-height: 76px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item {
+  --summary-accent: var(--admin-mint);
+  --summary-tint: var(--admin-mint-bg);
+  justify-content: flex-start;
+  gap: 11px;
+  min-height: 76px;
+  padding: 13px 14px;
+  z-index: 1;
+  border: 1px solid var(--admin-dashboard-card-outline);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .68), rgba(255, 255, 255, .20)),
+    color-mix(in srgb, var(--summary-accent) 6%, var(--admin-dashboard-summary-surface));
+  box-shadow: var(--admin-dashboard-shadow);
+  text-align: left;
+  text-shadow: none;
+  transform: translateY(-1px);
+  -webkit-backdrop-filter: blur(28px) saturate(138%);
+  backdrop-filter: blur(28px) saturate(138%);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item[data-summary="today"] {
+  --summary-accent: var(--admin-blue);
+  --summary-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item[data-summary="overdue"] {
+  --summary-accent: var(--admin-red);
+  --summary-tint: var(--admin-red-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item[data-summary="abnormal"] {
+  --summary-accent: var(--admin-orange);
+  --summary-tint: var(--admin-orange-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item[data-summary="unassigned"] {
+  --summary-accent: var(--admin-purple);
+  --summary-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item[data-summary="approval"] {
+  --summary-accent: var(--admin-mint);
+  --summary-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:hover {
+  border-color: color-mix(in srgb, var(--summary-accent) 28%, var(--admin-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .28)),
+    color-mix(in srgb, var(--summary-accent) 8%, var(--admin-dashboard-summary-surface));
+  box-shadow: var(--admin-dashboard-shadow-raised);
+  transform: translateY(-4px);
+  z-index: 3;
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:active {
+  box-shadow: var(--admin-dashboard-shadow);
+  transform: translateY(-1px) scale(.99);
+}
+
+.role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:focus-visible {
+  z-index: 3;
+}
+
+[data-theme="dark"] .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item {
+  border-color: var(--admin-dashboard-card-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .035)),
+    color-mix(in srgb, var(--summary-accent) 7%, var(--admin-dashboard-summary-surface));
+  box-shadow: var(--admin-dashboard-shadow);
+}
+
+.role-farm-admin .manager-summary-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  border: 1px solid var(--admin-glass-outline);
+  background: color-mix(in srgb, var(--summary-accent) 15%, rgba(255, 255, 255, .26));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55);
+  color: var(--summary-accent);
+}
+
+.role-farm-admin .manager-summary-icon .material-symbols-outlined {
+  color: inherit;
+  font-size: 19px;
+}
+
+.role-farm-admin .manager-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.role-farm-admin .manager-summary-item .manager-summary-copy > span {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.role-farm-admin .manager-summary-item .manager-summary-copy > strong {
+  color: var(--summary-accent);
+  font-size: 22px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.role-farm-admin :is(
+  .manager-plot-card,
+  .work-order-card,
+  .admin-alert-card,
+  .admin-device-card,
+  .admin-member-card,
+  .admin-panel,
+  .simple-data-panel,
+  .simple-summary-row,
+  .simple-empty-state,
+  .inspection-history,
+  .work-filters,
+  .work-manager-filters,
+  .admin-device-toolbar,
+  .admin-device-summary button,
+  .admin-plan-summary-card,
+  .admin-pack-summary-card,
+  .rp-hero,
+  .rp-summary article,
+  .rp-card,
+  .admin-ledger-list article,
+  .admin-unavailable
+) {
+  border-color: var(--admin-glass-outline);
+  background: var(--admin-glass-surface);
+  box-shadow: var(--admin-glass-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(135%);
+  backdrop-filter: blur(30px) saturate(135%);
+}
+
+.role-farm-admin :is(.manager-plot-card, .work-order-card, .admin-alert-card, .admin-device-card, .admin-member-card, .admin-plan-summary-card, .admin-pack-summary-card):hover {
+  border-color: var(--admin-glass-control-outline);
+  box-shadow: var(--admin-glass-shadow-raised);
+  transform: translateY(-2px);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card {
+  position: relative;
+  z-index: 1;
+  padding: 18px;
+  border-color: var(--admin-dashboard-card-outline);
+  border-top: 3px solid color-mix(in srgb, var(--admin-mint) 76%, rgba(255, 255, 255, .55));
+  border-radius: 16px;
+  background: var(--admin-dashboard-card-surface);
+  box-shadow: var(--admin-dashboard-shadow);
+  transform: translateY(-1px);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card:hover {
+  z-index: 3;
+  border-color: var(--admin-glass-control-outline);
+  box-shadow: var(--admin-dashboard-shadow-raised);
+  transform: translateY(-4px);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card:focus-visible {
+  z-index: 3;
+  transform: translateY(-3px);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card.is-attention {
+  border-color: var(--admin-dashboard-card-outline);
+  border-top-color: var(--admin-orange);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card.is-inactive {
+  border-top-color: var(--g-text-secondary);
+  opacity: .86;
+}
+
+.role-farm-admin .manager-plot-title h2 {
+  font-weight: 650;
+}
+
+.role-farm-admin .manager-health-score strong {
+  color: var(--g-text-secondary);
+}
+
+.role-farm-admin .manager-health-score.is-good strong {
+  color: var(--admin-mint);
+}
+
+.role-farm-admin .manager-health-score.is-attention strong {
+  color: var(--admin-orange);
+}
+
+.role-farm-admin .manager-health-score.is-danger strong {
+  color: var(--admin-red);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-card > .manager-metric-grid {
+  border-color: var(--admin-dashboard-card-outline);
+  border-radius: 13px;
+  background: var(--admin-dashboard-metric-tray);
+  box-shadow:
+    inset 0 3px 10px rgba(20, 61, 40, .10),
+    inset 0 1px 0 rgba(255, 255, 255, .50),
+    0 0 0 1px rgba(35, 88, 61, .05);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric {
+  --metric-accent: var(--admin-mint);
+  --metric-tint: var(--admin-mint-bg);
+  background: var(--admin-dashboard-metric-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .52);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="SOIL_MOISTURE"] {
+  --metric-accent: var(--admin-blue);
+  --metric-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="AIR_TEMPERATURE"] {
+  --metric-accent: var(--admin-orange);
+  --metric-tint: var(--admin-orange-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="AIR_HUMIDITY"],
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="RAINFALL"] {
+  --metric-accent: var(--admin-teal);
+  --metric-tint: var(--admin-teal-bg);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="LIGHT"] {
+  --metric-accent: #c58a12;
+  --metric-tint: #fff7df;
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="SOIL_EC"] {
+  --metric-accent: var(--admin-purple);
+  --metric-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .manager-metric-name {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.role-farm-admin .manager-metric-name > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .manager-metric-glyph {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 23px;
+  height: 23px;
+  border-radius: 7px;
+  border: 1px solid var(--admin-glass-outline);
+  background: color-mix(in srgb, var(--metric-accent) 12%, rgba(255, 255, 255, .28));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .52);
+  color: var(--metric-accent);
+}
+
+.role-farm-admin .manager-metric-glyph .material-symbols-outlined {
+  color: inherit;
+  font-size: 14px;
+}
+
+.role-farm-admin .manager-metric:is(.is-warning, .is-danger, .is-unavailable) .manager-metric-glyph .material-symbols-outlined {
+  color: inherit;
+}
+
+.role-farm-admin .manager-metric.is-unavailable .manager-metric-glyph {
+  opacity: .62;
+}
+
+.role-farm-admin .manager-metric-label > .manager-metric-state {
+  color: var(--g-success);
+}
+
+.role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric:is(.is-warning, .is-danger, .is-unavailable) {
+  background: var(--admin-dashboard-metric-cell);
+}
+
+.role-farm-admin .manager-add-plot-card,
+.role-farm-admin .admin-add-device-card,
+.role-farm-admin .admin-add-member-card {
+  border: 1px dashed var(--admin-glass-control-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .30), rgba(255, 255, 255, .08)),
+    color-mix(in srgb, var(--g-primary) 6%, transparent);
+  box-shadow: var(--admin-glass-shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+  backdrop-filter: blur(28px) saturate(135%);
+}
+
+.role-farm-admin :is(.manager-add-plot-card, .admin-add-device-card, .admin-add-member-card):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 28%, var(--admin-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .48), rgba(255, 255, 255, .16)),
+    color-mix(in srgb, var(--g-primary) 10%, transparent);
+  box-shadow: var(--admin-glass-shadow-raised);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-add-plot-card {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .12)),
+    color-mix(in srgb, var(--g-primary) 5%, var(--admin-dashboard-card-surface));
+  box-shadow: var(--admin-dashboard-shadow);
+}
+
+.role-farm-admin .manager-dashboard .manager-plot-grid > .manager-add-plot-card:hover {
+  box-shadow: var(--admin-dashboard-shadow-raised);
+}
+
+.role-farm-admin .work-summary {
+  gap: 10px;
+  overflow: visible;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.role-farm-admin .work-summary.is-lifecycle-summary {
+  grid-template-columns: repeat(6, minmax(105px, 1fr));
+}
+
+.role-farm-admin .work-summary button {
+  --summary-accent: var(--admin-blue);
+  --summary-tint: var(--admin-blue-bg);
+  border: 1px solid var(--admin-glass-control-outline);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .13)),
+    color-mix(in srgb, var(--summary-accent) 9%, transparent);
+  box-shadow: var(--admin-liquid-control-shadow);
+  text-shadow: none;
+  -webkit-backdrop-filter: blur(28px) saturate(138%);
+  backdrop-filter: blur(28px) saturate(138%);
+}
+
+.role-farm-admin .work-summary button[data-status="open"] {
+  --summary-accent: var(--admin-orange);
+  --summary-tint: var(--admin-orange-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="assigned"] {
+  --summary-accent: var(--admin-purple);
+  --summary-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="in-progress"] {
+  --summary-accent: var(--admin-blue);
+  --summary-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="submitted"] {
+  --summary-accent: var(--admin-mint);
+  --summary-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="rejected"] {
+  --summary-accent: var(--admin-red);
+  --summary-tint: var(--admin-red-bg);
+}
+
+.role-farm-admin .work-summary button[data-status="finished"] {
+  --summary-accent: var(--admin-teal);
+  --summary-tint: var(--admin-teal-bg);
+}
+
+.role-farm-admin .work-summary button strong,
+.role-farm-admin .work-summary .summary-danger strong {
+  color: var(--summary-accent);
+}
+
+.role-farm-admin .work-summary button:not(:disabled):hover,
+.role-farm-admin .work-summary button.is-active {
+  border-color: color-mix(in srgb, var(--summary-accent) 28%, var(--admin-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .58), rgba(255, 255, 255, .18)),
+    color-mix(in srgb, var(--summary-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--summary-accent) 16%, transparent), var(--admin-liquid-control-shadow-hover);
+  color: var(--summary-accent);
+  transform: none;
+}
+
+.role-farm-admin .work-order-card {
+  border-left-color: var(--admin-blue);
+  border-radius: 16px;
+}
+
+.role-farm-admin .work-order-card.status-open {
+  border-left-color: var(--admin-orange);
+}
+
+.role-farm-admin .work-order-card.status-assigned {
+  border-left-color: var(--admin-purple);
+}
+
+.role-farm-admin .work-order-card.status-in_progress {
+  border-left-color: var(--admin-blue);
+}
+
+.role-farm-admin .work-order-card.status-submitted {
+  border-left-color: var(--admin-mint);
+}
+
+.role-farm-admin .work-order-card.status-rejected {
+  border-left-color: var(--admin-red);
+}
+
+.role-farm-admin .work-order-card.status-done {
+  border-left-color: var(--admin-teal);
+}
+
+.role-farm-admin .work-order-card.status-cancelled {
+  border-left-color: var(--g-text-secondary);
+}
+
+.role-farm-admin .work-order-card.is-overdue {
+  border-left-color: var(--admin-red);
+}
+
+.role-farm-admin :is(.work-summary-card-footer, .admin-alert-card-footer, .admin-device-card > footer) {
+  background: rgba(231, 244, 235, .23);
+  border-top-color: rgba(255, 255, 255, .30);
+}
+
+.role-farm-admin .work-manager-filters {
+  border-color: var(--admin-glass-outline);
+  border-radius: 16px;
+  background: var(--admin-glass-surface);
+  box-shadow: var(--admin-glass-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(135%);
+  backdrop-filter: blur(30px) saturate(135%);
+}
+
+.role-farm-admin .work-filters.is-manager-controls {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.role-farm-admin .work-filter-chip,
+.role-farm-admin .work-all-tasks {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .58);
+}
+
+.role-farm-admin .admin-alert-card {
+  border-left-color: var(--admin-orange);
+  border-radius: 16px;
+}
+
+.role-farm-admin .admin-alert-card.level-critical {
+  border-left-color: var(--admin-red);
+}
+
+.role-farm-admin .admin-alert-card.level-high {
+  border-left-color: color-mix(in srgb, var(--admin-red) 58%, var(--admin-orange));
+}
+
+.role-farm-admin .admin-alert-card.level-medium {
+  border-left-color: var(--admin-orange);
+}
+
+.role-farm-admin .admin-alert-card.level-low {
+  border-left-color: var(--admin-blue);
+}
+
+.role-farm-admin .admin-alert-card.level-critical .admin-alert-chip.level {
+  border-color: color-mix(in srgb, var(--admin-red) 35%, var(--g-border));
+  background: var(--admin-red-bg);
+  color: var(--admin-red);
+}
+
+.role-farm-admin .admin-alert-card.level-low .admin-alert-chip.level {
+  border-color: color-mix(in srgb, var(--admin-blue) 30%, var(--g-border));
+  background: var(--admin-blue-bg);
+  color: var(--admin-blue);
+}
+
+.role-farm-admin .admin-alert-chip.state-closed,
+.role-farm-admin .admin-alert-chip.state-resolved {
+  background: var(--g-bg-subtle);
+}
+
+.role-farm-admin .admin-device-card {
+  border-top: 3px solid var(--admin-teal);
+  border-radius: 16px;
+}
+
+.role-farm-admin .admin-device-summary button {
+  border-color: var(--admin-glass-control-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .12)),
+    color-mix(in srgb, var(--device-summary-accent) 9%, transparent);
+}
+
+.role-farm-admin .admin-device-summary button:hover,
+.role-farm-admin .admin-device-summary button.active {
+  border-color: color-mix(in srgb, var(--device-summary-accent) 28%, var(--admin-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .57), rgba(255, 255, 255, .18)),
+    color-mix(in srgb, var(--device-summary-accent) 13%, transparent);
+  box-shadow: var(--admin-liquid-control-shadow-hover);
+}
+
+.role-farm-admin .admin-device-card-facts,
+.role-farm-admin .admin-device-detail-facts,
+.role-farm-admin .admin-pack-stage-list,
+.role-farm-admin .admin-device-binding-editor,
+.role-farm-admin .admin-device-related-grid > section {
+  border-color: var(--admin-glass-outline);
+  background: var(--admin-glass-surface-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42);
+}
+
+.role-farm-admin .admin-device-card-facts > div,
+.role-farm-admin .admin-device-detail-facts > div,
+.role-farm-admin .admin-pack-stage-list .admin-pack-stage,
+.role-farm-admin .admin-device-related-grid > section > header {
+  border-color: var(--g-border-subtle);
+}
+
+.role-farm-admin .admin-device-related-list :is(article, button),
+.role-farm-admin .admin-ledger-list dl > div,
+.role-farm-admin .rp-ledger-list article,
+.role-farm-admin .rp-ledger-list article > header {
+  border-color: var(--g-border-subtle);
+  background: var(--admin-glass-cell);
+}
+
+.role-farm-admin .admin-device-status.online i {
+  background: var(--admin-mint);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--admin-mint) 12%, transparent);
+}
+
+.role-farm-admin .admin-device-status.degraded i {
+  background: var(--admin-orange);
+}
+
+.role-farm-admin .admin-binding-state.bound {
+  border-color: color-mix(in srgb, var(--admin-teal) 34%, var(--g-border));
+  background: var(--admin-teal-bg);
+  color: var(--admin-teal);
+}
+
+.role-farm-admin .admin-member-card {
+  border-top: 3px solid var(--admin-purple);
+  border-radius: 16px;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.role-farm-admin .admin-member-avatar {
+  border-color: color-mix(in srgb, var(--admin-purple) 28%, var(--g-border));
+  background: var(--admin-purple-bg);
+  color: var(--admin-purple);
+}
+
+.role-farm-admin .admin-status-pill.active {
+  border-color: color-mix(in srgb, var(--admin-mint) 32%, var(--g-border));
+  background: var(--admin-mint-bg);
+  color: var(--admin-mint);
+}
+
+.role-farm-admin :is(.admin-local-tabs, .admin-alert-tabs) {
+  padding: 4px;
+  border-color: var(--admin-glass-outline);
+  border-radius: 13px;
+  background: var(--admin-glass-surface-soft);
+  box-shadow: 0 8px 22px rgba(30, 74, 52, .10), inset 0 1px 0 rgba(255, 255, 255, .54);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+  backdrop-filter: blur(28px) saturate(135%);
+}
+
+.role-farm-admin .admin-decision-tabs {
+  width: fit-content;
+  padding: 4px;
+  border-color: var(--g-border);
+  border-radius: 13px;
+  background: var(--g-bg-subtle);
+  box-shadow: inset 0 1px 2px rgba(31, 53, 42, .045);
+}
+
+.role-farm-admin .admin-decision-tabs .g-btn {
+  min-width: 152px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--g-text-secondary);
+}
+
+.role-farm-admin .admin-decision-tabs .g-btn:not(:disabled):hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent);
+  box-shadow: none;
+  color: var(--g-text-primary);
+  transform: none;
+}
+
+.role-farm-admin .admin-decision-tabs .g-btn.active {
+  border-color: var(--g-border);
+  background: var(--g-bg-surface);
+  box-shadow: 0 3px 9px rgba(31, 53, 42, .07);
+  color: var(--admin-orange);
+}
+
+.role-farm-admin .admin-alert-close-action {
+  color: var(--g-danger) !important;
+}
+
+.role-farm-admin :is(.admin-local-tabs button, .admin-alert-tabs button, .admin-tab) {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .04);
+  box-shadow: none;
+  color: var(--g-text-secondary);
+  text-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.role-farm-admin :is(.admin-local-tabs button, .admin-alert-tabs button, .admin-tab):not(:disabled):hover {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .42);
+  transform: none;
+}
+
+.role-farm-admin :is(.admin-local-tabs button.active, .admin-alert-tabs button.active, .admin-tab.active) {
+  border-color: color-mix(in srgb, var(--g-primary) 28%, var(--admin-glass-control-outline));
+  background: var(--admin-glass-surface-strong);
+  box-shadow: 0 7px 18px rgba(14, 54, 91, .12), inset 0 1px 0 rgba(255, 255, 255, .76);
+  color: var(--g-primary);
+}
+
+.role-farm-admin :is(
+  .g-input,
+  .g-select,
+  .admin-form-grid input:not([type="checkbox"]):not([type="radio"]),
+  .admin-form-grid select,
+  .admin-inline-actions select,
+  .admin-device-toolbar input,
+  .admin-device-toolbar select,
+  .admin-device-binding-editor select,
+  .rp-ledger-fields input,
+  .rp-ledger-fields select,
+  .work-filters input,
+  .work-filters select
+) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .58), inset 0 -1px 0 rgba(34, 83, 59, .07);
+  -webkit-backdrop-filter: blur(20px) saturate(132%);
+  backdrop-filter: blur(20px) saturate(132%);
+}
+
+.role-farm-admin :is(.g-modal, .admin-modal, .manager-plot-menu, .account-profile-popover) {
+  border: 1px solid var(--admin-glass-control-outline);
+  border-radius: 20px;
+  background: var(--admin-glass-surface-strong);
+  box-shadow: 0 34px 84px rgba(17, 58, 38, .27), 0 10px 30px rgba(17, 58, 38, .12), inset 0 1px 0 rgba(255, 255, 255, .92), inset 0 -1px 0 rgba(40, 92, 66, .10);
+  -webkit-backdrop-filter: blur(42px) saturate(138%);
+  backdrop-filter: blur(42px) saturate(138%);
+}
+
+.role-farm-admin .g-modal-footer {
+  background: transparent;
+}
+
+/* ---- V5.7.4 Liquid Glass workflow compatibility ----
+   Extend the restored manager material to surfaces introduced after the
+   original draft without changing their layout or interaction contracts. */
+.role-farm-admin .admin-ai-chat {
+  border-color: var(--admin-glass-outline);
+  background: var(--admin-glass-surface);
+  box-shadow: var(--admin-glass-shadow);
+  -webkit-backdrop-filter: blur(34px) saturate(138%);
+  backdrop-filter: blur(34px) saturate(138%);
+}
+
+.role-farm-admin .admin-ai-chat-toolbar {
+  border-bottom-color: var(--g-border-subtle);
+  background: var(--admin-glass-surface-soft);
+}
+
+.role-farm-admin .admin-ai-compose-area {
+  background: linear-gradient(to bottom, rgba(235, 247, 239, 0), rgba(235, 247, 239, .35) 22px);
+}
+
+.role-farm-admin :is(
+  .admin-ai-plot-picker,
+  .admin-ai-suggestions button,
+  .admin-ai-message.user .admin-ai-bubble,
+  .admin-ai-composer,
+  .admin-ai-action-card,
+  .plot-device-binding-row
+) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .58), inset 0 -1px 0 rgba(34, 83, 59, .07);
+  -webkit-backdrop-filter: blur(22px) saturate(132%);
+  backdrop-filter: blur(22px) saturate(132%);
+}
+
+.role-farm-admin .admin-ai-suggestions button:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 24%, var(--admin-glass-control-outline));
+  background: var(--admin-liquid-control-hover);
+  box-shadow: var(--admin-liquid-control-shadow-hover);
+}
+
+[data-theme="dark"] .role-farm-admin .admin-ai-chat {
+  background: var(--admin-glass-surface);
+}
+
+[data-theme="dark"] .role-farm-admin .admin-ai-chat-toolbar {
+  border-bottom-color: var(--g-border-subtle);
+  background: var(--admin-glass-surface-soft);
+}
+
+[data-theme="dark"] .role-farm-admin .admin-ai-compose-area {
+  background: linear-gradient(to bottom, rgba(18, 37, 30, 0), rgba(18, 37, 30, .46) 22px);
+}
+
+[data-theme="dark"] .role-farm-admin :is(
+  .admin-ai-plot-picker,
+  .admin-ai-suggestions button,
+  .admin-ai-message.user .admin-ai-bubble,
+  .admin-ai-composer,
+  .admin-ai-action-card,
+  .plot-device-binding-row
+) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .13);
+}
+
+[data-theme="dark"] .role-farm-admin .g-main {
+  background: linear-gradient(180deg, rgba(37, 70, 56, .12), rgba(15, 43, 31, .08));
+}
+
+[data-theme="dark"] .role-farm-admin .manager-dashboard .manager-metric-grid > .manager-metric[data-metric="LIGHT"] {
+  --metric-accent: #f2c96d;
+  --metric-tint: #493f25;
+}
+
+[data-theme="dark"] .role-farm-admin :is(
+  .manager-summary-item,
+  .work-summary button,
+  .admin-device-summary button,
+  .admin-device-summary button:hover,
+  .admin-device-summary button.active
+) {
+  border-color: var(--admin-glass-control-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .045)),
+    color-mix(in srgb, var(--summary-accent, var(--device-summary-accent, var(--g-primary))) 12%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 8, 24, .30), inset 0 1px 0 rgba(255, 255, 255, .18), inset 0 -1px 0 rgba(0, 0, 0, .16);
+}
+
+[data-theme="dark"] .role-farm-admin .g-nav-item {
+  border-color: var(--admin-glass-outline);
+  background: rgba(255, 255, 255, .035);
+}
+
+[data-theme="dark"] .role-farm-admin .g-nav-item:is(:hover, .active) {
+  border-color: var(--admin-glass-control-outline);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .045)),
+    color-mix(in srgb, var(--nav-accent) 12%, transparent);
+}
+
+[data-theme="dark"] .role-farm-admin :is(
+  .manager-metric,
+  .admin-device-card-facts,
+  .admin-device-detail-facts,
+  .admin-pack-stage-list,
+  .admin-device-binding-editor,
+  .admin-device-related-grid > section,
+  .admin-device-related-list article,
+  .admin-device-related-list button,
+  .admin-ledger-list dl > div,
+  .rp-ledger-list article,
+  .rp-ledger-list article > header
+) {
+  border-color: var(--admin-glass-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10);
+}
+
+[data-theme="dark"] .role-farm-admin :is(.manager-metric.is-warning, .manager-metric.is-danger) {
+  background: color-mix(in srgb, var(--metric-accent, var(--admin-orange)) 12%, var(--admin-glass-cell));
+}
+
+[data-theme="dark"] .role-farm-admin .manager-metric.is-unavailable {
+  background: rgba(47, 70, 59, .42);
+}
+
+[data-theme="dark"] .role-farm-admin :is(
+  .admin-local-tabs,
+  .admin-alert-tabs,
+  .work-filter-chip,
+  .work-all-tasks,
+  .g-input,
+  .g-select,
+  .admin-device-toolbar input,
+  .admin-device-toolbar select,
+  .admin-device-binding-editor select,
+  .rp-ledger-fields input,
+  .rp-ledger-fields select,
+  .work-filters input,
+  .work-filters select
+) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .13);
+}
+
+[data-theme="dark"] .role-farm-admin :is(.g-modal, .admin-modal, .manager-plot-menu, .account-profile-popover) {
+  border-color: var(--admin-glass-control-outline);
+  background: var(--admin-glass-surface-strong);
+  box-shadow: 0 34px 84px rgba(0, 7, 20, .54), 0 10px 30px rgba(0, 7, 20, .30), inset 0 1px 0 rgba(255, 255, 255, .17);
+}
+
+@media (max-width: 1180px) {
+  .role-farm-admin .work-summary.is-lifecycle-summary {
+    grid-template-columns: repeat(6, minmax(122px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item {
+    min-height: 70px;
+    padding: 11px 12px;
+  }
+
+  .role-farm-admin .manager-summary-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:last-child {
+    grid-column: auto;
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item {
+    min-height: 66px;
+  }
+}
+
+@media (max-width: 720px) {
+  .role-farm-admin {
+    --admin-dashboard-shadow:
+      0 14px 30px rgba(20, 61, 40, .20),
+      0 4px 10px rgba(20, 61, 40, .12),
+      inset 0 1px 0 rgba(255, 255, 255, .92),
+      inset 0 -1px 0 rgba(30, 77, 52, .10);
+    --admin-dashboard-shadow-raised:
+      0 20px 40px rgba(20, 61, 40, .25),
+      0 7px 15px rgba(20, 61, 40, .15),
+      inset 0 1px 0 rgba(255, 255, 255, .96),
+      inset 0 -1px 0 rgba(30, 77, 52, .11);
+  }
+
+  [data-theme="dark"] .role-farm-admin {
+    --admin-dashboard-shadow:
+      0 15px 32px rgba(0, 0, 0, .42),
+      0 4px 11px rgba(0, 0, 0, .24),
+      inset 0 1px 0 rgba(255, 255, 255, .20),
+      inset 0 -1px 0 rgba(0, 0, 0, .28);
+    --admin-dashboard-shadow-raised:
+      0 21px 44px rgba(0, 0, 0, .52),
+      0 7px 16px rgba(0, 0, 0, .30),
+      inset 0 1px 0 rgba(255, 255, 255, .24),
+      inset 0 -1px 0 rgba(0, 0, 0, .32);
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item,
+  .role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card {
+    transform: none;
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:hover,
+  .role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-farm-admin :is(.manager-plot-card, .work-order-card, .admin-alert-card, .admin-device-card, .admin-member-card, .manager-summary-item) {
+    transition: none;
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item,
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:hover,
+  .role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card,
+  .role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card:hover {
+    transition: none;
+    transform: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .role-farm-admin :is(.manager-summary-item, .manager-plot-card, .work-order-card, .admin-alert-card, .admin-device-card, .admin-member-card) {
+    border: 1px solid CanvasText;
+  }
+
+  .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item,
+  .role-farm-admin .manager-dashboard .manager-plot-grid > .manager-plot-card {
+    border: 1px solid CanvasText;
+  }
+}
