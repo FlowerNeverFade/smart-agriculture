@@ -2414,27 +2414,33 @@
   }
 }
 
-/* ---- V5.8.1 FARM_ADMIN Liquid Glass restoration ----
-   Restore the verified sage workspace after the mainline integration while
-   keeping text, controls and embedded metric cells clearly readable. */
+/* ---- V5.8.2 FARM_ADMIN Liquid Glass transparency tuning ----
+   Let more of the sage workspace pass through the glass while preserving
+   readable text, clear outlines and embedded metric hierarchy. */
 .role-farm-admin {
   --g-text-secondary: #46584e;
   --g-text-disabled: #62746a;
   --g-border: #aebfb4;
   --g-border-subtle: #c7d4cc;
-  --admin-glass-surface: rgba(248, 252, 249, .68);
-  --admin-glass-surface-strong: rgba(251, 254, 252, .82);
-  --admin-glass-surface-soft: rgba(240, 248, 242, .52);
-  --admin-glass-cell: rgba(255, 255, 255, .60);
-  --admin-glass-edge: rgba(255, 255, 255, .82);
+  --admin-glass-surface: rgba(248, 252, 249, .55);
+  --admin-glass-surface-strong: rgba(251, 254, 252, .68);
+  --admin-glass-surface-soft: rgba(240, 248, 242, .40);
+  --admin-glass-cell: rgba(255, 255, 255, .48);
+  --admin-glass-edge: rgba(255, 255, 255, .72);
   --admin-glass-outline: rgba(37, 79, 56, .40);
   --admin-glass-control-outline: rgba(32, 74, 51, .58);
   --admin-glass-depth: rgba(30, 74, 52, .17);
-  --admin-dashboard-card-surface: rgba(252, 255, 253, .91);
-  --admin-dashboard-summary-surface: rgba(253, 255, 254, .89);
+  --admin-dashboard-card-surface: rgba(252, 255, 253, .80);
+  --admin-dashboard-summary-surface: rgba(253, 255, 254, .78);
   --admin-dashboard-card-outline: rgba(26, 68, 45, .46);
-  --admin-dashboard-metric-tray: rgba(71, 119, 86, .18);
-  --admin-dashboard-metric-cell: rgba(255, 255, 255, .78);
+  --admin-dashboard-metric-tray: rgba(71, 119, 86, .14);
+  --admin-dashboard-metric-cell: rgba(255, 255, 255, .66);
+  --admin-liquid-control:
+    linear-gradient(145deg, rgba(255, 255, 255, .58) 0%, rgba(255, 255, 255, .18) 48%, rgba(236, 244, 239, .34) 100%);
+  --admin-liquid-control-hover:
+    linear-gradient(145deg, rgba(255, 255, 255, .72) 0%, rgba(255, 255, 255, .30) 48%, rgba(232, 243, 237, .46) 100%);
+  --admin-liquid-control-pressed:
+    linear-gradient(145deg, rgba(235, 243, 238, .48) 0%, rgba(255, 255, 255, .22) 58%, rgba(229, 239, 233, .38) 100%);
   --admin-dashboard-shadow:
     0 22px 48px rgba(20, 61, 40, .24),
     0 6px 14px rgba(20, 61, 40, .15),
@@ -2458,19 +2464,19 @@
   --g-text-disabled: #91a097;
   --g-border: #596b61;
   --g-border-subtle: #43534a;
-  --admin-glass-surface: rgba(22, 42, 34, .68);
-  --admin-glass-surface-strong: rgba(27, 48, 39, .82);
-  --admin-glass-surface-soft: rgba(35, 58, 48, .52);
-  --admin-glass-cell: rgba(74, 108, 89, .52);
+  --admin-glass-surface: rgba(22, 42, 34, .54);
+  --admin-glass-surface-strong: rgba(27, 48, 39, .66);
+  --admin-glass-surface-soft: rgba(35, 58, 48, .38);
+  --admin-glass-cell: rgba(74, 108, 89, .42);
   --admin-glass-edge: rgba(255, 255, 255, .28);
   --admin-glass-outline: rgba(226, 242, 232, .26);
   --admin-glass-control-outline: rgba(235, 247, 239, .44);
   --admin-glass-depth: rgba(0, 18, 10, .36);
-  --admin-dashboard-card-surface: rgba(29, 50, 41, .90);
-  --admin-dashboard-summary-surface: rgba(32, 54, 44, .88);
+  --admin-dashboard-card-surface: rgba(29, 50, 41, .76);
+  --admin-dashboard-summary-surface: rgba(32, 54, 44, .72);
   --admin-dashboard-card-outline: rgba(235, 247, 239, .36);
-  --admin-dashboard-metric-tray: rgba(8, 24, 16, .44);
-  --admin-dashboard-metric-cell: rgba(49, 75, 62, .78);
+  --admin-dashboard-metric-tray: rgba(8, 24, 16, .34);
+  --admin-dashboard-metric-cell: rgba(49, 75, 62, .62);
   --admin-dashboard-shadow:
     0 24px 50px rgba(0, 0, 0, .48),
     0 7px 16px rgba(0, 0, 0, .28),
@@ -2541,19 +2547,19 @@
 }
 
 .role-farm-admin .g-header {
-  background: rgba(240, 249, 242, .38);
+  background: rgba(240, 249, 242, .28);
   border-bottom-color: var(--admin-glass-outline);
   box-shadow: 0 9px 30px rgba(27, 69, 49, .14), inset 0 1px 0 rgba(255, 255, 255, .74), inset 0 -1px 0 rgba(36, 88, 63, .10);
 }
 
 .role-farm-admin .g-sidebar {
-  background: rgba(233, 247, 238, .34);
+  background: rgba(233, 247, 238, .24);
   border-right-color: var(--admin-glass-outline);
   box-shadow: 10px 0 36px rgba(27, 69, 49, .12), inset -1px 0 0 rgba(255, 255, 255, .34);
 }
 
 [data-theme="dark"] .role-farm-admin :is(.g-header, .g-sidebar) {
-  background: rgba(18, 37, 30, .46);
+  background: rgba(18, 37, 30, .38);
 }
 
 .role-farm-admin :is(.g-header, .g-sidebar) {
@@ -2722,7 +2728,7 @@
   border: 1px solid var(--admin-dashboard-card-outline);
   border-radius: 16px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .68), rgba(255, 255, 255, .20)),
+    linear-gradient(145deg, rgba(255, 255, 255, .42), rgba(255, 255, 255, .10)),
     color-mix(in srgb, var(--summary-accent) 6%, var(--admin-dashboard-summary-surface));
   box-shadow: var(--admin-dashboard-shadow);
   text-align: left;
@@ -2760,7 +2766,7 @@
 .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item:hover {
   border-color: color-mix(in srgb, var(--summary-accent) 28%, var(--admin-glass-control-outline));
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .28)),
+    linear-gradient(145deg, rgba(255, 255, 255, .55), rgba(255, 255, 255, .16)),
     color-mix(in srgb, var(--summary-accent) 8%, var(--admin-dashboard-summary-surface));
   box-shadow: var(--admin-dashboard-shadow-raised);
   transform: translateY(-4px);
@@ -2779,7 +2785,7 @@
 [data-theme="dark"] .role-farm-admin .manager-dashboard .manager-summary-strip > .manager-summary-item {
   border-color: var(--admin-dashboard-card-outline);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .035)),
+    linear-gradient(145deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, .02)),
     color-mix(in srgb, var(--summary-accent) 7%, var(--admin-dashboard-summary-surface));
   box-shadow: var(--admin-dashboard-shadow);
 }
