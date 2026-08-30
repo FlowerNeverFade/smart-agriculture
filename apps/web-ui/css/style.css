@@ -822,3 +822,99 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* User workspace preferences ------------------------------------------------
+ * The settings page writes these attributes on <html>.  Keeping the
+ * overrides here means the shared shell and the standalone farmer shell use
+ * the same controls without duplicating layout logic in each role module.
+ */
+html[data-accent="green"] :is(#app, #farmer_app) { --g-primary: #2f7d55 !important; --g-primary-hover: #22623f !important; --g-primary-bg: #e3f2e8 !important; }
+html[data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #2563a8 !important; --g-primary-hover: #1d4f87 !important; --g-primary-bg: #e5effb !important; }
+html[data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #a96716 !important; --g-primary-hover: #82500f !important; --g-primary-bg: #fff2d9 !important; }
+html[data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #7657c4 !important; --g-primary-hover: #5d439f !important; --g-primary-bg: #eee8fb !important; }
+[data-theme="dark"][data-accent="green"] :is(#app, #farmer_app) { --g-primary: #75d19b !important; --g-primary-hover: #9be8bb !important; --g-primary-bg: #254533 !important; }
+[data-theme="dark"][data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #8ab4f8 !important; --g-primary-hover: #aecbfa !important; --g-primary-bg: #394457 !important; }
+[data-theme="dark"][data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #f6c76b !important; --g-primary-hover: #ffda91 !important; --g-primary-bg: #51401f !important; }
+[data-theme="dark"][data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #c5a8ff !important; --g-primary-hover: #d8c4ff !important; --g-primary-bg: #42356b !important; }
+
+html[data-density="compact"] {
+  --g-header-height: 56px;
+  --g-sidebar-width: 196px;
+}
+html[data-density="compact"] .g-main { padding: 16px; }
+html[data-density="compact"] .g-nav-item { height: 40px; gap: 12px; padding-inline: 12px; font-size: 13px; }
+html[data-density="compact"] .g-card { border-radius: 10px; }
+html[data-layout="wide"] .g-main { padding-inline: 16px; }
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .farmer-agent-audit-meta) { display: none !important; }
+
+/* Shared workspace settings page. */
+.settings-page { display: grid; gap: 22px; max-width: 1180px; margin: 0 auto; }
+.settings-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.settings-page-header h1 { display: flex; align-items: center; gap: 9px; margin-top: 5px; font-size: 27px; line-height: 1.2; font-weight: 600; letter-spacing: -.02em; }
+.settings-page-header h1 .ph { color: var(--g-primary); font-size: 25px; }
+.settings-page-header p { max-width: 680px; margin-top: 8px; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
+.settings-kicker, .settings-card-kicker { color: var(--g-primary); font-size: 11px; font-weight: 650; letter-spacing: .04em; }
+.settings-local-badge { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--g-border); border-radius: var(--g-radius-pill); color: var(--g-text-secondary); background: var(--g-bg-surface); font-size: 11px; white-space: nowrap; }
+.settings-local-badge .ph { color: var(--g-primary); font-size: 15px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.settings-card { display: grid; gap: 20px; min-width: 0; padding: 22px; }
+.settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.settings-card-head h2 { margin-top: 4px; font-size: 18px; font-weight: 600; }
+.settings-card-head p { margin-top: 5px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.settings-card-head > .ph { color: var(--g-primary); font-size: 22px; }
+.settings-field { display: grid; gap: 10px; }
+.settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.settings-theme-option { display: grid; gap: 5px; min-height: 84px; padding: 10px; border: 1px solid var(--g-border); border-radius: 10px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+.settings-theme-option:hover { border-color: var(--g-primary); transform: translateY(-1px); }
+.settings-theme-option.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--g-primary) 25%, transparent); }
+.settings-theme-icon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: var(--g-bg-surface); color: var(--g-primary); }
+.settings-theme-option strong { font-size: 12px; font-weight: 600; }
+.settings-theme-option small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.3; }
+.settings-accent-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.settings-accent-option { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
+.settings-accent-option:hover, .settings-accent-option.active { border-color: var(--settings-swatch); color: var(--g-text-primary); }
+.settings-accent-option.active { background: color-mix(in srgb, var(--settings-swatch) 11%, var(--g-bg-base)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--settings-swatch) 28%, transparent); }
+.settings-accent-option i { flex: 0 0 auto; width: 13px; height: 13px; border-radius: 50%; background: var(--settings-swatch); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+.settings-accent-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-accent-option .ph { margin-left: auto; color: var(--settings-swatch); font-size: 14px; }
+.settings-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-two-col label, .settings-select-field { display: grid; gap: 7px; color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.settings-two-col select, .settings-select-field select { width: 100%; min-height: 38px; padding: 7px 30px 7px 10px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); font: 13px var(--g-font-family); }
+.settings-two-col select:focus, .settings-select-field select:focus { outline: 2px solid color-mix(in srgb, var(--g-primary) 30%, transparent); outline-offset: 1px; border-color: var(--g-primary); }
+.settings-select-field select:disabled { opacity: .55; cursor: not-allowed; }
+.settings-switch { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; gap: 10px; cursor: pointer; }
+.settings-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.settings-switch-track { position: relative; width: 32px; height: 19px; margin-top: 1px; border-radius: 20px; background: var(--g-border); transition: background .18s; }
+.settings-switch-track::after { position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: var(--g-shadow-1); content: ''; transition: transform .18s; }
+.settings-switch input:checked + .settings-switch-track { background: var(--g-primary); }
+.settings-switch input:checked + .settings-switch-track::after { transform: translateX(13px); }
+.settings-switch input:focus-visible + .settings-switch-track { outline: 2px solid color-mix(in srgb, var(--g-primary) 45%, transparent); outline-offset: 2px; }
+.settings-switch strong { display: block; color: var(--g-text-primary); font-size: 13px; font-weight: 600; }
+.settings-switch small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.45; }
+.settings-info { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-primary) 23%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 65%, var(--g-bg-surface)); color: var(--g-text-secondary); font-size: 11px; line-height: 1.55; }
+.settings-info .ph { flex: 0 0 auto; margin-top: 1px; color: var(--g-primary); font-size: 16px; }
+.settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 2px 2px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font-size: 11px; }
+.settings-footer > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-footer strong { color: var(--g-text-primary); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .settings-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .settings-page-header { display: grid; gap: 12px; }
+  .settings-page-header h1 { font-size: 23px; }
+  .settings-theme-options { grid-template-columns: 1fr; }
+  .settings-theme-option { min-height: auto; grid-template-columns: 28px 1fr; align-items: center; }
+  .settings-theme-option small { grid-column: 2; }
+  .settings-accent-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-footer { align-items: flex-start; flex-direction: column; }
+}

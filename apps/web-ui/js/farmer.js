@@ -2,6 +2,7 @@ import { api } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -26,6 +27,10 @@ import {
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
 
+// Keep the standalone farmer shell in lock-step with the shared role pages.
+const initial_user_settings = readUserSettings();
+applyUserSettings(initial_user_settings);
+
 // Keep farmer.html independent from the remote Google icon font.  The same
 // local Phosphor set is used by the shared admin shell, so icon geometry and
 // fallback behaviour stay consistent when the server has no internet access.
@@ -45,7 +50,7 @@ const FARMER_ICON_CLASS = Object.freeze({
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
   insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
   science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone'
+  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear'
 });
 
 const FarmerAppIcon = {
@@ -194,7 +199,8 @@ const FARMER_VIEWS = Object.freeze([
   'inspections',
   'advice',
   'messages',
-  'tools'
+  'tools',
+  'settings'
 ]);
 
 function parse_farmer_hash(hash = window.location.hash) {
@@ -837,7 +843,9 @@ function compute_plot_health_score(plot) {
 const app = createApp({
   setup() {
     const is_live = ref(false);
-    const is_dark = ref(false);
+    const user_settings = ref(readUserSettings());
+    const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
+    const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const is_sidebar_open = ref(true);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -1320,7 +1328,8 @@ const app = createApp({
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'tools', label: '作物培养手册', icon: 'menu_book', is_footer: true }
+        { id: 'tools', label: '作物培养手册', icon: 'menu_book', is_footer: true },
+        { id: 'settings', label: '工作台设置', icon: 'settings', is_footer: true }
       ];
     });
 
@@ -1837,12 +1846,31 @@ const app = createApp({
       show_toast(report_subscribed.value ? '已开启本机周报提醒（演示）' : '已关闭本机周报提醒');
     };
 
+    const update_user_setting = (key, value, announce = true) => {
+      const next = saveUserSettings({ ...user_settings.value, [key]: value });
+      user_settings.value = next;
+      applyUserSettings(next);
+      is_dark.value = resolveTheme(next.theme) === 'dark';
+      if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
+        start_live_polling();
+      }
+      if (announce && ['theme', 'accent', 'density', 'layout'].includes(key)) {
+        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度' };
+        show_toast(`${labels[key]}已更新`);
+      }
+    };
+
+    const reset_user_settings = () => {
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      user_settings.value = next;
+      applyUserSettings(next);
+      is_dark.value = resolveTheme(next.theme) === 'dark';
+      show_toast('工作台设置已恢复默认');
+    };
+
     const toggle_theme = () => {
-      is_dark.value = !is_dark.value;
-      const theme = is_dark.value ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', theme);
-      document.documentElement.style.colorScheme = theme;
-      localStorage.setItem('agriloop-theme', theme);
+      const current = resolveTheme(user_settings.value.theme);
+      update_user_setting('theme', current === 'dark' ? 'light' : 'dark');
     };
 
     const logout = () => {
@@ -2201,11 +2229,18 @@ const app = createApp({
     const start_live_polling = () => {
       stop_live_polling();
       if (!is_formal_session) return;
+      if (!user_settings.value.autoRefresh) {
+        // The SSE connection still delivers immediate events; disabling the
+        // preference only turns off the REST recovery timers.
+        ensure_live_connection();
+        return;
+      }
       // SSE normally updates immediately; these low-frequency polls recover
       // from missed events and keep secondary resources (tasks, inspections,
       // crop batches and device state) current as well.
-      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, 5000);
-      live_workspace_poll_timer = window.setInterval(poll_live_workspace, 15000);
+      const refresh_ms = Math.max(5000, Number(user_settings.value.refreshInterval || 15) * 1000);
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, Math.min(5000, refresh_ms));
+      live_workspace_poll_timer = window.setInterval(poll_live_workspace, refresh_ms);
       live_poll_visibility_handler = () => {
         if (!document.hidden) {
           poll_live_telemetry();
@@ -3182,12 +3217,9 @@ const app = createApp({
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
 
-      const saved_theme = localStorage.getItem('agriloop-theme');
-      if (saved_theme === 'dark') {
-        is_dark.value = true;
-        document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.colorScheme = 'dark';
-      }
+      user_settings.value = readUserSettings();
+      applyUserSettings(user_settings.value);
+      is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
       // Keep the current farmer page across refresh / back-forward.
       if (/^#?tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(window.location.hash)) {
         window.history.replaceState(null, '', '#dashboard');
@@ -3268,6 +3300,11 @@ const app = createApp({
       workspace_load_progress,
       workspace_load_label,
       is_dark,
+      user_settings,
+      accent_options: ACCENT_OPTIONS,
+      current_accent_label,
+      update_user_setting,
+      reset_user_settings,
       is_sidebar_open,
       data_updated_label,
       user,

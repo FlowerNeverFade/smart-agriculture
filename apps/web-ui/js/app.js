@@ -2,6 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -44,6 +45,12 @@ import {
 } from './live-data.js?v=20260827-boot-fix-1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
+
+// Apply saved preferences before Vue mounts so the shared shell and its
+// role-specific styles render with the same theme/density from the first
+// paint (and migrate the legacy theme-only preference when present).
+const initialUserSettings = readUserSettings();
+applyUserSettings(initialUserSettings);
 
 const ICON_CLASS = Object.freeze({
   dashboard: 'ph-squares-four',
@@ -151,7 +158,8 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
-  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
+  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
+  { id: 'settings', label: '工作台设置', icon: 'settings', labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
@@ -2565,6 +2573,58 @@ const AdminRulesView = {
   }
 };
 
+/**
+ * Shared workspace preferences.  This page is available to all three roles;
+ * it deliberately controls only the current browser's presentation and
+ * refresh preferences, leaving platform/account settings to System Admin.
+ */
+const SettingsView = {
+  template: '#tmpl-settings',
+  props: ['state'],
+  emits: ['settings-changed'],
+  setup(props, { emit }) {
+    const toast = inject('toast');
+    const settings = ref(readUserSettings());
+    const accentOptions = ACCENT_OPTIONS;
+    const themeOptions = [
+      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' },
+      { value: 'light', label: '浅色', hint: '清晰明亮' },
+      { value: 'dark', label: '深色', hint: '低光环境更舒适' }
+    ];
+    const refreshOptions = [5, 15, 30, 60];
+    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
+    const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '跟随系统');
+    const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
+    const updateSetting = (key, value) => {
+      const next = saveUserSettings({ ...settings.value, [key]: value });
+      settings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout') {
+        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : '内容宽度'}已更新`);
+      }
+    };
+    const resetSettings = () => {
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      settings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      toast('工作台设置已恢复默认');
+    };
+    return {
+      settings,
+      accentOptions,
+      themeOptions,
+      refreshOptions,
+      roleLabel,
+      themeLabel,
+      accentLabel,
+      updateSetting,
+      resetSettings
+    };
+  }
+};
+
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
   props: ['state', 'routeParams'],
@@ -2721,11 +2781,13 @@ const app = createApp({
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
-    'admin-settings-view': AdminSettingsView
+    'admin-settings-view': AdminSettingsView,
+    'settings-view': SettingsView
   },
   setup() {
     const isLive = ref(false);
-    const isDark = ref(false);
+    const userSettings = ref(readUserSettings());
+    const isDark = ref(resolveTheme(userSettings.value.theme) === 'dark');
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     const showProfileMenu = ref(false);
     const showFarmMenu = ref(false);
@@ -2913,12 +2975,26 @@ const app = createApp({
       document.getElementById('app')?.setAttribute('class', className);
     }, { immediate: true });
 
+    const applySettings = (patch = {}) => {
+      const next = saveUserSettings({ ...userSettings.value, ...patch });
+      userSettings.value = next;
+      applyUserSettings(next);
+      isDark.value = resolveTheme(next.theme) === 'dark';
+      return next;
+    };
+
+    const handleSettingsChanged = (next) => {
+      userSettings.value = saveUserSettings(next);
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
+      // Rebuild the fallback polling timer immediately when the preference
+      // changes; SSE remains active for low-latency events.
+      if (typeof startLiveRefresh === 'function') startLiveRefresh();
+    };
+
     const toggleTheme = () => {
-      isDark.value = !isDark.value;
-      const theme = isDark.value ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', theme);
-      document.documentElement.style.colorScheme = theme;
-      localStorage.setItem('agriloop-theme', theme);
+      const current = resolveTheme(userSettings.value.theme);
+      applySettings({ theme: current === 'dark' ? 'light' : 'dark' });
     };
 
     const toggleSidebar = () => {
@@ -3295,7 +3371,8 @@ const app = createApp({
     const startLiveRefresh = () => {
       stopLiveRefresh();
       if (state.value.sessionMode !== 'live') return;
-      const interval = state.value.currentUser?.role === 'SYSTEM_ADMIN' ? 12000 : 8000;
+      if (!userSettings.value.autoRefresh) return;
+      const interval = Math.max(5000, Number(userSettings.value.refreshInterval || 15) * 1000);
       livePollTimer = window.setInterval(runLivePoll, interval);
       liveVisibilityHandler = () => { if (!document.hidden) runLivePoll(); };
       liveOnlineHandler = () => runLivePoll();
@@ -3552,12 +3629,9 @@ const app = createApp({
         window.location.replace('login.html');
         return;
       }
-      const savedTheme = localStorage.getItem('agriloop-theme');
-      if (savedTheme === 'dark') {
-        isDark.value = true;
-        document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.colorScheme = 'dark';
-      }
+      userSettings.value = readUserSettings();
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       isLive.value = await api.checkHealth();
       if (isLive.value && session.mode === 'live') {
         const restoredUser = await api.restoreSession();
@@ -3679,7 +3753,9 @@ const app = createApp({
       state,
       toasts,
       showToast,
+      userSettings,
       toggleTheme,
+      handleSettingsChanged,
       toggleSidebar,
       toggleProfileMenu,
       closeProfileMenu,
@@ -3713,6 +3789,7 @@ if (indexUser?.role === 'FARMER') {
     'crop-manual': 'tools/manual',
     'work-orders': 'tools',
     'decision-console': 'advice',
+    settings: 'settings',
     dashboard: 'dashboard'
   }[view] || 'tools';
   window.location.replace(`farmer.html#${farmerHash}`);
