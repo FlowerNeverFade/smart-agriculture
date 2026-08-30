@@ -1865,6 +1865,7 @@ const app = createApp({
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
+      if (typeof start_live_polling === 'function') start_live_polling();
       show_toast('工作台设置已恢复默认');
     };
 
