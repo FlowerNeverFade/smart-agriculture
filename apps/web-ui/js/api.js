@@ -210,6 +210,10 @@ export class ApiService {
     }));
     this.demoCropBatches = new Map();
     this.demoCropPlans = new Map();
+    this.demoCropPacks = new Map((MOCK_DATA.cropPackDetails || []).map((item) => [
+      `${item.cropCode || item.id}@${item.version || '1.0.0'}`,
+      JSON.parse(JSON.stringify(item))
+    ]));
     this.demoAgentActions = new Map();
     this.demoAgentConversations = new Map();
     this._demoHydrateAgentActions();
@@ -651,11 +655,19 @@ export class ApiService {
   }
 
   async updateCropPackStatus(cropCode, version, status) {
-    const resp = await this._fetch(`/api/v1/crop-packs/${cropCode}/${version || 'unknown'}/status`, {
+    const normalizedStatus = String(status || 'DRAFT').toUpperCase() === 'PUBLISHED' ? 'ACTIVE' : String(status || 'DRAFT').toUpperCase();
+    if (this.sessionMode !== 'live') {
+      const key = `${cropCode}@${version || '1.0.0'}`;
+      const pack = this.demoCropPacks.get(key);
+      if (!pack) throw new ApiError('演示作物包不存在', { code: 'CROP_PACK_NOT_FOUND', status: 404 });
+      pack.status = normalizedStatus;
+      return JSON.parse(JSON.stringify(pack));
+    }
+    const resp = await this._fetch(`/api/v1/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version || '1.0.0')}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status: normalizedStatus })
     });
-    return resp;
+    return resp?.data || resp;
   }
 
   async stopSimulator() {
@@ -3170,7 +3182,51 @@ export class ApiService {
       if (raw?.cropCode) return [this.normalizeCropPack(raw)];
       throw new ApiError('后端返回了无效的作物包数据', { code: 'CROP_PACKS_INVALID', payload: resp });
     }
-    return JSON.parse(JSON.stringify(MOCK_DATA.cropPackDetails));
+    return Array.from(this.demoCropPacks.values()).map((pack) => this.normalizeCropPack(JSON.parse(JSON.stringify(pack))));
+  }
+
+  async createCropPack(input = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/crop-packs', { method: 'POST', body: JSON.stringify(input) });
+      const raw = resp?.data || resp;
+      if (raw?.cropCode) return this.normalizeCropPack(raw);
+      throw new ApiError('后端返回了无效的新增作物包', { code: 'CROP_PACK_CREATE_INVALID', payload: resp });
+    }
+    const cropCode = String(input.cropCode || input.id || '').trim().toLowerCase();
+    const version = String(input.version || '1.0.0').trim();
+    if (!cropCode) throw new ApiError('请填写作物包编号', { code: 'CROP_PACK_CODE_INVALID', status: 400 });
+    const key = `${cropCode}@${version}`;
+    if (this.demoCropPacks.has(key)) throw new ApiError('相同作物包已存在', { code: 'CROP_PACK_EXISTS', status: 409 });
+    const pack = { ...input, cropCode, version, identity: { ...(input.identity || {}), name: input.name || input.identity?.name || cropCode }, status: input.status || 'DRAFT', sourceMode: 'USER_MANAGED', builtIn: false };
+    this.demoCropPacks.set(key, JSON.parse(JSON.stringify(pack)));
+    return this.normalizeCropPack(pack);
+  }
+
+  async updateCropPack(cropCode, version, input = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version || '1.0.0')}`, { method: 'PUT', body: JSON.stringify(input) });
+      const raw = resp?.data || resp;
+      if (raw?.cropCode) return this.normalizeCropPack(raw);
+      throw new ApiError('后端返回了无效的作物包更新结果', { code: 'CROP_PACK_UPDATE_INVALID', payload: resp });
+    }
+    const key = `${cropCode}@${version || '1.0.0'}`;
+    const current = this.demoCropPacks.get(key);
+    if (!current) throw new ApiError('演示作物包不存在', { code: 'CROP_PACK_NOT_FOUND', status: 404 });
+    const next = { ...current, ...input, cropCode, version: version || current.version, sourceMode: 'USER_MANAGED' };
+    next.identity = { ...(current.identity || {}), ...(input.identity || {}) };
+    if (input.name) next.identity.name = input.name;
+    this.demoCropPacks.set(key, JSON.parse(JSON.stringify(next)));
+    return this.normalizeCropPack(next);
+  }
+
+  async deleteCropPack(cropCode, version) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version || '1.0.0')}`, { method: 'DELETE' });
+      return resp?.data || resp;
+    }
+    const key = `${cropCode}@${version || '1.0.0'}`;
+    if (!this.demoCropPacks.delete(key)) throw new ApiError('演示作物包不存在', { code: 'CROP_PACK_NOT_FOUND', status: 404 });
+    return { success: true };
   }
 
   async getCropManuals() {
@@ -3239,12 +3295,33 @@ export class ApiService {
   }
 
   normalizeCropPack(pack) {
+    const source = pack || {};
+    const knowledge = source.knowledge && typeof source.knowledge === 'object' ? source.knowledge : {};
+    let docs = Array.isArray(knowledge.docs) ? knowledge.docs : Array.isArray(source.knowledgeDocs) ? source.knowledgeDocs : [];
+    if (!docs.length && Array.isArray(knowledge.documents) && knowledge.documents.some((doc) => doc && typeof doc === 'object')) docs = knowledge.documents;
+    if (!docs.length && Array.isArray(knowledge.content) && knowledge.content.length) {
+      const content = knowledge.content.filter((line) => String(line || '').trim()).join('\n');
+      if (content) docs = [{ id: `${source.cropCode || 'crop'}-summary`, title: '知识摘要', content }];
+    }
+    docs = docs.map((doc, index) => {
+      if (typeof doc === 'string') return { id: `${source.cropCode || 'crop'}-doc-${index + 1}`, title: doc.split('/').pop()?.replace(/\.md$/i, '') || `知识文档 ${index + 1}`, content: '' };
+      const value = { ...(doc || {}) };
+      value.id = value.id || `${source.cropCode || 'crop'}-doc-${index + 1}`;
+      value.title = String(value.title || value.name || `知识文档 ${index + 1}`).replace(/^#+\s*/, '').trim();
+      value.content = String(value.content ?? value.body ?? value.markdown ?? '').replace(/^#+\s.*$/gm, '').replace(/^>\s?/gm, '').trim();
+      return value;
+    });
     return {
-      ...(pack || {}),
-      identity: pack?.identity || null,
-      stages: Array.isArray(pack?.stages) ? pack.stages.map(stage => typeof stage === 'object' ? { ...stage } : { code: String(stage) }) : [],
-      metrics: Array.isArray(pack?.metrics) ? pack.metrics.map(metric => ({ ...metric })) : [],
-      rules: Array.isArray(pack?.rules) ? pack.rules.map(rule => ({ ...rule })) : []
+      ...source,
+      identity: source.identity || null,
+      stages: Array.isArray(source.stages) ? source.stages.map(stage => typeof stage === 'object' ? { ...stage } : { code: String(stage), label: String(stage) }) : [],
+      metrics: Array.isArray(source.metrics) ? source.metrics.map(metric => ({ ...metric })) : [],
+      rules: Array.isArray(source.rules) ? source.rules.map(rule => ({ ...rule })) : [],
+      knowledge: { ...knowledge, docs },
+      knowledgeDocs: docs,
+      status: ['ACTIVE', 'PUBLISHED', 'ENABLED'].includes(String(source.status || '').toUpperCase()) ? 'published' : String(source.status || 'DRAFT').toLowerCase() === 'published' ? 'published' : 'draft',
+      backendStatus: String(source.status || 'DRAFT').toUpperCase(),
+      availableForPlanting: source.availableForPlanting !== false
     };
   }
 

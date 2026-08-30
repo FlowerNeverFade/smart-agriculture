@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-main-merge">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-crop-pack-sync-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -1173,7 +1173,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-load-resilience-1"></script>
+  <script type="module" src="js/app.js?v=20260830-crop-pack-sync-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1699,17 +1699,17 @@
       <!-- Tab: Crop Packs -->
       <div v-if="activeTab === 'packs'">
         <div class="admin-pack-toolbar">
-          <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中</div>
-          <button class="g-btn primary" @click="openCreatePack"><app-icon name="add"></app-icon> 新增作物包</button>
+          <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中，保存后农场管理员与农户会自动读取同一版本</div>
+          <button class="g-btn primary" :disabled="savingPack" @click="openCreatePack"><app-icon name="add"></app-icon> 新增作物包</button>
         </div>
         <div class="pack-grid" :style="{ gridTemplateColumns: `repeat(${masonryCols}, 1fr)` }">
           <div class="pack-grid-column" v-for="(colPacks, colIdx) in masonryColumns" :key="colIdx">
-            <div class="pack-card" v-for="pack in colPacks" :key="pack.id" @click="togglePack(pack.id)">
+            <div class="pack-card" v-for="pack in colPacks" :key="packKey(pack)" @click="togglePack(packKey(pack))">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
                 <div class="pack-card-title">{{ pack.name }}</div>
-                <div class="pack-card-ver">{{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
+                <div class="pack-card-ver">v{{ pack.version || '1.0.0' }} · {{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
               </div>
               <span class="status-pill" :class="pack.status" style="margin-left:auto">{{ pack.status === 'published' ? '已发布' : '草稿' }}</span>
             </div>
@@ -1723,16 +1723,16 @@
               {{ pack.availableForPlanting && pack.status === 'published' ? '可供新地块选择' : '暂不可用于新地块' }}
             </div>
 
-            <div v-if="expandedPacks[pack.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
+            <div v-if="expandedPacks[packKey(pack)]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
               <div class="admin-pack-detail-grid">
                 <div><strong>生长阶段</strong><span>{{ pack.stages.join('、') }}</span></div>
                 <div><strong>指标</strong><span>统一八项后端遥测指标，由地块配置监测类型</span></div>
-                <div><strong>知识文档</strong><span class="admin-knowledge-list"><template v-for="(doc, index) in pack.knowledgeDocs" :key="index"><button class="admin-knowledge-chip" @click="toggleKnowledge(pack.id, index)">{{ displayText(doc.title) }} <app-icon :name="expandedKnowledge === `${pack.id}:${index}` ? 'expand_less' : 'expand_more'"></app-icon></button><em v-if="expandedKnowledge === `${pack.id}:${index}`">{{ displayText(doc.content || '暂无正文') }}</em></template></span></div>
+                <div><strong>知识文档</strong><div class="admin-knowledge-docs"><article v-for="(doc, index) in pack.knowledgeDocs" :key="doc.id || index" class="admin-knowledge-doc"><button class="admin-knowledge-doc-toggle" @click="toggleKnowledge(packKey(pack), index)"><span><b>{{ displayText(doc.title || `知识文档 ${index + 1}`) }}</b><small v-if="doc.stageCode">{{ displayText(doc.stageCode) }}</small></span><app-icon :name="expandedKnowledge === `${packKey(pack)}:${index}` ? 'expand_less' : 'expand_more'"></app-icon></button><p v-if="expandedKnowledge === `${packKey(pack)}:${index}`">{{ displayText(doc.content || '暂无正文') }}</p></article><span v-if="!pack.knowledgeDocs.length" class="admin-knowledge-empty">暂无知识文档</span></div></div>
               </div>
               <div style="margin-top: 12px; display: flex; gap: 8px;">
-                <button class="g-btn text sm" style="padding: 4px 8px" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
-                <button class="g-btn text sm" style="padding: 4px 8px" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
-                <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
+                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
               </div>
             </div>
           </div>
@@ -1743,10 +1743,11 @@
           <div class="admin-modal">
             <div class="admin-modal-header">
               <h3>{{ editingPackId ? '编辑作物包' : '新增作物包' }}</h3>
-              <button class="g-btn icon-only" @click="showPackModal = false"><app-icon name="close"></app-icon></button>
+              <button class="g-btn icon-only" :disabled="savingPack" @click="showPackModal = false"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body admin-pack-form">
-              <label>作物包编号</label><input v-model="packForm.id" :disabled="!!editingPackId" placeholder="例如 cp-lettuce">
+              <label>作物包编号</label><input v-model="packForm.id" :disabled="!!editingPackId || savingPack" placeholder="例如 cp-lettuce">
+              <label>版本号</label><input v-model="packForm.version" :disabled="!!editingPackId || savingPack" placeholder="例如 1.0.0">
               <label>作物名称</label><input v-model="packForm.name" placeholder="例如 生菜">
               <label>作物图标</label>
               <div class="admin-icon-picker"><button v-for="icon in cropIcons" :key="icon" type="button" :class="{selected: packForm.icon === icon}" @click="packForm.icon = icon">{{ icon }}</button></div>
@@ -1761,7 +1762,7 @@
             </div>
             <div class="admin-modal-footer">
               <button class="g-btn" @click="showPackModal = false">取消</button>
-              <button class="g-btn primary" :disabled="!packForm.id || !packForm.name" @click="savePack">保存</button>
+              <button class="g-btn primary" :disabled="savingPack || !packForm.id || !packForm.name" @click="savePack">{{ savingPack ? '保存中…' : '保存' }}</button>
             </div>
           </div>
         </div>

@@ -1805,8 +1805,20 @@ class AgriEngine {
         return cropPackCatalog.all();
     }
 
-    void updateCropPackStatus(String cropCode, String version, String status) {
-        cropPackCatalog.updateStatus(cropCode, version, status);
+    Map<String, Object> createCropPack(Map<String, Object> body, UserPrincipal principal) {
+        return cropPackCatalog.create(body, principal);
+    }
+
+    Map<String, Object> updateCropPack(String cropCode, String version, Map<String, Object> body, UserPrincipal principal) {
+        return cropPackCatalog.update(cropCode, version, body, principal);
+    }
+
+    void deleteCropPack(String cropCode, String version) {
+        cropPackCatalog.delete(cropCode, version);
+    }
+
+    Map<String, Object> updateCropPackStatus(String cropCode, String version, String status, UserPrincipal principal) {
+        return cropPackCatalog.updateStatus(cropCode, version, status, principal);
     }
 
     Map<String, Object> resolvedProfile(String plotId) {
@@ -6276,11 +6288,34 @@ class AgriController {
     @GetMapping("/crop-packs")
     ResponseEntity<?> cropPacks() { return ok(engine.cropPacks()); }
 
+    @PostMapping("/crop-packs")
+    ResponseEntity<?> createCropPack(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_REQUIRED", "只有系统管理员可以新增作物包");
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(engine.createCropPack(body == null ? Map.of() : body, p)));
+    }
+
+    @PutMapping("/crop-packs/{cropCode}/{version}")
+    ResponseEntity<?> updateCropPack(@PathVariable String cropCode, @PathVariable String version,
+                                     @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_REQUIRED", "只有系统管理员可以编辑作物包");
+        return ok(engine.updateCropPack(cropCode, version, body == null ? Map.of() : body, p));
+    }
+
+    @DeleteMapping("/crop-packs/{cropCode}/{version}")
+    ResponseEntity<?> deleteCropPack(@PathVariable String cropCode, @PathVariable String version, Authentication a) {
+        UserPrincipal p = principal(a);
+        if (!p.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_REQUIRED", "只有系统管理员可以删除作物包");
+        engine.deleteCropPack(cropCode, version);
+        return ok(Map.of("success", true));
+    }
+
     @PatchMapping("/crop-packs/{cropCode}/{version}/status")
     ResponseEntity<?> updateCropPackStatus(@PathVariable String cropCode, @PathVariable String version, @RequestBody Map<String, Object> body, Authentication a) {
-        if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "只有系统管理员可以修改作物包状态");
-        engine.updateCropPackStatus(cropCode, version, Jsons.text(body, "status", "DRAFT"));
-        return ok(Map.of("success", true));
+        UserPrincipal p = principal(a);
+        if (!p.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_REQUIRED", "只有系统管理员可以修改作物包状态");
+        return ok(engine.updateCropPackStatus(cropCode, version, Jsons.text(body, "status", "DRAFT"), p));
     }
 
     @GetMapping("/crop-manuals")

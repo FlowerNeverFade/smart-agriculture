@@ -1052,16 +1052,35 @@ export function mapAdminAlert(alert = {}, plotMap = new Map()) {
 
 export function mapCropPack(pack = {}) {
   const identity = pack.identity || {};
-  const rawStatus = text(pack.status, 'published').toLowerCase();
+  const backendStatus = text(pack.backendStatus || pack.status, 'ACTIVE').toUpperCase();
+  const rawStatus = ['ACTIVE', 'PUBLISHED', 'ENABLED'].includes(backendStatus) ? 'published' : 'draft';
+  const knowledge = pack.knowledge && typeof pack.knowledge === 'object' ? pack.knowledge : {};
+  let docs = Array.isArray(knowledge.docs) ? knowledge.docs : Array.isArray(pack.knowledgeDocs) ? pack.knowledgeDocs : [];
+  if (!docs.length && Array.isArray(knowledge.documents) && knowledge.documents.some((doc) => doc && typeof doc === 'object')) docs = knowledge.documents;
+  if (!docs.length && Array.isArray(knowledge.content) && knowledge.content.length) {
+    const content = knowledge.content.map((line) => String(line || '').trim()).filter(Boolean).join('\n');
+    if (content) docs = [{ id: `${pack.cropCode || 'crop'}-summary`, title: '知识摘要', content }];
+  }
+  docs = docs.map((doc, index) => {
+    if (typeof doc === 'string') return { id: `${pack.cropCode || 'crop'}-doc-${index + 1}`, title: doc.split('/').pop()?.replace(/\.md$/i, '') || `知识文档 ${index + 1}`, content: '' };
+    return {
+      ...doc,
+      id: doc?.id || `${pack.cropCode || 'crop'}-doc-${index + 1}`,
+      title: text(doc?.title || doc?.name, `知识文档 ${index + 1}`).replace(/^#+\s*/, '').trim(),
+      content: text(doc?.content || doc?.body || doc?.markdown, '').replace(/^#+\s.*$/gm, '').replace(/^>\s?/gm, '').trim()
+    };
+  });
   return {
     ...pack,
     id: text(pack.id || pack.cropCode, `pack-${Date.now()}`),
-    icon: CROP_LABELS[pack.cropCode] ? ({ tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓', pepper: '🌶️' }[pack.cropCode] || '🌱') : '🌱',
+    icon: text(pack.icon, CROP_LABELS[pack.cropCode] ? ({ tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓', pepper: '🌶️' }[pack.cropCode] || '🌱') : '🌱'),
     name: text(identity.name || pack.cropName, text(pack.cropCode, '未命名作物')),
     status: rawStatus,
+    backendStatus,
     statusLabel: rawStatus === 'published' ? '已发布' : '草稿',
     stages: asArray(pack.stages).map((stage) => typeof stage === 'string' ? stage : text(stage.label || stage.code, '未命名阶段')),
-    knowledgeDocs: asArray(pack.knowledge?.content || pack.knowledgeDocs).map((doc) => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }),
+    knowledgeDocs: docs,
+    knowledge: { ...knowledge, docs },
     availableForPlanting: pack.availableForPlanting !== false,
     dataOrigin: 'BACKEND'
   };

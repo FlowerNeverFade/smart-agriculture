@@ -126,6 +126,32 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/crop-packs:
     get: {tags: [farm], responses: {'200': {description: 后端实际 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+    post: {tags: [farm], description: 系统管理员新增一个由数据库持久化并供三个角色共用的作物包, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 作物包已创建}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 相同作物编号和版本已存在}}}
+  /api/v1/crop-packs/{cropCode}/{version}:
+    put:
+      tags: [farm]
+      description: 系统管理员更新作物包；未出现在简化编辑表单中的规则与农艺字段会保留
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses: {'200': {description: 作物包已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
+    delete:
+      tags: [farm]
+      description: 删除用户维护的作物包版本；内置目录不会被物理删除
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      responses: {'200': {description: 用户维护版本已删除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}, '409': {description: 内置作物包不可删除}}
+  /api/v1/crop-packs/{cropCode}/{version}/status:
+    patch:
+      tags: [farm]
+      description: 系统管理员发布作物包或转为草稿；状态通过数据库在三个角色间共享
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses: {'200': {description: 作物包状态已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
   /api/v1/crop-manuals:
     get: {tags: [farm], responses: {'200': {description: 作物培养手册目录，来自当前发布的 Crop Pack}}}
   /api/v1/crop-manuals/{cropCode}:

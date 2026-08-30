@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -20,6 +21,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 /**
  * Versioned Crop Pack directory plus stage-aware resolution.
@@ -29,6 +32,8 @@ import java.util.Set;
  */
 @Service
 class CropPackCatalog {
+    private static final Pattern CROP_CODE_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9_-]{1,63}$");
+    private static final Pattern VERSION_PATTERN = Pattern.compile("^[0-9]+\\.[0-9]+\\.[0-9]+$");
     private static final Map<String, String> STAGE_LABELS = Map.of(
             "seedling", "苗期",
             "vegetative", "营养生长期",
@@ -72,10 +77,14 @@ class CropPackCatalog {
             "UNKNOWN", 0.58);
 
     private final ObjectMapper mapper;
+    private final AgriStore store;
     private volatile List<Map<String, Object>> packs = List.of();
+    /** Immutable baseline used to reveal a built-in pack after an override is deleted. */
+    private volatile List<Map<String, Object>> builtInPacks = List.of();
 
-    CropPackCatalog(ObjectMapper mapper) {
+    CropPackCatalog(ObjectMapper mapper, AgriStore store) {
         this.mapper = mapper;
+        this.store = store;
     }
 
     @PostConstruct
@@ -91,28 +100,405 @@ class CropPackCatalog {
                     if (!(value instanceof Map<?, ?> raw)) continue;
                     Map<String, Object> pack = mapper.convertValue(raw, Map.class);
                     enrichPack(pack, resolver);
+                    pack.putIfAbsent("sourceMode", "BUILT_IN");
+                    pack.putIfAbsent("builtIn", true);
                     loaded.add(pack);
                 }
             }
         } catch (Exception error) {
             throw new IllegalStateException("Crop Pack 加载失败", error);
         }
-        loaded.sort(Comparator.comparing(pack -> Jsons.text(pack, "cropCode", "")));
-        packs = List.copyOf(loaded);
+        loaded.sort(packComparator());
+        builtInPacks = loaded.stream().map(pack -> Jsons.copy(mapper, pack)).toList();
+        packs = mergeManagedPacks(loaded);
     }
 
     List<Map<String, Object>> all() {
         return packs.stream().map(pack -> Jsons.copy(mapper, pack)).toList();
     }
 
-    void updateStatus(String cropCode, String version, String status) {
-        for (Map<String, Object> pack : packs) {
-            if (cropCode.equalsIgnoreCase(Jsons.text(pack, "cropCode", "")) &&
-                (version == null || version.isBlank() || version.equals(Jsons.text(pack, "version", "")))) {
-                pack.put("status", status);
+    /**
+     * Status changes are persisted as a managed override, even when the pack
+     * started life in the classpath catalog. This keeps all role workspaces in
+     * sync after a restart and avoids the old in-memory-only behaviour.
+     */
+    synchronized Map<String, Object> updateStatus(String cropCode, String version, String status, UserPrincipal principal) {
+        Map<String, Object> existing = findMutable(cropCode, version);
+        if (existing == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "CROP_PACK_NOT_FOUND", "没有找到要更新的作物包");
+        }
+        existing.put("status", normalisePackStatus(status));
+        markManaged(existing, principal == null ? "" : principal.userId);
+        persistPack(existing);
+        replacePack(existing);
+        return Jsons.copy(mapper, existing);
+    }
+
+    /** Create a user-managed pack shared by every role through AgriStore. */
+    synchronized Map<String, Object> create(Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> body = input == null ? Map.of() : input;
+        String cropCode = normaliseCropCode(Jsons.text(body, "cropCode", Jsons.text(body, "id", "")));
+        String version = normaliseVersion(Jsons.text(body, "version", "1.0.0"));
+        if (findMutable(cropCode, version) != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "CROP_PACK_EXISTS", "相同作物编号和版本的作物包已存在");
+        }
+        Map<String, Object> pack = canonicalisePack(body, null, cropCode, version);
+        markManaged(pack, principal == null ? "" : principal.userId);
+        persistPack(pack);
+        replacePack(pack);
+        return Jsons.copy(mapper, pack);
+    }
+
+    /** Update a complete or partial user-managed pack without dropping hidden agronomic fields. */
+    synchronized Map<String, Object> update(String cropCode, String version, Map<String, Object> input, UserPrincipal principal) {
+        String normalizedCrop = normaliseCropCode(cropCode);
+        String normalizedVersion = normaliseVersion(version);
+        Map<String, Object> existing = findMutable(normalizedCrop, normalizedVersion);
+        if (existing == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "CROP_PACK_NOT_FOUND", "没有找到要编辑的作物包");
+        }
+        Map<String, Object> pack = canonicalisePack(input == null ? Map.of() : input, existing, normalizedCrop, normalizedVersion);
+        markManaged(pack, principal == null ? "" : principal.userId);
+        persistPack(pack);
+        replacePack(pack);
+        return Jsons.copy(mapper, pack);
+    }
+
+    /** Delete only a managed pack/override; built-in catalog entries stay available. */
+    synchronized void delete(String cropCode, String version) {
+        String normalizedCrop = normaliseCropCode(cropCode);
+        String normalizedVersion = normaliseVersion(version);
+        Map<String, Object> existing = findMutable(normalizedCrop, normalizedVersion);
+        if (existing == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "CROP_PACK_NOT_FOUND", "没有找到要删除的作物包");
+        }
+        if (Jsons.bool(existing, "builtIn", false)
+                || !"USER_MANAGED".equalsIgnoreCase(Jsons.text(existing, "sourceMode", ""))) {
+            throw new ApiException(HttpStatus.CONFLICT, "CROP_PACK_BUILTIN", "内置作物包不能删除，可编辑后作为版本覆盖");
+        }
+        store.delete("crop-pack", packKey(normalizedCrop, normalizedVersion));
+        reloadManagedPacks();
+    }
+
+    private Comparator<Map<String, Object>> packComparator() {
+        return Comparator.comparing((Map<String, Object> pack) -> Jsons.text(pack, "cropCode", ""))
+                .thenComparing(pack -> Jsons.text(pack, "version", ""));
+    }
+
+    private String packKey(String cropCode, String version) {
+        return normaliseCropCode(cropCode).toLowerCase(Locale.ROOT) + "@" + normaliseVersion(version);
+    }
+
+    private Map<String, Object> findMutable(String cropCode, String version) {
+        if (cropCode == null || cropCode.isBlank()) return null;
+        return packs.stream()
+                .filter(pack -> cropCode.equalsIgnoreCase(Jsons.text(pack, "cropCode", "")))
+                .filter(pack -> version == null || version.isBlank() || version.equals(Jsons.text(pack, "version", "")))
+                .findFirst()
+                .map(pack -> Jsons.copy(mapper, pack))
+                .orElse(null);
+    }
+
+    private void replacePack(Map<String, Object> updated) {
+        String key = packKey(Jsons.text(updated, "cropCode", ""), Jsons.text(updated, "version", "1.0.0"));
+        List<Map<String, Object>> next = new ArrayList<>();
+        boolean replaced = false;
+        for (Map<String, Object> current : packs) {
+            String currentKey = packKey(Jsons.text(current, "cropCode", ""), Jsons.text(current, "version", "1.0.0"));
+            if (key.equals(currentKey)) {
+                next.add(Jsons.copy(mapper, updated));
+                replaced = true;
+            } else {
+                next.add(Jsons.copy(mapper, current));
             }
         }
+        if (!replaced) next.add(Jsons.copy(mapper, updated));
+        next.sort(packComparator());
+        packs = List.copyOf(next);
     }
+
+    private void persistPack(Map<String, Object> pack) {
+        store.save("crop-pack", packKey(Jsons.text(pack, "cropCode", ""), Jsons.text(pack, "version", "1.0.0")), pack);
+    }
+
+    private List<Map<String, Object>> mergeManagedPacks(List<Map<String, Object>> base) {
+        Map<String, Map<String, Object>> byKey = new LinkedHashMap<>();
+        for (Map<String, Object> pack : base) {
+            byKey.put(packKey(Jsons.text(pack, "cropCode", ""), Jsons.text(pack, "version", "1.0.0")), Jsons.copy(mapper, pack));
+        }
+        for (Map<String, Object> stored : store.list("crop-pack")) {
+            String cropCode = Jsons.text(stored, "cropCode", "");
+            String version = Jsons.text(stored, "version", "");
+            if (cropCode.isBlank() || version.isBlank()) continue;
+            Map<String, Object> copy = Jsons.copy(mapper, stored);
+            byKey.put(packKey(cropCode, version), copy);
+        }
+        List<Map<String, Object>> merged = new ArrayList<>(byKey.values());
+        merged.sort(packComparator());
+        return List.copyOf(merged);
+    }
+
+    private synchronized void reloadManagedPacks() {
+        packs = mergeManagedPacks(builtInPacks.stream().map(pack -> Jsons.copy(mapper, pack)).toList());
+    }
+
+    private String normaliseCropCode(String value) {
+        String normalized = String.valueOf(value == null ? "" : value).trim().toLowerCase(Locale.ROOT);
+        if (!CROP_CODE_PATTERN.matcher(normalized).matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CROP_PACK_CODE_INVALID", "作物编号需为 2~64 位字母、数字、下划线或短横线");
+        }
+        return normalized;
+    }
+
+    private String normaliseVersion(String value) {
+        String normalized = String.valueOf(value == null ? "" : value).trim();
+        if (!VERSION_PATTERN.matcher(normalized).matches()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CROP_PACK_VERSION_INVALID", "作物包版本需使用类似 1.0.0 的格式");
+        }
+        return normalized;
+    }
+
+    private String normalisePackStatus(String value) {
+        String key = String.valueOf(value == null ? "DRAFT" : value).trim().toUpperCase(Locale.ROOT);
+        return switch (key) {
+            case "ACTIVE", "PUBLISHED", "ENABLED" -> "ACTIVE";
+            case "DRAFT", "INACTIVE", "DISABLED", "ARCHIVED" -> "DRAFT";
+            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "CROP_PACK_STATUS_INVALID", "作物包状态只能是已发布或草稿");
+        };
+    }
+
+    private void markManaged(Map<String, Object> pack, String actor) {
+        pack.put("sourceMode", "USER_MANAGED");
+        pack.putIfAbsent("builtIn", false);
+        pack.put("updatedAt", Instant.now().toString());
+        if (actor != null && !actor.isBlank()) pack.put("updatedBy", actor);
+        pack.put("status", normalisePackStatus(Jsons.text(pack, "status", "DRAFT")));
+        pack.put("id", Jsons.text(pack, "id", Jsons.text(pack, "cropCode", "")));
+    }
+
+    /**
+     * Convert the compact editor payload used by both web workspaces into a
+     * complete Crop Pack. Existing hidden fields (targets, rules and forecast
+     * constraints) are deliberately retained when an editor only changes the
+     * name, stages or knowledge documents.
+     */
+    private Map<String, Object> canonicalisePack(Map<String, Object> input,
+                                                  Map<String, Object> existing,
+                                                  String cropCode,
+                                                  String version) {
+        Map<String, Object> pack = existing == null ? new LinkedHashMap<>() : Jsons.copy(mapper, existing);
+        if (input != null) {
+            Set<String> editorOnly = Set.of("id", "name", "icon", "knowledgeDocs", "availableForPlanting", "status", "cropCode", "version");
+            for (Map.Entry<String, Object> entry : input.entrySet()) {
+                if (editorOnly.contains(entry.getKey()) || entry.getValue() == null) continue;
+                pack.put(entry.getKey(), copyValue(entry.getValue()));
+            }
+        }
+        pack.put("cropCode", cropCode);
+        pack.put("version", version);
+        pack.putIfAbsent("schemaVersion", "1.0");
+        pack.put("status", normalisePackStatus(Jsons.text(input, "status", Jsons.text(pack, "status", "DRAFT"))));
+
+        Map<String, Object> identity = Jsons.map(mapper, pack.get("identity"));
+        Map<String, Object> inputIdentity = Jsons.map(mapper, input == null ? null : input.get("identity"));
+        identity.putAll(inputIdentity);
+        String name = Jsons.text(input, "name", Jsons.text(identity, "name", "")).trim();
+        if (name.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CROP_PACK_NAME_REQUIRED", "请填写作物名称");
+        }
+        identity.put("name", name);
+        identity.putIfAbsent("variety", "通用品种");
+        identity.putIfAbsent("region", "本地");
+        identity.putIfAbsent("environment", "greenhouse");
+        pack.put("identity", identity);
+        if (input != null && input.containsKey("icon")) pack.put("icon", Jsons.text(input, "icon", "🌱"));
+        pack.putIfAbsent("icon", "🌱");
+        if (input != null && input.containsKey("availableForPlanting")) {
+            pack.put("availableForPlanting", Jsons.bool(input, "availableForPlanting", true));
+        } else {
+            pack.putIfAbsent("availableForPlanting", true);
+        }
+
+        List<Map<String, Object>> oldStages = Jsons.maps(mapper, pack.get("stages"));
+        Object rawStages = input != null && input.containsKey("stages") ? input.get("stages") : oldStages;
+        List<Map<String, Object>> stages = normaliseStages(rawStages, oldStages);
+        if (stages.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "CROP_PACK_STAGES_REQUIRED", "至少需要一个生长阶段");
+        pack.put("stages", stages);
+
+        List<Map<String, Object>> metrics = Jsons.maps(mapper, pack.get("metrics"));
+        if (metrics.isEmpty()) metrics = defaultMetrics();
+        metrics.forEach(metric -> {
+            String code = Jsons.text(metric, "code", "");
+            metric.putIfAbsent("label", METRIC_LABELS.getOrDefault(code, code));
+            metric.putIfAbsent("unit", defaultMetricUnit(code));
+            metric.putIfAbsent("availability", "SIMULATION_ONLY");
+        });
+        pack.put("metrics", metrics);
+
+        List<Map<String, Object>> rules = Jsons.maps(mapper, pack.get("rules"));
+        if (rules.isEmpty()) rules = defaultRules();
+        pack.put("rules", rules);
+        if (!(pack.get("healthProfile") instanceof Map<?, ?>)) pack.put("healthProfile", defaultHealthProfile());
+        if (!(pack.get("prescriptionConstraints") instanceof Map<?, ?>)) pack.put("prescriptionConstraints", defaultPrescriptionConstraints());
+        if (!(pack.get("forecastProfile") instanceof Map<?, ?>)) pack.put("forecastProfile", defaultForecastProfile());
+        if (!(pack.get("scenarios") instanceof Map<?, ?>)) pack.put("scenarios", defaultScenarios());
+        pack.putIfAbsent("ruleVersion", "rule-1.0.0");
+        pack.putIfAbsent("knowledgeVersion", "kb-1.0.0");
+
+        Map<String, Object> knowledge = Jsons.map(mapper, pack.get("knowledge"));
+        Object rawDocs = input != null && input.containsKey("knowledgeDocs")
+                ? input.get("knowledgeDocs") : knowledge.get("docs");
+        if (rawDocs == null) rawDocs = knowledge.get("documents");
+        List<Map<String, Object>> docs = normaliseKnowledgeDocs(rawDocs, cropCode, stages);
+        if (docs.isEmpty() && existing != null) docs = normaliseKnowledgeDocs(Jsons.map(mapper, existing.get("knowledge")).get("docs"), cropCode, stages);
+        knowledge.put("docs", docs);
+        knowledge.put("documents", docs.stream().map(doc -> Jsons.text(doc, "source", Jsons.text(doc, "id", ""))).filter(s -> !s.isBlank()).toList());
+        knowledge.put("fallback", List.of("plot", "region", "stage", "crop", "general"));
+        knowledge.put("byStage", docsByStage(docs, stages));
+        knowledge.put("content", docs.stream().map(doc -> Jsons.text(doc, "content", "")).filter(s -> !s.isBlank()).toList());
+        pack.put("knowledge", knowledge);
+        return pack;
+    }
+
+    private Object copyValue(Object value) {
+        if (value == null) return null;
+        return mapper.convertValue(value, Object.class);
+    }
+
+    private List<Map<String, Object>> normaliseStages(Object raw, List<Map<String, Object>> existing) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (raw instanceof Collection<?> values) {
+            int index = 0;
+            for (Object value : values) {
+                Map<String, Object> stage;
+                if (value instanceof Map<?, ?>) {
+                    stage = Jsons.map(mapper, value);
+                } else {
+                    String label = String.valueOf(value == null ? "" : value).trim();
+                    if (label.isBlank()) continue;
+                    stage = index < existing.size() ? Jsons.copy(mapper, existing.get(index)) : new LinkedHashMap<>();
+                    stage.put("label", label);
+                }
+                String label = Jsons.text(stage, "label", Jsons.text(stage, "code", "阶段 " + (index + 1))).trim();
+                if (label.isBlank()) label = "阶段 " + (index + 1);
+                stage.put("label", label);
+                stage.putIfAbsent("code", stageCode(label, index));
+                stage.putIfAbsent("sequence", index + 1);
+                Map<String, Object> target = Jsons.map(mapper, stage.get("target"));
+                if (target.isEmpty()) target = defaultStageTarget(index);
+                stage.put("target", target);
+                if (!(stage.get("riskFocus") instanceof Collection<?>)) stage.put("riskFocus", List.of("WATER_DEFICIT"));
+                if (!(stage.get("taskTemplates") instanceof Collection<?>)) stage.put("taskTemplates", List.of(Map.of("actionType", "INSPECTION", "intervalDays", 2, "priority", "MEDIUM")));
+                result.add(stage);
+                index++;
+            }
+        }
+        if (result.isEmpty() && existing != null) result = existing.stream().map(stage -> Jsons.copy(mapper, stage)).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        return result;
+    }
+
+    private String stageCode(String label, int index) {
+        String normalized = label.toLowerCase(Locale.ROOT);
+        for (Map.Entry<String, String> entry : STAGE_LABELS.entrySet()) if (label.equals(entry.getValue()) || normalized.contains(entry.getKey())) return entry.getKey();
+        String slug = normalized.replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+        return slug.isBlank() ? "stage-" + (index + 1) : slug;
+    }
+
+    private List<Map<String, Object>> normaliseKnowledgeDocs(Object raw, String cropCode, List<Map<String, Object>> stages) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!(raw instanceof Collection<?> values)) return result;
+        int index = 0;
+        for (Object value : values) {
+            Map<String, Object> doc = new LinkedHashMap<>();
+            if (value instanceof Map<?, ?>) doc.putAll(Jsons.map(mapper, value));
+            else if (value != null) doc.put("title", String.valueOf(value));
+            String source = Jsons.text(doc, "source", "").trim();
+            String title = Jsons.text(doc, "title", Jsons.text(doc, "name", "")).trim();
+            String markdown = Jsons.text(doc, "markdown", "");
+            String content = Jsons.text(doc, "content", Jsons.text(doc, "body", ""));
+            if (content.isBlank() && !markdown.isBlank()) content = cleanDocumentText(markdown);
+            if (title.isBlank() && !source.isBlank()) title = source.substring(source.lastIndexOf('/') + 1).replaceAll("\\.md$", "");
+            if (title.isBlank()) title = "知识文档 " + (index + 1);
+            if (source.isBlank()) source = "crop-packs/" + cropCode + "/knowledge/doc-" + (index + 1) + ".md";
+            String id = Jsons.text(doc, "id", cropCode + "-doc-" + (index + 1));
+            doc.put("id", id); doc.put("title", title); doc.put("content", content.trim()); doc.put("source", source);
+            String stageCode = Jsons.text(doc, "stageCode", "").trim();
+            if (stageCode.isBlank() && stages.size() == 1) stageCode = Jsons.text(stages.get(0), "code", "");
+            if (!stageCode.isBlank()) doc.put("stageCode", stageCode);
+            result.add(doc);
+            index++;
+        }
+        return result;
+    }
+
+    private Map<String, Object> docsByStage(List<Map<String, Object>> docs, List<Map<String, Object>> stages) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map<String, Object> doc : docs) {
+            String stageCode = Jsons.text(doc, "stageCode", "");
+            if (stageCode.isBlank()) stageCode = inferStageFromSource(Jsons.text(doc, "source", ""), stages);
+            if (!stageCode.isBlank()) result.put(stageCode, Jsons.text(doc, "content", ""));
+        }
+        return result;
+    }
+
+    private String inferStageFromSource(String source, List<Map<String, Object>> stages) {
+        String lower = source.toLowerCase(Locale.ROOT);
+        for (Map<String, Object> stage : stages) {
+            String code = Jsons.text(stage, "code", "");
+            if (!code.isBlank() && lower.contains(code.toLowerCase(Locale.ROOT))) return code;
+        }
+        return "";
+    }
+
+    private String cleanDocumentText(String markdown) {
+        if (markdown == null || markdown.isBlank()) return "";
+        return java.util.Arrays.stream(markdown.split("\\R"))
+                .map(String::trim)
+                .filter(line -> !line.isBlank() && !line.matches("^#{1,6}\\s*.*") && !line.matches("^[-*_]{3,}$"))
+                .map(line -> line.replaceFirst("^[-*+]\\s+", "").replaceFirst("^>\\s*", ""))
+                .collect(Collectors.joining("\\n"));
+    }
+
+    private Map<String, Object> defaultStageTarget(int index) {
+        int offset = Math.min(index, 3);
+        Map<String, Object> target = new LinkedHashMap<>();
+        target.put("soilMoistureLow", 30 - offset * 3); target.put("soilMoistureHigh", 50 - offset * 3);
+        target.put("airTemperatureLow", 18); target.put("airTemperatureHigh", 30 + Math.min(offset, 2));
+        target.put("airHumidityLow", 55); target.put("airHumidityHigh", 80);
+        target.put("lightLow", 15000 + offset * 5000); target.put("lightHigh", 30000 + offset * 5000);
+        target.put("co2Low", 400 + offset * 50); target.put("co2High", 800 + offset * 50);
+        target.put("phLow", 5.8); target.put("phHigh", 6.8); target.put("waterLevelLow", 30); target.put("waterLevelHigh", 95);
+        return target;
+    }
+
+    private List<Map<String, Object>> defaultMetrics() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        result.add(metric("SOIL_MOISTURE", "%", "SUPPORTED", 0, 100));
+        result.add(metric("AIR_TEMPERATURE", "°C", "SUPPORTED", -40, 80));
+        result.add(metric("AIR_HUMIDITY", "%RH", "SUPPORTED", 0, 100));
+        result.add(metric("LIGHT", "lux", "SIMULATION_ONLY", 0, 100000));
+        result.add(metric("CO2", "ppm", "SIMULATION_ONLY", 0, 10000));
+        result.add(metric("PH", "pH", "SIMULATION_ONLY", 0, 14));
+        result.add(metric("WATER_LEVEL", "%", "SUPPORTED", 0, 100));
+        return result;
+    }
+
+    private Map<String, Object> metric(String code, String unit, String availability, double min, double max) {
+        Map<String, Object> metric = new LinkedHashMap<>(); metric.put("code", code); metric.put("label", METRIC_LABELS.getOrDefault(code, code)); metric.put("unit", unit); metric.put("availability", availability); metric.put("range", Map.of("min", min, "max", max)); return metric;
+    }
+
+    private String defaultMetricUnit(String code) { return switch (code) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_TEMPERATURE" -> "°C"; case "AIR_HUMIDITY" -> "%RH"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; default -> ""; }; }
+
+    private List<Map<String, Object>> defaultRules() {
+        return List.of(
+                new LinkedHashMap<>(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 25, "durationMinutes", 5, "hysteresis", 2, "cooldownMinutes", 120)),
+                new LinkedHashMap<>(Map.of("code", "HEAT_STRESS", "metric", "AIR_TEMPERATURE", "operator", "GT", "threshold", 35, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
+                new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)));
+    }
+
+    private Map<String, Object> defaultPrescriptionConstraints() { return new LinkedHashMap<>(Map.of("maxDurationSeconds", 900, "cooldownMinutes", 120, "maxDailyWaterLitres", 5000)); }
+    private Map<String, Object> defaultForecastProfile() { return new LinkedHashMap<>(Map.of("algorithm", "robust-trend-v1", "horizonsMinutes", List.of(60, 120, 240), "minValidSamples", 6, "maxStalenessSeconds", 120)); }
+    private Map<String, Object> defaultScenarios() { return new LinkedHashMap<>(Map.of("normal", Map.of("quality", "GOOD", "expected", "stable"), "drought", Map.of("quality", "GOOD", "expected", "soil_moisture_decline"), "heavy-rain", Map.of("quality", "GOOD", "expected", "soil_moisture_rise"), "sensor-drift", Map.of("quality", "DEGRADED", "expected", "quality_gate"), "device-offline", Map.of("quality", "BAD", "expected", "device_gate"))); }
 
     Map<String, Object> require(String cropCode, String version) {
         return packs.stream()
@@ -213,6 +599,7 @@ class CropPackCatalog {
         Map<String, Object> identity = Jsons.map(mapper, pack.get("identity"));
         Map<String, Object> knowledge = Jsons.map(mapper, pack.get("knowledge"));
         List<String> stageKnowledge = knowledgeLines(pack, Jsons.text(stage, "code", ""));
+        List<Map<String, Object>> knowledgeDocs = Jsons.maps(mapper, knowledge.get("docs"));
         Map<String, Object> handbook = new LinkedHashMap<>();
         handbook.put("cropCode", pack.get("cropCode"));
         handbook.put("version", pack.get("version"));
@@ -226,15 +613,16 @@ class CropPackCatalog {
         handbook.put("rules", resolved.get("effectiveRules"));
         handbook.put("riskFocus", stage.get("riskFocus"));
         handbook.put("taskTemplates", stage.get("taskTemplates"));
-        handbook.put("knowledge", Map.of(
-                "documents", knowledge.getOrDefault("documents", List.of()),
-                "fallback", knowledge.getOrDefault("fallback", List.of()),
-                "content", stageKnowledge,
-                "evidenceScope", "作物：" + identity.getOrDefault("name", pack.get("cropCode"))
-                        + "，阶段：" + Jsons.text(stage, "label", Jsons.text(stage, "code", ""))
-                        + "，地区：" + identity.getOrDefault("region", "本地")
-                        + "，知识版本：" + resolved.get("knowledgeVersion")
-        ));
+        Map<String, Object> handbookKnowledge = new LinkedHashMap<>();
+        handbookKnowledge.put("documents", knowledge.getOrDefault("documents", List.of()));
+        handbookKnowledge.put("docs", knowledgeDocs);
+        handbookKnowledge.put("fallback", knowledge.getOrDefault("fallback", List.of()));
+        handbookKnowledge.put("content", stageKnowledge);
+        handbookKnowledge.put("evidenceScope", "作物：" + identity.getOrDefault("name", pack.get("cropCode"))
+                + "，阶段：" + Jsons.text(stage, "label", Jsons.text(stage, "code", ""))
+                + "，地区：" + identity.getOrDefault("region", "本地")
+                + "，知识版本：" + resolved.get("knowledgeVersion"));
+        handbook.put("knowledge", handbookKnowledge);
         handbook.put("provenance", "DERIVED");
         handbook.put("sourceMode", "CROP_PACK");
         return handbook;
@@ -372,12 +760,30 @@ class CropPackCatalog {
         if (!(pack.get("healthProfile") instanceof Map<?, ?>)) {
             pack.put("healthProfile", defaultHealthProfile());
         }
-        Map<String, String> documents = loadKnowledgeDocuments(Jsons.text(pack, "cropCode", ""), resolver);
         Map<String, Object> knowledge = Jsons.map(mapper, pack.get("knowledge"));
+        Map<String, String> documents = loadKnowledgeDocuments(Jsons.text(pack, "cropCode", ""), resolver);
         knowledge.putIfAbsent("fallback", List.of("plot", "region", "stage", "crop", "general"));
-        knowledge.put("byStage", documents);
+        List<Map<String, Object>> existingDocs = Jsons.maps(mapper, knowledge.get("docs"));
+        List<Map<String, Object>> catalogDocs = existingDocs.isEmpty()
+                ? knowledgeDocuments(Jsons.text(pack, "cropCode", ""), documents, stages)
+                : existingDocs;
+        if (!catalogDocs.isEmpty()) knowledge.put("docs", catalogDocs);
+        knowledge.put("documentSources", documents.keySet().stream().map(key -> "crop-packs/" + Jsons.text(pack, "cropCode", "") + "/knowledge/" + key + ".md").toList());
+        Map<String, Object> byStage = new LinkedHashMap<>();
+        if (!documents.isEmpty()) byStage.putAll(documents);
+        if (!catalogDocs.isEmpty()) {
+            for (Map<String, Object> doc : catalogDocs) {
+                String stageCode = Jsons.text(doc, "stageCode", "");
+                if (stageCode.isBlank()) stageCode = inferStageFromSource(Jsons.text(doc, "source", ""), stages);
+                if (!stageCode.isBlank() && !Jsons.text(doc, "content", "").isBlank()) byStage.put(stageCode, Jsons.text(doc, "content", ""));
+            }
+        }
+        knowledge.put("byStage", byStage);
         String fallbackStage = stages.isEmpty() ? "" : Jsons.text(stages.get(stages.size() - 1), "code", "fruiting");
-        List<String> catalogContent = documentLines(documents.getOrDefault(fallbackStage, documents.getOrDefault("irrigation", "")));
+        List<String> catalogContent = documentLines(Jsons.text(byStage, fallbackStage, Jsons.text(byStage, "irrigation", "")));
+        if (catalogContent.isEmpty() && !catalogDocs.isEmpty()) {
+            catalogContent = documentLines(Jsons.text(catalogDocs.get(0), "content", ""));
+        }
         knowledge.put("content", catalogContent);
         pack.put("knowledge", knowledge);
         Map<String, Object> lastTarget = stages.isEmpty() ? Map.of() : Jsons.map(mapper, stages.get(stages.size() - 1).get("target"));
@@ -399,6 +805,39 @@ class CropPackCatalog {
             return documents;
         }
         return documents;
+    }
+
+    private List<Map<String, Object>> knowledgeDocuments(String cropCode,
+                                                          Map<String, String> documents,
+                                                          List<Map<String, Object>> stages) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        int index = 0;
+        for (Map.Entry<String, String> entry : documents.entrySet()) {
+            String key = entry.getKey();
+            String markdown = entry.getValue() == null ? "" : entry.getValue();
+            String title = firstMarkdownHeading(markdown);
+            if (title.isBlank()) title = STAGE_LABELS.getOrDefault(key, key);
+            Map<String, Object> doc = new LinkedHashMap<>();
+            doc.put("id", cropCode + "-" + key);
+            doc.put("title", title);
+            doc.put("content", cleanDocumentText(markdown));
+            doc.put("markdown", markdown);
+            doc.put("source", "crop-packs/" + cropCode + "/knowledge/" + key + ".md");
+            String stageCode = inferStageFromSource(key, stages);
+            if (!stageCode.isBlank()) doc.put("stageCode", stageCode);
+            result.add(doc);
+            index++;
+        }
+        return result;
+    }
+
+    private String firstMarkdownHeading(String markdown) {
+        if (markdown == null) return "";
+        for (String line : markdown.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.matches("^#{1,6}\\s+.+")) return trimmed.replaceFirst("^#{1,6}\\s+", "").trim();
+        }
+        return "";
     }
 
     private Map<String, Object> resolveStage(Map<String, Object> pack, String stageCode) {
@@ -571,6 +1010,15 @@ class CropPackCatalog {
         Map<String, Object> byStage = Jsons.map(mapper, knowledge.get("byStage"));
         String text = Jsons.text(byStage, stageCode, "");
         if (text.isBlank()) text = Jsons.text(byStage, "irrigation", "");
+        if (text.isBlank()) {
+            for (Map<String, Object> doc : Jsons.maps(mapper, knowledge.get("docs"))) {
+                String docStage = Jsons.text(doc, "stageCode", "");
+                if (stageCode.isBlank() || docStage.isBlank() || stageCode.equalsIgnoreCase(docStage)) {
+                    text = Jsons.text(doc, "content", "");
+                    if (!text.isBlank()) break;
+                }
+            }
+        }
         return documentLines(text);
     }
 

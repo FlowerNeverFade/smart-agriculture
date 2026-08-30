@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-load-resilience-1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-crop-pack-sync-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -42,7 +42,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260827-boot-fix-1';
+} from './live-data.js?v=20260830-crop-pack-sync-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -1049,18 +1049,20 @@ const AdminRulesView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const toast = inject('toast');
-    const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref('packs');
     const expandedPacks = ref({});
     const showPackModal = ref(false);
     const editingPackId = ref(null);
-    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true });
+    const savingPack = ref(false);
+    const emptyPackForm = () => ({ id: '', cropCode: '', version: '1.0.0', icon: '🌱', name: '', status: 'draft', stages: ['苗期'], knowledgeDocs: [{ title: '栽培要点', content: '' }], availableForPlanting: true });
+    const packForm = ref(emptyPackForm());
     const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
+    const packKey = (pack = {}) => `${pack.cropCode || pack.id || ''}@${pack.version || '1.0.0'}`;
     const togglePack = (id) => {
       expandedPacks.value[id] = !expandedPacks.value[id];
     };
     const resetPackForm = () => {
-      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true };
+      packForm.value = emptyPackForm();
       editingPackId.value = null;
     };
     const openCreatePack = () => {
@@ -1068,57 +1070,113 @@ const AdminRulesView = {
       showPackModal.value = true;
     };
     const openEditPack = (pack) => {
-      packForm.value = { ...pack, stages: [...pack.stages], knowledgeDocs: pack.knowledgeDocs.map(doc => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }) };
-      editingPackId.value = pack.id;
+      const cropCode = pack.cropCode || pack.id;
+      packForm.value = {
+        ...emptyPackForm(),
+        ...pack,
+        id: cropCode,
+        cropCode,
+        version: pack.version || '1.0.0',
+        stages: Array.isArray(pack.stages) && pack.stages.length ? [...pack.stages] : ['苗期'],
+        knowledgeDocs: Array.isArray(pack.knowledgeDocs) && pack.knowledgeDocs.length
+          ? pack.knowledgeDocs.map((doc) => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc })
+          : [{ title: '栽培要点', content: '' }]
+      };
+      editingPackId.value = packKey(pack);
       showPackModal.value = true;
     };
-    const savePack = () => {
-      if (isLiveSession.value) {
-        toast('正式作物模型包由后端版本目录维护，当前页面只提供读取，未修改本地演示数据。', 'error');
-        return;
-      }
-      const form = packForm.value;
-      if (!form.name.trim() || !form.id.trim()) return;
-      const normalized = {
-        ...form,
-        id: form.id.trim(),
-        name: form.name.trim(),
-        stages: form.stages.map(item => item.trim()).filter(Boolean),
-        knowledgeDocs: form.knowledgeDocs.map(doc => ({ title: doc.title.trim(), content: doc.content.trim() })).filter(doc => doc.title)
-      };
-      const packs = props.state.adminCropPacks;
-      if (editingPackId.value) {
-        const index = packs.findIndex(pack => pack.id === editingPackId.value);
-        if (index >= 0) packs.splice(index, 1, normalized);
-      } else if (!packs.some(pack => pack.id === normalized.id)) {
-        packs.push(normalized);
-      }
-      showPackModal.value = false;
-      resetPackForm();
+    const replacePackInState = (saved, previousKey = '') => {
+      const mapped = mapCropPack(saved);
+      const targetKey = packKey(mapped);
+      const adminPacks = props.state.adminCropPacks || (props.state.adminCropPacks = []);
+      const adminIndex = adminPacks.findIndex((item) => packKey(item) === (previousKey || targetKey));
+      if (adminIndex >= 0) adminPacks.splice(adminIndex, 1, mapped);
+      else adminPacks.push(mapped);
+      const rawPacks = props.state.cropPacks || (props.state.cropPacks = []);
+      const rawIndex = rawPacks.findIndex((item) => packKey(item) === (previousKey || targetKey));
+      if (rawIndex >= 0) rawPacks.splice(rawIndex, 1, saved);
+      else rawPacks.push(saved);
+      props.state.cropPackDetails = [...rawPacks];
+      return mapped;
     };
-    const deletePack = (pack) => {
-      if (isLiveSession.value) {
-        toast('正式作物模型包暂无删除接口，未修改后端数据。', 'error');
-        return;
+    const removePackFromState = (key) => {
+      props.state.adminCropPacks = (props.state.adminCropPacks || []).filter((item) => packKey(item) !== key);
+      props.state.cropPacks = (props.state.cropPacks || []).filter((item) => packKey(item) !== key);
+      props.state.cropPackDetails = [...props.state.cropPacks];
+      delete expandedPacks.value[key];
+    };
+    const savePack = async () => {
+      if (savingPack.value) return;
+      const form = packForm.value;
+      const cropCode = String(form.cropCode || form.id || '').trim().toLowerCase();
+      const version = String(form.version || '1.0.0').trim();
+      const name = String(form.name || '').trim();
+      const stages = (form.stages || []).map((item) => String(item || '').trim()).filter(Boolean);
+      if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(cropCode)) return toast('作物包编号需为 2~64 位字母、数字、下划线或短横线', 'error');
+      if (!/^\d+\.\d+\.\d+$/.test(version)) return toast('版本号需使用类似 1.0.0 的格式', 'error');
+      if (!name) return toast('请填写作物名称', 'error');
+      if (!stages.length) return toast('至少填写一个生长阶段', 'error');
+      const payload = {
+        cropCode,
+        version,
+        id: cropCode,
+        name,
+        icon: form.icon || '🌱',
+        status: form.status === 'published' ? 'ACTIVE' : 'DRAFT',
+        stages,
+        knowledgeDocs: (form.knowledgeDocs || []).map((doc, index) => ({
+          id: doc.id || `${cropCode}-doc-${index + 1}`,
+          title: String(doc.title || '').trim(),
+          content: String(doc.content || '').trim(),
+          stageCode: doc.stageCode || ''
+        })).filter((doc) => doc.title),
+        availableForPlanting: form.availableForPlanting !== false
+      };
+      savingPack.value = true;
+      try {
+        const previousKey = editingPackId.value || '';
+        const saved = previousKey
+          ? await api.updateCropPack(cropCode, version, payload)
+          : await api.createCropPack(payload);
+        const mapped = replacePackInState(saved, previousKey);
+        expandedPacks.value[packKey(mapped)] = true;
+        showPackModal.value = false;
+        resetPackForm();
+        toast(previousKey ? '作物包已保存，三种角色会读取同一后端版本' : '作物包已新增，三种角色会读取同一后端版本');
+      } catch (error) {
+        toast(error.message || '作物包保存失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
-      if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
-        const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
-        if (index >= 0) props.state.adminCropPacks.splice(index, 1);
+    };
+    const canDeletePack = (pack) => !pack?.builtIn && String(pack?.sourceMode || '').toUpperCase() === 'USER_MANAGED';
+    const deletePack = async (pack) => {
+      if (savingPack.value || !confirm(`确定删除作物包“${pack.name}”吗？内置版本不会被物理删除。`)) return;
+      savingPack.value = true;
+      try {
+        const key = packKey(pack);
+        await api.deleteCropPack(pack.cropCode || pack.id, pack.version || '1.0.0');
+        removePackFromState(key);
+        toast('作物包已删除，三种角色的数据目录已同步');
+      } catch (error) {
+        toast(error.message || '作物包删除失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
     };
     const togglePackStatus = async (pack) => {
+      if (savingPack.value) return;
       const nextStatus = pack.status === 'published' ? 'draft' : 'published';
-      if (isLiveSession.value) {
-        try {
-          await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
-          pack.status = nextStatus;
-          toast(`作物模型包状态已更新为“${localizedStatusLabel(nextStatus)}”`);
-        } catch (error) {
-          toast(error.message || 'Crop Pack 状态更新失败', 'error');
-        }
-        return;
+      savingPack.value = true;
+      try {
+        const saved = await api.updateCropPackStatus(pack.cropCode || pack.id, pack.version || '1.0.0', nextStatus);
+        replacePackInState(saved, packKey(pack));
+        toast(`作物包状态已更新为“${nextStatus === 'published' ? '已发布' : '草稿'}”`);
+      } catch (error) {
+        toast(error.message || '作物包状态更新失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
-      pack.status = nextStatus;
     };
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
@@ -1149,7 +1207,7 @@ const AdminRulesView = {
     });
     const masonryColumns = computed(() => {
       const cols = Array.from({ length: masonryCols.value }, () => []);
-      props.state.adminCropPacks.forEach((pack, i) => {
+      (props.state.adminCropPacks || []).forEach((pack, i) => {
         cols[i % masonryCols.value].push(pack);
       });
       return cols;
@@ -1159,7 +1217,7 @@ const AdminRulesView = {
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
     return {
-      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons,
+      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
       toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText

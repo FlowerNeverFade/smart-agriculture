@@ -597,9 +597,19 @@
 .admin-pack-availability.enabled { color: var(--g-success); }
 .admin-pack-availability .material-symbols-outlined { font-size: 15px; }
 .admin-pack-detail-grid { display: grid; gap: 8px; font-size: 12px; color: var(--g-text-secondary); }
-.admin-pack-detail-grid div { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
+.admin-pack-detail-grid > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; align-items: start; }
 .admin-pack-detail-grid strong { color: var(--g-text-primary); }
 .admin-pack-detail-grid span { line-height: 1.5; }
+.admin-knowledge-docs { display: grid; min-width: 0; gap: 7px; }
+.admin-knowledge-doc { min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: color-mix(in srgb, var(--g-bg-base) 82%, transparent); }
+.admin-knowledge-doc-toggle { display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 0; background: transparent; color: var(--g-text-primary); text-align: left; cursor: pointer; }
+.admin-knowledge-doc-toggle:hover { background: var(--g-primary-bg); }
+.admin-knowledge-doc-toggle > span { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.admin-knowledge-doc-toggle b { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.admin-knowledge-doc-toggle small { flex: 0 0 auto; padding: 2px 6px; border-radius: var(--g-radius-pill); background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 10px; }
+.admin-knowledge-doc-toggle .material-symbols-outlined { flex: 0 0 auto; color: var(--g-primary); font-size: 17px; }
+.admin-knowledge-doc > p { max-height: 260px; margin: 0; overflow: auto; padding: 10px 12px 12px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font-size: 12px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; }
+.admin-knowledge-empty { display: block; padding: 8px 10px; border: 1px dashed var(--g-border); border-radius: 9px; color: var(--g-text-disabled); text-align: center; }
 .admin-knowledge-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .admin-knowledge-chip { display: inline-flex; align-items: center; gap: 2px; padding: 4px 7px; border: 1px solid var(--g-border); border-radius: var(--g-radius-pill); background: var(--g-bg-base); color: var(--g-primary); cursor: pointer; font-size: 11px; }
 .admin-knowledge-chip .material-symbols-outlined { font-size: 14px; }
