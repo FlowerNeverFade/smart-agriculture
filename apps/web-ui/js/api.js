@@ -965,6 +965,16 @@ export class ApiService {
     return next;
   }
 
+  /** demo 模式：返回所有地块的持久化场景（plotId → scenario），供刷新后恢复场景配置矩阵。 */
+  getDemoSimulationScenarioMap() {
+    const map = {};
+    if (this.sessionMode === 'live') return map;
+    this.demoSimulationStrategies.forEach((value, plotId) => {
+      map[plotId] = value?.scenario || 'NORMAL';
+    });
+    return map;
+  }
+
   /** demo 模式：从 localStorage 恢复智能模型模式（刷新后保留），默认与 mock 数据一致为 full。 */
   loadDemoAiMode() {
     try {

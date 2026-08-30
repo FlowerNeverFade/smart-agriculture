@@ -863,9 +863,11 @@ const AdminSimulatorView = {
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
     watch(plots, (newPlots) => {
+      const demoScenarios = props.state.sessionMode !== 'live' ? api.getDemoSimulationScenarioMap() : {};
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
-        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
+        const configuredScenario = persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
