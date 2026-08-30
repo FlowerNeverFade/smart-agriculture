@@ -204,7 +204,7 @@ export const AdminAiChatView = {
     });
     const analyzePhoto = async () => {
       if (!attachments.value.length || sending.value) return;
-      const names = attachments.value.map(item => item.name).join('、');
+      if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
       const count = attachments.value.length;
       const photoAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
       messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: `请分析我上传的${count}张现场照片`, attachments: photoAttachments, time: messageTime(), source: '' });
@@ -214,9 +214,26 @@ export const AdminAiChatView = {
         const visual = item.brightness === undefined ? '未能读取像素' : `亮度约 ${item.brightness}/255，绿色像素约 ${item.greenShare}%`;
         return `${attachments.value[index].name}（${dimensions}，${visual}）`;
       }).join('；');
-      const reply = `图片基础分析：${summary}。这些是照片的客观图像特征，不等同于病害或长势诊断；现有 Agent 接口未开放视觉识别能力，我不会虚构作物结论。请补充照片位置、症状和拍摄时间，我会结合平台遥测、告警与农务记录继续判断。`;
-      messages.value.push({ id: `assistant-image-${Date.now()}`, role: 'assistant', content: reply, time: messageTime(), source: '图片接收提示' });
-      attachments.value = [];
+      const requestText = `我上传了${count}张现场照片，请结合当前地块的平台数据分析下一步。浏览器仅提取到以下客观图像特征：${summary}。不要根据这些特征虚构病害结论，如需现场信息请明确告诉我。`;
+      sending.value = true;
+      scrollToBottom();
+      try {
+        if (!conversationId.value) conversationId.value = createConversationId();
+        selectedConversationId.value = conversationId.value;
+        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
+        conversationId.value = response?.conversationId || conversationId.value;
+        selectedConversationId.value = conversationId.value;
+        const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode);
+        messages.value.push(assistant);
+        if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: `请分析我上传的${count}张现场照片`, assistantResponse: response });
+        await refreshConversations();
+        updateRoute(conversationId.value);
+      } catch (error) {
+        messages.value.push({ id: `image-error-${Date.now()}`, role: 'assistant', content: `已完成图片基础分析：${summary}。当前 Agent 暂时无法继续结合平台数据回答：${error.message || '服务暂时不可用'}。`, time: messageTime(), source: '图片分析提示', error: true });
+      } finally {
+        attachments.value = [];
+        sending.value = false;
+      }
       await scrollToBottom();
     };
 
