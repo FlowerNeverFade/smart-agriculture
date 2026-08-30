@@ -43,11 +43,12 @@ import {
   workStatusLabel
 } from './live-data.js?v=20260827-boot-fix-1';
 
-// 角色守卫：index.html 服务农场管理员与农户，系统管理员请走 sysadmin.html
+// 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
 const guardUser = presentRoleUser(guardSession?.user) || presentRoleUser(MOCK_DATA.currentUser);
-if (guardUser && guardUser.role === 'SYSTEM_ADMIN') {
-  window.location.replace('sysadmin.html');
+if (guardUser && guardUser.role !== 'SYSTEM_ADMIN') {
+  const guardTarget = guardUser.role === 'FARMER' ? 'farmer.html' : 'index.html';
+  window.location.replace(guardTarget);
 }
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
@@ -594,1503 +595,765 @@ function presentSystemEvent(event) {
 }
 
 // 1. Define Components
-const DashboardView = {
-  template: '#tmpl-dashboard',
-  props: ['state', 'routeParams'],
-  emits: ['navigate', 'open-plot-detail', 'plot-change', 'data-invalidated', 'context-changed'],
-  setup(props, { emit }) {
-    const toast = inject('toast');
-    const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const selectedFarmId = computed({
-      get: () => props.state.adminContext?.farmId || '',
-      set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
-    });
-    const visiblePlots = computed(() => (
-      Array.isArray(props.state.allPlots) && props.state.allPlots.length
-        ? props.state.allPlots
-        : (props.state.plots || [])
-    ));
-    const devices = computed(() => props.state.devices || []);
-    const deviceOptions = computed(() => devices.value
-      .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
-      .sort((a, b) => String(a.name || a.deviceId).localeCompare(String(b.name || b.deviceId), 'zh-CN')));
-    const deviceLabel = device => {
-      if (!device.plotId) return `${device.name || device.deviceId}（未绑定）`;
-      if (device.plotId === plotDraft.value.plotId) return `${device.name || device.deviceId}（当前地块）`;
-      return `${device.name || device.deviceId}（已绑定：${visiblePlots.value.find(plot => plot.plotId === device.plotId)?.name || device.plotId}）`;
-    };
-    const plotMenuId = ref('');
-    const plotSaving = ref(false);
-    const plotEditor = ref({ open: false, mode: 'create' });
-    const deleteConfirm = ref({ open: false, plot: null, confirmation: '' });
-    const emptyPlotDraft = () => ({
-      plotId: '',
-      name: '',
-      cropCode: 'tomato',
-      cropVariety: '',
-      stageCode: 'vegetative',
-      growthCycleDays: 120,
-      areaM2: 100,
-      deviceIds: []
-    });
-    const plotDraft = ref(emptyPlotDraft());
-    const managerSummary = computed(() => {
-      const summary = adminSummary({ plots: props.state.plots, workOrders: props.state.workOrders });
-      return [
-        { id: 'today', icon: 'calendar_today', label: '今日任务', value: summary.today, hint: '查看今天的农务任务' },
-        { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
-        { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
-        { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
-      ];
-    });
-
-    const openManagerSummary = (item) => {
-      const target = managerSummaryTarget(item?.id, selectedFarmId.value);
-      if (target) emit('navigate', target.view, target.params);
-    };
-
-    const plotMetrics = (plot) => PLOT_METRIC_ORDER.map((code) => ({
-      code,
-      label: adminMetricLabel(code, plot?.metrics?.[code]?.label),
-      target: plot?.metrics?.[code]?.target || '—',
-      unit: plot?.metrics?.[code]?.unit || '',
-      value: plot?.metrics?.[code]?.value,
-      status: plot?.metrics?.[code]?.status || 'UNAVAILABLE'
-    }));
-    const formatMetric = (metric) => formatMetricValue(metric);
-    const healthScore = (plot) => formatHealthScore(plot?.healthScore);
-    const healthTone = (plot) => adminHealthTone(plot?.healthScore);
-    const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
-    const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
-    const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
-    const openPlotDetail = (plot, event) => emit('open-plot-detail', {
-      plotId: plot.plotId,
-      trigger: event?.currentTarget || null
-    });
-    const togglePlotMenu = (plotId) => {
-      plotMenuId.value = plotMenuId.value === plotId ? '' : plotId;
-    };
-    const closePlotMenu = () => { plotMenuId.value = ''; };
-    const openCreatePlot = () => {
-      closePlotMenu();
-      plotDraft.value = emptyPlotDraft();
-      plotEditor.value = { open: true, mode: 'create' };
-    };
-    const openEditPlot = (plot) => {
-      closePlotMenu();
-      plotDraft.value = {
-        plotId: plot.plotId,
-        name: plot.name || '',
-        cropCode: plot.cropCode || 'tomato',
-        cropVariety: plot.cropVariety || '',
-        stageCode: plot.stageCode || 'vegetative',
-        growthCycleDays: Number(plot.growthCycleDays || 120),
-        areaM2: Number(plot.areaM2 || 100),
-        deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
-      };
-      plotEditor.value = { open: true, mode: 'edit' };
-    };
-    const closePlotEditor = () => {
-      if (plotSaving.value) return;
-      plotEditor.value.open = false;
-    };
-    const metricTemplateFor = (cropCode, excludedPlotId = '') => {
-      const source = props.state.plots.find((plot) => plot.cropCode === cropCode && plot.plotId !== excludedPlotId);
-      return source?.metrics ? JSON.parse(JSON.stringify(source.metrics)) : Object.fromEntries(PLOT_METRIC_ORDER.map((code) => [code, {
-        label: code,
-        value: null,
-        unit: '',
-        status: 'UNAVAILABLE',
-        target: '待配置'
-      }]));
-    };
-    const submitPlot = async () => {
-      const draft = plotDraft.value;
-      if (!draft.name.trim() || !draft.cropVariety.trim()) {
-        toast('请填写地块名称和作物品种', 'error');
-        return;
-      }
-      const crop = CROP_OPTIONS.find((item) => item.code === draft.cropCode) || CROP_OPTIONS[0];
-      const stage = STAGE_OPTIONS.find((item) => item.code === draft.stageCode) || STAGE_OPTIONS[1];
-      const current = (props.state.allPlots || props.state.plots).find((plot) => plot.plotId === draft.plotId);
-      const cropChanged = Boolean(current && current.cropCode !== crop.code);
-      const payload = {
-        ...(current || {}),
-        farmId: selectedFarmId.value || current?.farmId || '',
-        name: draft.name.trim(),
-        cropCode: crop.code,
-        cropName: crop.name,
-        cropVariety: draft.cropVariety.trim(),
-        stageCode: stage.code,
-        stageLabel: stage.label,
-        growthCycleDays: Math.max(1, Math.round(Number(draft.growthCycleDays) || 1)),
-        areaM2: Math.max(1, Number(draft.areaM2) || 1),
-        lastSeen: plotEditor.value.mode === 'edit' ? '刚刚更新' : '等待设备接入',
-        metrics: current && !cropChanged ? current.metrics : metricTemplateFor(crop.code, draft.plotId),
-        deviceStatus: current?.deviceStatus || 'UNBOUND',
-        healthScore: current?.healthScore ?? null,
-        riskLevel: current?.riskLevel || 'LOW'
-      };
-      const requestedDeviceIds = [...new Set((draft.deviceIds || []).filter(Boolean))];
-      const moving = devices.value.filter(device => requestedDeviceIds.includes(device.deviceId) && device.plotId && device.plotId !== draft.plotId);
-      if (moving.length && !window.confirm(`以下设备当前绑定在其他地块：${moving.map(device => device.name || device.deviceId).join('、')}。确认转移到“${payload.name}”吗？`)) return;
-      plotSaving.value = true;
-      try {
-        let saved;
-        if (plotEditor.value.mode === 'edit') {
-          const { deviceIds, ...plotPayload } = payload;
-          saved = await api.updatePlot(draft.plotId, plotPayload);
-          emit('plot-change', { type: 'update', plot: { ...payload, ...saved, metrics: payload.metrics } });
-        } else {
-          const { deviceIds, ...plotPayload } = payload;
-          saved = await api.createPlot(plotPayload);
-          emit('plot-change', { type: 'create', plot: { ...payload, ...saved, metrics: payload.metrics } });
-        }
-        const binding = await api.setPlotDevices(saved.plotId, requestedDeviceIds);
-        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: { ...saved, binding } });
-        toast(`${payload.name}${plotEditor.value.mode === 'edit' ? '已更新' : '已添加到农场'}，设备绑定已同步`);
-        plotEditor.value.open = false;
-      } catch (error) {
-        toast(error.message || '保存地块失败', 'error');
-      } finally {
-        plotSaving.value = false;
-      }
-    };
-    const requestDeletePlot = (plot) => {
-      closePlotMenu();
-      deleteConfirm.value = { open: true, plot, confirmation: '' };
-    };
-    const cancelDeletePlot = () => {
-      if (plotSaving.value) return;
-      deleteConfirm.value = { open: false, plot: null, confirmation: '' };
-    };
-    const deactivatePlot = async (plot) => {
-      closePlotMenu(); plotSaving.value = true;
-      try {
-        const saved = await api.deactivatePlot(plot.plotId);
-        emit('plot-change', { type: 'update', plot: saved });
-        emit('data-invalidated', { domains: ['plots', 'overview', 'devices'], record: saved });
-        toast(`${plot.name}已停用，活跃业务页面将不再显示`);
-      } catch (error) { toast(error.message || '停用地块失败', 'error'); }
-      finally { plotSaving.value = false; }
-    };
-    const restorePlot = async (plot) => {
-      closePlotMenu(); plotSaving.value = true;
-      try {
-        const saved = await api.restorePlot(plot.plotId);
-        emit('plot-change', { type: 'update', plot: saved });
-        emit('data-invalidated', { domains: ['plots', 'overview'], record: saved });
-        toast(`${plot.name}已恢复使用`);
-      } catch (error) { toast(error.message || '恢复地块失败', 'error'); }
-      finally { plotSaving.value = false; }
-    };
-    const confirmDeletePlot = async () => {
-      const plot = deleteConfirm.value.plot;
-      if (!plot) return;
-      if (String(deleteConfirm.value.confirmation || '').trim() !== String(plot.name || '').trim()) {
-        toast('请输入完整地块名称进行确认', 'error'); return;
-      }
-      plotSaving.value = true;
-      try {
-        await api.deletePlot(plot.plotId, deleteConfirm.value.confirmation);
-        emit('plot-change', { type: 'delete', plot });
-        emit('data-invalidated', { domains: ['plots', 'overview'], record: { ...plot, deleted: true } });
-        deleteConfirm.value = { open: false, plot: null, confirmation: '' };
-        toast(`${plot.name}已永久删除`);
-      } catch (error) {
-        toast(error.message || '删除地块失败', 'error');
-      } finally {
-        plotSaving.value = false;
-      }
-    };
-    onMounted(() => document.addEventListener('click', closePlotMenu));
-    onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
-    const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
-    const visibleActions = (actions = []) => actions.filter((action) => {
-      if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
-      if (action.action === 'open-subview' && action.view === 'plot-detail') return Boolean(action.plotId);
-      if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
-      return true;
-    });
-    const handleAction = (action) => {
-      if (action.action === 'open-subview' && action.view === 'plot-detail') {
-        emit('open-plot-detail', { plotId: action.plotId, trigger: null });
-      } else if (action.action === 'open-subview') {
-        // [INTERCONNECTIVITY] Navigate with context payload
-        emit('navigate', action.view, { highlight: 'diagnosis' });
-      } else if (action.action === 'execute-irrigation' && !canExecuteIrrigationRole(props.state.currentUser)) {
-        toast('当前身份没有灌溉执行权限', 'error');
-      } else {
-        toast('执行成功: ' + action.label);
-      }
-    };
-    return {
-      isFarmAdmin,
-      selectedFarmId,
-      visiblePlots,
-      devices,
-      deviceOptions,
-      deviceLabel,
-      managerSummary,
-      openManagerSummary,
-      plotMetrics,
-      formatMetric,
-      healthScore,
-      healthTone,
-      cardTone,
-      metricTone,
-      metricVisualIcon,
-      metricStatusIcon,
-      openPlotDetail,
-      plotMenuId,
-      plotSaving,
-      plotEditor,
-      plotDraft,
-      deleteConfirm,
-      cropOptions: CROP_OPTIONS,
-      stageOptions: STAGE_OPTIONS,
-      togglePlotMenu,
-      openCreatePlot,
-      openEditPlot,
-      closePlotEditor,
-      submitPlot,
-      requestDeletePlot,
-      deactivatePlot,
-      restorePlot,
-      cancelDeletePlot,
-      confirmDeletePlot,
-      createTask,
-      handleAction,
-      visibleActions,
-      metricStatusLabel,
-      localizedSourceLabel,
-      localizedStatusLabel,
-      displayText
-    };
-  }
-};
-
-const PlotDetailModal = {
-  template: '#tmpl-plot-detail-modal',
-  props: ['plot', 'workOrders', 'state'],
-  emits: ['close', 'navigate', 'data-invalidated'],
-  setup(props, { emit }) {
-    const toast = inject('toast');
-    const simulation = ref(null);
-    const simulationForm = ref({ scenario: 'NORMAL', parameters: {} });
-    const simulationHistory = ref([]);
-    const simulationForecast = ref(null);
-    const simulationBusy = ref(false);
-    const simulationMetric = ref('SOIL_MOISTURE');
-    const simulationMetricLoading = ref(false);
-    const simulationChartEl = ref(null);
-    const simulationChart = ref(null);
-    const simulationPreviewDirty = ref(false);
-    const simulationEvaluating = ref(false);
-    let metricRequestSerial = 0;
-    let previewRequestSerial = 0;
-    let previewDebounceTimer = null;
-    let hydratingSimulation = false;
-    const simulationScenarioOptions = computed(() => {
-      const configured = simulation.value?.scenarioCatalog;
-      return Array.isArray(configured) && configured.length ? configured : PLOT_SIMULATION_SCENARIOS;
-    });
-    const simulationMetricOptions = computed(() => SIMULATION_METRIC_OPTIONS);
-    const selectedSimulationMetric = computed(() => simulationMetricDefinition(simulationMetric.value));
-    const simulationMetricLabel = computed(() => selectedSimulationMetric.value.label);
-    const canConfigureSimulation = computed(() => roleCan(props.state?.currentUser, 'strategy:manage') || roleCan(props.state?.currentUser, 'simulator:control'));
-    const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
-    const parameterMeta = Object.freeze({
-      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制随机扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 180, step: 1, help: '每个采样点代表的加速时间' },
-      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
-      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
-      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
-      offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
-      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
-      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '暴雨时高于此值触发积水风险' },
-      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '预测曲线的时间范围' }
-    });
-    const simulationFields = computed(() => {
-      const code = simulationForm.value.scenario;
-      const common = ['volatility', 'timeScale', 'riskThreshold', 'forecastHours'];
-      const extra = code === 'DROUGHT' ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
-        : code === 'HEAVY_RAIN' ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
-          : code === 'SENSOR_DRIFT' ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
-            : code === 'DEVICE_OFFLINE' ? ['offlineRatio']
-              : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
-      return [...new Set([...common, ...extra])].map((key) => {
-        const fromApi = simulation.value?.parameterLimits?.[key];
-        const meta = parameterMeta[key] || { label: key, unit: '', min: 0, max: 100, step: 1, help: '' };
-        return { key, ...meta, min: Number(fromApi?.min ?? meta.min), max: Number(fromApi?.max ?? meta.max) };
-      });
-    });
-    const simulationDeviceLabel = computed(() => simulation.value?.simulatorDevice?.label || '等待模拟器数据');
-    const simulationDeviceTone = computed(() => String(simulation.value?.simulatorDevice?.status || '').toUpperCase() === 'ONLINE' ? 'is-online' : 'is-offline');
-    const simulatorTone = computed(() => simulationDeviceTone.value === 'is-online' ? 'is-online' : 'is-offline');
-    const hardware = computed(() => simulation.value?.hardware || {});
-    const hardwareLabel = computed(() => hardware.value.label || (hardware.value.status === 'ONLINE' ? '硬件在线，可使用' : '未绑定硬件'));
-    const hardwareTone = computed(() => hardware.value.status === 'ONLINE' ? 'is-online' : 'is-offline');
-    const hardwareLastSeen = computed(() => {
-      if (!hardware.value.lastSeen) return '';
-      const date = new Date(hardware.value.lastSeen);
-      return Number.isFinite(date.getTime()) ? date.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '';
-    });
-    const simulationPreviewMessage = computed(() => {
-      const scenario = selectedSimulationScenario.value;
-      if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
-      if (simulationEvaluating.value) return '正在使用后端确定性模型试算；当前曲线暂时保留，完成后会自动刷新。';
-      if (simulationPreviewDirty.value) return '参数尚未保存，曲线来自只读后端试算；只有点击“保存到此地块”才会更新服务器策略。';
-      if (simulationForecast.value && String(simulationForecast.value.status || '').toUpperCase() !== 'AVAILABLE') {
-        const reason = simulationForecast.value.reason || '当前样本或设备状态未满足预测条件';
-        return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
-      }
-      return `${scenario.label}已绑定到 ${props.plot?.name || props.plot?.plotId}，历史数据只清除模拟样本，硬件实测数据始终保留。`;
-    });
-
-    const cloneForm = (record) => ({
-      scenario: String(record?.scenario || 'NORMAL').toUpperCase(),
-      parameters: { ...(record?.parameters || {}) }
-    });
-
-    const plotMetricFallback = (metric) => {
-      const definition = simulationMetricDefinition(metric);
-      const configured = finiteNumber(props.plot?.metrics?.[metric]?.value);
-      return Number.isFinite(configured) ? configured : definition.defaultValue;
-    };
-
-    const renderSimulationChart = async () => {
-      await nextTick();
-      if (!simulationChartEl.value || typeof echarts === 'undefined') return;
-      if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
-      const definition = selectedSimulationMetric.value;
-      const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
-      const historical = historicalPoints.map((item) => [telemetryTimestamp(item), item.value]);
-      const fallback = plotMetricFallback(definition.code);
-      const anchorPoint = historicalPoints.at(-1);
-      const anchorValue = anchorPoint?.value ?? fallback;
-      // telemetryTimestamp(undefined) intentionally returns epoch 0 for normalisation,
-      // but an empty history must use the current time instead of rendering at 1970.
-      const anchorTimestamp = anchorPoint ? telemetryTimestamp(anchorPoint) : NaN;
-      const forecastAvailable = String(simulationForecast.value?.status || '').toUpperCase() === 'AVAILABLE'
-        && Array.isArray(simulationForecast.value?.curve) && simulationForecast.value.curve.length > 0;
-      const forecastSource = forecastAvailable ? simulationForecast.value.curve : [];
-      const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
-      const forecastStart = Number.isFinite(anchorTimestamp) ? anchorTimestamp : Date.now();
-      const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
-      const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
-      const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
-      const axis = chartAxisRange(definition, [
-        ...historical.map((item) => item[1]),
-        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
-      ]);
-      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const textColor = dark ? '#e8eaed' : '#3c4043';
-      simulationChart.value.setOption({
-        backgroundColor: 'transparent', animation: false,
-        tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
-          const list = Array.isArray(items) ? items : [items];
-          const axisValue = finiteNumber(list[0]?.axisValue);
-          const time = Number.isFinite(axisValue) ? new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
-          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
-        }},
-        legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
-        grid: { left: 42, right: 18, top: 32, bottom: 30 },
-        xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
-        yAxis: {
-          type: 'value', min: axis.min, max: axis.max, name: definition.unit,
-          nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => formatCurveValue(value, definition) }
-        },
-        series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: simulationEvaluating.value ? .38 : 1 } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationEvaluating.value ? .28 : 1 } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationEvaluating.value ? .28 : 1 } }
-        ]
-      }, true);
-    };
-
-    const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
-      const normalized = simulationMetricDefinition(metric).code;
-      const requestId = ++metricRequestSerial;
-      simulationMetricLoading.value = true;
-      try {
-        const [historyResult, forecastResult] = await Promise.allSettled([
-          api.getTelemetry(props.plot?.plotId, normalized, 120),
-          api.getRiskForecast(props.plot?.plotId, normalized)
-        ]);
-        if (requestId !== metricRequestSerial) return;
-        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-        else if (!preserveOnError) simulationHistory.value = [];
-        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
-        else if (!preserveOnError) simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
-        if (resetPreview) simulationPreviewDirty.value = false;
-        await nextTick();
-        renderSimulationChart();
-      } finally {
-        if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
-      }
-    };
-
-    const loadMetricHistory = async (metric = simulationMetric.value, { preserveOnError = true } = {}) => {
-      const normalized = simulationMetricDefinition(metric).code;
-      const requestId = ++metricRequestSerial;
-      simulationMetricLoading.value = true;
-      try {
-        const history = await api.getTelemetry(props.plot?.plotId, normalized, 120);
-        if (requestId !== metricRequestSerial) return;
-        simulationHistory.value = history || [];
-        await nextTick();
-        renderSimulationChart();
-      } catch (error) {
-        if (requestId === metricRequestSerial && !preserveOnError) simulationHistory.value = [];
-      } finally {
-        if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
-      }
-    };
-
-    const evaluateSimulationPreview = async (metric, requestId) => {
-      const normalized = simulationMetricDefinition(metric).code;
-      try {
-        const evaluated = await api.evaluateRiskForecast({
-          plotId: props.plot?.plotId,
-          metric: normalized,
-          scenario: simulationForm.value.scenario,
-          parameters: { ...(simulationForm.value.parameters || {}) },
-          requestVersion: requestId
-        });
-        if (requestId !== previewRequestSerial) return;
-        simulationForecast.value = evaluated || { status: 'UNAVAILABLE', reason: '试算响应为空' };
-      } catch (error) {
-        if (requestId !== previewRequestSerial) return;
-        simulationForecast.value = { status: 'UNAVAILABLE', reason: error?.message || '只读试算服务暂不可用', persisted: false, requestVersion: requestId };
-      } finally {
-        if (requestId === previewRequestSerial) {
-          simulationEvaluating.value = false;
-          await nextTick();
-          renderSimulationChart();
-        }
-      }
-    };
-
-    const scheduleSimulationPreview = (metric = simulationMetric.value, delay = 300) => {
-      if (previewDebounceTimer) window.clearTimeout(previewDebounceTimer);
-      const requestId = ++previewRequestSerial;
-      simulationEvaluating.value = true;
-      renderSimulationChart();
-      previewDebounceTimer = window.setTimeout(() => {
-        previewDebounceTimer = null;
-        evaluateSimulationPreview(metric, requestId);
-      }, delay);
-    };
-
-    const cancelSimulationPreview = () => {
-      if (previewDebounceTimer) window.clearTimeout(previewDebounceTimer);
-      previewDebounceTimer = null;
-      previewRequestSerial += 1;
-      simulationEvaluating.value = false;
-    };
-
-    const loadSimulation = async () => {
-      const metric = simulationMetric.value;
-      hydratingSimulation = true;
-      try {
-        const [configResult, historyResult, forecastResult] = await Promise.allSettled([
-          api.getPlotSimulation(props.plot?.plotId),
-          api.getTelemetry(props.plot?.plotId, metric, 120),
-          api.getRiskForecast(props.plot?.plotId, metric)
-        ]);
-        if (configResult.status === 'fulfilled') {
-          simulation.value = configResult.value;
-          simulationForm.value = cloneForm(configResult.value);
-        }
-        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-        else simulationHistory.value = [];
-        if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
-        else simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
-        await nextTick();
-        simulationPreviewDirty.value = false;
-        renderSimulationChart();
-      } catch (error) {
-        toast?.(error.message || '地块模拟策略读取失败', 'error');
-      } finally {
-        hydratingSimulation = false;
-      }
-    };
-
-    let liveSeriesTimer = null;
-    let liveSeriesInFlight = false;
-    let liveSeriesQueued = false;
-    let liveSeriesKickTimer = null;
-    let liveConfigRefreshedAt = 0;
-    let liveSeriesVisibilityHandler = null;
-    const isLivePlot = () => props.state?.sessionMode === 'live' || api.sessionMode === 'live';
-    const refreshLiveSeries = async () => {
-      if (!isLivePlot() || document.hidden || simulationBusy.value || simulationMetricLoading.value) return;
-      if (liveSeriesInFlight) {
-        liveSeriesQueued = true;
-        return;
-      }
-      liveSeriesInFlight = true;
-      try {
-        if (simulationPreviewDirty.value) await loadMetricHistory(simulationMetric.value, { preserveOnError: true });
-        else await loadMetricSeries(simulationMetric.value, { preserveOnError: true });
-        // The simulator/device state is a separate resource from the curve;
-        // refresh it periodically without overwriting unsaved what-if inputs.
-        if (!simulationPreviewDirty.value && Date.now() - liveConfigRefreshedAt >= 10000) {
-          liveConfigRefreshedAt = Date.now();
-          try {
-            const latest = await api.getPlotSimulation(props.plot?.plotId);
-            if (latest && !simulationBusy.value) {
-              hydratingSimulation = true;
-              simulation.value = latest;
-              simulationForm.value = cloneForm(latest);
-              await nextTick();
-              hydratingSimulation = false;
-            }
-          } catch (error) { /* keep the last known simulator state */ }
-        }
-      } finally {
-        liveSeriesInFlight = false;
-        if (liveSeriesQueued && !document.hidden) {
-          liveSeriesQueued = false;
-          if (!liveSeriesKickTimer) {
-            liveSeriesKickTimer = window.setTimeout(() => {
-              liveSeriesKickTimer = null;
-              refreshLiveSeries();
-            }, 120);
-          }
-        }
-      }
-    };
-    const stopLiveSeriesRefresh = () => {
-      if (liveSeriesTimer) window.clearInterval(liveSeriesTimer);
-      liveSeriesTimer = null;
-      if (liveSeriesKickTimer) window.clearTimeout(liveSeriesKickTimer);
-      liveSeriesKickTimer = null;
-      if (liveSeriesVisibilityHandler) document.removeEventListener('visibilitychange', liveSeriesVisibilityHandler);
-      liveSeriesVisibilityHandler = null;
-      liveSeriesQueued = false;
-    };
-    const startLiveSeriesRefresh = () => {
-      stopLiveSeriesRefresh();
-      if (!isLivePlot()) return;
-      liveSeriesTimer = window.setInterval(refreshLiveSeries, 4000);
-      liveSeriesVisibilityHandler = () => { if (!document.hidden) refreshLiveSeries(); };
-      document.addEventListener('visibilitychange', liveSeriesVisibilityHandler);
-      refreshLiveSeries();
-    };
-
-    const selectSimulationMetric = (eventOrCode) => {
-      const requested = typeof eventOrCode === 'string' ? eventOrCode : eventOrCode?.target?.value;
-      const normalized = simulationMetricDefinition(requested).code;
-      if (normalized === simulationMetric.value && !simulationMetricLoading.value) return;
-      simulationMetric.value = normalized;
-      loadMetricHistory(normalized, { preserveOnError: false });
-      simulationPreviewDirty.value = true;
-      scheduleSimulationPreview(normalized);
-    };
-
-    const selectSimulationScenario = (code) => {
-      const normalized = String(code || 'NORMAL').toUpperCase();
-      const scenario = simulationScenarioOptions.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
-      const defaults = scenario.defaultParameters || PLOT_SIMULATION_DEFAULTS[normalized] || PLOT_SIMULATION_DEFAULTS.NORMAL;
-      simulationForm.value = { scenario: normalized, parameters: { ...defaults } };
-    };
-    const saveSimulation = async () => {
-      cancelSimulationPreview();
-      simulationBusy.value = true;
-      try {
-        const saved = await api.updatePlotSimulation(props.plot.plotId, simulationForm.value);
-        hydratingSimulation = true;
-        simulation.value = saved; simulationForm.value = cloneForm(saved); simulationPreviewDirty.value = false;
-        await nextTick();
-        hydratingSimulation = false;
-        await loadSimulation();
-        toast?.('该地块模拟策略已保存，服务器将从下一采样点应用', 'success');
-        emit('data-invalidated', { domains: ['overview', 'plots'], plotId: props.plot.plotId, record: saved });
-      } catch (error) { hydratingSimulation = false; toast?.(error.message || '模拟策略保存失败', 'error'); }
-      finally { simulationBusy.value = false; }
-    };
-    const resetSimulation = async (target) => {
-      cancelSimulationPreview();
-      simulationBusy.value = true;
-      const metric = simulationMetric.value;
-      try {
-        const resetResult = await api.resetPlotSimulation(props.plot.plotId, target);
-        hydratingSimulation = true;
-        simulation.value = resetResult;
-        simulationForm.value = cloneForm(resetResult);
-        simulationPreviewDirty.value = false;
-        await nextTick();
-        hydratingSimulation = false;
-        const refreshes = [];
-        if (target === 'HISTORY' || target === 'ALL') {
-          refreshes.push(api.getTelemetry(props.plot?.plotId, metric, 120));
-        }
-        if (target === 'FORECAST' || target === 'ALL') refreshes.push(api.getRiskForecast(props.plot?.plotId, metric));
-        const refreshed = await Promise.allSettled(refreshes);
-        let resultIndex = 0;
-        if (target === 'HISTORY' || target === 'ALL') {
-          const historyResult = refreshed[resultIndex++];
-          if (historyResult?.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
-          else simulationHistory.value = [];
-        }
-        if (target === 'FORECAST' || target === 'ALL') {
-          const forecastResult = refreshed[resultIndex++];
-          simulationForecast.value = forecastResult?.status === 'fulfilled'
-            ? (forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' })
-            : { status: 'UNAVAILABLE', reason: forecastResult?.reason?.message || '预测服务暂不可用' };
-        }
-        await nextTick();
-        renderSimulationChart();
-        emit('data-invalidated', { domains: ['overview', 'plots', 'telemetry'], plotId: props.plot.plotId, metric, resetTarget: target });
-        toast?.(`${target === 'HISTORY' ? '历史' : target === 'FORECAST' ? '预测' : '历史与预测'}曲线已重置（硬件实测数据未删除）`, 'success');
-      } catch (error) { hydratingSimulation = false; toast?.(error.message || '曲线重置失败', 'error'); }
-      finally { simulationBusy.value = false; }
-    };
-    watch(simulationForm, () => {
-      if (hydratingSimulation || simulationBusy.value) return;
-      simulationPreviewDirty.value = true;
-      scheduleSimulationPreview(simulationMetric.value);
-    }, { deep: true });
-    onMounted(async () => {
-      await loadSimulation();
-      startLiveSeriesRefresh();
-    });
-    onBeforeUnmount(() => {
-      stopLiveSeriesRefresh();
-      cancelSimulationPreview();
-      simulationChart.value?.dispose();
-      simulationChart.value = null;
-    });
-    const metrics = computed(() => PLOT_METRIC_ORDER.map((code) => ({
-      code,
-      label: adminMetricLabel(code, props.plot?.metrics?.[code]?.label),
-      target: props.plot?.metrics?.[code]?.target || '—',
-      unit: props.plot?.metrics?.[code]?.unit || '',
-      value: props.plot?.metrics?.[code]?.value,
-      status: props.plot?.metrics?.[code]?.status || 'UNAVAILABLE'
-    })));
-    const relatedWork = computed(() => (Array.isArray(props.workOrders) ? props.workOrders : [])
-      .filter((item) => item.plotId === props.plot?.plotId)
-      .sort((a, b) => {
-        if (isFinishedWork(a) !== isFinishedWork(b)) return isFinishedWork(a) ? 1 : -1;
-        return new Date(a.dueAt || 0).getTime() - new Date(b.dueAt || 0).getTime();
-      })
-      .slice(0, 3));
-    const issueSummary = computed(() => {
-      const deviceStatus = normalizedStatus(props.plot?.deviceStatus);
-      if (['OFFLINE', 'ERROR', 'FATAL', 'BAD'].includes(deviceStatus)) {
-        return {
-          tone: 'danger',
-          title: '采集设备没有上传新数据',
-          detail: '请先检查设备供电和连接，确认数据恢复后再安排浇水或其他操作。'
-        };
-      }
-      const abnormalMetric = metrics.value.find((metric) => ['warning', 'danger'].includes(metricTone(metric)));
-      if (abnormalMetric) {
-        const current = `${formatMetricValue(abnormalMetric)}${abnormalMetric.unit ? ` ${abnormalMetric.unit}` : ''}`;
-        return {
-          tone: metricTone(abnormalMetric),
-          title: `${abnormalMetric.label}需要关注`,
-          detail: `当前读数为 ${current}，建议范围为 ${abnormalMetric.target}。建议先复测一次，再根据结果安排处理。`
-        };
-      }
-      return {
-        tone: 'normal',
-        title: '当前没有需要立即处理的问题',
-        detail: '关键环境数据和采集设备目前都在可用范围内，按计划巡田即可。'
-      };
-    });
-    const statusLabel = (item) => {
-      const status = normalizedStatus(item?.status, 'OPEN');
-      if (['DONE', 'COMPLETED'].includes(status)) return '已完成';
-      if (status === 'IN_PROGRESS') return '进行中';
-      if (status === 'ASSIGNED') return '已分配';
-      if (status === 'PENDING') return '待处理';
-      return item?.assigneeId ? '已分配' : '待分配';
-    };
-    const dueLabel = (item) => {
-      if (isFinishedWork(item)) return '已完成';
-      const dueAt = new Date(item?.dueAt || 0);
-      if (!Number.isFinite(dueAt.getTime())) return '时间待确认';
-      return dueAt.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-    };
-    const openView = (view, params = {}) => emit('navigate', view, { plotId: props.plot?.plotId, ...params });
-    return {
-      metrics,
-      relatedWork,
-      issueSummary,
-      simulation,
-      simulationForm,
-      simulationScenarioOptions,
-      simulationFields,
-      simulationBusy,
-      simulationMetric,
-      simulationMetricOptions,
-      simulationMetricLabel,
-      simulationMetricLoading,
-      simulationEvaluating,
-      simulationChartEl,
-      canConfigureSimulation,
-      simulationDeviceLabel,
-      simulationDeviceTone,
-      hardwareLabel,
-      hardwareTone,
-      hardwareLastSeen,
-      simulatorTone,
-      simulationPreviewMessage,
-      selectSimulationMetric,
-      selectSimulationScenario,
-      saveSimulation,
-      resetSimulation,
-      metricTone,
-      formatMetric: formatMetricValue,
-      healthScore: formatHealthScore,
-      statusLabel,
-      dueLabel,
-      displayText,
-      openView,
-      close: () => emit('close')
-    };
-  }
-};
-
-const DecisionConsoleView = {
-  template: '#tmpl-decision-console',
-  props: ['state', 'routeParams'],
-  emits: ['navigate', 'data-invalidated'],
-  setup(props, { emit }) {
-    const toast = inject('toast');
-    const diagnosis = computed(() => props.state.feedItems.find(f => f.type === 'DIAGNOSIS'));
-    const prescription = computed(() => props.state.feedItems.find(f => f.type === 'PRESCRIPTION'));
-    
-    // [INTERCONNECTIVITY] Highlight logic
-    const highlightDiagnosis = ref(false);
-    watch(() => props.routeParams, (newParams) => {
-      if (newParams && newParams.highlight === 'diagnosis') {
-        highlightDiagnosis.value = true;
-        setTimeout(() => { highlightDiagnosis.value = false; }, 4000);
-      }
-    }, { immediate: true });
-
-    // Chat Logic
-    const chatInput = ref('');
-    const chatHistory = ref([
-      { role: 'agent', content: '您好，我是 AgriLoop 农业决策智能体。我已经接入了当前地块的传感器实时数据和生长阶段的阈值模型。\n\n关于番茄当前阶段的灌溉处方，或者刚才生成的诊断结论，您有任何疑问都可以随时问我。', sourceLabel: 'AgriLoop 智能助手' }
-    ]);
-    const isTyping = ref(false);
-    const chatBox = ref(null);
-
-    const sendMessage = async () => {
-      if (!chatInput.value.trim()) return;
-      
-      const userMessage = chatInput.value.trim();
-      chatHistory.value.push({ role: 'user', content: userMessage });
-      chatInput.value = '';
-      
-      isTyping.value = true;
-      scrollToBottom();
-
-      if (props.state.sessionMode === 'live') {
-        try {
-          const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
-          const response = await api.agentChat(userMessage, plotId);
-          chatHistory.value.push({
-            role: 'agent',
-            content: agentResponseText(response, '后端智能服务未返回可展示的回答。'),
-            sourceLabel: agentResponseSource(response, 'live'),
-            traceId: response?.traceId,
-            dataOrigin: 'BACKEND'
-          });
-        } catch (error) {
-          chatHistory.value.push({ role: 'agent', content: `正式智能服务暂不可用：${error.message || '读取失败'}`, sourceLabel: '智能服务暂不可用' });
-        } finally {
-          isTyping.value = false;
-          scrollToBottom();
-        }
-        return;
-      }
-      
-      setTimeout(() => {
-        isTyping.value = false;
-        let reply = '基于当前环境遥测与生长模型，系统判断您的要求在安全阈值内，已为您记录参考。';
-        if (userMessage.includes('为什么') || userMessage.includes('原因')) {
-          reply = '我注意到当前的土壤湿度连续低于 20%（番茄结果期基线）。同时，空气温度 26.4°C 加速了蒸散，且传感器数据质量评分为正常（排除了硬件漂移）。因此诊断为真实水分胁迫。';
-        } else if (userMessage.includes('处方') || userMessage.includes('水')) {
-          reply = '针对此情况，处方引擎计算出需要 153 升水。根据您农场主管道的 18 升/分钟恒定流速，换算出的执行时长为 8 分 30 秒。该时长低于 900 秒的安全阈值上限。';
-        }
-        
-        chatHistory.value.push({ role: 'agent', content: reply, sourceLabel: '演示规则' });
-        scrollToBottom();
-      }, 1500);
-    };
-
-    const scrollToBottom = () => {
-      nextTick(() => {
-        if (chatBox.value) {
-          chatBox.value.scrollTop = chatBox.value.scrollHeight;
-        }
-      });
-    };
-    
-    // Modals
-    const showPassportModal = ref(false);
-    const showDualTrackModal = ref(false);
-    const canExecuteIrrigation = computed(() => canExecuteIrrigationRole(props.state.currentUser));
-    const executionBusy = ref(false);
-    let dualChart = null;
-
-    const openExecution = () => {
-      if (canExecuteIrrigation.value) {
-        showDualTrackModal.value = true;
-        return;
-      }
-      toast('当前身份没有灌溉执行权限', 'error');
-    };
-
-    watch(showDualTrackModal, async (newVal) => {
-      if (newVal) {
-        await nextTick();
-        const dom = document.getElementById('dualTrackChart');
-        if (!dom) return;
-        if (!dualChart) {
-          dualChart = echarts.init(dom);
-        }
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const textColor = isDark ? '#e8eaed' : '#202124';
-        
-        dualChart.setOption({
-          backgroundColor: 'transparent',
-          tooltip: { trigger: 'axis' },
-          legend: { data: ['执行处方（有干预）', '不执行（无干预）'], textStyle: { color: textColor } },
-          xAxis: { type: 'category', data: ['0 小时', '1 小时', '2 小时', '3 小时', '4 小时'], axisLabel: { color: textColor } },
-          yAxis: { type: 'value', min: 10, max: 35, axisLabel: { color: textColor } },
-          series: [
-            {
-              name: '执行处方（有干预）',
-              type: 'line',
-              smooth: true,
-              itemStyle: { color: '#1e8e3e' },
-              data: [16.8, 30.0, 28.5, 27.0, 26.1]
-            },
-            {
-              name: '不执行（无干预）',
-              type: 'line',
-              smooth: true,
-              itemStyle: { color: '#d93025' },
-              data: [16.8, 15.2, 13.8, 12.0, 11.5]
-            }
-          ]
-        });
-      }
-    });
-
-    const confirmExecution = async () => {
-      if (!canExecuteIrrigation.value) {
-        showDualTrackModal.value = false;
-        toast('当前身份没有灌溉执行权限', 'error');
-        return;
-      }
-      showDualTrackModal.value = false;
-      const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
-      if (!plotId || executionBusy.value) return;
-      executionBusy.value = true;
-      try {
-        const traceId = props.routeParams?.traceId || `legacy-irrigation-${plotId}`;
-        const diagnosisResult = props.state.sessionMode === 'live'
-          ? await api.evaluateDiagnosis(plotId, { traceId })
-          : null;
-        const plan = await api.estimateIrrigation({
-          plotId,
-          traceId,
-          ...(diagnosisResult?.diagnosisId ? { diagnosisId: diagnosisResult.diagnosisId } : {})
-        });
-        if (plan?.executable !== true || plan?.readinessStatus !== 'READY') {
-          throw new Error('当前处方未通过安全门，暂不能执行灌溉');
-        }
-        await api.executeIrrigation(plan.planId, plotId, {
-          confirmed: true,
-          approved: true,
-          idempotencyKey: `legacy-irrigation-${plan.planId}`,
-          source: 'legacy-decision-console',
-          ...(props.state.sessionMode === 'demo' ? { outcome: 'SUCCEEDED' } : {})
-        });
-        emit('data-invalidated', { domains: ['commands', 'overview'], plotId, record: plan });
-        toast(props.state.sessionMode === 'demo' ? '演示灌溉已执行，不会控制真实水泵' : '灌溉命令已提交，等待设备回执');
-      } catch (error) {
-        toast(error.message || '灌溉执行失败', 'error');
-      } finally {
-        executionBusy.value = false;
-      }
-    };
-
-    return { 
-      diagnosis, prescription, highlightDiagnosis,
-      chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, canExecuteIrrigation, executionBusy, openExecution, confirmExecution,
-      displayText
-    };
-  }
-};
-
-const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, AdminAiChat: AdminAiChatView, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
-  props: ['state', 'routeParams'],
-  emits: ['navigate', 'data-invalidated'],
-  setup(props) {
-    const showChat = ref(Boolean(['diagnosis', 'chat'].includes(props.routeParams?.highlight) || ['diagnosis', 'chat'].includes(props.routeParams?.section)));
-    watch(() => props.routeParams?.highlight, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-    });
-    watch(() => props.routeParams?.section, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-      if (value === 'alerts') showChat.value = false;
-    });
-    const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
-    const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
-    return { showChat, isFarmAdmin, isFarmer };
-  },
-  template: `
-    <div class="role-decision-shell">
-      <template v-if="isFarmAdmin">
-        <nav class="admin-decision-tabs" aria-label="AI 告警分析与对话功能切换">
-          <button class="g-btn" :class="{ active: !showChat }" :aria-pressed="!showChat" type="button" @click="showChat = false">告警智能处理</button>
-          <button class="g-btn" :class="{ active: showChat }" :aria-pressed="showChat" type="button" @click="showChat = true">AI 对话助手</button>
-        </nav>
-        <admin-alert-center v-if="!showChat" :state="state"
-                            @navigate="(view, params) => $emit('navigate', view, params)"
-                            @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"
-                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
-      </template>
-      <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
-                      @navigate="(view, params) => $emit('navigate', view, params)"
-                      @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-decision>
-      <legacy-decision-console v-else :state="state" :route-params="routeParams"
-                               @navigate="(view, params) => $emit('navigate', view, params)"
-                               @data-invalidated="payload => $emit('data-invalidated', payload)"></legacy-decision-console>
-    </div>
-  `
-};
-
-const WorkOrdersView = {
-  template: '#tmpl-work-orders',
-  props: ['state', 'routeParams'],
-  setup(props, { emit }) {
-    const toast = inject('toast');
-    const canRecordInspection = computed(() => roleCan(props.state.currentUser, 'inspection:create'));
-    const canCreateWorkOrder = computed(() => roleCan(props.state.currentUser, 'work-order:manage'));
-    
-    // [INTERCONNECTIVITY] Highlight logic for new order
-    const highlightNewOrder = ref(false);
-    watch(() => props.routeParams, (newParams) => {
-      if (newParams && newParams.highlight === 'new-order') {
-        highlightNewOrder.value = true;
-        setTimeout(() => { highlightNewOrder.value = false; }, 4000);
-      }
-    }, { immediate: true });
-
-    const showFormModal = ref(false);
-    const showWorkOrderModal = ref(false);
-    const defaultDueAt = () => {
-      const dueAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
-      return new Date(dueAt.getTime() - dueAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    };
-    const workOrderForm = ref({
-      title: '',
-      plotId: props.state.plots[0]?.plotId || '',
-      priority: 'MEDIUM',
-      actionType: 'FIELD_OPERATION',
-      dueAt: defaultDueAt(),
-      reason: ''
-    });
-    const form = ref({
-      plotId: 'plot-a01',
-      soilSurface: '',
-      cropCondition: '',
-      portableSoilMoisture: '',
-      notes: ''
-    });
-
-    watch(() => props.routeParams, (newParams) => {
-      if (newParams?.openCreateTask && canCreateWorkOrder.value) {
-        workOrderForm.value = {
-          title: '',
-          plotId: newParams.plotId || props.state.plots[0]?.plotId || '',
-          priority: 'MEDIUM',
-          actionType: 'FIELD_OPERATION',
-          dueAt: defaultDueAt(),
-          reason: ''
-        };
-        showWorkOrderModal.value = true;
-      }
-    }, { immediate: true });
-
-    const submitWorkOrder = async () => {
-      if (!canCreateWorkOrder.value) {
-        toast('当前身份不能创建农务任务', 'error');
-        return;
-      }
-      const draft = workOrderForm.value;
-      if (!draft.title.trim() || !draft.plotId || !draft.dueAt || !draft.reason.trim()) {
-        toast('请完整填写任务标题、地块、截止时间和执行说明', 'error');
-        return;
-      }
-      try {
-        const payload = {
-          ...draft,
-          title: draft.title.trim(),
-          reason: draft.reason.trim(),
-          dueAt: new Date(draft.dueAt).toISOString(),
-          sourceType: 'MANUAL',
-          provenance: 'USER_PROVIDED',
-          status: 'OPEN',
-          assigneeId: null
-        };
-        const saved = await api.saveWorkOrder(payload);
-        props.state.workOrders.unshift({ ...payload, ...saved });
-        showWorkOrderModal.value = false;
-        window.history.replaceState(null, '', '#work-orders');
-        toast('农务任务已创建，当前进入待分配队列');
-      } catch (error) {
-        toast(error.message || '创建农务任务失败', 'error');
-      }
-    };
-
-    const submitInspection = async () => {
-      if (!canRecordInspection.value) {
-        toast('当前身份只能查看工单，不能提交巡田记录', 'error');
-        return;
-      }
-      if (!form.value.soilSurface || !form.value.portableSoilMoisture) {
-        toast('请填写必填项', 'error');
-        return;
-      }
-      
-      if (props.state.sessionMode === 'live') {
-        try {
-          const saved = await api.createInspection({
-            farmId: props.state.adminContext?.farmId || props.state.plots.find((plot) => plot.plotId === form.value.plotId)?.farmId,
-            plotId: form.value.plotId,
-            observedAt: new Date().toISOString(),
-            soilSurface: form.value.soilSurface,
-            cropCondition: form.value.cropCondition,
-            portableSoilMoisture: Number(form.value.portableSoilMoisture),
-            notes: form.value.notes || '现场无异常情况'
-          });
-          showFormModal.value = false;
-          emit('data-invalidated', { domains: ['inspections', 'overview'], plotIds: [form.value.plotId], record: saved });
-          toast('巡田记录已保存，管理员与系统审计可读取');
-          form.value = { plotId: props.state.plots[0]?.plotId || '', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
-        } catch (error) {
-          toast(error.message || '巡田记录保存失败', 'error');
-        }
-        return;
-      }
-
-      const newIns = {
-        inspectionId: 'ins-new-' + Date.now(),
-        plotId: form.value.plotId,
-        observedAt: new Date().toISOString(),
-        soilSurface: form.value.soilSurface,
-        cropCondition: form.value.cropCondition,
-        portableSoilMoisture: form.value.portableSoilMoisture,
-        notes: form.value.notes || '现场无异常情况'
-      };
-      
-      // Mutate state to show reactivity
-      props.state.inspections.unshift(newIns);
-      
-      // [INTERCONNECTIVITY] Create a Feed Item to loop back to dashboard
-      props.state.feedItems.unshift({
-        id: 'fd-' + Date.now(),
-        type: 'INFO',
-        category: '人机协同反馈',
-        title: `收到人工巡田报告 (${form.value.plotId})`,
-        summary: `现场土壤: ${form.value.soilSurface}, 植被: ${form.value.cropCondition}, 实测水分: ${form.value.portableSoilMoisture}%。已将该实测值校准回遥测模型。`,
-        timestamp: new Date().toLocaleTimeString(),
-        badge: { color: 'green' },
-        actions: []
-      });
-
-      showFormModal.value = false;
-      toast('演示巡田记录已录入');
-      
-      // Reset form
-      form.value = { plotId: 'plot-a01', soilSurface: '', cropCondition: '', portableSoilMoisture: '', notes: '' };
-    };
-
-    const inspectionObservationLabel = (group, value) => ({
-      soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
-      crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' }
-    }[group]?.[String(value || '').toUpperCase()] || value || '—');
-
-    return {
-      showFormModal,
-      showWorkOrderModal,
-      workOrderForm,
-      form,
-      submitInspection,
-      submitWorkOrder,
-      highlightNewOrder,
-      canRecordInspection,
-      canCreateWorkOrder,
-      resourceTypeLabel,
-      priorityLabel: localizedPriorityLabel,
-      workStatusLabel,
-      inspectionObservationLabel
-    };
-  }
-};
-
-const FarmMembersView = {
-  template: '#tmpl-farm-members',
+const AdminOverviewView = {
+  template: '#tmpl-admin-overview',
   props: ['state', 'routeParams'],
   emits: ['navigate'],
   setup(props, { emit }) {
     const toast = inject('toast');
-    const isDemo = computed(() => props.state.sessionMode === 'demo');
-    const isLoading = ref(false);
-    const loadError = ref('');
-    const currentFarmId = computed(() => props.state.currentUser?.farmIds?.find((farmId) => farmId !== '*') ||
-      (isDemo.value ? 'farm-demo' : ''));
-    const members = computed(() => Array.isArray(props.state.farmMembers) ? props.state.farmMembers : []);
-    const activeFarmerCount = computed(() => members.value.filter((member) =>
-      member.role === 'FARMER' && normalizedStatus(member.status) === 'ACTIVE').length);
-    const plotNames = (member) => {
-      if (member?.plotIds?.includes('*')) return '全部地块';
-      const names = (member?.plotIds || [])
-        .map((plotId) => props.state.plots.find((plot) => plot.plotId === plotId)?.name)
-        .filter(Boolean);
-      return names.length ? names.join('、') : '未授权地块';
+    const showEvents = ref(true);
+    const farmFilter = ref('all');
+    const statusFilter = ref('abnormal');
+    const selectedPlot = ref(null);
+    const showPlotModal = ref(false);
+    const plotMetricForm = ref([]);
+    const telemetryLoading = ref(false);
+    const openPlotMetrics = async (plot) => {
+      selectedPlot.value = plot;
+      plotMetricForm.value = [...(plot.monitoredMetrics || TELEMETRY_METRICS.map(metric => metric.code))];
+      showPlotModal.value = true;
+      await refreshPlotMetrics();
     };
-    const taskCount = (member) => props.state.workOrders.filter((item) => item.assigneeId === member.userId && !isFinishedWork(item)).length;
-    const taskCountLabel = (member) => member.role === 'FARMER' ? `${taskCount(member)} 项` : '—';
-    const memberStatus = (member) => {
-      if (member.role !== 'FARMER') return '负责农场管理';
-      return normalizedStatus(member?.status) === 'ACTIVE' ? '可分配任务' : '已停用，不能分配';
-    };
-    const memberSource = (member) => member?.sourceMode === 'SIMULATED' || isDemo.value ? '演示数据' : '正式账号';
-    const refreshMembers = async (announce = true) => {
-      if (!currentFarmId.value) {
-        loadError.value = '当前账号没有可读取的农场范围';
-        return;
-      }
-      isLoading.value = true;
-      loadError.value = '';
+    const refreshPlotMetrics = async () => {
+      if (!selectedPlot.value || telemetryLoading.value || document.hidden) return;
+      telemetryLoading.value = true;
       try {
-        const loaded = await api.getFarmMembers({ farmId: currentFarmId.value });
-        props.state.farmMembers.splice(0, props.state.farmMembers.length, ...loaded);
-        if (announce) toast(`已读取 ${loaded.length} 名${isDemo.value ? '演示' : '正式'}成员`);
-      } catch (error) {
-        loadError.value = error?.message || '成员读取失败';
-        if (announce) toast('读取正式成员失败：' + loadError.value, 'error');
+        const results = await Promise.allSettled(plotMetricForm.value.map(async (metric) => {
+          const points = await api.getTelemetry(selectedPlot.value.id, metric, 1);
+          return [metric, points[points.length - 1]];
+        }));
+        results.forEach((result) => {
+          if (result.status !== 'fulfilled') return;
+          const [metric, point] = result.value;
+          if (point) selectedPlot.value.metrics[metric] = `${point.value} ${point.unit || ''}`.trim();
+        });
       } finally {
-        isLoading.value = false;
+        telemetryLoading.value = false;
       }
     };
-    const openTaskAssignment = () => emit('navigate', 'work-orders', { status: 'OPEN' });
-    onMounted(() => {
-      if (!isDemo.value) refreshMembers(false);
+    let plotMetricsRefreshTimer = null;
+    let plotMetricsVisibilityHandler = null;
+    const stopPlotMetricsRefresh = () => {
+      if (plotMetricsRefreshTimer) window.clearInterval(plotMetricsRefreshTimer);
+      plotMetricsRefreshTimer = null;
+      if (plotMetricsVisibilityHandler) document.removeEventListener('visibilitychange', plotMetricsVisibilityHandler);
+      plotMetricsVisibilityHandler = null;
+    };
+    const startPlotMetricsRefresh = () => {
+      stopPlotMetricsRefresh();
+      if (props.state?.sessionMode !== 'live') return;
+      plotMetricsRefreshTimer = window.setInterval(refreshPlotMetrics, 4000);
+      plotMetricsVisibilityHandler = () => { if (!document.hidden && showPlotModal.value) refreshPlotMetrics(); };
+      document.addEventListener('visibilitychange', plotMetricsVisibilityHandler);
+    };
+    watch(showPlotModal, (visible) => {
+      if (visible) {
+        startPlotMetricsRefresh();
+        refreshPlotMetrics();
+      } else {
+        stopPlotMetricsRefresh();
+      }
     });
+    onBeforeUnmount(stopPlotMetricsRefresh);
+    const savePlotMetrics = () => {
+      if (props.state.sessionMode === 'live') {
+        toast('正式会话只读显示后端遥测指标，监测项配置请通过设备配置接口维护', 'error');
+        showPlotModal.value = false;
+        return;
+      }
+      if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
+      showPlotModal.value = false;
+    };
+    const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
+      const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
+      let statusMatches = true;
+      if (statusFilter.value === 'abnormal') {
+        statusMatches = plot.status !== 'HEALTHY';
+      } else if (statusFilter.value !== 'all') {
+        statusMatches = plot.status === statusFilter.value;
+      }
+      return farmMatches && statusMatches;
+    }));
+    const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
+    const plotSummary = computed(() => {
+      const plots = props.state.adminGlobalPlots || [];
+      return {
+        total: plots.length,
+        healthy: plots.filter(plot => plot.status === 'HEALTHY').length,
+        warning: plots.filter(plot => plot.status === 'WARNING').length,
+        critical: plots.filter(plot => plot.status === 'CRITICAL').length,
+        offline: plots.filter(plot => plot.status === 'OFFLINE').length
+      };
+    });
+    const healthPercent = (plot) => {
+      if (plot?.healthScore !== undefined && plot?.healthScore !== null && plot.healthScore !== '') {
+        const numeric = Number(plot.healthScore);
+        if (Number.isFinite(numeric)) return Math.round(numeric <= 1 ? numeric * 100 : numeric);
+      }
+      if (props.state.sessionMode === 'live') return 0;
+      if (plot.status === 'HEALTHY') return 92;
+      if (plot.status === 'WARNING') return 64;
+      if (plot.status === 'CRITICAL') return 28;
+      return 0;
+    };
+    const goToOps = (plot) => {
+      emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
+    };
     return {
-      isDemo, isLoading, loadError, members, activeFarmerCount,
-      plotNames, taskCountLabel, memberStatus, memberSource, refreshMembers, openTaskAssignment
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
+      telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
+      openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
+      serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
     };
   }
 };
 
-const RoleAwareWorkOrdersView = {
-  components: {
-    'admin-work-management': AdminWorkManagementView,
-    'work-order-lifecycle': WorkOrderLifecycleView
-  },
-  props: ['state', 'routeParams'],
-  emits: ['navigate', 'data-invalidated'],
-  template: `
-    <admin-work-management v-if="state.currentUser?.role === 'FARM_ADMIN'" :state="state" :route-params="routeParams"
-      @navigate="(view, params) => $emit('navigate', view, params)"
-      @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-work-management>
-    <work-order-lifecycle v-else :state="state" :route-params="routeParams"
-      @navigate="(view, params) => $emit('navigate', view, params)"
-      @data-invalidated="payload => $emit('data-invalidated', payload)"></work-order-lifecycle>
-  `
-};
+const TELEMETRY_METRICS = SIMULATION_METRIC_OPTIONS.map(({ code, label }) => ({ code, label }));
 
-const CropPacksView = {
-  template: '#tmpl-crop-packs',
-  props: ['state', 'routeParams'],
-  setup() {
-    const riskFocusLabel = (value) => RISK_FOCUS_LABELS[value] || value || '—';
-    const ruleOperatorLabel = (value) => ({ LT: '低于', LTE: '不高于', GT: '高于', GTE: '不低于', EQ: '等于' }[String(value || '').toUpperCase()] || value || '—');
-    const varietyLabel = (value) => ({ demonstration: '示范品种', greenhouse: '设施栽培' }[String(value || '').trim().toLowerCase()] || value || '—');
-    return { riskFocusLabel, ruleOperatorLabel, metricLabel: adminMetricLabel, varietyLabel, displayText };
-  }
-};
-
-const RISK_FOCUS_LABELS = {
-  WATER_DEFICIT: '缺水风险',
-  HEAT_STRESS: '高温胁迫',
-  COLD_STRESS: '低温冷害'
-};
-const TASK_ACTION_LABELS = { INSPECTION: '现场巡田', IRRIGATION_CHECK: '灌溉巡检' };
-const METRIC_AVAILABILITY_LABELS = { SUPPORTED: '已接入', SIMULATION_ONLY: '演示参考', UNAVAILABLE: '不可用' };
-
-function manualEnvMetrics(pack, stage) {
-  const target = stage?.target || {};
-  const metricLabels = {
-    SOIL_MOISTURE: '土壤湿度',
-    AIR_TEMPERATURE: '空气温度',
-    AIR_HUMIDITY: '空气湿度',
-    WATER_LEVEL: '水箱水位',
-    LIGHT: '光照强度',
-    CO2: 'CO2',
-    PH: '土壤酸碱度',
-    SOIL_EC: '土壤电导率',
-    NPK_RATIO: '氮磷钾'
-  };
-  const items = [
-    { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
-    { code: 'AIR_TEMPERATURE', label: metricLabels.AIR_TEMPERATURE, range: `${target.airTemperatureLow ?? '—'}~${target.airTemperatureHigh ?? '—'}`, unit: '°C', availability: 'SUPPORTED', note: '阶段核心管控指标' }
-  ];
-  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
-    items.push({
-      code: 'AIR_HUMIDITY',
-      label: metricLabels.AIR_HUMIDITY,
-      range: `${target.airHumidityLow ?? '—'}~${target.airHumidityHigh ?? '—'}`,
-      unit: '%RH',
-      availability: 'SUPPORTED',
-      note: '阶段环境湿度目标'
-    });
-  }
-  const stageTargets = [
-    { code: 'LIGHT', low: target.lightLow, high: target.lightHigh, unit: 'lux', note: '阶段模型参考区间' },
-    { code: 'CO2', low: target.co2Low, high: target.co2High, unit: 'ppm', note: '阶段模型参考区间' },
-    { code: 'PH', low: target.phLow, high: target.phHigh, unit: 'pH', note: '阶段模型参考区间' },
-    { code: 'WATER_LEVEL', low: target.waterLevelLow, high: target.waterLevelHigh, unit: '%', note: '可监测指标' }
-  ];
-  stageTargets.forEach((item) => {
-    if (item.low == null && item.high == null) return;
-    const profile = (pack.metrics || []).find((metric) => metric.code === item.code) || {};
-    items.push({
-      code: item.code,
-      label: adminMetricLabel(item.code, profile.label || metricLabels[item.code]),
-      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
-      unit: profile.unit || item.unit,
-      availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
-      note: item.note
-    });
-  });
-  const covered = new Set(items.map((item) => item.code));
-  (pack.metrics || []).forEach((metric) => {
-    if (covered.has(metric.code)) return;
-    const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
-    items.push({
-      code: metric.code,
-      label: adminMetricLabel(metric.code, metric.label || metricLabels[metric.code]),
-      range: fallbackRange,
-      unit: metric.unit || '',
-      availability: metric.availability || 'SIMULATION_ONLY',
-      note: metric.availability === 'SUPPORTED' ? '可监测指标' : '模型参考区间'
-    });
-  });
-  return items;
-}
-
-function buildStageGuide(pack, stage) {
-  const target = stage?.target || {};
-  const lines = [
-    `${pack.identity.name}（${pack.identity.region || '本地'}）处于「${stage.label}」时，应优先保障根区水热环境稳定，避免忽干忽湿或温度骤变。`,
-    `适宜土壤湿度 ${target.soilMoistureLow}%~${target.soilMoistureHigh}%，空气温度 ${target.airTemperatureLow}~${target.airTemperatureHigh}°C。`
-  ];
-  if (target.airHumidityLow != null || target.airHumidityHigh != null) {
-    lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
-  }
-  if (target.lightLow != null || target.lightHigh != null) {
-    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
-  }
-  if (stage.riskFocus?.length) {
-    lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);
-  }
-  if (stage.taskTemplates?.length) {
-    const tasks = stage.taskTemplates.map((task) => {
-      const action = TASK_ACTION_LABELS[task.actionType] || task.actionType;
-      return `${action}（每 ${task.intervalDays} 天，优先级${localizedPriorityLabel(task.priority)}）`;
-    }).join('；');
-    lines.push(`建议农务节奏：${tasks}。`);
-  }
-  const stageBound = {
-    WATER_DEFICIT: target.soilMoistureLow,
-    HEAT_STRESS: target.airTemperatureHigh,
-    COLD_STRESS: target.airTemperatureLow
-  };
-  const ruleNotes = (pack.rules || []).map((rule) => {
-    const op = rule.operator === 'LT' ? '低于' : '高于';
-    const bound = rule.threshold ?? stageBound[rule.code];
-    const boundText = bound == null ? '阶段目标' : String(bound);
-    return `${RISK_FOCUS_LABELS[rule.code] || rule.code}：${adminMetricLabel(rule.metric)}${op}${boundText}，且持续 ${rule.durationMinutes} 分钟时需重点关注`;
-  });
-  if (ruleNotes.length) lines.push(`规则参考：${ruleNotes.join('；')}。`);
-  const stageKnowledge = pack.knowledge?.byStage?.[stage.code];
-  const knowledgeSource = Array.isArray(stageKnowledge) && stageKnowledge.length
-    ? stageKnowledge
-    : (pack.knowledge?.content || []);
-  const knowledgeLines = knowledgeSource.filter((line) => line && !line.startsWith('>') && !line.startsWith('#') && !line.startsWith('-')).slice(0, 5);
-  return [...lines, ...knowledgeLines];
-}
-
-const CROP_MANUAL_ICONS = {
-  tomato: '🍅',
-  corn: '🌽',
-  cucumber: '🥒',
-  rice: '🌾',
-  sunflower: '🌻',
-  strawberry: '🍓',
-  pepper: '🌶️'
-};
-
-const CropManualView = {
-  template: '#tmpl-crop-manual',
+const AdminOpsView = {
+  template: '#tmpl-admin-ops',
   props: ['state', 'routeParams'],
   setup(props) {
-    const packs = computed(() => (props.state.cropPackDetails || []).slice().sort((a, b) => a.identity.name.localeCompare(b.identity.name, 'zh-CN')));
-    const manuals = ref([]);
-    const liveManual = ref(null);
-    const loadError = ref('');
-    const cropCode = ref((props.state.plots?.[0]?.cropCode) || packs.value[0]?.cropCode || 'tomato');
-    const stageCode = ref((props.state.plots?.[0]?.stageCode) || packs.value.find((p) => p.cropCode === cropCode.value)?.stages?.[0]?.code || 'seedling');
+    const toast = inject('toast');
+    const activeTab = ref(props.routeParams?.tab || 'services');
+    const deviceFilter = ref('all');
+    const alertFilter = ref('all');
+    const alertLevel = ref('all');
 
-    const cropOptions = computed(() => {
-      const source = manuals.value.length ? manuals.value : packs.value.map((pack) => ({
-        cropCode: pack.cropCode,
-        name: pack.identity?.name,
-        region: pack.identity?.region,
-        stageCount: pack.stages?.length || 0
-      }));
-      return source.map((item) => ({
-        cropCode: item.cropCode,
-        label: item.name || item.label,
-        region: item.region || '本地',
-        stageCount: item.stageCount || item.stages?.length || 0,
-        icon: CROP_MANUAL_ICONS[item.cropCode] || '🌱'
-      }));
-    });
-    const cropPack = computed(() => {
-      if (liveManual.value) return liveManual.value;
-      return packs.value.find((pack) => pack.cropCode === cropCode.value) || packs.value[0] || null;
-    });
-    const stageOptions = computed(() => (cropPack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
-    const stage = computed(() => liveManual.value?.stage || stageOptions.value.find((s) => s.code === stageCode.value) || stageOptions.value[0] || null);
-    const envMetrics = computed(() => {
-      if (liveManual.value?.envMetrics?.length) return liveManual.value.envMetrics;
-      return cropPack.value && stage.value ? manualEnvMetrics(cropPack.value, stage.value) : [];
-    });
-    const guideParagraphs = computed(() => {
-      if (liveManual.value?.guideParagraphs?.length) return liveManual.value.guideParagraphs;
-      return cropPack.value && stage.value ? buildStageGuide(cropPack.value, stage.value) : [];
+    watch(() => props.routeParams, (p) => {
+      if (p?.tab) activeTab.value = p.tab;
     });
 
-    const selectCrop = (code) => {
-      cropCode.value = code;
-      const listed = manuals.value.find((item) => item.cropCode === code);
-      const pack = packs.value.find((item) => item.cropCode === code);
-      stageCode.value = listed?.stages?.[0]?.code || pack?.stages?.[0]?.code || 'seedling';
+    const filteredDevices = computed(() => {
+      const devs = props.state.adminDevices || [];
+      if (deviceFilter.value === 'all') return devs;
+      return devs.filter(d => d.status === deviceFilter.value);
+    });
+
+    const filteredAlerts = computed(() => {
+      let alerts = props.state.adminAlerts || [];
+      if (alertFilter.value !== 'all') alerts = alerts.filter(a => a.status === alertFilter.value);
+      if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
+      return alerts;
+    });
+
+    const transitionAlert = async (alert, action) => {
+      if (!alert?.id) return;
+      try {
+        const saved = action === 'ack' ? await api.ackAlert(alert.id) : await api.closeAlert(alert.id);
+        const nextStatus = String(saved?.status || (action === 'ack' ? 'ACKED' : 'CLOSED')).toUpperCase();
+        alert.status = nextStatus === 'ACKED' ? 'ACK' : nextStatus === 'ACTIVE' ? 'OPEN' : 'CLOSED';
+        toast(action === 'ack' ? '告警已确认，已同步后端' : '告警已关闭，已同步后端');
+      } catch (error) {
+        toast(error.message || '告警状态更新失败', 'error');
+      }
     };
-    const selectStage = (code) => { stageCode.value = code; };
-    const availabilityLabel = (code) => METRIC_AVAILABILITY_LABELS[code] || code || '—';
 
-    const loadManual = async () => {
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText };
+  }
+};
+
+const AdminAuditView = {
+  template: '#tmpl-admin-audit',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const auditTab = ref('passport');
+    const searchQuery = ref(props.routeParams?.traceId || '');
+    const typeFilter = ref('all');
+    const expandedPassport = ref(props.routeParams?.traceId || null);
+
+    watch(() => props.routeParams, (p) => {
+      if (p?.traceId) {
+        searchQuery.value = p.traceId;
+        expandedPassport.value = p.traceId;
+      }
+    });
+
+    const filteredRecords = computed(() => {
+      let records = props.state.adminAuditRecords || [];
+      if (typeFilter.value !== 'all') records = records.filter(r => r.type === typeFilter.value);
+      if (searchQuery.value) {
+        const q = searchQuery.value.toLowerCase();
+        records = records.filter(r =>
+          r.traceId.toLowerCase().includes(q) ||
+          r.operator.toLowerCase().includes(q) ||
+          r.plotId.toLowerCase().includes(q)
+        );
+      }
+      return records;
+    });
+
+    const togglePassport = (traceId) => {
+      expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
+    };
+
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, localizedStatusLabel, provenanceLabel, levelLabel, displayText };
+  }
+};
+
+const AdminSimulatorView = {
+  template: '#tmpl-admin-simulator',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const toast = inject('toast');
+    const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
+    const simBusy = ref(false);
+    const plotScenarios = ref([]);
+    const plots = computed(() => props.state.allPlots || props.state.plots || []);
+
+    watch(plots, (newPlots) => {
+      plotScenarios.value = newPlots.map(p => {
+        const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
+        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        return {
+          plotId: p.plotId,
+          name: p.name || p.plotName || p.plotId,
+          cropName: p.cropName || p.cropCode || '未知作物',
+          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
+        };
+      });
+    }, { immediate: true });
+
+    const globalScenario = computed({
+      get: () => {
+        if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
+        const first = plotScenarios.value[0].scenario;
+        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+      },
+      set: (val) => {
+        if (val) {
+          plotScenarios.value.forEach(p => p.scenario = val);
+        }
+      }
+    });
+    const adminDualTrackModal = ref(false);
+    const adminReplayModal = ref(false);
+    const replayEvents = ref([]);
+    const selectedReplayScenario = ref('');
+    const selectedDualTrackScenario = ref('');
+
+    const syncSimulator = (status = {}) => {
+      props.state.simulatorStatus = status;
+      props.state.adminOverview.simulator = {
+        ...(props.state.adminOverview.simulator || {}),
+        running: String(status.status || '').toUpperCase() === 'RUNNING',
+        scenario: status.scenario || status.scenarioId || '',
+        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0)
+      };
+      simRunning.value = props.state.adminOverview.simulator.running;
+    };
+    const toggleSimulator = async () => {
+      if (simBusy.value) return;
+      simBusy.value = true;
+      try {
+        const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
+        syncSimulator(status);
+        toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
+      } catch (error) {
+        toast(error.message || '模拟器控制失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const applyPlotScenarios = async () => {
+      if (simBusy.value) return;
+      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      simBusy.value = true;
+      let updated = 0;
+      const failures = [];
+      try {
+        for (const plot of targets) {
+          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+          try {
+            await api.updatePlotSimulation(plot.plotId, { scenario });
+            updated += 1;
+          } catch (error) {
+            failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
+          }
+        }
+        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
+      } catch (error) {
+        toast(error.message || '场景配置保存失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const togglePlotSimulation = async (plot) => {
+      if (!plot || !plot.plotId || simBusy.value) return;
       if (props.state.sessionMode !== 'live') {
-        liveManual.value = null;
+        toast('演示会话不能控制后端模拟器', 'error');
+        return;
+      }
+      const target = plot;
+      simBusy.value = true;
+      try {
+        const nextEnabled = !target.enabled;
+        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        target.enabled = nextEnabled;
+        toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
+      } catch (error) {
+        toast(error.message || '地块模拟启停失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const openReplay = async (run) => {
+      selectedReplayScenario.value = run.scenarioId || run.runId || '—';
+      adminReplayModal.value = true;
+      if (props.state.sessionMode !== 'live') {
+        replayEvents.value = [
+          { time: '00:00', action: '初始化演示推演环境', agent: '演示引擎' },
+          { time: '00:05', action: '记录情景事件', agent: '演示数据' },
+          { time: '00:30', action: '生成只读对比结果', agent: '演示引擎' }
+        ];
         return;
       }
       try {
-        if (!manuals.value.length) manuals.value = await api.getCropManuals();
-        liveManual.value = await api.getCropManual(cropCode.value, stageCode.value);
-        loadError.value = '';
+        const snapshot = await api.getScenarioSnapshot(run.runId || run.scenarioId);
+        const events = [...(snapshot?.branchEvents || []), ...(snapshot?.mainEvents || [])]
+          .sort((a, b) => new Date(a.ts || a.createdAt || 0).getTime() - new Date(b.ts || b.createdAt || 0).getTime())
+          .map((event) => ({
+            time: new Date(event.ts || event.createdAt || 0).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+            action: `${event.metric || event.eventType || '情景'}：${event.value ?? event.message ?? '已记录'}`,
+            agent: event.branchId || localizedSourceLabel(event.source, '后端仿真')
+          }));
+        replayEvents.value = events.length ? events : [{ time: '—', action: '后端未提供该运行的事件明细', agent: '后端记录' }];
       } catch (error) {
-        loadError.value = error.message || '培养手册读取失败';
-        liveManual.value = null;
+        replayEvents.value = [{ time: '—', action: error.message || '仿真快照读取失败', agent: '后端' }];
+        toast(error.message || '仿真快照读取失败', 'error');
       }
     };
 
-    watch([cropCode, stageCode], loadManual);
-    onMounted(loadManual);
-
-    return { cropCode, stageCode, cropOptions, cropPack, stageOptions, stage, envMetrics, guideParagraphs, selectCrop, selectStage, availabilityLabel, loadError };
-  }
-};
-
-const ValueLedgerView = {
-  template: '#tmpl-value-ledger',
-  props: ['state', 'routeParams'],
-  setup(props) {
-    let chart = null;
-
-    const renderChart = async () => {
-      await nextTick();
-      const dom = document.getElementById('ledgerChart');
-      if (!dom) return;
-      if (!chart) {
-        chart = echarts.init(dom);
-        window.addEventListener('resize', () => chart.resize());
+    const openDualTrack = async (run) => {
+      selectedDualTrackScenario.value = run.scenarioId || 'NORMAL';
+      adminDualTrackModal.value = true;
+      if (props.state.sessionMode === 'live') {
+        try {
+          const comparison = await api.compareScenario({ scenario: run.type, scenarioId: run.scenarioId, seed: run.seed || 42, plotId: run.plotId || props.state.allPlots?.[0]?.plotId || 'plot-a01' });
+          Vue.nextTick(() => {
+            const chartDom = document.getElementById('adminDualTrackChart');
+            if (!chartDom || !window.echarts) return;
+            const myChart = echarts.init(chartDom);
+            const left = comparison?.leftBranch || {};
+            const right = comparison?.rightBranch || {};
+            myChart.setOption({
+              tooltip: { trigger: 'axis' },
+              legend: { data: ['执行分支', '未执行分支'] },
+              xAxis: { type: 'category', data: ['样本数', '均值', '最低值', '最高值'] },
+              yAxis: { type: 'value', name: '后端统计值' },
+              series: [
+                { name: '执行分支', type: 'bar', data: [left.eventCount, left.soilMean, left.soilMin, left.soilMax], itemStyle: { color: '#2ea043' } },
+                { name: '未执行分支', type: 'bar', data: [right.eventCount, right.soilMean, right.soilMin, right.soilMax], itemStyle: { color: '#f85149' } }
+              ]
+            });
+          });
+        } catch (error) {
+          toast(error.message || '双轨结果读取失败', 'error');
+        }
+        return;
       }
-
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const textColor = isDark ? '#e8eaed' : '#202124';
-      const dailyData = props.state.valueLedger.daily;
-
-      chart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', formatter: '{b}: {c}% 偏差' },
-        xAxis: { 
-          type: 'category', 
-          data: dailyData.map(d => d.date.split('-')[1]),
-          axisLabel: { color: textColor }
-        },
-        yAxis: { 
-          type: 'value', 
-          name: '水量偏差率 (%)',
-          axisLabel: { color: textColor },
-          nameTextStyle: { color: textColor }
-        },
-        series: [{
-          data: dailyData.map(d => d.deviationRatePct),
-          type: 'bar',
-          itemStyle: {
-            color: (params) => params.value <= 0 ? '#1e8e3e' : '#d93025'
-          }
-        }]
+      Vue.nextTick(() => {
+        const chartDom = document.getElementById('adminDualTrackChart');
+        if (chartDom && window.echarts) {
+          const myChart = echarts.init(chartDom);
+          const times = Array.from({length: 24}, (_, i) => `${String(9 + Math.floor(i / 2)).padStart(2, '0')}:${i % 2 === 0 ? '00' : '30'}`);
+          const option = {
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['执行处方 (有干预)', '未执行 (基线漂移)'] },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            xAxis: { type: 'category', boundaryGap: false, data: times },
+            yAxis: { type: 'value', name: '土壤含水率 (%)', min: 10, max: 40 },
+            series: [
+              {
+                name: '执行处方 (有干预)',
+                type: 'line',
+                data: times.map((_, i) => i < 8 ? 22 - (i * 0.5) : (i === 8 ? 35 : 35 - ((i - 8) * 0.4))),
+                itemStyle: { color: '#2ea043' },
+                smooth: true
+              },
+              {
+                name: '未执行 (基线漂移)',
+                type: 'line',
+                data: times.map((_, i) => 22 - (i * 0.5)),
+                itemStyle: { color: '#f85149' },
+                lineStyle: { type: 'dashed' },
+                smooth: true
+              }
+            ]
+          };
+          myChart.setOption(option);
+        }
       });
     };
 
-    onMounted(renderChart);
-    const observer = new MutationObserver(() => renderChart());
-    onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
+    const scenarios = [
+      { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
+      { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
+      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
+      { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
+    ];
 
-    return { provenanceLabel };
+    return {
+      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
+      adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios, togglePlotSimulation,
+      scenarioLabel, localizedStatusLabel
+    };
   }
 };
 
-// ---- SYSTEM ADMIN COMPONENTS ----
+const AdminRulesView = {
+  template: '#tmpl-admin-rules',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const toast = inject('toast');
+    const isLiveSession = computed(() => props.state.sessionMode === 'live');
+    const activeTab = ref('packs');
+    const expandedPacks = ref({});
+    const showPackModal = ref(false);
+    const editingPackId = ref(null);
+    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true });
+    const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
+    const togglePack = (id) => {
+      expandedPacks.value[id] = !expandedPacks.value[id];
+    };
+    const resetPackForm = () => {
+      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true };
+      editingPackId.value = null;
+    };
+    const openCreatePack = () => {
+      resetPackForm();
+      showPackModal.value = true;
+    };
+    const openEditPack = (pack) => {
+      packForm.value = { ...pack, stages: [...pack.stages], knowledgeDocs: pack.knowledgeDocs.map(doc => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }) };
+      editingPackId.value = pack.id;
+      showPackModal.value = true;
+    };
+    const savePack = () => {
+      if (isLiveSession.value) {
+        toast('正式作物模型包由后端版本目录维护，当前页面只提供读取，未修改本地演示数据。', 'error');
+        return;
+      }
+      const form = packForm.value;
+      if (!form.name.trim() || !form.id.trim()) return;
+      const normalized = {
+        ...form,
+        id: form.id.trim(),
+        name: form.name.trim(),
+        stages: form.stages.map(item => item.trim()).filter(Boolean),
+        knowledgeDocs: form.knowledgeDocs.map(doc => ({ title: doc.title.trim(), content: doc.content.trim() })).filter(doc => doc.title)
+      };
+      const packs = props.state.adminCropPacks;
+      if (editingPackId.value) {
+        const index = packs.findIndex(pack => pack.id === editingPackId.value);
+        if (index >= 0) packs.splice(index, 1, normalized);
+      } else if (!packs.some(pack => pack.id === normalized.id)) {
+        packs.push(normalized);
+      }
+      showPackModal.value = false;
+      resetPackForm();
+    };
+    const deletePack = (pack) => {
+      if (isLiveSession.value) {
+        toast('正式作物模型包暂无删除接口，未修改后端数据。', 'error');
+        return;
+      }
+      if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
+        const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
+        if (index >= 0) props.state.adminCropPacks.splice(index, 1);
+      }
+    };
+    const togglePackStatus = async (pack) => {
+      const nextStatus = pack.status === 'published' ? 'draft' : 'published';
+      if (isLiveSession.value) {
+        try {
+          await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
+          pack.status = nextStatus;
+          toast(`作物模型包状态已更新为“${localizedStatusLabel(nextStatus)}”`);
+        } catch (error) {
+          toast(error.message || 'Crop Pack 状态更新失败', 'error');
+        }
+        return;
+      }
+      pack.status = nextStatus;
+    };
+    const transitionCandidate = async (candidate, status) => {
+      if (!candidate?.id) return;
+      try {
+        const saved = await api.transitionStrategyCandidate(candidate.id, status);
+        candidate.status = String(saved?.status || status).toLowerCase();
+        toast(`策略候选已更新为“${localizedStatusLabel(candidate.status)}”，后端记录已同步`);
+      } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
+    };
+    const addStage = () => packForm.value.stages.push('');
+    const removeStage = (index) => packForm.value.stages.splice(index, 1);
+    const addKnowledgeDoc = () => packForm.value.knowledgeDocs.push({ title: '', content: '' });
+    const removeKnowledgeDoc = (index) => packForm.value.knowledgeDocs.splice(index, 1);
+    const expandedKnowledge = ref(null);
+    const masonryCols = ref(3);
+    const updateMasonryCols = () => {
+      if (window.innerWidth < 768) masonryCols.value = 1;
+      else if (window.innerWidth < 1100) masonryCols.value = 2;
+      else if (window.innerWidth < 1600) masonryCols.value = 3;
+      else masonryCols.value = 4;
+    };
+    onMounted(() => {
+      updateMasonryCols();
+      window.addEventListener('resize', updateMasonryCols);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('resize', updateMasonryCols);
+    });
+    const masonryColumns = computed(() => {
+      const cols = Array.from({ length: masonryCols.value }, () => []);
+      props.state.adminCropPacks.forEach((pack, i) => {
+        cols[i % masonryCols.value].push(pack);
+      });
+      return cols;
+    });
+    const toggleKnowledge = (packId, index) => {
+      const key = `${packId}:${index}`;
+      expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
+    };
+    return {
+      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons,
+      expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
+      deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
+    };
+  }
+};
 
+const AdminSettingsView = {
+  template: '#tmpl-admin-settings',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const toast = inject('toast');
+    const isLiveSession = computed(() => props.state.sessionMode === 'live');
+    const activeTab = ref(props.routeParams?.tab || 'users');
+    const roleFilter = ref('all');
+    const logFilter = ref('all');
+    const showCreateUser = ref(false);
+    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const pendingUserAction = ref(null);
+    // 智能模型模式选择是"草稿"：下拉只改本地草稿，点击保存才写回总览/服务健康并（live 下）提交后端
+    // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
+    const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
+    const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
+    watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
+      if (mode) draftAiMode.value = mode;
+    });
+
+    watch(() => props.routeParams, (params) => {
+      if (params?.tab) activeTab.value = params.tab;
+    });
+
+    const filteredUsers = computed(() => {
+      const users = props.state.adminUsers || [];
+      if (roleFilter.value === 'all') return users;
+      return users.filter(u => u.role === roleFilter.value);
+    });
+
+    const filteredLogs = computed(() => {
+      const logs = props.state.adminAuditLogs || [];
+      if (logFilter.value === 'all') return logs;
+      return logs.filter(l => l.action === logFilter.value);
+    });
+
+    const permissionMatrix = [
+      { module: '地块监测', farmer: '👁 只读 (分配地块)', farmAdmin: '✅ 全部地块', sysAdmin: '👁 只读 (排查)' },
+      { module: '农务工单', farmer: '✅ 接受/完成', farmAdmin: '✅ 创建/分派/验收', sysAdmin: '👁 审计记录' },
+      { module: '告警处理', farmer: '👁 自己地块', farmAdmin: '✅ 确认/关闭/升级', sysAdmin: '✅ 系统级告警' },
+      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断', sysAdmin: '❌ 不提供入口' },
+      { module: '灌溉控制', farmer: '✅ 确认并执行', farmAdmin: '✅ 确认并执行', sysAdmin: '✅ 受控执行' },
+      { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
+      { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
+      { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
+      { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
+    ];
+
+    const deleteUser = (userId) => {
+      const user = (props.state.adminUsers || []).find(u => u.userId === userId);
+      if (!user) return;
+      pendingUserAction.value = { type: 'delete', user };
+    };
+
+    const toggleUser = (user) => {
+      pendingUserAction.value = { type: user.enabled ? 'disable' : 'enable', user };
+    };
+
+    const confirmUserAction = async () => {
+      const action = pendingUserAction.value;
+      if (!action) return;
+      const { type, user } = action;
+      const username = user.username || user.userId;
+      try {
+        if (type === 'delete') {
+          if (isLiveSession.value) {
+            await api.deleteUserAccount(user.userId);
+          }
+          const idx = props.state.adminUsers.findIndex(u => u.userId === user.userId);
+          if (idx > -1) {
+            props.state.adminUsers.splice(idx, 1);
+            props.state.adminAuditLogs.unshift({
+              id: 'log-' + Date.now(),
+              time: new Date().toLocaleTimeString().substring(0, 5),
+              operator: 'sysadmin',
+              action: 'CONFIG_CHANGE',
+              actionLabel: '删除用户',
+              detail: '删除用户 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
+              ip: '127.0.0.1'
+            });
+          }
+          toast(`账号 ${username} 已删除`);
+        } else {
+          const enabled = type === 'enable';
+          if (isLiveSession.value) {
+            const farmId = (user.farmIds && user.farmIds[0]) || 'farm-demo';
+            await api.updateFarmMemberStatus(user.userId, { farmId, enabled });
+          }
+          user.enabled = enabled;
+          if (user.status) user.status = enabled ? 'ACTIVE' : 'INACTIVE';
+          props.state.adminAuditLogs.unshift({
+            id: 'log-' + Date.now(),
+            time: new Date().toLocaleTimeString().substring(0, 5),
+            operator: 'sysadmin',
+            action: 'CONFIG_CHANGE',
+            actionLabel: enabled ? '启用用户' : '停用用户',
+            detail: (enabled ? '启用' : '停用') + '账号 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
+            ip: '127.0.0.1'
+          });
+          toast(enabled ? `账号 ${username} 已启用` : `账号 ${username} 已停用`);
+        }
+      } catch (error) {
+        toast(error.message || '操作失败', 'error');
+      } finally {
+        pendingUserAction.value = null;
+      }
+    };
+
+    const createUser = async () => {
+      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+      if (isLiveSession.value) {
+        try {
+          const user = await api.createFarmMember({
+            farmId: newUser.value.farmId || 'farm-demo',
+            username: newUser.value.username,
+            password: newUser.value.password,
+            role: newUser.value.role,
+            plotIds: []
+          });
+          props.state.adminUsers.push({
+            userId: user.userId || 'user-' + Date.now(),
+            username: user.username || newUser.value.username,
+            role: user.role || newUser.value.role,
+            roleLabel: roleLabels[user.role || newUser.value.role],
+            farmName: '远程农场',
+            plotIds: user.plotIds || [],
+            enabled: user.enabled !== false,
+            createdAt: new Date().toISOString().split('T')[0]
+          });
+          toast(`账号 ${newUser.value.username} 创建成功`);
+          showCreateUser.value = false;
+          newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+        } catch (error) {
+          toast(error.message || '账号创建失败', 'error');
+        }
+        return;
+      }
+      props.state.adminUsers.push({
+        userId: 'user-' + Date.now(),
+        username: newUser.value.username,
+        role: newUser.value.role,
+        roleLabel: roleLabels[newUser.value.role],
+        farmName: '农智示范农场',
+        plotIds: ['plot-a01'],
+        enabled: true,
+        createdAt: new Date().toISOString().split('T')[0]
+      });
+      props.state.adminAuditLogs.unshift({
+        id: 'log-' + Date.now(),
+        time: new Date().toLocaleTimeString().substring(0, 5),
+        operator: 'sysadmin',
+        action: 'USER_CREATE',
+        actionLabel: '创建用户',
+        detail: '创建用户 ' + newUser.value.username + ' (' + roleLabels[newUser.value.role] + ')',
+        ip: '127.0.0.1'
+      });
+      showCreateUser.value = false;
+      newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
+      toast('用户创建成功');
+    };
+
+    // 保存成功后把新模式写回总览与服务健康矩阵（总览/服务健康保持一致）
+    const applyAiModeToOverview = (mode) => {
+      const ov = props.state.adminOverview;
+      if (!ov) return;
+      ov.aiMode = mode;
+      const svc = (Array.isArray(ov.services) ? ov.services : []).find(
+        s => s.name === '智能模型服务' || s.name === 'Qwen LLM'
+      );
+      if (svc) {
+        svc.mode = mode;
+        svc.status = aiServiceStatus(mode);
+        if (svc.statusLabel !== undefined) delete svc.statusLabel;
+      }
+    };
+
+    const saveAiMode = async () => {
+      const mode = String(draftAiMode.value || '').trim().toLowerCase();
+      // 只允许下拉的三个合法模式；防止 '—' 占位等异常草稿被提交到后端（后端会 400）
+      if (!['full', 'rules-only', 'mock'].includes(mode)) {
+        toast('请先选择有效的智能模型模式（完整 / 规则兜底 / 模拟）', 'error');
+        return;
+      }
+      try {
+        const saved = await api.updateAiMode(mode);
+        const savedMode = saved.aiMode === 'openai-compatible' ? 'full' : (saved.aiMode || mode);
+        applyAiModeToOverview(savedMode);
+        draftAiMode.value = savedMode;
+        if (isLiveSession.value) {
+          props.state.adminAuditLogs.unshift({
+            id: 'log-' + Date.now(),
+            time: new Date().toLocaleTimeString().substring(0, 5),
+            operator: 'sysadmin',
+            action: 'CONFIG_CHANGE',
+            actionLabel: '修改配置',
+            detail: '智能模型模式切换：' + (saved.previous || '—') + ' → ' + savedMode,
+            ip: '127.0.0.1'
+          });
+          toast(`智能模型模式已保存为「${modeLabel(savedMode, savedMode)}」`);
+        } else {
+          toast('演示模式已保存（刷新后保留）');
+        }
+      } catch (error) {
+        toast(error.message || '模式保存失败', 'error');
+      }
+    };
+
+      const formatPerm = (text) => {
+        if (!text) return '';
+        return text
+          .replace('👁', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">visibility</span>')
+          .replace('✅', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-success)">check_circle</span>')
+          .replace('❌', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-danger)">cancel</span>')
+          .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
+      };
+    return {
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText
+    };
+  }
+};
 
 // 2. Setup App
 const app = createApp({
   components: {
-    'dashboard-view': DashboardView,
-    'plot-detail-modal': PlotDetailModal,
-    'decision-console-view': RoleAwareDecisionConsoleView,
-    'work-orders-view': RoleAwareWorkOrdersView,
-    'resource-coordination-view': AdminResourceCenterView,
-    'farm-members-view': AdminMemberManagementView,
-    'crop-manual-view': CropManualView,
-    'crop-packs-view': CropPacksView,
+    'admin-overview-view': AdminOverviewView,
+    'admin-ops-view': AdminOpsView,
+    'admin-audit-view': AdminAuditView,
+    'admin-simulator-view': AdminSimulatorView,
+    'admin-rules-view': AdminRulesView,
+    'admin-settings-view': AdminSettingsView
   },
   setup() {
     const isLive = ref(false);
