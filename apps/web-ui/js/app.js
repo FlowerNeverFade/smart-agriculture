@@ -861,13 +861,18 @@ const PlotDetailModal = {
     const simulationBusy = ref(false);
     const simulationMetric = ref('SOIL_MOISTURE');
     const simulationMetricLoading = ref(false);
+    const simulationPreviewLoading = ref(false);
+    const simulationPreviewError = ref('');
     const simulationChartEl = ref(null);
     const simulationChart = ref(null);
     const simulationPreviewDirty = ref(false);
     const simulationEvaluating = ref(false);
     let metricRequestSerial = 0;
     let previewRequestSerial = 0;
-    let previewDebounceTimer = null;
+    // One debounced queue is shared by slider changes and scenario changes;
+    // the request serial prevents an older response from replacing a newer
+    // preview.
+    let previewTimer = null;
     let hydratingSimulation = false;
     const simulationScenarioOptions = computed(() => {
       const configured = simulation.value?.scenarioCatalog;
@@ -919,8 +924,9 @@ const PlotDetailModal = {
     const simulationPreviewMessage = computed(() => {
       const scenario = selectedSimulationScenario.value;
       if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
-      if (simulationEvaluating.value) return '正在使用后端确定性模型试算；当前曲线暂时保留，完成后会自动刷新。';
-      if (simulationPreviewDirty.value) return '参数尚未保存，曲线来自只读后端试算；只有点击“保存到此地块”才会更新服务器策略。';
+      if (simulationPreviewLoading.value || simulationEvaluating.value) return '正在调用后端模型重新推演，上一条曲线暂保留并已降低强调度…';
+      if (simulationPreviewError.value) return `实时推演失败：${simulationPreviewError.value}`;
+      if (simulationPreviewDirty.value) return '参数尚未保存，曲线来自只读后端试算；点击“保存到此地块”后服务器模拟器会热加载。';
       if (simulationForecast.value && String(simulationForecast.value.status || '').toUpperCase() !== 'AVAILABLE') {
         const reason = simulationForecast.value.reason || '当前样本或设备状态未满足预测条件';
         return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
@@ -957,6 +963,8 @@ const PlotDetailModal = {
       const anchorTimestamp = anchorPoint ? telemetryTimestamp(anchorPoint) : NaN;
       const forecastAvailable = String(simulationForecast.value?.status || '').toUpperCase() === 'AVAILABLE'
         && Array.isArray(simulationForecast.value?.curve) && simulationForecast.value.curve.length > 0;
+      // Every forecast curve is returned by the API.  The component never
+      // fabricates what-if points because those would look like measured data.
       const forecastSource = forecastAvailable ? simulationForecast.value.curve : [];
       const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
       const forecastStart = Number.isFinite(anchorTimestamp) ? toSimulated(anchorTimestamp) : now;
@@ -986,11 +994,44 @@ const PlotDetailModal = {
         },
         series: [
           { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: simulationEvaluating.value ? .38 : 1 } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationEvaluating.value ? .28 : 1 } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationEvaluating.value ? .28 : 1 } }
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .35 : 1 } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } }
         ]
       }, true);
+    };
+
+    const queueSimulationPreview = () => {
+      if (hydratingSimulation || simulationBusy.value || !props.plot?.plotId) return;
+      simulationPreviewDirty.value = true;
+      simulationPreviewError.value = '';
+      const version = ++previewRequestSerial;
+      if (previewTimer) window.clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(async () => {
+        previewTimer = null;
+        simulationPreviewLoading.value = true;
+        await renderSimulationChart();
+        try {
+          const result = await api.evaluateRiskForecast({
+            plotId: props.plot.plotId,
+            metric: simulationMetric.value,
+            scenario: simulationForm.value.scenario,
+            parameters: { ...(simulationForm.value.parameters || {}) },
+            requestVersion: String(version)
+          });
+          if (version !== previewRequestSerial) return;
+          simulationForecast.value = result || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+          await nextTick();
+          await renderSimulationChart();
+        } catch (error) {
+          if (version === previewRequestSerial) simulationPreviewError.value = error?.message || '预测服务暂不可用';
+        } finally {
+          if (version === previewRequestSerial) {
+            simulationPreviewLoading.value = false;
+            await renderSimulationChart();
+          }
+        }
+      }, 300);
     };
 
     const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
@@ -1003,13 +1044,14 @@ const PlotDetailModal = {
           api.getRiskForecast(props.plot?.plotId, normalized)
         ]);
         if (requestId !== metricRequestSerial) return;
-        if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
+      if (historyResult.status === 'fulfilled') simulationHistory.value = historyResult.value || [];
         else if (!preserveOnError) simulationHistory.value = [];
         if (forecastResult.status === 'fulfilled') simulationForecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
         else if (!preserveOnError) simulationForecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         if (resetPreview) simulationPreviewDirty.value = false;
         await nextTick();
         renderSimulationChart();
+        if (simulationPreviewDirty.value) queueSimulationPreview();
       } finally {
         if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
       }
@@ -1032,46 +1074,17 @@ const PlotDetailModal = {
       }
     };
 
-    const evaluateSimulationPreview = async (metric, requestId) => {
-      const normalized = simulationMetricDefinition(metric).code;
-      try {
-        const evaluated = await api.evaluateRiskForecast({
-          plotId: props.plot?.plotId,
-          metric: normalized,
-          scenario: simulationForm.value.scenario,
-          parameters: { ...(simulationForm.value.parameters || {}) },
-          requestVersion: requestId
-        });
-        if (requestId !== previewRequestSerial) return;
-        simulationForecast.value = evaluated || { status: 'UNAVAILABLE', reason: '试算响应为空' };
-      } catch (error) {
-        if (requestId !== previewRequestSerial) return;
-        simulationForecast.value = { status: 'UNAVAILABLE', reason: error?.message || '只读试算服务暂不可用', persisted: false, requestVersion: requestId };
-      } finally {
-        if (requestId === previewRequestSerial) {
-          simulationEvaluating.value = false;
-          await nextTick();
-          renderSimulationChart();
-        }
-      }
-    };
-
-    const scheduleSimulationPreview = (metric = simulationMetric.value, delay = 300) => {
-      if (previewDebounceTimer) window.clearTimeout(previewDebounceTimer);
-      const requestId = ++previewRequestSerial;
-      simulationEvaluating.value = true;
-      renderSimulationChart();
-      previewDebounceTimer = window.setTimeout(() => {
-        previewDebounceTimer = null;
-        evaluateSimulationPreview(metric, requestId);
-      }, delay);
-    };
+    // Kept as a small compatibility wrapper for callers that used the older
+    // scheduler name.  All previews now use the single queue above so loading,
+    // error handling and stale-response protection stay consistent.
+    const scheduleSimulationPreview = () => queueSimulationPreview();
 
     const cancelSimulationPreview = () => {
-      if (previewDebounceTimer) window.clearTimeout(previewDebounceTimer);
-      previewDebounceTimer = null;
+      if (previewTimer) window.clearTimeout(previewTimer);
+      previewTimer = null;
       previewRequestSerial += 1;
       simulationEvaluating.value = false;
+      simulationPreviewLoading.value = false;
     };
 
     const loadSimulation = async () => {
@@ -1179,6 +1192,7 @@ const PlotDetailModal = {
       const scenario = simulationScenarioOptions.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
       const defaults = scenario.defaultParameters || PLOT_SIMULATION_DEFAULTS[normalized] || PLOT_SIMULATION_DEFAULTS.NORMAL;
       simulationForm.value = { scenario: normalized, parameters: { ...defaults } };
+      queueSimulationPreview();
     };
     const saveSimulation = async () => {
       cancelSimulationPreview();
@@ -1235,7 +1249,7 @@ const PlotDetailModal = {
     watch(simulationForm, () => {
       if (hydratingSimulation || simulationBusy.value) return;
       simulationPreviewDirty.value = true;
-      scheduleSimulationPreview(simulationMetric.value);
+      queueSimulationPreview();
     }, { deep: true });
     onMounted(async () => {
       await loadSimulation();
@@ -1315,6 +1329,8 @@ const PlotDetailModal = {
       simulationMetricLabel,
       simulationMetricLoading,
       simulationEvaluating,
+      simulationPreviewLoading,
+      simulationPreviewError,
       simulationChartEl,
       canConfigureSimulation,
       simulationDeviceLabel,
@@ -2896,6 +2912,7 @@ const app = createApp({
         : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
+      resourcePlans: isDemoSession ? [] : [],
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
@@ -2933,7 +2950,7 @@ const app = createApp({
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator'
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3173,6 +3190,8 @@ const app = createApp({
       if (wants('members')) jobs.members = api.getFarmMembers({ farmId });
       if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
+      if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
+      if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
       if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
@@ -3208,6 +3227,8 @@ const app = createApp({
       if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
       if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
       if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
+      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfile = results.resourceProfile.value || {};
+      if (results.resourcePlans?.status === 'fulfilled') state.value.resourcePlans = results.resourcePlans.value || [];
       if (results.cropPacks?.status === 'fulfilled') {
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
@@ -3634,7 +3655,8 @@ const app = createApp({
       }
       if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
       const normalized = [...new Set(domains.flatMap(domain => {
-        if (domain === 'resourcePlans') return ['overview'];
+        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
         return [domain];
       }))];
       await refreshFarmData(state.value.adminContext.farmId, normalized.length ? normalized : ['all']);

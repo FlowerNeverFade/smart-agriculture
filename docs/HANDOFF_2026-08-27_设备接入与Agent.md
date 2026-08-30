@@ -178,6 +178,14 @@ POST /api/v1/agent/actions/{actionId}/cancel
 - 额外修复 `cdca92f`：运行时编译的 AI 对话组件不再把 `ref` 对象直接绑定到 `disabled`，确认执行和取消按钮恢复可点击；确认后仍通过 `data-invalidated` 刷新地块、设备、任务、告警和总览数据域。历史元数据不完整的地块支持字段级局部修改。
 - 未操作真实 BearPi；GitHub `main` 已完成非强制推送，未改写既有历史。
 
+## 6.1 2026-08-28 AI 配水与自动灌溉重构（本地收尾）
+
+- 本地 `main` 已增加固定日配额、按农场/业务日期的水量余额、`water-allocation-v2` 确定性配水、整批确认/取消/人工调整、模拟灌溉自动排程和人工兜底任务。
+- 新增接口：`GET/PUT /api/v1/resource-profiles/water`、`GET /api/v1/resource-plans`、`PATCH /api/v1/resource-plans/{id}`、`POST .../{id}/confirm`、`POST .../{id}/cancel`；旧 `POST /resource-plans/evaluate` 的 `demands` 试算保持兼容，`mode=AUTO` 生成整批草案。
+- 管理员资源安排页和农户灌溉页均读取后端计划事实；人工灌溉提交记录实际水量与水源，外部水源不扣蓄水池余额；资源、命令、评价、工单和账本事件会刷新相关页面。
+- 本地 Web Node 回归 `61/61`、Vite 构建和 `git diff --check` 已通过；本地没有 JDK 17，Java 编译由服务器执行。
+- 服务器本轮已在 `/srv/backups/20260828-153155` 完成 `/srv/agriloop` 与 `/srv/farm-admin` 备份；后端源码已同步并通过 `:api-service:test` 54/54、`bootJar`，管理员静态资源已同步，API/模拟器已恢复运行且健康检查为 `UP`。服务器公网浏览器黑盒尚未完成，后续仍需在可用窗口复核；不得记录或传播任何凭据，不操作真实 BearPi。
+
 ## 7. 接手同学优先级
 
 ### P0：服务器恢复后的验证与部署

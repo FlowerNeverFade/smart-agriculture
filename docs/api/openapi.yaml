@@ -360,9 +360,19 @@ paths:
   /api/v1/alerts/{alertId}/escalate:
     post: {tags: [management], parameters: [{name: alertId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 升级告警}}}
   /api/v1/resource-plans/evaluate:
-    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: FEASIBLE/INFEASIBLE 资源计划}}}
+    post: {tags: [management], description: mode=AUTO 时按 farmId 分析全部活跃地块并生成 10 分钟有效的 DRAFT；继续兼容 demands 试算, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: water-allocation-v2 资源计划草案}}}
+  /api/v1/resource-profiles/water:
+    get: {tags: [management], description: 读取农场固定日配额、预留、实际使用、余额和未来配额, parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: date, in: query, required: false, schema: {type: string, format: date}}], responses: {'200': {description: 水资源配置与当日余额}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    put: {tags: [management], description: 只能设置次日及未来生效的 dailyQuotaLitres，当前日配额冻结, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的未来配额}, '400': {description: 生效日期或配额无效}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/resource-plans:
+    get: {tags: [management], description: 管理员读取农场计划；农户仅返回其授权地块分配, parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: businessDate, in: query, required: false, schema: {type: string, format: date}}, {name: status, in: query, required: false, schema: {type: string}}], responses: {'200': {description: 资源计划列表}}}
   /api/v1/resource-plans/{resourcePlanId}:
+    patch: {tags: [management], description: 草稿计划人工调整，必须填写原因并携带 expectedRevision, parameters: [{name: resourcePlanId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 重新校验后的草案}, '409': {description: 版本冲突或计划已过期}}}
     get: {tags: [management], parameters: [{name: resourcePlanId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 资源计划详情}}}
+  /api/v1/resource-plans/{resourcePlanId}/confirm:
+    post: {tags: [management], description: 管理员整批确认并原子预留水量；重复确认幂等, parameters: [{name: resourcePlanId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: CONFIRMED 计划}, '409': {description: 过期、版本冲突或余额不足}}}
+  /api/v1/resource-plans/{resourcePlanId}/cancel:
+    post: {tags: [management], description: 计划开始前取消并释放预留, parameters: [{name: resourcePlanId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: CANCELLED 计划}, '409': {description: 计划已开始执行}}}
   /api/v1/value-ledgers:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的价值账本}}}
     post: {tags: [management], description: 只按观测事实或管理员明确录入计算水量偏差、节水量和水费，并保存 sourceMode, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: COMPUTED/INCOMPLETE 价值账本}, '403': {$ref: '#/components/responses/Forbidden'}}}

@@ -1604,6 +1604,7 @@
                 <label>处理结果<select v-model="suggestion_result_form.outcome" required><option value="SUCCEEDED">成功</option><option value="PARTIAL">部分完成</option><option value="FAILED">失败</option><option value="TIMEOUT">超时</option></select></label>
                 <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际用水量（L）<input v-model="suggestion_result_form.actual_water_litre" type="number" min="0" step="0.1" placeholder="选填"></label>
                 <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际执行时长（秒）<input v-model="suggestion_result_form.actual_duration_seconds" type="number" min="0" step="1" placeholder="选填"></label>
+                <label v-if="active_suggestion && active_suggestion.task && active_suggestion.task.actionType === 'MANUAL_IRRIGATION'">水源类型<select v-model="suggestion_result_form.water_source_mode"><option value="EXTERNAL">外部/备用水源</option><option value="RESERVOIR">蓄水池</option><option value="OTHER">其他</option></select></label>
               </div>
               <label>处理备注<textarea v-model.trim="suggestion_result_form.note" rows="4" required placeholder="请记录现场看到的情况、采取的动作和结果"></textarea></label>
               <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会绕过系统安全门执行水泵动作。</p>
