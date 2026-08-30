@@ -14,6 +14,13 @@ function normalizedRole(value) {
 
 function textValue(value) { return value === undefined || value === null ? '' : String(value).trim(); }
 
+function cleanAssistantText(value) {
+  return textValue(value)
+    .replace(/(?:[，,；;]\s*)?(?:置信度|confidence)\s*(?:约|为|是|:|：)?\s*\d+(?:\.\d+)?\s*%?\s*[，,；;]?/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 function displayValue(value) {
   if (value === undefined || value === null || value === '') return '';
   if (typeof value === 'boolean') return value ? '是' : '否';
@@ -69,7 +76,8 @@ function deriveRecommendations(response = {}) {
 function normalizeAgentMessage(item = {}, sessionMode = 'live') {
   const role = normalizedRole(item.role);
   const response = item.response && typeof item.response === 'object' ? item.response : item;
-  const content = textValue(item.content || item.message || item.summary || agentResponseText(response, ''));
+  const rawContent = textValue(item.content || item.message || item.summary || agentResponseText(response, ''));
+  const content = role === 'assistant' ? cleanAssistantText(rawContent) : rawContent;
   const isError = Boolean(item.error);
   return {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,

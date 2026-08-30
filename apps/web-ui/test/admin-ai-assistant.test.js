@@ -45,7 +45,7 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(source, /上传图片/);
   assert.match(source, /分析照片/);
   assert.doesNotMatch(source, /admin-ai-layered-answer/);
-  assert.doesNotMatch(source, /置信度/);
+  assert.match(source, /cleanAssistantText/);
   assert.match(css, /\.admin-ai-conversation-sidebar/);
   assert.match(css, /grid-template-columns:\s*var\(--ai-sidebar-width, 240px\) 8px minmax\(0, 1fr\)/);
   assert.match(css, /\.admin-ai-sidebar-resizer/);
