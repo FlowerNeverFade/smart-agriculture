@@ -3726,6 +3726,67 @@ html[data-surface-style="classic"] #farmer_app :is(
   box-shadow: var(--agriloop-appearance-control-shadow) !important;
   text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
+
+/* Keep semantic actions readable after the classic material applies its
+ * neutral glass control to ordinary buttons.  Primary actions and selected
+ * filters must retain their role colour instead of becoming white-on-white. */
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):not(:disabled) {
+  border-color: color-mix(in srgb, var(--g-success) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .20), rgba(255, 255, 255, .02) 52%, rgba(0, 55, 29, .18)), var(--g-success) !important;
+  color: #fff !important;
+  box-shadow: 0 11px 26px color-mix(in srgb, var(--g-success) 27%, transparent), inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 -1px 0 rgba(0, 54, 28, .30) !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .28) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):not(:disabled):hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .27), rgba(255, 255, 255, .03) 52%, rgba(0, 55, 29, .15)), var(--g-primary-hover) !important;
+  color: #fff !important;
+  box-shadow: 0 15px 32px color-mix(in srgb, var(--g-success) 34%, transparent), inset 0 1px 0 rgba(255, 255, 255, .50), inset 0 -1px 0 rgba(0, 54, 28, .27) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):disabled {
+  border-color: color-mix(in srgb, var(--g-success) 24%, var(--agriloop-appearance-border)) !important;
+  background: var(--g-success-bg) !important;
+  color: color-mix(in srgb, var(--g-success) 72%, var(--g-text-secondary)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .54) !important;
+  text-shadow: none !important;
+  opacity: .72;
+}
+
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-all.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-all.active:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-primary), color-mix(in srgb, var(--g-primary) 78%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-alert.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-alert.active:hover {
+  border-color: color-mix(in srgb, var(--g-danger) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-danger), color-mix(in srgb, var(--g-danger) 76%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(64, 5, 5, .22) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-task.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-task.active:hover {
+  border-color: color-mix(in srgb, var(--g-warning) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, #f3bd66, #d99a39) !important;
+  color: #3b290c !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .30) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-notice.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-notice.active:hover {
+  border-color: color-mix(in srgb, var(--g-success) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-success), color-mix(in srgb, var(--g-success) 76%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
+
+html[data-surface-style="classic"] #farmer_app .farmer-chart-range-btn.active,
+html[data-surface-style="classic"] #farmer_app .farmer-chart-range-btn.active:hover {
+  border-color: color-mix(in srgb, var(--g-success) 62%, rgba(255, 255, 255, .72)) !important;
+  background: var(--g-success) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
 html[data-surface-style="classic"] #farmer_app :is(
   .g-input, .g-select, .farmer-question-form input,
   .farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
