@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260828-chart-fill">
+  <link rel="stylesheet" href="css/farmer.css?v=20260830-dashboard-hierarchy">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -305,7 +305,7 @@
         </div>
 
         <transition name="fade" mode="out-in">
-          <section v-if="current_view === 'dashboard'" class="farmer-workspace" key="dashboard">
+          <section v-if="current_view === 'dashboard'" class="farmer-workspace farmer-dashboard-workspace" key="dashboard">
             <div class="farmer-page-header">
               <div>
                 <h2>主面板</h2>
@@ -325,27 +325,51 @@
               <span class="farmer-mode-pill">{{ degradation_banner.mode }}</span>
             </div>
 
-            <section class="g-card farmer-priority-panel" aria-labelledby="today-priority-title">
-              <div class="farmer-panel-header">
-                <div>
-                  <h3 id="today-priority-title">今天先做什么</h3>
-                  <p class="farmer-panel-hint">按风险、设备异常和任务截止时间排序，最多显示三件事。</p>
+            <div class="farmer-dashboard-hero-grid">
+              <section class="g-card farmer-priority-panel" aria-labelledby="today-priority-title">
+                <div class="farmer-panel-header">
+                  <div>
+                    <h3 id="today-priority-title">今天先做什么</h3>
+                    <p class="farmer-panel-hint">按风险、设备异常和任务截止时间排序，最多显示三件事。</p>
+                  </div>
+                  <span class="farmer-priority-count">{{ today_priorities.length }} 项</span>
                 </div>
-                <span class="farmer-priority-count">{{ today_priorities.length }} 项</span>
-              </div>
-              <div v-if="today_priorities.length" class="farmer-priority-list">
-                <button v-for="item in today_priorities" :key="item.id" type="button" class="farmer-priority-item" :class="'tone-' + item.urgencyTone" @click="open_priority_item(item)">
-                  <span class="farmer-priority-icon"><span class="material-symbols-outlined">{{ item.icon }}</span></span>
-                  <span class="farmer-priority-content">
-                    <strong>{{ item.title }}</strong>
-                    <span>{{ item.reason }}</span>
-                    <small><b :class="'is-' + item.urgencyTone">{{ item.urgency }}</b> · {{ item.dueLabel }}</small>
-                  </span>
-                  <span class="farmer-priority-action">{{ item.actionLabel }}<span class="material-symbols-outlined">arrow_forward</span></span>
+                <div v-if="today_priorities.length" class="farmer-priority-list">
+                  <button v-for="item in today_priorities" :key="item.id" type="button" class="farmer-priority-item" :class="'tone-' + item.urgencyTone" @click="open_priority_item(item)">
+                    <span class="farmer-priority-icon"><span class="material-symbols-outlined">{{ item.icon }}</span></span>
+                    <span class="farmer-priority-content">
+                      <strong>{{ item.title }}</strong>
+                      <span>{{ item.reason }}</span>
+                      <small><b :class="'is-' + item.urgencyTone">{{ item.urgency }}</b> · {{ item.dueLabel }}</small>
+                    </span>
+                    <span class="farmer-priority-action">{{ item.actionLabel }}<span class="material-symbols-outlined">arrow_forward</span></span>
+                  </button>
+                </div>
+                <div v-else class="farmer-priority-empty"><span class="material-symbols-outlined">task_alt</span><span>今天暂无紧急事项，按计划巡查即可。</span></div>
+              </section>
+
+              <section class="g-card farmer-risk-summary" aria-labelledby="dashboard-risk-title">
+                <div class="farmer-panel-header">
+                  <div>
+                    <h3 id="dashboard-risk-title">当前风险</h3>
+                    <p class="farmer-panel-hint">先看是否需要补证或人工处理</p>
+                  </div>
+                  <span class="g-badge" :class="dashboard_risk_summary.tone">{{ dashboard_risk_summary.statusLabel }}</span>
+                </div>
+                <div class="farmer-risk-summary-total">
+                  <strong>{{ dashboard_risk_summary.total }}</strong>
+                  <span>个地块需要关注</span>
+                </div>
+                <ul class="farmer-risk-summary-list">
+                  <li><app-icon name="sensors_off"></app-icon><span><b>设备状态</b><small>{{ dashboard_risk_summary.deviceLabel }}</small></span></li>
+                  <li><app-icon name="water_drop"></app-icon><span><b>环境风险</b><small>{{ dashboard_risk_summary.environmentLabel }}</small></span></li>
+                  <li><app-icon name="verified_user"></app-icon><span><b>决策条件</b><small>{{ dashboard_risk_summary.readinessLabel }}</small></span></li>
+                </ul>
+                <button type="button" class="g-btn secondary farmer-btn-light farmer-risk-summary-action" @click="navigate(dashboard_risk_summary.actionView)">
+                  {{ dashboard_risk_summary.actionLabel }}<app-icon name="arrow_forward"></app-icon>
                 </button>
-              </div>
-              <div v-else class="farmer-priority-empty"><span class="material-symbols-outlined">task_alt</span><span>今天暂无紧急事项，按计划巡查即可。</span></div>
-            </section>
+              </section>
+            </div>
 
             <div class="farmer-stats-grid">
               <button type="button" class="farmer-stat-card stat-todo" @click="navigate('tasks')">
@@ -478,36 +502,29 @@
               </div>
             </div>
 
-            <div class="farmer-dashboard-row">
-              <div class="g-card farmer-panel">
-                <div class="farmer-panel-header">
-                  <h3>近期任务概览</h3>
-                  <button class="g-btn secondary farmer-btn-light" @click="navigate('tasks')">查看全部</button>
+            <div class="g-card farmer-panel farmer-activity-panel">
+              <div class="farmer-panel-header">
+                <div>
+                  <h3>最近动态</h3>
+                  <p class="farmer-panel-hint">只保留与今天行动有关的任务和通知，重复告警已合并到风险区。</p>
                 </div>
-                <div class="farmer-mini-list">
-                  <button type="button" v-for="task in recent_tasks" :key="task.id" class="farmer-mini-item" @click="open_task_from_dashboard(task)">
-                    <span class="farmer-mini-status" :class="'status-' + task.status">{{ status_label(task.status) }}</span>
-                    <span class="farmer-mini-title">{{ displayText(task.title) }}</span>
-                    <span class="farmer-mini-time">{{ task.due_label }}</span>
-                  </button>
-                  <div v-if="!recent_tasks.length" class="farmer-empty">暂无近期任务</div>
+                <div class="farmer-activity-actions">
+                  <button class="g-btn secondary farmer-btn-light" @click="navigate('tasks')">任务中心</button>
+                  <button class="g-btn secondary farmer-btn-light" @click="navigate('messages')">消息中心</button>
                 </div>
               </div>
-
-              <div class="g-card farmer-panel">
-                <div class="farmer-panel-header">
-                  <h3>最新消息</h3>
-                  <button class="g-btn secondary farmer-btn-light" @click="navigate('messages')">进入消息中心</button>
-                </div>
-                <div class="farmer-mini-list">
-                  <button type="button" v-for="msg in recent_messages" :key="msg.id" class="farmer-mini-item" @click="open_message_from_dashboard(msg)">
-                    <span class="farmer-mini-dot" :class="{unread: !msg.read}"></span>
-                    <span class="farmer-mini-title">{{ displayText(msg.title) }}</span>
-                    <span class="farmer-mini-time">{{ msg.time_label }}</span>
-                  </button>
-                  <div v-if="!recent_messages.length" class="farmer-empty">暂无消息</div>
-                </div>
+              <div v-if="recent_activity.length" class="farmer-activity-list">
+                <button type="button" v-for="item in recent_activity" :key="item.id" class="farmer-activity-item" :class="'kind-' + item.kind" @click="open_activity_item(item)">
+                  <span class="farmer-activity-icon"><app-icon :name="item.icon"></app-icon></span>
+                  <span class="farmer-activity-content">
+                    <strong>{{ displayText(item.title) }}</strong>
+                    <small>{{ item.label }}<template v-if="item.plotLabel"> · {{ item.plotLabel }}</template></small>
+                  </span>
+                  <span class="farmer-mini-time">{{ item.timeLabel }}</span>
+                  <app-icon name="arrow_forward" class="farmer-activity-arrow"></app-icon>
+                </button>
               </div>
+              <div v-else class="farmer-empty">暂无需要关注的动态</div>
             </div>
 
             <button type="button" class="g-card farmer-shared-tools-entry" @click="open_tools('risk')">
@@ -1613,6 +1630,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260828-baseline-slope"></script>
+  <script type="module" src="js/farmer.js?v=20260830-dashboard-hierarchy"></script>
 </body>
 </html>

@@ -45,7 +45,7 @@ const FARMER_ICON_CLASS = Object.freeze({
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
   insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
   science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone'
+  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', sensors_off: 'ph-wifi-slash'
 });
 
 const FarmerAppIcon = {
@@ -1087,7 +1087,7 @@ const app = createApp({
   setup() {
     const is_live = ref(false);
     const is_dark = ref(false);
-    const is_sidebar_open = ref(true);
+    const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
     const bootstrap_loading = ref(true);
@@ -1862,6 +1862,60 @@ const app = createApp({
         if (!unique.has(key)) unique.set(key, item);
       });
       return [...unique.values()].sort((a, b) => b.score - a.score || a.sortTime - b.sortTime).slice(0, 3);
+    });
+
+    // 首页右侧只展示聚合后的风险摘要，具体处置仍从“今天先做什么”进入。
+    // 设备离线已经属于地块问题的一种，不与风险地块重复计数。
+    const dashboard_risk_summary = computed(() => {
+      const issues = plots.value
+        .map((plot) => ({ plot, issue: plot_issue_summary(plot) }))
+        .filter(({ issue }) => issue.kind !== 'NORMAL');
+      const deviceCount = issues.filter(({ issue }) => issue.kind === 'DEVICE').length;
+      const environmentCount = issues.length - deviceCount;
+      const total = issues.length;
+      const statusLabel = total === 0 ? '运行正常' : (issues.some(({ issue }) => issue.kind === 'DEVICE' || issue.statusLabel === '需要补水') ? '重点处理' : '需要关注');
+      const tone = total === 0 ? 'success' : (statusLabel === '重点处理' ? 'danger' : 'warning');
+      return {
+        total,
+        tone,
+        statusLabel,
+        deviceLabel: deviceCount ? `${deviceCount} 个地块设备离线，先检查心跳` : '设备均在线',
+        environmentLabel: environmentCount ? `${environmentCount} 个地块有湿度或风险提醒` : '暂无明显环境异常',
+        readinessLabel: deviceCount ? '数据可能不可用，先补充现场证据' : (environmentCount ? '查看建议前先核对现场' : '可按计划巡查'),
+        actionView: environmentCount ? 'advice' : (deviceCount ? 'inspections' : 'plots'),
+        actionLabel: total ? '查看风险建议' : '查看全部地块'
+      };
+    });
+
+    // 首页动态只保留任务和普通通知；告警集中在风险摘要和优先行动中，避免重复轰炸。
+    const recent_activity = computed(() => {
+      const taskItems = recent_tasks.value.map((task) => ({
+        id: `activity-task-${task.id}`,
+        kind: 'TASK',
+        icon: farmer_task_status(task) === 'DONE' ? 'task_alt' : 'event_available',
+        title: task.title,
+        label: status_label(farmer_task_status(task)),
+        plotLabel: task.plot_name || find_plot_by_id(plots.value, task.plot_id)?.name || '',
+        timeLabel: task.due_label || format_relative_label(task.created_iso) || '按计划',
+        sortTime: Date.parse(task.created_iso || '') || 0,
+        task
+      }));
+      const messageItems = recent_messages.value
+        .filter((message) => message.category !== 'alert')
+        .map((message) => ({
+          id: `activity-message-${message.id}`,
+          kind: 'MESSAGE',
+          icon: message.category === 'task' ? 'assignment' : 'campaign',
+          title: message.title,
+          label: category_label(message.category),
+          plotLabel: message.plotId ? find_plot_name(message.plotId) : '',
+          timeLabel: message.time_label || format_relative_label(message.time_iso) || '刚刚',
+          sortTime: Date.parse(message.time_iso || '') || 0,
+          message
+        }));
+      return [...taskItems, ...messageItems]
+        .sort((a, b) => b.sortTime - a.sortTime)
+        .slice(0, 5);
     });
 
     const suggestion_flow_steps = computed(() => {
@@ -2794,6 +2848,17 @@ const app = createApp({
     const open_task_from_dashboard = (task) => {
       navigate('tasks');
       open_task(task);
+    };
+
+    const open_activity_item = (item) => {
+      if (!item) return;
+      if (item.kind === 'TASK' && item.task) {
+        open_task_from_dashboard(item.task);
+        return;
+      }
+      if (item.kind === 'MESSAGE' && item.message) {
+        open_message_from_dashboard(item.message);
+      }
     };
 
     const open_device_attention = () => {
@@ -3904,9 +3969,11 @@ const app = createApp({
       greeting,
       stats,
       today_priorities,
+      dashboard_risk_summary,
       plot_issue_summary,
       recent_tasks,
       recent_messages,
+      recent_activity,
       sorted_messages,
       filtered_messages,
       message_filter,
@@ -3960,6 +4027,7 @@ const app = createApp({
       generate_analysis,
       open_task,
       open_task_from_dashboard,
+      open_activity_item,
       open_device_attention,
       open_priority_item,
       close_task,
