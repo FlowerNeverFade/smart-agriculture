@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260830-work-effects-v1';
-import { adminMetricLabel } from './admin-state.js';
-import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260830-work-effects-v1';
+import { api } from './api.js?v=20260831-three-branch-v1';
+import { adminMetricLabel } from './admin-state.js?v=20260831-three-branch-v1';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260831-three-branch-v1';
 
 const { ref, computed, inject, watch } = Vue;
 

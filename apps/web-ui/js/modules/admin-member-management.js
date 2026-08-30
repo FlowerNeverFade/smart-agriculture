@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260830-work-effects-v1';
-import { sourceLabel } from '../live-data.js?v=20260830-work-effects-v1';
+import { api } from '../api.js?v=20260831-three-branch-v1';
+import { sourceLabel } from '../live-data.js?v=20260831-three-branch-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 

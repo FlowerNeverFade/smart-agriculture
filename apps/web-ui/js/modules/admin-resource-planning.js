@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260830-work-effects-v1';
-import { roleCan } from '../roles.js';
+import { api } from '../api.js?v=20260831-three-branch-v1';
+import { roleCan } from '../roles.js?v=20260831-three-branch-v1';
 
 // Compatibility helpers retained from the previous resource-planning view.
 function numberOr(value, fallback = 0) { const numeric = Number(value); return Number.isFinite(numeric) ? numeric : fallback; }
