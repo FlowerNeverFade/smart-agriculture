@@ -2397,6 +2397,10 @@
   background: color-mix(in srgb, var(--g-bg-subtle) 28%, transparent);
 }
 .farmer-plot-simulation-note { margin-top: 6px; font-size: 11px; }
+.farmer-plot-simulation-dual-toggle { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; cursor: pointer; }
+.farmer-plot-simulation-dual-toggle input { accent-color: var(--g-primary); margin: 0; }
+.farmer-plot-simulation-dual-toggle small { color: var(--g-text-secondary); font-weight: 400; }
+.farmer-plot-simulation-dual-note { margin-top: 6px; font-size: 11px; }
 .farmer-plot-simulation-footer { align-items: center; margin-top: 12px; }
 
 @media (max-width: 760px) {

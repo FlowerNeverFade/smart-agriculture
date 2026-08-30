@@ -1311,6 +1311,11 @@
                           <option v-for="metric in plot_simulation_metric_options" :key="metric.code" :value="metric.code">{{ metric.label }}（{{ metric.unit }}）</option>
                         </select>
                       </label>
+                      <label v-if="plot_simulation_metric === 'SOIL_MOISTURE'" class="farmer-plot-simulation-dual-toggle">
+                        <input type="checkbox" :checked="show_dual_track" @change="toggle_dual_track" aria-label="切换双轨对比曲线">
+                        <span>双轨对比</span>
+                        <small v-if="plot_simulation_dual_loading">对比读取中…</small>
+                      </label>
                     </div>
                     <div class="farmer-plot-simulation-chart-stage">
                       <div v-if="plot_simulation_chart_available" class="farmer-plot-simulation-chart-canvas">
@@ -1321,6 +1326,8 @@
                       <div v-else-if="plot_simulation_evaluating" class="farmer-chart-loading is-overlay is-soft" aria-live="polite" aria-busy="true"><span>正在刷新预测…</span></div>
                     </div>
                     <p v-if="plot_simulation_forecast && plot_simulation_forecast.uncertaintyNote" class="farmer-panel-hint">{{ plot_simulation_forecast.uncertaintyNote }}</p>
+                    <p v-if="show_dual_track && plot_simulation_dual_summary" class="farmer-panel-hint farmer-plot-simulation-dual-note">{{ plot_simulation_dual_summary }}</p>
+                    <p v-else-if="show_dual_track && plot_simulation_metric === 'SOIL_MOISTURE' && !plot_simulation_dual_loading && !plot_simulation_dual_available" class="farmer-panel-hint farmer-plot-simulation-dual-note">双轨对比暂不可用：{{ plot_simulation_dual_track && plot_simulation_dual_track.reason ? plot_simulation_dual_track.reason : '后端双轨对比服务未返回数据' }}</p>
                     <p class="farmer-panel-hint farmer-plot-simulation-note">{{ plot_simulation_preview_message }}</p>
                   </div>
                 </div>

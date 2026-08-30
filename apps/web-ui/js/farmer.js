@@ -1271,6 +1271,11 @@ const app = createApp({
     const plot_simulation_form = ref({ scenario: 'NORMAL', parameters: { ...PLOT_SIMULATION_DEFAULTS.NORMAL } });
     const plot_simulation_evaluating = ref(false);
     const plot_simulation_preview_dirty = ref(false);
+    // 双轨对比：同一冻结快照与随机种子下的“执行处方 / 不干预”两条只读预测。
+    const plot_simulation_dual_track = ref(null);
+    const plot_simulation_dual_loading = ref(false);
+    const show_dual_track = ref(true);
+    let plot_simulation_dual_request_version = 0;
     const plot_simulation_parameter_meta = Object.freeze({
       volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
       timeScale: { label: '时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '墙上时钟与模拟时间的比例' },
@@ -1329,6 +1334,64 @@ const app = createApp({
       return `${scenario.label}已绑定到 ${selected_plot.value?.name || selected_plot.value?.plotId || ''}，历史实测与策略预测只读展示。`;
     });
 
+    const plot_simulation_dual_available = computed(() => {
+      const track = plot_simulation_dual_track.value;
+      const execute = track?.branches?.EXECUTE?.points;
+      const noAction = track?.branches?.NO_ACTION?.points;
+      return Array.isArray(execute) && execute.length > 0
+        && Array.isArray(noAction) && noAction.length > 0
+        && String(track.status || '').toUpperCase() === 'AVAILABLE';
+    });
+    const plot_simulation_dual_summary = computed(() => {
+      if (!plot_simulation_dual_available.value) return null;
+      const track = plot_simulation_dual_track.value;
+      const formatTime = (minutes) => Number.isFinite(Number(minutes)) && Number(minutes) > 0
+        ? `约 ${Math.round(Number(minutes))} 分钟后`
+        : `${track?.parameters?.forecastHours || 4} 小时内未触达`;
+      const execute = track.branches.EXECUTE || {};
+      const noAction = track.branches.NO_ACTION || {};
+      const boundary = Number(track.stressBoundary);
+      const isStorm = String(track.scenario || '').toUpperCase() === 'HEAVY_RAIN';
+      const boundaryLabel = Number.isFinite(boundary) ? `${isStorm ? '积水' : '干旱'}阈值 ${boundary}%` : '风险边界';
+      const parts = [
+        `措施后：${formatTime(execute.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`,
+        `不干预：${formatTime(noAction.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`
+      ];
+      return `${parts.join('；')}。双轨基于同一冻结快照与随机种子，只读对比，不写回主状态。`;
+    });
+
+    const load_plot_simulation_dual_track = async () => {
+      const plotId = selected_plot.value?.plotId;
+      if (!plotId) {
+        plot_simulation_dual_track.value = null;
+        return;
+      }
+      const requestId = ++plot_simulation_dual_request_version;
+      plot_simulation_dual_loading.value = true;
+      try {
+        const result = await api.compareScenario({
+          plotId,
+          scenario: plot_simulation_form.value.scenario,
+          parameters: { ...(plot_simulation_form.value.parameters || {}) }
+        });
+        if (requestId !== plot_simulation_dual_request_version) return;
+        plot_simulation_dual_track.value = result || { status: 'UNAVAILABLE', reason: '双轨对比响应为空' };
+      } catch (error) {
+        if (requestId !== plot_simulation_dual_request_version) return;
+        plot_simulation_dual_track.value = { status: 'UNAVAILABLE', reason: error?.message || '双轨对比暂不可用' };
+      } finally {
+        if (requestId === plot_simulation_dual_request_version) {
+          plot_simulation_dual_loading.value = false;
+          void render_plot_simulation_chart();
+        }
+      }
+    };
+
+    const toggle_dual_track = () => {
+      show_dual_track.value = !show_dual_track.value;
+      void render_plot_simulation_chart();
+    };
+
     const render_plot_simulation_chart = async () => {
       await nextTick();
       const chartLibrary = window.echarts;
@@ -1359,9 +1422,18 @@ const app = createApp({
       const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
       const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
       const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      // 双轨曲线：与主预测共用同一时间锚点，展示“措施后 / 不干预”对比。
+      const dualUsable = definition.code === 'SOIL_MOISTURE'
+        && show_dual_track.value
+        && plot_simulation_dual_available.value;
+      const dualTrack = dualUsable ? plot_simulation_dual_track.value : null;
+      const toDualSeries = (points) => points.map((item) => [forecastStart + Number(item.minute) * 60000, Number(item.value)]);
+      const executeSeries = dualTrack ? toDualSeries(dualTrack.branches.EXECUTE.points) : [];
+      const noActionSeries = dualTrack ? toDualSeries(dualTrack.branches.NO_ACTION.points) : [];
       const axis = simulation_chart_axis_range(definition, [
         ...historical.map((item) => item[1]),
-        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
+        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper]),
+        ...(dualTrack ? [...executeSeries, ...noActionSeries].map((item) => item[1]) : [])
       ]);
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
       const textColor = dark ? '#e8eaed' : '#3c4043';
@@ -1373,7 +1445,12 @@ const app = createApp({
           const time = Number.isFinite(axisValue) ? `模拟 ${new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}` : '—';
           return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${simulation_format_curve_value(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
-        legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
+        legend: {
+          data: dualTrack
+            ? ['历史实测', '策略预测', '措施后预测', '不干预预测']
+            : ['历史实测', '策略预测', '预测下界', '预测上界'],
+          textStyle: { color: textColor, fontSize: 11 }
+        },
         grid: { left: 42, right: 18, top: 32, bottom: 30 },
         xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
         yAxis: {
@@ -1383,8 +1460,13 @@ const app = createApp({
         series: [
           { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
           { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: plot_simulation_evaluating.value ? .42 : 1 } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } }
+          ...(dualTrack ? [
+            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#3fb950', width: 2, opacity: plot_simulation_dual_loading.value ? .45 : 1 } },
+            { name: '不干预预测', type: 'line', data: noActionSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#f85149', width: 2, type: 'dashed', opacity: plot_simulation_dual_loading.value ? .45 : 1 } }
+          ] : [
+            { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },
+            { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } }
+          ])
         ]
       }, true);
       plot_simulation_chart_instance.value.resize();
@@ -1433,6 +1515,7 @@ const app = createApp({
         if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
         plot_simulation_error.value = [...new Set(errors)].join('；');
         await render_plot_simulation_chart();
+        void load_plot_simulation_dual_track();
       } catch (error) {
         if (requestVersion !== plot_simulation_request_version) return;
         plot_simulation_error.value = error?.message || '地块预测加载失败';
@@ -1461,6 +1544,7 @@ const app = createApp({
         if (requestId === plot_simulation_preview_request_version) {
           plot_simulation_evaluating.value = false;
           await render_plot_simulation_chart();
+          void load_plot_simulation_dual_track();
         }
       }
     };
@@ -4353,6 +4437,12 @@ const app = createApp({
       plot_simulation_evaluating,
       plot_simulation_preview_dirty,
       plot_simulation_preview_message,
+      plot_simulation_dual_track,
+      plot_simulation_dual_loading,
+      plot_simulation_dual_available,
+      plot_simulation_dual_summary,
+      show_dual_track,
+      toggle_dual_track,
       select_plot_simulation_metric,
       select_plot_simulation_scenario,
       schedule_plot_simulation_preview,

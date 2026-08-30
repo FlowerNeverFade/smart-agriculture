@@ -83,9 +83,12 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry']) {
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测']) {
     assert.match(html + source, new RegExp(marker));
   }
+  // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。
+  assert.match(source, /compareScenario/);
+  assert.match(source, /load_plot_simulation_dual_track/);
   assert.match(source, /getRiskForecast/);
   assert.match(source, /window\.echarts/);
   assert.match(source, /getDom\?\.\(\)/);
