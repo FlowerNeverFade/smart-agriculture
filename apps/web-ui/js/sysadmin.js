@@ -776,12 +776,16 @@ function usePagination(source, options = {}) {
   const pageSize = ref(options.defaultSize || 10);
   const pageSizeOptions = options.sizes || [10, 20, 50];
   const currentPage = ref(1);
-  const jumpInput = ref('');
+  const jumpInput = ref(String(options.defaultPage || 1));
   const totalRecords = computed(() => (source.value || []).length);
   const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize.value)));
   // Keep the page number valid when the list shrinks (filter/refresh).
   watch([source, pageSize], () => {
     if (currentPage.value > totalPages.value) currentPage.value = totalPages.value;
+  });
+  // 跳转输入框默认显示当前页，翻页/跳转后保持同步
+  watch(currentPage, (page) => {
+    jumpInput.value = String(page);
   });
   const pageRecords = computed(() => {
     const list = source.value || [];
@@ -796,7 +800,6 @@ function usePagination(source, options = {}) {
     const n = Math.trunc(Number(jumpInput.value));
     if (!Number.isFinite(n) || n < 1) return;
     currentPage.value = Math.min(n, totalPages.value);
-    jumpInput.value = '';
   };
   return { pageSize, pageSizeOptions, currentPage, jumpInput, totalRecords, totalPages, pageRecords, prevPage, nextPage, changeSize, jumpTo };
 }
@@ -935,6 +938,11 @@ const AdminSimulatorView = {
       } catch (error) {
         toast(error.message || '模拟器设置保存失败', 'error');
       } finally { simBusy.value = false; }
+    };
+    const commitSampleInterval = () => {
+      const n = Math.round(Number(sampleInterval.value));
+      sampleInterval.value = Number.isFinite(n) ? Math.max(5, Math.min(60, n)) : 20;
+      void saveSimulatorSettings();
     };
     const applyPlotScenarios = async () => {
       if (simBusy.value) return;
@@ -1085,7 +1093,7 @@ const AdminSimulatorView = {
     return {
       simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
       scenarioLabel, localizedStatusLabel
@@ -1510,6 +1518,25 @@ const AdminAgentView = {
       }
     };
 
+    const delete_assistant_conversation = async (conversationId) => {
+      if (!conversationId || assistant_busy.value) return;
+      if (!confirm('确定删除该历史对话吗？此操作不可恢复。')) return;
+      assistant_busy.value = true;
+      assistant_error.value = '';
+      try {
+        await api.deleteAgentConversation(conversationId);
+        assistant_conversations.value = assistant_conversations.value.filter((c) => c.conversationId !== conversationId);
+        if (assistant_conversation_id.value === conversationId) {
+          assistant_conversation_id.value = '';
+          assistant_messages.value = [];
+        }
+      } catch (error) {
+        assistant_error.value = error.message || '删除对话失败';
+      } finally {
+        assistant_busy.value = false;
+      }
+    };
+
     const assistant_tool_labels = Object.freeze({
       create_plot: '新增地块',
       update_plot: '更新地块',
@@ -1567,7 +1594,8 @@ const AdminAgentView = {
       assistant_tool_label, assistant_source_label_for, assistant_action_arguments,
       assistant_action_expiry_label, assistant_action_result,
       send_assistant_message, ask_assistant_shortcut, assistant_keydown, toggle_assistant_details,
-      start_assistant_conversation, load_assistant_conversations, select_assistant_conversation
+      start_assistant_conversation, load_assistant_conversations, select_assistant_conversation,
+      delete_assistant_conversation
     };
   }
 };

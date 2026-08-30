@@ -2001,6 +2001,19 @@ export class ApiService {
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
   }
 
+  async deleteAgentConversation(conversationId) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    session.conversations = session.conversations.filter((c) => c.conversationId !== conversationId);
+    session.messages = session.messages.filter((m) => m.conversationId !== conversationId);
+    this._writeDemoAgentSession(session);
+    return { success: true, conversationId, sourceMode: 'SIMULATED' };
+  }
+
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };

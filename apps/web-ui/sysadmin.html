@@ -636,8 +636,12 @@
         <p class="sim-settings-help">调整后立即保存，下一批遥测开始生效；不会重启 API。采样间隔控制多久产生一批遥测，时间流速控制模拟日夜和环境变化的快慢。</p>
         <label class="sim-slider">
           <span class="sim-slider-label">采样间隔 {{ sampleInterval }} 秒</span>
-          <input type="range" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="saveSimulatorSettings" aria-label="采样间隔">
-          <span class="sim-slider-hint">每隔多少墙上秒产生一批遥测（5–60 秒，默认 20）</span>
+          <div class="sim-interval-control">
+            <input type="range" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="saveSimulatorSettings" aria-label="采样间隔">
+            <input type="number" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="commitSampleInterval" aria-label="采样间隔数值">
+            <span class="sim-interval-unit">秒</span>
+          </div>
+          <span class="sim-slider-hint">每隔多少墙上秒产生一批遥测（5–60 秒，默认 20）；可直接输入数值或用上下键调整</span>
         </label>
         <label class="sim-slider">
           <span class="sim-slider-label">时间流速 {{ timeScale }}×</span>
@@ -1065,9 +1069,10 @@
         <aside class="admin-agent-history-drawer" aria-label="历史对话">
           <header><div><strong>历史对话</strong><small>只显示本账号的对话</small></div><button type="button" class="g-btn icon-only" aria-label="关闭历史对话" @click="assistant_drawer_open = false"><app-icon name="close"></app-icon></button></header>
           <div v-if="assistant_conversations.length" class="admin-agent-history-list">
-            <button v-for="conversation in assistant_conversations" :key="conversation.conversationId" type="button" class="admin-agent-history-item" :class="{ active: conversation.conversationId === assistant_conversation_id }" @click="select_assistant_conversation(conversation.conversationId)">
+            <div v-for="conversation in assistant_conversations" :key="conversation.conversationId" class="admin-agent-history-item" :class="{ active: conversation.conversationId === assistant_conversation_id }" @click="select_assistant_conversation(conversation.conversationId)">
               <span class="admin-agent-history-icon"><app-icon name="forum"></app-icon></span><span><strong>{{ conversation.title || '我的 Agent 对话' }}</strong><small>{{ agent_conversation_plot_label(conversation) }} · {{ agent_conversation_time(conversation) }}</small><small>{{ conversation.messageCount || 0 }} 条消息</small></span>
-            </button>
+              <button type="button" class="admin-agent-history-delete" :disabled="assistant_busy" :aria-label="'删除对话 ' + (conversation.title || '')" @click.stop="delete_assistant_conversation(conversation.conversationId)"><app-icon name="delete"></app-icon></button>
+            </div>
           </div>
           <div v-else class="admin-agent-history-empty"><app-icon name="history"></app-icon><p>还没有历史对话</p><small>发送第一条消息后会自动保存。</small></div>
           <footer><button type="button" class="g-btn primary" @click="start_assistant_conversation"><app-icon name="add_task"></app-icon>开始新对话</button></footer>
