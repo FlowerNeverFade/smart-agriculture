@@ -1241,6 +1241,16 @@ export class ApiService {
     return { userId, username: member.username, farmId, removed: true, sourceMode: 'SIMULATED' };
   }
 
+  async deleteUserAccount(userId) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+      if (response?.data?.removed) return response.data;
+      throw new ApiError('后端返回了无效的账号删除结果', { code: 'ACCOUNT_DELETE_INVALID', payload: response });
+    }
+    this.demoFarmMembers.delete(userId);
+    return { userId, removed: true, sourceMode: 'SIMULATED' };
+  }
+
   _demoActorId() {
     if (this.user?.userId) return this.user.userId;
     if (this.user?.username === 'farmer') return 'user-farmer';

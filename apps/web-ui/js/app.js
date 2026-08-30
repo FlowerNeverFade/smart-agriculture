@@ -2576,6 +2576,7 @@ const AdminSettingsView = {
     const logFilter = ref('all');
     const showCreateUser = ref(false);
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const pendingUserAction = ref(null);
 
     watch(() => props.routeParams, (params) => {
       if (params?.tab) activeTab.value = params.tab;
@@ -2606,35 +2607,63 @@ const AdminSettingsView = {
     ];
 
     const deleteUser = (userId) => {
-      if (isLiveSession.value) {
-        toast('正式账号的停用/删除接口尚未开放，未修改后端数据。', 'error');
-        return;
-      }
-      if (confirm('确定要删除该用户吗？')) {
-        const idx = props.state.adminUsers.findIndex(u => u.userId === userId);
-        if (idx > -1) {
-          const u = props.state.adminUsers[idx];
-          props.state.adminUsers.splice(idx, 1);
+      const user = (props.state.adminUsers || []).find(u => u.userId === userId);
+      if (!user) return;
+      pendingUserAction.value = { type: 'delete', user };
+    };
+
+    const toggleUser = (user) => {
+      pendingUserAction.value = { type: user.enabled ? 'disable' : 'enable', user };
+    };
+
+    const confirmUserAction = async () => {
+      const action = pendingUserAction.value;
+      if (!action) return;
+      const { type, user } = action;
+      const username = user.username || user.userId;
+      try {
+        if (type === 'delete') {
+          if (isLiveSession.value) {
+            await api.deleteUserAccount(user.userId);
+          }
+          const idx = props.state.adminUsers.findIndex(u => u.userId === user.userId);
+          if (idx > -1) {
+            props.state.adminUsers.splice(idx, 1);
+            props.state.adminAuditLogs.unshift({
+              id: 'log-' + Date.now(),
+              time: new Date().toLocaleTimeString().substring(0, 5),
+              operator: 'sysadmin',
+              action: 'CONFIG_CHANGE',
+              actionLabel: '删除用户',
+              detail: '删除用户 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
+              ip: '127.0.0.1'
+            });
+          }
+          toast(`账号 ${username} 已删除`);
+        } else {
+          const enabled = type === 'enable';
+          if (isLiveSession.value) {
+            const farmId = (user.farmIds && user.farmIds[0]) || 'farm-demo';
+            await api.updateFarmMemberStatus(user.userId, { farmId, enabled });
+          }
+          user.enabled = enabled;
+          if (user.status) user.status = enabled ? 'ACTIVE' : 'INACTIVE';
           props.state.adminAuditLogs.unshift({
             id: 'log-' + Date.now(),
             time: new Date().toLocaleTimeString().substring(0, 5),
             operator: 'sysadmin',
             action: 'CONFIG_CHANGE',
-            actionLabel: '删除用户',
-            detail: '删除用户 ' + u.username,
+            actionLabel: enabled ? '启用用户' : '停用用户',
+            detail: (enabled ? '启用' : '停用') + '账号 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
             ip: '127.0.0.1'
           });
-          toast('用户已删除');
+          toast(enabled ? `账号 ${username} 已启用` : `账号 ${username} 已停用`);
         }
+      } catch (error) {
+        toast(error.message || '操作失败', 'error');
+      } finally {
+        pendingUserAction.value = null;
       }
-    };
-
-    const toggleUser = (user) => {
-      if (isLiveSession.value) {
-        toast('正式账号状态由账号服务维护，当前页面只读。', 'error');
-        return;
-      }
-      user.enabled = !user.enabled;
     };
 
     const createUser = async () => {
@@ -2699,8 +2728,8 @@ const AdminSettingsView = {
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, localizedStatusLabel, displayText
     };
   }
 };

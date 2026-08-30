@@ -693,6 +693,21 @@ class AgriStore {
         return Jsons.copy(mapper, user);
     }
 
+    synchronized boolean deleteUserAccount(String userId) {
+        Map<String, Object> user = userById(userId);
+        if (user == null) return false;
+        if (databaseReady) {
+            try {
+                int deleted = jdbc.update("DELETE FROM user_account WHERE user_id=?", userId);
+                if (deleted != 1) return false;
+            } catch (DataAccessException error) {
+                databaseReady = false;
+            }
+        }
+        users.remove(userId);
+        return true;
+    }
+
     private Map<String, Object> userMap(ResultSet rs) throws java.sql.SQLException {
         Map<String, Object> u = new LinkedHashMap<>();
         u.put("userId", rs.getString("user_id")); u.put("username", rs.getString("username"));
@@ -4204,15 +4219,16 @@ class AgriEngine {
     Map<String, Object> updateFarmMemberStatus(String userId, Map<String, Object> input, UserPrincipal principal) {
         requireFarmMemberAdmin(principal);
         String farmId = Jsons.text(input, "farmId", "").trim();
-        if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
+        boolean adminWide = principal.isSystemAdmin();
+        if (farmId.isBlank() && !adminWide) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
         if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         Map<String, Object> member = store.userById(userId);
         if (member == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "农场成员不存在");
-        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "这里只能启用或停用种植农户");
+        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", ""))) && !adminWide) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "只有系统管理员可以启用或停用非农户账号");
         }
         List<String> memberFarms = Jsons.strings(member.get("farmIds"));
-        if (!memberFarms.contains(farmId) && !memberFarms.contains("*")) {
+        if (!adminWide && !memberFarms.contains(farmId) && !memberFarms.contains("*")) {
             throw new ApiException(HttpStatus.CONFLICT, "MEMBER_NOT_IN_FARM", "该成员不属于当前农场");
         }
         if (principal.userId.equals(userId)) {
@@ -4235,6 +4251,22 @@ class AgriEngine {
         Map<String, Object> result = farmMemberView(updated, farmId);
         result.put("updatedAt", Instant.now().toString());
         result.put("updatedBy", principal.userId);
+        return result;
+    }
+
+    Map<String, Object> deleteAccount(String userId, UserPrincipal principal) {
+        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_DELETE_FORBIDDEN", "只有系统管理员可以删除账号");
+        if (principal.userId.equals(userId)) throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_SELF_DELETE_FORBIDDEN", "不能删除自己的账号");
+        Map<String, Object> user = store.userById(userId);
+        if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在");
+        String username = Jsons.text(user, "username", userId);
+        if (!store.deleteUserAccount(userId)) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_DELETE_FAILED", "账号删除失败");
+        store.logEvent("ACCOUNT_DELETED", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
+        events.publish("account.deleted", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", userId); result.put("username", username);
+        result.put("removed", true); result.put("deletedAt", Instant.now().toString());
+        result.put("deletedBy", principal.userId);
         return result;
     }
 
@@ -6100,6 +6132,11 @@ class AgriController {
     @DeleteMapping("/farm-members/{userId}")
     ResponseEntity<?> deleteFarmMember(@PathVariable String userId, @RequestParam String farmId, Authentication a) {
         return ok(adminManagement.deleteFarmMember(userId, farmId, principal(a)));
+    }
+
+    @DeleteMapping("/users/{userId}")
+    ResponseEntity<?> deleteUserAccount(@PathVariable String userId, Authentication a) {
+        return ok(engine.deleteAccount(userId, principal(a)));
     }
 
     @GetMapping("/alerts")
