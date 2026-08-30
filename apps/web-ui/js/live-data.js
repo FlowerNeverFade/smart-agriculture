@@ -577,6 +577,7 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
     degraded: Boolean(response.degraded),
     evidence: normalizeAgentEvidence(response),
     decisionCard: normalizeAgentDecisionCard(response, plot),
+    actionProposal: response?.actionProposal ? { ...response.actionProposal } : null,
     plotId: text(plot?.plotId || response.plotId, ''),
     plotName: text(plot?.name, ''),
     dataOrigin: sessionMode === 'live' ? 'BACKEND' : 'SIMULATED'
@@ -1158,7 +1159,7 @@ export function emptyAdminOverview() {
     uptime: '—', apiVersion: '—', aiMode: '—', llmModel: '—',
     alerts: { open: 0, acknowledged: 0, closedToday: 0 },
     devices: { total: 0, online: 0, offline: 0 },
-    simulator: { running: false, scenario: '', eventsEmitted: 0 },
+    simulator: { running: false, scenario: '', eventsEmitted: 0, sampleIntervalSeconds: 20, timeScale: 144 },
     services: [], recentEvents: [], dataOrigin: 'BACKEND'
   };
 }

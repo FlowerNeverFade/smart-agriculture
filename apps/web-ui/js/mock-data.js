@@ -3,6 +3,8 @@
  * Matches backend contracts and domain schemas
  */
 
+import { EXTENDED_CROP_PACK_DETAILS } from './crop-guidance-extended.js';
+
 export const MOCK_DATA = {
   system: {
     mode: "standalone",
@@ -753,6 +755,26 @@ export const MOCK_DATA = {
       rulesCount: 2,
       knowledgeDocs: ["knowledge/irrigation.md"],
       description: "向日葵耐旱怕涝，现蕾至开花为需水临界期，土壤湿度 50%~65% 最佳，过湿易倒伏感病。"
+    },
+    {
+      cropCode: "lettuce",
+      name: "生菜 (Lettuce)",
+      version: "1.0.0",
+      ruleVersion: "rule-1.0.0",
+      stages: ["育苗期", "叶簇生长期", "结球/采收前期", "采收期"],
+      rulesCount: 3,
+      knowledgeDocs: ["知识/生菜设施栽培技术要领", "农业农村部·2025年夏季蔬菜生产技术指导意见"],
+      description: "生菜喜凉，根区保持湿润通气；高温期通风遮阳，低温阴雨期控水排湿，避免徒长和病害。"
+    },
+    {
+      cropCode: "eggplant",
+      name: "茄子 (Eggplant)",
+      version: "1.0.0",
+      ruleVersion: "rule-1.0.0",
+      stages: ["育苗期", "营养生长期", "开花坐果期", "结果采收期"],
+      rulesCount: 3,
+      knowledgeDocs: ["北京市农业技术推广站·春季大棚茄子生产前期技术要点", "农业农村部·2025年夏季蔬菜生产技术指导意见"],
+      description: "茄子缓苗后逐步通风，开花坐果期适度控水，结果期清晨或傍晚少量多次供水并及时排湿。"
     }
   ],
 
@@ -1133,7 +1155,8 @@ export const MOCK_DATA = {
       ] },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
       testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
-    }
+    },
+    ...EXTENDED_CROP_PACK_DETAILS
   ],
 
   riskForecastConfig: {
@@ -1254,7 +1277,7 @@ export const MOCK_DATA = {
     alerts: { open: 3, acknowledged: 1, closedToday: 7 },
     devices: { total: 12, online: 10, offline: 2 },
     simulator: {
-      running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00',
+      running: true, scenario: 'NORMAL', eventsEmitted: 1847, sampleIntervalSeconds: 20, timeScale: 144, startTime: '2026-08-25 08:00',
       history: [
         { id: 'sim-802', scenarioId: 'DROUGHT', timestamp: '2026-08-24 15:30', eventsEmitted: 450, status: 'COMPLETED' },
         { id: 'sim-803', scenarioId: 'STORM', timestamp: '2026-08-24 17:10', eventsEmitted: 210, status: 'ABORTED' },

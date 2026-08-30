@@ -65,6 +65,7 @@ agriloop:
   daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
   crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
   simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
+  simulator-auto-start: ${SIMULATOR_AUTO_START:true}
   supervisor-config: ${SUPERVISOR_CONFIG:/srv/agriloop/supervisor.conf}
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
   simulation-config-path: ${SIMULATION_CONFIG_PATH:data/plot-simulation.json}
@@ -132,3 +133,4 @@ spring:
 agriloop:
   mode: standalone
   seed-data: true
+  simulator-auto-start: false

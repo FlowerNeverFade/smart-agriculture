@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -476,6 +476,8 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
       running: simStatus === 'RUNNING',
       scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
+      sampleIntervalSeconds: Number(simulator.sampleIntervalSeconds || 20),
+      timeScale: Number(simulator.timeScale || 144),
       startTime: simulator.startedAt || null,
       history: simulator.history || []
     },
@@ -878,11 +880,11 @@ const PlotDetailModal = {
     const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
     const parameterMeta = Object.freeze({
       volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制随机扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 180, step: 1, help: '每个采样点代表的加速时间' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '默认 144 倍：墙上时钟 10 分钟 ≈ 1 个模拟日' },
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
       driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
@@ -943,7 +945,10 @@ const PlotDetailModal = {
       if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
       const definition = selectedSimulationMetric.value;
       const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
-      const historical = historicalPoints.map((item) => [telemetryTimestamp(item), item.value]);
+      const timeScale = Math.max(1, Number(simulation.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
+      const now = Date.now();
+      const toSimulated = (wall) => now - (now - wall) * timeScale;
+      const historical = historicalPoints.map((item) => [toSimulated(telemetryTimestamp(item)), item.value]);
       const fallback = plotMetricFallback(definition.code);
       const anchorPoint = historicalPoints.at(-1);
       const anchorValue = anchorPoint?.value ?? fallback;
@@ -954,7 +959,7 @@ const PlotDetailModal = {
         && Array.isArray(simulationForecast.value?.curve) && simulationForecast.value.curve.length > 0;
       const forecastSource = forecastAvailable ? simulationForecast.value.curve : [];
       const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
-      const forecastStart = Number.isFinite(anchorTimestamp) ? anchorTimestamp : Date.now();
+      const forecastStart = Number.isFinite(anchorTimestamp) ? toSimulated(anchorTimestamp) : now;
       const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
       const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
       const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
@@ -969,7 +974,7 @@ const PlotDetailModal = {
         tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
           const list = Array.isArray(items) ? items : [items];
           const axisValue = finiteNumber(list[0]?.axisValue);
-          const time = Number.isFinite(axisValue) ? new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+          const time = Number.isFinite(axisValue) ? `模拟 ${new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}` : '—';
           return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
         legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
@@ -2257,6 +2262,8 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
+    const sampleInterval = ref(Number(props.state.adminOverview?.simulator?.sampleIntervalSeconds || 20));
+    const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -2294,13 +2301,19 @@ const AdminSimulatorView = {
 
     const syncSimulator = (status = {}) => {
       props.state.simulatorStatus = status;
+      const interval = Number(status.sampleIntervalSeconds || props.state.adminOverview.simulator?.sampleIntervalSeconds || 20);
+      const scale = Number(status.timeScale || props.state.adminOverview.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE);
       props.state.adminOverview.simulator = {
         ...(props.state.adminOverview.simulator || {}),
         running: String(status.status || '').toUpperCase() === 'RUNNING',
         scenario: status.scenario || status.scenarioId || '',
-        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0)
+        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0),
+        sampleIntervalSeconds: interval,
+        timeScale: scale
       };
       simRunning.value = props.state.adminOverview.simulator.running;
+      if (Number.isFinite(interval) && interval > 0) sampleInterval.value = interval;
+      if (Number.isFinite(scale) && scale > 0) timeScale.value = scale;
     };
     const toggleSimulator = async () => {
       if (simBusy.value) return;
@@ -2308,9 +2321,23 @@ const AdminSimulatorView = {
       try {
         const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
         syncSimulator(status);
-        toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
+        toast(simRunning.value ? '模拟器已启动' : '模拟器已停止');
       } catch (error) {
         toast(error.message || '模拟器控制失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const saveSimulatorSettings = async () => {
+      if (simBusy.value) return;
+      simBusy.value = true;
+      try {
+        const status = await api.updateSimulatorSettings({
+          sampleIntervalSeconds: sampleInterval.value,
+          timeScale: timeScale.value
+        });
+        syncSimulator(status);
+        toast('采样间隔与时间流速已保存，下一拍开始生效');
+      } catch (error) {
+        toast(error.message || '模拟器设置保存失败', 'error');
       } finally { simBusy.value = false; }
     };
     const applyPlotScenarios = async () => {
@@ -2450,10 +2477,14 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
+    watch(() => props.state.simulatorStatus, (status) => {
+      if (status && typeof status === 'object') syncSimulator(status);
+    }, { immediate: true });
+
     return {
-      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios, togglePlotSimulation,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel
     };
   }
@@ -2860,7 +2891,9 @@ const app = createApp({
       cropBatches: [],
       cropPacks: isDemoSession ? (MOCK_DATA.cropPackDetails || []) : [],
       valueLedgers: [],
-      simulatorStatus: isDemoSession ? { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' } : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
+      simulatorStatus: isDemoSession
+        ? { available: true, status: 'RUNNING', pid: 'demo', program: 'in-process', sampleIntervalSeconds: 20, timeScale: 144, eventsEmitted: 1847 }
+        : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],

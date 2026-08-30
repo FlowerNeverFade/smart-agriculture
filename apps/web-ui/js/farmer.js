@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -48,9 +48,9 @@ const FARMER_ICON_CLASS = Object.freeze({
   edit_note: 'ph-note-pencil', schedule: 'ph-clock', history: 'ph-clock-counter-clockwise',
   radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
-  insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
+  insights: 'ph-chart-line-up', menu_book: 'ph-book-open', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
   science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear'
+  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash'
 });
 
 const FarmerAppIcon = {
@@ -138,7 +138,9 @@ const CROP_ICONS = {
   rice: '🌾',
   sunflower: '🌻',
   strawberry: '🍓',
-  pepper: '🌶️'
+  pepper: '🌶️',
+  lettuce: '🥬',
+  eggplant: '🍆'
 };
 
 const CROP_MANUAL_AVAILABILITY = Object.freeze({
@@ -170,25 +172,28 @@ const PLOT_CHART_SPECS = [
 
 const CHART_RANGE_OPTIONS = [
   {
-    id: '7h',
-    label: '7 小时',
-    title: '近 7 小时',
+    id: '6h',
+    label: '6 模拟时',
+    title: '近 6 个模拟小时',
+    simHours: 6,
     amplitude_scale: 0.35,
-    labels: ['6 小时前', '5 小时前', '4 小时前', '3 小时前', '2 小时前', '1 小时前', '现在']
+    labels: ['6 时前', '5 时前', '4 时前', '3 时前', '2 时前', '1 时前', '现在']
   },
   {
-    id: '24h',
-    label: '24 小时',
-    title: '近 24 小时',
-    amplitude_scale: 0.7,
-    labels: ['24 小时前', '20 小时前', '16 小时前', '12 小时前', '8 小时前', '4 小时前', '现在']
-  },
-  {
-    id: '7d',
-    label: '7 天',
-    title: '近 7 天',
+    id: '1d',
+    label: '1 模拟日',
+    title: '近 1 个模拟日',
+    simHours: 24,
     amplitude_scale: 1,
-    labels: ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天']
+    labels: ['0 时', '4 时', '8 时', '12 时', '16 时', '20 时', '现在']
+  },
+  {
+    id: '3d',
+    label: '3 模拟日',
+    title: '近 3 个模拟日',
+    simHours: 72,
+    amplitude_scale: 1,
+    labels: ['3 日前', '2.5 日前', '2 日前', '1.5 日前', '1 日前', '0.5 日前', '现在']
   }
 ];
 
@@ -199,6 +204,7 @@ const FARMER_VIEWS = Object.freeze([
   'inspections',
   'advice',
   'messages',
+  'assistant',
   'tools',
   'settings'
 ]);
@@ -206,18 +212,20 @@ const FARMER_VIEWS = Object.freeze([
 function parse_farmer_hash(hash = window.location.hash) {
   const raw = String(hash || '').replace(/^#/, '').trim();
   if (!raw) return 'dashboard';
-  if (/^tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(raw)) return 'dashboard';
   const view = raw.split(/[?&/]/)[0];
   return FARMER_VIEWS.includes(view) ? view : 'dashboard';
 }
 
 function parse_tools_tab(hash = window.location.hash) {
-  return 'manual';
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  const match = raw.match(/^tools(?:\/([^?&#/]+)|[?&]tab=([^&#/]+))/i);
+  const tab = String(match?.[1] || match?.[2] || 'manual').toLowerCase();
+  return ['risk', 'manual'].includes(tab) ? tab : 'manual';
 }
 
 function farmer_hash_for(view_id, tab = 'manual') {
   const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
-  if (view === 'tools') return '#tools/manual';
+  if (view === 'tools') return `#tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}`;
   return `#${view}`;
 }
 
@@ -332,10 +340,36 @@ function chart_x_at(index, count, layout = DEFAULT_CHART_LAYOUT) {
   return layout.left + (index / Math.max(1, count - 1)) * inner.width;
 }
 
+function chart_x_at_ratio(ratio, layout = DEFAULT_CHART_LAYOUT) {
+  const inner = chart_inner_size(layout);
+  return layout.left + Math.max(0, Math.min(1, ratio)) * inner.width;
+}
+
 function chart_y_at(value, min, max, layout = DEFAULT_CHART_LAYOUT) {
   const inner = chart_inner_size(layout);
   const span = Math.max(1, max - min);
   return layout.top + (1 - ((Number(value) - min) / span)) * inner.height;
+}
+
+function parse_chart_ts(point) {
+  if (point == null) return NaN;
+  if (typeof point === 'number') {
+    if (point > 1e12) return point;
+    if (point > 1e9) return point * 1000;
+    return NaN;
+  }
+  const raw = typeof point === 'object'
+    ? (point.ts ?? point.observedAt ?? point.timestamp ?? point.eventTs)
+    : point;
+  if (typeof raw === 'number') return parse_chart_ts(raw);
+  const parsed = Date.parse(raw || '');
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function chart_points_in_window(samples, min, max, layout = DEFAULT_CHART_LAYOUT) {
+  return (Array.isArray(samples) ? samples : []).map((sample) => (
+    `${chart_x_at_ratio(sample.ratio, layout).toFixed(1)},${chart_y_at(sample.value, min, max, layout).toFixed(1)}`
+  )).join(' ');
 }
 
 // moisture bands can be replaced by the backend Crop Pack response as soon as
@@ -491,11 +525,138 @@ function chart_points(values, min, max, layout = DEFAULT_CHART_LAYOUT) {
   }).join(' ');
 }
 
-function find_chart_range(range_id) {
-  return CHART_RANGE_OPTIONS.find((item) => item.id === range_id) || CHART_RANGE_OPTIONS[2];
+function simulation_forecast_chart(forecast, baseMoisture) {
+  const raw = (forecast?.curve?.length ? forecast.curve : forecast?.horizons || [])
+    .map((point) => ({
+      minute: Number(point.minute ?? point.minutes ?? 0),
+      expected: Number(point.expected ?? point.value),
+      lower: Number(point.lower ?? point.expected ?? point.value),
+      upper: Number(point.upper ?? point.expected ?? point.value)
+    }))
+    .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
+  if (!raw.length) return null;
+  const values = raw.map((point) => point.expected);
+  const lowers = raw.map((point) => Number.isFinite(point.lower) ? point.lower : point.expected);
+  const uppers = raw.map((point) => Number.isFinite(point.upper) ? point.upper : point.expected);
+  const all = [...values, ...lowers, ...uppers, Number(baseMoisture)].filter(Number.isFinite);
+  const min = Math.max(0, Math.floor(Math.min(...all) - 5));
+  const max = Math.ceil(Math.max(35, ...all) + 5);
+  const layout = { width: 360, height: 220, left: 30, right: 8, top: 12, bottom: 24 };
+  const labels = raw.map((point) => point.minute === 0 ? '现在' : `${Math.max(1, Math.round(point.minute / 60))} 小时`);
+  const xTicks = [0, Math.floor((raw.length - 1) / 2), raw.length - 1]
+    .filter((index, position, list) => index >= 0 && list.indexOf(index) === position)
+    .map((index, position, list) => ({ x: chart_x_at(index, raw.length, layout), y: layout.height - 4, label: labels[index], anchor: position === 0 ? 'start' : (position === list.length - 1 ? 'end' : 'middle') }));
+  const grid = [max, (max + min) / 2, min].map((value) => ({ y: chart_y_at(value, min, max, layout), label: `${Number(value.toFixed(0))}%` }));
+  const bandPolygon = `${chart_points(uppers, min, max, layout)} ${chart_points(lowers.slice().reverse(), min, max, layout)}`;
+  const boundary = Number(forecast?.stressBoundary ?? forecast?.riskBoundary?.value);
+  return {
+    viewBox: `0 0 ${layout.width} ${layout.height}`,
+    plotLeft: layout.left,
+    plotRight: layout.width - layout.right,
+    grid,
+    xTicks,
+    bandPolygon,
+    boundaryY: Number.isFinite(boundary) ? chart_y_at(boundary, min, max, layout) : null,
+    series: [
+      { label: '当前推演', color: 'var(--g-success)', points: chart_points(values, min, max, layout), values, primary: true },
+      { label: '置信上界', color: 'var(--g-success)', points: chart_points(uppers, min, max, layout), values: uppers, dashed: true },
+      { label: '置信下界', color: 'var(--g-success)', points: chart_points(lowers, min, max, layout), values: lowers, dashed: true }
+    ],
+    labels,
+    sample_labels: labels,
+    legend: [
+      { label: '当前推演', color: 'var(--g-success)', style: 'solid' },
+      { label: '置信区间', color: 'var(--g-success)', style: 'band' },
+      ...(Number.isFinite(boundary) ? [{ label: '风险阈值', color: '#f9ab00', style: 'threshold' }] : [])
+    ]
+  };
 }
 
-function metric_chart(plot, code, range_id = '7d', stage_override = null) {
+function dual_track_chart(comparison) {
+  const execute = comparison?.branches?.EXECUTE;
+  const noAction = comparison?.branches?.NO_ACTION;
+  const branches = [
+    { key: 'EXECUTE', label: execute?.label || '执行处置', color: '#1e8e3e', points: execute?.points || [] },
+    { key: 'NO_ACTION', label: noAction?.label || '不干预', color: '#d93025', points: noAction?.points || [] }
+  ].map((branch) => ({
+    ...branch,
+    values: branch.points.map((point) => Number(point.value ?? point.expected)).filter(Number.isFinite)
+  })).filter((branch) => branch.values.length > 1);
+  if (!branches.length) return null;
+  const pointCount = Math.max(...branches.map((branch) => branch.values.length));
+  const allValues = branches.flatMap((branch) => branch.values);
+  const boundary = Number(comparison?.stressBoundary);
+  const min = Math.max(0, Math.floor(Math.min(...allValues, Number.isFinite(boundary) ? boundary : 100) - 5));
+  const max = Math.min(100, Math.ceil(Math.max(...allValues, Number.isFinite(boundary) ? boundary : 0) + 5));
+  const layout = { width: 640, height: 280, left: 44, right: 16, top: 18, bottom: 30 };
+  const labels = (branches[0].points || []).map((point) => Number(point.minute) === 0 ? '现在' : `${Math.round(Number(point.minute) / 60)} 小时`);
+  const grid = [max, (max + min) / 2, min].map((value) => ({
+    y: chart_y_at(value, min, max, layout),
+    label: `${Number(value.toFixed(0))}%`
+  }));
+  const xTicks = [0, Math.floor((pointCount - 1) / 2), pointCount - 1]
+    .filter((index, position, list) => index >= 0 && list.indexOf(index) === position)
+    .map((index, position, list) => ({
+      x: chart_x_at(index, pointCount, layout),
+      y: layout.height - 7,
+      label: labels[index] || `${index * 5} 分钟`,
+      anchor: position === 0 ? 'start' : (position === list.length - 1 ? 'end' : 'middle')
+    }));
+  return {
+    viewBox: `0 0 ${layout.width} ${layout.height}`,
+    plotLeft: layout.left,
+    plotRight: layout.width - layout.right,
+    grid,
+    xTicks,
+    boundaryY: Number.isFinite(boundary) ? chart_y_at(boundary, min, max, layout) : null,
+    series: branches.map((branch) => ({
+      ...branch,
+      points: chart_points(branch.values, min, max, layout)
+    }))
+  };
+}
+
+function find_chart_range(range_id) {
+  return CHART_RANGE_OPTIONS.find((item) => item.id === range_id)
+    || CHART_RANGE_OPTIONS.find((item) => item.id === '1d')
+    || CHART_RANGE_OPTIONS[1];
+}
+
+function chart_time_scale(plot) {
+  const value = Number(plot?.simulation?.parameters?.timeScale);
+  return Number.isFinite(value) && value >= 1 ? value : DEFAULT_SIMULATION_TIME_SCALE;
+}
+
+function downsample_chart_samples(samples, maxPoints = 48) {
+  if (!Array.isArray(samples) || samples.length <= maxPoints) return samples || [];
+  const step = (samples.length - 1) / (maxPoints - 1);
+  return Array.from({ length: maxPoints }, (_, index) => samples[Math.round(index * step)]);
+}
+
+function simulation_axis_labels(simHours) {
+  const ticks = 7;
+  const span = Number(simHours);
+  if (!Number.isFinite(span) || span <= 0) {
+    return ['0 时', '4 时', '8 时', '12 时', '16 时', '20 时', '现在'];
+  }
+  return Array.from({ length: ticks }, (_, index) => {
+    if (index === ticks - 1) return '现在';
+    const hour = span * index / (ticks - 1);
+    if (span <= 36) return `${Math.round(hour)} 时`;
+    return `${(hour / 24).toFixed(1)} 日前`;
+  });
+}
+
+function format_sim_clock_label(elapsedHours, spanHours) {
+  const span = Number(spanHours) || 24;
+  const elapsed = Number(elapsedHours);
+  if (!Number.isFinite(elapsed)) return '—';
+  if (elapsed >= span - 0.08) return '现在';
+  if (span <= 36) return `${Math.round(Math.max(0, elapsed))} 时`;
+  return `${(Math.max(0, span - elapsed) / 24).toFixed(1)} 日前`;
+}
+
+function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
   const metric = plot?.metrics?.[code];
   if (!spec || !metric) return null;
@@ -505,12 +666,23 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
   const seed = chart_seed(`${plot.plotId}:${code}:${range.id}`);
   const pattern = [-1, -0.42, 0.55, 1.05, -0.52, 0.68, 0];
   const phase = ((seed % 7) - 3) * 0.12;
-  const observedValues = Array.isArray(metric.history)
-    ? metric.history
-      .map((point) => Number(point?.value ?? point))
-      .filter(Number.isFinite)
-      .slice(-7)
-    : [];
+  const historyPoints = Array.isArray(metric.history) ? metric.history : [];
+  const timeScale = chart_time_scale(plot);
+  const windowMs = Math.max(60_000, (Number(range.simHours) || 24) * 3600 * 1000 / timeScale);
+  const windowEnd = Date.now();
+  const windowStart = windowEnd - windowMs;
+  const timedSamples = historyPoints.map((point) => ({
+    ts: parse_chart_ts(point),
+    value: Number(point?.value ?? point)
+  })).filter((sample) => Number.isFinite(sample.ts) && Number.isFinite(sample.value)
+    && sample.ts >= windowStart - 1000 && sample.ts <= windowEnd + 5000)
+    .sort((left, right) => left.ts - right.ts)
+    .map((sample) => ({
+      ...sample,
+      ratio: Math.max(0, Math.min(1, (sample.ts - windowStart) / windowMs))
+    }));
+  const samples = downsample_chart_samples(timedSamples);
+  const observedValues = samples.map((sample) => sample.value);
   const hasObservedHistory = observedValues.length >= 2;
   const allowDerived = plot?.dataOrigin !== 'BACKEND';
   const build_values = (base, amplitude = spec.amplitude, series_offset = 0) => pattern.map((point, index) => {
@@ -519,19 +691,36 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
     const drift = (index < 3 ? (2 - index) * scaled * 0.06 : 0);
     return Number(clamp_chart_value(Number(base) + wave + drift, spec.min, spec.max).toFixed(spec.precision));
   });
+  const derivedSamples = (values) => values.map((value, index, list) => ({
+    value,
+    ratio: list.length <= 1 ? 1 : index / (list.length - 1),
+    ts: windowStart + (list.length <= 1 ? windowMs : windowMs * index / (list.length - 1))
+  }));
 
   const risk_color = metric.status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
   const series = spec.multi
-    ? parse_npk(metric.value).map((base, index) => ({
-      label: ['氮', '磷', '钾'][index],
-      color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
-      values: hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : [])
-    }))
-    : [{
-      label: spec.label,
-      color: is_risk ? risk_color : spec.color,
-      values: hasObservedHistory ? observedValues : (allowDerived ? build_values(Number(metric.value)) : [])
-    }];
+    ? parse_npk(metric.value).map((base, index) => {
+      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : []);
+      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      return {
+        label: ['氮', '磷', '钾'][index],
+        color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
+        values,
+        samples: plotted,
+        points: chart_points_in_window(plotted, spec.min, spec.max)
+      };
+    })
+    : (() => {
+      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(Number(metric.value)) : []);
+      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      return [{
+        label: spec.label,
+        color: is_risk ? risk_color : spec.color,
+        values,
+        samples: plotted,
+        points: chart_points_in_window(plotted, spec.min, spec.max)
+      }];
+    })();
 
   const grid = [
     { y: 10, label: format_chart_axis_value(spec.max, spec.precision) },
@@ -552,6 +741,9 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
       : NaN
   ));
   const confidence = Number(quality.confidence ?? (isDemoMetric ? (metric.status === 'ALERT' ? 0.91 : 0.97) : NaN));
+  const axisLabels = range.labels || simulation_axis_labels(range.simHours);
+  const primarySamples = series[0]?.samples || [];
+  const sampleLabels = primarySamples.map((sample) => format_sim_clock_label(sample.ratio * (range.simHours || 24), range.simHours));
 
   return {
     ...spec,
@@ -577,13 +769,18 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
     is_risk,
     risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
     range_title: range.title,
-    labels: range.labels,
-    sample_labels: range.labels,
+    simHours: range.simHours,
+    timeScale,
+    windowStart,
+    windowEnd,
+    labels: axisLabels,
+    sample_labels: sampleLabels,
+    samples: primarySamples,
     grid,
     is_multi: Boolean(spec.multi),
     history_source: hasObservedHistory ? 'BACKEND' : (allowDerived ? 'DERIVED' : 'UNAVAILABLE'),
     history_available: hasObservedHistory,
-    series: series.map((item) => ({ ...item, points: chart_points(item.values, spec.min, spec.max) }))
+    series
   };
 }
 
@@ -847,7 +1044,7 @@ const app = createApp({
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
-    const is_sidebar_open = ref(true);
+    const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
     const bootstrap_loading = ref(true);
@@ -926,7 +1123,7 @@ const app = createApp({
     const current_view = ref(parse_farmer_hash());
     const tools_tab = ref(parse_tools_tab());
     const selected_plot = ref(plots.value[0] || null);
-    const chart_range = ref('7d');
+    const chart_range = ref('1d');
     const plot_stage_preview = ref(selected_plot.value?.stageCode || '');
     const plot_stage_options = computed(() => (crop_pack_for(selected_plot.value)?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
     const plot_stage_preview_item = computed(() => plot_stage_options.value.find((stage) => stage.code === plot_stage_preview.value) || crop_stage_for(selected_plot.value));
@@ -946,24 +1143,46 @@ const app = createApp({
       const right = Number(chart?.plotRight ?? (DEFAULT_CHART_LAYOUT.width - DEFAULT_CHART_LAYOUT.right)) / Number(chart?.layoutWidth ?? DEFAULT_CHART_LAYOUT.width);
       const inner = Math.max(0.001, right - left);
       const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      const index = Math.round(Math.max(0, Math.min(1, (ratio - left) / inner)) * Math.max(0, pointCount - 1));
+      const innerRatio = Math.max(0, Math.min(1, (ratio - left) / inner));
+      const samples = chart.samples || series[0]?.samples || [];
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      samples.forEach((sample, index) => {
+        const distance = Math.abs(Number(sample.ratio) - innerRatio);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      const index = samples.length ? nearestIndex : Math.round(innerRatio * Math.max(0, pointCount - 1));
+      const simHours = Number(chart.simHours) || 24;
       const labels = chart.sample_labels || chart.labels || [];
       const values = series
         .filter((item) => item.tooltip !== false)
-        .map((item) => ({ label: item.label, color: item.color, value: item.values?.[index] }))
+        .map((item) => ({
+          label: item.label,
+          color: item.color,
+          value: item.samples?.[index]?.value ?? item.values?.[index]
+        }))
         .filter((item) => Number.isFinite(Number(item.value)));
       chart_tooltip.value = {
         key,
-        label: labels[index] || `第 ${index + 1} 个采样点`,
+        label: format_sim_clock_label(innerRatio * simHours, simHours) || labels[index] || `第 ${index + 1} 个采样点`,
         values,
         left: Math.max(9, Math.min(91, ratio * 100)),
         top: Math.max(18, Math.min(82, ((event.clientY - rect.top) / rect.height) * 100))
       };
     };
     const hide_chart_tooltip = () => { chart_tooltip.value = null; };
+    const plot_simulation = ref(null);
     const plot_charts = computed(() => PLOT_CHART_SPECS
       .map((spec) => {
-        const chart = metric_chart(selected_plot.value, spec.code, chart_range.value, plot_stage_preview_item.value);
+        const chart = metric_chart(
+          { ...selected_plot.value, simulation: plot_simulation.value || selected_plot.value.simulation },
+          spec.code,
+          chart_range.value,
+          plot_stage_preview_item.value
+        );
         if (!chart) return { ...spec, unavailable: true, current_label: 'UNAVAILABLE', target: '无可用数据', stageLabel: plot_stage_preview_item.value?.label || selected_plot.value?.stageLabel || '当前阶段', quality: { status: 'UNAVAILABLE', freshnessLabel: '不可用', completenessLabel: '不可用', confidenceLabel: '不可用' } };
         if (spec.code !== 'SOIL_MOISTURE' || !selected_plot.value) return chart;
         const status = resolve_moisture_band_status(selected_plot.value);
@@ -978,6 +1197,147 @@ const app = createApp({
         };
       })
       .filter(Boolean));
+
+    // 农户只读查看管理员维护的地块模拟策略和风险预测。
+    const plot_simulation_forecast = ref(null);
+    const plot_simulation_loading = ref(false);
+    const plot_simulation_error = ref('');
+    const plot_simulation_options = computed(() => {
+      const catalog = plot_simulation.value?.scenarioCatalog;
+      return Array.isArray(catalog) && catalog.length ? catalog : PLOT_SIMULATION_SCENARIOS;
+    });
+    const plot_simulation_scenario = computed(() => {
+      const code = String(plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
+      return plot_simulation_options.value.find((item) => item.code === code) || PLOT_SIMULATION_SCENARIOS[0];
+    });
+    const plot_simulation_parameter_summary = computed(() => {
+      const labels = {
+        volatility: ['波动强度', '倍', 2], timeScale: ['时间倍率', '倍', 0], temperatureBias: ['温度偏移', '°C', 1],
+        humidityBias: ['湿度偏移', '%RH', 0], rainfallRate: ['降雨强度', 'mm/h', 1], soilMoistureTrendPerHour: ['土壤变化速率', '%/h', 2],
+        driftRatePerHour: ['漂移速率', '%/h', 2], offlineRatio: ['离线比例', '%', 0.01], riskThreshold: ['干旱阈值', '%', 1],
+        waterloggingThreshold: ['积水阈值', '%', 1], forecastHours: ['预测时长', '小时', 0]
+      };
+      return Object.entries(plot_simulation.value?.parameters || {}).map(([key, raw]) => {
+        const meta = labels[key];
+        const value = Number(raw);
+        if (!meta || !Number.isFinite(value)) return null;
+        const display = key === 'offlineRatio' ? value * 100 : value;
+        return { key, label: meta[0], unit: meta[1], value: display.toFixed(meta[2]) };
+      }).filter(Boolean);
+    });
+    const plot_simulation_device_label = computed(() => plot_simulation.value?.simulatorDevice?.label || '模拟数据运行中');
+    const plot_simulation_device_status = computed(() => String(plot_simulation.value?.simulatorDevice?.status || '').toUpperCase());
+    const plot_simulation_chart = computed(() => {
+      const forecast = plot_simulation_forecast.value;
+      if (!forecast || String(forecast.status || '').toUpperCase() === 'UNAVAILABLE') return null;
+      return simulation_forecast_chart(forecast, selected_plot.value?.metrics?.SOIL_MOISTURE?.value);
+    });
+    let plot_simulation_request_version = 0;
+    const load_plot_simulation = async (plotId = selected_plot.value?.plotId) => {
+      const requestVersion = ++plot_simulation_request_version;
+      if (!plotId) {
+        plot_simulation.value = null;
+        plot_simulation_forecast.value = null;
+        plot_simulation_error.value = '没有可查看的地块';
+        return;
+      }
+      plot_simulation_loading.value = true;
+      plot_simulation_error.value = '';
+      const [configResult, forecastResult] = await Promise.allSettled([
+        api.getPlotSimulation(plotId),
+        api.getRiskForecast(plotId, 'SOIL_MOISTURE')
+      ]);
+      if (requestVersion !== plot_simulation_request_version) return;
+      plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
+      plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
+      const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
+      if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
+      plot_simulation_error.value = [...new Set(errors)].join('；');
+      plot_simulation_loading.value = false;
+    };
+
+    const risk_tool_plot_id = ref(plots.value[0]?.plotId || '');
+    const risk_tool_scenario = ref('DROUGHT');
+    const risk_tool_parameters = ref({ ...PLOT_SIMULATION_DEFAULTS.DROUGHT });
+    const risk_tool_comparison = ref(null);
+    const risk_tool_loading = ref(false);
+    const risk_tool_error = ref('');
+    const risk_tool_dirty = ref(true);
+    let risk_tool_request_version = 0;
+    const risk_tool_plot = computed(() => plots.value.find((plot) => plot.plotId === risk_tool_plot_id.value) || plots.value[0] || null);
+    const risk_tool_scenario_options = computed(() => PLOT_SIMULATION_SCENARIOS);
+    const risk_tool_parameter_meta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '默认 144 倍：墙上时钟 10 分钟 ≈ 1 个模拟日' },
+      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
+      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '降雨场景平均强度' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
+      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
+      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '双轨曲线的时间范围' }
+    });
+    const risk_tool_fields = computed(() => {
+      const common = ['volatility', 'timeScale', 'riskThreshold', 'forecastHours'];
+      const extra = risk_tool_scenario.value === 'DROUGHT'
+        ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
+        : risk_tool_scenario.value === 'HEAVY_RAIN'
+          ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
+          : risk_tool_scenario.value === 'SENSOR_DRIFT'
+            ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
+            : risk_tool_scenario.value === 'DEVICE_OFFLINE' ? ['offlineRatio'] : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
+      return [...new Set([...common, ...extra])].map((key) => ({ key, ...risk_tool_parameter_meta[key] }));
+    });
+    const risk_tool_chart = computed(() => dual_track_chart(risk_tool_comparison.value));
+    const select_risk_tool_scenario = (code) => {
+      const normalized = String(code || 'DROUGHT').toUpperCase();
+      risk_tool_scenario.value = risk_tool_scenario_options.value.some((item) => item.code === normalized) ? normalized : 'DROUGHT';
+      risk_tool_parameters.value = { ...(PLOT_SIMULATION_DEFAULTS[risk_tool_scenario.value] || PLOT_SIMULATION_DEFAULTS.DROUGHT) };
+      risk_tool_dirty.value = true;
+      risk_tool_comparison.value = null;
+    };
+    const run_risk_tool = async () => {
+      const plot = risk_tool_plot.value;
+      if (!plot?.plotId || risk_tool_loading.value) return;
+      const requestVersion = ++risk_tool_request_version;
+      risk_tool_loading.value = true;
+      risk_tool_error.value = '';
+      try {
+        const comparison = await api.compareScenario({
+          plotId: plot.plotId,
+          scenario: risk_tool_scenario.value,
+          seed: 42,
+          scenarioId: `farmer-tool-${risk_tool_scenario.value.toLowerCase()}-${plot.plotId}`,
+          parameters: { ...risk_tool_parameters.value }
+        });
+        if (requestVersion !== risk_tool_request_version) return;
+        risk_tool_comparison.value = comparison;
+        if (String(comparison?.status || '').toUpperCase() !== 'AVAILABLE') {
+          risk_tool_error.value = comparison?.reason || '当前样本或设备状态不满足预测条件';
+        }
+        risk_tool_dirty.value = false;
+      } catch (error) {
+        if (requestVersion === risk_tool_request_version) {
+          risk_tool_comparison.value = null;
+          risk_tool_error.value = error?.message || '风险预测暂不可用';
+        }
+      } finally {
+        if (requestVersion === risk_tool_request_version) risk_tool_loading.value = false;
+      }
+    };
+    const reset_risk_tool = () => {
+      select_risk_tool_scenario(risk_tool_scenario.value);
+      risk_tool_error.value = '';
+    };
+    const select_risk_tool_plot = (plotId) => {
+      risk_tool_plot_id.value = plotId;
+      risk_tool_comparison.value = null;
+      risk_tool_dirty.value = true;
+      risk_tool_error.value = '';
+    };
+
     const advice_selected_plot = ref(plots.value[0] || null);
     const advice_plot = computed(() => advice_selected_plot.value || plots.value[0] || null);
     const select_advice_plot = (plot_id) => {
@@ -988,7 +1348,7 @@ const app = createApp({
         load_irrigation_plan(plot.plotId, { silent: true });
       }
     };
-    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '7d'));
+    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '1d'));
 
     // 灌溉系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
     const risk_plot_cards = computed(() => plots.value.map((plot) => {
@@ -1012,7 +1372,7 @@ const app = createApp({
     }));
 
     // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
-    const moisture_range = ref('7d');
+    const moisture_range = ref('1d');
     const moisture_range_options = CHART_RANGE_OPTIONS;
     const irrigation_plan = ref(null);
     const irrigation_readiness_detail = ref(null);
@@ -1171,10 +1531,11 @@ const app = createApp({
       const innerH = height - pad.top - pad.bottom;
       const span = Math.max(1, scale.max - scale.min);
       const toY = (v) => pad.top + (1 - (Math.min(scale.max, Math.max(scale.min, v)) - scale.min) / span) * innerH;
-      const toX = (i, n) => pad.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      const toX = (ratio) => pad.left + Math.max(0, Math.min(1, Number(ratio) || 0)) * innerW;
       const series = base.series.map((s) => ({
         ...s,
-        points: s.values.map((v, i) => `${toX(i, s.values.length).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+        points: (s.samples || []).map((sample) => `${toX(sample.ratio).toFixed(1)},${toY(sample.value).toFixed(1)}`).join(' ')
+          || s.values.map((v, i) => `${toX(s.values.length <= 1 ? 1 : i / (s.values.length - 1)).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
       }));
       const band = selected_crop_band.value;
       const bandStatus = resolve_moisture_band_status(plot);
@@ -1279,31 +1640,42 @@ const app = createApp({
     const feedback_busy = ref(false);
     const similar_cases_live = ref([]);
     const suggestion_feedback = ref('');
-    const qa_input = ref('');
+    const assistant_input = ref('');
+    const assistant_messages = ref([]);
+    const assistant_conversations = ref([]);
+    const assistant_conversation_id = ref('');
+    const assistant_drawer_open = ref(false);
+    const assistant_busy = ref(false);
+    const assistant_action_busy = ref('');
+    const assistant_error = ref('');
+    const assistant_service_status = ref(is_formal_session ? 'CONNECTING' : 'DEMO');
+    const assistant_plot_id = ref(plots.value[0]?.plotId || '');
+    const assistant_message_list = ref(null);
+    const assistant_shortcuts = Object.freeze([
+      { label: '查看今天待办', question: '查看今天待办', icon: 'task' },
+      { label: '当前地块有什么风险', question: '当前地块有什么风险', icon: 'warning' },
+      { label: '生成当前地块补水建议', question: '生成当前地块补水建议', icon: 'water_drop' },
+      { label: '帮我记录一次巡田', question: '帮我记录一次巡田', icon: 'fact_check' }
+    ]);
+
+    // Keep the old QA names as local aliases for the existing advice helpers;
+    // the farmer-facing surface now lives at #assistant instead of a popup.
+    const qa_input = assistant_input;
     const qa_active_turn = ref(null);
-    const qa_history = ref([]);
+    const qa_history = assistant_messages;
     const qa_audit = ref(null);
     const qa_details_open = ref(false);
     const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示规则');
-    const show_ai_consult = ref(false);
-    const qa_busy = ref(false);
-    const qa_plot_id = ref(plots.value[0]?.plotId || '');
+    const qa_busy = assistant_busy;
+    const qa_plot_id = assistant_plot_id;
     const crop_manuals = ref([]);
     const crop_manual_code = ref(plots.value[0]?.cropCode || crop_pack_catalog[0]?.cropCode || 'tomato');
     const crop_manual_stage = ref(plots.value[0]?.stageCode || crop_pack_catalog[0]?.stages?.[0]?.code || 'seedling');
     const crop_manual_live = ref(null);
     const crop_manual_error = ref('');
 
-    const toggle_ai_consult = () => {
-      show_ai_consult.value = !show_ai_consult.value;
-      if (show_ai_consult.value && !qa_plot_id.value && plots.value[0]?.plotId) {
-        qa_plot_id.value = plots.value[0].plotId;
-      }
-    };
-    const close_ai_consult = () => { show_ai_consult.value = false; };
     const on_app_click = () => {
       close_profile_menu();
-      close_ai_consult();
     };
 
     // 农户任务看板状态：保留 PENDING（未开始），隐藏真正的 OPEN（待分配）。
@@ -1329,7 +1701,8 @@ const app = createApp({
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'tools', label: '作物培养手册', icon: 'menu_book', is_footer: true },
+        { id: 'assistant', label: '农智助手', icon: 'smart_toy' },
+        { id: 'tools', label: '更多工具', icon: 'apps', is_footer: true },
         { id: 'settings', label: '工作台设置', icon: 'settings', is_footer: true }
       ];
     });
@@ -1614,6 +1987,60 @@ const app = createApp({
       return [...unique.values()].sort((a, b) => b.score - a.score || a.sortTime - b.sortTime).slice(0, 3);
     });
 
+    // 首页右侧只展示聚合后的风险摘要，具体处置仍从“今天先做什么”进入。
+    // 设备离线已经属于地块问题的一种，不与风险地块重复计数。
+    const dashboard_risk_summary = computed(() => {
+      const issues = plots.value
+        .map((plot) => ({ plot, issue: plot_issue_summary(plot) }))
+        .filter(({ issue }) => issue.kind !== 'NORMAL');
+      const deviceCount = issues.filter(({ issue }) => issue.kind === 'DEVICE').length;
+      const environmentCount = issues.length - deviceCount;
+      const total = issues.length;
+      const statusLabel = total === 0 ? '运行正常' : (issues.some(({ issue }) => issue.kind === 'DEVICE' || issue.statusLabel === '需要补水') ? '重点处理' : '需要关注');
+      const tone = total === 0 ? 'success' : (statusLabel === '重点处理' ? 'danger' : 'warning');
+      return {
+        total,
+        tone,
+        statusLabel,
+        deviceLabel: deviceCount ? `${deviceCount} 个地块设备离线，先检查心跳` : '设备均在线',
+        environmentLabel: environmentCount ? `${environmentCount} 个地块有湿度或风险提醒` : '暂无明显环境异常',
+        readinessLabel: deviceCount ? '数据可能不可用，先补充现场证据' : (environmentCount ? '查看建议前先核对现场' : '可按计划巡查'),
+        actionView: environmentCount ? 'advice' : (deviceCount ? 'inspections' : 'plots'),
+        actionLabel: total ? '查看风险建议' : '查看全部地块'
+      };
+    });
+
+    // 首页动态只保留任务和普通通知；告警集中在风险摘要和优先行动中，避免重复轰炸。
+    const recent_activity = computed(() => {
+      const taskItems = recent_tasks.value.map((task) => ({
+        id: `activity-task-${task.id}`,
+        kind: 'TASK',
+        icon: farmer_task_status(task) === 'DONE' ? 'task_alt' : 'event_available',
+        title: task.title,
+        label: status_label(farmer_task_status(task)),
+        plotLabel: task.plot_name || find_plot_by_id(plots.value, task.plot_id)?.name || '',
+        timeLabel: task.due_label || format_relative_label(task.created_iso) || '按计划',
+        sortTime: Date.parse(task.created_iso || '') || 0,
+        task
+      }));
+      const messageItems = recent_messages.value
+        .filter((message) => message.category !== 'alert')
+        .map((message) => ({
+          id: `activity-message-${message.id}`,
+          kind: 'MESSAGE',
+          icon: message.category === 'task' ? 'assignment' : 'campaign',
+          title: message.title,
+          label: category_label(message.category),
+          plotLabel: message.plotId ? find_plot_name(message.plotId) : '',
+          timeLabel: message.time_label || format_relative_label(message.time_iso) || '刚刚',
+          sortTime: Date.parse(message.time_iso || '') || 0,
+          message
+        }));
+      return [...taskItems, ...messageItems]
+        .sort((a, b) => b.sortTime - a.sortTime)
+        .slice(0, 5);
+    });
+
     const suggestion_flow_steps = computed(() => {
       const order = ['VIEW', 'CONFIRM', 'RESULT', 'RECOVERY'];
       const current = Math.max(0, order.indexOf(suggestion_flow_stage.value));
@@ -1741,6 +2168,11 @@ const app = createApp({
     });
     const crop_manual_stages = computed(() => (crop_manual_pack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
     const crop_manual_stage_item = computed(() => crop_manual_live.value?.stage || crop_manual_stages.value.find((stage) => stage.code === crop_manual_stage.value) || crop_manual_stages.value[0] || null);
+    const crop_manual_rules = computed(() => crop_manual_live.value?.rules || crop_manual_pack.value?.rules || []);
+    const crop_manual_documents = computed(() => {
+      const knowledge = crop_manual_live.value?.knowledge || crop_manual_pack.value?.knowledge || {};
+      return knowledge.documents || [];
+    });
     const crop_manual_metrics_list = computed(() => {
       if (crop_manual_live.value?.envMetrics?.length) return crop_manual_live.value.envMetrics;
       return crop_manual_pack.value && crop_manual_stage_item.value
@@ -1790,7 +2222,7 @@ const app = createApp({
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       current_view.value = next_view;
-      if (next_view === 'tools') tools_tab.value = 'manual';
+      if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
         const target = farmer_hash_for(next_view, tools_tab.value);
         if (window.location.hash !== target) {
@@ -1817,12 +2249,6 @@ const app = createApp({
     };
 
     const apply_farmer_hash = () => {
-      if (/^#?tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(window.location.hash)) {
-        window.history.replaceState(null, '', '#dashboard');
-        navigate('dashboard', { sync_hash: false });
-        tools_tab.value = 'manual';
-        return;
-      }
       const view = parse_farmer_hash();
       const tab = parse_tools_tab();
       if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value)) return;
@@ -2268,7 +2694,8 @@ const app = createApp({
         schedule_live_refresh('telemetry');
         return;
       }
-      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
+      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection')
+        || type.includes('plot.') || type.includes('command') || type.includes('evaluation')) {
         schedule_live_refresh('workspace');
       }
     };
@@ -2375,6 +2802,17 @@ const app = createApp({
     const open_task_from_dashboard = (task) => {
       navigate('tasks');
       open_task(task);
+    };
+
+    const open_activity_item = (item) => {
+      if (!item) return;
+      if (item.kind === 'TASK' && item.task) {
+        open_task_from_dashboard(item.task);
+        return;
+      }
+      if (item.kind === 'MESSAGE' && item.message) {
+        open_message_from_dashboard(item.message);
+      }
     };
 
     const open_device_attention = () => {
@@ -2499,6 +2937,29 @@ const app = createApp({
       show_suggestion_flow.value = false;
     };
 
+    const wait_for_irrigation_completion = async (submitted) => {
+      if (!is_live.value || !submitted?.commandId) return submitted;
+      let current = submitted;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const status = String(current?.ack?.status || current?.status || '').toUpperCase();
+        if (['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(status)) {
+          for (let evaluationAttempt = 0; evaluationAttempt < 6; evaluationAttempt += 1) {
+            const evaluation = await api.getCommandEvaluation(submitted.commandId).catch(() => null);
+            if (evaluation && evaluation.status !== 'PENDING') return { ...current, evaluation };
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+          return current;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        try {
+          current = await api.getCommand(submitted.commandId);
+        } catch {
+          break;
+        }
+      }
+      return current;
+    };
+
     const prepare_suggestion_confirmation = async () => {
       if (!active_suggestion.value) return;
       if (active_suggestion.value.kind === 'IRRIGATION') {
@@ -2534,6 +2995,18 @@ const app = createApp({
               source: 'farmer-advice-direct',
               ...(is_live.value ? {} : { outcome: 'SUCCEEDED' })
             });
+            if (is_live.value) {
+              suggestion_result.value = await wait_for_irrigation_completion(suggestion_result.value);
+              await refresh_plot_telemetry();
+              await load_live_workspace({ announce: false });
+              if (suggestion_result.value?.commandId) {
+                const evaluation = await api.getCommandEvaluation(suggestion_result.value.commandId).catch(() => null);
+                if (evaluation) suggestion_result.value = { ...suggestion_result.value, evaluation };
+              }
+            } else {
+              await load_live_workspace({ announce: false });
+              await load_irrigation_plan(active.plotId, { silent: true });
+            }
           }
           suggestion_recovery_status.value = '灌溉命令已提交，等待设备 ACK 和效果评价。';
           suggestion_flow_stage.value = 'RESULT';
@@ -2872,6 +3345,72 @@ const app = createApp({
       show_toast('演示确认已记录，策略和处方尚未被修改');
     };
 
+    const assistant_shortcut_icon = (question) => {
+      const found = assistant_shortcuts.find((item) => item.question === question);
+      return found?.icon || 'smart_toy';
+    };
+
+    const assistant_tool_labels = Object.freeze({
+      transition_assigned_work_order: '更新本人任务',
+      create_inspection_record: '提交巡田记录',
+      create_evidence_request: '申请补证任务',
+      execute_virtual_irrigation: '执行虚拟灌溉',
+      create_plot: '新增地块',
+      update_plot: '更新地块',
+      set_plot_devices: '绑定设备',
+      create_and_assign_work_order: '创建并下发任务',
+      publish_alert_verification: '发布告警核查',
+      close_alert: '关闭告警'
+    });
+    const assistant_action_status_labels = Object.freeze({
+      AWAITING_CONFIRMATION: '待确认', EXECUTING: '执行中', SUCCEEDED: '已完成',
+      FAILED: '失败', PARTIAL: '部分完成', TIMEOUT: '超时', CANCELED: '已取消', EXPIRED: '已过期'
+    });
+    const assistant_create_conversation_id = () => {
+      const identity = String(session_user?.userId || session_user?.username || user.value?.username || 'farmer')
+        .replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 42) || 'farmer';
+      return `conversation-${identity}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.slice(0, 116);
+    };
+    const assistant_service_label = computed(() => ({
+      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示规则'
+    }[assistant_service_status.value] || '服务状态未知'));
+    const assistant_service_tone = computed(() => assistant_service_status.value === 'DEGRADED' ? 'is-degraded' : assistant_service_status.value === 'DEMO' ? 'is-demo' : 'is-ready');
+    const assistant_source_label = computed(() => is_formal_session ? (assistant_service_status.value === 'DEGRADED' ? '规则降级回答' : '后端智能服务') : '演示规则');
+    const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
+    const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
+    const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
+    const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
+    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
+    const assistant_action_arguments = (proposal) => {
+      const summary = proposal?.argumentSummary || proposal?.argumentsSummary || proposal?.parameterSummary;
+      if (summary) return summary;
+      const args = proposal?.arguments || {};
+      const plotName = find_plot_name(args.plotId || proposal?.plotId);
+      if (proposal?.toolName === 'execute_virtual_irrigation') return `${plotName} · ${args.waterLitre ?? '—'} L · ${Math.round(Number(args.durationSeconds || 0) / 60) || '—'} 分钟`;
+      if (proposal?.toolName === 'create_inspection_record') return `${plotName} · ${args.notes || '现场说明待补充'}`;
+      if (proposal?.toolName === 'transition_assigned_work_order') return `${args.workOrderId || '本人任务'} · ${args.action || '更新状态'}`;
+      if (proposal?.toolName === 'create_evidence_request') return `${plotName} · ${args.evidenceType || '现场巡田'}`;
+      return Object.entries(args).filter(([key]) => !['farmId'].includes(key)).slice(0, 3).map(([key, value]) => `${key}=${value}`).join(' · ') || '参数已校验';
+    };
+    const assistant_action_expiry_label = (proposal) => {
+      const expires = new Date(proposal?.expiresAt || 0);
+      if (!Number.isFinite(expires.getTime()) || expires.getTime() < Date.now()) return '已过期';
+      const minutes = Math.max(1, Math.ceil((expires.getTime() - Date.now()) / 60000));
+      return `${minutes} 分钟内有效`;
+    };
+    const assistant_action_result = (proposal) => {
+      const result = proposal?.result || {};
+      if (proposal?.error) return proposal.error;
+      if (result?.ack?.status) return `虚拟执行/模拟结果：${assistant_action_status_label(result.ack.status)}`;
+      if (result?.status) return result.status === 'SUCCEEDED' ? '已写入记录' : assistant_action_status_label(result.status);
+      return result?.message || '已完成本次受控操作';
+    };
+    const assistant_conversation_time = (conversation) => format_record_time(conversation?.updatedAt || conversation?.lastMessageAt || conversation?.createdAt);
+    const assistant_conversation_plot_label = (conversation) => {
+      const plotId = conversation?.plotId;
+      return plotId ? (find_plot_name(plotId) || plotId) : '未关联地块';
+    };
+
     const apply_qa_turn = (turn) => {
       if (!turn) return;
       qa_active_turn.value = turn;
@@ -2879,9 +3418,7 @@ const app = createApp({
       qa_source_label.value = turn.sourceLabel || qa_source_label.value;
     };
 
-    const toggle_qa_details = () => {
-      qa_details_open.value = !qa_details_open.value;
-    };
+    const toggle_qa_details = () => { qa_details_open.value = !qa_details_open.value; };
 
     const select_qa_history = (turn) => {
       apply_qa_turn(turn);
@@ -2897,7 +3434,6 @@ const app = createApp({
         if (plot) selected_plot.value = plot;
       }
       if (card.traceId) advice_trace.value = card.traceId;
-      close_ai_consult();
       if (card.kind === 'IRRIGATION') {
         navigate('advice');
         open_suggestion('IRRIGATION', {
@@ -2929,19 +3465,177 @@ const app = createApp({
       }
     };
 
-    const ask_question = async () => {
-      const question = qa_input.value.trim();
+    const assistant_history_message = (item, question, plot) => {
+      const response = {
+        narrative: item.content,
+        summary: item.content,
+        intent: item.intent,
+        traceId: item.traceId,
+        adapter: item.adapter,
+        degraded: item.degraded,
+        knowledgeEvidence: item.knowledgeEvidence,
+        actionProposal: item.actionProposal
+      };
+      const turn = normalizeAgentTurn(response, question, { plot, sessionMode: is_formal_session ? 'live' : 'demo' });
+      return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
+    };
+
+    const load_assistant_conversations = async ({ openRecent = true } = {}) => {
+      try {
+        assistant_service_status.value = is_formal_session ? 'CONNECTING' : 'DEMO';
+        const list = await api.getAgentConversations(20);
+        assistant_conversations.value = Array.isArray(list) ? list : [];
+        assistant_error.value = '';
+        assistant_service_status.value = is_formal_session ? 'READY' : 'DEMO';
+        if (openRecent && assistant_conversations.value.length && !assistant_messages.value.length) {
+          await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+        }
+        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      } catch (error) {
+        assistant_service_status.value = is_formal_session ? 'DEGRADED' : 'DEMO';
+        assistant_error.value = `历史对话暂不可用：${error.message || '服务异常'}`;
+        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      }
+    };
+
+    const select_assistant_conversation = async (conversationId) => {
+      if (!conversationId || assistant_busy.value) return;
+      assistant_busy.value = true;
+      assistant_error.value = '';
+      try {
+        const payload = await api.getAgentHistory(conversationId, 100);
+        const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        const next = [];
+        let latestQuestion = '';
+        rawMessages.forEach((item) => {
+          const role = String(item?.role || '').toUpperCase();
+          if (role === 'USER') {
+            latestQuestion = item.content || '';
+            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: item.content || '', plotId: item.plotId || '' });
+          } else if (role === 'ASSISTANT') {
+            const plot = find_plot_by_id(plots.value, item.plotId || assistant_plot_id.value);
+            next.push(assistant_history_message(item, latestQuestion, plot));
+          }
+        });
+        const proposals = next.map((item) => item.actionProposal).filter((proposal) => proposal?.actionId);
+        await Promise.all(proposals.map(async (proposal) => {
+          try {
+            Object.assign(proposal, await api.getAgentAction(proposal.actionId));
+          } catch {
+            // Older formal records may not have an action row anymore; keep
+            // the immutable proposal embedded in the conversation history.
+          }
+        }));
+        assistant_messages.value = next;
+        assistant_conversation_id.value = conversationId;
+        if (payload?.conversation?.plotId) assistant_plot_id.value = payload.conversation.plotId;
+        assistant_drawer_open.value = false;
+      } catch (error) {
+        assistant_error.value = error.message || '历史消息读取失败';
+      } finally {
+        assistant_busy.value = false;
+        await nextTick();
+        const host = assistant_message_list.value;
+        if (host) host.scrollTop = host.scrollHeight;
+      }
+    };
+
+    const start_assistant_conversation = () => {
+      assistant_conversation_id.value = assistant_create_conversation_id();
+      assistant_messages.value = [];
+      assistant_input.value = '';
+      assistant_error.value = '';
+      assistant_drawer_open.value = false;
+      assistant_action_busy.value = '';
+    };
+
+    const refresh_assistant_impacts = async () => {
+      if (is_formal_session) {
+        await load_live_workspace({ announce: false });
+        return;
+      }
+      try {
+        const rawTasks = await api.getWorkOrders({ farmId: farm.value.farmId || 'farm-demo' });
+        const plotMap = new Map(plots.value.map((plot) => [String(plot.plotId), plot]));
+        const normalizedTasks = rawTasks.map((work) => normalizeFarmerTask(work, plotMap));
+        replace_ref_array(tasks, normalizedTasks);
+        const records = [];
+        for (const plot of plots.value) records.push(...await api.getInspections(plot.plotId));
+        replace_ref_array(inspection_records, records);
+        apply_messages(buildFarmerMessages({ alerts: Array.from(api.demoAlerts?.values?.() || []), tasks: normalizedTasks, inspections: records, plots: plots.value }));
+      } catch (error) {
+        assistant_error.value = `数据刷新失败：${error.message || '请稍后重试'}`;
+      }
+    };
+
+    const wait_for_assistant_action = async (proposal) => {
+      if (!is_formal_session || !proposal?.actionId) return proposal;
+      const terminal = new Set(['SUCCEEDED', 'FAILED', 'PARTIAL', 'TIMEOUT', 'CANCELED', 'EXPIRED']);
+      let latest = proposal;
+      for (let attempt = 0; attempt < 12 && !terminal.has(String(latest?.status || '').toUpperCase()); attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+        try {
+          latest = await api.getAgentAction(proposal.actionId);
+          Object.assign(proposal, latest);
+        } catch {
+          // The initial confirmation result remains useful when an older
+          // backend does not expose the optional action status endpoint.
+          break;
+        }
+      }
+      return latest;
+    };
+
+    const confirm_assistant_action = async (proposal) => {
+      if (!proposal?.actionId || assistant_action_busy.value) return;
+      assistant_action_busy.value = proposal.actionId;
+      try {
+        const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `agent-confirm:${proposal.actionId}` });
+        Object.assign(proposal, result, { status: result?.status || 'SUCCEEDED' });
+        if (proposal.status === 'EXECUTING') await wait_for_assistant_action(proposal);
+        await refresh_assistant_impacts();
+        show_toast(proposal.status === 'SUCCEEDED' ? '操作已完成，相关数据已刷新' : '操作未完成，请查看结果', proposal.status === 'SUCCEEDED' ? 'success' : 'error');
+      } catch (error) {
+        Object.assign(proposal, { status: error.code === 'AGENT_ACTION_EXPIRED' ? 'EXPIRED' : 'FAILED', error: error.message || '操作失败' });
+        show_toast(error.message || '操作失败', 'error');
+      } finally {
+        assistant_action_busy.value = '';
+      }
+    };
+
+    const cancel_assistant_action = async (proposal) => {
+      if (!proposal?.actionId || assistant_action_busy.value) return;
+      assistant_action_busy.value = proposal.actionId;
+      try {
+        const result = await api.cancelAgentAction(proposal.actionId);
+        Object.assign(proposal, result, { status: result?.status || 'CANCELED' });
+        show_toast('已取消该操作预览');
+      } catch (error) {
+        Object.assign(proposal, { status: error.code === 'AGENT_ACTION_EXPIRED' ? 'EXPIRED' : 'FAILED', error: error.message || '取消失败' });
+        show_toast(error.message || '取消失败', 'error');
+      } finally {
+        assistant_action_busy.value = '';
+      }
+    };
+
+    const toggle_assistant_details = (message) => { if (message) message.detailsOpen = !message.detailsOpen; };
+
+    const send_assistant_message = async () => {
+      const question = assistant_input.value.trim();
       if (!question) {
         show_toast('请先输入想了解的农事问题', 'error');
         return;
       }
-      if (qa_busy.value) return;
-      show_ai_consult.value = true;
-      const plot_id = qa_plot_id.value || advice_selected_plot.value?.plotId || selected_plot.value?.plotId || plots.value[0]?.plotId;
+      if (assistant_busy.value) return;
+      if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      const plot_id = assistant_plot_id.value || advice_selected_plot.value?.plotId || selected_plot.value?.plotId || plots.value[0]?.plotId;
       const plot = find_plot_by_id(plots.value, plot_id);
-      qa_busy.value = true;
+      assistant_messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: question, plotId: plot_id || '' });
+      assistant_input.value = '';
+      assistant_busy.value = true;
+      assistant_error.value = '';
       try {
-        const response = await api.agentChat(question, plot_id || undefined);
+        const response = await api.agentChat(question, plot_id || undefined, assistant_conversation_id.value);
         const turn = normalizeAgentTurn(response, question, {
           plot,
           sessionMode: is_formal_session ? 'live' : 'demo'
@@ -2951,15 +3645,34 @@ const app = createApp({
         turn.audit = audit;
         qa_audit.value = audit;
         apply_qa_turn(turn);
-        qa_history.value = [turn, ...qa_history.value].slice(0, 6);
-          qa_input.value = '';
-        } catch (error) {
-        qa_source_label.value = '智能问答暂不可用';
-          show_toast(`智能问答暂不可用：${error.message || '后端服务错误'}`, 'error');
+        assistant_messages.value.push({ id: `assistant-${response?.traceId || Date.now()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, turn, actionProposal: turn.actionProposal || response?.actionProposal || null, audit, detailsOpen: false });
+        assistant_service_status.value = turn.degraded ? 'DEGRADED' : (is_formal_session ? 'READY' : 'DEMO');
+        await load_assistant_conversations({ openRecent: false });
+      } catch (error) {
+        assistant_service_status.value = is_formal_session ? 'DEGRADED' : 'DEMO';
+        assistant_error.value = `智能问答暂不可用：${error.message || '后端服务错误'}`;
+        show_toast(assistant_error.value, 'error');
       } finally {
-        qa_busy.value = false;
+        assistant_busy.value = false;
+        await nextTick();
+        const host = assistant_message_list.value;
+        if (host) host.scrollTop = host.scrollHeight;
       }
     };
+
+    const ask_assistant_shortcut = (question) => {
+      assistant_input.value = question;
+      void send_assistant_message();
+    };
+
+    const assistant_keydown = (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        void send_assistant_message();
+      }
+    };
+
+    const ask_question = send_assistant_message;
 
     const open_inspection_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId, work_order_id = '') => {
       navigate('inspections');
@@ -3223,11 +3936,7 @@ const app = createApp({
       applyUserSettings(user_settings.value);
       is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
       // Keep the current farmer page across refresh / back-forward.
-      if (/^#?tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(window.location.hash)) {
-        window.history.replaceState(null, '', '#dashboard');
-        current_view.value = 'dashboard';
-        tools_tab.value = 'manual';
-      } else if (!window.location.hash) {
+      if (!window.location.hash) {
         window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
       } else {
         apply_farmer_hash();
@@ -3245,13 +3954,16 @@ const app = createApp({
       }
       set_workspace_progress(88, '正在加载预警与资源协同…');
       await load_farmer_enhancements();
+      await load_plot_simulation(selected_plot.value?.plotId);
       await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
       if (current_view.value === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
       if (current_view.value === 'tools') {
-        await load_crop_manual();
+        if (tools_tab.value === 'manual') await load_crop_manual();
+        else await run_risk_tool();
       }
+      if (current_view.value === 'assistant') await load_assistant_conversations({ openRecent: true });
       start_live_polling();
       bootstrap_loading.value = false;
       finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
@@ -3259,7 +3971,8 @@ const app = createApp({
 
     watch([current_view, tools_tab], () => {
       if (current_view.value !== 'tools') return;
-      load_crop_manual();
+      if (tools_tab.value === 'manual') load_crop_manual();
+      else if (risk_tool_dirty.value) void run_risk_tool();
     });
 
     watch([crop_manual_code, crop_manual_stage], () => {
@@ -3269,7 +3982,16 @@ const app = createApp({
 
     watch(selected_plot, (plot) => {
       plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
+      void load_plot_simulation(plot?.plotId);
     });
+
+    watch(plots, (nextPlots) => {
+      if (!nextPlots.some((plot) => plot.plotId === risk_tool_plot_id.value)) {
+        risk_tool_plot_id.value = nextPlots[0]?.plotId || '';
+        risk_tool_comparison.value = null;
+        risk_tool_dirty.value = true;
+      }
+    }, { deep: true });
 
     watch(advice_selected_plot, (plot, previous) => {
       if (!plot?.plotId || plot.plotId === previous?.plotId) return;
@@ -3282,6 +4004,7 @@ const app = createApp({
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
+      if (view === 'assistant') void load_assistant_conversations({ openRecent: true });
     });
 
     onBeforeUnmount(() => {
@@ -3328,6 +4051,32 @@ const app = createApp({
       show_chart_tooltip,
       hide_chart_tooltip,
       plot_charts,
+      plot_simulation,
+      plot_simulation_forecast,
+      plot_simulation_loading,
+      plot_simulation_error,
+      plot_simulation_options,
+      plot_simulation_scenario,
+      plot_simulation_parameter_summary,
+      plot_simulation_device_label,
+      plot_simulation_device_status,
+      plot_simulation_chart,
+      load_plot_simulation,
+      risk_tool_plot_id,
+      risk_tool_plot,
+      risk_tool_scenario,
+      risk_tool_parameters,
+      risk_tool_comparison,
+      risk_tool_loading,
+      risk_tool_error,
+      risk_tool_dirty,
+      risk_tool_scenario_options,
+      risk_tool_fields,
+      risk_tool_chart,
+      select_risk_tool_plot,
+      select_risk_tool_scenario,
+      run_risk_tool,
+      reset_risk_tool,
       advice_plot,
       advice_selected_plot,
       select_advice_plot,
@@ -3388,6 +4137,8 @@ const app = createApp({
       crop_manual_pack,
       crop_manual_stages,
       crop_manual_stage_item,
+      crop_manual_rules,
+      crop_manual_documents,
       crop_manual_metrics_list,
       crop_manual_guide_list,
       crop_manual_error,
@@ -3419,28 +4170,60 @@ const app = createApp({
       advice_trace,
       feedback_busy,
       suggestion_feedback,
+      assistant_input,
+      assistant_messages,
+      assistant_conversations,
+      assistant_conversation_id,
+      assistant_drawer_open,
+      assistant_busy,
+      assistant_action_busy,
+      assistant_error,
+      assistant_service_label,
+      assistant_service_tone,
+      assistant_source_label,
+      assistant_plot_id,
+      assistant_message_list,
+      assistant_shortcuts,
+      assistant_action_tone,
+      assistant_action_status_label,
+      assistant_risk_label,
+      assistant_tool_label,
+      assistant_source_label_for,
+      assistant_action_arguments,
+      assistant_action_expiry_label,
+      assistant_action_result,
+      assistant_conversation_time,
+      assistant_conversation_plot_label,
+      start_assistant_conversation,
+      select_assistant_conversation,
+      ask_assistant_shortcut,
+      assistant_keydown,
+      send_assistant_message,
+      toggle_assistant_details,
+      confirm_assistant_action,
+      cancel_assistant_action,
+      wait_for_assistant_action,
       qa_input,
       qa_active_turn,
       qa_history,
       qa_audit,
       qa_details_open,
       qa_source_label,
-      show_ai_consult,
       qa_busy,
       qa_plot_id,
       select_qa_history,
       toggle_qa_details,
       open_qa_decision_action,
-      toggle_ai_consult,
-      close_ai_consult,
       on_app_click,
       toasts,
       greeting,
       stats,
       today_priorities,
+      dashboard_risk_summary,
       plot_issue_summary,
       recent_tasks,
       recent_messages,
+      recent_activity,
       sorted_messages,
       filtered_messages,
       message_filter,
@@ -3494,6 +4277,7 @@ const app = createApp({
       generate_analysis,
       open_task,
       open_task_from_dashboard,
+      open_activity_item,
       open_device_attention,
       open_priority_item,
       close_task,
