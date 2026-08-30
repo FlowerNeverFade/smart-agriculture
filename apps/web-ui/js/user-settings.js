@@ -13,7 +13,8 @@ export const DEFAULT_USER_SETTINGS = Object.freeze({
   // can still opt into the dark or system theme from the settings page.
   theme: 'light',
   accent: 'green',
-  surfaceStyle: 'classic',
+  surfaceStyle: 'glass-latest',
+  surfaceStyleVersion: 2,
   density: 'comfortable',
   layout: 'standard',
   reducedMotion: false,
@@ -53,6 +54,7 @@ export const SURFACE_STYLE_OPTIONS = Object.freeze([
 
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map((item) => item.value));
 const SURFACE_STYLE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map((item) => item.value));
+const SURFACE_STYLE_VERSION = 2;
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
@@ -78,6 +80,7 @@ export function normalizeUserSettings(input = {}) {
     theme: THEME_VALUES.has(source.theme) ? source.theme : DEFAULT_USER_SETTINGS.theme,
     accent: ACCENT_VALUES.has(source.accent) ? source.accent : DEFAULT_USER_SETTINGS.accent,
     surfaceStyle: SURFACE_STYLE_VALUES.has(source.surfaceStyle) ? source.surfaceStyle : DEFAULT_USER_SETTINGS.surfaceStyle,
+    surfaceStyleVersion: SURFACE_STYLE_VERSION,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
     reducedMotion: booleanValue(source.reducedMotion, DEFAULT_USER_SETTINGS.reducedMotion),
@@ -99,13 +102,15 @@ export function readUserSettings(storage) {
       if (!raw) {
         const oldTheme = store.getItem('agriloop-theme');
         if (THEME_VALUES.has(oldTheme)) parsed.theme = oldTheme === 'system' ? DEFAULT_USER_SETTINGS.theme : oldTheme;
-      } else if (!Object.prototype.hasOwnProperty.call(parsed, 'surfaceStyle')) {
-        // Records written by the first settings release predate the surface
-        // selector.  Treat an untouched system default as the requested
-        // familiar white default, while preserving an explicitly chosen
-        // light/dark preference.
-        parsed.surfaceStyle = DEFAULT_USER_SETTINGS.surfaceStyle;
+      } else if (Number(parsed.surfaceStyleVersion) < SURFACE_STYLE_VERSION) {
+        // The first settings release used the classic card material as its
+        // default.  Upgrade that implicit choice to the current main liquid
+        // glass material; users can still select classic again explicitly.
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'surfaceStyle') || parsed.surfaceStyle === 'classic') {
+          parsed.surfaceStyle = DEFAULT_USER_SETTINGS.surfaceStyle;
+        }
         if (parsed.theme === 'system') parsed.theme = DEFAULT_USER_SETTINGS.theme;
+        parsed.surfaceStyleVersion = SURFACE_STYLE_VERSION;
       }
     } catch (_error) {
       parsed = {};

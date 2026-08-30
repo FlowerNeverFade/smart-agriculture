@@ -1011,3 +1011,160 @@ html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card
 @media (max-width: 600px) {
   .settings-surface-options { grid-template-columns: 1fr; }
 }
+
+/* Unified role sidebar ------------------------------------------------------
+ * The three workspaces use the same large, calm navigation cards as the
+ * reference farm-members view.  Role-specific sheets only provide accent
+ * colours; this block owns the shared geometry and material.
+ */
+#app .g-sidebar {
+  width: 256px;
+  padding: 24px 18px 22px;
+  background: rgba(246, 251, 248, .72);
+  border-right: 1px solid rgba(55, 89, 69, .16);
+  box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
+  -webkit-backdrop-filter: blur(30px) saturate(128%);
+  backdrop-filter: blur(30px) saturate(128%);
+}
+#app .g-sidebar-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+#app .g-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 0;
+}
+#app .g-nav-item {
+  --sidebar-accent: var(--g-primary);
+  position: relative;
+  min-height: 56px;
+  height: 56px;
+  margin: 0;
+  padding: 0 20px;
+  gap: 15px;
+  border: 1px solid rgba(71, 102, 85, .14);
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
+  box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
+  color: var(--g-text-primary);
+  font: 600 15px/1.2 var(--g-font-family);
+  letter-spacing: -.01em;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+#app .g-nav-item .ph,
+#app .g-nav-item .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--sidebar-accent);
+  font-size: 22px;
+}
+#app .g-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#app .g-nav-item:hover {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 28%, rgba(71, 102, 85, .16));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .98), color-mix(in srgb, var(--sidebar-accent) 8%, rgba(237, 246, 240, .72)));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--sidebar-accent) 12%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  transform: translateY(-1px);
+}
+#app .g-nav-item.active {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 48%, rgba(102, 75, 190, .22));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 13%, #fff), color-mix(in srgb, var(--sidebar-accent) 7%, #f5f1ff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--sidebar-accent) 15%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  color: var(--sidebar-accent);
+}
+#app .g-nav-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sidebar-accent) 34%, transparent);
+  outline-offset: 2px;
+}
+
+/* Per-entry colour cues match the reference sidebar while retaining role
+ * semantics.  Unknown entries fall back to the role's primary colour. */
+#app .g-nav-item[data-nav="dashboard"], #app .g-nav-item[data-nav="plots"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="work-orders"], #app .g-nav-item[data-nav="tasks"] { --sidebar-accent: #3f7fe5; }
+#app .g-nav-item[data-nav="decision-console"] { --sidebar-accent: #e58b23; }
+#app .g-nav-item[data-nav="resource-coordination"] { --sidebar-accent: #1994a4; }
+#app .g-nav-item[data-nav="farm-members"] { --sidebar-accent: #7657c4; }
+#app .g-nav-item[data-nav="crop-manual"], #app .g-nav-item[data-nav="tools"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="messages"] { --sidebar-accent: #5573c7; }
+#app .g-nav-item[data-nav="advice"] { --sidebar-accent: #198c68; }
+#app .g-nav-item[data-nav="admin-overview"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="admin-ops"] { --sidebar-accent: #198fa1; }
+#app .g-nav-item[data-nav="admin-audit"] { --sidebar-accent: #7657c4; }
+#app .g-nav-item[data-nav="admin-simulator"] { --sidebar-accent: #c87816; }
+#app .g-nav-item[data-nav="admin-rules"] { --sidebar-accent: #178a53; }
+#app .g-nav-item[data-nav="admin-settings"], #app .g-nav-item[data-nav="settings"] { --sidebar-accent: #2f8b5c; }
+
+[data-theme="dark"] #app .g-sidebar {
+  background: rgba(26, 43, 35, .84);
+  border-right-color: rgba(221, 241, 229, .20);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .22), inset -1px 0 0 rgba(255, 255, 255, .08);
+}
+[data-theme="dark"] #app .g-nav-item {
+  border-color: rgba(226, 241, 232, .17);
+  background: linear-gradient(145deg, rgba(59, 83, 70, .78), rgba(35, 58, 46, .84));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .10);
+  color: var(--g-text-primary);
+}
+[data-theme="dark"] #app .g-nav-item.active {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 24%, #304639), color-mix(in srgb, var(--sidebar-accent) 12%, #20372b));
+}
+
+/* Classic material remains available from settings. */
+html[data-surface-style="classic"] #app .g-sidebar {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] #app .g-nav-item {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--g-shadow-1) !important;
+}
+html[data-surface-style="classic"] #app .g-nav-item.active {
+  background: var(--g-primary-bg) !important;
+  border-color: var(--g-primary) !important;
+  color: var(--sidebar-accent);
+}
+html[data-surface-style="glass-soft"] #app .g-sidebar {
+  background: rgba(241, 248, 244, .66);
+  box-shadow: 8px 0 24px rgba(31, 73, 51, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
+  -webkit-backdrop-filter: blur(16px) saturate(116%);
+  backdrop-filter: blur(16px) saturate(116%);
+}
+[data-theme="dark"][data-surface-style="glass-soft"] #app .g-sidebar {
+  background: rgba(35, 57, 46, .78);
+}
+
+@media (max-width: 760px) {
+  #app .g-sidebar { width: 256px; padding: 18px 14px 18px; }
+  #app .g-sidebar.collapsed { width: 230px; padding: 12px; }
+  #app .g-nav-item { min-height: 52px; height: 52px; padding-inline: 16px; }
+}
+#app .g-sidebar.collapsed {
+  width: 0;
+  padding: 0;
+  border-right: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+@media (max-width: 760px) {
+  #app .g-sidebar.collapsed {
+    width: 230px;
+    padding: 12px;
+    border-right: 1px solid var(--g-border);
+    opacity: 1;
+    transform: translateX(-105%);
+  }
+}
