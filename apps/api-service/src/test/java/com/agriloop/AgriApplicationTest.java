@@ -243,6 +243,10 @@ class AgriApplicationTest {
         }
         assertThat(completed).containsEntry("status", "SUCCEEDED");
         Map<String, Object> evaluation = engine.commandEvaluation(commandId, farmer);
+        for (int attempt = 0; attempt < 30 && !"COMPLETED".equals(evaluation.get("status")); attempt++) {
+            Thread.sleep(100);
+            evaluation = engine.commandEvaluation(commandId, farmer);
+        }
         assertThat(evaluation).containsEntry("status", "COMPLETED");
         Map<String, Object> actual = Jsons.map(new ObjectMapper(), evaluation.get("actual"));
         assertThat(Jsons.number(actual, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(actual, "soilMoistureBefore", 0));
@@ -853,7 +857,7 @@ class AgriApplicationTest {
         UserPrincipal otherFarmer = new UserPrincipal("user-other-agent", "other-agent", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
 
         assertThat(engine.agentTools(farmer)).extracting(item -> item.get("name"))
-                .containsExactly("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status",
+                .containsExactly("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status", "get_water_resource_status",
                         "transition_assigned_work_order", "create_inspection_record", "create_evidence_request", "execute_virtual_irrigation");
         assertThat(engine.agentTools(farmer)).noneMatch(item -> String.valueOf(item.get("name")).equals("create_plot"));
 
