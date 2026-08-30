@@ -32,6 +32,7 @@
 - [Web 性能验收](acceptance/WEB_PERFORMANCE_ACCEPTANCE.md)
 - [农户端 P0 创新闭环](acceptance/FARMER_P0_ACCEPTANCE.md)
 - [农户主面板信息层级](acceptance/FARMER_DASHBOARD_ACCEPTANCE.md)
+- [农户端农智助手](acceptance/FARMER_ASSISTANT_ACCEPTANCE.md)
 
 ## 历史材料
 

@@ -3039,6 +3039,138 @@
 .farmer-agent-audit p { margin: 0; line-height: 1.45; }
 .farmer-agent-audit code { display: block; max-height: 74px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--g-text-secondary); font-size: 9px; }
 
+/* ============================================================
+   农智助手：农户专属单列对话与受控操作
+   ============================================================ */
+.farmer-agent-workspace { min-height: calc(100vh - var(--g-header-height, 64px) - 40px); display: flex; flex-direction: column; }
+.farmer-agent-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.farmer-agent-title-row { display: flex; align-items: center; gap: 12px; }
+.farmer-agent-title-row h2 { margin: 0; }
+.farmer-agent-title-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; background: var(--g-success-bg); color: var(--g-success); font-size: 23px; }
+.farmer-agent-toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.farmer-agent-service-status { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 999px; background: var(--g-success-bg); color: var(--g-success); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.farmer-agent-service-status.is-degraded { background: var(--g-warning-bg); color: var(--g-warning); }
+.farmer-agent-service-status.is-demo { background: var(--g-primary-bg); color: var(--g-primary); }
+.farmer-agent-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.farmer-agent-plot-picker { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-surface); color: var(--g-text-secondary); font-size: 12px; }
+.farmer-agent-plot-picker select { max-width: 150px; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; }
+.farmer-agent-toolbar-count { display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 10px; }
+.farmer-agent-shell { width: min(900px, 100%); flex: 1; margin: 0 auto; }
+.farmer-agent-chat-card { position: relative; display: flex; flex-direction: column; min-height: min(680px, calc(100vh - 205px)); max-height: calc(100vh - 170px); overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 18px; background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); }
+.farmer-agent-message-list { flex: 1; min-height: 360px; overflow-y: auto; padding: 28px clamp(16px, 5vw, 62px) 20px; scroll-behavior: smooth; }
+.farmer-agent-empty-state { display: grid; justify-items: center; gap: 9px; min-height: 430px; padding: 70px 10px 24px; text-align: center; }
+.farmer-agent-empty-icon { display: grid; width: 58px; height: 58px; place-items: center; border-radius: 20px; background: var(--g-success-bg); color: var(--g-success); font-size: 30px; }
+.farmer-agent-empty-state h3 { margin: 8px 0 0; font-size: 21px; font-weight: 600; }
+.farmer-agent-empty-state p { max-width: 460px; margin: 0; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
+.farmer-agent-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: min(610px, 100%); margin-top: 17px; }
+.farmer-agent-shortcuts button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: border-color .18s ease, transform .18s ease; }
+.farmer-agent-shortcuts button:hover { border-color: var(--g-success); transform: translateY(-1px); }
+.farmer-agent-shortcuts button > .material-symbols-outlined:first-child { color: var(--g-success); font-size: 18px; }
+.farmer-agent-shortcuts button > .material-symbols-outlined:last-child { color: var(--g-text-tertiary); font-size: 16px; }
+.farmer-agent-message { display: flex; margin: 0 0 22px; }
+.farmer-agent-message.is-user { justify-content: flex-end; }
+.farmer-agent-user-bubble { max-width: min(75%, 580px); padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-assistant-block { width: min(100%, 690px); }
+.farmer-agent-message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-avatar { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: var(--g-success-bg); color: var(--g-success); font-size: 14px; }
+.farmer-agent-message-meta strong { color: var(--g-text-primary); font-size: 12px; }
+.farmer-agent-message-meta .g-badge { font-size: 10px; }
+.farmer-agent-intent { padding: 2px 7px; border-radius: 999px; background: var(--g-bg-subtle); }
+.farmer-agent-answer { color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
+.farmer-agent-details-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.farmer-agent-details-button:hover { color: var(--g-success); }
+.farmer-agent-details-button .material-symbols-outlined { font-size: 17px; }
+.farmer-agent-action-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle)); border-radius: 14px; background: color-mix(in srgb, var(--g-primary-bg) 46%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-succeeded { border-color: color-mix(in srgb, var(--g-success) 36%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-success-bg) 45%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-failed,.farmer-agent-action-card.status-partial,.farmer-agent-action-card.status-timeout { border-color: color-mix(in srgb, var(--g-danger) 38%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-danger-bg) 30%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-canceled,.farmer-agent-action-card.status-expired { opacity: .78; }
+.farmer-agent-action-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.farmer-agent-action-heading { display: flex; align-items: center; gap: 9px; }
+.farmer-agent-action-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: var(--g-bg-surface); color: var(--g-primary); }
+.farmer-agent-action-heading strong,.farmer-agent-action-heading small { display: block; }
+.farmer-agent-action-heading strong { font-size: 13px; }
+.farmer-agent-action-heading small { margin-top: 2px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-risk-chip { padding: 3px 7px; border-radius: 999px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.farmer-agent-risk-chip.risk-low { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-agent-risk-chip.risk-high,.farmer-agent-risk-chip.risk-critical { background: var(--g-danger-bg); color: var(--g-danger); }
+.farmer-agent-action-summary { margin: 0; font-size: 13px; line-height: 1.55; }
+.farmer-agent-action-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.farmer-agent-action-facts > div { min-width: 0; padding: 8px 9px; border-radius: 9px; background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent); }
+.farmer-agent-action-facts dt { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-action-facts dd { margin: 3px 0 0; color: var(--g-text-primary); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.farmer-agent-action-hint { margin: 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.farmer-agent-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.farmer-agent-action-buttons .g-btn { min-height: 36px; }
+.farmer-agent-action-result { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12px; line-height: 1.5; }
+.farmer-agent-action-result.is-success { color: var(--g-success); }
+.farmer-agent-action-result.is-error { color: var(--g-danger); }
+.farmer-agent-action-result.is-muted { color: var(--g-text-secondary); }
+.farmer-agent-details { display: grid; gap: 11px; margin-top: 10px; padding: 12px; border: 1px dashed var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-subtle); }
+.farmer-agent-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.farmer-agent-detail-grid span { display: grid; gap: 3px; min-width: 0; }
+.farmer-agent-detail-grid small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-detail-grid strong,.farmer-agent-detail-grid code { color: var(--g-text-primary); font-size: 11px; overflow-wrap: anywhere; }
+.farmer-agent-evidence { display: grid; gap: 7px; }
+.farmer-agent-evidence > strong,.farmer-agent-audit > strong { font-size: 11px; }
+.farmer-agent-evidence ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.farmer-agent-evidence li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 7px; align-items: center; }
+.farmer-agent-evidence li > span { width: fit-content; padding: 2px 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 9px; }
+.farmer-agent-evidence li b { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-agent-evidence li small { grid-column: 2; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-audit { display: grid; gap: 6px; }
+.farmer-agent-audit article { display: grid; gap: 3px; padding: 7px; border-radius: 8px; background: var(--g-bg-surface); }
+.farmer-agent-audit article b { font-size: 10px; }
+.farmer-agent-audit article code,.farmer-agent-audit article small { color: var(--g-text-secondary); font-size: 9px; overflow-wrap: anywhere; }
+.farmer-agent-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin: 0 16px 15px; padding: 10px 11px 7px 15px; border: 1px solid var(--g-border); border-radius: 17px; background: var(--g-bg-base); }
+.farmer-agent-composer:focus-within { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 14%, transparent); }
+.farmer-agent-composer textarea { width: 100%; min-height: 25px; max-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; font-size: 14px; line-height: 1.55; }
+.farmer-agent-composer textarea::placeholder { color: var(--g-text-tertiary); }
+.farmer-agent-send-button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 12px; background: var(--g-primary); color: #fff; cursor: pointer; }
+.farmer-agent-send-button:disabled { opacity: .45; cursor: not-allowed; }
+.farmer-agent-send-button .material-symbols-outlined { font-size: 18px; }
+.farmer-agent-composer > small { grid-column: 1 / -1; color: var(--g-text-tertiary); font-size: 10px; }
+.farmer-agent-typing { display: flex; align-items: center; gap: 4px; margin: 0 0 14px 33px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--g-primary); animation: farmer-agent-bounce 1.2s infinite ease-in-out; }
+.farmer-agent-typing span:nth-child(2) { animation-delay: .15s; }.farmer-agent-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes farmer-agent-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+.farmer-agent-typing small { margin-left: 5px; }
+.farmer-agent-inline-error { display: flex; align-items: center; gap: 7px; margin: 14px 16px 0; padding: 9px 11px; border-radius: 10px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 12px; }
+.farmer-agent-drawer-backdrop { position: fixed; z-index: 150; inset: var(--g-header-height, 64px) 0 0; background: rgba(15, 23, 42, .28); }
+.farmer-agent-history-drawer { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; width: min(380px, 90vw); height: 100%; border-left: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); box-shadow: -12px 0 32px rgba(15, 23, 42, .14); }
+.farmer-agent-history-drawer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 22px 18px 16px; border-bottom: 1px solid var(--g-border-subtle); }
+.farmer-agent-history-drawer > header strong,.farmer-agent-history-drawer > header small { display: block; }.farmer-agent-history-drawer > header strong { font-size: 18px; }.farmer-agent-history-drawer > header small { margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-history-list { flex: 1; overflow-y: auto; padding: 10px; }
+.farmer-agent-history-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 12px 10px; border: 0; border-radius: 11px; background: transparent; color: var(--g-text-primary); font: inherit; text-align: left; cursor: pointer; }
+.farmer-agent-history-item:hover,.farmer-agent-history-item.active { background: var(--g-primary-bg); }.farmer-agent-history-item > span:last-child { display: grid; gap: 4px; min-width: 0; }.farmer-agent-history-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }.farmer-agent-history-item small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-history-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--g-bg-subtle); color: var(--g-primary); }
+.farmer-agent-history-empty { display: grid; justify-items: center; align-content: center; flex: 1; gap: 8px; color: var(--g-text-secondary); text-align: center; }.farmer-agent-history-empty > .material-symbols-outlined { font-size: 32px; color: var(--g-text-tertiary); }.farmer-agent-history-empty p { margin: 0; color: var(--g-text-primary); font-size: 14px; }.farmer-agent-history-empty small { font-size: 11px; }
+.farmer-agent-history-drawer > footer { padding: 14px 16px 18px; border-top: 1px solid var(--g-border-subtle); }.farmer-agent-history-drawer > footer .g-btn { width: 100%; justify-content: center; }
+
+@media (max-width: 900px) {
+  .farmer-agent-page-header { flex-direction: column; }
+  .farmer-agent-toolbar { justify-content: flex-start; }
+  .farmer-agent-chat-card { min-height: calc(100vh - 255px); max-height: calc(100vh - 210px); }
+}
+@media (max-width: 560px) {
+  .farmer-agent-message-list { padding: 20px 13px 14px; }
+  .farmer-agent-empty-state { min-height: 390px; padding-top: 55px; }
+  .farmer-agent-shortcuts { grid-template-columns: 1fr; }
+  .farmer-agent-user-bubble { max-width: 88%; }
+  .farmer-agent-action-facts,.farmer-agent-detail-grid { grid-template-columns: 1fr 1fr; }
+  .farmer-agent-toolbar { width: 100%; }
+  .farmer-agent-plot-picker { flex: 1 1 180px; }.farmer-agent-plot-picker select { max-width: none; flex: 1; }
+  .farmer-agent-toolbar .g-btn { flex: 1 1 auto; justify-content: center; }
+}
+@media (max-width: 390px) {
+  .farmer-agent-page-header { gap: 12px; }.farmer-agent-title-icon { width: 36px; height: 36px; border-radius: 11px; font-size: 20px; }
+  .farmer-agent-title-row h2 { font-size: 21px; }.farmer-agent-title-row .role-summary { font-size: 11px; }
+  .farmer-agent-toolbar { gap: 6px; }.farmer-agent-service-status { order: 3; }.farmer-agent-plot-picker { flex-basis: 100%; }
+  .farmer-agent-chat-card { min-height: calc(100vh - 275px); max-height: calc(100vh - 230px); border-radius: 14px; }
+  .farmer-agent-composer { margin: 0 9px 10px; padding-left: 11px; border-radius: 14px; }
+  .farmer-agent-history-drawer { width: 100%; }.farmer-agent-action-facts,.farmer-agent-detail-grid { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 760px) {
   .farmer-evidence-grid,.farmer-irrigation-guard,.farmer-execution-evidence,.farmer-dual-track-summary { grid-template-columns: 1fr; }
 }

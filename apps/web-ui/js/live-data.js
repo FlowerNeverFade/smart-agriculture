@@ -577,6 +577,7 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
     degraded: Boolean(response.degraded),
     evidence: normalizeAgentEvidence(response),
     decisionCard: normalizeAgentDecisionCard(response, plot),
+    actionProposal: response?.actionProposal ? { ...response.actionProposal } : null,
     plotId: text(plot?.plotId || response.plotId, ''),
     plotName: text(plot?.name, ''),
     dataOrigin: sessionMode === 'live' ? 'BACKEND' : 'SIMULATED'

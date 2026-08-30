@@ -4,10 +4,17 @@ import assert from 'node:assert/strict';
 // api.js is browser code.  These tiny shims let the contract test exercise the
 // session boundary without starting a browser or a real HTTP server.
 const storage = new Map();
+const agentSessionStorage = new Map();
 globalThis.localStorage = {
   getItem: (key) => storage.get(key) || null,
   setItem: (key, value) => storage.set(key, String(value)),
   removeItem: (key) => storage.delete(key)
+};
+globalThis.sessionStorage = {
+  getItem: (key) => agentSessionStorage.get(key) || null,
+  setItem: (key, value) => agentSessionStorage.set(key, String(value)),
+  removeItem: (key) => agentSessionStorage.delete(key),
+  clear: () => agentSessionStorage.clear()
 };
 globalThis.fetch = async () => {
   throw new Error('backend offline');
@@ -196,4 +203,54 @@ test('demo Agent mutation uses preview then explicit confirmation', async () => 
   assert.equal(result.status, 'SUCCEEDED');
   const repeated = await service.confirmAgentAction(response.actionProposal.actionId);
   assert.equal(repeated.status, 'SUCCEEDED');
+});
+
+test('farmer demo Agent persists conversations and safe action lifecycle in session storage', async () => {
+  sessionStorage.clear();
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'farmer-agent-session', username: 'farmer-agent-session', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+
+  const inspection = await service.agentChat('帮我记录一次巡田：叶片正常，土壤表面偏干', 'plot-a01', 'conversation-ui-agent');
+  assert.equal(inspection.actionProposal.toolName, 'create_inspection_record');
+  assert.equal(inspection.actionProposal.actorRole, 'FARMER');
+  assert.equal(inspection.actionProposal.sourceMode, 'USER_PROVIDED');
+  const saved = await service.confirmAgentAction(inspection.actionProposal.actionId, { idempotencyKey: `agent-confirm:${inspection.actionProposal.actionId}` });
+  assert.equal(saved.status, 'SUCCEEDED');
+  assert.equal((await service.getAgentAction(inspection.actionProposal.actionId)).status, 'SUCCEEDED');
+
+  const conversations = await service.getAgentConversations();
+  assert.equal(conversations.length, 1);
+  assert.equal(conversations[0].conversationId, 'conversation-ui-agent');
+  assert.equal(conversations[0].messageCount, 2);
+
+  const reloaded = new ApiService();
+  reloaded.sessionMode = 'demo';
+  reloaded.user = { userId: 'farmer-agent-session', username: 'farmer-agent-session', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const history = await reloaded.getAgentHistory('conversation-ui-agent');
+  assert.equal(history.messages.length, 2);
+  assert.equal((await reloaded.getAgentAction(inspection.actionProposal.actionId)).status, 'SUCCEEDED');
+
+  const refused = await reloaded.agentChat('帮我绑定设备 sensor-01', 'plot-a01', 'conversation-ui-refused');
+  assert.equal(refused.intent, 'CLARIFICATION');
+  assert.equal(refused.actionProposal, undefined);
+});
+
+test('farmer demo Agent irrigation keeps execution source simulated and idempotent', async () => {
+  sessionStorage.clear();
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'farmer-agent-irrigation', username: 'farmer-agent-irrigation', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const response = await service.agentChat('启动灌溉', 'plot-a01', 'conversation-ui-irrigation');
+  const proposal = response.actionProposal;
+  assert.equal(proposal.toolName, 'execute_virtual_irrigation');
+  assert.equal(proposal.riskLevel, 'HIGH');
+  assert.equal(proposal.sourceMode, 'SIMULATED');
+  const key = `agent-confirm:${proposal.actionId}`;
+  const first = await service.confirmAgentAction(proposal.actionId, { idempotencyKey: key });
+  const second = await service.confirmAgentAction(proposal.actionId, { idempotencyKey: key });
+  assert.equal(first.status, 'SUCCEEDED');
+  assert.equal(second.status, 'SUCCEEDED');
+  assert.equal(first.result.executionMode, 'SIMULATED');
+  assert.equal(first.result.provenance, 'SIMULATED');
 });
