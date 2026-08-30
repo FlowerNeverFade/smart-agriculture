@@ -1396,9 +1396,9 @@ const app = createApp({
         },
         series: [
           { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed' } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: plot_simulation_evaluating.value ? .42 : 1 } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } }
         ]
       }, true);
       plot_simulation_chart_instance.value.resize();
@@ -1478,6 +1478,8 @@ const app = createApp({
       const requestId = ++plot_simulation_preview_request_version;
       plot_simulation_preview_dirty.value = true;
       plot_simulation_evaluating.value = true;
+      // Keep the current curve visible while the next preview is in flight.
+      void render_plot_simulation_chart();
       plot_simulation_preview_timer = window.setTimeout(() => {
         plot_simulation_preview_timer = null;
         void evaluate_plot_simulation_preview(requestId);
@@ -1508,24 +1510,35 @@ const app = createApp({
       void load_plot_simulation(selected_plot.value?.plotId);
     };
 
-    const load_plot_simulation_metric = async (metric = plot_simulation_metric.value, { preserveOnError = false } = {}) => {
+    const load_plot_simulation_metric = async (metric = plot_simulation_metric.value, {
+      preserveOnError = false,
+      silent = false,
+      historyOnly = false
+    } = {}) => {
       const normalized = simulation_metric_definition(metric).code;
       const requestId = ++plot_simulation_metric_request_version;
-      plot_simulation_metric_loading.value = true;
+      if (!silent) plot_simulation_metric_loading.value = true;
       try {
-        const [historyResult, forecastResult] = await Promise.allSettled([
-          api.getTelemetry(selected_plot.value?.plotId, normalized, 120),
-          api.getRiskForecast(selected_plot.value?.plotId, normalized)
-        ]);
-        if (requestId !== plot_simulation_metric_request_version) return;
-        if (historyResult.status === 'fulfilled') plot_simulation_history.value = historyResult.value || [];
-        else if (!preserveOnError) plot_simulation_history.value = [];
-        if (forecastResult.status === 'fulfilled') plot_simulation_forecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
-        else if (!preserveOnError) plot_simulation_forecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        if (historyOnly) {
+          const historyResult = await Promise.allSettled([api.getTelemetry(selected_plot.value?.plotId, normalized, 120)]);
+          if (requestId !== plot_simulation_metric_request_version) return;
+          if (historyResult[0].status === 'fulfilled') plot_simulation_history.value = historyResult[0].value || [];
+          else if (!preserveOnError) plot_simulation_history.value = [];
+        } else {
+          const [historyResult, forecastResult] = await Promise.allSettled([
+            api.getTelemetry(selected_plot.value?.plotId, normalized, 120),
+            api.getRiskForecast(selected_plot.value?.plotId, normalized)
+          ]);
+          if (requestId !== plot_simulation_metric_request_version) return;
+          if (historyResult.status === 'fulfilled') plot_simulation_history.value = historyResult.value || [];
+          else if (!preserveOnError) plot_simulation_history.value = [];
+          if (forecastResult.status === 'fulfilled') plot_simulation_forecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+          else if (!preserveOnError) plot_simulation_forecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        }
         await nextTick();
         render_plot_simulation_chart();
       } finally {
-        if (requestId === plot_simulation_metric_request_version) plot_simulation_metric_loading.value = false;
+        if (!silent && requestId === plot_simulation_metric_request_version) plot_simulation_metric_loading.value = false;
       }
     };
 
@@ -1534,8 +1547,13 @@ const app = createApp({
       const normalized = simulation_metric_definition(requested).code;
       if (normalized === plot_simulation_metric.value && !plot_simulation_metric_loading.value) return;
       plot_simulation_metric.value = normalized;
+      if (plot_simulation_preview_dirty.value) {
+        // Keep history current while the what-if forecast continues to use local parameters.
+        load_plot_simulation_metric(normalized, { preserveOnError: false, historyOnly: true });
+        schedule_plot_simulation_preview();
+        return;
+      }
       load_plot_simulation_metric(normalized, { preserveOnError: false });
-      if (plot_simulation_preview_dirty.value) schedule_plot_simulation_preview();
     };
 
     let plot_simulation_live_timer = null;
@@ -1545,14 +1563,19 @@ const app = createApp({
     let plot_simulation_live_visibility_handler = null;
     const plot_simulation_is_live = () => is_formal_session && api.isLive;
     const refresh_plot_simulation_live = async () => {
-      if (!plot_simulation_is_live() || document.hidden || plot_simulation_loading.value || plot_simulation_metric_loading.value) return;
+      if (!plot_simulation_is_live() || document.hidden || plot_simulation_loading.value || plot_simulation_metric_loading.value || plot_simulation_evaluating.value) return;
       if (plot_simulation_live_in_flight) {
         plot_simulation_live_queued = true;
         return;
       }
       plot_simulation_live_in_flight = true;
       try {
-        await load_plot_simulation_metric(plot_simulation_metric.value, { preserveOnError: true });
+        // Background polls must not unmount the chart; keep the current curve and refresh quietly.
+        if (plot_simulation_preview_dirty.value) {
+          await load_plot_simulation_metric(plot_simulation_metric.value, { preserveOnError: true, silent: true, historyOnly: true });
+        } else {
+          await load_plot_simulation_metric(plot_simulation_metric.value, { preserveOnError: true, silent: true });
+        }
       } finally {
         plot_simulation_live_in_flight = false;
         if (plot_simulation_live_queued && !document.hidden) {

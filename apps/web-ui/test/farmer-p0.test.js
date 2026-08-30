@@ -86,6 +86,9 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /getRiskForecast/);
   assert.match(source, /window\.echarts/);
   assert.match(source, /getDom\?\.\(\)/);
+  assert.match(source, /silent: true/);
+  assert.match(html, /farmer-plot-simulation-chart-stage/);
+  assert.match(html, /is-overlay/);
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
