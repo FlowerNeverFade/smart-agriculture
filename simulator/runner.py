@@ -124,42 +124,48 @@ SCENARIO_ALIASES = {
     "cost-shift": "cost-shift",
 }
 
+# 10 minutes of wall-clock time equals one simulated day.
+DEFAULT_TIME_SCALE = 144.0
+SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08
+DEFAULT_PLOT_AREA_M2 = 80.0
+RESERVOIR_CAPACITY_LITRES = 900.0
+
 SCENARIO_DEFAULTS = {
     "normal": {
-        "volatility": 1.25, "timeScale": 1.0, "temperatureBias": 0.0,
+        "volatility": 1.25, "timeScale": DEFAULT_TIME_SCALE, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
-        "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 0.0,
+        "soilMoistureTrendPerHour": -0.12, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "drought": {
-        "volatility": 1.75, "timeScale": 1.0, "temperatureBias": 7.0,
+        "volatility": 1.75, "timeScale": DEFAULT_TIME_SCALE, "temperatureBias": 7.0,
         "humidityBias": -20.0, "rainfallRate": 0.0,
-        "soilMoistureTrendPerHour": -3.6, "driftRatePerHour": 0.0,
+        "soilMoistureTrendPerHour": -0.45, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "heavy-rain": {
-        "volatility": 1.9, "timeScale": 1.0, "temperatureBias": -4.5,
-        "humidityBias": 20.0, "rainfallRate": 32.0,
-        "soilMoistureTrendPerHour": 7.2, "driftRatePerHour": 0.0,
+        "volatility": 1.9, "timeScale": DEFAULT_TIME_SCALE, "temperatureBias": -4.5,
+        "humidityBias": 20.0, "rainfallRate": 4.0,
+        "soilMoistureTrendPerHour": 0.5, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "sensor-drift": {
-        "volatility": 1.45, "timeScale": 1.0, "temperatureBias": 0.0,
+        "volatility": 1.45, "timeScale": DEFAULT_TIME_SCALE, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
-        "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 2.4,
+        "soilMoistureTrendPerHour": -0.12, "driftRatePerHour": 0.08,
         "offlineRatio": 0.0,
     },
     "device-offline": {
-        "volatility": 1.3, "timeScale": 1.0, "temperatureBias": 0.0,
+        "volatility": 1.3, "timeScale": DEFAULT_TIME_SCALE, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
-        "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 0.0,
+        "soilMoistureTrendPerHour": -0.12, "driftRatePerHour": 0.0,
         "offlineRatio": 0.55,
     },
 }
 
 PARAMETER_LIMITS = {
     "volatility": (0.2, 3.0),
-    "timeScale": (1.0, 12.0),
+    "timeScale": (1.0, 288.0),
     "temperatureBias": (-15.0, 15.0),
     "humidityBias": (-40.0, 40.0),
     "rainfallRate": (0.0, 120.0),
@@ -203,7 +209,17 @@ def scenario_parameters(scenario: str, supplied: object = None) -> dict[str, flo
         except (TypeError, ValueError):
             value = float(defaults.get(key, SCENARIO_DEFAULTS["normal"].get(key, 0.0)))
         result[key] = _clamp(value, low, high)
+    # Retired realtime default (1x) is treated as unset so 10 min = 1 day applies.
+    if abs(result["timeScale"] - 1.0) < 1e-9:
+        result["timeScale"] = DEFAULT_TIME_SCALE
     return result
+
+
+def irrigation_moisture_delta(water_litre: float, area_m2: float = DEFAULT_PLOT_AREA_M2) -> float:
+    """Convert delivered water into a soil-moisture point change."""
+    area = max(1.0, float(area_m2 or DEFAULT_PLOT_AREA_M2))
+    water = max(0.0, float(water_litre or 0.0))
+    return water / (area * SOIL_WATER_LITRES_PER_POINT_PER_M2)
 
 
 def load_plot_strategies(path: str | Path | None) -> dict[str, dict]:
@@ -255,26 +271,26 @@ def evolve_state(state: dict[str, float], rng: random.Random, scenario: str,
     heat_offset = 7.0 if scenario == "heat-wave" else params["temperatureBias"]
     temperature_target = 20.5 + 8.0 * daylight + heat_offset
     humidity_target = 82.0 - 30.0 * daylight + params["humidityBias"]
-    # Faster attraction and bounded noise make a scenario visibly active while
-    # avoiding physically impossible one-sample jumps.
-    state["temperature"] += (temperature_target - state["temperature"]) * 0.22 + rng.uniform(-0.32, 0.32) * volatility
+    # Relax toward the diurnal target over simulated time, not wall-clock ticks.
+    relax = min(1.0, 1.0 - math.exp(-simulated_hours / 2.4))
+    state["temperature"] += (temperature_target - state["temperature"]) * relax + rng.uniform(-0.08, 0.08) * volatility * simulated_hours
     state["temperature"] = _clamp(state["temperature"], -20.0, 55.0)
-    state["humidity"] += (humidity_target - state["humidity"]) * 0.20 + rng.uniform(-0.75, 0.75) * volatility
+    state["humidity"] += (humidity_target - state["humidity"]) * relax + rng.uniform(-0.18, 0.18) * volatility * simulated_hours
     state["humidity"] = _clamp(state["humidity"], 10.0, 99.5)
 
-    legacy_soil_rate = {"gradual-drydown": -1.1, "limited-water": -0.7}.get(scenario, 0.0)
+    legacy_soil_rate = {"gradual-drydown": -0.35, "limited-water": -0.22}.get(scenario, 0.0)
     soil_rate = (params["soilMoistureTrendPerHour"] + legacy_soil_rate) * simulated_hours
-    rain_absorption = min(params["rainfallRate"], 80.0) * simulated_hours * 0.055
-    soil_noise = rng.uniform(-0.22, 0.22) * volatility
+    rain_absorption = min(params["rainfallRate"], 20.0) * simulated_hours * 0.025
+    soil_noise = rng.uniform(-0.12, 0.12) * volatility * simulated_hours
     state["soil"] += soil_rate + rain_absorption + soil_noise
     state["soil"] = _clamp(state["soil"], 4.0, 92.0)
 
     co2_target = 430.0 + 180.0 * (1.0 - daylight)
-    state["co2"] += (co2_target - state["co2"]) * 0.10 + rng.uniform(-9.0, 9.0) * volatility
+    state["co2"] += (co2_target - state["co2"]) * min(1.0, 0.35 * simulated_hours) + rng.uniform(-2.0, 2.0) * volatility * simulated_hours
     state["co2"] = _clamp(state["co2"], 300.0, 1400.0)
-    state["ph"] += (6.25 - state["ph"]) * 0.04 + rng.uniform(-0.025, 0.025) * volatility
-    water_rate = (-1.0 if scenario == "limited-water" else (2.6 if scenario == "heavy-rain" else -0.18)) * simulated_hours
-    state["water"] = _clamp(state["water"] + water_rate + rng.uniform(-0.18, 0.18) * volatility, 8.0, 100.0)
+    state["ph"] += (6.25 - state["ph"]) * min(1.0, 0.08 * simulated_hours) + rng.uniform(-0.01, 0.01) * volatility * simulated_hours
+    water_rate = (-0.3 if scenario == "limited-water" else (0.8 if scenario == "heavy-rain" else -0.05)) * simulated_hours
+    state["water"] = _clamp(state["water"] + water_rate + rng.uniform(-0.04, 0.04) * volatility * simulated_hours, 8.0, 100.0)
     state["scenario_steps"] = state.get("scenario_steps", 0.0) + 1.0
 
 
@@ -395,9 +411,9 @@ def run(args: argparse.Namespace) -> int:
                         if not plot_id or state is None:
                             return
                         planned_water = max(0.0, float(payload.get("waterLitre") or 0.0))
-                        capacity = 900.0
-                        state["soil"] = _clamp(state["soil"] + 10.0, 4.0, 92.0)
-                        state["water"] = _clamp(state["water"] - planned_water / capacity * 100.0, 0.0, 100.0)
+                        area = float(payload.get("areaM2") or DEFAULT_PLOT_AREA_M2)
+                        state["soil"] = _clamp(state["soil"] + irrigation_moisture_delta(planned_water, area), 4.0, 92.0)
+                        state["water"] = _clamp(state["water"] - planned_water / RESERVOIR_CAPACITY_LITRES * 100.0, 0.0, 100.0)
                         ack_topic = message.topic.rsplit("/", 1)[0] + "/command/ack"
                         _client.publish(ack_topic, json.dumps({
                             "ackId": f"ack-{uuid.uuid4().hex[:12]}",
@@ -452,6 +468,8 @@ def run(args: argparse.Namespace) -> int:
         print("paho-mqtt 未安装，切换为 stdout/HTTP 回放模式", file=sys.stderr)
 
     start = datetime.now(UTC8) - timedelta(minutes=args.minutes)
+    wall_origin = datetime.now(UTC8)
+    sim_origin = datetime.now(UTC8)
     count = 0
     index = 0
     plot_configs: dict[str, dict] = {}
@@ -466,7 +484,8 @@ def run(args: argparse.Namespace) -> int:
             # repeat the deterministic sample window, while the event sequence
             # and timestamp continue to advance.
             value_index = index % max(args.samples, 1) if args.continuous else index
-            ts = datetime.now(UTC8) if args.continuous else start + timedelta(seconds=index * args.interval)
+            wall_ts = datetime.now(UTC8) if args.continuous else start + timedelta(seconds=index * args.interval)
+            ts = wall_ts
             if plot_config_path:
                 try:
                     mtime_ns = plot_config_path.stat().st_mtime_ns
@@ -504,13 +523,15 @@ def run(args: argparse.Namespace) -> int:
                 device_id = f"mock-{plot_id}"
                 controlled_offline = device_id in disabled_devices
                 is_offline = controlled_offline or (offline_ratio > 0 and phase < max(1, round(offline_ratio * 20)))
+                physics_ts = sim_origin + timedelta(seconds=(wall_ts - wall_origin).total_seconds() * params["timeScale"])
                 if not is_offline:
-                    evolve_state(states[plot_id], rng, plot_scenario, ts, index, params, args.interval)
+                    evolve_state(states[plot_id], rng, plot_scenario, physics_ts, index, params, args.interval)
                 for metric, unit, _low, _high in METRICS:
                     if is_offline:
                         continue
-                    event = build_event(rng, plot_scenario, scenario_id, branch, plot_id, metric, unit, value_index, ts,
+                    event = build_event(rng, plot_scenario, scenario_id, branch, plot_id, metric, unit, value_index, physics_ts,
                                         states[plot_id], params, args.interval)
+                    event["ts"] = now_iso(wall_ts)
                     event["scenarioId"] = plot_scenario
                     event["simulationRunId"] = scenario_id
                     event["simulationRevision"] = revision

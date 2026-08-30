@@ -306,6 +306,30 @@
 .sim-info-label { font-size: 12px; color: var(--g-text-secondary); }
 .sim-info-value { font-size: 16px; font-weight: 500; color: var(--g-text-primary); }
 
+.sim-settings-panel {
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--g-bg-surface);
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+}
+.sim-settings-help {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--g-text-secondary);
+  line-height: 1.5;
+}
+.sim-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.sim-slider:last-child { margin-bottom: 0; }
+.sim-slider-label { font-size: 13px; font-weight: 500; color: var(--g-text-primary); }
+.sim-slider-hint { font-size: 12px; color: var(--g-text-secondary); }
+.sim-slider input[type="range"] { width: 100%; }
+
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;
   display: grid;

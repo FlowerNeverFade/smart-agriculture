@@ -10,6 +10,7 @@ try:
         build_event,
         evolve_state,
         initial_state,
+        irrigation_moisture_delta,
         load_plot_strategies,
         metric_value,
         scenario_parameters,
@@ -19,6 +20,7 @@ except ImportError:  # Running this file directly from the repository root.
         build_event,
         evolve_state,
         initial_state,
+        irrigation_moisture_delta,
         load_plot_strategies,
         metric_value,
         scenario_parameters,
@@ -26,11 +28,15 @@ except ImportError:  # Running this file directly from the repository root.
 
 
 class PlotSimulationTest(unittest.TestCase):
-    def test_default_time_scale_is_slow_and_legacy_values_are_bounded(self):
+    def test_default_time_scale_is_ten_minutes_per_simulated_day(self):
         defaults = scenario_parameters("drought")
-        legacy = scenario_parameters("drought", {"timeScale": 180})
-        self.assertEqual(defaults["timeScale"], 1.0)
-        self.assertEqual(legacy["timeScale"], 12.0)
+        legacy_realtime = scenario_parameters("drought", {"timeScale": 1})
+        accelerated = scenario_parameters("drought", {"timeScale": 180})
+        clamped = scenario_parameters("drought", {"timeScale": 999})
+        self.assertEqual(defaults["timeScale"], 144.0)
+        self.assertEqual(legacy_realtime["timeScale"], 144.0)
+        self.assertEqual(accelerated["timeScale"], 180.0)
+        self.assertEqual(clamped["timeScale"], 288.0)
 
     def test_plot_configuration_is_independent_and_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -81,6 +87,27 @@ class PlotSimulationTest(unittest.TestCase):
         self.assertTrue(all(4 <= value <= 92 for value in values))
         drift = build_event(random.Random(1), "sensor-drift", "drift", "MAIN", "plot-a01", "PH", "pH", 4, ts)
         self.assertIn(drift["quality"]["status"], {"BAD", "DEGRADED"})
+
+    def test_one_simulated_day_follows_daily_soil_rates(self):
+        ts = datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+        drought = initial_state("plot-a01", random.Random(3))
+        rain = initial_state("plot-a02", random.Random(3))
+        start_drought = drought["soil"]
+        start_rain = rain["soil"]
+        drought_rng = random.Random(5)
+        rain_rng = random.Random(5)
+        for index in range(30):
+            evolve_state(drought, drought_rng, "drought", ts, index, None, 20)
+            evolve_state(rain, rain_rng, "heavy-rain", ts, index, None, 20)
+        self.assertLess(drought["soil"], start_drought - 4)
+        self.assertGreater(drought["soil"], start_drought - 20)
+        self.assertGreater(rain["soil"], start_rain + 6)
+        self.assertLess(rain["soil"], start_rain + 25)
+
+    def test_irrigation_moisture_follows_plan_water_and_area(self):
+        self.assertAlmostEqual(irrigation_moisture_delta(51.2, 80), 8.0)
+        self.assertAlmostEqual(irrigation_moisture_delta(64.0, 100), 8.0)
+        self.assertEqual(irrigation_moisture_delta(0, 80), 0.0)
 
 
 if __name__ == "__main__":

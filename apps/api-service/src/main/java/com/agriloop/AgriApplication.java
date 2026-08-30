@@ -133,6 +133,7 @@ class AgriProperties {
     private double dailyWaterLimitLitres = 5000;
     private String cropPackPath = "classpath:/crop-packs";
     private boolean simulatorControlEnabled = true;
+    private boolean simulatorAutoStart = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
     /** Shared JSON hand-off reloaded by the Python simulator while it runs. */
@@ -200,6 +201,8 @@ class AgriProperties {
     public void setCropPackPath(String cropPackPath) { this.cropPackPath = cropPackPath; }
     public boolean isSimulatorControlEnabled() { return simulatorControlEnabled; }
     public void setSimulatorControlEnabled(boolean simulatorControlEnabled) { this.simulatorControlEnabled = simulatorControlEnabled; }
+    public boolean isSimulatorAutoStart() { return simulatorAutoStart; }
+    public void setSimulatorAutoStart(boolean simulatorAutoStart) { this.simulatorAutoStart = simulatorAutoStart; }
     public String getSupervisorConfig() { return supervisorConfig; }
     public void setSupervisorConfig(String supervisorConfig) { this.supervisorConfig = supervisorConfig; }
     public String getSimulatorProgram() { return simulatorProgram; }
@@ -1113,138 +1116,46 @@ class SecurityConfig {
     }
 }
 
-/** Admin-only bridge to the fixed Supervisor-managed telemetry simulator. */
+/** Admin-only proxy for the in-process telemetry {@link SimulationEngine}. */
 @Component
 class SimulatorControl {
     private final AgriProperties properties;
+    private final SimulationEngine engine;
 
-    SimulatorControl(AgriProperties properties) {
+    SimulatorControl(AgriProperties properties, SimulationEngine engine) {
         this.properties = properties;
+        this.engine = engine;
     }
 
     Map<String, Object> status() {
         if (!properties.isSimulatorControlEnabled()) return unavailable("SIMULATOR_CONTROL_DISABLED");
-        Path config = configPath();
-        if (config == null || !Files.isRegularFile(config)) return unavailable("SUPERVISOR_CONFIG_NOT_FOUND");
-        CommandResult result = execute("status");
-        if (result == null) return unavailable("SUPERVISOR_NOT_AVAILABLE");
-        String line = stripAnsi(result.output()).lines().map(String::trim)
-                .filter(value -> value.startsWith(properties.getSimulatorProgram() + " "))
-                .findFirst().orElse("");
-        if (line.isBlank()) return unavailable(result.output().isBlank() ? "SIMULATOR_STATUS_EMPTY" : result.output().trim());
-        String normalizedLine = line.toUpperCase(Locale.ROOT);
-        String state = normalizedLine.contains(" RUNNING ") ? "RUNNING"
-                : normalizedLine.contains(" STOPPED ") ? "STOPPED"
-                : normalizedLine.contains(" EXITED ") ? "EXITED"
-                : normalizedLine.contains(" FATAL ") ? "FATAL" : "UNKNOWN";
-        Map<String, Object> response = base(state);
-        response.put("raw", line);
-        String[] tokens = line.split("\\s+");
-        for (int index = 0; index + 1 < tokens.length; index++) {
-            if ("pid".equalsIgnoreCase(tokens[index])) {
-                response.put("pid", tokens[index + 1].replaceAll("[^0-9]", ""));
-                break;
-            }
-        }
-        return response;
+        if (engine == null) return unavailable("SIMULATION_ENGINE_NOT_READY");
+        return engine.status();
     }
 
-    Map<String, Object> start() { return control("start"); }
-    Map<String, Object> stop() { return control("stop"); }
+    Map<String, Object> start() { return requireEngine().start(); }
+    Map<String, Object> stop() { return requireEngine().stop(); }
+    Map<String, Object> updateSettings(Map<String, Object> body) { return requireEngine().updateSettings(body); }
 
-    private Map<String, Object> control(String action) {
+    private SimulationEngine requireEngine() {
         if (!properties.isSimulatorControlEnabled()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SIMULATOR_CONTROL_DISABLED", "服务器未启用模拟器控制");
         }
-        Path config = configPath();
-        if (config == null || !Files.isRegularFile(config)) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SUPERVISOR_CONFIG_NOT_FOUND", "当前环境没有可用的 Supervisor 模拟器服务");
+        if (engine == null) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SIMULATION_ENGINE_NOT_READY", "进程内模拟器尚未就绪");
         }
-        CommandResult result = execute(action);
-        if (result == null) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SUPERVISOR_NOT_AVAILABLE", "Supervisor 不可用，请检查服务器进程管理服务");
-        }
-        if (result.exitCode() != 0 && !result.output().toLowerCase(Locale.ROOT).contains("already")) {
-            String detail = result.output().isBlank() ? "Supervisor 命令失败" : result.output().trim();
-            throw new ApiException(HttpStatus.BAD_GATEWAY, "SIMULATOR_CONTROL_FAILED", detail);
-        }
-        Map<String, Object> response = status();
-        response.put("action", action.toUpperCase(Locale.ROOT));
-        response.put("message", result.output().trim());
-        return response;
-    }
-
-    private Path configPath() {
-        try {
-            String value = properties.getSupervisorConfig();
-            return value == null || value.isBlank() ? null : Path.of(value).toAbsolutePath().normalize();
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private CommandResult execute(String action) {
-        Path config = configPath();
-        if (config == null) return null;
-        try {
-            Process process = new ProcessBuilder("supervisorctl", "-c", config.toString(), action, properties.getSimulatorProgram())
-                    .redirectErrorStream(true).start();
-            boolean finished = process.waitFor(6, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                return new CommandResult(124, "Supervisor 命令超时");
-            }
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            return new CommandResult(process.exitValue(), output);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String stripAnsi(String value) {
-        if (value == null || value.isBlank()) return value == null ? "" : value;
-        StringBuilder clean = new StringBuilder(value.length());
-        boolean escape = false;
-        boolean csi = false;
-        for (int index = 0; index < value.length(); index++) {
-            char ch = value.charAt(index);
-            if (ch == 27) {
-                escape = true;
-                csi = false;
-                continue;
-            }
-            if (escape) {
-                if (!csi && ch == '[') {
-                    csi = true;
-                    continue;
-                }
-                if (csi && ch >= '@' && ch <= '~') {
-                    escape = false;
-                    csi = false;
-                }
-                continue;
-            }
-            clean.append(ch);
-        }
-        return clean.toString();
+        return engine;
     }
 
     private Map<String, Object> unavailable(String reason) {
-        Map<String, Object> response = base("UNAVAILABLE");
-        response.put("available", false);
-        response.put("reason", reason);
-        return response;
-    }
-
-    private Map<String, Object> base(String state) {
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("available", true);
-        response.put("status", state);
-        response.put("program", properties.getSimulatorProgram());
+        response.put("available", false);
+        response.put("status", "UNAVAILABLE");
+        response.put("reason", reason);
+        response.put("program", "in-process");
+        response.put("pid", "api");
         return response;
     }
-
-    private record CommandResult(int exitCode, String output) { }
 }
 
 @Service
@@ -1260,7 +1171,7 @@ class AgriEngine {
             "NORMAL", "DROUGHT", "HEAVY_RAIN", "SENSOR_DRIFT", "DEVICE_OFFLINE");
     private static final Map<String, double[]> SIMULATION_PARAMETER_LIMITS = Map.ofEntries(
             Map.entry("volatility", new double[]{.2, 3.0}),
-            Map.entry("timeScale", new double[]{1, 12}),
+            Map.entry("timeScale", new double[]{1, 288}),
             Map.entry("temperatureBias", new double[]{-15, 15}),
             Map.entry("humidityBias", new double[]{-40, 40}),
             Map.entry("rainfallRate", new double[]{0, 120}),
@@ -1270,6 +1181,11 @@ class AgriEngine {
             Map.entry("riskThreshold", new double[]{1, 99}),
             Map.entry("waterloggingThreshold", new double[]{40, 99}),
             Map.entry("forecastHours", new double[]{1, 12}));
+    /** 10 minutes of wall-clock time equals one simulated day. */
+    private static final double DEFAULT_SIMULATION_TIME_SCALE = 144.0;
+    private static final double SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08;
+    private static final double DEFAULT_PLOT_AREA_M2 = 80.0;
+    private static final double DEFAULT_RESERVOIR_LITRES = 900.0;
     private static final Set<String> OPEN_ALERT_STATUSES = Set.of("ACTIVE", "ACKED", "ESCALATED");
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
@@ -1295,6 +1211,7 @@ class AgriEngine {
     private final MqttCommandGateway mqttCommands;
     private final RedisStreamWorker streamWorker;
     private final AdminManagementService adminManagement;
+    private final SimulationEngine simulationEngine;
     private final Map<String, Instant> cooldowns = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> idempotentCommands = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
@@ -1309,7 +1226,7 @@ class AgriEngine {
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                CropPackCatalog cropPackCatalog,
                PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands,
-               RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement) {
+               RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement, @Lazy SimulationEngine simulationEngine) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
@@ -1322,6 +1239,7 @@ class AgriEngine {
                 .build();
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
+        this.simulationEngine = simulationEngine;
     }
 
     @PostConstruct
@@ -1472,7 +1390,7 @@ class AgriEngine {
         view.put("parameterLimits", limits);
         view.put("hardware", hardwareBindingForPlot(plotId));
         view.put("simulatorDevice", simulatorDeviceForPlot(plotId));
-        view.put("configDelivery", "simulation".equalsIgnoreCase(properties.getMode()) ? "FILE_SYNC" : "STANDALONE_PREVIEW");
+        view.put("configDelivery", "IN_PROCESS");
         return view;
     }
 
@@ -1496,6 +1414,10 @@ class AgriEngine {
             double candidate = Jsons.number(supplied, key, fallback);
             parameters.put(key, round(clamp(candidate, fallback, range[0], range[1])));
         }
+        if (scenarioChanged && !supplied.containsKey("timeScale")) {
+            Map<String, Object> previous = Jsons.map(mapper, current.get("parameters"));
+            parameters.put("timeScale", Jsons.number(previous, "timeScale", DEFAULT_SIMULATION_TIME_SCALE));
+        }
         if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
         }
@@ -1504,6 +1426,8 @@ class AgriEngine {
         saved.put("revision", Jsons.whole(current, "revision", 0) + 1);
         saved.put("updatedAt", Instant.now().toString()); saved.put("updatedBy", principal.userId);
         saved.put("sourceMode", "SIMULATION");
+        boolean timeScaleExplicit = Jsons.bool(current, "timeScaleExplicit", false) || supplied.containsKey("timeScale");
+        saved.put("timeScaleExplicit", timeScaleExplicit);
         if (input.containsKey("enabled")) saved.put("enabled", Jsons.bool(input, "enabled", true));
         store.save("plot-simulation", plotId, saved);
         boolean delivered = syncSimulationConfiguration();
@@ -1546,6 +1470,28 @@ class AgriEngine {
         return result;
     }
 
+    Map<String, Object> plotSimulationRecord(String plotId) {
+        return simulationRecord(plotId);
+    }
+
+    synchronized void applyGlobalSimulationTimeScale(double timeScale) {
+        double bounded = SimulationEngine.normalizeTimeScale(SimulationEngine.clamp(timeScale, SimulationEngine.MIN_TIME_SCALE, SimulationEngine.MAX_TIME_SCALE));
+        Instant now = Instant.now();
+        for (Map<String, Object> plot : store.list("plot")) {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (plotId.isBlank()) continue;
+            Map<String, Object> saved = simulationRecord(plotId);
+            Map<String, Object> parameters = Jsons.map(mapper, saved.get("parameters"));
+            parameters.put("timeScale", bounded);
+            saved.put("parameters", parameters);
+            saved.put("timeScaleExplicit", true);
+            saved.put("revision", Jsons.whole(saved, "revision", 0) + 1);
+            saved.put("updatedAt", now.toString());
+            saved.put("updatedBy", "simulator-engine");
+            store.save("plot-simulation", plotId, saved);
+        }
+    }
+
     private Map<String, Object> simulationRecord(String plotId) {
         Map<String, Object> persisted = store.find("plot-simulation", plotId);
         String scenario = canonicalSimulationScenario(Jsons.text(persisted, "scenario", "NORMAL"));
@@ -1557,6 +1503,10 @@ class AgriEngine {
             double fallback = Jsons.number(defaults, key, (range[0] + range[1]) / 2.0);
             defaults.put(key, round(clamp(Jsons.numberValue(value, fallback), fallback, range[0], range[1])));
         });
+        if (!Jsons.bool(persisted, "timeScaleExplicit", false)
+                && Math.abs(Jsons.number(defaults, "timeScale", DEFAULT_SIMULATION_TIME_SCALE) - 1.0) < 1e-6) {
+            defaults.put("timeScale", DEFAULT_SIMULATION_TIME_SCALE);
+        }
         Map<String, Object> result = persisted == null ? new LinkedHashMap<>() : Jsons.copy(mapper, persisted);
         result.put("plotId", plotId); result.put("scenario", scenario); result.put("parameters", defaults);
         result.putIfAbsent("revision", 1); result.putIfAbsent("sourceMode", "SIMULATION");
@@ -1570,29 +1520,37 @@ class AgriEngine {
         switch (scenario) {
             case "DROUGHT" -> {
                 params.put("volatility", 1.75); params.put("temperatureBias", 7.0); params.put("humidityBias", -20.0);
-                params.put("rainfallRate", 0.0); params.put("soilMoistureTrendPerHour", -3.6); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+                params.put("rainfallRate", 0.0); params.put("soilMoistureTrendPerHour", -0.45); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
             }
             case "HEAVY_RAIN" -> {
                 params.put("volatility", 1.9); params.put("temperatureBias", -4.5); params.put("humidityBias", 20.0);
-                params.put("rainfallRate", 32.0); params.put("soilMoistureTrendPerHour", 7.2); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+                params.put("rainfallRate", 4.0); params.put("soilMoistureTrendPerHour", 0.5); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
             }
             case "SENSOR_DRIFT" -> {
                 params.put("volatility", 1.45); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
-                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 2.4); params.put("offlineRatio", 0.0);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -0.12); params.put("driftRatePerHour", 0.08); params.put("offlineRatio", 0.0);
             }
             case "DEVICE_OFFLINE" -> {
                 params.put("volatility", 1.3); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
-                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", .55);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -0.12); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", .55);
             }
             default -> {
                 params.put("volatility", 1.25); params.put("temperatureBias", 0.0); params.put("humidityBias", 0.0);
-                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -.18); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
+                params.put("rainfallRate", .2); params.put("soilMoistureTrendPerHour", -0.12); params.put("driftRatePerHour", 0.0); params.put("offlineRatio", 0.0);
             }
         }
         Map<String, Object> context = plotId == null || store.find("plot", plotId) == null ? Map.of() : plotCropContext(plotId);
         params.put("riskThreshold", Jsons.number(cropPackCatalog.rule(context, "WATER_DEFICIT"), "threshold", 20));
-        params.put("waterloggingThreshold", 82.0); params.put("forecastHours", 4.0); params.put("timeScale", 1.0);
+        params.put("waterloggingThreshold", 82.0); params.put("forecastHours", 4.0); params.put("timeScale", DEFAULT_SIMULATION_TIME_SCALE);
         return params;
+    }
+
+    private double moistureDeltaFromWater(double waterLitre, double areaM2) {
+        return Math.max(0, waterLitre) / (Math.max(1.0, areaM2) * SOIL_WATER_LITRES_PER_POINT_PER_M2);
+    }
+
+    private double applyIrrigationMoisture(double before, double waterLitre, double areaM2) {
+        return round(clamp(before + moistureDeltaFromWater(waterLitre, areaM2), 0, 100));
     }
 
     private String canonicalSimulationScenario(String raw) {
@@ -3266,7 +3224,10 @@ class AgriEngine {
         if (alreadyAllocated + requestedWater > capacity) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_CAPACITY", "水源容量不足");
         Instant lastAction = cooldowns.get(plotId);
         if (lastAction != null && Duration.between(lastAction, Instant.now()).toMinutes() < 120) throw new ApiException(HttpStatus.CONFLICT, "COOLDOWN_ACTIVE", "地块仍处于灌溉冷却窗口");
+        Map<String, Object> plotRecord = requireRecord("plot", plotId);
         Map<String, Object> command = new LinkedHashMap<>(); command.put("commandId", Jsons.id("cmd")); command.put("plotId", plotId); command.put("planId", plan.get("planId"));
+        command.put("farmId", Jsons.text(plotRecord, "farmId", "farm-demo"));
+        command.put("areaM2", Jsons.number(plotRecord, "areaM2", DEFAULT_PLOT_AREA_M2));
         command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", Jsons.number(plan, "waterLitre", 0));
         command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
         command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false);
@@ -3351,7 +3312,7 @@ class AgriEngine {
             waterEvent.put("plotId", plotId);
             waterEvent.put("deviceId", deviceId);
             waterEvent.put("metric", "WATER_LEVEL");
-            waterEvent.put("value", Math.min(100, Math.max(0, waterBefore - actualWater / 9.0)));
+            waterEvent.put("value", Math.min(100, Math.max(0, waterBefore - actualWater / DEFAULT_RESERVOIR_LITRES * 100.0)));
             waterEvent.put("unit", "%");
             waterEvent.put("ts", effectAt.plusMillis(1).toString());
             waterEvent.put("sourceMode", "SIMULATION");
@@ -3385,7 +3346,12 @@ class AgriEngine {
         if (!evaluatedCommands.add(commandId)) return commandEvaluation(commandId);
         Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
         double before = Jsons.number(soil, "value", 0); String ackStatus = Jsons.text(ack, "status", "TIMEOUT");
-        double actualWater = Jsons.number(ack, "actualWaterLitre", 0); double after = "SUCCEEDED".equals(ackStatus) ? Math.min(100, before + 10) : "PARTIAL".equals(ackStatus) ? Math.min(100, before + 4) : before;
+        double actualWater = Jsons.number(ack, "actualWaterLitre", 0);
+        Map<String, Object> evaluationPlot = store.find("plot", plotId);
+        double areaM2 = Jsons.number(evaluationPlot, "areaM2", Jsons.number(command, "areaM2", DEFAULT_PLOT_AREA_M2));
+        double expectedWater = Jsons.number(command, "waterLitre", 0);
+        double expectedAfter = applyIrrigationMoisture(before, expectedWater, areaM2);
+        double after = Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus) ? applyIrrigationMoisture(before, actualWater, areaM2) : before;
         String status = "TIMEOUT".equals(ackStatus) || "FAILED".equals(ackStatus) ? "INCONCLUSIVE" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "COMPLETED";
         String result = "SUCCEEDED".equals(ackStatus) && after > before ? "GOOD" : "PARTIAL".equals(ackStatus) ? "NO_EFFECT" : "EXECUTION_FAILED";
         // A cooldown protects the resource after water was actually delivered.
@@ -3393,16 +3359,21 @@ class AgriEngine {
         // must not strand the plot for two hours with no water delivered.
         if ("SUCCEEDED".equals(ackStatus) || "PARTIAL".equals(ackStatus)) cooldowns.put(plotId, Instant.now());
         else cooldowns.remove(plotId);
-        double expectedWater = Jsons.number(command, "waterLitre", 0); double diff = expectedWater == 0 ? 0 : (actualWater - expectedWater) / expectedWater;
+        double diff = expectedWater == 0 ? 0 : (actualWater - expectedWater) / expectedWater;
         Map<String, Object> evaluation = new LinkedHashMap<>(); evaluation.put("evaluationId", Jsons.id("eval")); evaluation.put("planId", command.get("planId")); evaluation.put("commandId", commandId);
         evaluation.put("plotId", plotId);
-        Map<String, Object> evaluationPlot = store.find("plot", plotId);
         evaluation.put("farmId", evaluationPlot == null ? null : Jsons.text(evaluationPlot, "farmId", ""));
-        evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", before + 10, "waterLitre", expectedWater));
+        evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", expectedAfter, "waterLitre", expectedWater));
         evaluation.put("actual", Map.of("soilMoistureBefore", before, "soilMoistureAfter", after, "waterLitre", actualWater));
-        evaluation.put("planActualDiff", Map.of("waterLitrePct", Math.round(diff * 10000.0) / 100.0, "soilMoisturePoint", after - (before + 10)));
+        evaluation.put("planActualDiff", Map.of("waterLitrePct", Math.round(diff * 10000.0) / 100.0, "soilMoisturePoint", round(after - expectedAfter)));
         evaluation.put("effectivenessScore", status.equals("COMPLETED") && "GOOD".equals(result) ? .94 : status.equals("PARTIAL") ? .45 : 0.0); evaluation.put("result", result);
         evaluation.put("evidenceWindow", Map.of("beforeMinutes", 30, "afterMinutes", 30)); evaluation.put("createdAt", Instant.now().toString());
+        Map<String, Object> waterMetric = latest.get("WATER_LEVEL") instanceof Map<?, ?> waterValue ? Jsons.map(mapper, waterValue) : Map.of();
+        double waterBefore = Jsons.number(waterMetric, "value", Double.NaN);
+        if (simulationEngine != null && Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus)) {
+            simulationEngine.syncPlotMetrics(plotId, before, waterBefore);
+            simulationEngine.applyIrrigation(plotId, actualWater, areaM2);
+        }
         recordVirtualIrrigationEffect(plotId, commandId, ackStatus, after, actualWater);
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
         return evaluation;
@@ -3592,7 +3563,7 @@ class AgriEngine {
         if (!points.isEmpty()) { inputWindow.put("from", first.get("ts")); inputWindow.put("to", last.get("ts")); }
         result.put("inputWindow", inputWindow);
         result.put("quality", Map.of("coverage", points.isEmpty() ? .35 : points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", points.size() >= minSamples ? "RESIDUAL_MAD_PLUS_STRATEGY_VOLATILITY" : "STRATEGY_PRIOR"));
-        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", 1), "STAGE=" + context.get("stageCode")));
+        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", DEFAULT_SIMULATION_TIME_SCALE), "STAGE=" + context.get("stageCode")));
         result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "strategy-aware-trend-v2"));
         result.put("cropPackVersion", context.get("cropPackVersion")); result.put("ruleVersion", context.get("ruleVersion"));
         result.put("stageCode", context.get("stageCode")); result.put("stageLabel", context.get("stageLabel"));
@@ -5753,10 +5724,10 @@ class AgriEngine {
         Random random = new Random(seed);
         double volatility = Jsons.number(parameters, "volatility", 1.0);
         double jumpBoost = (11.8 + random.nextDouble() * 2.8) * volatility;
-        double rainBoost = ("HEAVY_RAIN".equals(scenario) ? Jsons.number(parameters, "rainfallRate", 32.0) : 0.0) * (0.8 + random.nextDouble() * 0.4);
-        double driftRate = Jsons.number(parameters, "driftRatePerHour", 2.4) * (0.9 + random.nextDouble() * 0.2);
+        double rainBoost = ("HEAVY_RAIN".equals(scenario) ? Jsons.number(parameters, "rainfallRate", 4.0) : 0.0) * (0.8 + random.nextDouble() * 0.4);
+        double driftRate = Jsons.number(parameters, "driftRatePerHour", 0.08) * (0.9 + random.nextDouble() * 0.2);
         double decayK = 0.03 + random.nextDouble() * 0.012;
-        double configuredTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -3.6);
+        double configuredTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -0.45);
         double temperatureBias = Jsons.number(parameters, "temperatureBias", 0.0);
         double humidityBias = Jsons.number(parameters, "humidityBias", 0.0);
         double droughtTrend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? 0.08 : 0.03) + humidityBias * 0.02;
@@ -5984,6 +5955,12 @@ class AgriController {
     ResponseEntity<?> simulatorStop(Authentication a) {
         if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限停止模拟器");
         return ok(simulator.stop());
+    }
+
+    @PutMapping("/simulator/settings")
+    ResponseEntity<?> simulatorSettings(@RequestBody Map<String, Object> body, Authentication a) {
+        if (!principal(a).isAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ADMIN_REQUIRED", "需要管理员权限调整模拟器采样与流速");
+        return ok(simulator.updateSettings(body == null ? Map.of() : body));
     }
 
     @GetMapping("/crop-packs")

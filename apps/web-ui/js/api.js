@@ -12,12 +12,17 @@ import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 
+export const DEFAULT_SIMULATION_TIME_SCALE = 144;
+export const SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08;
+export const DEFAULT_PLOT_AREA_M2 = 80;
+export const DEFAULT_RESERVOIR_LITRES = 900;
+
 export const PLOT_SIMULATION_DEFAULTS = Object.freeze({
-  NORMAL: { volatility: 1.25, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  DROUGHT: { volatility: 1.75, timeScale: 1, temperatureBias: 7, humidityBias: -20, rainfallRate: 0, soilMoistureTrendPerHour: -3.6, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  HEAVY_RAIN: { volatility: 1.9, timeScale: 1, temperatureBias: -4.5, humidityBias: 20, rainfallRate: 32, soilMoistureTrendPerHour: 7.2, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  SENSOR_DRIFT: { volatility: 1.45, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 2.4, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-    DEVICE_OFFLINE: { volatility: 1.3, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: .55, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 }
+  NORMAL: { volatility: 1.25, timeScale: DEFAULT_SIMULATION_TIME_SCALE, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -0.12, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  DROUGHT: { volatility: 1.75, timeScale: DEFAULT_SIMULATION_TIME_SCALE, temperatureBias: 7, humidityBias: -20, rainfallRate: 0, soilMoistureTrendPerHour: -0.45, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  HEAVY_RAIN: { volatility: 1.9, timeScale: DEFAULT_SIMULATION_TIME_SCALE, temperatureBias: -4.5, humidityBias: 20, rainfallRate: 4, soilMoistureTrendPerHour: 0.5, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  SENSOR_DRIFT: { volatility: 1.45, timeScale: DEFAULT_SIMULATION_TIME_SCALE, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -0.12, driftRatePerHour: 0.08, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  DEVICE_OFFLINE: { volatility: 1.3, timeScale: DEFAULT_SIMULATION_TIME_SCALE, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -0.12, driftRatePerHour: 0, offlineRatio: .55, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 }
 });
 
 export const PLOT_SIMULATION_SCENARIOS = Object.freeze([
@@ -29,7 +34,7 @@ export const PLOT_SIMULATION_SCENARIOS = Object.freeze([
 ]);
 
 const PLOT_SIMULATION_LIMITS = Object.freeze({
-  volatility: [.2, 3], timeScale: [1, 12], temperatureBias: [-15, 15], humidityBias: [-40, 40],
+  volatility: [.2, 3], timeScale: [1, 288], temperatureBias: [-15, 15], humidityBias: [-40, 40],
   rainfallRate: [0, 120], soilMoistureTrendPerHour: [-12, 12], driftRatePerHour: [0, 10],
   offlineRatio: [0, 1], riskThreshold: [1, 99], waterloggingThreshold: [40, 99], forecastHours: [1, 12]
 });
@@ -75,7 +80,14 @@ function cloneSimulationParameters(scenario, supplied = {}) {
     result.waterloggingThreshold = Math.min(99, Math.max(40, result.riskThreshold + .5));
     if (result.riskThreshold >= result.waterloggingThreshold) result.riskThreshold = Math.max(1, result.waterloggingThreshold - .5);
   }
+  if (Math.abs(Number(result.timeScale) - 1) < 1e-9) result.timeScale = DEFAULT_SIMULATION_TIME_SCALE;
   return result;
+}
+
+export function moistureDeltaFromWater(waterLitre, areaM2 = DEFAULT_PLOT_AREA_M2) {
+  const area = Math.max(1, Number(areaM2) || DEFAULT_PLOT_AREA_M2);
+  const water = Math.max(0, Number(waterLitre) || 0);
+  return water / (area * SOIL_WATER_LITRES_PER_POINT_PER_M2);
 }
 
 function normalizeWorkOrderStatus(value) {
@@ -154,6 +166,16 @@ export class ApiService {
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
     this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => [item.plotId, { ...item, farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }]));
+    this.demoSimulator = {
+      available: true,
+      status: 'STOPPED',
+      running: false,
+      pid: 'demo',
+      program: 'in-process',
+      sampleIntervalSeconds: 20,
+      timeScale: DEFAULT_SIMULATION_TIME_SCALE,
+      eventsEmitted: 0
+    };
     this.demoDevices = new Map((MOCK_DATA.adminDevices || []).map((item, index) => {
       const plot = MOCK_DATA.plots?.[index % Math.max(1, MOCK_DATA.plots.length)];
       const deviceId = item.deviceId || item.id || `device-demo-${index + 1}`;
@@ -569,7 +591,7 @@ export class ApiService {
   }
 
   async getSimulatorStatus() {
-    if (this.sessionMode !== 'live') return { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' };
+    if (this.sessionMode !== 'live') return { ...this.demoSimulator };
     const resp = await this._fetch('/api/v1/simulator/status');
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器状态', { code: 'SIMULATOR_STATUS_INVALID', payload: resp });
@@ -577,7 +599,15 @@ export class ApiService {
 
   async startSimulator() {
     if (this.sessionMode !== 'live') {
-      throw new ApiError('演示会话不能控制后端模拟器', { code: 'SIMULATOR_DEMO_ONLY', isNetworkError: false });
+      this.demoSimulator = {
+        ...this.demoSimulator,
+        available: true,
+        status: 'RUNNING',
+        running: true,
+        pid: 'demo',
+        program: 'in-process'
+      };
+      return { ...this.demoSimulator };
     }
     const resp = await this._fetch('/api/v1/simulator/start', { method: 'POST', body: JSON.stringify({}) });
     if (resp && resp.data) return resp.data;
@@ -594,11 +624,41 @@ export class ApiService {
 
   async stopSimulator() {
     if (this.sessionMode !== 'live') {
-      throw new ApiError('演示会话不能控制后端模拟器', { code: 'SIMULATOR_DEMO_ONLY', isNetworkError: false });
+      this.demoSimulator = {
+        ...this.demoSimulator,
+        available: true,
+        status: 'STOPPED',
+        running: false,
+        pid: 'demo',
+        program: 'in-process'
+      };
+      return { ...this.demoSimulator };
     }
     const resp = await this._fetch('/api/v1/simulator/stop', { method: 'POST', body: JSON.stringify({}) });
     if (resp && resp.data) return resp.data;
     throw new ApiError('后端返回了无效的模拟器停止结果', { code: 'SIMULATOR_STOP_INVALID', payload: resp });
+  }
+
+  async updateSimulatorSettings(settings = {}) {
+    const sampleIntervalSeconds = Math.max(5, Math.min(60, Math.round(Number(settings.sampleIntervalSeconds) || 20)));
+    const timeScale = Math.max(1, Math.min(288, Number(settings.timeScale) || DEFAULT_SIMULATION_TIME_SCALE));
+    if (this.sessionMode !== 'live') {
+      this.demoSimulator = {
+        ...this.demoSimulator,
+        available: true,
+        pid: 'demo',
+        program: 'in-process',
+        sampleIntervalSeconds,
+        timeScale
+      };
+      return { ...this.demoSimulator };
+    }
+    const resp = await this._fetch('/api/v1/simulator/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ sampleIntervalSeconds, timeScale })
+    });
+    if (resp && resp.data) return resp.data;
+    throw new ApiError('后端返回了无效的模拟器设置结果', { code: 'SIMULATOR_SETTINGS_INVALID', payload: resp });
   }
 
   async getPlots(filters = {}) {
@@ -704,7 +764,7 @@ export class ApiService {
       ...current,
       scenarioCatalog: PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description, defaultParameters: cloneSimulationParameters(item.code) })),
       parameterLimits: {
-        volatility: { min: .2, max: 3 }, timeScale: { min: 1, max: 12 }, temperatureBias: { min: -15, max: 15 },
+        volatility: { min: .2, max: 3 }, timeScale: { min: 1, max: 288 }, temperatureBias: { min: -15, max: 15 },
         humidityBias: { min: -40, max: 40 }, rainfallRate: { min: 0, max: 120 }, soilMoistureTrendPerHour: { min: -12, max: 12 },
         driftRatePerHour: { min: 0, max: 10 }, offlineRatio: { min: 0, max: 1 }, riskThreshold: { min: 1, max: 99 },
         waterloggingThreshold: { min: 40, max: 99 }, forecastHours: { min: 1, max: 12 }
@@ -860,15 +920,17 @@ export class ApiService {
     const strategy = this.demoSimulationStrategies.get(plotId);
     const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
     const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
+    const timeScale = Math.max(1, Number(params.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
     const count = Math.max(1, Math.min(Number(limit) || 24, 5000));
     const requestedEnd = options.to ? new Date(options.to).getTime() : now;
     const endMs = Number.isFinite(requestedEnd) ? requestedEnd : now;
-    const requestedStart = options.from ? new Date(options.from).getTime() : endMs - (count - 1) * 10 * 60 * 1000;
-    const startMs = Number.isFinite(requestedStart) ? requestedStart : endMs - (count - 1) * 10 * 60 * 1000;
+    const defaultWindowMs = 24 * 3600 * 1000 / timeScale;
+    const requestedStart = options.from ? new Date(options.from).getTime() : endMs - (count > 1 ? defaultWindowMs : 0);
+    const startMs = Number.isFinite(requestedStart) ? requestedStart : endMs - defaultWindowMs;
     const stepMs = count > 1 ? Math.max(1, Math.floor((endMs - startMs) / (count - 1))) : 0;
     const strategyTrend = {
-      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0) + driftRate,
+      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .025 : 0) + driftRate,
       AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .35,
       AIR_HUMIDITY: Number(params.humidityBias || 0) * .3,
       LIGHT: scenario === 'DROUGHT' ? 1800 : scenario === 'HEAVY_RAIN' ? -1400 : 0,
@@ -877,8 +939,13 @@ export class ApiService {
       WATER_LEVEL: scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .03 : scenario === 'DROUGHT' ? -1 : 0,
       RAINFALL: 0
     }[code] || 0;
-    const trendWindowHours = Math.max(.25, (count - 1) * 10 / 60);
+    const trendWindowHours = Math.max(.25, Math.max(0, endMs - startMs) / 1000 * timeScale / 3600);
     const volatility = Math.max(.2, Number(params.volatility || 1.25));
+    const seed = Array.from(`${plotId}:${code}:${scenario}`).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 7);
+    const noiseAt = (index) => {
+      const x = Math.sin((seed + index * 19.19) * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
     return Array.from({ length: count }, (_, i) => {
       const progress = count <= 1 ? 0 : i / (count - 1);
       const elapsedHours = progress * trendWindowHours;
@@ -886,12 +953,12 @@ export class ApiService {
       // The plot record is the current snapshot, so history is projected
       // backwards from it; otherwise a drought window can overwrite a fresh
       // irrigation result with an older synthetic endpoint.
-      let value = baseValue + strategyTrend * (elapsedHours - trendWindowHours) + wave + (Math.random() * profile.noise * .65 - profile.noise * .325);
+      let value = baseValue + strategyTrend * (elapsedHours - trendWindowHours) + wave + (noiseAt(i) * profile.noise * .65 - profile.noise * .325);
       if (code === 'LIGHT') value += Math.sin(i / 8) * 2200 * volatility;
       if (code === 'RAINFALL') {
         const rate = Math.max(0, Number(params.rainfallRate ?? profile.defaultValue));
         const pattern = .72 + .28 * Math.max(0, Math.sin(i / 2.4 + 1.2));
-        value = (scenario === 'HEAVY_RAIN' ? rate : Math.max(.2, rate * .18)) * pattern + Math.random() * profile.noise;
+        value = (scenario === 'HEAVY_RAIN' ? rate : Math.max(.2, rate * .18)) * pattern + noiseAt(i + 3) * profile.noise;
       }
       value = Math.max(profile.min, Math.min(profile.max, value));
       const qualityStatus = scenario === 'DEVICE_OFFLINE' && i > count * .55 ? 'OFFLINE' : 'GOOD';
@@ -2346,6 +2413,12 @@ export class ApiService {
     const actualWater = outcome === 'SUCCEEDED' ? plannedWater : outcome === 'PARTIAL' ? Number((plannedWater * .55).toFixed(1)) : 0;
     const effectScore = outcome === 'SUCCEEDED' ? .96 : outcome === 'PARTIAL' ? .52 : 0;
     const evaluationStatus = ['SUCCEEDED', 'PARTIAL'].includes(outcome) ? 'COMPLETED' : outcome;
+    const demoPlot = this.demoPlots.get(plotId);
+    const moistureBefore = Number(demoPlot?.metrics?.SOIL_MOISTURE?.value);
+    const moistureDelta = moistureDeltaFromWater(actualWater, demoPlot?.areaM2 || DEFAULT_PLOT_AREA_M2);
+    const moistureAfter = Number.isFinite(moistureBefore)
+      ? Number(Math.min(100, moistureBefore + moistureDelta).toFixed(1))
+      : Number((Number(plan.expectedResult?.from ?? 20) + moistureDelta).toFixed(1));
     const command = {
       commandId: "cmd-" + Math.random().toString(36).substring(2, 9),
       plotId,
@@ -2376,26 +2449,21 @@ export class ApiService {
         status: evaluationStatus,
         result: outcome === 'SUCCEEDED' ? 'GOOD' : outcome,
         expectedMoisture: `${Number(plan.expectedResult?.to ?? 30).toFixed(1)}%`,
-        actualMoisture: outcome === 'SUCCEEDED'
-          ? `${Number((Number(plan.expectedResult?.to ?? 30) - .2).toFixed(1))}%`
-          : outcome === 'PARTIAL' ? `${Number((Number(plan.expectedResult?.from ?? 20) + 3).toFixed(1))}%` : '未改善',
+        actualMoisture: ['SUCCEEDED', 'PARTIAL'].includes(outcome) ? `${moistureAfter}%` : '未改善',
         provenance: 'SIMULATED'
       }
     };
     this.decisionCache.commands.set(command.commandId, command);
     this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId, planId });
-    const demoPlot = this.demoPlots.get(plotId);
     if (demoPlot && ['SUCCEEDED', 'PARTIAL'].includes(outcome)) {
       const metrics = { ...(demoPlot.metrics || {}) };
       const moisture = metrics.SOIL_MOISTURE || {};
       const waterLevel = metrics.WATER_LEVEL || {};
-      const moistureBefore = Number(moisture.value);
-      const moistureDelta = outcome === 'SUCCEEDED' ? 10 : 4;
       const waterLevelBefore = Number(waterLevel.value);
-      const waterLevelDelta = plannedWater / 900 * 100;
+      const waterLevelDelta = actualWater / DEFAULT_RESERVOIR_LITRES * 100;
       metrics.SOIL_MOISTURE = {
         ...moisture,
-        value: Number(Math.min(100, (Number.isFinite(moistureBefore) ? moistureBefore : 0) + moistureDelta).toFixed(1)),
+        value: moistureAfter,
         status: 'NORMAL',
         updatedAt: new Date().toISOString()
       };
@@ -2697,7 +2765,7 @@ export class ApiService {
     const rainBoost = (parameters.rainfallRate || def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
     const driftRate = (parameters.driftRatePerHour || def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
     const decayK = 0.03 + rnd() * 0.012;
-    const configuredTrend = Number(parameters.soilMoistureTrendPerHour || (def.code === 'DROUGHT' ? -3.6 : def.code === 'SENSOR_DRIFT' ? -0.18 : 0));
+    const configuredTrend = Number(parameters.soilMoistureTrendPerHour || (def.code === 'DROUGHT' ? -0.45 : def.code === 'SENSOR_DRIFT' ? -0.12 : 0));
     const temperatureBias = Number(parameters.temperatureBias || 0);
     const humidityBias = Number(parameters.humidityBias || 0);
     const trend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? .08 : .03) + humidityBias * .02;

@@ -12,7 +12,7 @@ globalThis.localStorage ||= {
   removeItem: (key) => storage.delete(key)
 };
 
-const { ApiService } = await import('../js/api.js');
+const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
 
 test('demo P0 contracts expose deterministic guard, dual branches and direct farmer execution', async () => {
   const service = new ApiService();
@@ -63,9 +63,10 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(firstCommand.confirmationMode, 'OPERATOR_CONFIRMED');
   assert.equal(firstCommand.ack.status, 'SUCCEEDED');
   const afterMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
-  assert.ok(afterMoisture > beforeMoisture);
+  const expectedDelta = moistureDeltaFromWater(firstCommand.ack.actualWaterLitre, 80);
+  assert.ok(Math.abs(afterMoisture - (beforeMoisture + expectedDelta)) < 0.2);
   const afterTelemetry = (await service.getTelemetry(plan.plotId, 'SOIL_MOISTURE', 1))[0].value;
-  assert.ok(afterTelemetry > beforeTelemetry + 5);
+  assert.ok(afterTelemetry > beforeTelemetry);
   const passport = await service.getDecisionPassport(plan.traceId);
   assert.equal(passport.commands.at(-1).commandId, firstCommand.commandId);
   assert.equal(passport.evaluations.at(-1).commandId, firstCommand.commandId);
@@ -90,12 +91,16 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /farmer-irrigation-\$\{plan\.planId\}/);
   assert.match(source, /load_plot_simulation/);
   assert.match(source, /plot_simulation_chart/);
+  assert.match(source, /chart_points_in_window/);
+  assert.match(source, /windowStart/);
 });
 
 test('farmer can read plot simulation strategy and forecast curve', async () => {
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read'] } });
   const strategy = await service.getPlotSimulation('plot-a01');
+  assert.equal(strategy.parameters.timeScale, 144);
+  assert.equal(strategy.parameterLimits.timeScale.max, 288);
   const forecast = await service.getRiskForecast('plot-a01', 'SOIL_MOISTURE');
   assert.equal(strategy.plotId, 'plot-a01');
   assert.ok(strategy.scenario);

@@ -1159,7 +1159,7 @@ export function emptyAdminOverview() {
     uptime: '—', apiVersion: '—', aiMode: '—', llmModel: '—',
     alerts: { open: 0, acknowledged: 0, closedToday: 0 },
     devices: { total: 0, online: 0, offline: 0 },
-    simulator: { running: false, scenario: '', eventsEmitted: 0 },
+    simulator: { running: false, scenario: '', eventsEmitted: 0, sampleIntervalSeconds: 20, timeScale: 144 },
     services: [], recentEvents: [], dataOrigin: 'BACKEND'
   };
 }

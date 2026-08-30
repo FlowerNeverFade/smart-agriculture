@@ -71,11 +71,13 @@ paths:
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
   /api/v1/simulator/status:
-    get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
+    get: {tags: [management], responses: {'200': {description: 进程内遥测模拟器状态（running、采样间隔、时间流速、已发送事件）}}}
   /api/v1/simulator/start:
-    post: {tags: [management], description: 仅农场管理员或系统管理员可启动默认 normal 情景模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], description: 仅农场管理员或系统管理员可启动进程内模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/simulator/stop:
-    post: {tags: [management], description: 仅农场管理员或系统管理员可停止遥测模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], description: 仅农场管理员或系统管理员可停止进程内模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/simulator/settings:
+    put: {tags: [management], description: 仅管理员可更新全局采样间隔（5–60 秒）和时间流速（1–288x），运行中下一拍生效, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设置已保存}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/overview:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前授权农场的多地块风险总览}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/farms:
@@ -103,7 +105,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
     put:
       tags: [scenario]
-      description: 仅管理员可修改单个地块的场景；保存后 API 原子写入模拟器配置文件，运行中的模拟器会热加载。
+      description: 仅管理员可修改单个地块的场景；保存后由进程内模拟器在下一拍读取，不经 MQTT。
       parameters: [{$ref: '#/components/parameters/PlotId'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlotSimulationUpdateRequest'}}}}
       responses:

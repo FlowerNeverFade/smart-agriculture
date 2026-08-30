@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -167,25 +167,28 @@ const PLOT_CHART_SPECS = [
 
 const CHART_RANGE_OPTIONS = [
   {
-    id: '7h',
-    label: '7 小时',
-    title: '近 7 小时',
+    id: '6h',
+    label: '6 模拟时',
+    title: '近 6 个模拟小时',
+    simHours: 6,
     amplitude_scale: 0.35,
-    labels: ['6 小时前', '5 小时前', '4 小时前', '3 小时前', '2 小时前', '1 小时前', '现在']
+    labels: ['6 时前', '5 时前', '4 时前', '3 时前', '2 时前', '1 时前', '现在']
   },
   {
-    id: '24h',
-    label: '24 小时',
-    title: '近 24 小时',
-    amplitude_scale: 0.7,
-    labels: ['24 小时前', '20 小时前', '16 小时前', '12 小时前', '8 小时前', '4 小时前', '现在']
-  },
-  {
-    id: '7d',
-    label: '7 天',
-    title: '近 7 天',
+    id: '1d',
+    label: '1 模拟日',
+    title: '近 1 个模拟日',
+    simHours: 24,
     amplitude_scale: 1,
-    labels: ['6日前', '5日前', '4日前', '3日前', '2日前', '昨日', '今天']
+    labels: ['0 时', '4 时', '8 时', '12 时', '16 时', '20 时', '现在']
+  },
+  {
+    id: '3d',
+    label: '3 模拟日',
+    title: '近 3 个模拟日',
+    simHours: 72,
+    amplitude_scale: 1,
+    labels: ['3 日前', '2.5 日前', '2 日前', '1.5 日前', '1 日前', '0.5 日前', '现在']
   }
 ];
 
@@ -331,10 +334,36 @@ function chart_x_at(index, count, layout = DEFAULT_CHART_LAYOUT) {
   return layout.left + (index / Math.max(1, count - 1)) * inner.width;
 }
 
+function chart_x_at_ratio(ratio, layout = DEFAULT_CHART_LAYOUT) {
+  const inner = chart_inner_size(layout);
+  return layout.left + Math.max(0, Math.min(1, ratio)) * inner.width;
+}
+
 function chart_y_at(value, min, max, layout = DEFAULT_CHART_LAYOUT) {
   const inner = chart_inner_size(layout);
   const span = Math.max(1, max - min);
   return layout.top + (1 - ((Number(value) - min) / span)) * inner.height;
+}
+
+function parse_chart_ts(point) {
+  if (point == null) return NaN;
+  if (typeof point === 'number') {
+    if (point > 1e12) return point;
+    if (point > 1e9) return point * 1000;
+    return NaN;
+  }
+  const raw = typeof point === 'object'
+    ? (point.ts ?? point.observedAt ?? point.timestamp ?? point.eventTs)
+    : point;
+  if (typeof raw === 'number') return parse_chart_ts(raw);
+  const parsed = Date.parse(raw || '');
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function chart_points_in_window(samples, min, max, layout = DEFAULT_CHART_LAYOUT) {
+  return (Array.isArray(samples) ? samples : []).map((sample) => (
+    `${chart_x_at_ratio(sample.ratio, layout).toFixed(1)},${chart_y_at(sample.value, min, max, layout).toFixed(1)}`
+  )).join(' ');
 }
 
 // moisture bands can be replaced by the backend Crop Pack response as soon as
@@ -582,10 +611,46 @@ function dual_track_chart(comparison) {
 }
 
 function find_chart_range(range_id) {
-  return CHART_RANGE_OPTIONS.find((item) => item.id === range_id) || CHART_RANGE_OPTIONS[2];
+  return CHART_RANGE_OPTIONS.find((item) => item.id === range_id)
+    || CHART_RANGE_OPTIONS.find((item) => item.id === '1d')
+    || CHART_RANGE_OPTIONS[1];
 }
 
-function metric_chart(plot, code, range_id = '7d', stage_override = null) {
+function chart_time_scale(plot) {
+  const value = Number(plot?.simulation?.parameters?.timeScale);
+  return Number.isFinite(value) && value >= 1 ? value : DEFAULT_SIMULATION_TIME_SCALE;
+}
+
+function downsample_chart_samples(samples, maxPoints = 48) {
+  if (!Array.isArray(samples) || samples.length <= maxPoints) return samples || [];
+  const step = (samples.length - 1) / (maxPoints - 1);
+  return Array.from({ length: maxPoints }, (_, index) => samples[Math.round(index * step)]);
+}
+
+function simulation_axis_labels(simHours) {
+  const ticks = 7;
+  const span = Number(simHours);
+  if (!Number.isFinite(span) || span <= 0) {
+    return ['0 时', '4 时', '8 时', '12 时', '16 时', '20 时', '现在'];
+  }
+  return Array.from({ length: ticks }, (_, index) => {
+    if (index === ticks - 1) return '现在';
+    const hour = span * index / (ticks - 1);
+    if (span <= 36) return `${Math.round(hour)} 时`;
+    return `${(hour / 24).toFixed(1)} 日前`;
+  });
+}
+
+function format_sim_clock_label(elapsedHours, spanHours) {
+  const span = Number(spanHours) || 24;
+  const elapsed = Number(elapsedHours);
+  if (!Number.isFinite(elapsed)) return '—';
+  if (elapsed >= span - 0.08) return '现在';
+  if (span <= 36) return `${Math.round(Math.max(0, elapsed))} 时`;
+  return `${(Math.max(0, span - elapsed) / 24).toFixed(1)} 日前`;
+}
+
+function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
   const metric = plot?.metrics?.[code];
   if (!spec || !metric) return null;
@@ -595,12 +660,23 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
   const seed = chart_seed(`${plot.plotId}:${code}:${range.id}`);
   const pattern = [-1, -0.42, 0.55, 1.05, -0.52, 0.68, 0];
   const phase = ((seed % 7) - 3) * 0.12;
-  const observedValues = Array.isArray(metric.history)
-    ? metric.history
-      .map((point) => Number(point?.value ?? point))
-      .filter(Number.isFinite)
-      .slice(-7)
-    : [];
+  const historyPoints = Array.isArray(metric.history) ? metric.history : [];
+  const timeScale = chart_time_scale(plot);
+  const windowMs = Math.max(60_000, (Number(range.simHours) || 24) * 3600 * 1000 / timeScale);
+  const windowEnd = Date.now();
+  const windowStart = windowEnd - windowMs;
+  const timedSamples = historyPoints.map((point) => ({
+    ts: parse_chart_ts(point),
+    value: Number(point?.value ?? point)
+  })).filter((sample) => Number.isFinite(sample.ts) && Number.isFinite(sample.value)
+    && sample.ts >= windowStart - 1000 && sample.ts <= windowEnd + 5000)
+    .sort((left, right) => left.ts - right.ts)
+    .map((sample) => ({
+      ...sample,
+      ratio: Math.max(0, Math.min(1, (sample.ts - windowStart) / windowMs))
+    }));
+  const samples = downsample_chart_samples(timedSamples);
+  const observedValues = samples.map((sample) => sample.value);
   const hasObservedHistory = observedValues.length >= 2;
   const allowDerived = plot?.dataOrigin !== 'BACKEND';
   const build_values = (base, amplitude = spec.amplitude, series_offset = 0) => pattern.map((point, index) => {
@@ -609,19 +685,36 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
     const drift = (index < 3 ? (2 - index) * scaled * 0.06 : 0);
     return Number(clamp_chart_value(Number(base) + wave + drift, spec.min, spec.max).toFixed(spec.precision));
   });
+  const derivedSamples = (values) => values.map((value, index, list) => ({
+    value,
+    ratio: list.length <= 1 ? 1 : index / (list.length - 1),
+    ts: windowStart + (list.length <= 1 ? windowMs : windowMs * index / (list.length - 1))
+  }));
 
   const risk_color = metric.status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
   const series = spec.multi
-    ? parse_npk(metric.value).map((base, index) => ({
-      label: ['氮', '磷', '钾'][index],
-      color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
-      values: hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : [])
-    }))
-    : [{
-      label: spec.label,
-      color: is_risk ? risk_color : spec.color,
-      values: hasObservedHistory ? observedValues : (allowDerived ? build_values(Number(metric.value)) : [])
-    }];
+    ? parse_npk(metric.value).map((base, index) => {
+      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : []);
+      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      return {
+        label: ['氮', '磷', '钾'][index],
+        color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
+        values,
+        samples: plotted,
+        points: chart_points_in_window(plotted, spec.min, spec.max)
+      };
+    })
+    : (() => {
+      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(Number(metric.value)) : []);
+      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      return [{
+        label: spec.label,
+        color: is_risk ? risk_color : spec.color,
+        values,
+        samples: plotted,
+        points: chart_points_in_window(plotted, spec.min, spec.max)
+      }];
+    })();
 
   const grid = [
     { y: 10, label: format_chart_axis_value(spec.max, spec.precision) },
@@ -642,6 +735,9 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
       : NaN
   ));
   const confidence = Number(quality.confidence ?? (isDemoMetric ? (metric.status === 'ALERT' ? 0.91 : 0.97) : NaN));
+  const axisLabels = range.labels || simulation_axis_labels(range.simHours);
+  const primarySamples = series[0]?.samples || [];
+  const sampleLabels = primarySamples.map((sample) => format_sim_clock_label(sample.ratio * (range.simHours || 24), range.simHours));
 
   return {
     ...spec,
@@ -667,13 +763,18 @@ function metric_chart(plot, code, range_id = '7d', stage_override = null) {
     is_risk,
     risk_label: metric.status === 'ALERT' ? '告警偏离' : (metric.status === 'WARN' ? '偏离目标' : ''),
     range_title: range.title,
-    labels: range.labels,
-    sample_labels: range.labels,
+    simHours: range.simHours,
+    timeScale,
+    windowStart,
+    windowEnd,
+    labels: axisLabels,
+    sample_labels: sampleLabels,
+    samples: primarySamples,
     grid,
     is_multi: Boolean(spec.multi),
     history_source: hasObservedHistory ? 'BACKEND' : (allowDerived ? 'DERIVED' : 'UNAVAILABLE'),
     history_available: hasObservedHistory,
-    series: series.map((item) => ({ ...item, points: chart_points(item.values, spec.min, spec.max) }))
+    series
   };
 }
 
@@ -1013,7 +1114,7 @@ const app = createApp({
     const current_view = ref(parse_farmer_hash());
     const tools_tab = ref(parse_tools_tab());
     const selected_plot = ref(plots.value[0] || null);
-    const chart_range = ref('7d');
+    const chart_range = ref('1d');
     const plot_stage_preview = ref(selected_plot.value?.stageCode || '');
     const plot_stage_options = computed(() => (crop_pack_for(selected_plot.value)?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
     const plot_stage_preview_item = computed(() => plot_stage_options.value.find((stage) => stage.code === plot_stage_preview.value) || crop_stage_for(selected_plot.value));
@@ -1033,24 +1134,46 @@ const app = createApp({
       const right = Number(chart?.plotRight ?? (DEFAULT_CHART_LAYOUT.width - DEFAULT_CHART_LAYOUT.right)) / Number(chart?.layoutWidth ?? DEFAULT_CHART_LAYOUT.width);
       const inner = Math.max(0.001, right - left);
       const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-      const index = Math.round(Math.max(0, Math.min(1, (ratio - left) / inner)) * Math.max(0, pointCount - 1));
+      const innerRatio = Math.max(0, Math.min(1, (ratio - left) / inner));
+      const samples = chart.samples || series[0]?.samples || [];
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      samples.forEach((sample, index) => {
+        const distance = Math.abs(Number(sample.ratio) - innerRatio);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      const index = samples.length ? nearestIndex : Math.round(innerRatio * Math.max(0, pointCount - 1));
+      const simHours = Number(chart.simHours) || 24;
       const labels = chart.sample_labels || chart.labels || [];
       const values = series
         .filter((item) => item.tooltip !== false)
-        .map((item) => ({ label: item.label, color: item.color, value: item.values?.[index] }))
+        .map((item) => ({
+          label: item.label,
+          color: item.color,
+          value: item.samples?.[index]?.value ?? item.values?.[index]
+        }))
         .filter((item) => Number.isFinite(Number(item.value)));
       chart_tooltip.value = {
         key,
-        label: labels[index] || `第 ${index + 1} 个采样点`,
+        label: format_sim_clock_label(innerRatio * simHours, simHours) || labels[index] || `第 ${index + 1} 个采样点`,
         values,
         left: Math.max(9, Math.min(91, ratio * 100)),
         top: Math.max(18, Math.min(82, ((event.clientY - rect.top) / rect.height) * 100))
       };
     };
     const hide_chart_tooltip = () => { chart_tooltip.value = null; };
+    const plot_simulation = ref(null);
     const plot_charts = computed(() => PLOT_CHART_SPECS
       .map((spec) => {
-        const chart = metric_chart(selected_plot.value, spec.code, chart_range.value, plot_stage_preview_item.value);
+        const chart = metric_chart(
+          { ...selected_plot.value, simulation: plot_simulation.value || selected_plot.value.simulation },
+          spec.code,
+          chart_range.value,
+          plot_stage_preview_item.value
+        );
         if (!chart) return { ...spec, unavailable: true, current_label: 'UNAVAILABLE', target: '无可用数据', stageLabel: plot_stage_preview_item.value?.label || selected_plot.value?.stageLabel || '当前阶段', quality: { status: 'UNAVAILABLE', freshnessLabel: '不可用', completenessLabel: '不可用', confidenceLabel: '不可用' } };
         if (spec.code !== 'SOIL_MOISTURE' || !selected_plot.value) return chart;
         const status = resolve_moisture_band_status(selected_plot.value);
@@ -1067,7 +1190,6 @@ const app = createApp({
       .filter(Boolean));
 
     // 农户只读查看管理员维护的地块模拟策略和风险预测。
-    const plot_simulation = ref(null);
     const plot_simulation_forecast = ref(null);
     const plot_simulation_loading = ref(false);
     const plot_simulation_error = ref('');
@@ -1137,11 +1259,11 @@ const app = createApp({
     const risk_tool_scenario_options = computed(() => PLOT_SIMULATION_SCENARIOS);
     const risk_tool_parameter_meta = Object.freeze({
       volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 12, step: 1, help: '每个采样点代表的加速时间；默认按接近实时速度推进' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '默认 144 倍：墙上时钟 10 分钟 ≈ 1 个模拟日' },
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '降雨场景平均强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
       driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
@@ -1217,7 +1339,7 @@ const app = createApp({
         load_irrigation_plan(plot.plotId, { silent: true });
       }
     };
-    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '7d'));
+    const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '1d'));
 
     // 灌溉系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
     const risk_plot_cards = computed(() => plots.value.map((plot) => {
@@ -1241,7 +1363,7 @@ const app = createApp({
     }));
 
     // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
-    const moisture_range = ref('7d');
+    const moisture_range = ref('1d');
     const moisture_range_options = CHART_RANGE_OPTIONS;
     const irrigation_plan = ref(null);
     const irrigation_readiness_detail = ref(null);
@@ -1400,10 +1522,11 @@ const app = createApp({
       const innerH = height - pad.top - pad.bottom;
       const span = Math.max(1, scale.max - scale.min);
       const toY = (v) => pad.top + (1 - (Math.min(scale.max, Math.max(scale.min, v)) - scale.min) / span) * innerH;
-      const toX = (i, n) => pad.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+      const toX = (ratio) => pad.left + Math.max(0, Math.min(1, Number(ratio) || 0)) * innerW;
       const series = base.series.map((s) => ({
         ...s,
-        points: s.values.map((v, i) => `${toX(i, s.values.length).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+        points: (s.samples || []).map((sample) => `${toX(sample.ratio).toFixed(1)},${toY(sample.value).toFixed(1)}`).join(' ')
+          || s.values.map((v, i) => `${toX(s.values.length <= 1 ? 1 : i / (s.values.length - 1)).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
       }));
       const band = selected_crop_band.value;
       const bandStatus = resolve_moisture_band_status(plot);

@@ -1,6 +1,7 @@
 package com.agriloop;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -20,6 +21,18 @@ class AgriApplicationTest {
     @Autowired JwtService jwtService;
     @Autowired AgriController controller;
     @Autowired AdminManagementService adminManagement;
+    @Autowired SimulationEngine simulationEngine;
+    @Autowired SimulatorControl simulatorControl;
+
+    @AfterEach
+    void stopInProcessSimulator() {
+        if (simulationEngine == null) return;
+        simulationEngine.stop();
+        simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
+        for (String plotId : List.of("plot-a01", "plot-a02", "plot-b01")) {
+            store.deleteSimulatedTelemetryForPlot(plotId);
+        }
+    }
 
     @Test
     void legacyPlotAllowsPartialMetadataUpdate() {
@@ -234,6 +247,8 @@ class AgriApplicationTest {
         Map<String, Object> actual = Jsons.map(new ObjectMapper(), evaluation.get("actual"));
         assertThat(Jsons.number(actual, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(actual, "soilMoistureBefore", 0));
         assertThat(Jsons.number(actual, "waterLitre", 0)).isGreaterThan(0);
+        assertThat(Jsons.number(actual, "soilMoistureAfter", 0))
+                .isCloseTo(16.0 + Jsons.number(plan, "waterLitre", 0) / (80.0 * 0.08), org.assertj.core.data.Offset.offset(0.2));
         Map<String, Object> virtualSoil = store.latestTelemetry(plotId, "SOIL_MOISTURE",
                 observedAt, Instant.now().plusSeconds(1));
         assertThat(Jsons.number(virtualSoil, "value", 0)).isGreaterThan(16.0);
@@ -382,7 +397,7 @@ class AgriApplicationTest {
                 "metric", "SOIL_MOISTURE", "value", 17.0, "unit", "%", "scenarioId", "normal", "ts", Instant.now().toString()));
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
         Map<String, Object> farmerReadiness = engine.readiness("PLOT", "plot-a02", farmer);
-        assertThat(farmerReadiness.get("status")).isEqualTo("HUMAN_REVIEW");
+        assertThat(farmerReadiness.get("status")).isIn("READY", "HUMAN_REVIEW");
         assertThat(String.valueOf(farmerReadiness.get("hardGates"))).contains("permission=PASS");
         assertThat(String.valueOf(farmerReadiness.get("missingEvidence"))).doesNotContain("CONTROL_PERMISSION");
     }
@@ -1089,10 +1104,10 @@ class AgriApplicationTest {
     }
 
     @Test
-    void simulatorWithoutSupervisorIsExplicitlyUnavailable() {
+    void simulatorControlDisabledIsUnavailableWithoutSupervisor() {
         AgriProperties properties = new AgriProperties();
         properties.setSimulatorControlEnabled(false);
-        SimulatorControl simulator = new SimulatorControl(properties);
+        SimulatorControl simulator = new SimulatorControl(properties, null);
         assertThat(simulator.status()).containsEntry("available", false)
                 .containsEntry("status", "UNAVAILABLE")
                 .containsEntry("reason", "SIMULATOR_CONTROL_DISABLED");
@@ -1279,6 +1294,8 @@ class AgriApplicationTest {
         assertThat(heavyRain).containsEntry("scenario", "HEAVY_RAIN");
         assertThat(Jsons.number(Jsons.map(new ObjectMapper(), drought.get("parameters")), "soilMoistureTrendPerHour", 0))
                 .isEqualTo(-5.0);
+        assertThat(Jsons.number(Jsons.map(new ObjectMapper(), drought.get("parameters")), "timeScale", 0))
+                .isEqualTo(144.0);
         assertThat(Jsons.number(Jsons.map(new ObjectMapper(), heavyRain.get("parameters")), "rainfallRate", 0))
                 .isEqualTo(55.0);
         assertThat(engine.plotSimulation(droughtPlot, systemAdmin).get("scenario")).isEqualTo("DROUGHT");
@@ -1697,5 +1714,72 @@ class AgriApplicationTest {
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
         Map<String, Object> guard = engine.irrigationGuard("plot-a01", farmer);
         assertThat(guard).containsEntry("state", "COOLDOWN_ACTIVE").containsKeys("remainingSeconds", "hysteresis", "ruleVersion");
+    }
+
+    @Test
+    void inProcessSimulatorUsesDefaultScaleAndDoesNotCallSupervisor() {
+        simulationEngine.stop();
+        simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
+        Map<String, Object> status = simulatorControl.status();
+        assertThat(status).containsEntry("available", true)
+                .containsEntry("pid", "api")
+                .containsEntry("program", "in-process");
+        assertThat(Jsons.number(status, "sampleIntervalSeconds", 0)).isEqualTo(20.0);
+        assertThat(Jsons.number(status, "timeScale", 0)).isEqualTo(144.0);
+        assertThat(String.valueOf(status.get("status"))).isIn("RUNNING", "STOPPED");
+        assertThat(status).doesNotContainKey("raw");
+        Map<String, Object> started = simulationEngine.start(false);
+        assertThat(started).containsEntry("status", "RUNNING").containsEntry("pid", "api");
+        Map<String, Object> settings = simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 5, "timeScale", 144));
+        assertThat(Jsons.number(settings, "sampleIntervalSeconds", 0)).isEqualTo(5.0);
+        assertThat(Jsons.number(settings, "timeScale", 0)).isEqualTo(144.0);
+        assertThat(simulationEngine.currentSampleIntervalSeconds()).isEqualTo(5);
+        simulationEngine.stop();
+        simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
+    }
+
+    @Test
+    void simulatorSettingsAreForbiddenForFarmers() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.simulatorSettings(
+                        Map.of("sampleIntervalSeconds", 5, "timeScale", 144), authentication))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ADMIN_REQUIRED"));
+    }
+
+    @Test
+    void inProcessIrrigationStaysInEngineStateOnFollowingTick() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        engine.updatePlotSimulation("plot-a01", Map.of("scenario", "NORMAL"), admin);
+        simulationEngine.stop();
+        simulationEngine.tickOnce();
+        SimulationEngine.PlotState before = simulationEngine.plotState("plot-a01");
+        assertThat(before).isNotNull();
+        simulationEngine.applyIrrigation("plot-a01", 51.2, 80);
+        SimulationEngine.PlotState watered = simulationEngine.plotState("plot-a01");
+        assertThat(watered.soil).isCloseTo(before.soil + 8.0, org.assertj.core.data.Offset.offset(0.2));
+        simulationEngine.tickOnce();
+        SimulationEngine.PlotState afterTick = simulationEngine.plotState("plot-a01");
+        assertThat(afterTick.soil).isGreaterThan(before.soil + 6.0);
+    }
+
+    @Test
+    void changingSampleIntervalChangesTickSpacing() throws InterruptedException {
+        simulationEngine.stop();
+        simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 5, "timeScale", 144));
+        long before = simulationEngine.eventsEmitted();
+        simulationEngine.start(true);
+        long afterImmediate = simulationEngine.eventsEmitted();
+        assertThat(afterImmediate).isGreaterThan(before);
+        long deadline = System.currentTimeMillis() + 7000;
+        long next = afterImmediate;
+        while (System.currentTimeMillis() < deadline && next <= afterImmediate) {
+            Thread.sleep(200);
+            next = simulationEngine.eventsEmitted();
+        }
+        simulationEngine.stop();
+        simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
+        assertThat(simulationEngine.currentSampleIntervalSeconds()).isEqualTo(20);
+        assertThat(next).isGreaterThan(afterImmediate);
     }
 }

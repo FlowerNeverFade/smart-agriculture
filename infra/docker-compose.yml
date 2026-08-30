@@ -51,12 +51,6 @@ services:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       mqtt: {condition: service_started}
-  simulator:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.simulator
-    command: ["--scenario", "drought", "--mqtt", "--mqtt-host", "mqtt", "--speed", "1"]
-    depends_on: [api, mqtt]
 
 volumes:
   agriloop_pg:

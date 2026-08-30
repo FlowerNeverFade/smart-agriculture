@@ -1277,7 +1277,7 @@ export const MOCK_DATA = {
     alerts: { open: 3, acknowledged: 1, closedToday: 7 },
     devices: { total: 12, online: 10, offline: 2 },
     simulator: {
-      running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00',
+      running: true, scenario: 'NORMAL', eventsEmitted: 1847, sampleIntervalSeconds: 20, timeScale: 144, startTime: '2026-08-25 08:00',
       history: [
         { id: 'sim-802', scenarioId: 'DROUGHT', timestamp: '2026-08-24 15:30', eventsEmitted: 450, status: 'COMPLETED' },
         { id: 'sim-803', scenarioId: 'STORM', timestamp: '2026-08-24 17:10', eventsEmitted: 210, status: 'ABORTED' },

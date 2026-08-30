@@ -199,8 +199,8 @@
 # 后端单元/集成测试
 ./gradlew :apps:api-service:test --no-daemon
 
-# 模拟器（另开终端）
-./scripts/run-simulator.sh
+# 模拟遥测已内置到 API，启动 api-service 即可；系统管理员页可调采样间隔与流速
+# 离线物理对照（非默认路径）: python3 simulator/runner.py --help
 
 # API 健康
 curl -s http://127.0.0.1:8080/actuator/health

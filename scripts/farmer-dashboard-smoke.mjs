@@ -35,6 +35,6 @@ check('首页顺序为行动、统计、地块、辅助信息、动态',
 check('首页统计卡有窄屏双列规则', style.includes('.farmer-dashboard-workspace > .farmer-stats-grid { grid-template-columns: repeat(2'));
 check('首页风险摘要有窄屏单列规则', style.includes('.farmer-dashboard-hero-grid { grid-template-columns: 1fr; }'));
 check('窄屏默认收起侧栏', script.includes('window.innerWidth > 760'));
-check('首页使用新的资源版本参数', html.includes('20260830-dashboard-hierarchy'));
+check('首页使用新的资源版本参数', html.includes('20260830-farmer-ui-merge'));
 
 console.log('\n===== 农户首页静态检查通过 =====');
