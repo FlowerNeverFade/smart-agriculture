@@ -1,6 +1,6 @@
 # 新增作物指导资料
 
-本轮在演示 `Crop Pack` 和正式 API 资源中新增生菜、茄子两套四阶段指导。数值用于重庆温室演示，不能替代当地农技人员、品种说明或现场检测；页面只把 `SUPPORTED` 指标作为可观测事实，光照和 pH 等仍标记为模型参考。
+当前农户手册在演示 `mock-data` 与正式 API 资源中统一提供 9 个作物：番茄、黄瓜、草莓、辣椒、玉米、水稻、向日葵、生菜和茄子。本轮重点新增生菜、茄子两套四阶段指导，并把其余 5 个已有演示作物同步为正式 API Pack。数值用于重庆温室/田间演示，不能替代当地农技人员、品种说明或现场检测；页面只把 `SUPPORTED` 指标作为可观测事实，光照和 pH 等仍标记为模型参考。
 
 ## 生菜
 
@@ -27,5 +27,5 @@
 ## 实现范围
 
 - `apps/web-ui/js/mock-data.js` 继续作为演示手册目录入口；
-- `apps/api-service/src/main/resources/crop-packs/` 同步提供正式会话的两个 Pack；
+- `apps/api-service/src/main/resources/crop-packs/` 同步提供正式会话的 9 个 Pack；
 - 所有新增内容均为 `SIMULATION`/`DERIVED` 演示资料，实际生产参数需重新校准。

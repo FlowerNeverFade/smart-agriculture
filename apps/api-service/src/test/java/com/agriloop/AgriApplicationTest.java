@@ -103,7 +103,7 @@ class AgriApplicationTest {
     void seededLoginAndCropPacksWork() {
         Map<String, Object> login = engine.login("farmer", "demo123");
         assertThat(login).containsKey("accessToken");
-        assertThat(engine.cropPacks()).hasSize(4);
+        assertThat(engine.cropPacks()).hasSize(9);
         assertThat(new AgriProperties().getLlmMaxTokens()).isEqualTo(512);
     }
 
@@ -1022,7 +1022,7 @@ class AgriApplicationTest {
 
     @Test
     void cropPacksExposeStageTemplatesAndHandbook() {
-        assertThat(engine.cropPacks()).hasSize(4).allSatisfy(pack -> {
+        assertThat(engine.cropPacks()).hasSize(9).allSatisfy(pack -> {
             assertThat(pack).containsKeys("identity", "stages", "metrics", "rules", "healthProfile", "knowledge");
             assertThat(Jsons.maps(new ObjectMapper(), pack.get("stages"))).isNotEmpty().allSatisfy(stage -> {
                 assertThat(stage).containsKeys("code", "label", "target", "riskFocus", "taskTemplates");
@@ -1031,7 +1031,7 @@ class AgriApplicationTest {
         });
         Map<String, Object> manuals = Map.of("index", engine.cropManuals());
         assertThat(Jsons.maps(new ObjectMapper(), manuals.get("index"))).extracting(item -> item.get("cropCode"))
-                .containsExactly("cucumber", "eggplant", "lettuce", "tomato");
+                .containsExactly("corn", "cucumber", "eggplant", "lettuce", "pepper", "rice", "strawberry", "sunflower", "tomato");
 
         Map<String, Object> seedling = engine.cropManual("tomato", "seedling");
         Map<String, Object> fruiting = engine.cropManual("tomato", "fruiting");
