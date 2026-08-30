@@ -3136,7 +3136,7 @@ export class ApiService {
   }
 
   async _fetch(path, options = {}, { auth = true } = {}) {
-    const { auth: optionAuth = auth, ...fetchOptions } = options;
+    const { auth: optionAuth = auth, timeoutMs = 5000, ...fetchOptions } = options;
     const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
     const headers = {
       'Accept': 'application/json',
@@ -3146,42 +3146,47 @@ export class ApiService {
     };
     if (isFormData) delete headers['Content-Type'];
     let response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.max(100, Number(timeoutMs) || 5000));
     try {
-      response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
+      response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers, signal: controller.signal });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        payload = null;
+      }
+      if (!response.ok) {
+        if ([502, 503, 504].includes(response.status)) {
+          throw new ApiError(`后端服务未运行: ${response.status}`, {
+            code: 'NETWORK_ERROR',
+            isNetworkError: true
+          });
+        }
+        const error = payload?.error || {};
+        throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
+          status: response.status,
+          code: error.code || `HTTP_${response.status}`,
+          payload,
+          details: error.details || {},
+          isNetworkError: [502, 503, 504].includes(response.status)
+        });
+      }
+      if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
+      if (this.sessionMode === 'live') this.isLive = true;
+      return payload;
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       if (this.sessionMode === 'live') this.isLive = false;
       throw new ApiError('无法连接后端服务', {
         code: 'NETWORK_ERROR',
         isNetworkError: true,
         cause: error
       });
+    } finally {
+      clearTimeout(timeout);
     }
-
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (!response.ok) {
-      if ([502, 503, 504].includes(response.status)) {
-        throw new ApiError(`后端服务未运行: ${response.status}`, {
-          code: 'NETWORK_ERROR',
-          isNetworkError: true
-        });
-      }
-      const error = payload?.error || {};
-      throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
-        status: response.status,
-        code: error.code || `HTTP_${response.status}`,
-        payload,
-        details: error.details || {},
-        isNetworkError: [502, 503, 504].includes(response.status)
-      });
-    }
-    if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
-    if (this.sessionMode === 'live') this.isLive = true;
-    return payload;
   }
 }
 
