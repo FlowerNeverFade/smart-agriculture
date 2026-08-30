@@ -1090,6 +1090,7 @@ html[data-density="compact"] #app .g-nav-item {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.25;
 }
 #app .g-nav-item:hover {
   border-color: color-mix(in srgb, var(--sidebar-accent) 28%, rgba(71, 102, 85, .16));

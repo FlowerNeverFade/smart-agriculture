@@ -168,8 +168,8 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
-  { id: 'admin-agent', label: 'Agent', icon: 'smart_toy', labels: { SYSTEM_ADMIN: 'Agent' } },
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
+  { id: 'admin-agent', label: 'Agent', icon: 'smart_toy', labels: { SYSTEM_ADMIN: 'Agent' } },
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
