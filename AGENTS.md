@@ -158,3 +158,9 @@
 [ ] PROJECT_STATUS.md 与 TASKS.md 已同步
 [ ] 演示使用固定 scenarioId，可重复回放
 ```
+
+## 9. 开发者个人偏好与约定（最高优先级）
+
+1. **名称简写**：本地和远端的 SysAdminUI 都简称为 **sau**。
+2. **Git Push操作**：执行 `git push` 必须等待用户的明确命令（参考 5.1 节）。
+3. **凭证管理**：必须走用户的本地 Windows 通行证（账号 `ice-pring`），不要弹 credential 的窗口（用户已设置好了环境变量）。

@@ -767,6 +767,38 @@ const AdminOpsView = {
   }
 };
 
+// Shared pagination for admin list views (audit records, simulator history).
+// Slices the given source ref/computed on the client side; filters apply
+// before pagination so page boundaries always reflect the filtered list.
+function usePagination(source, options = {}) {
+  const pageSize = ref(options.defaultSize || 10);
+  const pageSizeOptions = options.sizes || [10, 20, 50];
+  const currentPage = ref(1);
+  const jumpInput = ref('');
+  const totalRecords = computed(() => (source.value || []).length);
+  const totalPages = computed(() => Math.max(1, Math.ceil(totalRecords.value / pageSize.value)));
+  // Keep the page number valid when the list shrinks (filter/refresh).
+  watch([source, pageSize], () => {
+    if (currentPage.value > totalPages.value) currentPage.value = totalPages.value;
+  });
+  const pageRecords = computed(() => {
+    const list = source.value || [];
+    if (currentPage.value > totalPages.value) currentPage.value = totalPages.value;
+    const start = (currentPage.value - 1) * pageSize.value;
+    return list.slice(start, start + pageSize.value);
+  });
+  const prevPage = () => { if (currentPage.value > 1) currentPage.value -= 1; };
+  const nextPage = () => { if (currentPage.value < totalPages.value) currentPage.value += 1; };
+  const changeSize = () => { currentPage.value = 1; };
+  const jumpTo = () => {
+    const n = Math.trunc(Number(jumpInput.value));
+    if (!Number.isFinite(n) || n < 1) return;
+    currentPage.value = Math.min(n, totalPages.value);
+    jumpInput.value = '';
+  };
+  return { pageSize, pageSizeOptions, currentPage, jumpInput, totalRecords, totalPages, pageRecords, prevPage, nextPage, changeSize, jumpTo };
+}
+
 const AdminAuditView = {
   template: '#tmpl-admin-audit',
   props: ['state', 'routeParams'],
@@ -801,7 +833,15 @@ const AdminAuditView = {
       expandedPassport.value = expandedPassport.value === traceId ? null : traceId;
     };
 
-    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, localizedStatusLabel, provenanceLabel, levelLabel, displayText };
+    const { pageSize: auditPageSize, pageSizeOptions: auditPageSizeOptions, currentPage: auditPage, jumpInput: auditJumpInput,
+            totalRecords: auditTotalRecords, totalPages: auditTotalPages, pageRecords: auditPageRecords,
+            prevPage: auditPrevPage, nextPage: auditNextPage, changeSize: auditChangeSize, jumpTo: auditJumpTo } = usePagination(filteredRecords);
+    watch([searchQuery, typeFilter], () => { auditPage.value = 1; });
+
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport,
+             auditPageSize, auditPageSizeOptions, auditPage, auditJumpInput, auditTotalRecords, auditTotalPages, auditPageRecords,
+             auditPrevPage, auditNextPage, auditChangeSize, auditJumpTo,
+             localizedStatusLabel, provenanceLabel, levelLabel, displayText };
   }
 };
 
@@ -1035,10 +1075,17 @@ const AdminSimulatorView = {
       if (status && typeof status === 'object') syncSimulator(status);
     }, { immediate: true });
 
+    const simHistory = computed(() => props.state.adminSimHistory || []);
+    const { pageSize: simPageSize, pageSizeOptions: simPageSizeOptions, currentPage: simPage, jumpInput: simJumpInput,
+            totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
+            prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
+
     return {
       simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
+      simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
+      simPrevPage, simNextPage, simChangeSize, simJumpTo,
       scenarioLabel, localizedStatusLabel
     };
   }

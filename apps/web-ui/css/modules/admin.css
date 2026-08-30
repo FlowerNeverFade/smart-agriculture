@@ -432,6 +432,40 @@
   box-shadow: 0 0 0 2px var(--g-primary-bg);
 }
 
+/* ---- Pagination ---- */
+.admin-pagination-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--g-text-secondary);
+}
+.admin-pagination-bar select,
+.admin-pagination-bar input[type="number"] {
+  padding: 6px 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-surface);
+  color: var(--g-text-primary);
+  font-size: 13px;
+  font-family: var(--g-font-family);
+}
+.admin-pagination-bar select:focus,
+.admin-pagination-bar input[type="number"]:focus {
+  outline: none;
+  border-color: var(--g-primary);
+  box-shadow: 0 0 0 2px var(--g-primary-bg);
+}
+.admin-pagination-current {
+  white-space: nowrap;
+}
+.admin-page-jump-input {
+  width: 56px;
+  text-align: center;
+}
+
 /* ---- Modal ---- */
 .admin-modal-overlay {
   position: fixed;
