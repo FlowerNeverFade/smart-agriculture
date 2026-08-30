@@ -6,7 +6,7 @@ import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUser
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260830-work-effects-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260828-v58';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
@@ -143,7 +143,10 @@ const ICON_CLASS = Object.freeze({
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right'
+  chevron_right: 'ph-caret-right',
+  chevron_left: 'ph-caret-left',
+  attach_file: 'ph-paperclip',
+  image_search: 'ph-image-square'
 });
 
 const AppIcon = {
@@ -157,7 +160,8 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI告警分析与智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
@@ -829,6 +833,7 @@ const DashboardView = {
       metricTone,
       metricVisualIcon,
       metricStatusIcon,
+      cropBackgroundFor,
       openPlotDetail,
       plotMenuId,
       plotSaving,
@@ -1570,34 +1575,20 @@ const DecisionConsoleView = {
 };
 
 const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, AdminAiChat: AdminAiChatView, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
+  components: { AdminAlertCenter, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props) {
-    const showChat = ref(Boolean(['diagnosis', 'chat'].includes(props.routeParams?.highlight) || ['diagnosis', 'chat'].includes(props.routeParams?.section)));
-    watch(() => props.routeParams?.highlight, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-    });
-    watch(() => props.routeParams?.section, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-      if (value === 'alerts') showChat.value = false;
-    });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
-    return { showChat, isFarmAdmin, isFarmer };
+    return { isFarmAdmin, isFarmer };
   },
   template: `
     <div class="role-decision-shell">
       <template v-if="isFarmAdmin">
-        <nav class="admin-decision-tabs" aria-label="AI 告警分析与对话功能切换">
-          <button class="g-btn" :class="{ active: !showChat }" :aria-pressed="!showChat" type="button" @click="showChat = false">告警智能处理</button>
-          <button class="g-btn" :class="{ active: showChat }" :aria-pressed="showChat" type="button" @click="showChat = true">AI 对话助手</button>
-        </nav>
-        <admin-alert-center v-if="!showChat" :state="state"
+        <admin-alert-center :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"
-                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
@@ -2114,6 +2105,32 @@ const ValueLedgerView = {
   }
 };
 
+// Crop-specific photography used by the overview cards.  Keep this list
+// aligned with the crop selector: unknown/legacy values use a neutral farm
+// scene instead of borrowing a visually misleading crop image.
+const PLOT_CROP_BACKGROUNDS = Object.freeze({
+  tomato: new URL('../assets/crop-backgrounds/tomato.png', import.meta.url).href,
+  corn: new URL('../assets/crop-backgrounds/corn.png', import.meta.url).href,
+  cucumber: new URL('../assets/crop-backgrounds/cucumber.png', import.meta.url).href,
+  rice: new URL('../assets/crop-backgrounds/rice.png', import.meta.url).href,
+  sunflower: new URL('../assets/crop-backgrounds/sunflower.png', import.meta.url).href,
+  strawberry: new URL('../assets/crop-backgrounds/strawberry.png', import.meta.url).href
+});
+
+const cropBackgroundFor = (plot = {}) => {
+  const cropText = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''}`.trim().toLowerCase();
+  const aliases = [
+    ['tomato', ['tomato', '番茄']],
+    ['corn', ['corn', '玉米']],
+    ['cucumber', ['cucumber', '黄瓜']],
+    ['rice', ['rice', '水稻', '稻']],
+    ['sunflower', ['sunflower', '向日葵', '油葵']],
+    ['strawberry', ['strawberry', '草莓']]
+  ];
+  const match = aliases.find(([, names]) => names.some(name => cropText.includes(name)));
+  return PLOT_CROP_BACKGROUNDS[match?.[0]] || new URL('../assets/backgrounds/farm-day.png', import.meta.url).href;
+};
+
 // ---- SYSTEM ADMIN COMPONENTS ----
 
 const AdminOverviewView = {
@@ -2221,7 +2238,7 @@ const AdminOverviewView = {
       emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
     };
     return {
-      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, cropBackgroundFor,
       telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
       openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
       serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
@@ -2949,6 +2966,7 @@ const app = createApp({
     'dashboard-view': DashboardView,
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
+    'ai-assistant-view': AdminAiChatView,
     'work-orders-view': RoleAwareWorkOrdersView,
     'resource-coordination-view': AdminResourceCenterView,
     'farm-members-view': AdminMemberManagementView,
@@ -2964,7 +2982,7 @@ const app = createApp({
   },
   setup() {
     const isLive = ref(false);
-    const userSettings = ref(readUserSettings());
+    const userSettings = ref(initialUserSettings);
     const isDark = ref(resolveTheme(userSettings.value.theme) === 'dark');
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     const showProfileMenu = ref(false);
@@ -3048,6 +3066,7 @@ const app = createApp({
     let liveEventsConnecting = false;
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
+    const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
       'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
     ]);
@@ -3291,7 +3310,11 @@ const app = createApp({
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
-      if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
+      if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
+      if (wants('cropPacks') || wants('overview')) {
+        jobs.adminRules = api.getRuleSets(farmId);
+        jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
+      }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
         jobs.inspections = api.getPlots({ farmId, includeInactive: false })
@@ -3312,11 +3335,22 @@ const app = createApp({
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
       });
       const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
+      const plotsReadSucceeded = results.plots?.status === 'fulfilled';
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
         const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
+        const fetchedFacts = Array.isArray(facts) ? facts : [];
+        const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || '')));
+        const now = Date.now();
+        const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
+        pending.forEach(([plotId, entry]) => {
+          if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
+        });
+        const pendingFacts = pending
+          .filter(([plotId, entry]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
+          .map(([, entry]) => entry.plot);
+        const merged = mergeFarmPlots([...fetchedFacts, ...pendingFacts], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }
@@ -3332,6 +3366,8 @@ const app = createApp({
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
       }
+      if (results.adminRules?.status === 'fulfilled') state.value.adminRules = results.adminRules.value || [];
+      if (results.adminStrategyCandidates?.status === 'fulfilled') state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
@@ -3662,7 +3698,12 @@ const app = createApp({
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
       }
       const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
-        ? legacyAdminTabTarget(route.view, route.params?.tab, route.params?.farmId || state.value.adminContext.farmId)
+        ? legacyAdminTabTarget(
+          route.view,
+          route.params?.tab || route.params?.section || route.params?.highlight,
+          route.params?.farmId || state.value.adminContext.farmId,
+          route.params
+        )
         : null;
       if (legacyTarget) {
         const targetHash = routeHash(legacyTarget.view, legacyTarget.params);
@@ -3735,11 +3776,12 @@ const app = createApp({
         if (selectedPlotId.value === plot.plotId) selectedPlotId.value = '';
         return;
       }
-      const allIndex = state.value.allPlots.findIndex((item) => item.plotId === plot.plotId);
+      const normalized = normalizePlot({ status: 'ACTIVE', ...plot });
+      const allIndex = state.value.allPlots.findIndex((item) => item.plotId === normalized.plotId);
       if (allIndex >= 0) {
-        state.value.allPlots.splice(allIndex, 1, { ...state.value.allPlots[allIndex], ...plot });
+        state.value.allPlots.splice(allIndex, 1, { ...state.value.allPlots[allIndex], ...normalized });
       } else {
-        state.value.allPlots.push(plot);
+        state.value.allPlots.push(normalized);
       }
       state.value.plots = state.value.allPlots.filter(item => String(item.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
     };
@@ -3753,6 +3795,17 @@ const app = createApp({
         return;
       }
       if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      const plotRecord = record?.plotId
+        ? record
+        : (record?.plot?.plotId ? record.plot : (record?.result?.plotId ? record.result : null));
+      if (plotRecord?.plotId && domains.includes('plots')) {
+        const farmId = state.value.adminContext.farmId;
+        if (!plotRecord.farmId || !farmId || plotRecord.farmId === farmId) {
+          const normalizedPlot = normalizePlot({ status: 'ACTIVE', ...plotRecord });
+          applyPlotChange({ type: 'upsert', plot: normalizedPlot });
+          pendingFarmPlots.set(normalizedPlot.plotId, { farmId, plot: normalizedPlot, expiresAt: Date.now() + 30000 });
+        }
+      }
       const normalized = [...new Set(domains.flatMap(domain => {
         if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
         if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
@@ -3901,6 +3954,9 @@ const app = createApp({
       isLive.value = api.isLive;
       if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
+      userSettings.value = readUserSettings();
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
         routeParams.value = params;

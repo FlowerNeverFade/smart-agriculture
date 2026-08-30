@@ -1229,6 +1229,7 @@ class AgriEngine {
     private final RedisStreamWorker streamWorker;
     private final AdminManagementService adminManagement;
     private final SimulationEngine simulationEngine;
+    private final FarmGovernanceService governance;
     private final Map<String, Instant> cooldowns = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> idempotentCommands = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
@@ -1246,7 +1247,8 @@ class AgriEngine {
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                CropPackCatalog cropPackCatalog,
                PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands,
-               RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement, @Lazy SimulationEngine simulationEngine) {
+               RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement,
+               @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
@@ -1260,6 +1262,7 @@ class AgriEngine {
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
         this.simulationEngine = simulationEngine;
+        this.governance = governance;
     }
 
     @PostConstruct
@@ -1831,6 +1834,13 @@ class AgriEngine {
         return cropPackCatalog.updateStatus(cropCode, version, status, principal);
     }
 
+    List<Map<String, Object>> cropPacks(String farmId, boolean includeDrafts, UserPrincipal principal) {
+        if (farmId != null && !farmId.isBlank() && !principal.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        }
+        return cropPackCatalog.allForFarm(farmId, includeDrafts);
+    }
+
     Map<String, Object> resolvedProfile(String plotId) {
         Map<String, Object> plot = requireRecord("plot", plotId);
         Map<String, Object> context = plotCropContext(plotId);
@@ -1869,15 +1879,21 @@ class AgriEngine {
         return cropPackCatalog.manualIndex();
     }
 
+    List<Map<String, Object>> cropManuals(String farmId, boolean includeDrafts, UserPrincipal principal) {
+        if (farmId == null || farmId.isBlank()) return cropPackCatalog.manualIndex();
+        if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        return cropPackCatalog.manualIndexForFarm(farmId, includeDrafts);
+    }
+
     Map<String, Object> cropManual(String cropCode, String stageCode) {
         return cropPackCatalog.handbook(cropCode, stageCode);
     }
 
     Map<String, Object> plotCropManual(String plotId) {
-        requireRecord("plot", plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
         Map<String, Object> context = plotCropContext(plotId);
-        Map<String, Object> handbook = cropPackCatalog.handbook(
-                Jsons.text(context, "cropCode", "tomato"), Jsons.text(context, "stageCode", ""));
+        Map<String, Object> handbook = cropPackCatalog.handbookForFarm(
+                Jsons.text(context, "cropCode", "tomato"), Jsons.text(context, "stageCode", ""), Jsons.text(plot, "farmId", ""));
         handbook.put("plotId", plotId);
         return handbook;
     }
@@ -1900,7 +1916,8 @@ class AgriEngine {
         String crop = Jsons.text(plotMap, "cropCode", Jsons.text(batch, "cropCode", "tomato"));
         String version = Jsons.text(batch, "cropPackVersion", Jsons.text(plotMap, "cropPackVersion", ""));
         String stage = Jsons.text(plotMap, "stageCode", Jsons.text(batch, "stageCode", ""));
-        return cropPackCatalog.resolve(crop, version, stage);
+        String farmId = Jsons.text(plotMap, "farmId", "");
+        return cropPackCatalog.resolveForFarm(crop, version, stage, farmId);
     }
 
     Map<String, Object> ingest(Map<String, Object> input) {
@@ -2545,7 +2562,9 @@ class AgriEngine {
         if ("ACKED".equals(normalized)) { alert.put("acknowledgedBy", principal.userId); alert.put("acknowledgedAt", now.toString()); }
         if ("CLOSED".equals(normalized) || "RESOLVED".equals(normalized)) { alert.put("closedBy", principal.userId); alert.put("closedAt", now.toString()); }
         if ("ESCALATED".equals(normalized)) { alert.put("escalatedBy", principal.userId); alert.put("escalatedAt", now.toString()); }
-        store.save("alert", alertId, alert); events.publish("alert." + normalized.toLowerCase(Locale.ROOT), alert); store.logEvent("alert." + normalized.toLowerCase(Locale.ROOT), alert); return alert;
+        store.save("alert", alertId, alert); events.publish("alert." + normalized.toLowerCase(Locale.ROOT), alert); store.logEvent("alert." + normalized.toLowerCase(Locale.ROOT), alert);
+        if ("CLOSED".equals(normalized) || "RESOLVED".equals(normalized)) governance.recordAlertOutcome(alert, Map.of("result", normalized, "resolutionAction", "CLOSE"), principal);
+        return alert;
     }
 
     /**
@@ -4185,6 +4204,15 @@ class AgriEngine {
         if (verification && approved) {
             Map<String, Object> result = new LinkedHashMap<>(work);
             result.put("verificationResolution", resolveApprovedVerification(work, verificationResult, principal));
+            Map<String, Object> sourceAlert = store.find("alert", Jsons.text(work, "sourceRef", ""));
+            if (sourceAlert != null) {
+                Map<String, Object> learning = new LinkedHashMap<>();
+                learning.put("verificationResult", verificationResult);
+                learning.put("resolutionAction", "CLEARED_NORMAL".equals(verificationResult) ? "CLOSE" : "FOLLOW_UP");
+                learning.put("evidenceRefs", work.getOrDefault("evidenceRefs", List.of()));
+                learning.put("dataQuality", Jsons.text(work, "dataQuality", "GOOD"));
+                governance.recordAlertOutcome(sourceAlert, learning, principal);
+            }
             return result;
         }
         return work;
@@ -6446,11 +6474,12 @@ class AgriController {
     private final MqttBridge mqtt;
     private final SimulatorControl simulator;
     private final AdminManagementService adminManagement;
+    private final FarmGovernanceService governance;
 
     AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator,
-                   AdminManagementService adminManagement) {
+                   AdminManagementService adminManagement, FarmGovernanceService governance) {
         this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
-        this.adminManagement = adminManagement;
+        this.adminManagement = adminManagement; this.governance = governance;
     }
 
     @PostMapping("/auth/login")
@@ -6531,7 +6560,69 @@ class AgriController {
     }
 
     @GetMapping("/crop-packs")
-    ResponseEntity<?> cropPacks() { return ok(engine.cropPacks()); }
+    ResponseEntity<?> cropPacks(@RequestParam(required = false) String farmId,
+                                @RequestParam(defaultValue = "false") boolean includeDrafts,
+                                Authentication a) {
+        UserPrincipal p = principal(a);
+        return ok(farmId == null || farmId.isBlank() ? engine.cropPacks() : engine.cropPacks(farmId, includeDrafts, p));
+    }
+
+    @GetMapping("/rule-sets")
+    ResponseEntity<?> ruleSets(@RequestParam String farmId, Authentication a) { return ok(governance.ruleSets(farmId, principal(a))); }
+
+    @GetMapping("/alert-learning-cases")
+    ResponseEntity<?> alertLearningCases(@RequestParam String farmId,
+                                         @RequestParam(required = false) String candidateId,
+                                         Authentication a) { return ok(governance.learningCases(farmId, candidateId, principal(a))); }
+
+    @GetMapping("/strategy-candidates")
+    ResponseEntity<?> strategies(@RequestParam(required = false) String farmId,
+                                 @RequestParam(required = false) String status, Authentication a) {
+        return ok(governance.strategyCandidates(farmId, status, principal(a)));
+    }
+
+    @PostMapping("/strategy-candidates/{id}/activate")
+    ResponseEntity<?> activateStrategy(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(governance.activateStrategy(id, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @GetMapping("/strategy-candidates/preview")
+    ResponseEntity<?> strategyPreview(@RequestParam String farmId, @RequestParam String alertId, Authentication a) {
+        return ok(governance.strategyPreview(farmId, alertId, principal(a)));
+    }
+
+    @PostMapping("/strategy-candidates/{id}/transition")
+    ResponseEntity<?> strategyTransition(@PathVariable String id, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(governance.transitionStrategy(id, Jsons.text(body, "status", ""), body, principal(a)));
+    }
+
+    @PostMapping("/farms/{farmId}/crop-packs")
+    ResponseEntity<?> createFarmCropPack(@PathVariable String farmId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(governance.createCropPack(farmId, body == null ? Map.of() : body, principal(a))));
+    }
+
+    @PutMapping("/farms/{farmId}/crop-packs/{cropCode}/{version}")
+    ResponseEntity<?> updateFarmCropPack(@PathVariable String farmId, @PathVariable String cropCode, @PathVariable String version,
+                                         @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(governance.updateCropPack(farmId, cropCode, version, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/farms/{farmId}/crop-packs/{cropCode}/{version}/validate")
+    ResponseEntity<?> validateFarmCropPack(@PathVariable String farmId, @PathVariable String cropCode, @PathVariable String version, Authentication a) {
+        return ok(governance.validateCropPack(farmId, cropCode, version, principal(a)));
+    }
+
+    @PostMapping("/farms/{farmId}/crop-packs/{cropCode}/{version}/activate")
+    ResponseEntity<?> activateFarmCropPack(@PathVariable String farmId, @PathVariable String cropCode, @PathVariable String version,
+                                            @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(governance.activateCropPack(farmId, cropCode, version, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/farms/{farmId}/crop-packs/{cropCode}/{version}/archive")
+    ResponseEntity<?> archiveFarmCropPack(@PathVariable String farmId, @PathVariable String cropCode, @PathVariable String version,
+                                          @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(governance.archiveCropPack(farmId, cropCode, version, body == null ? Map.of() : body, principal(a)));
+    }
 
     @PostMapping("/crop-packs")
     ResponseEntity<?> createCropPack(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
@@ -6564,7 +6655,11 @@ class AgriController {
     }
 
     @GetMapping("/crop-manuals")
-    ResponseEntity<?> cropManuals() { return ok(engine.cropManuals()); }
+    ResponseEntity<?> cropManuals(@RequestParam(required = false) String farmId,
+                                  @RequestParam(defaultValue = "false") boolean includeDrafts,
+                                  Authentication a) {
+        return ok(engine.cropManuals(farmId, includeDrafts, principal(a)));
+    }
 
     @GetMapping("/crop-manuals/{cropCode}")
     ResponseEntity<?> cropManual(@PathVariable String cropCode, @RequestParam(required = false) String stageCode) {
@@ -7020,12 +7115,6 @@ class AgriController {
 
     @PostMapping("/strategy-candidates")
     ResponseEntity<?> strategy(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.strategyCandidate(body, principal(a))); }
-
-    @PostMapping("/strategy-candidates/{id}/transition")
-    ResponseEntity<?> strategyTransition(@PathVariable String id, @RequestBody Map<String, Object> body, Authentication a) { return ok(engine.transitionStrategy(id, Jsons.text(body, "status", ""), principal(a))); }
-
-    @GetMapping("/strategy-candidates")
-    ResponseEntity<?> strategies(Authentication a) { return ok(store.list("strategy-candidate")); }
 
     @GetMapping("/devices")
     ResponseEntity<?> devices(@RequestParam String farmId, Authentication a) { return ok(adminManagement.devices(farmId, principal(a))); }

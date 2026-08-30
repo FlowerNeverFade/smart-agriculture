@@ -11,18 +11,19 @@
   <link rel="stylesheet" href="css/google-material.css">
   <link rel="stylesheet" href="css/style.css?v=20260830-work-effects-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-ai-alert-v2">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260830-alert-readonly">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260830-ai-vision-v1">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260827-work-order-flow-v3">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-work-effects-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-branch-merge-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
   <script src="vendor/echarts.min.js"></script>
+  <script src="vendor/ort/ort.all.min.js?v=1.17.3"></script>
 
   <style>
     .feed-actions { display: flex; gap: 8px; margin-top: 12px; }
@@ -185,11 +186,13 @@
 
       <main class="g-main" :class="{ 'farmer-main': isFarmer }">
         <transition name="fade" mode="out-in">
-          <component :is="currentViewComponent" :state="state" :route-params="routeParams"
-                     @navigate="navigate" @open-plot-detail="openPlotDetail"
-                     @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
-                     @context-changed="handleContextChanged"
-                     @settings-changed="handleSettingsChanged"></component>
+          <keep-alive include="AdminAiChatView">
+            <component :is="currentViewComponent" :state="state" :route-params="routeParams"
+                       @navigate="navigate" @open-plot-detail="openPlotDetail"
+                       @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
+                       @context-changed="handleContextChanged"
+                        @settings-changed="handleSettingsChanged"></component>
+          </keep-alive>
         </transition>
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders" :state="state"
@@ -263,7 +266,7 @@
 
       <div class="manager-plot-grid" aria-label="地块状态和管理列表">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
-                 class="manager-plot-card" :class="`is-${cardTone(plot)}`"
+                 class="manager-plot-card" :class="[`is-${cardTone(plot)}`, { 'has-open-menu': plotMenuId === plot.plotId }]" :style="{ '--plot-background': 'url(' + cropBackgroundFor(plot) + ')' }"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
                  :aria-label="`查看${plot.name}二维详情`"
                  @click="openPlotDetail(plot, $event)"
@@ -1198,8 +1201,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-work-effects-v1"></script>
-
+  <script type="module" src="js/app.js?v=20260830-branch-merge-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1334,7 +1336,7 @@
           <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': 'url(' + cropBackgroundFor(plot) + ')' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>

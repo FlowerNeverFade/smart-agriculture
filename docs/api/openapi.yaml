@@ -125,7 +125,7 @@ paths:
         '400': {description: 重置目标无效}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/crop-packs:
-    get: {tags: [farm], responses: {'200': {description: 后端实际 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 全局与当前农场 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
     post: {tags: [farm], description: 系统管理员新增一个由数据库持久化并供三个角色共用的作物包, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 作物包已创建}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 相同作物编号和版本已存在}}}
   /api/v1/crop-packs/{cropCode}/{version}:
     put:
@@ -152,8 +152,22 @@ paths:
         - {name: version, in: path, required: true, schema: {type: string}}
       requestBody: {$ref: '#/components/requestBodies/JsonObject'}
       responses: {'200': {description: 作物包状态已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
+  /api/v1/rule-sets:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 全局及当前农场启用的确定性告警规则集}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/alert-learning-cases:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: candidateId, in: query, schema: {type: string}}], responses: {'200': {description: 农场级告警闭环学习案例}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/farms/{farmId}/crop-packs:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已保存农场级 Crop Pack 草稿}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}:
+    put: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 草稿已更新}, '409': {description: 版本冲突或已启用版本不可覆盖}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/validate:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], responses: {'200': {description: Schema 与规则校验结果}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/activate:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 作物包已启用并替换同作物旧版本}, '409': {description: 版本冲突}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/archive:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 作物包已归档}}}
   /api/v1/crop-manuals:
-    get: {tags: [farm], responses: {'200': {description: 作物培养手册目录，来自当前发布的 Crop Pack}}}
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 作物培养手册目录，来自当前农场可见的 Crop Pack}}}
   /api/v1/crop-manuals/{cropCode}:
     get:
       tags: [farm]
@@ -301,9 +315,25 @@ paths:
   /api/v1/agent/chat:
     post: {tags: [decision], description: 携带 message、plotId、conversationId；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出与可选 actionProposal}}}
   /api/v1/agent/conversations:
-    get: {tags: [decision], description: 返回当前账号可见的 Agent 历史会话摘要；农户仅能看到自己的会话, responses: {'200': {description: 会话标题、关联地块、最后时间和消息数}}}
+    get:
+      tags: [decision]
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；农户仅能看到自己的会话。
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+      responses:
+        '200': {description: 会话标题、关联地块、最后时间和消息数}
+        '401': {$ref: '#/components/responses/Unauthorized'}
   /api/v1/agent/history:
-    get: {tags: [decision], description: 按 conversationId 返回当前账号可见的消息历史, parameters: [{name: conversationId, in: query, required: false, schema: {type: string}}], responses: {'200': {description: 连续消息、来源和可选 actionProposal}}}
+    get:
+      tags: [decision]
+      description: 按 conversationId 返回当前账号可见的消息历史；会话归属由服务端校验。
+      parameters:
+        - {name: conversationId, in: query, required: false, schema: {type: string, maxLength: 120}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 40}}
+      responses:
+        '200': {description: 连续消息、来源和可选 actionProposal}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/actions/{actionId}:
     get: {tags: [decision], description: 查询当前操作所有者的预览、执行中或最终状态, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: Agent 操作状态与结果}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 操作不存在}}}
   /api/v1/agent/actions/{actionId}/confirm:
@@ -403,12 +433,16 @@ paths:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的价值账本}}}
     post: {tags: [management], description: 只按观测事实或管理员明确录入计算水量偏差、节水量和水费，并保存 sourceMode, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: COMPUTED/INCOMPLETE 价值账本}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/strategy-candidates:
-    get: {tags: [management], responses: {'200': {description: 策略候选}}}
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: status, in: query, schema: {type: string}}], responses: {'200': {description: 农场级策略候选；农场管理员只返回自己农场}}}
     post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: DRAFT}}}
   /api/v1/strategy-candidates/{id}/offline-validate:
     post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: OFFLINE_VALIDATED}}}
   /api/v1/strategy-candidates/{id}/transition:
     post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 审批/激活/回滚}}}
+  /api/v1/strategy-candidates/{id}/activate:
+    post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农场管理员批准并启用策略候选}, '409': {description: 版本冲突或候选状态不允许}}}
+  /api/v1/strategy-candidates/preview:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: alertId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 相似 ACTIVE 策略的只读决策预览；仍需人工确认}}}
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
     post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}

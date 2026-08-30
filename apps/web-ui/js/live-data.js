@@ -1030,6 +1030,8 @@ export function mapAdminPlot(plot, farmMap = new Map()) {
     plotId: normalized.plotId,
     farmId: normalized.farmId || '',
     farm: farmMap.get(normalized.farmId)?.name || normalized.farmId || '—',
+    cropCode: normalized.cropCode || '',
+    cropName: normalized.cropName || CROP_LABELS[normalized.cropCode] || normalized.cropCode || '—',
     crop: normalized.cropName || CROP_LABELS[normalized.cropCode] || normalized.cropCode || '—',
     status,
     updated: relativeTime(normalized.lastSeen || normalized.updatedAt),

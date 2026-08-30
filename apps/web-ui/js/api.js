@@ -212,6 +212,37 @@ function applyDemoPlotOperation(plot, work, completedAt, reviewerId) {
   return { plot: next, effect };
 }
 
+const DEMO_CROP_ALIASES = Object.freeze([
+  ['tomato', ['番茄', '西红柿', 'tomato']],
+  ['corn', ['玉米', 'corn']],
+  ['cucumber', ['黄瓜', 'cucumber']],
+  ['rice', ['水稻', '稻', 'rice']],
+  ['sunflower', ['向日葵', '油葵', 'sunflower']],
+  ['strawberry', ['草莓', 'strawberry']]
+]);
+
+function inferDemoPlotInput(message = '', fallbackPlot = {}) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  const cropCode = DEMO_CROP_ALIASES.find(([, aliases]) => aliases.some(alias => lower.includes(alias.toLowerCase())))?.[0] || 'tomato';
+  const nameMatch = text.match(/(?:名称|叫做|命名为)\s*[：:]?\s*[“\"]?([^，。；;”\"]+)/)
+    || text.match(/(?:地块|田|棚)\s*[：:]?\s*([^，。；;]+)/);
+  const areaMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:㎡|平方米|平米|m2)/i);
+  const cycleMatch = text.match(/(\d+)\s*天/);
+  const varietyMatch = text.match(/(?:品种|品名)\s*[：:]?\s*([^，。；;]+)/);
+  const name = String(nameMatch?.[1] || '').trim().replace(/^(?:一个|一块|新的?)\s*/, '') || 'AI 新建地块';
+  return {
+    farmId: fallbackPlot.farmId || 'farm-demo',
+    name,
+    cropCode,
+    cropVariety: String(varietyMatch?.[1] || '').trim() || '演示品种',
+    stageCode: 'vegetative',
+    growthCycleDays: Number(cycleMatch?.[1] || 120),
+    areaM2: Number(areaMatch?.[1] || 100),
+    deviceIds: []
+  };
+}
+
 function cloneWorkOrder(item) {
   const status = normalizeWorkOrderStatus(item?.status);
   const history = Array.isArray(item?.history) ? item.history.map((entry) => ({ ...entry })) : [];
@@ -353,6 +384,14 @@ export class ApiService {
       revision: 1
     };
     this.demoResourcePlans = new Map();
+    this.demoStrategyCandidates = new Map((MOCK_DATA.adminStrategyCandidates || []).map(item => [item.candidateId || item.id, { ...item, candidateId: item.candidateId || item.id, status: String(item.status || 'DRAFT').toUpperCase() }]));
+    this.demoFarmCropPacks = new Map();
+    try {
+      const storedPacks = JSON.parse(localStorage.getItem('agriloop_demo_farm_crop_packs') || '[]');
+      (Array.isArray(storedPacks) ? storedPacks : []).forEach(pack => {
+        if (pack?.farmId && pack?.cropCode && pack?.version) this.demoFarmCropPacks.set(`${pack.farmId}:${pack.cropCode}:${pack.version}`, pack);
+      });
+    } catch { /* a malformed demo cache must not block the app */ }
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
       farmIds: member.farmIds || ['farm-demo']
@@ -727,25 +766,31 @@ export class ApiService {
     return null;
   }
 
-  async getStrategyCandidates() {
+  async getStrategyCandidates({ farmId = '', status = '' } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/strategy-candidates');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (status) query.set('status', status);
+      const resp = await this._fetch(`/api/v1/strategy-candidates${query.toString() ? `?${query}` : ''}`);
       if (Array.isArray(resp?.data)) return resp.data;
       throw new ApiError('后端返回了无效的策略候选', { code: 'STRATEGY_CANDIDATES_INVALID', payload: resp });
     }
-    return [];
+    return Array.from(this.demoStrategyCandidates.values())
+      .filter(item => !farmId || !item.farmId || item.farmId === farmId)
+      .filter(item => !status || String(item.status || '').toUpperCase() === String(status).toUpperCase())
+      .map(item => JSON.parse(JSON.stringify(item)));
   }
 
-  async transitionStrategyCandidate(id, status) {
+  async transitionStrategyCandidate(id, status, options = {}) {
     if (!id) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(id)}/transition`, {
         method: 'POST',
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, ...(options || {}) })
       });
       return resp?.data || resp;
     }
-    return { id, status, sourceMode: 'SIMULATED' };
+    const key = id; const candidate = this.demoStrategyCandidates.get(key) || { candidateId: id, id };
+    candidate.status = String(status || candidate.status || 'DRAFT').toUpperCase(); candidate.revision = Number(candidate.revision || 1) + 1; this.demoStrategyCandidates.set(key, candidate);
+    return JSON.parse(JSON.stringify({ ...candidate, sourceMode: 'SIMULATED' }));
   }
 
   async getSimulatorStatus() {
@@ -856,6 +901,10 @@ export class ApiService {
     const type = plotFacilityType(input);
     const saved = {
       ...input,
+      farmId: input.farmId || 'farm-demo',
+      cropCode: input.cropCode || 'tomato',
+      cropName: input.cropName || ({ tomato: '番茄', corn: '玉米', cucumber: '黄瓜', rice: '水稻', sunflower: '向日葵', strawberry: '草莓' }[input.cropCode] || '番茄'),
+      areaM2: Number(input.areaM2 || 100),
       facilityType: type,
       facilityLabel: facilityLabel(type),
       plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
@@ -881,6 +930,25 @@ export class ApiService {
     const saved = { ...merged, facilityType: type, facilityLabel: facilityLabel(type), updatedAt: new Date().toISOString() };
     this.demoPlots.set(plotId, saved);
     return { ...saved };
+  }
+
+  async activateStrategyCandidate(id, options = {}) {
+    if (!id) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(id)}/activate`, { method: 'POST', body: JSON.stringify(options || {}) });
+      return resp?.data || resp;
+    }
+    return this.transitionStrategyCandidate(id, 'ACTIVE', options);
+  }
+
+  async getStrategyPreview(farmId, alertId) {
+    if (!farmId || !alertId) return { matched: false, previewOnly: true, requiresConfirmation: true };
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId, alertId });
+      const resp = await this._fetch(`/api/v1/strategy-candidates/preview?${query}`);
+      return resp?.data || resp;
+    }
+    return { farmId, alertId, matched: false, candidate: {}, previewOnly: true, requiresConfirmation: true, sourceMode: 'SIMULATED' };
   }
 
   async setPlotDevices(plotId, deviceIds = []) {
@@ -1662,7 +1730,10 @@ export class ApiService {
     const message = action.message || '';
     const args = action.arguments || {};
     let result;
-    if (action.toolName === 'close_alert') {
+    if (action.toolName === 'create_plot') {
+      const sourcePlot = this.demoPlots.get(action.plotId) || MOCK_DATA.plots.find(item => item.plotId === action.plotId) || {};
+      result = await this.createPlot({ ...(action.arguments || inferDemoPlotInput(message, sourcePlot)), farmId: action.farmId || sourcePlot.farmId || 'farm-demo' });
+    } else if (action.toolName === 'close_alert') {
       const alert = [...this.demoAlerts.values()].find(item => item.plotId === action.plotId && !['CLOSED', 'RESOLVED'].includes(item.status));
       if (!alert) throw new ApiError('当前地块没有待处理告警', { status: 404, code: 'ALERT_NOT_FOUND' });
       result = await this.closeAlert(alert.alertId || alert.id);
@@ -2001,6 +2072,16 @@ export class ApiService {
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
   }
 
+  /** Persist an externally generated demo turn, deduplicating replies already saved by agentChat. */
+  persistDemoAgentTurn({ conversationId, plotId = '', userMessage = '', assistantResponse = {} } = {}) {
+    if (this.sessionMode === 'live' || !conversationId) return null;
+    const session = this._readDemoAgentSession();
+    const traceId = String(assistantResponse?.traceId || '').trim();
+    const alreadySaved = traceId && session.messages.some((item) => item.conversationId === conversationId && item.traceId === traceId);
+    if (alreadySaved) return session.conversations.find((item) => item.conversationId === conversationId) || null;
+    return this._demoSaveAgentTurn(conversationId, userMessage, plotId, assistantResponse);
+  }
+
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };
@@ -2026,8 +2107,10 @@ export class ApiService {
     if (/(新增|新建|创建|修改|更新|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/.test(message || '') && this.user?.role === 'FARM_ADMIN') {
       const toolName = /(关闭).*(告警|报警)/.test(message) ? 'close_alert' : /(核查|复核).*(发布|下发|创建)/.test(message) ? 'publish_alert_verification' : /(绑定|换绑|解绑).*(设备|传感器)/.test(message) ? 'set_plot_devices' : /(任务|农务)/.test(message) ? 'create_and_assign_work_order' : /(修改|更新|编辑).*(地块|田|棚)/.test(message) ? 'update_plot' : 'create_plot';
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARM_ADMIN', riskLevel: 'MEDIUM', sourceMode: 'DERIVED', argumentSummary: message, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
-      this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
+      const sourcePlot = this.demoPlots.get(plotId) || plot;
+      const argumentsForAction = toolName === 'create_plot' ? inferDemoPlotInput(message, sourcePlot) : {};
+      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARM_ADMIN', riskLevel: 'MEDIUM', sourceMode: 'DERIVED', argumentSummary: message, arguments: argumentsForAction, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
+      this._demoSaveAgentAction({ ...proposal, message, plotId, farmId: sourcePlot.farmId || 'farm-demo', userId: this._demoActorId() });
       return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好操作内容，请核对预览后确认执行。', actionProposal: proposal, tools: [], confidence: 1 });
     }
 
@@ -3320,15 +3403,25 @@ export class ApiService {
     return JSON.parse(JSON.stringify(ledger));
   }
 
-  async getCropPacks() {
+  async getCropPacks({ farmId = '', includeDrafts = false } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/crop-packs');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (includeDrafts) query.set('includeDrafts', 'true');
+      const resp = await this._fetch(`/api/v1/crop-packs${query.toString() ? `?${query}` : ''}`);
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
       if (raw?.cropCode) return [this.normalizeCropPack(raw)];
       throw new ApiError('后端返回了无效的作物包数据', { code: 'CROP_PACKS_INVALID', payload: resp });
     }
-    return Array.from(this.demoCropPacks.values()).map((pack) => this.normalizeCropPack(JSON.parse(JSON.stringify(pack))));
+    const base = Array.from(this.demoCropPacks.values()).map((pack) => JSON.parse(JSON.stringify(pack)));
+    if (farmId) {
+      const custom = Array.from(this.demoFarmCropPacks.values())
+        .filter((pack) => pack.farmId === farmId && (includeDrafts || String(pack.status || '').toUpperCase() === 'ACTIVE'))
+        .map((pack) => JSON.parse(JSON.stringify(pack)));
+      const overrideCodes = new Set(custom.map((pack) => String(pack.cropCode || '').toLowerCase()));
+      return [...base.filter((pack) => !overrideCodes.has(String(pack.cropCode || '').toLowerCase())), ...custom]
+        .map((pack) => this.normalizeCropPack(pack));
+    }
+    return base.map((pack) => this.normalizeCropPack(pack));
   }
 
   async createCropPack(input = {}) {
@@ -3375,14 +3468,65 @@ export class ApiService {
     return { success: true };
   }
 
-  async getCropManuals() {
+  async getRuleSets(farmId) {
+    if (!farmId) return [];
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/rule-sets?farmId=${encodeURIComponent(farmId)}`); return resp?.data || []; }
+    return this.getRules();
+  }
+
+  async getAlertLearningCases(farmId, candidateId = '') {
+    if (!farmId) return [];
+    if (this.sessionMode === 'live') { const query = new URLSearchParams({ farmId }); if (candidateId) query.set('candidateId', candidateId); const resp = await this._fetch(`/api/v1/alert-learning-cases?${query}`); return resp?.data || []; }
+    return [];
+  }
+
+  async createFarmCropPack(farmId, input) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs`, { method: 'POST', body: JSON.stringify(input || {}) }); return resp?.data || resp; }
+    const pack = { ...input, farmId, status: 'DRAFT', revision: 1, sourceMode: 'SIMULATED', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.demoFarmCropPacks.set(`${farmId}:${pack.cropCode}:${pack.version || '1.0.0'}`, pack);
+    this.persistDemoFarmCropPacks();
+    return JSON.parse(JSON.stringify(pack));
+  }
+  async updateFarmCropPack(farmId, cropCode, version, input) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}`, { method: 'PUT', body: JSON.stringify(input || {}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const current = this.demoFarmCropPacks.get(key) || { farmId, cropCode, version, status: 'DRAFT', revision: 1 };
+    const updated = { ...current, ...input, farmId, cropCode, version, revision: Number(current.revision || 1) + 1, updatedAt: new Date().toISOString() };
+    this.demoFarmCropPacks.set(key, updated); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(updated));
+  }
+  async validateFarmCropPack(farmId, cropCode, version) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/validate`, { method: 'POST', body: JSON.stringify({}) }); return resp?.data || resp; }
+    const pack = this.demoFarmCropPacks.get(`${farmId}:${cropCode}:${version}`); const errors = [];
+    if (!pack?.identity?.name) errors.push('缺少作物名称');
+    if (!pack?.identity?.variety) errors.push('缺少品种');
+    if (!Array.isArray(pack?.stages) || !pack.stages.length) errors.push('至少需要一个生长阶段');
+    return { valid: errors.length === 0, errors, cropCode, version };
+  }
+  async activateFarmCropPack(farmId, cropCode, version, options = {}) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/activate`, { method: 'POST', body: JSON.stringify(options || {}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const pack = this.demoFarmCropPacks.get(key); if (!pack) throw new ApiError('作物包草稿不存在', { code: 'CROP_PACK_NOT_FOUND' });
+    const validation = await this.validateFarmCropPack(farmId, cropCode, version); if (!validation.valid) throw new ApiError('作物包校验失败', { code: 'CROP_PACK_INVALID', details: validation });
+    for (const [otherKey, other] of this.demoFarmCropPacks) if (other.farmId === farmId && other.cropCode === cropCode && other.status === 'ACTIVE' && otherKey !== key) { other.status = 'ARCHIVED'; this.demoFarmCropPacks.set(otherKey, other); }
+    pack.status = 'ACTIVE'; pack.revision = Number(pack.revision || 1) + 1; pack.activatedAt = new Date().toISOString(); this.demoFarmCropPacks.set(key, pack); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(pack));
+  }
+  async archiveFarmCropPack(farmId, cropCode, version) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/archive`, { method: 'POST', body: JSON.stringify({}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const pack = this.demoFarmCropPacks.get(key); if (!pack) throw new ApiError('作物包不存在', { code: 'CROP_PACK_NOT_FOUND' }); pack.status = 'ARCHIVED'; pack.revision = Number(pack.revision || 1) + 1; this.demoFarmCropPacks.set(key, pack); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(pack));
+  }
+
+  persistDemoFarmCropPacks() {
+    try { localStorage.setItem('agriloop_demo_farm_crop_packs', JSON.stringify(Array.from(this.demoFarmCropPacks.values()))); } catch { /* storage may be unavailable in private mode */ }
+  }
+
+  async getCropManuals({ farmId = '', includeDrafts = false } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/crop-manuals');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (includeDrafts) query.set('includeDrafts', 'true');
+      const resp = await this._fetch(`/api/v1/crop-manuals${query.toString() ? `?${query}` : ''}`);
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw;
       throw new ApiError('后端返回了无效的培养手册目录', { code: 'CROP_MANUALS_INVALID', payload: resp });
     }
-    return (MOCK_DATA.cropPackDetails || []).map((pack) => ({
+    const packs = await this.getCropPacks({ farmId, includeDrafts });
+    return packs.map((pack) => ({
       cropCode: pack.cropCode,
       version: pack.version,
       name: pack.identity?.name,

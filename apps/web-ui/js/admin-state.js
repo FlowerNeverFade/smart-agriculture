@@ -151,17 +151,25 @@ export function deviceRelatedWorkOrders(device, workOrders = []) {
   });
 }
 
-export function legacyAdminTabTarget(view, tab, farmId = '') {
+export function legacyAdminTabTarget(view, tab, farmId = '', routeParams = {}) {
   const normalizedView = String(view || '').trim().toLowerCase();
   const farmParams = farmId ? { farmId } : {};
+  const contextParams = ['plotId', 'targetPlot'].reduce((params, key) => {
+    const value = String(routeParams?.[key] || '').trim();
+    if (value) params[key] = value;
+    return params;
+  }, { ...farmParams });
+  const normalizedTab = String(tab || '').trim().toLowerCase();
   if (normalizedView === 'risk-forecast') {
-    return { view: 'dashboard', params: farmParams };
+    return { view: 'dashboard', params: contextParams };
+  }
+  if (normalizedView === 'decision-console' && ['chat', 'assistant', 'ai-assistant'].includes(normalizedTab)) {
+    return { view: 'ai-assistant', params: contextParams };
   }
   if (['simulator', 'admin-simulator'].includes(normalizedView)) {
     return { view: 'resource-coordination', params: { tab: 'devices', ...farmParams } };
   }
   if (normalizedView !== 'resource-coordination') return null;
-  const normalizedTab = String(tab || '').trim().toLowerCase();
   if (['irrigation', 'value'].includes(normalizedTab)) {
     return { view: 'work-orders', params: { tab: 'resources', ...farmParams } };
   }

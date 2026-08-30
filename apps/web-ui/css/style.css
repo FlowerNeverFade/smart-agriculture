@@ -911,6 +911,7 @@ html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .
 .settings-switch small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.45; }
 .settings-info { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-primary) 23%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 65%, var(--g-bg-surface)); color: var(--g-text-secondary); font-size: 11px; line-height: 1.55; }
 .settings-info .ph { flex: 0 0 auto; margin-top: 1px; color: var(--g-primary); font-size: 16px; }
+.settings-info p { margin: 0; }
 .settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 2px 2px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font-size: 11px; }
 .settings-footer > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .settings-footer strong { color: var(--g-text-primary); font-size: 12px; }
@@ -1014,6 +1015,11 @@ html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card
   -webkit-backdrop-filter: blur(14px) saturate(112%);
   backdrop-filter: blur(14px) saturate(112%);
   box-shadow: 0 8px 20px rgba(24, 62, 43, .10), inset 0 1px 0 rgba(255, 255, 255, .70) !important;
+}
+html[data-surface-style="glass-latest"] #app .g-card {
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  backdrop-filter: blur(24px) saturate(135%);
+  box-shadow: 0 18px 42px rgba(24, 62, 43, .14), inset 0 1px 0 rgba(255, 255, 255, .72);
 }
 
 /* Make the material choices themselves easy to compare at a glance. */
