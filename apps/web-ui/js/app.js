@@ -2,7 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -159,7 +159,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
-  { id: 'settings', label: '工作台设置', icon: 'settings', labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
+  { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
@@ -2586,22 +2586,24 @@ const SettingsView = {
     const toast = inject('toast');
     const settings = ref(readUserSettings());
     const accentOptions = ACCENT_OPTIONS;
+    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
     const themeOptions = [
-      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' },
-      { value: 'light', label: '浅色', hint: '清晰明亮' },
-      { value: 'dark', label: '深色', hint: '低光环境更舒适' }
+      { value: 'light', label: '白色', hint: '之前的清爽白色主题（默认）' },
+      { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
+      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
     ];
     const refreshOptions = [5, 15, 30, 60];
     const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
     const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '跟随系统');
     const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
+    const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
     const updateSetting = (key, value) => {
       const next = saveUserSettings({ ...settings.value, [key]: value });
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout') {
-        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : '内容宽度'}已更新`);
+      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout' || key === 'surfaceStyle') {
+        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : key === 'layout' ? '内容宽度' : '卡片风格'}已更新`);
       }
     };
     const resetSettings = () => {
@@ -2614,11 +2616,13 @@ const SettingsView = {
     return {
       settings,
       accentOptions,
+      surfaceStyleOptions,
       themeOptions,
       refreshOptions,
       roleLabel,
       themeLabel,
       accentLabel,
+      surfaceStyleLabel,
       updateSetting,
       resetSettings
     };
@@ -2962,6 +2966,11 @@ const app = createApp({
         .filter(Boolean)
         .map((item) => ({ ...item, label: item.labels?.[currentRole.value?.code] || item.label }));
     });
+    // Keep preference controls out of the operational navigation.  The
+    // footer is pinned by the sidebar layout, so “工作台设置” is always easy
+    // to find in the lower-left corner for every shared role.
+    const mainNavItems = computed(() => navItems.value.filter((item) => !item.isFooter));
+    const footerNavItems = computed(() => navItems.value.filter((item) => item.isFooter));
     const initialRoute = parseHashRoute();
     const initialView = initialRoute.view === 'plot-detail' ? currentRole.value.defaultView : initialRoute.view;
     const currentView = ref(state.value.allowedViews.includes(initialView) ? initialView : currentRole.value.defaultView);
@@ -3746,6 +3755,8 @@ const app = createApp({
       currentRole,
       isFarmer,
       navItems,
+      mainNavItems,
+      footerNavItems,
       currentView,
       currentViewComponent,
       routeParams,

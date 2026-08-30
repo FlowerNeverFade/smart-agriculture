@@ -3262,3 +3262,80 @@
   .farmer-settings-actions { align-items: flex-start; flex-direction: column; }
   .farmer-settings-actions span { text-align: left; }
 }
+
+/* User-selectable surface material ----------------------------------------- */
+html[data-surface-style="classic"] #farmer_app {
+  --farmer-glass-surface: var(--agriloop-appearance-surface);
+  --farmer-glass-surface-strong: var(--agriloop-appearance-surface);
+  --farmer-glass-surface-soft: var(--agriloop-appearance-subtle);
+  --farmer-glass-cell: var(--agriloop-appearance-surface);
+  --farmer-glass-edge: var(--agriloop-appearance-border);
+  --farmer-glass-outline: var(--agriloop-appearance-border);
+  --farmer-glass-control-outline: var(--agriloop-appearance-border);
+  --farmer-glass-shadow: var(--g-shadow-1);
+  --farmer-glass-shadow-raised: var(--g-shadow-2);
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-main {
+  background: var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-card, .farmer-stat-card, .farmer-plot-overview-card,
+  .farmer-message-list, .farmer-message-detail, .farmer-task-column,
+  .farmer-task-detail, .farmer-form-card, .farmer-ai-consult,
+  .farmer-profile-popover, .account-profile-popover, .farmer-risk-mini-card,
+  .farmer-metric-chart, .farmer-moisture-chart-card, .farmer-device-card,
+  .farmer-priority-panel, .farmer-cm-card
+) {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .farmer-mini-item, .farmer-task-card, .farmer-metric-item,
+  .farmer-metric-chart, .farmer-shared-tools-entry, .farmer-shared-tool-card,
+  .farmer-case-item, .farmer-priority-item, .farmer-cm-summary,
+  .farmer-cm-metric, .farmer-suggestion-facts > div, .farmer-weather-controls,
+  .farmer-allocation-detail, .farmer-ai-consult-details, .farmer-ai-decision-card,
+  .farmer-nav-item
+) {
+  background: var(--agriloop-appearance-surface) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-surface-style="glass-soft"] #farmer_app {
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(241, 229, 194, .28), transparent 38%),
+    linear-gradient(145deg, #c1d7c8 0%, #e1e9df 48%, #b9d3c2 100%) !important;
+}
+html[data-theme="dark"][data-surface-style="glass-soft"] #farmer_app {
+  background: linear-gradient(145deg, #263e33 0%, #33493e 52%, #253d33 100%) !important;
+}
+html[data-surface-style="glass-soft"] #farmer_app :is(
+  .farmer-header, .farmer-sidebar, .g-card, .farmer-stat-card,
+  .farmer-plot-overview-card, .farmer-task-column, .farmer-form-card
+) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+}
+
+/* The style cards remain readable on both themes and on narrow screens. */
+.farmer-settings-surface-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.farmer-settings-surface-choice { display: grid; gap: 3px; min-height: 58px; text-align: left; }
+.farmer-settings-surface-choice small { color: var(--g-text-secondary); font-size: 9px; line-height: 1.3; }
+.farmer-settings-surface-choice.active small { color: inherit; opacity: .78; }
+@media (max-width: 520px) {
+  .farmer-settings-surface-row { grid-template-columns: 1fr; }
+}

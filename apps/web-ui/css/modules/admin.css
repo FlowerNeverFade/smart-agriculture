@@ -2413,3 +2413,98 @@
     border: 1px solid CanvasText;
   }
 }
+
+/* User-selectable surface material -----------------------------------------
+ * These rules intentionally live after the role skins above so a preference
+ * can change the material without changing any role's semantic colours.
+ */
+html[data-surface-style="classic"] .role-farm-admin,
+html[data-surface-style="classic"] .role-system-admin {
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+
+html[data-surface-style="classic"] .role-farm-admin {
+  --admin-glass-surface: var(--agriloop-appearance-surface);
+  --admin-glass-surface-strong: var(--agriloop-appearance-surface);
+  --admin-glass-surface-soft: var(--agriloop-appearance-subtle);
+  --admin-glass-cell: var(--agriloop-appearance-surface);
+  --admin-glass-edge: var(--agriloop-appearance-border);
+  --admin-glass-outline: var(--agriloop-appearance-border);
+  --admin-glass-control-outline: var(--agriloop-appearance-border);
+  --admin-liquid-control: var(--agriloop-appearance-surface);
+  --admin-liquid-control-hover: var(--agriloop-appearance-subtle);
+  --admin-liquid-control-pressed: var(--agriloop-appearance-subtle);
+  --admin-glass-shadow: var(--g-shadow-1);
+  --admin-glass-shadow-raised: var(--g-shadow-2);
+}
+
+html[data-surface-style="classic"] .role-system-admin {
+  --system-glass-surface: var(--agriloop-appearance-surface);
+  --system-glass-surface-strong: var(--agriloop-appearance-surface);
+  --system-glass-surface-soft: var(--agriloop-appearance-subtle);
+  --system-glass-cell: var(--agriloop-appearance-surface);
+  --system-glass-edge: var(--agriloop-appearance-border);
+  --system-glass-outline: var(--agriloop-appearance-border);
+  --system-glass-control-outline: var(--agriloop-appearance-border);
+  --system-liquid-control: var(--agriloop-appearance-surface);
+  --system-liquid-control-hover: var(--agriloop-appearance-subtle);
+}
+
+html[data-surface-style="classic"] .role-farm-admin :is(
+  .g-header, .g-sidebar, .g-card, .manager-summary-strip, .manager-plot-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .admin-panel,
+  .admin-alert-card, .admin-alert-empty, .work-summary, .work-filters,
+  .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card, .g-modal, .admin-modal, .manager-plot-menu, .account-profile-popover
+),
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-header, .g-sidebar, .g-card, .admin-metric-card, .service-card,
+  .sim-control-bar, .pack-card, .admin-plot-card, .passport-panel,
+  .admin-table-wrap, .admin-modal, .g-modal, .account-profile-popover,
+  .g-header-farm-menu
+) {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-surface-style="classic"] .role-farm-admin :is(
+  .g-btn:not(.primary):not(.danger), .g-nav-item, .account-profile-trigger,
+  .manager-more-button, .manager-plot-menu button, .admin-local-tabs button,
+  .admin-alert-tabs button, .admin-tab, .admin-knowledge-chip,
+  .admin-icon-picker button, .work-summary button, .text-action
+),
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-btn:not(.primary):not(.danger), .account-profile-trigger, .admin-tab,
+  .admin-knowledge-chip, .admin-icon-picker button
+) {
+  background: var(--agriloop-appearance-surface) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  text-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-surface-style="classic"] .role-farm-admin .g-main,
+html[data-surface-style="classic"] .role-system-admin .g-main {
+  background: var(--agriloop-appearance-base) !important;
+}
+
+html[data-surface-style="glass-soft"] .role-farm-admin,
+html[data-surface-style="glass-soft"] .role-system-admin {
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(241, 229, 194, .28), transparent 38%),
+    linear-gradient(145deg, #c1d7c8 0%, #e1e9df 48%, #b9d3c2 100%) !important;
+}
+html[data-theme="dark"][data-surface-style="glass-soft"] .role-farm-admin,
+html[data-theme="dark"][data-surface-style="glass-soft"] .role-system-admin {
+  background: linear-gradient(145deg, #263e33 0%, #33493e 52%, #253d33 100%) !important;
+}
+html[data-surface-style="glass-soft"] .role-farm-admin :is(.g-card, .manager-plot-card, .admin-panel, .g-header, .g-sidebar),
+html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .admin-plot-card, .g-header, .g-sidebar) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+}

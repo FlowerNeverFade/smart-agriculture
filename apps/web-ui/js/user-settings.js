@@ -9,8 +9,11 @@
 export const USER_SETTINGS_KEY = 'agriloop-user-settings-v1';
 
 export const DEFAULT_USER_SETTINGS = Object.freeze({
-  theme: 'system',
+  // Keep the familiar white workspace as the first-run experience.  Users
+  // can still opt into the dark or system theme from the settings page.
+  theme: 'light',
   accent: 'green',
+  surfaceStyle: 'classic',
   density: 'comfortable',
   layout: 'standard',
   reducedMotion: false,
@@ -26,7 +29,30 @@ export const ACCENT_OPTIONS = Object.freeze([
   Object.freeze({ value: 'purple', label: '果实紫', color: '#7657c4', hover: '#5d439f', background: '#eee8fb' })
 ]);
 
+// Surface material is independent from the colour theme.  This lets a user
+// keep a black (or white) canvas while choosing the older 4e9326a card
+// treatment, a restrained transitional glass treatment, or the latest main
+// liquid-glass treatment.
+export const SURFACE_STYLE_OPTIONS = Object.freeze([
+  Object.freeze({
+    value: 'classic',
+    label: '经典卡片',
+    hint: '接近 main 4e9326a：白底、清爽边框'
+  }),
+  Object.freeze({
+    value: 'glass-soft',
+    label: '柔和玻璃',
+    hint: '轻透明、低反光，信息更克制'
+  }),
+  Object.freeze({
+    value: 'glass-latest',
+    label: '当前 main 玻璃',
+    hint: '最新液态玻璃层级与景深'
+  })
+]);
+
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map((item) => item.value));
+const SURFACE_STYLE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map((item) => item.value));
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
@@ -51,6 +77,7 @@ export function normalizeUserSettings(input = {}) {
   return {
     theme: THEME_VALUES.has(source.theme) ? source.theme : DEFAULT_USER_SETTINGS.theme,
     accent: ACCENT_VALUES.has(source.accent) ? source.accent : DEFAULT_USER_SETTINGS.accent,
+    surfaceStyle: SURFACE_STYLE_VALUES.has(source.surfaceStyle) ? source.surfaceStyle : DEFAULT_USER_SETTINGS.surfaceStyle,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
     reducedMotion: booleanValue(source.reducedMotion, DEFAULT_USER_SETTINGS.reducedMotion),
@@ -71,7 +98,14 @@ export function readUserSettings(storage) {
       // defaults when the new preference record does not exist yet.
       if (!raw) {
         const oldTheme = store.getItem('agriloop-theme');
-        if (THEME_VALUES.has(oldTheme)) parsed.theme = oldTheme;
+        if (THEME_VALUES.has(oldTheme)) parsed.theme = oldTheme === 'system' ? DEFAULT_USER_SETTINGS.theme : oldTheme;
+      } else if (!Object.prototype.hasOwnProperty.call(parsed, 'surfaceStyle')) {
+        // Records written by the first settings release predate the surface
+        // selector.  Treat an untouched system default as the requested
+        // familiar white default, while preserving an explicitly chosen
+        // light/dark preference.
+        parsed.surfaceStyle = DEFAULT_USER_SETTINGS.surfaceStyle;
+        if (parsed.theme === 'system') parsed.theme = DEFAULT_USER_SETTINGS.theme;
       }
     } catch (_error) {
       parsed = {};
@@ -115,6 +149,7 @@ export function applyUserSettings(settings, documentRef, windowRef) {
   root.dataset.theme = theme;
   root.dataset.userTheme = normalized.theme;
   root.dataset.accent = normalized.accent;
+  root.dataset.surfaceStyle = normalized.surfaceStyle;
   root.dataset.density = normalized.density;
   root.dataset.layout = normalized.layout;
   root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false';

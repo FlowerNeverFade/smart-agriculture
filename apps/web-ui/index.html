@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="light" data-surface-style="classic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260830-settings-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260830-settings-v2">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
@@ -154,7 +154,7 @@
     <div class="g-body">
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
         <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
-          <button v-for="nav in navItems" :key="nav.id" type="button"
+          <button v-for="nav in mainNavItems" :key="nav.id" type="button"
                class="g-nav-item"
                :data-nav="nav.id"
                :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
@@ -165,8 +165,17 @@
             <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
           </button>
         </div>
-        <div v-if="isFarmer || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
-          <button type="button" class="g-nav-item g-nav-return-farmer" :class="{ 'farmer-nav-item': isFarmer }" @click="returnToFarmer">
+        <div v-if="footerNavItems.length || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
+          <button v-for="nav in footerNavItems" :key="nav.id" type="button"
+               class="g-nav-item"
+               :data-nav="nav.id"
+               :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
+               :aria-current="currentView === nav.id ? 'page' : null"
+               @click="navigate(nav.id)">
+            <app-icon :name="nav.icon"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
+          </button>
+          <button v-if="farmerReturnPage" type="button" class="g-nav-item g-nav-return-farmer" :class="{ 'farmer-nav-item': isFarmer }" @click="returnToFarmer">
             <app-icon v-if="isFarmer" name="arrow_back"></app-icon>
             <app-icon v-else name="arrow_back"></app-icon>
             <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">返回农户工作台</span>
@@ -1164,7 +1173,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-settings-v1"></script>
+  <script type="module" src="js/app.js?v=20260830-settings-v2"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1803,6 +1812,12 @@
             </div>
           </div>
           <div class="settings-field">
+            <span class="settings-label">卡片风格</span>
+            <div class="settings-theme-options settings-surface-options" role="group" aria-label="选择卡片风格">
+              <button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button>
+            </div>
+          </div>
+          <div class="settings-field">
             <span class="settings-label">强调色</span>
             <div class="settings-accent-options" role="group" aria-label="选择强调色">
               <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value" name="check_circle"></app-icon></button>
@@ -1824,7 +1839,7 @@
         </article>
       </div>
 
-      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
     </section>
   </template>
 

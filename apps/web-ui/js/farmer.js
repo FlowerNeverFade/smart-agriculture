@@ -2,7 +2,7 @@ import { api } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -846,6 +846,7 @@ const app = createApp({
     const user_settings = ref(readUserSettings());
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
+    const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
     const is_sidebar_open = ref(true);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -1854,8 +1855,8 @@ const app = createApp({
       if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
         start_live_polling();
       }
-      if (announce && ['theme', 'accent', 'density', 'layout'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度' };
+      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle'].includes(key)) {
+        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格' };
         show_toast(`${labels[key]}已更新`);
       }
     };
@@ -3303,7 +3304,9 @@ const app = createApp({
       is_dark,
       user_settings,
       accent_options: ACCENT_OPTIONS,
+      surface_style_options: SURFACE_STYLE_OPTIONS,
       current_accent_label,
+      current_surface_style_label,
       update_user_setting,
       reset_user_settings,
       is_sidebar_open,
