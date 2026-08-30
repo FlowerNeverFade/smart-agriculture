@@ -4270,6 +4270,35 @@ class AgriEngine {
         return result;
     }
 
+    Map<String, Object> updateAiMode(String aiMode, UserPrincipal principal) {
+        if (!principal.isSystemAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "AI_MODE_UPDATE_FORBIDDEN", "只有系统管理员可以修改智能模型模式");
+        }
+        String normalized = aiMode == null ? "" : aiMode.trim().toLowerCase(Locale.ROOT);
+        String canonical;
+        switch (normalized) {
+            case "full", "openai", "openai-compatible" -> canonical = "openai-compatible";
+            case "rules-only", "rules" -> canonical = "rules-only";
+            case "mock" -> canonical = "mock";
+            case "maxkb" -> canonical = "maxkb";
+            default -> throw new ApiException(HttpStatus.BAD_REQUEST, "AI_MODE_INVALID", "不支持的智能模型模式: " + aiMode);
+        }
+        String previous = properties.getAiMode();
+        boolean changed = !canonical.equals(previous);
+        if (changed) {
+            properties.setAiMode(canonical);
+            store.logEvent("AI_MODE_CHANGED", Map.of("mode", canonical, "previous", previous, "updatedBy", principal.userId));
+            events.publish("ai.mode.changed", Map.of("mode", canonical, "previous", previous, "updatedBy", principal.userId));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("aiMode", canonical);
+        result.put("changed", changed);
+        result.put("previous", previous);
+        result.put("updatedBy", principal.userId);
+        result.put("updatedAt", Instant.now().toString());
+        return result;
+    }
+
     private void requireFarmMemberAdmin(UserPrincipal principal) {
         if (!principal.isFarmAdmin() && !principal.isSystemAdmin()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FARM_MEMBERS_FORBIDDEN", "当前身份不能管理农场成员");
@@ -5738,6 +5767,11 @@ class AgriController {
 
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }
+
+    @PutMapping("/system/ai-mode")
+    ResponseEntity<?> updateAiMode(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.updateAiMode(Jsons.text(body, "aiMode", ""), principal(a)));
+    }
 
     @GetMapping("/simulator/status")
     ResponseEntity<?> simulatorStatus() { return ok(simulator.status()); }

@@ -70,6 +70,8 @@ paths:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/system/ai-mode:
+    put: {tags: [management], description: 仅系统管理员可切换智能模型运行模式（full/openai-compatible、rules-only、mock、maxkb），运行期生效、重启后还原为配置文件 AI_MODE 值, requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {aiMode: {type: string, example: full}}}}}}, responses: {'200': {description: 模式保存成功，返回 aiMode/previous/changed}, '400': {description: AI_MODE_INVALID 不支持的智能模型模式}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/simulator/status:
     get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
   /api/v1/simulator/start:

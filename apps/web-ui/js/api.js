@@ -186,6 +186,7 @@ export class ApiService {
     this.demoCropPlans = new Map();
     this.demoAgentActions = new Map();
     this.demoValueLedgers = [];
+    this.demoAiMode = this.loadDemoAiMode();
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
       farmIds: member.farmIds || ['farm-demo']
@@ -512,7 +513,22 @@ export class ApiService {
       if (status && typeof status === 'object') return status;
       throw new ApiError('后端返回了无效的系统状态', { code: 'SYSTEM_STATUS_INVALID', payload: resp });
     }
-    return { mode: 'demo', database: 'SIMULATED', redis: 'SIMULATED', mqtt: 'SIMULATED', ai: 'mock' };
+    return { mode: 'demo', database: 'SIMULATED', redis: 'SIMULATED', mqtt: 'SIMULATED', ai: this.demoAiMode };
+  }
+
+  async updateAiMode(aiMode) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/system/ai-mode', {
+        method: 'PUT',
+        body: JSON.stringify({ aiMode })
+      });
+      const result = resp?.data || resp;
+      if (result && result.aiMode) return result;
+      throw new ApiError('后端返回了无效的模式保存结果', { code: 'AI_MODE_UPDATE_INVALID', payload: resp });
+    }
+    this.demoAiMode = aiMode || 'full';
+    this.persistDemoAiMode(this.demoAiMode);
+    return { aiMode: this.demoAiMode, changed: true, sourceMode: 'SIMULATED' };
   }
 
   async getPlotTimeline(plotId) {
@@ -730,6 +746,28 @@ export class ApiService {
     this.demoSimulationStrategies.set(plotId, next);
     this.persistDemoSimulationStrategies();
     return next;
+  }
+
+  /** demo 模式：从 localStorage 恢复智能模型模式（刷新后保留），默认与 mock 数据一致为 full。 */
+  loadDemoAiMode() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('demoAiMode') : null;
+      if (!raw) return 'full';
+      const m = String(raw).trim().toLowerCase();
+      return ['full', 'rules-only', 'mock', 'openai', 'openai-compatible', 'maxkb'].includes(m) ? m : 'full';
+    } catch (error) {
+      return 'full';
+    }
+  }
+
+  /** demo 模式：把智能模型模式持久化到 localStorage。 */
+  persistDemoAiMode(aiMode) {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      localStorage.setItem('demoAiMode', String(aiMode || 'full'));
+    } catch (error) {
+      /* localStorage 不可用时静默降级为内存态 */
+    }
   }
 
   /** demo 模式：从 localStorage 恢复地块模拟策略（刷新后保留）。 */

@@ -1903,11 +1903,15 @@
         <div class="g-grid" style="grid-template-columns: 1fr 1fr; gap: 20px">
           <div class="g-card" style="padding:20px">
             <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式</div>
-            <select v-model="state.adminOverview.aiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
+            <select v-model="draftAiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
               <option value="full">完整模式（智能模型 + 知识检索 + 规则）</option>
               <option value="rules-only">规则兜底（仅确定性规则）</option>
               <option value="mock">模拟模式（固定输出）</option>
             </select>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+              <button class="g-btn text-sm" @click="saveAiMode">保存模式</button>
+              <span style="font-size:12px;color:var(--g-text-tertiary)">切换后需点击保存</span>
+            </div>
           </div>
           <div class="g-card" style="padding:20px">
             <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="tune"></app-icon> 设备参数</div>

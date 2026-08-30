@@ -1267,7 +1267,7 @@ export const MOCK_DATA = {
       { name: 'MQTT Broker', status: 'UP', connections: 8, messagesPerSec: 45 },
       { name: 'SSE Gateway', status: 'UP', activeSessions: 3 },
       { name: 'API Service', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
-      { name: 'Qwen LLM', status: 'DEGRADED', mode: 'rules-only', lastCall: '2026-08-25 11:23' }
+      { name: '智能模型服务', status: 'UP', mode: 'full' }
     ],
     recentEvents: [
       { id: 'ev-01', category: 'alert', icon: 'warning', title: 'plot-a01 · 土壤湿度低于阈值（14%）', time: '11:45', traceId: 'trace-001' },

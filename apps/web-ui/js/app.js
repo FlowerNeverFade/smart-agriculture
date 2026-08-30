@@ -406,6 +406,41 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
   return String(status || fallback).trim().toUpperCase();
 }
 
+// The backend dependency status exposes `ai` as the configured adapter mode
+// (rules-only / openai-compatible / mock / ...) rather than an UP/DEGRADED
+// status code.  Map the mode to a service-status so the health matrix card
+// can show a real dot colour and label; the mode itself stays visible as a
+// secondary hint on the card.  Only real model adapters (openai / compatible /
+// full) are UP; mock (fixed output) and rules-only are degraded — this matches
+// the backend `degraded = !openAiCompatible` semantics.
+function aiServiceStatus(mode) {
+  const m = String(mode || '').trim().toLowerCase();
+  if (!m) return 'UNKNOWN';
+  if (['openai', 'openai-compatible', 'full'].includes(m)) return 'UP';
+  return 'DEGRADED';
+}
+
+// demo 模式下总览初始化时应用持久化的智能模型模式（localStorage），
+// 并同步服务健康矩阵卡片，保证刷新后与保存时一致。
+// 注意：services 必须深拷贝，避免改动污染 MOCK_DATA 原始数据。
+function applyDemoAiMode(overview) {
+  const mode = api.loadDemoAiMode();
+  const next = { ...overview };
+  const services = (Array.isArray(next.services) ? next.services : []).map(s => ({ ...s }));
+  if (mode && mode !== 'full') {
+    next.aiMode = mode;
+    for (const svc of services) {
+      if (svc.name === '智能模型服务' || svc.name === 'Qwen LLM') {
+        svc.mode = mode;
+        svc.status = aiServiceStatus(mode);
+        if (svc.statusLabel !== undefined) delete svc.statusLabel;
+      }
+    }
+  }
+  next.services = services;
+  return next;
+}
+
 function adminServiceCards(systemStatus = {}) {
   const entries = [
     { name: 'PostgreSQL 数据库', status: systemStatus.database, latencyMs: systemStatus.databaseLatencyMs },
@@ -413,13 +448,13 @@ function adminServiceCards(systemStatus = {}) {
     { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
     { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
-    { name: '智能模型服务', status: systemStatus.ai, isAi: true }
+    { name: '智能模型服务', status: aiServiceStatus(systemStatus.ai), isAi: true, mode: systemStatus.ai === 'openai-compatible' ? 'full' : systemStatus.ai }
   ];
-  return entries.map(({ name, status, isAi = false, latencyMs }) => ({
+  return entries.map(({ name, status, isAi = false, latencyMs, mode }) => ({
     name,
     status: liveStatusValue(status, 'UNKNOWN'),
     statusLabel: serviceStatusLabel(status, '未知'),
-    mode: isAi ? (status || '—') : undefined,
+    mode: isAi ? (mode || '—') : undefined,
     latency: typeof latencyMs === 'number' && latencyMs >= 0 ? latencyMs + ' ms' : undefined,
     latencySource: typeof latencyMs === 'number' && latencyMs >= 0 ? 'OBSERVED' : undefined,
     sourceMode: 'BACKEND'
@@ -2577,6 +2612,13 @@ const AdminSettingsView = {
     const showCreateUser = ref(false);
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
     const pendingUserAction = ref(null);
+    // 智能模型模式选择是"草稿"：下拉只改本地草稿，点击保存才写回总览/服务健康并（live 下）提交后端
+    // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
+    const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
+    const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
+    watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
+      if (mode) draftAiMode.value = mode;
+    });
 
     watch(() => props.routeParams, (params) => {
       if (params?.tab) activeTab.value = params.tab;
@@ -2719,6 +2761,52 @@ const AdminSettingsView = {
       toast('用户创建成功');
     };
 
+    // 保存成功后把新模式写回总览与服务健康矩阵（总览/服务健康保持一致）
+    const applyAiModeToOverview = (mode) => {
+      const ov = props.state.adminOverview;
+      if (!ov) return;
+      ov.aiMode = mode;
+      const svc = (Array.isArray(ov.services) ? ov.services : []).find(
+        s => s.name === '智能模型服务' || s.name === 'Qwen LLM'
+      );
+      if (svc) {
+        svc.mode = mode;
+        svc.status = aiServiceStatus(mode);
+        if (svc.statusLabel !== undefined) delete svc.statusLabel;
+      }
+    };
+
+    const saveAiMode = async () => {
+      const mode = String(draftAiMode.value || '').trim().toLowerCase();
+      // 只允许下拉的三个合法模式；防止 '—' 占位等异常草稿被提交到后端（后端会 400）
+      if (!['full', 'rules-only', 'mock'].includes(mode)) {
+        toast('请先选择有效的智能模型模式（完整 / 规则兜底 / 模拟）', 'error');
+        return;
+      }
+      try {
+        const saved = await api.updateAiMode(mode);
+        const savedMode = saved.aiMode === 'openai-compatible' ? 'full' : (saved.aiMode || mode);
+        applyAiModeToOverview(savedMode);
+        draftAiMode.value = savedMode;
+        if (isLiveSession.value) {
+          props.state.adminAuditLogs.unshift({
+            id: 'log-' + Date.now(),
+            time: new Date().toLocaleTimeString().substring(0, 5),
+            operator: 'sysadmin',
+            action: 'CONFIG_CHANGE',
+            actionLabel: '修改配置',
+            detail: '智能模型模式切换：' + (saved.previous || '—') + ' → ' + savedMode,
+            ip: '127.0.0.1'
+          });
+          toast(`智能模型模式已保存为「${modeLabel(savedMode, savedMode)}」`);
+        } else {
+          toast('演示模式已保存（刷新后保留）');
+        }
+      } catch (error) {
+        toast(error.message || '模式保存失败', 'error');
+      }
+    };
+
       const formatPerm = (text) => {
         if (!text) return '';
         return text
@@ -2728,8 +2816,8 @@ const AdminSettingsView = {
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, localizedStatusLabel, displayText
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText
     };
   }
 };
@@ -2804,7 +2892,7 @@ const app = createApp({
       farmerTasks: isDemoSession ? (MOCK_DATA.farmer_tasks || []).map((item) => ({ ...item })) : [],
       farmerProfile: isDemoSession ? (MOCK_DATA.farmer_profile || {}) : {},
       gapCoverage: isDemoSession ? (MOCK_DATA.gapCoverage || {}) : {},
-      adminOverview: isDemoSession ? (MOCK_DATA.adminOverview || {}) : emptyAdminOverview(),
+      adminOverview: isDemoSession ? applyDemoAiMode(MOCK_DATA.adminOverview || {}) : emptyAdminOverview(),
       adminGlobalPlots: isDemoSession ? (MOCK_DATA.adminGlobalPlots || []) : [],
       adminDevices: isDemoSession ? (MOCK_DATA.adminDevices || []) : [],
       adminAlerts: isDemoSession ? (MOCK_DATA.adminAlerts || []) : [],
