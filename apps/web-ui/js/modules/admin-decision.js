@@ -1,6 +1,6 @@
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260828-v58';
 import { adminMetricLabel } from '../admin-state.js';
-import { roleCan } from '../roles.js';
+import { canExecuteIrrigation } from '../roles.js';
 import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
 
 const { ref, computed, watch, onMounted } = Vue;
@@ -14,9 +14,9 @@ const RISK_META = Object.freeze({
 });
 
 const READINESS_META = Object.freeze({
-  READY: { label: '可以审批', tone: 'ready', description: '数据、设备、权限和安全限制均已通过。' },
+  READY: { label: '可以执行', tone: 'ready', description: '数据、设备、权限和安全限制均已通过。' },
   NEEDS_EVIDENCE: { label: '需要补充检查', tone: 'evidence', description: '当前只能参考，不能创建灌溉命令。' },
-  HUMAN_REVIEW: { label: '等待人工复核', tone: 'review', description: '建议已生成，但仍缺少审批或关键确认。' },
+  HUMAN_REVIEW: { label: '等待人工复核', tone: 'review', description: '建议已生成，但仍缺少关键证据或确认。' },
   UNAVAILABLE: { label: '当前不可执行', tone: 'unavailable', description: '设备、数据或安全条件不满足。' }
 });
 
@@ -27,7 +27,7 @@ const GATE_LABELS = Object.freeze({
 
 const EVIDENCE_LABELS = Object.freeze({
   FLOW_RATE_CALIBRATION: '检查流量计', PORTABLE_METER_COMPARISON: '使用便携仪复测', FRESH_TELEMETRY: '获取最新传感器数据',
-  DEVICE_HEALTH: '检查设备在线状态', MORE_TELEMETRY_HISTORY: '延长数据观察时间', CONTROL_PERMISSION: '请管理员审批'
+  DEVICE_HEALTH: '检查设备在线状态', MORE_TELEMETRY_HISTORY: '延长数据观察时间', CONTROL_PERMISSION: '当前账号无执行权限'
 });
 
 const CODE_LABELS = Object.freeze({
@@ -94,7 +94,7 @@ export const AdminDecisionView = {
     const selectedPlot = computed(() => plots.value.find((item) => item.plotId === selectedPlotId.value) || null);
     const farmId = computed(() => props.state?.adminContext?.farmId || selectedPlot.value?.farmId || props.routeParams?.farmId || '');
     const isDemo = computed(() => props.state?.sessionMode === 'demo');
-    const canApprove = computed(() => roleCan(props.state?.currentUser, 'irrigation:approve'));
+    const canApprove = computed(() => canExecuteIrrigation(props.state?.currentUser));
     const risk = computed(() => RISK_META[String(diagnosis.value?.primaryCause || '').toUpperCase()] || RISK_META.INSUFFICIENT_EVIDENCE);
     const readinessView = computed(() => READINESS_META[String(readiness.value?.status || 'UNAVAILABLE').toUpperCase()] || READINESS_META.UNAVAILABLE);
     const gates = computed(() => Object.entries(readiness.value?.hardGates || {}).map(([key, gateStatus]) => ({ key, label: GATE_LABELS[key] || readableCode(key, '检查项'), status: gateStatus })));
@@ -274,6 +274,7 @@ export const AdminDecisionView = {
       error.value = null;
       try {
         command.value = await api.executeIrrigation(plan.value.planId, selectedPlotId.value, {
+          confirmed: true,
           approved: true,
           idempotencyKey: `web-${currentTraceId.value}`,
           source: 'admin-decision-console',
@@ -345,7 +346,7 @@ export const AdminDecisionView = {
     <section class="dc-root admin-decision" aria-labelledby="decision-title">
       <header class="dc-hero">
         <div class="dc-hero-copy">
-          <span class="dc-kicker">诊断 · 审批 · 虚拟执行</span>
+          <span class="dc-kicker">诊断 · 确认 · 虚拟执行</span>
           <h2 id="decision-title">智能诊断与灌溉决策</h2>
           <p>选择地块后，系统按同一条链路完成诊断、补水试算、安全检查和执行留痕。</p>
         </div>
@@ -417,7 +418,7 @@ export const AdminDecisionView = {
             </section>
 
             <section class="dc-card">
-              <div class="dc-card-heading"><div><span class="dc-kicker">第二步 · 生成办法</span><h3>补水建议</h3></div><span class="dc-plan-state" :class="plan?.executable ? 'is-ready' : 'is-advisory'">{{ plan?.executable ? '可审批' : '仅供参考' }}</span></div>
+              <div class="dc-card-heading"><div><span class="dc-kicker">第二步 · 生成办法</span><h3>补水建议</h3></div><span class="dc-plan-state" :class="plan?.executable ? 'is-ready' : 'is-advisory'">{{ plan?.executable ? '可执行' : '仅供参考' }}</span></div>
               <template v-if="plan">
                 <div class="dc-prescription-grid">
                   <article><span>做什么</span><strong>精准补水</strong><small>灌溉</small></article>

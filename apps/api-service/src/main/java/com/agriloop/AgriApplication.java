@@ -976,7 +976,7 @@ final class RolePolicy {
     }
 
     static boolean canControl(String value) {
-        return Set.of("FARM_ADMIN", "SYSTEM_ADMIN").contains(canonical(value));
+        return Set.of("FARMER", "FARM_ADMIN", "SYSTEM_ADMIN").contains(canonical(value));
     }
 
     static boolean isAdmin(String value) {
@@ -1433,9 +1433,9 @@ class AgriEngine {
     }
 
     List<String> permissionsFor(UserPrincipal principal) {
-        if (principal.isSystemAdmin()) return List.of("plots:read", "diagnosis:read", "work-order:audit", "simulator:control", "strategy:manage", "value:audit", "platform:manage", "irrigation:approve");
-        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:approve", "simulator:control", "resource:manage", "strategy:read", "value:manage");
-        return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request");
+        if (principal.isSystemAdmin()) return List.of("plots:read", "diagnosis:read", "work-order:audit", "simulator:control", "strategy:manage", "value:audit", "platform:manage", "irrigation:execute", "irrigation:approve");
+        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "strategy:read", "value:manage");
+        return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request", "irrigation:execute");
     }
 
     List<Map<String, Object>> simulationScenarioCatalog() {
@@ -3135,7 +3135,8 @@ class AgriEngine {
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
         boolean executable = !hardDataBlock && !reviewOnly && !noWaterNeeded && "READY".equals(readinessStatus) && duration > 0;
         plan.put("readinessId", readinessResult.get("readinessId"));
-        plan.put("requiresApproval", true); plan.put("advisoryOnly", !executable); plan.put("executable", executable); plan.put("readinessStatus", readinessStatus);
+        plan.put("requiresApproval", false); plan.put("requiresAdminApproval", false); plan.put("confirmationRequired", true); plan.put("executionMode", "OPERATOR_CONFIRMED");
+        plan.put("advisoryOnly", !executable); plan.put("executable", executable); plan.put("readinessStatus", readinessStatus);
         plan.put("status", hardDataBlock ? "BLOCKED" : noWaterNeeded ? "NO_ACTION" : reviewOnly ? "HUMAN_REVIEW" : "PROPOSED"); plan.put("createdAt", Instant.now().toString());
         store.save("irrigation-plan", Jsons.text(plan, "planId", ""), plan); events.publish("irrigation.plan.created", plan); store.logEvent("irrigation.plan.created", plan);
         return plan;
@@ -3212,6 +3213,10 @@ class AgriEngine {
     Map<String, Object> createCommand(Map<String, Object> request, UserPrincipal principal) {
         String key = Jsons.text(request, "idempotencyKey", "");
         if (key.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "动作接口必须携带 idempotencyKey");
+        String plotId = Jsons.text(request, "plotId", "plot-a01");
+        // Scope the idempotency replay before looking up a prior command.  A
+        // key from another plot must never become a cross-plot read shortcut.
+        ensurePlotAccess(principal, plotId);
         Map<String, Object> old = idempotentCommands.get(key);
         if (old == null) {
             Map<String, Object> durableKey = store.find("idempotency", key);
@@ -3221,17 +3226,28 @@ class AgriEngine {
                 if (old != null) idempotentCommands.put(key, old);
             }
         }
-        if (old != null) return old;
-        String plotId = Jsons.text(request, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
+        if (old != null) {
+            if (!plotId.equals(Jsons.text(old, "plotId", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_PLOT_MISMATCH", "幂等键已绑定其他地块的灌溉命令");
+            }
+            String requestedPlanId = Jsons.text(request, "planId", "");
+            if (!requestedPlanId.isBlank() && !requestedPlanId.equals(Jsons.text(old, "planId", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_PLAN_MISMATCH", "幂等键已绑定其他灌溉处方");
+            }
+            return old;
+        }
         if (!principal.canControl()) throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无控制权限");
         String planId = Jsons.text(request, "planId", ""); Map<String, Object> plan = store.find("irrigation-plan", planId);
         if (plan == null) plan = irrigationPlan(Map.of("plotId", plotId), principal);
+        if (!plotId.equals(Jsons.text(plan, "plotId", ""))) {
+            throw new ApiException(HttpStatus.CONFLICT, "IRRIGATION_PLAN_PLOT_MISMATCH", "灌溉处方与当前地块不一致");
+        }
         Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", planId), principal);
         if (!"READY".equals(Jsons.text(plan, "readinessStatus", "")) && !"READY".equals(Jsons.text(readiness, "status", ""))) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "READINESS_BLOCKED", "决策就绪度未通过，不能下发命令").withDetails(Map.of("readiness", readiness, "plan", plan));
         }
-        boolean approved = Jsons.bool(request, "approved", false);
-        if (!approved) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "APPROVAL_REQUIRED", "中高风险灌溉动作需要人工确认");
+        boolean confirmed = Jsons.bool(request, "confirmed", Jsons.bool(request, "approved", false));
+        if (!confirmed) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CONFIRMATION_REQUIRED", "执行灌溉前需要当前操作人明确确认（人工确认），无需管理员审批");
         long duration = Jsons.whole(plan, "durationSeconds", Jsons.whole(request, "durationSeconds", 0));
         if (duration <= 0 || duration > properties.getMaxIrrigationSeconds()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SAFETY_LIMIT", "灌溉时长超出安全上限");
         double requestedWater = Jsons.number(plan, "waterLitre", 0);
@@ -3246,9 +3262,26 @@ class AgriEngine {
         if (lastAction != null && Duration.between(lastAction, Instant.now()).toMinutes() < 120) throw new ApiException(HttpStatus.CONFLICT, "COOLDOWN_ACTIVE", "地块仍处于灌溉冷却窗口");
         Map<String, Object> command = new LinkedHashMap<>(); command.put("commandId", Jsons.id("cmd")); command.put("plotId", plotId); command.put("planId", plan.get("planId"));
         command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", Jsons.number(plan, "waterLitre", 0));
-        command.put("idempotencyKey", key); command.put("status", "APPROVED"); command.put("requestedBy", principal.userId); command.put("approvedBy", principal.userId);
-        command.put("approvedAt", Instant.now().toString()); command.put("riskLevel", "MEDIUM"); command.put("source", Jsons.text(request, "source", "api"));
-        store.save("command", Jsons.text(command, "commandId", ""), command); idempotentCommands.put(key, command); events.publish("command.approved", command); store.logEvent("command.approved", command);
+        command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
+        command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false);
+        command.put("confirmationMode", "OPERATOR_CONFIRMED"); command.put("riskLevel", "MEDIUM"); command.put("source", Jsons.text(request, "source", "api"));
+        String workOrderId = Jsons.text(request, "workOrderId", "").trim();
+        if (!workOrderId.isBlank()) {
+            Map<String, Object> approvalWork = scopedWorkOrder(workOrderId, principal);
+            if (!"IRRIGATION_REVIEW".equalsIgnoreCase(Jsons.text(approvalWork, "actionType", ""))
+                    || !Jsons.text(plan, "planId", "").equals(Jsons.text(approvalWork, "planId", Jsons.text(approvalWork, "sourceRef", "")))) {
+                throw new ApiException(HttpStatus.CONFLICT, "APPROVAL_PLAN_MISMATCH", "审批任务与灌溉处方不一致");
+            }
+            command.put("workOrderId", workOrderId);
+            command.put("status", "APPROVED"); command.put("approvedBy", principal.userId); command.put("approvedAt", Instant.now().toString());
+            approvalWork.put("status", "IN_PROGRESS"); approvalWork.put("approvalDecision", "APPROVED");
+            approvalWork.put("approvedBy", principal.userId); approvalWork.put("approvedAt", Instant.now().toString());
+            approvalWork.put("commandId", command.get("commandId")); approvalWork.put("updatedAt", Instant.now().toString());
+            saveWorkOrder(approvalWork, "irrigation-approved");
+        }
+        store.save("command", Jsons.text(command, "commandId", ""), command); idempotentCommands.put(key, command);
+        String commandEvent = workOrderId.isBlank() ? "command.confirmed" : "command.approved";
+        events.publish(commandEvent, command); store.logEvent(commandEvent, command);
         store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", command.get("commandId"), "createdAt", Instant.now().toString()));
         cooldowns.put(plotId, Instant.now());
         executeVirtual(command, request); return command;
@@ -3304,6 +3337,75 @@ class AgriEngine {
     Map<String, Object> forecast(String plotId, String metric) {
         requireRecord("plot", plotId);
         return forecastForSimulation(plotId, metric, plotSimulationView(plotId), true);
+    }
+
+    /**
+     * Evaluate an unsaved plot strategy with the same deterministic model used
+     * by persisted forecasts.  This endpoint is deliberately read-only: it
+     * neither changes the plot strategy nor writes a forecast/event record.
+     */
+    Map<String, Object> evaluateForecast(Map<String, Object> input, UserPrincipal principal) {
+        String plotId = Jsons.text(input, "plotId", "").trim();
+        if (plotId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_CONTEXT_REQUIRED", "请先选择地块");
+        ensurePlotAccess(principal, plotId);
+        requireRecord("plot", plotId);
+
+        String metric = Jsons.text(input, "metric", "SOIL_MOISTURE").trim().toUpperCase(Locale.ROOT);
+        Map<String, Object> current = simulationRecord(plotId);
+        String scenario = canonicalSimulationScenario(Jsons.text(input, "scenario", Jsons.text(current, "scenario", "NORMAL")));
+        boolean scenarioChanged = !scenario.equals(Jsons.text(current, "scenario", "NORMAL"));
+        Map<String, Object> parameters = scenarioChanged
+                ? simulationDefaults(scenario, plotId)
+                : new LinkedHashMap<>(Jsons.map(mapper, current.get("parameters")));
+        Map<String, Object> supplied = Jsons.map(mapper, input.get("parameters"));
+        List<String> warnings = new ArrayList<>();
+        for (String key : supplied.keySet()) {
+            if (!SIMULATION_PARAMETER_LIMITS.containsKey(key)) warnings.add("已忽略未知参数：" + key);
+        }
+        for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+            String key = entry.getKey();
+            if (!supplied.containsKey(key)) continue;
+            double[] range = entry.getValue();
+            double fallback = Jsons.number(parameters, key, (range[0] + range[1]) / 2.0);
+            double requested = Jsons.number(supplied, key, fallback);
+            double bounded = round(clamp(requested, fallback, range[0], range[1]));
+            parameters.put(key, bounded);
+            if (Double.compare(requested, bounded) != 0) {
+                warnings.add(key + " 已限制在 " + range[0] + "–" + range[1] + " 范围内");
+            }
+        }
+        if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
+
+        Map<String, Object> whatIf = new LinkedHashMap<>(current);
+        whatIf.put("plotId", plotId);
+        whatIf.put("scenario", scenario);
+        whatIf.put("parameters", parameters);
+        whatIf.put("sourceMode", "WHAT_IF");
+        Map<String, Object> projection = new LinkedHashMap<>(forecastForSimulation(plotId, metric, whatIf, false));
+        Object requestVersion = input.get("requestVersion");
+        Map<String, Object> inputWindow = Jsons.map(mapper, projection.get("inputWindow"));
+        String dataSource = Jsons.text(inputWindow, "mode", "SIMULATION_STRATEGY");
+        if ("UNAVAILABLE".equals(Jsons.text(projection, "status", ""))) {
+            warnings.add("当前数据条件不足，未生成可执行曲线");
+        }
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("plotId", plotId); snapshot.put("metric", projection.getOrDefault("metric", metric));
+        snapshot.put("scenario", scenario); snapshot.put("parameters", new LinkedHashMap<>(parameters));
+        snapshot.put("startValue", projection.get("startValue")); snapshot.put("startTimestamp", projection.get("startTimestamp"));
+        snapshot.put("requestVersion", requestVersion); snapshot.put("evaluatedAt", Instant.now().toString());
+        projection.put("persisted", false);
+        projection.put("requestVersion", requestVersion);
+        projection.put("modelMode", "DETERMINISTIC_WHAT_IF");
+        projection.put("dataSource", dataSource);
+        projection.put("inputSnapshot", snapshot);
+        projection.put("explanation", Map.of(
+                "summary", "使用当前遥测锚点与未保存的地块策略进行只读确定性试算",
+                "strategySource", scenarioChanged ? "SCENARIO_DEFAULTS_WITH_OVERRIDES" : "CURRENT_STRATEGY_WITH_OVERRIDES",
+                "persistence", "NONE"));
+        projection.put("warnings", warnings);
+        return projection;
     }
 
     /**
@@ -4352,7 +4454,7 @@ class AgriEngine {
                     Map.entry("farmId", farmIdForPlot(Jsons.text(plan, "plotId", ""))),
                     Map.entry("plotId", Jsons.text(plan, "plotId", "")),
                     Map.entry("title", "灌溉处方审批：" + Jsons.text(plan, "planId", "")),
-                    Map.entry("reason", "农户已核对处方，请管理员审批并执行虚拟命令"),
+                    Map.entry("reason", "兼容旧流程：农户已核对处方，请管理员审批并执行虚拟命令"),
                     Map.entry("actionType", "IRRIGATION_REVIEW"),
                     Map.entry("sourceType", "DECISION"),
                     Map.entry("sourceRef", planId),
@@ -4658,7 +4760,7 @@ class AgriEngine {
             answer.put("result", Map.of(
                     "capabilities", List.of("地块状态查询", "异常与根因诊断", "基于证据的诊断解释", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
-                    "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过审批执行命令")));
+                    "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过权限、安全门和确认执行命令")));
             // Capability questions are a stable contract, not a generative task.
             // Answering them locally avoids a needless 27B round trip and keeps
             // the product boundary concise even when an LLM is enabled.
@@ -4689,7 +4791,7 @@ class AgriEngine {
             tools.add(tool("generate_irrigation_plan", Map.of("plotId", plotId), plan));
             answer.put("intent", "IRRIGATION_RECOMMENDATION");
             answer.put("summary", Jsons.bool(plan, "executable", false)
-                    ? "已生成可审批灌溉处方"
+                    ? "已生成可执行灌溉处方"
                     : "已生成保守参考，建议人工复核");
             answer.put("plan", plan);
         } else if (isDiagnosisQuestion(message)) {
@@ -4944,7 +5046,7 @@ class AgriEngine {
     @SuppressWarnings("unchecked")
     String safetyNarrativeOverride(String message, Map<String, Object> answer) {
         if (isDirectControlRequest(message)) {
-            return "我不能在对话中直接发送或生成控制命令。请使用受控执行接口，并先完成权限、审批、幂等键和安全门校验。";
+            return "我不能在对话中直接发送或生成控制命令。请使用受控执行接口，并先完成权限、安全门、当前操作人确认和幂等键校验。";
         }
 
         String intent = Jsons.text(answer, "intent", "");
@@ -5588,8 +5690,8 @@ class AgriController {
     @GetMapping("/auth/roles")
     ResponseEntity<?> roles() {
         return ok(List.of(
-                Map.of("code", "FARM_ADMIN", "label", "农场管理员", "description", "负责全场运营、任务安排、风险审批与资源调度"),
-                Map.of("code", "FARMER", "label", "种植农户", "description", "查看分配地块、提交巡田记录并确认农事建议"),
+                Map.of("code", "FARM_ADMIN", "label", "农场管理员", "description", "负责全场运营、任务安排、灌溉执行与资源调度"),
+                Map.of("code", "FARMER", "label", "种植农户", "description", "查看分配地块、提交巡田记录并确认和执行灌溉建议"),
                 Map.of("code", "SYSTEM_ADMIN", "label", "系统管理员", "description", "负责平台配置、数据链路、策略版本与全局审计")
         ));
     }
@@ -5774,7 +5876,9 @@ class AgriController {
     ResponseEntity<?> forecast(@PathVariable String plotId, @RequestParam(defaultValue = "SOIL_MOISTURE") String metric, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.forecast(plotId, metric)); }
 
     @PostMapping("/forecasts/evaluate")
-    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) { String plot = Jsons.text(body, "plotId", "plot-a01"); engine.ensurePlotAccess(principal(a), plot); return ok(engine.forecast(plot, Jsons.text(body, "metric", "SOIL_MOISTURE"))); }
+    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.evaluateForecast(body, principal(a)));
+    }
 
     @GetMapping("/plots/{plotId}/timeline")
     ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {

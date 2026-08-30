@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260828-chart-fill">
+  <link rel="stylesheet" href="css/farmer.css?v=20260828-role-glass-v578-2">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -510,10 +510,10 @@
               </div>
             </div>
 
-            <button type="button" class="g-card farmer-shared-tools-entry" @click="open_tools('risk')">
+            <button type="button" class="g-card farmer-shared-tools-entry" @click="open_tools()">
               <div>
-                <h3>工具台</h3>
-                <p class="farmer-panel-hint">查看风险预警，并阅读系统管理员发布的作物培养手册。</p>
+                <h3>作物培养手册</h3>
+                <p class="farmer-panel-hint">阅读系统管理员发布的作物阶段、环境指标和培养说明。</p>
               </div>
               <span class="g-badge primary">本页打开</span>
               <app-icon name="arrow_forward" class="farmer-shared-tools-arrow"></app-icon>
@@ -568,7 +568,7 @@
                 </div>
                 <dl class="farmer-plot-overview-metrics">
                   <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
-                    <dt>{{ metric.label }}</dt>
+                    <dt>{{ metric_label(code, metric.label) }}</dt>
                     <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
@@ -577,7 +577,7 @@
 
             <div v-if="selected_plot && batch_timeline.length" class="g-card farmer-batch-panel">
               <div class="farmer-panel-header">
-                <div><span class="farmer-section-kicker">I-19 · 作物全周期</span><h3>{{ selected_plot.name }} · 批次阶段</h3><p class="farmer-panel-hint">阶段来自作物模型包；任务仍复用统一工单，不建立第二套计划。</p></div>
+                <div><span class="farmer-section-kicker">作物全周期</span><h3>{{ selected_plot.name }} · 批次阶段</h3><p class="farmer-panel-hint">阶段来自作物模型包；任务仍复用统一工单，不建立第二套计划。</p></div>
                 <span class="g-badge primary">{{ selected_plot.cropName }} · {{ selected_plot.stageLabel }}</span>
               </div>
               <ol class="farmer-batch-timeline">
@@ -668,8 +668,8 @@
                 <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
               </div>
               <div class="farmer-page-actions">
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_tools('risk', advice_plot && advice_plot.plotId)">
-                  <app-icon name="timeline"></app-icon>打开风险预警
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)">
+                  <app-icon name="grass"></app-icon>查看地块详情
                 </button>
                 <span class="g-badge warning">{{ stats.risk_alerts }} 条风险提醒</span>
               </div>
@@ -791,7 +791,7 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，执行审批由农场管理员处理。' : '演示模式不会控制真实水泵。' }}</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，当前操作人确认后即可执行。' : '演示模式不会控制真实水泵。' }}</p>
                 <div class="farmer-advice-actions">
                   <button
                     type="button"
@@ -807,7 +807,7 @@
                       aria-hidden="true"
                     >progress_activity</span>
                     <app-icon v-else name="water_drop"></app-icon>
-                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并提交审批' }}
+                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并执行' }}
                   </button>
                   <button
                     type="button"
@@ -828,8 +828,8 @@
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
-                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不提交灌溉申请</p>
-                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '需管理员审批，农户不会直接控制水泵' : '处方仅供当前地块参考，提交前会再次检查安全门' }}</p>
+                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
+                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
                 <div v-if="show_advice_diagnosis && advice_diagnosis_summary" class="farmer-fold-section farmer-advice-diagnosis-panel">
                   <div class="farmer-panel-header">
@@ -871,14 +871,14 @@
                       <div><span>冷却窗口</span><strong>{{ irrigation_guard.state }}</strong><small v-if="irrigation_guard.remainingSeconds">剩余 {{ Math.ceil(irrigation_guard.remainingSeconds / 60) }} 分钟 · 至 {{ format_suggestion_time(irrigation_guard.cooldownUntil) }}</small><small v-else>当前无执行冷却 · {{ irrigation_guard.cooldownMinutes }} 分钟策略</small></div>
                     </div>
                     <div v-if="advice_execution_summary.workOrderId || advice_execution_summary.command" class="farmer-execution-evidence">
-                      <strong>审批、执行与效果</strong>
-                      <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || '未提交' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
-                      <div><span>命令 / ACK</span><b>{{ advice_execution_summary.command?.commandId || '等待管理员执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                      <strong>执行与效果</strong>
+                      <div><span>审批状态</span><b>{{ advice_execution_summary.workOrderId || '无需管理员审批' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                      <div><span>命令 / ACK</span><b>{{ advice_execution_summary.command?.commandId || '等待设备执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
                       <div><span>实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待回执' }}</em></div>
                       <div><span>前后对比</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
                     </div>
                     <p v-if="irrigation_plan?.why || advice_plan?.why" class="farmer-panel-hint">处方说明：{{ irrigation_plan?.why || advice_plan?.why }}</p>
-                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 农户可查看结论并通过建议流提交审批，不能直接虚拟执行。</small>
+                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 当前操作人可直接执行虚拟灌溉；系统仍保留安全门、幂等和冷却保护。</small>
                   </div>
                 </div>
 
@@ -915,13 +915,13 @@
 
               <div class="farmer-case-panel">
                 <div class="farmer-panel-header"><div><span class="farmer-section-kicker">案例确认</span><h3>相似案例与人工确认</h3></div><span class="g-badge primary">仅供参考</span></div>
-                <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或创建灌溉审批工单。</p>
+                <p v-if="!similar_cases.length && !advice_loading" class="farmer-panel-hint">暂无已完成评价的相似案例；你仍可提交建议反馈或查看当前灌溉执行结果。</p>
                 <button type="button" v-for="item in similar_cases" :key="item.id" class="farmer-case-item" @click="selected_case_id = item.id">
                   <app-icon name="history"></app-icon>
                   <div><strong>{{ item.title }}</strong><p>{{ item.result }}</p><small>相似度 {{ item.similarity }} · {{ source_label(item.source) }}</small></div>
                   <app-icon :name="selected_case_id === item.id ? 'radio_button_checked' : 'radio_button_unchecked'"></app-icon>
                 </button>
-                <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用仍需经过安全检查与审批。</span></label>
+                <label class="farmer-confirm-check"><input v-model="human_confirmation_checked" type="checkbox"><span>我已核对当前地块数据、现场情况和所选案例；采用前仍需经过安全检查。</span></label>
                 <button type="button" class="g-btn primary farmer-btn-analyze farmer-confirm-button" :disabled="feedback_busy || advice_loading || !human_confirmation_checked || !selected_case_id" @click="confirm_suggestion"><app-icon name="verified_user"></app-icon>{{ decision_confirmation || '确认采用建议' }}</button>
                 <small class="farmer-case-note">反馈只形成待复核记录，不会静默修改阈值、处方或生产策略。</small>
               </div>
@@ -1138,7 +1138,7 @@
                         </div>
                         <div class="farmer-plot-metrics">
                           <div v-for="(metric, code) in selected_task.plot.metrics" :key="code" class="farmer-metric-item">
-                            <span class="farmer-metric-label">{{ metric.label }}</span>
+                            <span class="farmer-metric-label">{{ metric_label(code, metric.label) }}</span>
                             <span class="farmer-metric-value" :class="'metric-' + metric.status">{{ metric.value }} {{ metric.unit }}</span>
                             <span class="farmer-metric-target">目标 {{ metric.target }}</span>
                           </div>
@@ -1259,155 +1259,12 @@
           <section v-else-if="current_view === 'tools'" class="farmer-workspace" key="tools">
             <div class="farmer-page-header">
               <div>
-                <h2>工具台</h2>
-                <p class="role-summary">只保留风险预警与作物培养手册；手册内容由系统管理员维护，本页仅供查阅。</p>
-              </div>
-              <div class="farmer-tools-tabs" role="tablist" aria-label="工具台功能">
-                <button type="button" role="tab" :aria-selected="tools_tab === 'risk' ? 'true' : 'false'" :class="{ active: tools_tab === 'risk' }" @click="navigate('tools', { tab: 'risk' })">
-                  <span class="material-symbols-outlined">timeline</span>风险预警
-                </button>
-                <button type="button" role="tab" :aria-selected="tools_tab === 'manual' ? 'true' : 'false'" :class="{ active: tools_tab === 'manual' }" @click="navigate('tools', { tab: 'manual' })">
-                  <span class="material-symbols-outlined">menu_book</span>作物培养手册
-                </button>
+                <h2>作物培养手册</h2>
+                <p class="role-summary">手册内容由系统管理员维护，本页仅供查阅；风险信息统一回到地块与灌溉系统查看。</p>
               </div>
             </div>
 
-            <div v-if="tools_tab === 'risk'" class="farmer-tools-risk">
-              <div class="farmer-tools-toolbar">
-                <label>
-                  预警地块
-                  <select class="g-select" v-model="tools_plot_id" aria-label="选择预警地块">
-                    <option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}（{{ plot.cropName }}）</option>
-                  </select>
-                </label>
-                <span class="g-badge" :class="tools_forecast_error ? 'warning' : 'success'">{{ tools_plot ? tools_plot.name : '未选择地块' }}</span>
-              </div>
-
-              <div v-if="tools_forecast_summary" class="farmer-forecast-summary">
-                <article class="g-card farmer-forecast-ttr" :class="'is-' + tools_forecast_summary.ttr.tone">
-                  <div class="farmer-forecast-ttr-head">
-                    <span class="farmer-section-kicker">风险越界倒计时</span>
-                    <span class="g-badge" :class="tools_forecast_summary.ttr.tone">{{ tools_forecast_summary.statusLabel }}</span>
-                  </div>
-                  <strong class="farmer-forecast-ttr-value">{{ tools_forecast_summary.ttr.label }}</strong>
-                  <p class="farmer-panel-hint">{{ tools_forecast_summary.ttr.detail }}</p>
-                  <div class="farmer-forecast-ttr-meta">
-                    <span>预测模型 {{ tools_forecast_summary.algorithm }}</span>
-                    <span v-if="tools_forecast_summary.robustSlopePerHour != null">趋势 {{ tools_forecast_summary.robustSlopePerHour }}%/小时</span>
-                    <span v-if="tools_forecast_summary.boundary">风险阈值 {{ tools_forecast_summary.boundary.value }}%</span>
-                  </div>
-                </article>
-
-                <article class="g-card farmer-forecast-horizons">
-                  <div class="farmer-panel-header">
-                    <div>
-                      <span class="farmer-section-kicker">短期预测</span>
-                      <h3>1 / 2 / 4 小时推演</h3>
-                    </div>
-                  </div>
-                  <div class="farmer-forecast-horizon-table" role="table" aria-label="风险预测锚点">
-                    <div class="farmer-forecast-horizon-row is-head" role="row">
-                      <span role="columnheader">时点</span>
-                      <span role="columnheader">预期含水率</span>
-                      <span role="columnheader">置信区间</span>
-                    </div>
-                    <div v-for="point in tools_forecast_summary.horizons" :key="'hz-' + point.minute" class="farmer-forecast-horizon-row" role="row">
-                      <span role="cell">{{ point.label }}</span>
-                      <span role="cell"><strong>{{ Number.isFinite(point.expected) ? point.expected.toFixed(1) : '—' }}%</strong></span>
-                      <span role="cell" class="is-muted">
-                        <template v-if="Number.isFinite(point.lower) && Number.isFinite(point.upper)">
-                          {{ point.lower.toFixed(1) }}% – {{ point.upper.toFixed(1) }}%
-                        </template>
-                        <template v-else>—</template>
-                      </span>
-                    </div>
-                  </div>
-                  <p v-if="tools_forecast_summary.uncertaintyNote" class="farmer-panel-hint">{{ tools_forecast_summary.uncertaintyNote }}</p>
-                </article>
-              </div>
-
-              <article class="g-card farmer-advice-card farmer-moisture-chart-card farmer-risk-chart-card">
-                  <div class="farmer-panel-header">
-                    <div>
-                      <span class="farmer-section-kicker">含水率推演</span>
-                      <h3>{{ tools_plot ? tools_plot.name : '地块' }} · 风险预警曲线</h3>
-                    </div>
-                    <span class="g-badge primary">当前 {{ tools_plot && tools_plot.metrics && tools_plot.metrics.SOIL_MOISTURE ? tools_plot.metrics.SOIL_MOISTURE.value : '—' }}%</span>
-                  </div>
-
-                  <div class="farmer-risk-chart-layout">
-                    <div class="farmer-risk-chart-main" ref="tools_risk_chart_host">
-                      <div v-if="tools_chart_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true">
-                        <span class="farmer-chart-spinner" aria-hidden="true"></span>
-                        <span>{{ tools_scenario_loading ? '正在加载情景对照…' : '正在读取预警曲线…' }}</span>
-                      </div>
-                      <div v-else-if="tools_forecast_chart" class="farmer-moisture-chart-wrap">
-                    <div class="farmer-chart-interactive">
-                      <svg class="farmer-chart-svg farmer-moisture-svg" :viewBox="tools_forecast_chart.viewBox || '0 0 360 260'" role="img" aria-label="风险预警曲线"
-                           @mousemove="show_chart_tooltip($event, tools_forecast_chart, 'tools-forecast')" @mouseleave="hide_chart_tooltip">
-                        <line v-for="line in tools_forecast_chart.grid" :key="'tf-' + line.y" class="farmer-chart-grid-line" :x1="tools_forecast_chart.plotLeft" :y1="line.y" :x2="tools_forecast_chart.plotRight" :y2="line.y"></line>
-                        <text v-for="line in tools_forecast_chart.grid" :key="'tt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                        <line v-if="tools_forecast_chart.boundaryY != null" class="farmer-alert-threshold-line" :x1="tools_forecast_chart.plotLeft" :y1="tools_forecast_chart.boundaryY" :x2="tools_forecast_chart.plotRight" :y2="tools_forecast_chart.boundaryY"></line>
-                        <polygon v-if="tools_forecast_chart.bandPolygon" class="farmer-chart-confidence-band" :points="tools_forecast_chart.bandPolygon"></polygon>
-                        <polyline
-                          v-for="series in tools_forecast_chart.series"
-                          :key="series.label"
-                          class="farmer-chart-line"
-                          :class="{ 'is-moisture': series.primary, 'is-dashed': series.dashed, 'is-dual-track': series.dualTrack }"
-                          :points="series.points"
-                          :stroke="series.color"
-                        ></polyline>
-                        <text
-                          v-for="tick in tools_forecast_chart.xTicks"
-                          :key="'tx-' + tick.x + tick.label"
-                          class="farmer-chart-axis-label"
-                          :x="tick.x"
-                          :y="tick.y"
-                          :text-anchor="tick.anchor"
-                        >{{ tick.label }}</text>
-                      </svg>
-                      <div v-if="chart_tooltip && chart_tooltip.key === 'tools-forecast'" class="farmer-chart-tooltip"
-                           :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
-                        <strong>{{ chart_tooltip.label }}</strong>
-                        <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ Number(item.value).toFixed(1) }}%</span>
-                      </div>
-                    </div>
-                    <div v-if="tools_forecast_chart.legend && tools_forecast_chart.legend.length" class="farmer-chart-legend" aria-label="曲线图例">
-                      <span v-for="item in tools_forecast_chart.legend" :key="'legend-' + item.label" class="farmer-chart-legend-item">
-                        <i class="farmer-legend-swatch" :class="'is-' + (item.style || (item.dashed ? 'dashed' : 'solid'))" :style="{ '--legend-color': item.color }"></i>
-                        {{ item.label }}
-                      </span>
-                    </div>
-                    <p v-if="tools_forecast_chart.compareMeta" class="farmer-panel-hint">情景虚线为同一冻结快照下的只读双轨试算（种子 {{ tools_forecast_chart.compareMeta.seed }}），绿色实线为当前基准预测，二者均不写回主状态。</p>
-                      </div>
-                      <p v-else class="farmer-panel-hint farmer-chart-empty">{{ tools_forecast_error || '暂无可绘制的预警曲线' }}</p>
-                      <p v-if="tools_forecast_error && tools_forecast_chart" class="farmer-panel-hint">{{ tools_forecast_error }}</p>
-                    </div>
-
-                    <aside class="farmer-risk-chart-side" aria-label="情景对照">
-                      <span class="farmer-risk-side-label">情景选择</span>
-                      <div class="farmer-risk-scenarios" role="group">
-                        <button
-                          type="button"
-                          v-for="scenario in tools_scenarios"
-                          :key="scenario.code"
-                          class="farmer-risk-scenario"
-                          :class="{ active: tools_scenario === scenario.code }"
-                          :style="{ '--scenario-color': scenario.color }"
-                          :disabled="tools_chart_loading && tools_scenario !== scenario.code"
-                          @click="change_tools_scenario(scenario)"
-                        >
-                          <span>{{ scenario.emoji }}</span>
-                          <strong>{{ scenario.label }}</strong>
-                        </button>
-                      </div>
-                      <p class="farmer-panel-hint">{{ tools_active_scenario?.description || '选择情景后，叠加「不干预 / 执行处方」双轨曲线，与上方基准预测对照。' }} 结果仅供本页参考，不会回写主状态或控制设备。</p>
-                    </aside>
-                  </div>
-                </article>
-            </div>
-
-            <div v-else class="farmer-tools-manual">
+            <div class="farmer-tools-manual">
               <p v-if="crop_manual_error" class="farmer-panel-hint">{{ crop_manual_error }}</p>
               <article class="g-card farmer-advice-card">
                 <div class="farmer-panel-header">
@@ -1463,7 +1320,7 @@
                 <div class="farmer-cm-metrics">
                   <div v-for="metric in crop_manual_metrics_list" :key="metric.code" class="farmer-cm-metric">
                     <div class="farmer-cm-metric-head">
-                      <span>{{ metric.label }}</span>
+                      <span>{{ metric_label(metric.code, metric.label) }}</span>
                       <span class="g-badge" :class="metric.availability === 'SUPPORTED' ? 'success' : 'primary'">{{ availability_label(metric.availability) }}</span>
                     </div>
                     <strong>{{ metric.range }}<small v-if="metric.unit">{{ metric.unit }}</small></strong>
@@ -1543,7 +1400,7 @@
 
             <section v-else-if="suggestion_flow_stage === 'CONFIRM'" class="farmer-suggestion-stage">
               <div v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-danger-summary">
-                <div class="farmer-danger-summary-head"><span class="material-symbols-outlined">warning</span><strong>请核对灌溉申请</strong><span class="farmer-danger-badge">需要管理员审批</span></div>
+                <div class="farmer-danger-summary-head"><span class="material-symbols-outlined">warning</span><strong>请核对灌溉处方</strong><span class="farmer-danger-badge">当前操作人确认</span></div>
                 <div class="farmer-suggestion-facts">
                   <div><small>地块 / 作物</small><strong>{{ suggestion_plot ? suggestion_plot.name + ' · ' + suggestion_plot.cropName : '—' }}</strong></div>
                   <div><small>计划水量</small><strong>{{ irrigation_amount === '—' ? '—' : irrigation_amount + ' L' }}</strong></div>
@@ -1557,24 +1414,24 @@
                 <span class="material-symbols-outlined">fact_check</span>
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
-              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能提交</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认提交管理员审批' : '，并确认按提示操作' }}。</span></label>
+              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认立即执行虚拟灌溉' : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
-                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '提交中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并提交管理员审批' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '执行中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并执行' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
               </div>
             </section>
 
             <section v-else-if="suggestion_flow_stage === 'RESULT' && active_suggestion && active_suggestion.kind === 'IRRIGATION'" class="farmer-suggestion-stage">
-              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>审批申请已记录</strong><p>农户不能自行填写执行成功。管理员执行后，这里只读显示命令 ACK、遥测前后值和效果评价。</p></div></div>
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>灌溉命令已提交</strong><p>当前操作人已确认执行；农户不能自行填写执行成功，页面只读显示系统 ACK、遥测前后值和效果评价。</p></div></div>
               <div class="farmer-execution-evidence is-modal">
-                <div><span>审批任务</span><b>{{ advice_execution_summary.workOrderId || suggestion_result?.workOrderId || '等待同步' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
-                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '尚未创建命令' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                <div><span>审批状态</span><b>{{ advice_execution_summary.workOrderId || suggestion_result?.workOrderId || '无需管理员审批' }}</b><em>{{ advice_execution_summary.approvalStatus }}</em></div>
+                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '等待设备执行' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
                 <div><span>ACK 实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待设备回执' }}</em></div>
                 <div><span>效果验证</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
               </div>
               <div class="farmer-suggestion-inline-action"><span>效果证据不足时：</span><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection"><span class="material-symbols-outlined">fact_check</span>提交巡田复测</button></div>
-              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新审批 / ACK / 效果' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">关闭</button></div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新命令 / ACK / 效果' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">关闭</button></div>
             </section>
 
             <form v-else-if="suggestion_flow_stage === 'RESULT'" class="farmer-suggestion-stage" @submit.prevent="submit_suggestion_result">
@@ -1586,7 +1443,7 @@
                 <label v-if="active_suggestion && active_suggestion.kind === 'IRRIGATION'">实际执行时长（秒）<input v-model="suggestion_result_form.actual_duration_seconds" type="number" min="0" step="1" placeholder="选填"></label>
               </div>
               <label>处理备注<textarea v-model.trim="suggestion_result_form.note" rows="4" required placeholder="请记录现场看到的情况、采取的动作和结果"></textarea></label>
-              <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会让农户直接控制水泵。</p>
+              <p class="farmer-form-hint">结果会保留来源和时间；不会直接修改规则，也不会绕过系统安全门执行水泵动作。</p>
               <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_suggestion_flow">稍后填写</button><button type="submit" class="g-btn primary farmer-btn-analyze" :disabled="suggestion_busy">{{ suggestion_busy ? '保存中…' : '保存结果并查看恢复状态' }}</button></div>
             </form>
 
@@ -1613,6 +1470,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260828-baseline-slope"></script>
+  <script type="module" src="js/farmer.js?v=20260828-v58"></script>
 </body>
 </html>

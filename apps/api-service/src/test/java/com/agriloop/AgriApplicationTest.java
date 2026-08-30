@@ -120,6 +120,7 @@ class AgriApplicationTest {
         assertThat(((Map<?, ?>) farmerLogin.get("user")).get("role")).isEqualTo("FARMER");
         assertThat(((Map<?, ?>) farmAdminLogin.get("user")).get("role")).isEqualTo("FARM_ADMIN");
         assertThat(((Map<?, ?>) systemAdminLogin.get("user")).get("role")).isEqualTo("SYSTEM_ADMIN");
+        assertThat(((Map<?, ?>) farmerLogin.get("user")).get("permissions").toString()).contains("irrigation:execute");
         assertThat(((Map<?, ?>) systemAdminLogin.get("user")).get("permissions").toString()).contains("platform:manage");
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.login("farmer", "demo123", "FARM_ADMIN"))
@@ -331,8 +332,8 @@ class AgriApplicationTest {
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
         Map<String, Object> farmerReadiness = engine.readiness("PLOT", "plot-a02", farmer);
         assertThat(farmerReadiness.get("status")).isEqualTo("HUMAN_REVIEW");
-        assertThat(String.valueOf(farmerReadiness.get("hardGates"))).contains("permission=REVIEW");
-        assertThat(String.valueOf(farmerReadiness.get("missingEvidence"))).contains("CONTROL_PERMISSION");
+        assertThat(String.valueOf(farmerReadiness.get("hardGates"))).contains("permission=PASS");
+        assertThat(String.valueOf(farmerReadiness.get("missingEvidence"))).doesNotContain("CONTROL_PERMISSION");
     }
 
     @Test
@@ -1147,6 +1148,78 @@ class AgriApplicationTest {
     }
 
     @Test
+    void readOnlyForecastEvaluationEchoesVersionAndNeverPersistsStrategyOrForecast() {
+        String plotId = "plot-what-if-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期",
+                "cropPackVersion", "1.0.0", "metrics", Map.of("SOIL_MOISTURE", Map.of("value", 45.0, "unit", "%")))));
+        Instant start = Instant.now().minusSeconds(8 * 60L);
+        for (int i = 0; i < 8; i++) {
+            engine.ingest(Map.of("eventId", "what-if-" + plotId + "-" + i, "farmId", "farm-demo", "plotId", plotId,
+                    "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 45.0, "unit", "%",
+                    "sourceMode", "SIMULATION", "scenarioId", "normal", "ts", start.plusSeconds(i * 60L).toString()));
+        }
+        UserPrincipal admin = new UserPrincipal("user-what-if", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        Map<String, Object> beforeStrategy = engine.plotSimulation(plotId, admin);
+        int forecastCount = store.list("forecast").size();
+
+        Map<String, Object> drought = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "DROUGHT", "requestVersion", "preview-17",
+                "parameters", Map.of("soilMoistureTrendPerHour", -5.0, "forecastHours", 2)), admin);
+        Map<String, Object> rain = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "HEAVY_RAIN", "requestVersion", "preview-18",
+                "parameters", Map.of("rainfallRate", 48.0, "forecastHours", 2)), admin);
+        List<Map<String, Object>> droughtCurve = Jsons.maps(new ObjectMapper(), drought.get("curve"));
+        List<Map<String, Object>> rainCurve = Jsons.maps(new ObjectMapper(), rain.get("curve"));
+
+        assertThat(drought).containsEntry("persisted", false)
+                .containsEntry("requestVersion", "preview-17")
+                .containsEntry("modelMode", "DETERMINISTIC_WHAT_IF")
+                .containsKeys("dataSource", "inputSnapshot", "explanation", "warnings");
+        assertThat(Jsons.number(droughtCurve.get(0), "expected", 0)).isEqualTo(45.0);
+        assertThat(Jsons.number(droughtCurve.get(droughtCurve.size() - 1), "expected", 0)).isLessThan(45.0);
+        assertThat(Jsons.number(rainCurve.get(rainCurve.size() - 1), "expected", 0)).isGreaterThan(45.0);
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+        Map<String, Object> afterStrategy = engine.plotSimulation(plotId, admin);
+        assertThat(afterStrategy.get("scenario")).isEqualTo(beforeStrategy.get("scenario"));
+        assertThat(afterStrategy.get("parameters")).isEqualTo(beforeStrategy.get("parameters"));
+        assertThat(afterStrategy.get("revision")).isEqualTo(beforeStrategy.get("revision"));
+
+        Map<String, Object> bounded = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "scenario", "DROUGHT", "parameters", Map.of("volatility", 99)), admin);
+        Map<String, Object> boundedSnapshot = Jsons.map(new ObjectMapper(), bounded.get("inputSnapshot"));
+        assertThat(Jsons.number(Jsons.map(new ObjectMapper(), boundedSnapshot.get("parameters")), "volatility", 0)).isEqualTo(3.0);
+        assertThat(Jsons.strings(bounded.get("warnings"))).anyMatch(value -> value.contains("volatility"));
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of(
+                        "plotId", plotId, "scenario", "DROUGHT",
+                        "parameters", Map.of("riskThreshold", 85, "waterloggingThreshold", 80)), admin))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("SIMULATION_THRESHOLD_INVALID"));
+        UserPrincipal outsider = new UserPrincipal("user-outsider", "farmer-x", "FARMER", List.of("farm-other"), List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of("plotId", plotId), outsider))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("PLOT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.evaluateForecast(Map.of("scenario", "DROUGHT"), admin))
+                .isInstanceOfSatisfying(ApiException.class, exception -> assertThat(exception.code).isEqualTo("PLOT_CONTEXT_REQUIRED"));
+    }
+
+    @Test
+    void readOnlyForecastEvaluationReturnsUnavailableWithoutInventingCurve() {
+        String plotId = "plot-what-if-empty-" + System.nanoTime();
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE",
+                "cropCode", "tomato", "cropName", "番茄", "stageCode", "fruiting", "stageLabel", "结果期")));
+        UserPrincipal admin = new UserPrincipal("user-what-if-empty", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        int forecastCount = store.list("forecast").size();
+        Map<String, Object> evaluated = engine.evaluateForecast(Map.of(
+                "plotId", plotId, "metric", "SOIL_MOISTURE", "scenario", "NORMAL", "requestVersion", 3), admin);
+        assertThat(evaluated).containsEntry("status", "UNAVAILABLE").containsEntry("persisted", false).containsEntry("requestVersion", 3);
+        assertThat(Jsons.maps(new ObjectMapper(), evaluated.get("curve"))).isEmpty();
+        assertThat(store.list("forecast")).hasSize(forecastCount);
+    }
+
+    @Test
     void normalForecastAnchorsEveryMetricAndDoesNotAmplifyShortWindowNoise() {
         String plotId = "plot-multimetric-forecast-" + System.nanoTime();
         store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
@@ -1376,7 +1449,7 @@ class AgriApplicationTest {
     }
 
     @Test
-    void farmerP0QualityGuardScenarioAndApprovalContractsRemainScoped() {
+    void farmerP0QualityGuardScenarioAndDirectExecutionContractsRemainScoped() {
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         UserPrincipal otherFarmer = new UserPrincipal("user-farmer-a02", "farmer-a02", "FARMER", List.of("farm-demo"), List.of("plot-a02"));
         engine.ingest(Map.of("eventId", "p0-quality-" + System.nanoTime(), "plotId", "plot-a01", "deviceId", "mock-plot-a01",
@@ -1405,6 +1478,28 @@ class AgriApplicationTest {
         assertThat(first.get("workOrderId")).isEqualTo(repeated.get("workOrderId"));
         assertThat(store.find("work-order", String.valueOf(first.get("workOrderId"))))
                 .containsEntry("actionType", "IRRIGATION_REVIEW").containsEntry("planId", planId);
+
+        String directPlanId = "plan-direct-" + System.nanoTime();
+        String directTraceId = "trace-direct-" + System.nanoTime();
+        store.save("irrigation-plan", directPlanId, new java.util.LinkedHashMap<>(Map.of(
+                "planId", directPlanId, "plotId", "plot-a01", "traceId", directTraceId, "readinessId", "ready-direct-p0",
+                "readinessStatus", "READY", "durationSeconds", 120, "waterLitre", 40.0)));
+        String directKey = "direct-idem-" + System.nanoTime();
+        Map<String, Object> direct = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "planId", directPlanId, "plotId", "plot-a01", "idempotencyKey", directKey, "confirmed", true)), farmer);
+        Map<String, Object> repeatedDirect = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "planId", directPlanId, "plotId", "plot-a01", "idempotencyKey", directKey, "confirmed", true)), farmer);
+        assertThat(direct.get("commandId")).isEqualTo(repeatedDirect.get("commandId"));
+        assertThat(direct).containsEntry("approvalRequired", false)
+                .containsEntry("confirmationMode", "OPERATOR_CONFIRMED")
+                .containsEntry("confirmedBy", farmer.userId);
+        UserPrincipal farmAdmin = new UserPrincipal("user-admin-direct-p0", "admin-direct-p0", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                        "planId", directPlanId, "plotId", "plot-a02", "idempotencyKey", directKey, "confirmed", true)), farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("IDEMPOTENCY_PLOT_MISMATCH"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                        "planId", directPlanId, "plotId", "plot-a01", "idempotencyKey", directKey, "confirmed", true)), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
 
         String commandId = "cmd-scoped-" + System.nanoTime();
         store.save("command", commandId, new java.util.LinkedHashMap<>(Map.of(

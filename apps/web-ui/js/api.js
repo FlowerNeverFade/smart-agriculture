@@ -7,7 +7,7 @@
  * UI instead of being silently presented as real data.
  */
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
-import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
+import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -1808,7 +1808,7 @@ export class ApiService {
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
     const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
     const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = canExecuteIrrigation(this.user);
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
@@ -1844,7 +1844,10 @@ export class ApiService {
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
       readinessStatus,
-      requiresApproval: true,
+      requiresApproval: false,
+      requiresAdminApproval: false,
+      confirmationRequired: true,
+      executionMode: 'OPERATOR_CONFIRMED',
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
@@ -1869,7 +1872,7 @@ export class ApiService {
     const status = plan.readinessStatus || 'HUMAN_REVIEW';
     const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
     const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
-    const canControl = roleCan(this.user, 'irrigation:approve');
+    const canControl = canExecuteIrrigation(this.user);
     const hardGates = {
       requiredMetrics: 'PASS',
       freshness: deviceOffline ? 'FAIL' : 'PASS',
@@ -1957,9 +1960,9 @@ export class ApiService {
 
   /**
    * Persist a farmer decision outcome without changing a strategy or issuing
-   * a control command.  Farmers use this contract to request administrator
-   * approval and to record the result of an inspection/task; direct
-   * irrigation execution remains guarded by irrigation:approve.
+   * a control command.  Farmers use this contract to record inspection/task
+   * feedback; legacy approval requests remain supported for old records, but
+   * current irrigation execution uses the separate guarded execute capability.
    */
   async submitDecisionFeedback(traceId, input = {}) {
     if (!traceId) {
@@ -2115,11 +2118,12 @@ export class ApiService {
     if (!plotId) {
       throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     }
-    if (!roleCan(this.user, 'irrigation:approve')) {
+    if (!canExecuteIrrigation(this.user)) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     }
-    if (options.approved !== true) {
-      throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
+    const confirmed = options.confirmed === true || options.approved === true;
+    if (!confirmed) {
+      throw new ApiError('执行前需要当前操作人明确确认（人工确认），无需管理员审批', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     }
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/commands/virtual', {
@@ -2128,7 +2132,11 @@ export class ApiService {
           planId,
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
+          confirmed: true,
+          // Keep the old field for already deployed admin pages and servers.
           approved: true,
+          approvalRequired: false,
+          confirmationMode: 'OPERATOR_CONFIRMED',
           source: options.source || 'web-decision-console',
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
@@ -2146,8 +2154,21 @@ export class ApiService {
     if (!plan || plan.plotId !== plotId) {
       throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
     }
-    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false) {
+    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false || options.confirmed === false) {
       throw new ApiError('处方未通过安全门或尚未人工确认', { status: 409, code: 'IRRIGATION_NOT_READY' });
+    }
+
+    const existing = [...this.decisionCache.commands.values()].find((item) => (
+      options.idempotencyKey && item.idempotencyKey === options.idempotencyKey
+    ));
+    if (existing) {
+      if (existing.plotId !== plotId) {
+        throw new ApiError('幂等键已绑定其他地块的灌溉命令', { status: 409, code: 'IDEMPOTENCY_PLOT_MISMATCH' });
+      }
+      if (existing.planId !== planId) {
+        throw new ApiError('幂等键已绑定其他灌溉处方', { status: 409, code: 'IDEMPOTENCY_PLAN_MISMATCH' });
+      }
+      return { ...existing };
     }
 
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
@@ -2163,6 +2184,11 @@ export class ApiService {
       plotId,
       planId,
       traceId: plan.traceId,
+      idempotencyKey: options.idempotencyKey || `cmd-demo-${planId}`,
+      approvalRequired: false,
+      confirmationMode: 'OPERATOR_CONFIRMED',
+      confirmedBy: this._demoActorId(),
+      confirmedAt: new Date().toISOString(),
       status: outcome,
       type: "IRRIGATION_START",
       waterLitre: plannedWater,
@@ -2224,6 +2250,68 @@ export class ApiService {
       return this.normalizeForecast(resp?.data || resp, plotId, metric);
     }
     return this.mockRiskForecast(plotId, metric);
+  }
+
+  async evaluateRiskForecast(input = {}) {
+    const plotId = String(input.plotId || '').trim();
+    const metric = String(input.metric || 'SOIL_MOISTURE').toUpperCase();
+    if (!plotId) throw new ApiError('请先选择地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/forecasts/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({ ...input, plotId, metric })
+      });
+      return this.normalizeForecast(resp?.data || resp, plotId, metric);
+    }
+
+    const current = this.demoSimulationStrategies.get(plotId) || { scenario: 'NORMAL', parameters: PLOT_SIMULATION_DEFAULTS.NORMAL };
+    const rawScenario = String(input.scenario || current.scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+    const scenarioAliases = { STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', OFFLINE: 'DEVICE_OFFLINE' };
+    const scenario = scenarioAliases[rawScenario] || rawScenario;
+    if (!PLOT_SIMULATION_DEFAULTS[scenario]) {
+      throw new ApiError('不支持的地块模拟场景', { status: 400, code: 'SIMULATION_SCENARIO_INVALID' });
+    }
+    const base = scenario === normalizePlotSimulationScenario(current.scenario)
+      ? { ...(current.parameters || {}) }
+      : { ...(PLOT_SIMULATION_DEFAULTS[scenario] || PLOT_SIMULATION_DEFAULTS.NORMAL) };
+    const supplied = input.parameters && typeof input.parameters === 'object' ? input.parameters : {};
+    const candidate = { ...base };
+    const warnings = [];
+    Object.entries(supplied).forEach(([key, value]) => {
+      const limits = PLOT_SIMULATION_LIMITS[key];
+      if (!limits) { warnings.push(`已忽略未知参数：${key}`); return; }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return;
+      const bounded = Math.min(limits[1], Math.max(limits[0], numeric));
+      candidate[key] = bounded;
+      if (bounded !== numeric) warnings.push(`${key} 已限制在 ${limits[0]}–${limits[1]} 范围内`);
+    });
+    if (Number(candidate.riskThreshold) >= Number(candidate.waterloggingThreshold)) {
+      throw new ApiError('干旱阈值必须低于积水阈值', { status: 400, code: 'SIMULATION_THRESHOLD_INVALID' });
+    }
+    const parameters = cloneSimulationParameters(scenario, candidate);
+    const raw = this.mockRiskForecast(plotId, metric, { scenario, parameters });
+    if (String(raw?.status || '').toUpperCase() === 'UNAVAILABLE') warnings.push('当前数据条件不足，未生成可执行曲线');
+    return this.normalizeForecast({
+      ...raw,
+      persisted: false,
+      requestVersion: input.requestVersion ?? null,
+      modelMode: 'DETERMINISTIC_WHAT_IF',
+      dataSource: 'SIMULATED',
+      inputSnapshot: {
+        plotId, metric, scenario, parameters: { ...parameters },
+        startValue: raw?.startValue ?? raw?.startMoisture ?? null,
+        startTimestamp: raw?.startTimestamp ?? null,
+        requestVersion: input.requestVersion ?? null,
+        evaluatedAt: new Date().toISOString()
+      },
+      explanation: {
+        summary: '使用演示遥测锚点与未保存策略进行只读确定性试算',
+        strategySource: scenario === normalizePlotSimulationScenario(current.scenario) ? 'CURRENT_STRATEGY_WITH_OVERRIDES' : 'SCENARIO_DEFAULTS_WITH_OVERRIDES',
+        persistence: 'NONE'
+      },
+      warnings
+    }, plotId, metric);
   }
 
   normalizeForecast(raw, plotId, metric) {
@@ -2289,7 +2377,7 @@ export class ApiService {
     return points;
   }
 
-  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', strategyOverride = null) {
     const cfg = MOCK_DATA.riskForecastConfig;
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
@@ -2297,7 +2385,7 @@ export class ApiService {
     const currentRecord = plot?.metrics?.[code] || {};
     const currentValue = Number(currentRecord.value);
     const start = Number.isFinite(currentValue) ? currentValue : profile.defaultValue;
-    const strategy = this.demoSimulationStrategies.get(plotId);
+    const strategy = strategyOverride || this.demoSimulationStrategies.get(plotId);
     const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
     const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
     const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
