@@ -3029,6 +3029,10 @@
 .farmer-danger-summary-head strong { color: var(--g-text-primary); font-size: 14px; }
 .farmer-danger-summary-head .material-symbols-outlined { font-size: 20px; }
 .farmer-danger-badge { margin-left: auto; padding: 3px 7px; border-radius: var(--g-radius-pill); background: var(--g-danger-bg); color: var(--g-danger); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.farmer-suggestion-emergency { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-warning) 38%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 72%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-suggestion-emergency > .material-symbols-outlined { flex: 0 0 auto; font-size: 20px; }
+.farmer-suggestion-emergency strong { display: block; color: var(--g-text-primary); font-size: 13px; }
+.farmer-suggestion-emergency p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-blocked { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border-radius: var(--g-radius); background: var(--g-warning-bg); color: var(--g-warning); }
 .farmer-suggestion-blocked > .material-symbols-outlined { font-size: 20px; }
 .farmer-suggestion-blocked strong { display: block; color: var(--g-text-primary); font-size: 13px; }

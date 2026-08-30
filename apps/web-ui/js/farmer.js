@@ -2524,11 +2524,17 @@ const app = createApp({
       if (!active_suggestion.value.plotId || !suggestion_plot.value) return '未明确涉及地块，请先选择要处理的地块。';
       if (!plan) return '暂未生成处方，请先查看地块湿度或发起复测。';
       const readinessGate = String(irrigation_readiness_detail.value?.status || '').toUpperCase();
-      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return '当前安全门未通过，请先巡田、复测或检查设备。';
+      const missing = (irrigation_readiness_detail.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean).slice(0, 3);
+      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或设备状态未满足灌溉条件。';
       if (status === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
-      if (status === 'NEEDS_EVIDENCE') return '数据质量或诊断证据不足，请先巡田或复测。';
-      if (status === 'UNAVAILABLE') return '设备或预测服务不可用，请先检查设备并联系管理员。';
-      if (status === 'BLOCKED') return '安全门未通过，不能执行灌溉，请先补充证据。';
+      if (status === 'NEEDS_EVIDENCE') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '数据质量或诊断证据不足，请先巡田或复测。';
+      if (status === 'UNAVAILABLE') return '暂不能执行：设备或最新数据不可用，请先检查设备并获取新遥测。';
+      if (status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
+      const guard = irrigation_guard.value;
+      if (!guard) return '暂不能执行：安全门状态暂不可用，请稍后重试。';
+      const remainingSeconds = Number(guard?.remainingSeconds || 0);
+      const emergencyEligible = plan?.emergency?.eligible === true && guard?.emergency?.eligibleByMoisture === true;
+      if (remainingSeconds > 0 && !emergencyEligible) return `该地块刚完成灌溉，防重复保护还剩约 ${Math.max(1, Math.ceil(remainingSeconds / 60))} 分钟；当前湿度未达到应急补水阈值。`;
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
       const duration = Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds);
       const start = plan.when?.start || plan.recommendedWindow?.start;
@@ -2537,6 +2543,25 @@ const app = createApp({
       if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能执行灌溉。';
       if (!start || !end) return '处方缺少执行时间窗口，请先补充证据。';
       return '';
+    });
+    const suggestion_emergency_notice = computed(() => {
+      if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
+      const plan = irrigation_plan.value;
+      const guard = irrigation_guard.value;
+      if (plan?.emergency?.eligible !== true) return '';
+      const moisture = Number(plan.emergency.currentMoisture);
+      const threshold = Number(plan.emergency.threshold);
+      const moistureText = Number.isFinite(moisture) ? `${moisture.toFixed(1)}%` : '当前值';
+      const thresholdText = Number.isFinite(threshold) ? `${threshold.toFixed(1)}%` : '应急阈值';
+      return Number(guard?.remainingSeconds || 0) > 0
+        ? `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；确认后将以受限应急补水方式执行，仍会重新检查设备、数据和水量上限。`
+        : `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；必要时可发起受限应急补水。`;
+    });
+    const suggestion_emergency_mode = computed(() => {
+      const plan = irrigation_plan.value;
+      return active_suggestion.value?.kind === 'IRRIGATION'
+        && plan?.emergency?.eligible === true
+        && Number(irrigation_guard.value?.remainingSeconds || 0) > 0;
     });
     const suggestion_confirm_enabled = computed(() => {
       if (!active_suggestion.value || suggestion_busy.value || suggestion_flow_stage.value !== 'CONFIRM') return false;
@@ -3230,6 +3255,7 @@ const app = createApp({
       const version = ++irrigation_plan_request_version;
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
+      irrigation_guard.value = null;
       try {
         const plan = await api.estimateIrrigation({
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo',
@@ -3245,6 +3271,13 @@ const app = createApp({
       } catch (error) {
             // 处方仍可展示；读取就绪度失败时保留明确的降级文案。
             irrigation_readiness_detail.value = { status: plan.readinessStatus || 'UNAVAILABLE', reason: error?.message || '就绪度暂不可用' };
+          }
+          try {
+            irrigation_guard.value = await api.getIrrigationGuard(plotId);
+          } catch {
+            // The prescription remains visible; the execution button will
+            // stay disabled until the guard can be read again.
+            irrigation_guard.value = null;
           }
         }
         return plan;
@@ -3311,8 +3344,12 @@ const app = createApp({
       suggestion_result_form.value = { outcome: 'SUCCEEDED', note: '', actual_water_litre: '', actual_duration_seconds: '' };
       suggestion_idempotency_key.value = '';
       show_suggestion_flow.value = true;
-      if (kind === 'IRRIGATION' && (!irrigation_plan.value || irrigation_plan.value.plotId !== plotId)) {
-        load_irrigation_plan(plotId, { silent: true });
+      if (kind === 'IRRIGATION') {
+        if (!irrigation_plan.value || irrigation_plan.value.plotId !== plotId) {
+          load_irrigation_plan(plotId, { silent: true });
+        } else {
+          api.getIrrigationGuard(plotId).then((guard) => { irrigation_guard.value = guard; }).catch(() => { irrigation_guard.value = null; });
+        }
       }
     };
 
@@ -3350,10 +3387,6 @@ const app = createApp({
         if (!irrigation_plan.value || irrigation_plan.value.plotId !== active_suggestion.value.plotId) {
           await load_irrigation_plan(active_suggestion.value.plotId);
         }
-        if (suggestion_block_reason.value) {
-          show_toast(suggestion_block_reason.value, 'error');
-          return;
-        }
       }
       suggestion_confirm_checked.value = false;
       suggestion_flow_stage.value = 'CONFIRM';
@@ -3376,6 +3409,7 @@ const app = createApp({
               approvalRequired: false,
               confirmationMode: 'OPERATOR_CONFIRMED',
               idempotencyKey: key,
+              emergencyOverride: suggestion_emergency_mode.value,
               source: 'farmer-advice-direct',
               ...(is_live.value ? {} : { outcome: 'SUCCEEDED' })
             });
@@ -3417,6 +3451,9 @@ const app = createApp({
           show_toast('已确认下一步处理，请完成现场动作后填写结果');
         }
       } catch (error) {
+        const guard = error?.details?.guard || error?.payload?.guard || error?.payload?.error?.details?.guard;
+        if (guard) irrigation_guard.value = guard;
+        suggestion_confirm_checked.value = false;
         show_toast(error?.message || '确认操作失败，请稍后重试', 'error');
       } finally {
         suggestion_busy.value = false;
@@ -3763,6 +3800,10 @@ const app = createApp({
     const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
     const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
     const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
+    const assistant_action_button_label = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS' ? '确认应急补水' : '确认执行';
+    const assistant_action_hint = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS'
+      ? '这是受限应急补水：仅在严重干旱时使用，确认时会再次检查最新数据、设备健康和水量上限。'
+      : '写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。';
     const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
     const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
     const assistant_action_arguments = (proposal) => {
@@ -3819,12 +3860,13 @@ const app = createApp({
       }
       if (card.traceId) advice_trace.value = card.traceId;
       if (card.kind === 'IRRIGATION') {
-        navigate('advice');
-        open_suggestion('IRRIGATION', {
-          plotId: card.plotId,
-          traceId: card.traceId,
-          title: `${card.plotName || '当前地块'}补水建议`
-        });
+        // Keep the Agent loop inside the chat.  A recommendation is read-only;
+        // clicking its action button now sends an explicit execution request,
+        // which produces the inline preview/confirm card instead of opening
+        // the legacy four-step advice modal.
+        if (card.plotId) assistant_plot_id.value = card.plotId;
+        assistant_input.value = '执行当前地块灌溉';
+        await send_assistant_message();
         return;
       }
       if (card.kind === 'DIAGNOSIS') {
@@ -4538,6 +4580,8 @@ const app = createApp({
       suggestion_kind_label,
       suggestion_plot,
       suggestion_block_reason,
+      suggestion_emergency_notice,
+      suggestion_emergency_mode,
       suggestion_confirm_checked,
       suggestion_confirm_enabled,
       suggestion_result_form,
@@ -4609,6 +4653,8 @@ const app = createApp({
       assistant_action_tone,
       assistant_action_status_label,
       assistant_risk_label,
+      assistant_action_button_label,
+      assistant_action_hint,
       assistant_tool_label,
       assistant_source_label_for,
       assistant_action_arguments,

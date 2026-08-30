@@ -11,6 +11,7 @@ import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 8, cooldownMinutes: 120 });
 
 export const DEFAULT_SIMULATION_TIME_SCALE = 144;
 export const SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08;
@@ -1460,7 +1461,7 @@ export class ApiService {
     } else if (action.toolName === 'create_evidence_request') {
       result = await this.createWorkOrder({ ...args, title: args.title || `申请${args.evidenceType || '现场巡田'}`, sourceType: 'READINESS', actionType: 'INSPECTION', provenance: 'USER_PROVIDED', status: 'OPEN' });
     } else if (action.toolName === 'execute_virtual_irrigation') {
-      result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
+      result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, emergencyOverride: args.emergencyOverride === true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
     } else {
       result = { message: '演示 Agent 已完成操作预览确认', plotId: action.plotId };
     }
@@ -1763,12 +1764,22 @@ export class ApiService {
     }
     if (this.user?.role === 'FARMER' && /(执行|启动|开始).*(灌溉|浇水)/.test(message || '')) {
       const planId = `plan-${traceId}`;
-      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED' };
+      const currentMoisture = Number(plot.metrics?.SOIL_MOISTURE?.value ?? 22);
+      const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
+        .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
+      const emergencyEligible = currentMoisture <= emergencyThreshold;
+      const guard = await this.getIrrigationGuard(plotId);
+      const emergencyOverride = Number(guard.remainingSeconds || 0) > 0 && emergencyEligible;
+      if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
+        const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
+        return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', status: 'COOLDOWN_ACTIVE', summary: '当前地块处于防重复灌溉保护', narrative: `该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟；当前湿度未达到应急补水阈值。`, tools: [{ name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
+      }
+      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'CONTROLLED_COOLDOWN_BYPASS' }, emergencyEligible };
       this.decisionCache.plans.set(planId, plan);
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510 }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
+      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `${emergencyOverride ? '对 ' + plot.name + ' 发起受限应急虚拟补水' : '对 ' + plot.name + ' 执行虚拟灌溉'}约 153 L（8.5 分钟）`, argumentSummary: `${emergencyOverride ? '应急补水 · ' : ''}${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: emergencyOverride ? 'EMERGENCY_COOLDOWN_BYPASS' : 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
       this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }], confidence: 1 });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: emergencyOverride ? '当前湿度已达到应急阈值。我会先展示受限应急补水预览，确认后才运行模拟结果。' : '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }, { name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
     }
 
     if (lower.includes('灌溉') || lower.includes('浇水') || lower.includes('处方') || lower.includes('irrigation')) {
@@ -2046,6 +2057,8 @@ export class ApiService {
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
+    const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
+      .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
     const area = Number(plot?.areaM2 || 80);
     const flow = 18;
     const rawWater = Math.max(0, (target - current) * area * .08);
@@ -2055,6 +2068,7 @@ export class ApiService {
     const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
+    const emergencyEligible = executable && current <= emergencyThreshold;
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -2074,6 +2088,14 @@ export class ApiService {
       waterLitre,
       expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: target },
       why: hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标',
+      emergency: {
+        eligible: emergencyEligible,
+        threshold: emergencyThreshold,
+        currentMoisture: current,
+        mode: 'CONTROLLED_COOLDOWN_BYPASS',
+        note: emergencyEligible ? '仅用于严重干旱；确认时仍会重新检查数据、设备、资源和权限' : '当前湿度未达到应急阈值'
+      },
+      emergencyEligible,
       alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
@@ -2315,18 +2337,35 @@ export class ApiService {
     const plot = this.mockPlot(plotId);
     const rule = (MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT') || {};
-    const threshold = Number(rule.threshold ?? 20);
+    const threshold = Number(rule.threshold ?? IRRIGATION_DEFAULTS.threshold);
+    const emergencyThreshold = Number(rule.emergencyThreshold ?? Math.min(threshold, IRRIGATION_DEFAULTS.emergencyThreshold));
     const hysteresis = Number(rule.hysteresis ?? 2);
     const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
+    const cooldownMinutes = Number(rule.cooldownMinutes ?? IRRIGATION_DEFAULTS.cooldownMinutes);
+    const commands = [...this.decisionCache.commands.values()]
+      .filter(item => item?.plotId === plotId && item?.type === 'IRRIGATION_START' && ['SUCCEEDED', 'PARTIAL', 'CONFIRMED', 'APPROVED'].includes(String(item.status || '').toUpperCase()))
+      .sort((a, b) => new Date(b.ack?.receivedAt || b.confirmedAt || 0).getTime() - new Date(a.ack?.receivedAt || a.confirmedAt || 0).getTime());
+    const lastCommand = commands[0] || null;
+    const startedAt = lastCommand ? new Date(lastCommand.ack?.receivedAt || lastCommand.confirmedAt || 0) : null;
+    const validStartedAt = startedAt && Number.isFinite(startedAt.getTime()) && startedAt.getTime() > 0 ? startedAt : null;
+    const cooldownUntil = validStartedAt ? new Date(validStartedAt.getTime() + cooldownMinutes * 60000) : null;
+    const remainingSeconds = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil.getTime() - Date.now()) / 1000)) : 0;
     return {
       plotId,
-      state: 'AVAILABLE',
-      cooldownMinutes: Number(rule.cooldownMinutes ?? 120),
-      cooldownStartedAt: null,
-      cooldownUntil: null,
-      remainingSeconds: 0,
-      lastCommandId: null,
-      lastOutcome: null,
+      state: remainingSeconds > 0 ? 'COOLDOWN_ACTIVE' : 'AVAILABLE',
+      cooldownMinutes,
+      cooldownStartedAt: validStartedAt?.toISOString() || null,
+      cooldownUntil: cooldownUntil?.toISOString() || null,
+      remainingSeconds,
+      lastCommandId: lastCommand?.commandId || null,
+      lastOutcome: lastCommand?.status || null,
+      emergency: {
+        threshold: emergencyThreshold,
+        currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
+        eligibleByMoisture: Number.isFinite(currentValue) && currentValue <= emergencyThreshold,
+        mode: 'CONTROLLED_COOLDOWN_BYPASS',
+        note: '应急补水仍需通过最新数据、设备健康、资源上限和当前操作人确认'
+      },
       hysteresis: {
         state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
         threshold,
@@ -2372,6 +2411,7 @@ export class ApiService {
           approvalRequired: false,
           confirmationMode: 'OPERATOR_CONFIRMED',
           source: options.source || 'web-decision-console',
+          emergencyOverride: options.emergencyOverride === true,
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
@@ -2405,6 +2445,21 @@ export class ApiService {
       return { ...existing };
     }
 
+    const guard = await this.getIrrigationGuard(plotId);
+    const emergency = plan.emergency || {};
+    const emergencyEligible = emergency.eligible === true
+      && guard.emergency?.eligibleByMoisture === true
+      && plan.readinessStatus === 'READY';
+    const requestedEmergencyOverride = options.emergencyOverride === true;
+    if (requestedEmergencyOverride && !emergencyEligible) {
+      throw new ApiError('当前数据未达到应急补水条件，不能绕过普通冷却保护', { status: 409, code: 'EMERGENCY_NOT_ELIGIBLE', payload: { guard, plan } });
+    }
+    const emergencyOverride = requestedEmergencyOverride && Number(guard.remainingSeconds || 0) > 0;
+    if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
+      const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
+      throw new ApiError(`该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟`, { status: 409, code: 'COOLDOWN_ACTIVE', payload: { guard, plan } });
+    }
+
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
     const requestedOutcome = String(options.outcome || 'SUCCEEDED').toUpperCase();
     const outcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
@@ -2436,6 +2491,9 @@ export class ApiService {
       transport: "MQTT_VIRTUAL_ACTUATOR",
       executionMode: 'SIMULATED',
       provenance: 'SIMULATED',
+      emergencyMode: emergencyOverride ? 'CONTROLLED_COOLDOWN_BYPASS' : 'NORMAL',
+      cooldownMinutes: Number(guard.cooldownMinutes || IRRIGATION_DEFAULTS.cooldownMinutes),
+      riskLevel: emergencyOverride ? 'HIGH' : 'MEDIUM',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
         status: outcome,

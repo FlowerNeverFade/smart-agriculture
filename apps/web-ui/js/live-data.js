@@ -458,7 +458,8 @@ export function normalizeAgentEvidence(response = {}) {
 
 /**
  * Build a farmer-facing decision card from deterministic agent output.
- * The card only links into existing guarded execution / diagnosis / task flows.
+ * The card hands the farmer back to the inline assistant, which owns the
+ * guarded preview, confirmation and execution flow for write operations.
  */
 export function normalizeAgentDecisionCard(response = {}, plot = null) {
   const intent = String(response.intent || '').toUpperCase();
@@ -486,7 +487,7 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
       plotName,
       traceId,
       executable,
-      actionLabel: executable ? '查看建议并执行' : '查看处方与安全门',
+      actionLabel: executable ? '在对话中准备执行' : '在对话中检查执行条件',
       note: executable ? '当前用户可在安全门通过并确认后执行虚拟灌溉。' : '请先巡田、复测或联系管理员。'
     };
   }

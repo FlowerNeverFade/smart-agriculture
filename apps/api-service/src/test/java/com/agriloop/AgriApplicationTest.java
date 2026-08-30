@@ -1028,6 +1028,41 @@ class AgriApplicationTest {
     }
 
     @Test
+    void severeDroughtCanUseControlledCooldownBypassAfterConfirmation() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-emergency-irrigation-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-emergency-" + suffix, "farmer-emergency-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "应急补水测试田", "cropCode", "tomato", "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
+        engine.ingest(Map.of("eventId", "emergency-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 4.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+
+        Map<String, Object> firstPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-" + suffix), farmer);
+        assertThat(firstPlan).containsEntry("readinessStatus", "READY").containsEntry("emergencyEligible", true);
+        Map<String, Object> first = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "planId", firstPlan.get("planId"), "idempotencyKey", "emergency-first-" + suffix,
+                "confirmed", true)), farmer);
+        assertThat(first).containsEntry("emergencyMode", "NORMAL");
+        assertThat(engine.irrigationGuard(plotId, farmer)).containsEntry("state", "COOLDOWN_ACTIVE");
+
+        Map<String, Object> secondPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-second-" + suffix), farmer);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                        "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-blocked-" + suffix,
+                        "confirmed", true)), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("COOLDOWN_ACTIVE"));
+
+        Map<String, Object> emergency = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-bypass-" + suffix,
+                "confirmed", true, "emergencyOverride", true)), farmer);
+        assertThat(emergency).containsEntry("emergencyMode", "CONTROLLED_COOLDOWN_BYPASS")
+                .containsEntry("riskLevel", "HIGH").containsEntry("cooldownMinutes", 120L);
+    }
+
+    @Test
     void farmerAgentActionExpiryAndCancelAreOwnerBound() {
         UserPrincipal farmer = new UserPrincipal("user-farmer-expiry", "farmer-expiry", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> preview = engine.agentChat(Map.of("message", "申请巡田", "plotId", "plot-a01",

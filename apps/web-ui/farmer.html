@@ -1010,9 +1010,9 @@
                           <div><dt>来源</dt><dd>{{ assistant_source_label_for(message.actionProposal.sourceMode) }}</dd></div>
                           <div><dt>有效期</dt><dd>{{ assistant_action_expiry_label(message.actionProposal) }}</dd></div>
                         </dl>
-                        <p v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'" class="farmer-agent-action-hint">写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。</p>
+                        <p v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'" class="farmer-agent-action-hint">{{ assistant_action_hint(message.actionProposal) }}</p>
                         <div v-if="['AWAITING_CONFIRMATION', 'EXECUTING'].includes(message.actionProposal.status)" class="farmer-agent-action-buttons">
-                          <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="assistant_action_busy === message.actionProposal.actionId || message.actionProposal.status === 'EXECUTING'" @click="confirm_assistant_action(message.actionProposal)"><span v-if="assistant_action_busy === message.actionProposal.actionId" class="material-symbols-outlined farmer-btn-spin">progress_activity</span><app-icon v-else name="check"></app-icon>{{ assistant_action_busy === message.actionProposal.actionId ? '执行中…' : '确认执行' }}</button>
+                          <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="assistant_action_busy === message.actionProposal.actionId || message.actionProposal.status === 'EXECUTING'" @click="confirm_assistant_action(message.actionProposal)"><span v-if="assistant_action_busy === message.actionProposal.actionId" class="material-symbols-outlined farmer-btn-spin">progress_activity</span><app-icon v-else name="check"></app-icon>{{ assistant_action_busy === message.actionProposal.actionId ? '执行中…' : assistant_action_button_label(message.actionProposal) }}</button>
                           <button type="button" class="g-btn secondary farmer-btn-light" :disabled="assistant_action_busy === message.actionProposal.actionId" @click="cancel_assistant_action(message.actionProposal)"><app-icon name="close"></app-icon>取消</button>
                         </div>
                         <p v-if="message.actionProposal.status === 'SUCCEEDED'" class="farmer-agent-action-result is-success"><app-icon name="check_circle"></app-icon>已完成：{{ assistant_action_result(message.actionProposal) }}</p>
@@ -1506,11 +1506,12 @@
                 <span class="material-symbols-outlined">fact_check</span>
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
-              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂时不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认立即执行虚拟灌溉' : '，并确认按提示操作' }}。</span></label>
+              <div v-if="suggestion_emergency_notice" class="farmer-suggestion-emergency" role="status"><span class="material-symbols-outlined">emergency</span><div><strong>严重干旱 · 可受限补水</strong><p>{{ suggestion_emergency_notice }}</p></div></div>
+              <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? (suggestion_emergency_mode ? '、水量和时间，并确认立即执行受限应急补水' : '、水量和时间，并确认立即执行虚拟灌溉') : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
-                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '执行中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '确认并执行' : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
+                <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '执行中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? (suggestion_emergency_mode ? '确认应急补水' : '确认并执行') : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
               </div>
             </section>
 

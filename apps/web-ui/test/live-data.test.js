@@ -171,6 +171,6 @@ test('agent turn normalizer exposes evidence, traceId and irrigation decision ca
   const turn = normalizeAgentTurn(response, '温室1 需要浇多少水？', { plot: { plotId: 'plot-a01', name: '温室1' }, sessionMode: 'demo' });
   assert.equal(turn.traceId, 'run-demo-001');
   assert.equal(turn.evidence.length, 3);
-  assert.equal(turn.decisionCard.actionLabel, '查看建议并执行');
+  assert.equal(turn.decisionCard.actionLabel, '在对话中准备执行');
   assert.match(turn.answer, /153/);
 });
