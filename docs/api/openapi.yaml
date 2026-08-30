@@ -323,6 +323,16 @@ paths:
       responses:
         '200': {description: 会话标题、关联地块、最后时间和消息数}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/agent/conversations/{conversationId}:
+    delete:
+      tags: [decision]
+      description: 删除当前账号拥有的 Agent 对话及其消息；服务端校验会话归属。
+      parameters:
+        - {name: conversationId, in: path, required: true, schema: {type: string, maxLength: 120}}
+      responses:
+        '200': {description: 对话及消息已删除}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 对话不存在}
   /api/v1/agent/history:
     get:
       tags: [decision]

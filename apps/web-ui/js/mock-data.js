@@ -1267,13 +1267,13 @@ export const MOCK_DATA = {
 
 
   adminGlobalPlots: [
-    { id: 'plot-a01', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
-    { id: 'plot-a02', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
-    { id: 'plot-b01', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
-    { id: 'plot-a03', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
-    { id: 'plot-b02', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
-    { id: 'plot-b03', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
-    { id: 'plot-c01', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
+    { id: 'plot-a01', name: '一区', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
+    { id: 'plot-a02', name: '二区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
+    { id: 'plot-b01', name: '三区', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
+    { id: 'plot-a03', name: 'A03 展厅', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
+    { id: 'plot-b02', name: 'B02 水培区', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
+    { id: 'plot-b03', name: 'B03 草莓新品区', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
+    { id: 'plot-c01', name: 'C01 区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
   ],
 
   adminOverview: {

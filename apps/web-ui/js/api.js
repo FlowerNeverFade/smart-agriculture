@@ -1033,6 +1033,16 @@ export class ApiService {
     return next;
   }
 
+  /** demo 模式：返回所有地块的持久化场景（plotId → scenario），供刷新后恢复场景配置矩阵。 */
+  getDemoSimulationScenarioMap() {
+    const map = {};
+    if (this.sessionMode === 'live') return map;
+    this.demoSimulationStrategies.forEach((value, plotId) => {
+      map[plotId] = value?.scenario || 'NORMAL';
+    });
+    return map;
+  }
+
   /** demo 模式：从 localStorage 恢复智能模型模式（刷新后保留），默认与 mock 数据一致为 full。 */
   loadDemoAiMode() {
     try {
@@ -2080,6 +2090,19 @@ export class ApiService {
     const alreadySaved = traceId && session.messages.some((item) => item.conversationId === conversationId && item.traceId === traceId);
     if (alreadySaved) return session.conversations.find((item) => item.conversationId === conversationId) || null;
     return this._demoSaveAgentTurn(conversationId, userMessage, plotId, assistantResponse);
+  }
+
+  async deleteAgentConversation(conversationId) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    session.conversations = session.conversations.filter((c) => c.conversationId !== conversationId);
+    session.messages = session.messages.filter((m) => m.conversationId !== conversationId);
+    this._writeDemoAgentSession(session);
+    return { success: true, conversationId, sourceMode: 'SIMULATED' };
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {

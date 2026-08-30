@@ -6062,6 +6062,18 @@ class AgriEngine {
                 .limit(Math.max(1, Math.min(limit, 50))).toList();
     }
 
+    void deleteAgentConversation(String conversationId, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
+        if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权删除该对话");
+        store.delete("agent-conversation", resolved);
+        store.list("agent-message").stream()
+                .filter(item -> resolved.equals(Jsons.text(item, "conversationId", "")))
+                .forEach(item -> store.delete("agent-message", Jsons.text(item, "messageId", "")));
+    }
+
     List<Map<String, Object>> agentTools(UserPrincipal principal) {
         List<Map<String, Object>> tools = new ArrayList<>();
         List.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status", "get_water_resource_status")
@@ -6936,6 +6948,12 @@ class AgriController {
     @GetMapping("/agent/conversations")
     ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, Authentication a) {
         return ok(engine.agentConversations(limit, principal(a)));
+    }
+
+    @DeleteMapping("/agent/conversations/{conversationId}")
+    ResponseEntity<?> deleteAgentConversation(@PathVariable String conversationId, Authentication a) {
+        engine.deleteAgentConversation(conversationId, principal(a));
+        return ok(Map.of("success", true, "conversationId", conversationId));
     }
 
     @GetMapping("/agent/tools")
