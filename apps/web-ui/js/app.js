@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-load-resilience-1';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -128,6 +128,7 @@ const ICON_CLASS = Object.freeze({
   login: 'ph-sign-in',
   update: 'ph-arrow-up',
   settings: 'ph-gear',
+  sync: 'ph-arrows-clockwise',
   notifications_active: 'ph-bell',
   notifications: 'ph-bell',
   sensors: 'ph-broadcast',

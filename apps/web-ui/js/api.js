@@ -11,6 +11,10 @@ import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+// A stalled browser connection must not keep a role workspace's bootstrap
+// overlay open forever. Individual callers may provide a shorter timeout via
+// `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
+const DEFAULT_API_TIMEOUT_MS = 12000;
 
 export const DEFAULT_SIMULATION_TIME_SCALE = 144;
 export const SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08;
@@ -3267,7 +3271,11 @@ export class ApiService {
   }
 
   async _fetch(path, options = {}, { auth = true } = {}) {
-    const { auth: optionAuth = auth, ...fetchOptions } = options;
+    const {
+      auth: optionAuth = auth,
+      timeoutMs,
+      ...fetchOptions
+    } = options;
     const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
     const headers = {
       'Accept': 'application/json',
@@ -3276,16 +3284,41 @@ export class ApiService {
       ...(options.headers || {})
     };
     if (isFormData) delete headers['Content-Type'];
+    const callerSignal = fetchOptions.signal;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timeoutId = null;
+    let removeCallerAbort = null;
+    if (controller) {
+      if (callerSignal) {
+        if (callerSignal.aborted) {
+          controller.abort();
+        } else if (typeof callerSignal.addEventListener === 'function') {
+          const abortCallerRequest = () => controller.abort();
+          callerSignal.addEventListener('abort', abortCallerRequest, { once: true });
+          removeCallerAbort = () => callerSignal.removeEventListener('abort', abortCallerRequest);
+        }
+      }
+      const requestedTimeout = timeoutMs === undefined ? DEFAULT_API_TIMEOUT_MS : Number(timeoutMs);
+      const duration = Number.isFinite(requestedTimeout)
+        ? Math.max(1000, requestedTimeout)
+        : DEFAULT_API_TIMEOUT_MS;
+      timeoutId = setTimeout(() => controller.abort(), duration);
+      fetchOptions.signal = controller.signal;
+    }
     let response;
     try {
       response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
     } catch (error) {
       if (this.sessionMode === 'live') this.isLive = false;
-      throw new ApiError('无法连接后端服务', {
-        code: 'NETWORK_ERROR',
+      const timedOut = Boolean(controller?.signal.aborted && !callerSignal?.aborted);
+      throw new ApiError(timedOut ? '后端请求超时，请稍后重试' : '无法连接后端服务', {
+        code: timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR',
         isNetworkError: true,
         cause: error
       });
+    } finally {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      removeCallerAbort?.();
     }
 
     let payload = null;

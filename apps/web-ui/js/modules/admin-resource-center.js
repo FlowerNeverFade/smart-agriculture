@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260828-v58';
+import { api } from '../api.js?v=20260830-load-resilience-1';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,

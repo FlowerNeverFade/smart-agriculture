@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-load-resilience-1';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -3937,45 +3937,90 @@ const app = createApp({
       }
     };
 
+    // Enhancement endpoints are useful but must not gate the first usable
+    // farmer screen. A stalled proxy/device request is allowed to finish in
+    // the background while the bootstrap continues after this deadline.
+    const BOOTSTRAP_TIMEOUT = Symbol('farmer-bootstrap-timeout');
+    const with_bootstrap_timeout = (task, timeout_ms = 8000) => {
+      let timer = null;
+      const operation = Promise.resolve().then(task);
+      const timeout = new Promise((resolve) => {
+        timer = window.setTimeout(() => resolve(BOOTSTRAP_TIMEOUT), timeout_ms);
+      });
+      return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+
     onMounted(async () => {
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
+      try {
+        user_settings.value = readUserSettings();
+        applyUserSettings(user_settings.value);
+        is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
+        // Keep the current farmer page across refresh / back-forward.
+        if (!window.location.hash) {
+          window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
+        } else {
+          apply_farmer_hash();
+        }
+        window.addEventListener('hashchange', apply_farmer_hash);
+        set_workspace_progress(12, '正在检查服务状态…');
+        is_live.value = await api.checkHealth();
+        if (is_formal_session) {
+          await load_live_workspace({ announce: true, trackProgress: true });
+          is_live.value = api.isLive;
+          set_workspace_progress(96, '正在连接实时事件…');
+          const eventsResult = await with_bootstrap_timeout(() => connect_live_events(), 8000);
+          if (eventsResult === BOOTSTRAP_TIMEOUT) {
+            api.sseAbortController?.abort();
+            if (!load_error.value) load_error.value = '实时事件连接超时，已启用定时刷新';
+          }
+        } else {
+          set_workspace_progress(55, '正在载入演示数据…');
+        }
+        set_workspace_progress(88, '正在加载预警与资源协同…');
+        const enhancementResults = await Promise.allSettled([
+          with_bootstrap_timeout(() => load_farmer_enhancements()),
+          with_bootstrap_timeout(() => load_plot_simulation(selected_plot.value?.plotId)),
+          with_bootstrap_timeout(() => load_irrigation_plan(advice_plot.value?.plotId, { silent: true }))
+        ]);
+        if (enhancementResults.some((result) => result.status === 'rejected' || result.value === BOOTSTRAP_TIMEOUT)) {
+          if (!load_error.value) load_error.value = '部分预警、模拟或灌溉数据加载超时，已先显示已获取内容';
+        }
 
-      user_settings.value = readUserSettings();
-      applyUserSettings(user_settings.value);
-      is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
-      // Keep the current farmer page across refresh / back-forward.
-      if (!window.location.hash) {
-        window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
-      } else {
-        apply_farmer_hash();
+        // View-specific data is hydrated after the shell becomes usable. It
+        // cannot strand the full-screen bootstrap overlay if an optional
+        // assistant/manual endpoint is unavailable.
+        const viewTasks = [];
+        if (current_view.value === 'advice' && advice_plot.value?.plotId) {
+          viewTasks.push(() => load_advice_decision(advice_plot.value.plotId));
+        }
+        if (current_view.value === 'tools') {
+          viewTasks.push(() => tools_tab.value === 'manual' ? load_crop_manual() : run_risk_tool());
+        }
+        if (current_view.value === 'assistant') {
+          viewTasks.push(() => load_assistant_conversations({ openRecent: true }));
+        }
+        if (viewTasks.length) {
+          void Promise.allSettled(viewTasks.map((task) => with_bootstrap_timeout(task))).then((results) => {
+            if (results.some((result) => result.status === 'rejected' || result.value === BOOTSTRAP_TIMEOUT) && !load_error.value) {
+              load_error.value = '当前页面的部分辅助数据暂不可用';
+            }
+          });
+        }
+        start_live_polling();
+      } catch (error) {
+        // Optional enhancement/assistant calls must never strand the user
+        // behind the bootstrap overlay. Core data that did load remains
+        // visible while the error card/toast explains what is unavailable.
+        if (!load_error.value) load_error.value = error?.message || '农户工作台数据加载失败';
+        show_toast(`农户工作台部分数据未加载：${load_error.value}`, 'error');
+      } finally {
+        bootstrap_loading.value = false;
+        finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
       }
-      window.addEventListener('hashchange', apply_farmer_hash);
-      set_workspace_progress(12, '正在检查服务状态…');
-      is_live.value = await api.checkHealth();
-      if (is_formal_session) {
-        await load_live_workspace({ announce: true, trackProgress: true });
-        is_live.value = api.isLive;
-        set_workspace_progress(96, '正在连接实时事件…');
-        await connect_live_events();
-      } else {
-        set_workspace_progress(55, '正在载入演示数据…');
-      }
-      set_workspace_progress(88, '正在加载预警与资源协同…');
-      await load_farmer_enhancements();
-      await load_plot_simulation(selected_plot.value?.plotId);
-      await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
-      if (current_view.value === 'advice' && advice_plot.value?.plotId) {
-        void load_advice_decision(advice_plot.value.plotId);
-      }
-      if (current_view.value === 'tools') {
-        if (tools_tab.value === 'manual') await load_crop_manual();
-        else await run_risk_tool();
-      }
-      if (current_view.value === 'assistant') await load_assistant_conversations({ openRecent: true });
-      start_live_polling();
-      bootstrap_loading.value = false;
-      finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
     });
 
     watch([current_view, tools_tab], () => {

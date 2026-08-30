@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api } from '../api.js?v=20260830-load-resilience-1';
 import { roleCan } from '../roles.js';
 
 // Compatibility helpers retained from the previous resource-planning view.
