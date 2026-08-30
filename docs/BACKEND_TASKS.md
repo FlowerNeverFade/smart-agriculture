@@ -23,8 +23,7 @@
 
 | 路径 | 职责 |
 | --- | --- |
-| `apps/api-service/` | Spring Boot 模块化单体，96+ REST/SSE 端点 |
-| `simulator/runner.py` | 情景脚本、MQTT 发布、按地块策略热加载 |
+| `apps/api-service/` | Spring Boot 模块化单体，96+ REST/SSE 端点；含进程内 `SimulationEngine` |
 | `hardware/bearpi_e53_bridge.py` | 串口/MQTT 真实遥测桥接 |
 | `crop-packs/` + `apps/api-service/src/main/resources/crop-packs/` | 番茄/黄瓜 Crop Pack 配置 |
 | `docs/api/openapi.yaml` | 冻结接口合同 |
@@ -72,7 +71,7 @@
 
 | ID | 优先级 | 任务 | 状态 | 证据 |
 | --- | --- | --- | --- | --- |
-| T-006 | P0 | 模拟数据生成器与 `normal` 情景 | 已完成 | `simulator/runner.py`，seed 可重复 |
+| T-006 | P0 | 模拟数据生成器与 `normal` 情景 | 已完成 | API `SimulationEngine`，seed 可重复 |
 | T-007 | P0 | MQTT 接入、校验、去重 | 已完成 | eventId 幂等 |
 | T-008 | P0 | Redis Streams、PostgreSQL 落库 | 已完成 | Flyway v1、1,080 条回放 |
 | T-009 | P0 | 心跳、质量评分、质量门控 | 已完成 | 漂移处方阻断 |
@@ -200,7 +199,6 @@
 ./gradlew :apps:api-service:test --no-daemon
 
 # 模拟遥测已内置到 API，启动 api-service 即可；系统管理员页可调采样间隔与流速
-# 离线物理对照（非默认路径）: python3 simulator/runner.py --help
 
 # API 健康
 curl -s http://127.0.0.1:8080/actuator/health

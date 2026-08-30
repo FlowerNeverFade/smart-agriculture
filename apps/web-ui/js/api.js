@@ -15,6 +15,7 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
+const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 8, cooldownMinutes: 120 });
 
 export const DEFAULT_SIMULATION_TIME_SCALE = 144;
 export const SOIL_WATER_LITRES_PER_POINT_PER_M2 = 0.08;
@@ -1762,7 +1763,7 @@ export class ApiService {
     } else if (action.toolName === 'create_evidence_request') {
       result = await this.createWorkOrder({ ...args, title: args.title || `申请${args.evidenceType || '现场巡田'}`, sourceType: 'READINESS', actionType: 'INSPECTION', provenance: 'USER_PROVIDED', status: 'OPEN' });
     } else if (action.toolName === 'execute_virtual_irrigation') {
-      result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
+      result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, emergencyOverride: args.emergencyOverride === true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
     } else {
       result = { message: '演示 Agent 已完成操作预览确认', plotId: action.plotId };
     }
@@ -2157,12 +2158,22 @@ export class ApiService {
     }
     if (this.user?.role === 'FARMER' && /(执行|启动|开始).*(灌溉|浇水)/.test(message || '')) {
       const planId = `plan-${traceId}`;
-      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED' };
+      const currentMoisture = Number(plot.metrics?.SOIL_MOISTURE?.value ?? 22);
+      const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
+        .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
+      const emergencyEligible = currentMoisture <= emergencyThreshold;
+      const guard = await this.getIrrigationGuard(plotId);
+      const emergencyOverride = Number(guard.remainingSeconds || 0) > 0 && emergencyEligible;
+      if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
+        const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
+        return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', status: 'COOLDOWN_ACTIVE', summary: '当前地块处于防重复灌溉保护', narrative: `该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟；当前湿度未达到应急补水阈值。`, tools: [{ name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
+      }
+      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'CONTROLLED_COOLDOWN_BYPASS' }, emergencyEligible };
       this.decisionCache.plans.set(planId, plan);
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510 }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
+      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `${emergencyOverride ? '对 ' + plot.name + ' 发起受限应急虚拟补水' : '对 ' + plot.name + ' 执行虚拟灌溉'}约 153 L（8.5 分钟）`, argumentSummary: `${emergencyOverride ? '应急补水 · ' : ''}${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: emergencyOverride ? 'EMERGENCY_COOLDOWN_BYPASS' : 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
       this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }], confidence: 1 });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: emergencyOverride ? '当前湿度已达到应急阈值。我会先展示受限应急补水预览，确认后才运行模拟结果。' : '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }, { name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
     }
 
     if (lower.includes('灌溉') || lower.includes('浇水') || lower.includes('处方') || lower.includes('irrigation')) {
@@ -2440,6 +2451,8 @@ export class ApiService {
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
+    const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
+      .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
     const area = Number(plot?.areaM2 || 80);
     const flow = 18;
     const rawWater = Math.max(0, (target - current) * area * .08);
@@ -2449,6 +2462,7 @@ export class ApiService {
     const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
+    const emergencyEligible = executable && current <= emergencyThreshold;
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -2468,6 +2482,14 @@ export class ApiService {
       waterLitre,
       expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: target },
       why: hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标',
+      emergency: {
+        eligible: emergencyEligible,
+        threshold: emergencyThreshold,
+        currentMoisture: current,
+        mode: 'CONTROLLED_COOLDOWN_BYPASS',
+        note: emergencyEligible ? '仅用于严重干旱；确认时仍会重新检查数据、设备、资源和权限' : '当前湿度未达到应急阈值'
+      },
+      emergencyEligible,
       alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
@@ -2709,18 +2731,35 @@ export class ApiService {
     const plot = this.mockPlot(plotId);
     const rule = (MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT') || {};
-    const threshold = Number(rule.threshold ?? 20);
+    const threshold = Number(rule.threshold ?? IRRIGATION_DEFAULTS.threshold);
+    const emergencyThreshold = Number(rule.emergencyThreshold ?? Math.min(threshold, IRRIGATION_DEFAULTS.emergencyThreshold));
     const hysteresis = Number(rule.hysteresis ?? 2);
     const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
+    const cooldownMinutes = Number(rule.cooldownMinutes ?? IRRIGATION_DEFAULTS.cooldownMinutes);
+    const commands = [...this.decisionCache.commands.values()]
+      .filter(item => item?.plotId === plotId && item?.type === 'IRRIGATION_START' && ['SUCCEEDED', 'PARTIAL', 'CONFIRMED', 'APPROVED'].includes(String(item.status || '').toUpperCase()))
+      .sort((a, b) => new Date(b.ack?.receivedAt || b.confirmedAt || 0).getTime() - new Date(a.ack?.receivedAt || a.confirmedAt || 0).getTime());
+    const lastCommand = commands[0] || null;
+    const startedAt = lastCommand ? new Date(lastCommand.ack?.receivedAt || lastCommand.confirmedAt || 0) : null;
+    const validStartedAt = startedAt && Number.isFinite(startedAt.getTime()) && startedAt.getTime() > 0 ? startedAt : null;
+    const cooldownUntil = validStartedAt ? new Date(validStartedAt.getTime() + cooldownMinutes * 60000) : null;
+    const remainingSeconds = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil.getTime() - Date.now()) / 1000)) : 0;
     return {
       plotId,
-      state: 'AVAILABLE',
-      cooldownMinutes: Number(rule.cooldownMinutes ?? 120),
-      cooldownStartedAt: null,
-      cooldownUntil: null,
-      remainingSeconds: 0,
-      lastCommandId: null,
-      lastOutcome: null,
+      state: remainingSeconds > 0 ? 'COOLDOWN_ACTIVE' : 'AVAILABLE',
+      cooldownMinutes,
+      cooldownStartedAt: validStartedAt?.toISOString() || null,
+      cooldownUntil: cooldownUntil?.toISOString() || null,
+      remainingSeconds,
+      lastCommandId: lastCommand?.commandId || null,
+      lastOutcome: lastCommand?.status || null,
+      emergency: {
+        threshold: emergencyThreshold,
+        currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
+        eligibleByMoisture: Number.isFinite(currentValue) && currentValue <= emergencyThreshold,
+        mode: 'CONTROLLED_COOLDOWN_BYPASS',
+        note: '应急补水仍需通过最新数据、设备健康、资源上限和当前操作人确认'
+      },
       hysteresis: {
         state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
         threshold,
@@ -2766,6 +2805,7 @@ export class ApiService {
           approvalRequired: false,
           confirmationMode: 'OPERATOR_CONFIRMED',
           source: options.source || 'web-decision-console',
+          emergencyOverride: options.emergencyOverride === true,
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
@@ -2799,6 +2839,21 @@ export class ApiService {
       return { ...existing };
     }
 
+    const guard = await this.getIrrigationGuard(plotId);
+    const emergency = plan.emergency || {};
+    const emergencyEligible = emergency.eligible === true
+      && guard.emergency?.eligibleByMoisture === true
+      && plan.readinessStatus === 'READY';
+    const requestedEmergencyOverride = options.emergencyOverride === true;
+    if (requestedEmergencyOverride && !emergencyEligible) {
+      throw new ApiError('当前数据未达到应急补水条件，不能绕过普通冷却保护', { status: 409, code: 'EMERGENCY_NOT_ELIGIBLE', payload: { guard, plan } });
+    }
+    const emergencyOverride = requestedEmergencyOverride && Number(guard.remainingSeconds || 0) > 0;
+    if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
+      const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
+      throw new ApiError(`该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟`, { status: 409, code: 'COOLDOWN_ACTIVE', payload: { guard, plan } });
+    }
+
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
     const requestedOutcome = String(options.outcome || 'SUCCEEDED').toUpperCase();
     const outcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
@@ -2830,6 +2885,9 @@ export class ApiService {
       transport: "MQTT_VIRTUAL_ACTUATOR",
       executionMode: 'SIMULATED',
       provenance: 'SIMULATED',
+      emergencyMode: emergencyOverride ? 'CONTROLLED_COOLDOWN_BYPASS' : 'NORMAL',
+      cooldownMinutes: Number(guard.cooldownMinutes || IRRIGATION_DEFAULTS.cooldownMinutes),
+      riskLevel: emergencyOverride ? 'HIGH' : 'MEDIUM',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
         status: outcome,
@@ -3159,7 +3217,6 @@ export class ApiService {
     const parameters = cloneSimulationParameters(normalizedScenario, suppliedParameters);
     const rnd = mulberry32(Number(seed) || 42);
     const kFactor = 0.9 + rnd() * 0.2;
-    const jumpBoost = 11.8 + rnd() * 2.8;
     const rainBoost = (parameters.rainfallRate || def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
     const driftRate = (parameters.driftRatePerHour || def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
     const decayK = 0.03 + rnd() * 0.012;
@@ -3173,13 +3230,82 @@ export class ApiService {
       ? Number(parameters.waterloggingThreshold || cfg.stressBoundary)
       : Number(parameters.riskThreshold || cfg.stressBoundary);
     const horizonMinutes = Math.max(5, Math.round(Number(parameters.forecastHours || 4) * 60));
+    const naturalAt = (t) => {
+      const hours = t / 60;
+      if (def.code === 'STORM') return t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
+      if (def.code === 'SENSOR_DRIFT') return start + driftRate * hours;
+      if (def.code === 'DROUGHT') return start + trend * hours;
+      return Math.max(0, start - t * 0.025);
+    };
+    // 真实化执行分支（与后端 branch-compare-v5 同一模型）：按地块面积、水泵流量、
+    // 作物阶段目标湿度与水箱余量推导一次真实灌溉，缺水时只补实际可用的量。
+    const areaM2 = Math.max(1, Number(plot.areaM2) || DEFAULT_PLOT_AREA_M2);
+    const stageTarget = MOCK_DATA.cropPackDetails
+      .find(pack => pack.cropCode === plot.cropCode)?.stages
+      .find(stage => stage.code === plot.stageCode)?.target;
+    const irrigationTarget = stageTarget ? (stageTarget.soilMoistureLow + stageTarget.soilMoistureHigh) / 2 : 35;
+    const flowLitresPerMinute = Number(MOCK_DATA.resourceProfile.flowRateLitresPerMinute) || 18;
+    const reservoirCapacityLitres = Number(MOCK_DATA.resourceProfile.capacityLitres) || 900;
+    const reservoirLevelPercent = Number(plot.metrics?.WATER_LEVEL?.value ?? 100);
+    const reservoirAvailableLitres = Math.max(0, reservoirLevelPercent) / 100 * reservoirCapacityLitres;
+    const pumpCapLitres = flowLitresPerMinute * 15; // 后端 maxIrrigationSeconds 默认 900 秒
+    const intervention = (() => {
+      const plan = {
+        reservoirLevelPercent: Number(reservoirLevelPercent.toFixed(1)),
+        reservoirAvailableLitres: Number(reservoirAvailableLitres.toFixed(1)),
+        pumpFlowLitresPerMinute: flowLitresPerMinute,
+        irrigationTargetMoisture: Number(irrigationTarget.toFixed(1))
+      };
+      if (def.code === 'STORM') return { ...plan, measure: 'DRAINAGE', status: 'PLANNED', triggerMinute: 0, triggerReason: '暴雨来临即启动排水，削峰并加快退水' };
+      if (def.code === 'SENSOR_DRIFT') return { ...plan, measure: 'SENSOR_RECALIBRATION', status: 'PLANNED', triggerMinute: 30, triggerReason: '读数漂移 30 分钟后安排复测校准' };
+      plan.measure = 'IRRIGATION';
+      const earlyWarning = boundary + 3;
+      let crossMinute = -1;
+      for (let t = 0; t <= horizonMinutes; t += 5) {
+        if (naturalAt(t) <= earlyWarning) { crossMinute = t; break; }
+      }
+      if (crossMinute < 0) return { ...plan, status: 'NO_RISK_IN_WINDOW', triggerReason: '预测窗口内不会跌破干旱预警线，无需灌溉' };
+      const responseDelayMinutes = 15;
+      const triggerMinute = Math.min(horizonMinutes, crossMinute + responseDelayMinutes);
+      const moistureAtTrigger = naturalAt(triggerMinute);
+      const neededLitres = Math.max(0, (irrigationTarget - moistureAtTrigger) * areaM2 * SOIL_WATER_LITRES_PER_POINT_PER_M2);
+      const plannedLitres = Math.min(neededLitres, pumpCapLitres);
+      const reservoirSufficient = reservoirAvailableLitres + .5 >= plannedLitres;
+      const deliveredLitres = Math.min(plannedLitres, reservoirAvailableLitres);
+      const deliveryEfficiency = Math.min(1, Math.max(.85, .94 + (rnd() - .5) * .08 * Number(parameters.volatility || 1)));
+      const moistureGain = moistureDeltaFromWater(deliveredLitres, areaM2) * deliveryEfficiency;
+      return {
+        ...plan,
+        status: 'PLANNED',
+        triggerMinute,
+        triggerReason: '不干预曲线预计跌破干旱预警线（阈值+3 个百分点），触发补水',
+        responseDelayMinutes,
+        durationMinutes: Math.max(1, Math.round(deliveredLitres / flowLitresPerMinute)),
+        neededWaterLitre: Number(neededLitres.toFixed(1)),
+        waterLitre: Number(deliveredLitres.toFixed(1)),
+        reservoirSufficient,
+        moistureAtTrigger: Number(moistureAtTrigger.toFixed(1)),
+        moistureGain: Number(moistureGain.toFixed(1)),
+        moistureAfterIrrigation: Number(Math.min(100, moistureAtTrigger + moistureGain).toFixed(1))
+      };
+    })();
+    // 灌溉干预下的曲线：干预前与不干预一致；灌溉时长内线性爬升，之后恢复自然失水。
+    const irrigationAdjusted = (natural, t, trendPerMinute) => {
+      if (intervention.measure !== 'IRRIGATION' || intervention.status !== 'PLANNED') return natural;
+      if (t <= intervention.triggerMinute) return natural;
+      if (t <= intervention.triggerMinute + intervention.durationMinutes) {
+        return intervention.moistureAtTrigger
+          + intervention.moistureGain * (t - intervention.triggerMinute) / intervention.durationMinutes;
+      }
+      return intervention.moistureAtTrigger + intervention.moistureGain
+        + trendPerMinute * (t - intervention.triggerMinute - intervention.durationMinutes);
+    };
     const build = (execute) => Array.from({ length: Math.floor(horizonMinutes / 5) + 1 }, (_, i) => {
       const t = i * 5;
       const hours = t / 60;
       let value;
       if (def.code === 'STORM') {
-        const wetting = t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
-        if (!execute) value = wetting;
+        if (!execute) value = naturalAt(t);
         else {
           const managedPeak = start + rainPeak * 0.72;
           value = t <= 45 ? start + rainPeak * 0.72 * (t / 45) : managedPeak * Math.exp(-decayK * 1.35 * (t - 45) / 45);
@@ -3195,27 +3321,49 @@ export class ApiService {
         }
       } else if (def.code === 'DROUGHT') {
         value = start + trend * hours;
-        if (execute && t >= 30) {
-          const atExec = start + trend * 0.5;
-          value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (t - 30)));
-        }
+        if (execute) value = irrigationAdjusted(value, t, trend / 60);
       } else {
         const natural = Math.max(0, start - t * 0.025);
-        value = execute && t >= 30 ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (t - 30))) : natural;
+        value = execute ? irrigationAdjusted(natural, t, -0.025) : natural;
       }
       return { minute: t, value: Number(Math.max(0, Math.min(100, value)).toFixed(2)) };
     });
+    const executePoints = build(true);
+    const noActionPoints = build(false);
+    const riskMinuteOf = (points) => {
+      const hit = points.find((point) => (def.code === 'STORM' ? point.value >= boundary : point.value <= boundary));
+      return hit ? hit.minute : null;
+    };
+    const executeRisk = riskMinuteOf(executePoints);
+    const noActionRisk = riskMinuteOf(noActionPoints);
+    const divergence = {
+      moistureDeltaAtHorizon: Number((executePoints.at(-1).value - noActionPoints.at(-1).value).toFixed(1)),
+      ...(noActionRisk != null ? {
+        riskDelayMinutes: executeRisk == null ? horizonMinutes - noActionRisk : executeRisk - noActionRisk,
+        riskAvoidedWithinWindow: executeRisk == null
+      } : {})
+    };
     const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
     const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
       status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, plotId, facilityType, facilityLabel: facilityLabel(facilityType),
-      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, facilityType, facilityLabel: facilityLabel(facilityType), capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, facilityType, facilityLabel: facilityLabel(facilityType), capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture,
       parameters,
-      seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
-      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],
-      branches: { EXECUTE: { label: executeLabel, points: build(true), color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: build(false), color: '#f85149' } },
-      comparisonVersion: 'branch-compare-v4',
-      note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态', provenance: 'SIMULATED'
+      seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
+      intervention,
+      divergence,
+      markers: [
+        { minute: 0, label: '冻结快照' },
+        ...(intervention.measure === 'IRRIGATION' && intervention.status === 'PLANNED'
+          ? [{ minute: intervention.triggerMinute, label: `补水 ${intervention.waterLitre} 升 · ${intervention.durationMinutes} 分钟` }]
+          : intervention.measure === 'DRAINAGE' ? [{ minute: 0, label: '启动排水' }] : [])
+      ],
+      branches: {
+        EXECUTE: { label: executeLabel, points: executePoints, color: '#3fb950', timeToRiskMinutes: executeRisk },
+        NO_ACTION: { label: noActionLabel, points: noActionPoints, color: '#f85149', timeToRiskMinutes: noActionRisk }
+      },
+      comparisonVersion: 'branch-compare-v5',
+      note: '双轨使用同一冻结快照与随机种子；执行分支按地块面积、水泵流量、作物目标湿度与水箱余量推导真实灌溉，结果只读，不写回主状态', provenance: 'SIMULATED'
     };
   }
 
@@ -3695,10 +3843,39 @@ export class ApiService {
       timeoutId = setTimeout(() => controller.abort(), duration);
       fetchOptions.signal = controller.signal;
     }
-    let response;
     try {
-      response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
+      const response = await fetch(`${this.baseUrl}${path}`, { ...fetchOptions, headers });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        payload = null;
+      }
+      if (!response.ok) {
+        if ([502, 503, 504].includes(response.status)) {
+          throw new ApiError(`后端服务未运行: ${response.status}`, {
+            code: 'NETWORK_ERROR',
+            isNetworkError: true
+          });
+        }
+        const error = payload?.error || {};
+        throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
+          status: response.status,
+          code: error.code || `HTTP_${response.status}`,
+          payload,
+          details: error.details || {},
+          isNetworkError: [502, 503, 504].includes(response.status)
+        });
+      }
+      if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
+      if (this.sessionMode === 'live') this.isLive = true;
+      return payload;
     } catch (error) {
+      if (error instanceof ApiError) {
+        if (this.sessionMode === 'live' && error.isNetworkError) this.isLive = false;
+        throw error;
+      }
       if (this.sessionMode === 'live') this.isLive = false;
       const timedOut = Boolean(controller?.signal.aborted && !callerSignal?.aborted);
       throw new ApiError(timedOut ? '后端请求超时，请稍后重试' : '无法连接后端服务', {
@@ -3710,32 +3887,6 @@ export class ApiService {
       if (timeoutId !== null) clearTimeout(timeoutId);
       removeCallerAbort?.();
     }
-
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    if (!response.ok) {
-      if ([502, 503, 504].includes(response.status)) {
-        throw new ApiError(`后端服务未运行: ${response.status}`, {
-          code: 'NETWORK_ERROR',
-          isNetworkError: true
-        });
-      }
-      const error = payload?.error || {};
-      throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
-        status: response.status,
-        code: error.code || `HTTP_${response.status}`,
-        payload,
-        details: error.details || {},
-        isNetworkError: [502, 503, 504].includes(response.status)
-      });
-    }
-    if (!payload) throw new ApiError('服务响应不是有效 JSON', { code: 'RESPONSE_INVALID' });
-    if (this.sessionMode === 'live') this.isLive = true;
-    return payload;
   }
 }
 

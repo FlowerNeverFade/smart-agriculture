@@ -810,7 +810,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -889,7 +889,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -1686,7 +1686,7 @@ export const MOCK_DATA = {
       },
       stageRules: {
         fruiting: [
-          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 120 },
+          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
           { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, cooldownMinutes: 60 }
         ]
       },

@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-work-effects-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-branch-merge-v1';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -23,7 +23,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260830-work-effects-v1';
+} from './live-data.js?v=20260831-branch-merge-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
 
@@ -172,28 +172,28 @@ const PLOT_CHART_SPECS = [
 
 const CHART_RANGE_OPTIONS = [
   {
-    id: '6h',
-    label: '6 模拟时',
-    title: '近 6 个模拟小时',
-    simHours: 6,
+    id: '7h',
+    label: '7 小时',
+    title: '近 7 小时',
+    simHours: 7,
     amplitude_scale: 0.35,
-    labels: ['6 时前', '5 时前', '4 时前', '3 时前', '2 时前', '1 时前', '现在']
+    labels: ['7 时前', '5 时前', '3 时前', '2 时前', '1 时前', '0.5 时前', '现在']
   },
   {
     id: '1d',
-    label: '1 模拟日',
-    title: '近 1 个模拟日',
+    label: '1 天',
+    title: '近 1 天',
     simHours: 24,
     amplitude_scale: 1,
     labels: ['0 时', '4 时', '8 时', '12 时', '16 时', '20 时', '现在']
   },
   {
-    id: '3d',
-    label: '3 模拟日',
-    title: '近 3 个模拟日',
-    simHours: 72,
+    id: '7d',
+    label: '7 天',
+    title: '近 7 天',
+    simHours: 168,
     amplitude_scale: 1,
-    labels: ['3 日前', '2.5 日前', '2 日前', '1.5 日前', '1 日前', '0.5 日前', '现在']
+    labels: ['7 日前', '5 日前', '3 日前', '2 日前', '1 日前', '0.5 日前', '现在']
   }
 ];
 
@@ -490,6 +490,117 @@ const FARMER_REPORT_CATALOG = Object.freeze({
   }
 });
 
+const SIMULATION_METRIC_OPTIONS = Object.freeze([
+  { code: 'SOIL_MOISTURE', label: '土壤湿度', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 35 },
+  { code: 'AIR_TEMPERATURE', label: '空气温度', unit: '°C', min: -40, max: 80, decimals: 1, defaultValue: 25 },
+  { code: 'AIR_HUMIDITY', label: '空气湿度', unit: '%RH', min: 0, max: 100, decimals: 1, defaultValue: 68 },
+  { code: 'LIGHT', label: '光照', unit: 'lux', min: 0, max: 100000, decimals: 0, defaultValue: 42000 },
+  { code: 'CO2', label: '二氧化碳', unit: 'ppm', min: 0, max: 10000, decimals: 0, defaultValue: 520 },
+  { code: 'PH', label: '酸碱度', unit: 'pH', min: 0, max: 14, decimals: 2, defaultValue: 6.25 },
+  { code: 'WATER_LEVEL', label: '水位', unit: '%', min: 0, max: 100, decimals: 1, defaultValue: 78 },
+  { code: 'RAINFALL', label: '降雨量', unit: 'mm/h', min: 0, max: 250, decimals: 1, defaultValue: 0.2 }
+]);
+const SIMULATION_METRIC_BY_CODE = Object.freeze(Object.fromEntries(
+  SIMULATION_METRIC_OPTIONS.map((item) => [item.code, item])
+));
+
+function simulation_metric_definition(code = 'SOIL_MOISTURE') {
+  return SIMULATION_METRIC_BY_CODE[String(code || '').toUpperCase()] || SIMULATION_METRIC_BY_CODE.SOIL_MOISTURE;
+}
+
+function simulation_finite_number(value, fallback = null) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function simulation_clamp_number(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function simulation_telemetry_timestamp(item) {
+  return new Date(item?.ts || item?.timestamp || item?.eventTs || 0).getTime();
+}
+
+function simulation_normalized_telemetry(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      ...item,
+      ts: item?.ts || item?.timestamp || item?.eventTs,
+      value: simulation_finite_number(item?.value)
+    }))
+    .filter((item) => simulation_telemetry_timestamp(item) > 0 && Number.isFinite(item.value))
+    .sort((left, right) => simulation_telemetry_timestamp(left) - simulation_telemetry_timestamp(right));
+}
+
+function simulation_normalized_forecast(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      minute: simulation_finite_number(item?.minute ?? item?.minutes, 0),
+      expected: simulation_finite_number(item?.expected ?? item?.value),
+      lower: simulation_finite_number(item?.lower ?? item?.expected ?? item?.value),
+      upper: simulation_finite_number(item?.upper ?? item?.expected ?? item?.value)
+    }))
+    .filter((item) => Number.isFinite(item.minute) && Number.isFinite(item.expected))
+    .sort((left, right) => left.minute - right.minute);
+}
+
+function simulation_align_forecast(curve, anchorValue, definition) {
+  const points = simulation_normalized_forecast(curve);
+  const anchor = simulation_finite_number(anchorValue);
+  if (!points.length || !Number.isFinite(anchor)) return points;
+  const delta = anchor - points[0].expected;
+  const mapped = points.map((point, index) => {
+    const expected = simulation_clamp_number(point.expected + delta, definition.min, definition.max);
+    const lower = simulation_clamp_number(point.lower + delta, definition.min, definition.max);
+    const upper = simulation_clamp_number(point.upper + delta, definition.min, definition.max);
+    return {
+      ...point,
+      minute: Math.max(0, point.minute),
+      expected: index === 0 ? anchor : expected,
+      lower: Math.min(expected, lower),
+      upper: Math.max(expected, upper)
+    };
+  });
+  if (mapped[0].minute > 0) {
+    mapped.unshift({ minute: 0, expected: anchor, lower: anchor, upper: anchor });
+  } else {
+    mapped[0] = { ...mapped[0], minute: 0, expected: anchor, lower: Math.min(anchor, mapped[0].lower), upper: Math.max(anchor, mapped[0].upper) };
+  }
+  return mapped;
+}
+
+function simulation_chart_axis_range(definition, values = []) {
+  const finiteValues = values.map((value) => simulation_finite_number(value)).filter((value) => Number.isFinite(value));
+  if (definition.code === 'SOIL_MOISTURE' || definition.code === 'AIR_HUMIDITY' || definition.code === 'WATER_LEVEL') {
+    return { min: 0, max: 100 };
+  }
+  if (definition.code === 'PH') return { min: 0, max: 14 };
+  const observedMin = finiteValues.length ? Math.min(...finiteValues) : definition.min;
+  const observedMax = finiteValues.length ? Math.max(...finiteValues) : definition.max;
+  const span = Math.max(definition.code === 'AIR_TEMPERATURE' ? 4 : 1, observedMax - observedMin);
+  let min = observedMin - span * .12;
+  let max = observedMax + span * .12;
+  if (definition.min === 0) min = Math.max(0, min);
+  min = Math.max(definition.min, min);
+  max = Math.min(definition.max, max);
+  if (max - min < span * .45) {
+    const center = (min + max) / 2;
+    min = Math.max(definition.min, center - span * .3);
+    max = Math.min(definition.max, center + span * .3);
+  }
+  const step = definition.code === 'LIGHT' ? 1000 : definition.code === 'CO2' ? 50 : definition.code === 'RAINFALL' ? 5 : .5;
+  return {
+    min: Math.max(definition.min, Math.floor(min / step) * step),
+    max: Math.min(definition.max, Math.ceil(max / step) * step)
+  };
+}
+
+function simulation_format_curve_value(value, definition) {
+  const number = simulation_finite_number(value);
+  if (!Number.isFinite(number)) return '—';
+  return number.toLocaleString('zh-CN', { maximumFractionDigits: definition.decimals, minimumFractionDigits: definition.decimals > 1 ? 1 : 0 });
+}
+
 function chart_seed(value) {
   return [...String(value || '')].reduce((seed, char) => ((seed * 31) + char.charCodeAt(0)) % 997, 17);
 }
@@ -572,50 +683,6 @@ function simulation_forecast_chart(forecast, baseMoisture) {
   };
 }
 
-function dual_track_chart(comparison) {
-  const execute = comparison?.branches?.EXECUTE;
-  const noAction = comparison?.branches?.NO_ACTION;
-  const branches = [
-    { key: 'EXECUTE', label: execute?.label || '执行处置', color: '#1e8e3e', points: execute?.points || [] },
-    { key: 'NO_ACTION', label: noAction?.label || '不干预', color: '#d93025', points: noAction?.points || [] }
-  ].map((branch) => ({
-    ...branch,
-    values: branch.points.map((point) => Number(point.value ?? point.expected)).filter(Number.isFinite)
-  })).filter((branch) => branch.values.length > 1);
-  if (!branches.length) return null;
-  const pointCount = Math.max(...branches.map((branch) => branch.values.length));
-  const allValues = branches.flatMap((branch) => branch.values);
-  const boundary = Number(comparison?.stressBoundary);
-  const min = Math.max(0, Math.floor(Math.min(...allValues, Number.isFinite(boundary) ? boundary : 100) - 5));
-  const max = Math.min(100, Math.ceil(Math.max(...allValues, Number.isFinite(boundary) ? boundary : 0) + 5));
-  const layout = { width: 640, height: 280, left: 44, right: 16, top: 18, bottom: 30 };
-  const labels = (branches[0].points || []).map((point) => Number(point.minute) === 0 ? '现在' : `${Math.round(Number(point.minute) / 60)} 小时`);
-  const grid = [max, (max + min) / 2, min].map((value) => ({
-    y: chart_y_at(value, min, max, layout),
-    label: `${Number(value.toFixed(0))}%`
-  }));
-  const xTicks = [0, Math.floor((pointCount - 1) / 2), pointCount - 1]
-    .filter((index, position, list) => index >= 0 && list.indexOf(index) === position)
-    .map((index, position, list) => ({
-      x: chart_x_at(index, pointCount, layout),
-      y: layout.height - 7,
-      label: labels[index] || `${index * 5} 分钟`,
-      anchor: position === 0 ? 'start' : (position === list.length - 1 ? 'end' : 'middle')
-    }));
-  return {
-    viewBox: `0 0 ${layout.width} ${layout.height}`,
-    plotLeft: layout.left,
-    plotRight: layout.width - layout.right,
-    grid,
-    xTicks,
-    boundaryY: Number.isFinite(boundary) ? chart_y_at(boundary, min, max, layout) : null,
-    series: branches.map((branch) => ({
-      ...branch,
-      points: chart_points(branch.values, min, max, layout)
-    }))
-  };
-}
-
 function find_chart_range(range_id) {
   return CHART_RANGE_OPTIONS.find((item) => item.id === range_id)
     || CHART_RANGE_OPTIONS.find((item) => item.id === '1d')
@@ -669,14 +736,17 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const historyPoints = Array.isArray(metric.history) ? metric.history : [];
   const timeScale = chart_time_scale(plot);
   const windowMs = Math.max(60_000, (Number(range.simHours) || 24) * 3600 * 1000 / timeScale);
-  const windowEnd = Date.now();
-  const windowStart = windowEnd - windowMs;
-  const timedSamples = historyPoints.map((point) => ({
+  const nowMs = Date.now();
+  const rawTimed = historyPoints.map((point) => ({
     ts: parse_chart_ts(point),
     value: Number(point?.value ?? point)
-  })).filter((sample) => Number.isFinite(sample.ts) && Number.isFinite(sample.value)
-    && sample.ts >= windowStart - 1000 && sample.ts <= windowEnd + 5000)
-    .sort((left, right) => left.ts - right.ts)
+  })).filter((sample) => Number.isFinite(sample.ts) && Number.isFinite(sample.value))
+    .sort((left, right) => left.ts - right.ts);
+  const latestTs = rawTimed.length ? rawTimed[rawTimed.length - 1].ts : nowMs;
+  const windowEnd = Math.min(nowMs, latestTs);
+  const windowStart = windowEnd - windowMs;
+  const timedSamples = rawTimed
+    .filter((sample) => sample.ts >= windowStart - 1000 && sample.ts <= windowEnd + 5000)
     .map((sample) => ({
       ...sample,
       ratio: Math.max(0, Math.min(1, (sample.ts - windowStart) / windowMs))
@@ -1202,140 +1272,498 @@ const app = createApp({
     const plot_simulation_forecast = ref(null);
     const plot_simulation_loading = ref(false);
     const plot_simulation_error = ref('');
+    const plot_simulation_history = ref([]);
+    const plot_simulation_metric = ref('SOIL_MOISTURE');
+    const plot_simulation_metric_loading = ref(false);
+    const plot_simulation_chart_el = ref(null);
+    const plot_simulation_chart_instance = ref(null);
+    const plot_simulation_form = ref({ scenario: 'NORMAL', parameters: { ...PLOT_SIMULATION_DEFAULTS.NORMAL } });
+    const plot_simulation_evaluating = ref(false);
+    const plot_simulation_preview_dirty = ref(false);
+    // 双轨对比：同一冻结快照与随机种子下的“执行处方 / 不干预”两条只读预测。
+    const plot_simulation_dual_track = ref(null);
+    const plot_simulation_dual_loading = ref(false);
+    const show_dual_track = ref(true);
+    let plot_simulation_dual_request_version = 0;
+    const plot_simulation_parameter_meta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
+      timeScale: { label: '时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '墙上时钟与模拟时间的比例' },
+      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
+      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '场景平均降雨强度' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
+      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
+      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '未来趋势的时间范围' }
+    });
+    const plot_simulation_fields = computed(() => {
+      const scenario = String(plot_simulation_form.value.scenario || 'NORMAL').toUpperCase();
+      const extra = scenario === 'DROUGHT'
+        ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
+        : scenario === 'HEAVY_RAIN'
+          ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
+          : scenario === 'SENSOR_DRIFT'
+            ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
+            : scenario === 'DEVICE_OFFLINE' ? ['offlineRatio'] : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
+      return [...new Set(['volatility', 'timeScale', 'riskThreshold', 'forecastHours', ...extra])]
+        .map((key) => ({ key, ...plot_simulation_parameter_meta[key] }));
+    });
     const plot_simulation_options = computed(() => {
       const catalog = plot_simulation.value?.scenarioCatalog;
       return Array.isArray(catalog) && catalog.length ? catalog : PLOT_SIMULATION_SCENARIOS;
     });
     const plot_simulation_scenario = computed(() => {
-      const code = String(plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
+      const code = String(plot_simulation_form.value?.scenario || plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
       return plot_simulation_options.value.find((item) => item.code === code) || PLOT_SIMULATION_SCENARIOS[0];
     });
-    const plot_simulation_parameter_summary = computed(() => {
-      const labels = {
-        volatility: ['波动强度', '倍', 2], timeScale: ['时间倍率', '倍', 0], temperatureBias: ['温度偏移', '°C', 1],
-        humidityBias: ['湿度偏移', '%RH', 0], rainfallRate: ['降雨强度', 'mm/h', 1], soilMoistureTrendPerHour: ['土壤变化速率', '%/h', 2],
-        driftRatePerHour: ['漂移速率', '%/h', 2], offlineRatio: ['离线比例', '%', 0.01], riskThreshold: ['干旱阈值', '%', 1],
-        waterloggingThreshold: ['积水阈值', '%', 1], forecastHours: ['预测时长', '小时', 0]
-      };
-      return Object.entries(plot_simulation.value?.parameters || {}).map(([key, raw]) => {
-        const meta = labels[key];
-        const value = Number(raw);
-        if (!meta || !Number.isFinite(value)) return null;
-        const display = key === 'offlineRatio' ? value * 100 : value;
-        return { key, label: meta[0], unit: meta[1], value: display.toFixed(meta[2]) };
-      }).filter(Boolean);
-    });
+
     const plot_simulation_device_label = computed(() => plot_simulation.value?.simulatorDevice?.label || '模拟数据运行中');
     const plot_simulation_device_status = computed(() => String(plot_simulation.value?.simulatorDevice?.status || '').toUpperCase());
-    const plot_simulation_chart = computed(() => {
+    const plot_simulation_metric_options = computed(() => SIMULATION_METRIC_OPTIONS);
+    const plot_simulation_selected_metric = computed(() => simulation_metric_definition(plot_simulation_metric.value));
+    const plot_simulation_metric_label = computed(() => plot_simulation_selected_metric.value.label);
+    const plot_simulation_chart_available = computed(() => {
       const forecast = plot_simulation_forecast.value;
-      if (!forecast || String(forecast.status || '').toUpperCase() === 'UNAVAILABLE') return null;
-      return simulation_forecast_chart(forecast, selected_plot.value?.metrics?.SOIL_MOISTURE?.value);
+      const hasHistory = Array.isArray(plot_simulation_history.value) && plot_simulation_history.value.length > 0;
+      const hasForecast = forecast && String(forecast.status || '').toUpperCase() === 'AVAILABLE'
+        && Array.isArray(forecast.curve) && forecast.curve.length > 0;
+      return hasHistory || hasForecast;
     });
+    const plot_simulation_preview_message = computed(() => {
+      const scenario = plot_simulation_scenario.value;
+      const forecast = plot_simulation_forecast.value;
+      if (plot_simulation_evaluating.value) return '正在使用当前参数刷新只读预测曲线…';
+      if (plot_simulation_preview_dirty.value) return '参数尚未保存，曲线来自只读后端试算；农户调整不会修改管理员策略或主状态。';
+      if (forecast && String(forecast.status || '').toUpperCase() !== 'AVAILABLE') {
+        const reason = forecast.reason || '当前样本或设备状态未满足预测条件';
+        return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
+      }
+      return `${scenario.label}已绑定到 ${selected_plot.value?.name || selected_plot.value?.plotId || ''}，历史实测与策略预测只读展示。`;
+    });
+
+    const plot_simulation_dual_available = computed(() => {
+      const track = plot_simulation_dual_track.value;
+      const execute = track?.branches?.EXECUTE?.points;
+      const noAction = track?.branches?.NO_ACTION?.points;
+      return Array.isArray(execute) && execute.length > 0
+        && Array.isArray(noAction) && noAction.length > 0
+        && String(track.status || '').toUpperCase() === 'AVAILABLE';
+    });
+    const plot_simulation_dual_summary = computed(() => {
+      if (!plot_simulation_dual_available.value) return null;
+      const track = plot_simulation_dual_track.value;
+      const formatTime = (minutes) => Number.isFinite(Number(minutes)) && Number(minutes) > 0
+        ? `约 ${Math.round(Number(minutes))} 分钟后`
+        : `${track?.parameters?.forecastHours || 4} 小时内未触达`;
+      const execute = track.branches.EXECUTE || {};
+      const noAction = track.branches.NO_ACTION || {};
+      const boundary = Number(track.stressBoundary);
+      const isStorm = String(track.scenario || '').toUpperCase() === 'HEAVY_RAIN';
+      const boundaryLabel = Number.isFinite(boundary) ? `${isStorm ? '积水' : '干旱'}阈值 ${boundary}%` : '风险边界';
+      const horizonHours = Number(track?.parameters?.forecastHours || 4);
+      const intervention = track.intervention;
+      const divergence = track.divergence;
+      const parts = [
+        `措施后：${formatTime(execute.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`,
+        `不干预：${formatTime(noAction.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`
+      ];
+      if (intervention?.measure === 'IRRIGATION' && intervention.status === 'PLANNED') {
+        parts.push(`预计 ${Math.round(Number(intervention.triggerMinute))} 分钟后补水 ${intervention.waterLitre} 升（${intervention.durationMinutes} 分钟），湿度回升至 ${intervention.moistureAfterIrrigation}% 后继续自然回落`);
+        if (intervention.reservoirSufficient === false) {
+          parts.push(`水箱仅剩 ${intervention.reservoirLevelPercent}%（约 ${intervention.reservoirAvailableLitres} 升），只能按余量补水`);
+        }
+      } else if (intervention?.status === 'NO_RISK_IN_WINDOW') {
+        parts.push('预测窗口内不会跌破干旱预警线，无需灌溉，双轨重合');
+      } else if (intervention?.measure === 'DRAINAGE') {
+        parts.push('措施为启动排水：削峰并加快退水');
+      }
+      const deltaAtHorizon = Number(divergence?.moistureDeltaAtHorizon);
+      if (Number.isFinite(deltaAtHorizon) && deltaAtHorizon > 0) {
+        parts.push(`${horizonHours} 小时时点措施后比不干预高约 ${deltaAtHorizon.toFixed(1)} 个百分点`);
+      }
+      if (divergence?.riskAvoidedWithinWindow) {
+        parts.push(`措施可把风险推迟到 ${horizonHours} 小时窗口之外`);
+      } else if (Number.isFinite(Number(divergence?.riskDelayMinutes)) && Number(divergence.riskDelayMinutes) > 0) {
+        parts.push(`风险触发推迟约 ${Math.round(Number(divergence.riskDelayMinutes))} 分钟`);
+      }
+      return `${parts.join('；')}。双轨基于同一冻结快照与随机种子，只读对比，不写回主状态。`;
+    });
+
+    const load_plot_simulation_dual_track = async () => {
+      const plotId = selected_plot.value?.plotId;
+      if (!plotId) {
+        plot_simulation_dual_track.value = null;
+        return;
+      }
+      const requestId = ++plot_simulation_dual_request_version;
+      plot_simulation_dual_loading.value = true;
+      try {
+        const result = await api.compareScenario({
+          plotId,
+          scenario: plot_simulation_form.value.scenario,
+          parameters: { ...(plot_simulation_form.value.parameters || {}) }
+        });
+        if (requestId !== plot_simulation_dual_request_version) return;
+        plot_simulation_dual_track.value = result || { status: 'UNAVAILABLE', reason: '双轨对比响应为空' };
+      } catch (error) {
+        if (requestId !== plot_simulation_dual_request_version) return;
+        plot_simulation_dual_track.value = { status: 'UNAVAILABLE', reason: error?.message || '双轨对比暂不可用' };
+      } finally {
+        if (requestId === plot_simulation_dual_request_version) {
+          plot_simulation_dual_loading.value = false;
+          void render_plot_simulation_chart();
+        }
+      }
+    };
+
+    const toggle_dual_track = () => {
+      show_dual_track.value = !show_dual_track.value;
+      void render_plot_simulation_chart();
+    };
+
+    const render_plot_simulation_chart = async () => {
+      await nextTick();
+      const chartLibrary = window.echarts;
+      if (!plot_simulation_chart_el.value || !chartLibrary) return;
+      if (plot_simulation_chart_instance.value?.getDom?.() !== plot_simulation_chart_el.value) {
+        plot_simulation_chart_instance.value?.dispose();
+        plot_simulation_chart_instance.value = null;
+      }
+      if (!plot_simulation_chart_instance.value) plot_simulation_chart_instance.value = chartLibrary.init(plot_simulation_chart_el.value);
+      const definition = plot_simulation_selected_metric.value;
+      const historicalPoints = simulation_normalized_telemetry(plot_simulation_history.value);
+      const timeScale = Math.max(1, Number(plot_simulation_form.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
+      const now = Date.now();
+      const toSimulated = (wall) => now - (now - wall) * timeScale;
+      const historicalAll = historicalPoints.map((item) => [toSimulated(simulation_telemetry_timestamp(item)), item.value]);
+      const fallback = (() => {
+        const configured = simulation_finite_number(selected_plot.value?.metrics?.[definition.code]?.value);
+        return Number.isFinite(configured) ? configured : definition.defaultValue;
+      })();
+      const anchorPoint = historicalPoints.at(-1);
+      const anchorValue = anchorPoint?.value ?? fallback;
+      const anchorTimestamp = anchorPoint ? simulation_telemetry_timestamp(anchorPoint) : NaN;
+      const forecastAvailable = String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'AVAILABLE'
+        && Array.isArray(plot_simulation_forecast.value?.curve) && plot_simulation_forecast.value.curve.length > 0;
+      const forecastSource = forecastAvailable ? plot_simulation_forecast.value.curve : [];
+      const forecastPoints = simulation_align_forecast(forecastSource, anchorValue, definition);
+      const forecastStart = Number.isFinite(anchorTimestamp) ? toSimulated(anchorTimestamp) : now;
+      const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
+      const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
+      const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      // 双轨曲线：与主预测共用同一时间锚点，展示“措施后 / 不干预”对比。
+      const dualUsable = definition.code === 'SOIL_MOISTURE'
+        && show_dual_track.value
+        && plot_simulation_dual_available.value;
+      const dualTrack = dualUsable ? plot_simulation_dual_track.value : null;
+      const dualIntervention = dualTrack?.intervention;
+      const dualIsStorm = String(dualTrack?.scenario || '').toUpperCase() === 'HEAVY_RAIN';
+      const dualBoundary = Number(dualTrack?.stressBoundary);
+      // 双轨标注：风险边界横线 + 灌溉触发竖线，让“何时补水、跌破哪条线”在图上可见。
+      const dualMarkLine = dualTrack
+        ? {
+            silent: true,
+            symbol: 'none',
+            data: [
+              ...(Number.isFinite(dualBoundary)
+                ? [{
+                    yAxis: dualBoundary,
+                    lineStyle: { color: '#f59e0b', type: 'dotted', width: 1 },
+                    label: { formatter: `${dualIsStorm ? '积水' : '干旱'}阈值 ${dualBoundary}%`, color: '#f59e0b', fontSize: 10, position: 'insideEndTop' }
+                  }]
+                : []),
+              ...(dualIntervention?.measure === 'IRRIGATION' && dualIntervention.status === 'PLANNED'
+                ? [{
+                    xAxis: forecastStart + Number(dualIntervention.triggerMinute) * 60000,
+                    lineStyle: { color: '#3fb950', type: 'dashed', width: 1 },
+                    label: { formatter: `补水 ${dualIntervention.waterLitre} L`, color: '#3fb950', fontSize: 10, position: 'insideEndBottom' }
+                  }]
+                : [])
+            ]
+          }
+        : null;
+      const toDualSeries = (points) => points.map((item) => [forecastStart + Number(item.minute) * 60000, Number(item.value)]);
+      const executeSeries = dualTrack ? toDualSeries(dualTrack.branches.EXECUTE.points) : [];
+      const noActionSeries = dualTrack ? toDualSeries(dualTrack.branches.NO_ACTION.points) : [];
+      // Keep one forecast-window of history in view. A long-running simulator
+      // can otherwise stretch the time axis so far into the past that the
+      // forecast and dual-track sections collapse into a few pixels.
+      const forecastHorizonMinutes = Math.max(
+        60,
+        ...forecastPoints.map((item) => Number(item.minute) || 0),
+        ...(dualTrack ? [
+          ...dualTrack.branches.EXECUTE.points.map((item) => Number(item.minute) || 0),
+          ...dualTrack.branches.NO_ACTION.points.map((item) => Number(item.minute) || 0)
+        ] : [])
+      );
+      const historyWindowStart = forecastStart - forecastHorizonMinutes * 60000;
+      const historical = historicalAll.filter(([timestamp]) => timestamp >= historyWindowStart && timestamp <= forecastStart);
+      if (!historical.length && Number.isFinite(anchorValue)) historical.push([forecastStart, anchorValue]);
+      const axis = simulation_chart_axis_range(definition, [
+        ...historical.map((item) => item[1]),
+        ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper]),
+        ...(dualTrack ? [...executeSeries, ...noActionSeries].map((item) => item[1]) : [])
+      ]);
+      const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const textColor = dark ? '#e8eaed' : '#3c4043';
+      plot_simulation_chart_instance.value.setOption({
+        backgroundColor: 'transparent', animation: false,
+        tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
+          const list = Array.isArray(items) ? items : [items];
+          const axisValue = simulation_finite_number(list[0]?.axisValue);
+          const time = Number.isFinite(axisValue) ? `模拟 ${new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}` : '—';
+          return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${simulation_format_curve_value(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
+        }},
+        legend: {
+          data: dualTrack
+            ? ['历史实测', '策略预测', '措施后预测', '不干预预测']
+            : ['历史实测', '策略预测', '预测下界', '预测上界'],
+          textStyle: { color: textColor, fontSize: 11 }
+        },
+        grid: { left: 42, right: 18, top: 32, bottom: 30 },
+        xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
+        yAxis: {
+          type: 'value', min: axis.min, max: axis.max, name: definition.unit,
+          nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => simulation_format_curve_value(value, definition) }
+        },
+        series: [
+          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: plot_simulation_evaluating.value ? .42 : 1 } },
+          ...(dualTrack ? [
+            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#3fb950', width: 2, opacity: plot_simulation_dual_loading.value ? .45 : 1 }, ...(dualMarkLine ? { markLine: dualMarkLine } : {}) },
+            { name: '不干预预测', type: 'line', data: noActionSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#f85149', width: 2, type: 'dashed', opacity: plot_simulation_dual_loading.value ? .45 : 1 } }
+          ] : [
+            { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },
+            { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } }
+          ])
+        ]
+      }, true);
+      plot_simulation_chart_instance.value.resize();
+    };
+
     let plot_simulation_request_version = 0;
+    let plot_simulation_metric_request_version = 0;
+    let plot_simulation_preview_request_version = 0;
+    let plot_simulation_preview_timer = null;
     const load_plot_simulation = async (plotId = selected_plot.value?.plotId) => {
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      plot_simulation_preview_timer = null;
+      plot_simulation_preview_request_version += 1;
+      plot_simulation_preview_dirty.value = false;
+      plot_simulation_evaluating.value = false;
       const requestVersion = ++plot_simulation_request_version;
       if (!plotId) {
         plot_simulation.value = null;
         plot_simulation_forecast.value = null;
+        plot_simulation_history.value = [];
         plot_simulation_error.value = '没有可查看的地块';
         return;
       }
       plot_simulation_loading.value = true;
       plot_simulation_error.value = '';
-      const [configResult, forecastResult] = await Promise.allSettled([
-        api.getPlotSimulation(plotId),
-        api.getRiskForecast(plotId, 'SOIL_MOISTURE')
-      ]);
-      if (requestVersion !== plot_simulation_request_version) return;
-      plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
-      plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
-      const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
-      if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
-      plot_simulation_error.value = [...new Set(errors)].join('；');
-      plot_simulation_loading.value = false;
-    };
-
-    const risk_tool_plot_id = ref(plots.value[0]?.plotId || '');
-    const risk_tool_scenario = ref('DROUGHT');
-    const risk_tool_parameters = ref({ ...PLOT_SIMULATION_DEFAULTS.DROUGHT });
-    const risk_tool_comparison = ref(null);
-    const risk_tool_loading = ref(false);
-    const risk_tool_error = ref('');
-    const risk_tool_dirty = ref(true);
-    let risk_tool_request_version = 0;
-    const risk_tool_plot = computed(() => plots.value.find((plot) => plot.plotId === risk_tool_plot_id.value) || plots.value[0] || null);
-    const risk_tool_scenario_options = computed(() => PLOT_SIMULATION_SCENARIOS);
-    const risk_tool_parameter_meta = Object.freeze({
-      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '默认 144 倍：墙上时钟 10 分钟 ≈ 1 个模拟日' },
-      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
-      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
-      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '降雨场景平均强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
-      offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
-      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
-      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
-      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '双轨曲线的时间范围' }
-    });
-    const risk_tool_fields = computed(() => {
-      const common = ['volatility', 'timeScale', 'riskThreshold', 'forecastHours'];
-      const extra = risk_tool_scenario.value === 'DROUGHT'
-        ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
-        : risk_tool_scenario.value === 'HEAVY_RAIN'
-          ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
-          : risk_tool_scenario.value === 'SENSOR_DRIFT'
-            ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
-            : risk_tool_scenario.value === 'DEVICE_OFFLINE' ? ['offlineRatio'] : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
-      return [...new Set([...common, ...extra])].map((key) => ({ key, ...risk_tool_parameter_meta[key] }));
-    });
-    const risk_tool_chart = computed(() => dual_track_chart(risk_tool_comparison.value));
-    const select_risk_tool_scenario = (code) => {
-      const normalized = String(code || 'DROUGHT').toUpperCase();
-      risk_tool_scenario.value = risk_tool_scenario_options.value.some((item) => item.code === normalized) ? normalized : 'DROUGHT';
-      risk_tool_parameters.value = { ...(PLOT_SIMULATION_DEFAULTS[risk_tool_scenario.value] || PLOT_SIMULATION_DEFAULTS.DROUGHT) };
-      risk_tool_dirty.value = true;
-      risk_tool_comparison.value = null;
-    };
-    const run_risk_tool = async () => {
-      const plot = risk_tool_plot.value;
-      if (!plot?.plotId || risk_tool_loading.value) return;
-      const requestVersion = ++risk_tool_request_version;
-      risk_tool_loading.value = true;
-      risk_tool_error.value = '';
       try {
-        const comparison = await api.compareScenario({
-          plotId: plot.plotId,
-          scenario: risk_tool_scenario.value,
-          seed: 42,
-          scenarioId: `farmer-tool-${risk_tool_scenario.value.toLowerCase()}-${plot.plotId}`,
-          parameters: { ...risk_tool_parameters.value }
-        });
-        if (requestVersion !== risk_tool_request_version) return;
-        risk_tool_comparison.value = comparison;
-        if (String(comparison?.status || '').toUpperCase() !== 'AVAILABLE') {
-          risk_tool_error.value = comparison?.reason || '当前样本或设备状态不满足预测条件';
+        const metric = plot_simulation_metric.value;
+        const [configResult, historyResult, forecastResult] = await Promise.allSettled([
+          api.getPlotSimulation(plotId),
+          api.getTelemetry(plotId, metric, 120),
+          api.getRiskForecast(plotId, metric)
+        ]);
+        if (requestVersion !== plot_simulation_request_version) return;
+        plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
+        if (configResult.status === 'fulfilled') {
+          plot_simulation_form.value = {
+            scenario: String(configResult.value?.scenario || 'NORMAL').toUpperCase(),
+            parameters: { ...(configResult.value?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+          };
         }
-        risk_tool_dirty.value = false;
+        plot_simulation_preview_dirty.value = false;
+        plot_simulation_evaluating.value = false;
+        plot_simulation_history.value = historyResult.status === 'fulfilled' ? (historyResult.value || []) : [];
+        plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
+        const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
+        if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
+        plot_simulation_error.value = [...new Set(errors)].join('；');
+        await render_plot_simulation_chart();
+        void load_plot_simulation_dual_track();
       } catch (error) {
-        if (requestVersion === risk_tool_request_version) {
-          risk_tool_comparison.value = null;
-          risk_tool_error.value = error?.message || '风险预测暂不可用';
-        }
+        if (requestVersion !== plot_simulation_request_version) return;
+        plot_simulation_error.value = error?.message || '地块预测加载失败';
       } finally {
-        if (requestVersion === risk_tool_request_version) risk_tool_loading.value = false;
+        if (requestVersion === plot_simulation_request_version) plot_simulation_loading.value = false;
       }
     };
-    const reset_risk_tool = () => {
-      select_risk_tool_scenario(risk_tool_scenario.value);
-      risk_tool_error.value = '';
+
+    const evaluate_plot_simulation_preview = async (requestId) => {
+      const plotId = selected_plot.value?.plotId;
+      if (!plotId) return;
+      try {
+        const evaluated = await api.evaluateRiskForecast({
+          plotId,
+          metric: plot_simulation_metric.value,
+          scenario: plot_simulation_form.value.scenario,
+          parameters: { ...(plot_simulation_form.value.parameters || {}) },
+          requestVersion: requestId
+        });
+        if (requestId !== plot_simulation_preview_request_version) return;
+        plot_simulation_forecast.value = evaluated || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+      } catch (error) {
+        if (requestId !== plot_simulation_preview_request_version) return;
+        plot_simulation_forecast.value = { status: 'UNAVAILABLE', reason: error?.message || '风险预测暂不可用' };
+      } finally {
+        if (requestId === plot_simulation_preview_request_version) {
+          plot_simulation_evaluating.value = false;
+          await render_plot_simulation_chart();
+          void load_plot_simulation_dual_track();
+        }
+      }
     };
+
+    const schedule_plot_simulation_preview = (delay = 300) => {
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      const requestId = ++plot_simulation_preview_request_version;
+      plot_simulation_preview_dirty.value = true;
+      plot_simulation_evaluating.value = true;
+      // Keep the current curve visible while the next preview is in flight.
+      void render_plot_simulation_chart();
+      plot_simulation_preview_timer = window.setTimeout(() => {
+        plot_simulation_preview_timer = null;
+        void evaluate_plot_simulation_preview(requestId);
+      }, delay);
+    };
+
+    const select_plot_simulation_scenario = (code) => {
+      const normalized = String(code || 'NORMAL').toUpperCase();
+      const scenario = plot_simulation_options.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
+      plot_simulation_form.value = {
+        scenario: scenario.code,
+        parameters: { ...(PLOT_SIMULATION_DEFAULTS[scenario.code] || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+      };
+      schedule_plot_simulation_preview();
+    };
+
+    const reset_plot_simulation_preview = () => {
+      if (!plot_simulation.value) return;
+      plot_simulation_form.value = {
+        scenario: String(plot_simulation.value.scenario || 'NORMAL').toUpperCase(),
+        parameters: { ...(plot_simulation.value.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+      };
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      plot_simulation_preview_timer = null;
+      plot_simulation_preview_request_version += 1;
+      plot_simulation_preview_dirty.value = false;
+      plot_simulation_evaluating.value = false;
+      void load_plot_simulation(selected_plot.value?.plotId);
+    };
+
+    const load_plot_simulation_metric = async (metric = plot_simulation_metric.value, {
+      preserveOnError = false,
+      silent = false,
+      historyOnly = false
+    } = {}) => {
+      const normalized = simulation_metric_definition(metric).code;
+      const requestId = ++plot_simulation_metric_request_version;
+      if (!silent) plot_simulation_metric_loading.value = true;
+      try {
+        if (historyOnly) {
+          const historyResult = await Promise.allSettled([api.getTelemetry(selected_plot.value?.plotId, normalized, 120)]);
+          if (requestId !== plot_simulation_metric_request_version) return;
+          if (historyResult[0].status === 'fulfilled') plot_simulation_history.value = historyResult[0].value || [];
+          else if (!preserveOnError) plot_simulation_history.value = [];
+        } else {
+          const [historyResult, forecastResult] = await Promise.allSettled([
+            api.getTelemetry(selected_plot.value?.plotId, normalized, 120),
+            api.getRiskForecast(selected_plot.value?.plotId, normalized)
+          ]);
+          if (requestId !== plot_simulation_metric_request_version) return;
+          if (historyResult.status === 'fulfilled') plot_simulation_history.value = historyResult.value || [];
+          else if (!preserveOnError) plot_simulation_history.value = [];
+          if (forecastResult.status === 'fulfilled') plot_simulation_forecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+          else if (!preserveOnError) plot_simulation_forecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
+        }
+        await nextTick();
+        render_plot_simulation_chart();
+      } finally {
+        if (!silent && requestId === plot_simulation_metric_request_version) plot_simulation_metric_loading.value = false;
+      }
+    };
+
+    const select_plot_simulation_metric = (eventOrCode) => {
+      const requested = typeof eventOrCode === 'string' ? eventOrCode : eventOrCode?.target?.value;
+      const normalized = simulation_metric_definition(requested).code;
+      if (normalized === plot_simulation_metric.value && !plot_simulation_metric_loading.value) return;
+      plot_simulation_metric.value = normalized;
+      if (plot_simulation_preview_dirty.value) {
+        // Keep history current while the what-if forecast continues to use local parameters.
+        load_plot_simulation_metric(normalized, { preserveOnError: false, historyOnly: true });
+        schedule_plot_simulation_preview();
+        return;
+      }
+      load_plot_simulation_metric(normalized, { preserveOnError: false });
+    };
+
+    let plot_simulation_live_timer = null;
+    let plot_simulation_live_in_flight = false;
+    let plot_simulation_live_queued = false;
+    let plot_simulation_live_kick_timer = null;
+    let plot_simulation_live_visibility_handler = null;
+    const plot_simulation_is_live = () => is_formal_session && api.isLive;
+    const refresh_plot_simulation_live = async () => {
+      if (!plot_simulation_is_live() || document.hidden || plot_simulation_loading.value || plot_simulation_metric_loading.value || plot_simulation_evaluating.value) return;
+      if (plot_simulation_live_in_flight) {
+        plot_simulation_live_queued = true;
+        return;
+      }
+      plot_simulation_live_in_flight = true;
+      try {
+        // Background polls must not unmount the chart; keep the current curve and refresh quietly.
+        if (plot_simulation_preview_dirty.value) {
+          await load_plot_simulation_metric(plot_simulation_metric.value, { preserveOnError: true, silent: true, historyOnly: true });
+        } else {
+          await load_plot_simulation_metric(plot_simulation_metric.value, { preserveOnError: true, silent: true });
+        }
+      } finally {
+        plot_simulation_live_in_flight = false;
+        if (plot_simulation_live_queued && !document.hidden) {
+          plot_simulation_live_queued = false;
+          if (!plot_simulation_live_kick_timer) {
+            plot_simulation_live_kick_timer = window.setTimeout(() => {
+              plot_simulation_live_kick_timer = null;
+              refresh_plot_simulation_live();
+            }, 120);
+          }
+        }
+      }
+    };
+    const stop_plot_simulation_live = () => {
+      if (plot_simulation_live_timer) window.clearInterval(plot_simulation_live_timer);
+      plot_simulation_live_timer = null;
+      if (plot_simulation_live_kick_timer) window.clearTimeout(plot_simulation_live_kick_timer);
+      plot_simulation_live_kick_timer = null;
+      if (plot_simulation_live_visibility_handler) document.removeEventListener('visibilitychange', plot_simulation_live_visibility_handler);
+      plot_simulation_live_visibility_handler = null;
+      plot_simulation_live_queued = false;
+    };
+    const start_plot_simulation_live = () => {
+      stop_plot_simulation_live();
+      if (!plot_simulation_is_live()) return;
+      plot_simulation_live_timer = window.setInterval(refresh_plot_simulation_live, 4000);
+      plot_simulation_live_visibility_handler = () => { if (!document.hidden) refresh_plot_simulation_live(); };
+      document.addEventListener('visibilitychange', plot_simulation_live_visibility_handler);
+    };
+
+    // The farmer risk page mirrors the administrator plot-detail forecast.
+    // Only the plot selector remains local; strategy and forecast data come
+    // from the same read-only resources as the plot detail view.
+    const risk_tool_plot_id = ref(plots.value[0]?.plotId || '');
+    const risk_tool_plot = computed(() => plots.value.find((plot) => plot.plotId === risk_tool_plot_id.value) || plots.value[0] || null);
     const select_risk_tool_plot = (plotId) => {
-      risk_tool_plot_id.value = plotId;
-      risk_tool_comparison.value = null;
-      risk_tool_dirty.value = true;
-      risk_tool_error.value = '';
+      const plot = plots.value.find((item) => item.plotId === plotId);
+      if (!plot) return;
+      risk_tool_plot_id.value = plot.plotId;
+      selected_plot.value = plot;
+      plot_stage_preview.value = plot.stageCode || crop_stage_for(plot)?.code || '';
     };
 
     const advice_selected_plot = ref(plots.value[0] || null);
@@ -2120,11 +2548,17 @@ const app = createApp({
       if (!active_suggestion.value.plotId || !suggestion_plot.value) return '未明确涉及地块，请先选择要处理的地块。';
       if (!plan) return '暂未生成处方，请先查看地块湿度或发起复测。';
       const readinessGate = String(irrigation_readiness_detail.value?.status || '').toUpperCase();
-      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return '当前安全门未通过，请先巡田、复测或检查设备。';
+      const missing = (irrigation_readiness_detail.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean).slice(0, 3);
+      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或设备状态未满足灌溉条件。';
       if (status === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
-      if (status === 'NEEDS_EVIDENCE') return '数据质量或诊断证据不足，请先巡田或复测。';
-      if (status === 'UNAVAILABLE') return '设备或预测服务不可用，请先检查设备并联系管理员。';
-      if (status === 'BLOCKED') return '安全门未通过，不能执行灌溉，请先补充证据。';
+      if (status === 'NEEDS_EVIDENCE') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '数据质量或诊断证据不足，请先巡田或复测。';
+      if (status === 'UNAVAILABLE') return '暂不能执行：设备或最新数据不可用，请先检查设备并获取新遥测。';
+      if (status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
+      const guard = irrigation_guard.value;
+      if (!guard) return '暂不能执行：安全门状态暂不可用，请稍后重试。';
+      const remainingSeconds = Number(guard?.remainingSeconds || 0);
+      const emergencyEligible = plan?.emergency?.eligible === true && guard?.emergency?.eligibleByMoisture === true;
+      if (remainingSeconds > 0 && !emergencyEligible) return `该地块刚完成灌溉，防重复保护还剩约 ${Math.max(1, Math.ceil(remainingSeconds / 60))} 分钟；当前湿度未达到应急补水阈值。`;
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
       const duration = Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds);
       const start = plan.when?.start || plan.recommendedWindow?.start;
@@ -2133,6 +2567,25 @@ const app = createApp({
       if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能执行灌溉。';
       if (!start || !end) return '处方缺少执行时间窗口，请先补充证据。';
       return '';
+    });
+    const suggestion_emergency_notice = computed(() => {
+      if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
+      const plan = irrigation_plan.value;
+      const guard = irrigation_guard.value;
+      if (plan?.emergency?.eligible !== true) return '';
+      const moisture = Number(plan.emergency.currentMoisture);
+      const threshold = Number(plan.emergency.threshold);
+      const moistureText = Number.isFinite(moisture) ? `${moisture.toFixed(1)}%` : '当前值';
+      const thresholdText = Number.isFinite(threshold) ? `${threshold.toFixed(1)}%` : '应急阈值';
+      return Number(guard?.remainingSeconds || 0) > 0
+        ? `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；确认后将以受限应急补水方式执行，仍会重新检查设备、数据和水量上限。`
+        : `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；必要时可发起受限应急补水。`;
+    });
+    const suggestion_emergency_mode = computed(() => {
+      const plan = irrigation_plan.value;
+      return active_suggestion.value?.kind === 'IRRIGATION'
+        && plan?.emergency?.eligible === true
+        && Number(irrigation_guard.value?.remainingSeconds || 0) > 0;
     });
     const suggestion_confirm_enabled = computed(() => {
       if (!active_suggestion.value || suggestion_busy.value || suggestion_flow_stage.value !== 'CONFIRM') return false;
@@ -2577,6 +3030,13 @@ const app = createApp({
         return true;
       } catch (error) {
         if (version !== workspace_request_version) return false;
+        // 会话已失效（token 过期、后端内存库重启导致账号丢失等）时，
+        // 自动清除本地会话并回到登录页，避免停留在没有田地的空工作台。
+        if (error?.status === 401 || error?.code === 'AUTH_REQUIRED' || error?.code === 'AUTH_INVALID') {
+          api.clearSession();
+          window.location.replace('login.html?reason=session_expired');
+          return false;
+        }
         load_error.value = error?.message || '正式数据读取失败';
         // Do not leave the module-level demo Crop Pack available after a
         // formal load fails.  A failed live request must render an empty
@@ -2859,6 +3319,7 @@ const app = createApp({
       const version = ++irrigation_plan_request_version;
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
+      irrigation_guard.value = null;
       try {
         const plan = await api.estimateIrrigation({
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo',
@@ -2874,6 +3335,13 @@ const app = createApp({
       } catch (error) {
             // 处方仍可展示；读取就绪度失败时保留明确的降级文案。
             irrigation_readiness_detail.value = { status: plan.readinessStatus || 'UNAVAILABLE', reason: error?.message || '就绪度暂不可用' };
+          }
+          try {
+            irrigation_guard.value = await api.getIrrigationGuard(plotId);
+          } catch {
+            // The prescription remains visible; the execution button will
+            // stay disabled until the guard can be read again.
+            irrigation_guard.value = null;
           }
         }
         return plan;
@@ -2940,8 +3408,12 @@ const app = createApp({
       suggestion_result_form.value = { outcome: 'SUCCEEDED', note: '', actual_water_litre: '', actual_duration_seconds: '', water_source_mode: 'EXTERNAL' };
       suggestion_idempotency_key.value = '';
       show_suggestion_flow.value = true;
-      if (kind === 'IRRIGATION' && (!irrigation_plan.value || irrigation_plan.value.plotId !== plotId)) {
-        load_irrigation_plan(plotId, { silent: true });
+      if (kind === 'IRRIGATION') {
+        if (!irrigation_plan.value || irrigation_plan.value.plotId !== plotId) {
+          load_irrigation_plan(plotId, { silent: true });
+        } else {
+          api.getIrrigationGuard(plotId).then((guard) => { irrigation_guard.value = guard; }).catch(() => { irrigation_guard.value = null; });
+        }
       }
     };
 
@@ -2979,10 +3451,6 @@ const app = createApp({
         if (!irrigation_plan.value || irrigation_plan.value.plotId !== active_suggestion.value.plotId) {
           await load_irrigation_plan(active_suggestion.value.plotId);
         }
-        if (suggestion_block_reason.value) {
-          show_toast(suggestion_block_reason.value, 'error');
-          return;
-        }
       }
       suggestion_confirm_checked.value = false;
       suggestion_flow_stage.value = 'CONFIRM';
@@ -3005,6 +3473,7 @@ const app = createApp({
               approvalRequired: false,
               confirmationMode: 'OPERATOR_CONFIRMED',
               idempotencyKey: key,
+              emergencyOverride: suggestion_emergency_mode.value,
               source: 'farmer-advice-direct',
               ...(is_live.value ? {} : { outcome: 'SUCCEEDED' })
             });
@@ -3046,6 +3515,9 @@ const app = createApp({
           show_toast('已确认下一步处理，请完成现场动作后填写结果');
         }
       } catch (error) {
+        const guard = error?.details?.guard || error?.payload?.guard || error?.payload?.error?.details?.guard;
+        if (guard) irrigation_guard.value = guard;
+        suggestion_confirm_checked.value = false;
         show_toast(error?.message || '确认操作失败，请稍后重试', 'error');
       } finally {
         suggestion_busy.value = false;
@@ -3397,6 +3869,10 @@ const app = createApp({
     const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
     const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
     const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
+    const assistant_action_button_label = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS' ? '确认应急补水' : '确认执行';
+    const assistant_action_hint = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS'
+      ? '这是受限应急补水：仅在严重干旱时使用，确认时会再次检查最新数据、设备健康和水量上限。'
+      : '写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。';
     const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
     const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
     const assistant_action_arguments = (proposal) => {
@@ -3453,12 +3929,13 @@ const app = createApp({
       }
       if (card.traceId) advice_trace.value = card.traceId;
       if (card.kind === 'IRRIGATION') {
-        navigate('advice');
-        open_suggestion('IRRIGATION', {
-          plotId: card.plotId,
-          traceId: card.traceId,
-          title: `${card.plotName || '当前地块'}补水建议`
-        });
+        // Keep the Agent loop inside the chat.  A recommendation is read-only;
+        // clicking its action button now sends an explicit execution request,
+        // which produces the inline preview/confirm card instead of opening
+        // the legacy four-step advice modal.
+        if (card.plotId) assistant_plot_id.value = card.plotId;
+        assistant_input.value = '执行当前地块灌溉';
+        await send_assistant_message();
         return;
       }
       if (card.kind === 'DIAGNOSIS') {
@@ -3916,24 +4393,52 @@ const app = createApp({
       if (farmer_enhancements_refresh_in_flight) return false;
       farmer_enhancements_refresh_in_flight = true;
       try {
-        const forecastPlot = plots.value.slice().sort((a, b) => health_score(a) - health_score(b))[0] || plots.value[0];
+        const forecastPlot = plots.value.slice().sort((a, b) => {
+          try { return health_score(a) - health_score(b); }
+          catch (error) { return 0; }
+        })[0] || plots.value[0];
         const forecastPromise = forecastPlot
           ? api.getRiskForecast(forecastPlot.plotId, 'SOIL_MOISTURE')
           : Promise.resolve({ status: 'UNAVAILABLE', reason: '没有可预测的地块' });
+        const demands = plots.value.map((plot) => {
+          let band = 'OK';
+          try { band = resolve_moisture_band_status(plot); }
+          catch (error) { band = 'OK'; }
+          return {
+            plotId: plot.plotId,
+            requestedLitres: band === 'ALERT' ? 153 : (band === 'WARN' ? 96 : 60),
+            priority: band === 'ALERT' ? 'HIGH' : (band === 'WARN' ? 'MEDIUM' : 'LOW'),
+            windowStart: '18:00',
+            windowEnd: '20:00'
+          };
+        });
         const resourcePromise = Promise.all([
           api.getWaterResourceProfile(farm.value.farmId || 'farm-demo'),
-          api.listResourcePlans({ farmId: farm.value.farmId || 'farm-demo' })
+          api.listResourcePlans({ farmId: farm.value.farmId || 'farm-demo' }),
+          api.evaluateResourcePlan({
+            scope: farm.value.farmId || 'farm-demo',
+            constraints: { waterCapacityLitres: MOCK_DATA.resourceProfile?.remainingLitres || 0 },
+            demands
+          }).catch(() => null)
         ]);
         const [forecastResult, resourceResult] = await Promise.allSettled([forecastPromise, resourcePromise]);
         risk_forecast.value = forecastResult.status === 'fulfilled'
           ? forecastResult.value
           : { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         if (resourceResult.status === 'fulfilled') {
-          const [waterProfile, plans] = resourceResult.value || [];
+          const [waterProfile, plans, evaluation] = resourceResult.value || [];
           const authoritative = (plans || []).find((plan) => ['CONFIRMED', 'RUNNING', 'COMPLETED', 'PARTIAL'].includes(String(plan.status || '').toUpperCase())) || (plans || []).find((plan) => plan.status === 'DRAFT');
-          resource_plan.value = authoritative ? { ...authoritative, waterProfile } : { allocations: [], waterProfile };
+          resource_plan.value = authoritative
+            ? { ...authoritative, waterProfile }
+            : evaluation
+              ? { ...evaluation, waterProfile, previewOnly: true }
+              : { allocations: [], waterProfile };
         } else resource_plan.value = null;
         return true;
+      } catch (error) {
+        risk_forecast.value = { status: 'UNAVAILABLE', reason: error?.message || '预测服务暂不可用' };
+        resource_plan.value = null;
+        return false;
       } finally {
         farmer_enhancements_refresh_in_flight = false;
       }
@@ -3982,37 +4487,33 @@ const app = createApp({
         } else {
           set_workspace_progress(55, '正在载入演示数据…');
         }
-        set_workspace_progress(88, '正在加载预警与资源协同…');
-        const enhancementResults = await Promise.allSettled([
-          with_bootstrap_timeout(() => load_farmer_enhancements()),
-          with_bootstrap_timeout(() => load_plot_simulation(selected_plot.value?.plotId)),
-          with_bootstrap_timeout(() => load_irrigation_plan(advice_plot.value?.plotId, { silent: true }))
-        ]);
-        if (enhancementResults.some((result) => result.status === 'rejected' || result.value === BOOTSTRAP_TIMEOUT)) {
-          if (!load_error.value) load_error.value = '部分预警、模拟或灌溉数据加载超时，已先显示已获取内容';
-        }
-
-        // View-specific data is hydrated after the shell becomes usable. It
-        // cannot strand the full-screen bootstrap overlay if an optional
-        // assistant/manual endpoint is unavailable.
-        const viewTasks = [];
+        // Forecast, simulation, irrigation and assistant panels are secondary
+        // data. Hydrate them after the shell is usable so a slow endpoint can
+        // never strand the full-screen bootstrap overlay.
+        set_workspace_progress(96, '正在完成首屏…');
+        const secondaryTasks = [
+          () => load_farmer_enhancements(),
+          () => load_plot_simulation(selected_plot.value?.plotId),
+          () => load_irrigation_plan(advice_plot.value?.plotId, { silent: true })
+        ];
         if (current_view.value === 'advice' && advice_plot.value?.plotId) {
-          viewTasks.push(() => load_advice_decision(advice_plot.value.plotId));
+          secondaryTasks.push(() => load_advice_decision(advice_plot.value.plotId));
         }
         if (current_view.value === 'tools') {
-          viewTasks.push(() => tools_tab.value === 'manual' ? load_crop_manual() : run_risk_tool());
+          secondaryTasks.push(() => tools_tab.value === 'manual'
+            ? load_crop_manual()
+            : load_plot_simulation(risk_tool_plot_id.value));
         }
         if (current_view.value === 'assistant') {
-          viewTasks.push(() => load_assistant_conversations({ openRecent: true }));
+          secondaryTasks.push(() => load_assistant_conversations({ openRecent: true }));
         }
-        if (viewTasks.length) {
-          void Promise.allSettled(viewTasks.map((task) => with_bootstrap_timeout(task))).then((results) => {
-            if (results.some((result) => result.status === 'rejected' || result.value === BOOTSTRAP_TIMEOUT) && !load_error.value) {
-              load_error.value = '当前页面的部分辅助数据暂不可用';
-            }
-          });
-        }
+        void Promise.allSettled(secondaryTasks.map((task) => with_bootstrap_timeout(task))).then((results) => {
+          if (results.some((result) => result.status === 'rejected' || result.value === BOOTSTRAP_TIMEOUT) && !load_error.value) {
+            load_error.value = '部分预警、模拟、灌溉或辅助数据暂不可用，工作台会继续自动刷新';
+          }
+        });
         start_live_polling();
+        start_plot_simulation_live();
       } catch (error) {
         // Optional enhancement/assistant calls must never strand the user
         // behind the bootstrap overlay. Core data that did load remains
@@ -4028,7 +4529,12 @@ const app = createApp({
     watch([current_view, tools_tab], () => {
       if (current_view.value !== 'tools') return;
       if (tools_tab.value === 'manual') load_crop_manual();
-      else if (risk_tool_dirty.value) void run_risk_tool();
+      else if (risk_tool_plot.value && risk_tool_plot.value.plotId !== selected_plot.value?.plotId) {
+        select_risk_tool_plot(risk_tool_plot.value.plotId);
+      } else if (!plot_simulation.value || plot_simulation.value.plotId !== risk_tool_plot.value?.plotId) {
+        void load_plot_simulation(risk_tool_plot.value?.plotId);
+      }
+      if (tools_tab.value === 'risk') void render_plot_simulation_chart();
     });
 
     watch([crop_manual_code, crop_manual_stage], () => {
@@ -4036,16 +4542,19 @@ const app = createApp({
       load_crop_manual();
     });
 
-    watch(selected_plot, (plot) => {
+    watch(selected_plot, (plot, previous) => {
+      risk_tool_plot_id.value = plot?.plotId || risk_tool_plot_id.value;
       plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
+      // 遥测轮询会整体替换 plots 数组，同一地块也会拿到新对象引用；
+      // 只有 plotId 真正变化时才重新加载模拟与预测，避免曲线容器被
+      // 反复销毁重建造成闪烁。
+      if (!plot?.plotId || plot.plotId === previous?.plotId) return;
       void load_plot_simulation(plot?.plotId);
     });
 
     watch(plots, (nextPlots) => {
       if (!nextPlots.some((plot) => plot.plotId === risk_tool_plot_id.value)) {
         risk_tool_plot_id.value = nextPlots[0]?.plotId || '';
-        risk_tool_comparison.value = null;
-        risk_tool_dirty.value = true;
       }
     }, { deep: true });
 
@@ -4057,6 +4566,7 @@ const app = createApp({
     });
 
     watch(current_view, (view) => {
+      if (view === 'tools' && tools_tab.value === 'risk') void render_plot_simulation_chart();
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
@@ -4066,6 +4576,9 @@ const app = createApp({
     onBeforeUnmount(() => {
       if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
       stop_live_polling();
+      stop_plot_simulation_live();
+      plot_simulation_chart_instance.value?.dispose();
+      plot_simulation_chart_instance.value = null;
       window.removeEventListener('hashchange', apply_farmer_hash);
       live_events_stop?.();
       live_events_stop = null;
@@ -4113,26 +4626,34 @@ const app = createApp({
       plot_simulation_error,
       plot_simulation_options,
       plot_simulation_scenario,
-      plot_simulation_parameter_summary,
+
       plot_simulation_device_label,
       plot_simulation_device_status,
-      plot_simulation_chart,
+      plot_simulation_chart_available,
+      plot_simulation_chart_el,
+      plot_simulation_metric,
+      plot_simulation_metric_options,
+      plot_simulation_metric_label,
+      plot_simulation_metric_loading,
+      plot_simulation_form,
+      plot_simulation_fields,
+      plot_simulation_evaluating,
+      plot_simulation_preview_dirty,
+      plot_simulation_preview_message,
+      plot_simulation_dual_track,
+      plot_simulation_dual_loading,
+      plot_simulation_dual_available,
+      plot_simulation_dual_summary,
+      show_dual_track,
+      toggle_dual_track,
+      select_plot_simulation_metric,
+      select_plot_simulation_scenario,
+      schedule_plot_simulation_preview,
+      reset_plot_simulation_preview,
       load_plot_simulation,
       risk_tool_plot_id,
       risk_tool_plot,
-      risk_tool_scenario,
-      risk_tool_parameters,
-      risk_tool_comparison,
-      risk_tool_loading,
-      risk_tool_error,
-      risk_tool_dirty,
-      risk_tool_scenario_options,
-      risk_tool_fields,
-      risk_tool_chart,
       select_risk_tool_plot,
-      select_risk_tool_scenario,
-      run_risk_tool,
-      reset_risk_tool,
       advice_plot,
       advice_selected_plot,
       select_advice_plot,
@@ -4172,6 +4693,8 @@ const app = createApp({
       suggestion_kind_label,
       suggestion_plot,
       suggestion_block_reason,
+      suggestion_emergency_notice,
+      suggestion_emergency_mode,
       suggestion_confirm_checked,
       suggestion_confirm_enabled,
       suggestion_result_form,
@@ -4243,6 +4766,8 @@ const app = createApp({
       assistant_action_tone,
       assistant_action_status_label,
       assistant_risk_label,
+      assistant_action_button_label,
+      assistant_action_hint,
       assistant_tool_label,
       assistant_source_label_for,
       assistant_action_arguments,

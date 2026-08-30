@@ -138,7 +138,7 @@ class AgriProperties {
     private boolean simulatorAutoStart = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
-    /** Shared JSON hand-off reloaded by the Python simulator while it runs. */
+    /** Shared JSON hand-off reloaded by the in-process simulation engine while it runs. */
     private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";
@@ -2968,6 +2968,10 @@ class AgriEngine {
             case "DEVICE_HEALTH" -> "检查设备心跳";
             case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
             case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            case "SOIL_MOISTURE" -> "土壤湿度数据";
+            case "GOOD_DATA_QUALITY" -> "合格数据质量";
+            case "QUALITY_REVIEW" -> "数据质量复核";
+            case "CONTROL_PERMISSION" -> "灌溉执行权限";
             default -> code;
         };
     }
@@ -3126,6 +3130,9 @@ class AgriEngine {
         // it for an automatic watering order.
         reviewOnly = reviewOnly || activeHeavyRain;
         Map<String, Object> cropContext = plotCropContext(plotId);
+        Map<String, Object> waterRule = cropPackCatalog.rule(cropContext, "WATER_DEFICIT");
+        double waterThreshold = Jsons.number(waterRule, "threshold", 20);
+        double emergencyThreshold = Math.max(1, Jsons.number(waterRule, "emergencyThreshold", Math.min(waterThreshold, waterThreshold * .5)));
         Map<String, Object> plan = new LinkedHashMap<>(); plan.put("planId", Jsons.id("plan")); plan.put("plotId", plotId); plan.put("diagnosisId", diagnosis.get("diagnosisId")); if (request.containsKey("traceId")) plan.put("traceId", request.get("traceId"));
         plan.put("cropPackVersion", cropContext.get("cropPackVersion")); plan.put("ruleVersion", cropContext.get("ruleVersion"));
         plan.put("knowledgeVersion", cropContext.get("knowledgeVersion")); plan.put("agentVersion", cropContext.get("agentVersion"));
@@ -3149,14 +3156,29 @@ class AgriEngine {
         if (reviewOnly && "READY".equals(readinessStatus)) readinessStatus = "HUMAN_REVIEW";
         double currentMoisture = Jsons.number(soil, "value", 18);
         boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
+        boolean emergencyEligible = !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
+                && duration > 0 && currentMoisture <= emergencyThreshold;
         String why = hardDataBlock
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
                 : activeHeavyRain
                     ? "当前地块处于暴雨模拟场景，先观察积水和排水状态"
                 : reviewOnly
                     ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
-                    : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+                : emergencyEligible ? "当前土壤湿度已低于应急阈值，可在确认后发起受限应急补水"
+                : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
+        Map<String, Object> emergency = new LinkedHashMap<>();
+        emergency.put("eligible", emergencyEligible);
+        emergency.put("threshold", emergencyThreshold);
+        emergency.put("currentMoisture", currentMoisture);
+        emergency.put("mode", "CONTROLLED_COOLDOWN_BYPASS");
+        emergency.put("note", emergencyEligible
+                ? "仅用于严重干旱；确认时仍会重新检查数据、设备、资源和权限"
+                : hardDataBlock ? "数据质量或设备状态不足，不能发起应急补水"
+                : reviewOnly ? "需要人工复核或补证后才能判断是否应急"
+                : "当前湿度未达到应急阈值");
+        plan.put("emergency", emergency);
+        plan.put("emergencyEligible", emergencyEligible);
         boolean executable = !hardDataBlock && !reviewOnly && !noWaterNeeded && "READY".equals(readinessStatus) && duration > 0;
         plan.put("readinessId", readinessResult.get("readinessId"));
         plan.put("requiresApproval", false); plan.put("requiresAdminApproval", false); plan.put("confirmationRequired", true); plan.put("executionMode", "OPERATOR_CONFIRMED");
@@ -3171,6 +3193,7 @@ class AgriEngine {
         Map<String, Object> context = plotCropContext(plotId);
         Map<String, Object> rule = cropPackCatalog.rule(context, "WATER_DEFICIT");
         double threshold = Jsons.number(rule, "threshold", 20);
+        double emergencyThreshold = Math.max(1, Jsons.number(rule, "emergencyThreshold", Math.min(threshold, threshold * .5)));
         double hysteresis = Math.max(0, Jsons.number(rule, "hysteresis", 2));
         int cooldownMinutes = (int) Math.max(1, Jsons.whole(rule, "cooldownMinutes", 120));
         Map<String, Object> soil = latestMetrics(plotId).get("SOIL_MOISTURE") instanceof Map<?, ?> metric
@@ -3183,14 +3206,21 @@ class AgriEngine {
 
         Map<String, Object> lastCommand = store.list("command").stream()
                 .filter(command -> plotId.equals(Jsons.text(command, "plotId", "")))
-                .filter(command -> Set.of("SUCCEEDED", "PARTIAL").contains(Jsons.text(command, "status", "").toUpperCase(Locale.ROOT)))
+                .filter(command -> "IRRIGATION_START".equals(Jsons.text(command, "type", "")))
+                .filter(command -> Set.of("SUCCEEDED", "PARTIAL", "CONFIRMED", "APPROVED", "EXECUTING").contains(Jsons.text(command, "status", "").toUpperCase(Locale.ROOT)))
                 .max(Comparator.comparing(command -> Jsons.instant(
                         Jsons.map(mapper, command.get("ack")).get("receivedAt"),
                         Jsons.instant(command.get("cooldownStartedAt"), Jsons.instant(command.get("approvedAt"), Instant.EPOCH)))))
                 .map(command -> Jsons.copy(mapper, command)).orElse(null);
-        Instant startedAt = lastCommand == null ? null : Jsons.instant(
+        Instant persistedStartedAt = lastCommand == null ? null : Jsons.instant(
                 Jsons.map(mapper, lastCommand.get("ack")).get("receivedAt"),
                 Jsons.instant(lastCommand.get("cooldownStartedAt"), Jsons.instant(lastCommand.get("approvedAt"), null)));
+        // Keep an in-flight command protected before its asynchronous ACK is
+        // written.  Otherwise two quick confirmations could both pass the
+        // persisted-command query and create duplicate irrigation commands.
+        Instant memoryStartedAt = cooldowns.get(plotId);
+        Instant startedAt = persistedStartedAt;
+        if (memoryStartedAt != null && (startedAt == null || memoryStartedAt.isAfter(startedAt))) startedAt = memoryStartedAt;
         Instant cooldownUntil = startedAt == null ? null : startedAt.plus(cooldownMinutes, ChronoUnit.MINUTES);
         long remainingSeconds = cooldownUntil == null ? 0 : Math.max(0, Duration.between(Instant.now(), cooldownUntil).getSeconds());
 
@@ -3203,6 +3233,13 @@ class AgriEngine {
         result.put("remainingSeconds", remainingSeconds);
         result.put("lastCommandId", lastCommand == null ? null : lastCommand.get("commandId"));
         result.put("lastOutcome", lastCommand == null ? null : lastCommand.get("status"));
+        Map<String, Object> emergency = new LinkedHashMap<>();
+        emergency.put("threshold", emergencyThreshold);
+        emergency.put("currentMoisture", Double.isNaN(moisture) ? null : moisture);
+        emergency.put("eligibleByMoisture", !Double.isNaN(moisture) && moisture <= emergencyThreshold);
+        emergency.put("mode", "CONTROLLED_COOLDOWN_BYPASS");
+        emergency.put("note", "应急补水仍需通过最新数据、设备健康、资源上限和当前操作人确认");
+        result.put("emergency", emergency);
         Map<String, Object> hysteresisView = new LinkedHashMap<>();
         hysteresisView.put("state", hysteresisState);
         hysteresisView.put("threshold", threshold);
@@ -3274,7 +3311,13 @@ class AgriEngine {
         // require both the frozen plan and a fresh safety-gate evaluation to be
         // READY; a stale READY flag may never bypass a current block.
         if (!"READY".equals(Jsons.text(plan, "readinessStatus", "")) || !"READY".equals(Jsons.text(readiness, "status", ""))) {
-            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "READINESS_BLOCKED", "决策就绪度未通过，不能下发命令").withDetails(Map.of("readiness", readiness, "plan", plan));
+            List<String> missing = Jsons.strings(readiness.get("missingEvidence"));
+            String missingText = missing.stream().map(this::diagnosisEvidenceLabel).limit(4).collect(Collectors.joining("、"));
+            String message = missingText.isBlank()
+                    ? "当前数据或设备状态未满足灌溉执行条件"
+                    : "还缺少：" + missingText;
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "READINESS_BLOCKED", message)
+                    .withDetails(Map.of("readiness", readiness, "plan", plan));
         }
         long duration = Jsons.whole(plan, "durationSeconds", Jsons.whole(request, "durationSeconds", 0));
         if (duration <= 0 || duration > properties.getMaxIrrigationSeconds()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SAFETY_LIMIT", "灌溉时长超出安全上限");
@@ -3286,8 +3329,24 @@ class AgriEngine {
                 .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")) && !Set.of("FAILED", "TIMEOUT", "CANCELLED").contains(Jsons.text(c, "status", "")))
                 .mapToDouble(c -> Jsons.number(c, "waterLitre", 0)).sum();
         if (alreadyAllocated + requestedWater > capacity) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_CAPACITY", "水源容量不足");
-        Instant lastAction = cooldowns.get(plotId);
-        if (lastAction != null && Duration.between(lastAction, Instant.now()).toMinutes() < 120) throw new ApiException(HttpStatus.CONFLICT, "COOLDOWN_ACTIVE", "地块仍处于灌溉冷却窗口");
+        boolean requestedEmergencyOverride = Jsons.bool(request, "emergencyOverride", Jsons.bool(request, "emergency", false));
+        Map<String, Object> guard = irrigationGuard(plotId, principal);
+        Map<String, Object> emergency = Jsons.map(mapper, plan.get("emergency"));
+        boolean emergencyEligible = Jsons.bool(emergency, "eligible", false)
+                && Jsons.bool(Jsons.map(mapper, guard.get("emergency")), "eligibleByMoisture", false)
+                && "READY".equals(Jsons.text(readiness, "status", ""));
+        long remainingSeconds = Jsons.whole(guard, "remainingSeconds", 0);
+        if (requestedEmergencyOverride && !emergencyEligible) {
+            throw new ApiException(HttpStatus.CONFLICT, "EMERGENCY_NOT_ELIGIBLE", "当前数据未达到应急补水条件，不能绕过普通冷却保护")
+                    .withDetails(Map.of("guard", guard, "readiness", readiness, "plan", plan));
+        }
+        boolean emergencyOverride = requestedEmergencyOverride && remainingSeconds > 0;
+        if (remainingSeconds > 0 && !emergencyOverride) {
+            long remainingMinutes = Math.max(1, (remainingSeconds + 59) / 60);
+            throw new ApiException(HttpStatus.CONFLICT, "COOLDOWN_ACTIVE",
+                    "该地块刚完成灌溉，防重复保护还剩约 " + remainingMinutes + " 分钟")
+                    .withDetails(Map.of("guard", guard, "emergency", emergency));
+        }
         Map<String, Object> plotRecord = requireRecord("plot", plotId);
         Map<String, Object> command = new LinkedHashMap<>(); command.put("commandId", Jsons.id("cmd")); command.put("plotId", plotId); command.put("planId", plan.get("planId"));
         command.put("farmId", Jsons.text(plotRecord, "farmId", "farm-demo"));
@@ -3295,7 +3354,9 @@ class AgriEngine {
         command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", Jsons.number(plan, "waterLitre", 0));
         command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
         command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false);
-        command.put("confirmationMode", "OPERATOR_CONFIRMED"); command.put("riskLevel", "MEDIUM"); command.put("source", Jsons.text(request, "source", "api"));
+        command.put("confirmationMode", "OPERATOR_CONFIRMED"); command.put("riskLevel", emergencyOverride ? "HIGH" : "MEDIUM");
+        command.put("emergencyMode", emergencyOverride ? "CONTROLLED_COOLDOWN_BYPASS" : "NORMAL");
+        command.put("cooldownMinutes", Jsons.whole(guard, "cooldownMinutes", 120)); command.put("source", Jsons.text(request, "source", "api"));
         String agentActionId = Jsons.text(request, "agentActionId", "").trim();
         if (!agentActionId.isBlank()) command.put("agentActionId", agentActionId);
         String workOrderId = Jsons.text(request, "workOrderId", "").trim();
@@ -5214,12 +5275,29 @@ class AgriEngine {
             Map<String, Object> plan = irrigationPlan(Map.of("plotId", resolvedPlotId, "traceId", traceId), principal);
             String readinessStatus = Jsons.text(plan, "readinessStatus", "HUMAN_REVIEW");
             if (!Jsons.bool(plan, "executable", false) || !"READY".equals(readinessStatus)) {
+                Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", ""), principal);
+                List<String> missing = Jsons.strings(readiness.get("missingEvidence"));
+                String missingText = missing.stream().map(this::diagnosisEvidenceLabel).limit(4).collect(Collectors.joining("、"));
                 String reason = Jsons.text(plan, "why", "数据质量、安全门或设备状态未通过");
-                return Map.of("status", "NEEDS_EVIDENCE", "clarification", "暂不能生成灌溉执行卡：" + reason + "。请先完成巡田、复测或设备检查，再重新生成处方。");
+                String next = missingText.isBlank() ? reason : "还缺少：" + missingText;
+                return Map.of("status", "NEEDS_EVIDENCE", "clarification", "暂不能生成灌溉执行卡：" + next + "。请先完成对应检查，再重新生成处方。", "readiness", readiness);
+            }
+            Map<String, Object> guard = irrigationGuard(resolvedPlotId, principal);
+            Map<String, Object> emergency = Jsons.map(mapper, plan.get("emergency"));
+            boolean emergencyOverride = Jsons.whole(guard, "remainingSeconds", 0) > 0
+                    && Jsons.bool(emergency, "eligible", false)
+                    && Jsons.bool(Jsons.map(mapper, guard.get("emergency")), "eligibleByMoisture", false);
+            if (Jsons.whole(guard, "remainingSeconds", 0) > 0 && !emergencyOverride) {
+                long remainingMinutes = Math.max(1, (Jsons.whole(guard, "remainingSeconds", 0) + 59) / 60);
+                return Map.of("status", "COOLDOWN_ACTIVE", "clarification", "该地块刚完成灌溉，防重复保护还剩约 " + remainingMinutes + " 分钟；当前湿度未达到应急补水阈值。", "guard", guard);
             }
             Map<String, Object> args = new LinkedHashMap<>(); args.put("plotId", resolvedPlotId); args.put("planId", Jsons.text(plan, "planId", ""));
             args.put("waterLitre", plan.get("waterLitre")); args.put("durationSeconds", plan.get("durationSeconds"));
-            return createAgentActionProposal("execute_virtual_irrigation", args, "对 " + resolvedPlotId + " 执行虚拟灌溉约 " + Jsons.number(plan, "waterLitre", 0) + " L", traceId, principal, resolvedPlotId, List.of("irrigation", "plots", "messages"));
+            args.put("emergencyOverride", emergencyOverride);
+            String summary = emergencyOverride
+                    ? "对 " + resolvedPlotId + " 发起受限应急虚拟补水约 " + Jsons.number(plan, "waterLitre", 0) + " L"
+                    : "对 " + resolvedPlotId + " 执行虚拟灌溉约 " + Jsons.number(plan, "waterLitre", 0) + " L";
+            return createAgentActionProposal("execute_virtual_irrigation", args, summary, traceId, principal, resolvedPlotId, List.of("irrigation", "plots", "messages"));
         }
         return null;
     }
@@ -5350,6 +5428,9 @@ class AgriEngine {
         action.put("actorRole", principal.role);
         action.put("riskLevel", "execute_virtual_irrigation".equals(tool) ? "HIGH" : "transition_assigned_work_order".equals(tool) ? "MEDIUM" : "LOW");
         action.put("sourceMode", "execute_virtual_irrigation".equals(tool) ? "SIMULATED" : Set.of("create_inspection_record", "create_evidence_request", "transition_assigned_work_order").contains(tool) ? "USER_PROVIDED" : "DERIVED");
+        if ("execute_virtual_irrigation".equals(tool)) {
+            action.put("executionMode", Jsons.bool(args, "emergencyOverride", false) ? "EMERGENCY_COOLDOWN_BYPASS" : "NORMAL");
+        }
         action.put("argumentSummary", agentActionArgumentSummary(tool, args, plotId));
         action.put("affectedDomains", domains); action.put("status", "AWAITING_CONFIRMATION"); action.put("createdAt", now.toString());
         action.put("expiresAt", now.plus(AGENT_ACTION_TTL).toString()); action.put("traceId", traceId);
@@ -5360,7 +5441,8 @@ class AgriEngine {
     private String agentActionArgumentSummary(String tool, Map<String, Object> args, String plotId) {
         String plot = plotId.isBlank() ? "当前范围" : plotId;
         return switch (tool) {
-            case "execute_virtual_irrigation" -> plot + " · " + Jsons.number(args, "waterLitre", 0) + " L · " + Jsons.whole(args, "durationSeconds", 0) / 60.0 + " 分钟";
+            case "execute_virtual_irrigation" -> (Jsons.bool(args, "emergencyOverride", false) ? "应急补水 · " : "")
+                    + plot + " · " + Jsons.number(args, "waterLitre", 0) + " L · " + Jsons.whole(args, "durationSeconds", 0) / 60.0 + " 分钟";
             case "create_inspection_record" -> plot + " · " + Jsons.text(args, "notes", "现场说明");
             case "transition_assigned_work_order" -> Jsons.text(args, "workOrderId", "本人任务") + " · " + Jsons.text(args, "action", "更新状态");
             case "create_evidence_request" -> plot + " · " + Jsons.text(args, "evidenceType", "现场巡田");
@@ -5540,13 +5622,13 @@ class AgriEngine {
             answer.put("intent", "CAPABILITY_QUERY");
             answer.put("summary", "已读取农智助手能力范围");
             answer.put("result", Map.of(
-                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "基于证据的诊断解释", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总"),
+                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "基于证据的诊断解释", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总", "在权限范围内准备并执行受控农事操作"),
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
                     "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过权限、安全门和确认执行命令")));
             // Capability questions are a stable contract, not a generative task.
             // Answering them locally avoids a needless 27B round trip and keeps
             // the product boundary concise even when an LLM is enabled.
-            answer.put("narrative", "我可以查询地块状态、诊断并解释异常证据、做 1/2/4 小时风险预测、试算灌溉处方并汇总今日农务。实时事实来自规则、数据库和检索知识；执行控制必须经过权限、安全门和人工确认。");
+            answer.put("narrative", "我可以查询地块状态、诊断并解释异常证据、做 1/2/4 小时风险预测、试算灌溉处方、汇总今日农务，并在你的权限范围内准备受控操作。实时事实来自规则、数据库和检索知识；执行控制会先展示参数预览，再经过权限、安全门和人工确认。");
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
@@ -6302,7 +6384,8 @@ class AgriEngine {
         if (scenarioId.isBlank()) scenarioId = scenario.toLowerCase(Locale.ROOT) + "-" + seed;
         Map<String, Object> plot = requireRecord("plot", plotId);
         String facilityType = PlotFacility.forPlot(plot);
-        Map<String, Object> latestMetric = Jsons.map(mapper, latestMetrics(plotId).get("SOIL_MOISTURE"));
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> latestMetric = Jsons.map(mapper, latest.get("SOIL_MOISTURE"));
         double startMoisture = Jsons.number(latestMetric, "value", baselineMetricValue(plotId, "SOIL_MOISTURE"));
         Map<String, Object> parameters = simulationDefaults(scenario, plotId);
         Map<String, Object> suppliedParameters = Jsons.map(mapper, input.get("parameters"));
@@ -6319,7 +6402,6 @@ class AgriEngine {
         }
         Random random = new Random(seed);
         double volatility = Jsons.number(parameters, "volatility", 1.0);
-        double jumpBoost = (11.8 + random.nextDouble() * 2.8) * volatility;
         double rainBoost = ("HEAVY_RAIN".equals(scenario) ? Jsons.number(parameters, "rainfallRate", 4.0) : 0.0) * (0.8 + random.nextDouble() * 0.4);
         double driftRate = Jsons.number(parameters, "driftRatePerHour", 0.08) * (0.9 + random.nextDouble() * 0.2);
         double decayK = 0.03 + random.nextDouble() * 0.012;
@@ -6335,11 +6417,36 @@ class AgriEngine {
         double boundary = "HEAVY_RAIN".equals(scenario)
                 ? Jsons.number(parameters, "waterloggingThreshold", 82)
                 : Jsons.number(parameters, "riskThreshold", 20);
-        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
-        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
+        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, forecastMinutes, null);
+        // 真实化执行分支：不再用随机跳跃模拟“措施后”，而是按地块面积、水泵流量、
+        // 作物阶段目标湿度与水箱余量推导一次真实灌溉——需要多少水、泵最多送多少、
+        // 水箱还剩多少；缺水时只能补到实际可用的量。
+        double areaM2 = Math.max(1, Jsons.number(plot, "areaM2", DEFAULT_PLOT_AREA_M2));
+        double irrigationTarget = cropPackCatalog.irrigationTarget(plotCropContext(plotId));
+        Map<String, Object> resource = store.find("resource-profile", "resource-default");
+        double flowLitresPerMinute = Math.max(1, Jsons.number(resource, "flowRateLitresPerMinute", 18));
+        Map<String, Object> waterLevelMetric = Jsons.map(mapper, latest.get("WATER_LEVEL"));
+        double reservoirLevelPercent = Jsons.number(waterLevelMetric, "value", 100);
+        double reservoirAvailableLitres = Math.max(0, reservoirLevelPercent) / 100.0 * DEFAULT_RESERVOIR_LITRES;
+        Map<String, Object> intervention = scenarioInterventionPlan(scenario, noActionPoints, parameters, areaM2,
+                irrigationTarget, flowLitresPerMinute, reservoirLevelPercent, reservoirAvailableLitres, volatility, random);
+        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, forecastMinutes, intervention);
         Map<String, Object> branches = new LinkedHashMap<>();
-        branches.put("NO_ACTION", scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator));
-        branches.put("EXECUTE", scenarioBranchPayload("EXECUTE", executePoints, boundary, operator));
+        Map<String, Object> noActionPayload = scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator);
+        Map<String, Object> executePayload = scenarioBranchPayload("EXECUTE", executePoints, boundary, operator);
+        branches.put("NO_ACTION", noActionPayload);
+        branches.put("EXECUTE", executePayload);
+        // 双轨差异指标：时点湿度差与风险推迟时长，供前端摘要直接引用。
+        Map<String, Object> divergence = new LinkedHashMap<>();
+        double executeFinal = Jsons.number(executePoints.get(executePoints.size() - 1), "value", 0);
+        double noActionFinal = Jsons.number(noActionPoints.get(noActionPoints.size() - 1), "value", 0);
+        divergence.put("moistureDeltaAtHorizon", round(executeFinal - noActionFinal));
+        Integer executeRisk = (Integer) executePayload.get("timeToRiskMinutes");
+        Integer noActionRisk = (Integer) noActionPayload.get("timeToRiskMinutes");
+        if (noActionRisk != null) {
+            divergence.put("riskDelayMinutes", executeRisk == null ? forecastMinutes - noActionRisk : executeRisk - noActionRisk);
+            divergence.put("riskAvoidedWithinWindow", executeRisk == null);
+        }
         Map<String, Object> frozenSnapshot = new LinkedHashMap<>();
         frozenSnapshot.put("plotId", plotId);
         frozenSnapshot.put("plotName", Jsons.text(plot, "name", plotId));
@@ -6363,21 +6470,23 @@ class AgriEngine {
         result.put("parameters", parameters);
         result.put("frozenSnapshot", frozenSnapshot);
         result.put("stressBoundary", boundary);
+        result.put("intervention", intervention);
+        result.put("divergence", divergence);
         result.put("readOnly", true);
-        result.put("comparisonVersion", "branch-compare-v4");
-        result.put("note", "双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态");
+        result.put("comparisonVersion", "branch-compare-v5");
+        result.put("note", "双轨使用同一冻结快照与随机种子；执行分支按地块面积、水泵流量、作物目标湿度与水箱余量推导真实灌溉，结果只读，不写回主状态");
         result.put("provenance", "SIMULATED");
         return result;
     }
 
     private List<Map<String, Object>> buildScenarioBranchPoints(String scenario, double startMoisture, boolean execute,
                                                                   double droughtTrend, double rainPeak, double driftRate,
-                                                                  double decayK, double jumpBoost, int horizonMinutes) {
+                                                                  double decayK, int horizonMinutes, Map<String, Object> intervention) {
         List<Map<String, Object>> points = new ArrayList<>();
         for (int index = 0; index * 5 <= horizonMinutes; index++) {
             int minute = index * 5;
             double hours = minute / 60.0;
-            double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+            double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, intervention);
             Map<String, Object> point = new LinkedHashMap<>();
             point.put("minute", minute);
             point.put("value", round(value));
@@ -6387,7 +6496,8 @@ class AgriEngine {
     }
 
     private double scenarioMoistureAtMinute(String scenario, int minute, double hours, double startMoisture, boolean execute,
-                                            double droughtTrend, double rainPeak, double driftRate, double decayK, double jumpBoost) {
+                                            double droughtTrend, double rainPeak, double driftRate, double decayK,
+                                            Map<String, Object> intervention) {
         double value;
         if ("HEAVY_RAIN".equals(scenario)) {
             double wetting = minute <= 45
@@ -6411,17 +6521,101 @@ class AgriEngine {
             }
         } else if ("DROUGHT".equals(scenario)) {
             value = startMoisture + droughtTrend * hours;
-            if (execute && minute >= 30) {
-                double atExec = startMoisture + droughtTrend * 0.5;
-                value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (minute - 30)));
-            }
+            if (execute) value = irrigationAdjustedValue(value, intervention, minute, droughtTrend / 60.0);
         } else {
             double natural = Math.max(0, startMoisture - minute * 0.025);
-            value = execute && minute >= 30
-                    ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (minute - 30)))
-                    : natural;
+            value = execute ? irrigationAdjustedValue(natural, intervention, minute, -0.025) : natural;
         }
         return clamp(value, 0, 100);
+    }
+
+    /**
+     * 灌溉干预下的曲线：干预前与不干预完全一致；灌溉时长内水位线性爬升到补水后
+     * 水位，灌溉结束后恢复自然失水——浇过一次水并不能让土壤停止蒸发。
+     */
+    private double irrigationAdjustedValue(double naturalValue, Map<String, Object> intervention, int minute, double trendPerMinute) {
+        if (intervention == null || !"PLANNED".equals(intervention.get("status"))
+                || !"IRRIGATION".equals(intervention.get("measure"))) {
+            return naturalValue;
+        }
+        int triggerMinute = (int) Jsons.whole(intervention, "triggerMinute", 0);
+        if (minute <= triggerMinute) return naturalValue;
+        double moistureAtTrigger = Jsons.number(intervention, "moistureAtTrigger", naturalValue);
+        double gain = Jsons.number(intervention, "moistureGain", 0);
+        int durationMinutes = (int) Math.max(1, Jsons.whole(intervention, "durationMinutes", 1));
+        if (minute <= triggerMinute + durationMinutes) {
+            double progress = (minute - triggerMinute) / (double) durationMinutes;
+            return moistureAtTrigger + gain * progress;
+        }
+        return moistureAtTrigger + gain + trendPerMinute * (minute - triggerMinute - durationMinutes);
+    }
+
+    /**
+     * 干旱/常景下的干预计划：以“不干预曲线预计跌破干旱阈值 + 3 个百分点预警线”
+     * 为触发时点（再叠加人工确认与开泵的响应延迟），按作物阶段目标湿度算出
+     * 需水量，依次受水泵流量上限与水箱余量约束；预测窗口内无风险则不安排灌溉。
+     */
+    private Map<String, Object> scenarioInterventionPlan(String scenario, List<Map<String, Object>> noActionPoints,
+                                                         Map<String, Object> parameters, double areaM2, double irrigationTarget,
+                                                         double flowLitresPerMinute, double reservoirLevelPercent,
+                                                         double reservoirAvailableLitres, double volatility, Random random) {
+        Map<String, Object> plan = new LinkedHashMap<>();
+        plan.put("reservoirLevelPercent", round(reservoirLevelPercent));
+        plan.put("reservoirAvailableLitres", round(reservoirAvailableLitres));
+        plan.put("pumpFlowLitresPerMinute", flowLitresPerMinute);
+        plan.put("irrigationTargetMoisture", round(irrigationTarget));
+        if ("HEAVY_RAIN".equals(scenario)) {
+            plan.put("measure", "DRAINAGE");
+            plan.put("status", "PLANNED");
+            plan.put("triggerMinute", 0);
+            plan.put("triggerReason", "暴雨来临即启动排水，削峰并加快退水");
+            return plan;
+        }
+        if ("SENSOR_DRIFT".equals(scenario)) {
+            plan.put("measure", "SENSOR_RECALIBRATION");
+            plan.put("status", "PLANNED");
+            plan.put("triggerMinute", 30);
+            plan.put("triggerReason", "读数漂移 30 分钟后安排复测校准");
+            return plan;
+        }
+        plan.put("measure", "IRRIGATION");
+        double earlyWarning = Jsons.number(parameters, "riskThreshold", 20) + 3;
+        int horizonMinutes = noActionPoints.isEmpty() ? 0 : (int) Jsons.whole(noActionPoints.get(noActionPoints.size() - 1), "minute", 0);
+        Map<String, Object> crossPoint = noActionPoints.stream()
+                .filter(point -> Jsons.number(point, "value", 0) <= earlyWarning)
+                .findFirst().orElse(null);
+        if (crossPoint == null) {
+            plan.put("status", "NO_RISK_IN_WINDOW");
+            plan.put("triggerReason", "预测窗口内不会跌破干旱预警线，无需灌溉");
+            return plan;
+        }
+        int responseDelayMinutes = 15;
+        int triggerMinute = (int) Math.min(horizonMinutes, Jsons.whole(crossPoint, "minute", 0) + responseDelayMinutes);
+        final int trigger = triggerMinute;
+        Map<String, Object> triggerPoint = noActionPoints.stream()
+                .filter(point -> Jsons.whole(point, "minute", 0) == trigger)
+                .findFirst().orElse(crossPoint);
+        double moistureAtTrigger = Jsons.number(triggerPoint, "value", 0);
+        double neededLitres = Math.max(0, (irrigationTarget - moistureAtTrigger) * areaM2 * SOIL_WATER_LITRES_PER_POINT_PER_M2);
+        double pumpCapLitres = flowLitresPerMinute * properties.getMaxIrrigationSeconds() / 60.0;
+        double plannedLitres = Math.min(neededLitres, pumpCapLitres);
+        boolean reservoirSufficient = reservoirAvailableLitres + 0.5 >= plannedLitres;
+        double deliveredLitres = Math.min(plannedLitres, reservoirAvailableLitres);
+        // 泵送损耗随波动强度浮动并限制在 85%~100%，同一随机种子结果仍可复现。
+        double deliveryEfficiency = Math.min(1.0, Math.max(0.85, 0.94 + (random.nextDouble() - 0.5) * 0.08 * volatility));
+        double moistureGain = moistureDeltaFromWater(deliveredLitres, areaM2) * deliveryEfficiency;
+        plan.put("status", "PLANNED");
+        plan.put("triggerMinute", triggerMinute);
+        plan.put("triggerReason", "不干预曲线预计跌破干旱预警线（阈值+3 个百分点），触发补水");
+        plan.put("responseDelayMinutes", responseDelayMinutes);
+        plan.put("durationMinutes", (int) Math.max(1, Math.round(deliveredLitres / Math.max(1, flowLitresPerMinute))));
+        plan.put("neededWaterLitre", round(neededLitres));
+        plan.put("waterLitre", round(deliveredLitres));
+        plan.put("reservoirSufficient", reservoirSufficient);
+        plan.put("moistureAtTrigger", round(moistureAtTrigger));
+        plan.put("moistureGain", round(moistureGain));
+        plan.put("moistureAfterIrrigation", round(Math.min(100, moistureAtTrigger + moistureGain)));
+        return plan;
     }
 
     private Map<String, Object> scenarioBranchPayload(String branchId, List<Map<String, Object>> points, double boundary, String operator) {

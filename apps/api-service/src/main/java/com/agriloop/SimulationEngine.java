@@ -32,8 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * In-process telemetry simulator.  Physical dynamics match {@code simulator/runner.py};
- * live samples are ingested directly and never published to MQTT.
+ * In-process telemetry simulator. Live samples are ingested directly and never published to MQTT.
  */
 @Component
 class SimulationEngine {

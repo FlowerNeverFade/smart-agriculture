@@ -264,6 +264,62 @@ class AgriApplicationTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void dualTrackCompareDerivesRealIrrigationFromPlotResources() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-dual-" + suffix;
+        String deviceId = "mock-" + plotId;
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "双轨现实性测试田",
+                "cropCode", "tomato", "stageCode", "vegetative", "areaM2", 80)));
+        Instant now = Instant.now();
+        engine.ingest(Map.ofEntries(Map.entry("eventId", "dual-soil-" + suffix), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 30.0), Map.entry("unit", "%"), Map.entry("ts", now.toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "drought"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .99))));
+        engine.ingest(Map.ofEntries(Map.entry("eventId", "dual-water-" + suffix), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "WATER_LEVEL"),
+                Map.entry("value", 5.0), Map.entry("unit", "%"), Map.entry("ts", now.plusMillis(1).toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "drought"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .99))));
+        UserPrincipal farmer = new UserPrincipal("farmer-dual-" + suffix, "farmer", "FARMER",
+                List.of("farm-demo"), List.of(plotId));
+
+        Map<String, Object> compare = engine.compareScenario(Map.of(
+                "plotId", plotId, "scenario", "DROUGHT", "seed", 7,
+                "parameters", Map.of("soilMoistureTrendPerHour", -3.0, "riskThreshold", 20.0, "forecastHours", 4.0)), farmer);
+        assertThat(compare).containsEntry("comparisonVersion", "branch-compare-v5");
+
+        Map<String, Object> intervention = Jsons.map(new ObjectMapper(), compare.get("intervention"));
+        assertThat(intervention).containsEntry("measure", "IRRIGATION").containsEntry("status", "PLANNED");
+        // 水箱只剩 5%（约 45 升）：干预只能按实际余量补水，并明确标记水箱不足。
+        assertThat(Jsons.number(intervention, "reservoirAvailableLitres", 0)).isCloseTo(45.0, org.assertj.core.data.Offset.offset(0.5));
+        assertThat((Boolean) intervention.get("reservoirSufficient")).isFalse();
+        assertThat(Jsons.number(intervention, "waterLitre", 0)).isLessThanOrEqualTo(45.0);
+        assertThat(Jsons.number(intervention, "waterLitre", 0)).isGreaterThan(0);
+        // 触发时点：起点已低于预警线，至少要留出人工确认与开泵的响应延迟。
+        assertThat(Jsons.whole(intervention, "triggerMinute", -1)).isGreaterThanOrEqualTo(15);
+
+        Map<String, Object> branches = Jsons.map(new ObjectMapper(), compare.get("branches"));
+        List<Map<String, Object>> executePoints = (List<Map<String, Object>>) Jsons.map(new ObjectMapper(), branches.get("EXECUTE")).get("points");
+        List<Map<String, Object>> noActionPoints = (List<Map<String, Object>>) Jsons.map(new ObjectMapper(), branches.get("NO_ACTION")).get("points");
+        // 措施后曲线：补水后明显抬升，且灌溉结束后恢复自然失水（终点低于峰值）。
+        double executePeak = executePoints.stream().mapToDouble(p -> Jsons.number(p, "value", 0)).max().orElse(0);
+        double executeFinal = Jsons.number(executePoints.get(executePoints.size() - 1), "value", 0);
+        double noActionFinal = Jsons.number(noActionPoints.get(noActionPoints.size() - 1), "value", 0);
+        assertThat(executePeak).isGreaterThan(24.0);
+        assertThat(executeFinal).isLessThan(executePeak);
+        assertThat(executeFinal).isGreaterThan(noActionFinal);
+
+        Map<String, Object> divergence = Jsons.map(new ObjectMapper(), compare.get("divergence"));
+        assertThat(Jsons.number(divergence, "moistureDeltaAtHorizon", 0)).isGreaterThan(0);
+        // 不干预分支会在窗口内跌破阈值，措施后分支全程避开风险。
+        assertThat((Boolean) divergence.get("riskAvoidedWithinWindow")).isTrue();
+        assertThat(Jsons.whole(divergence, "riskDelayMinutes", 0)).isGreaterThan(0);
+    }
+
+    @Test
     void diagnosisExplanationKeepsRuleFactsAndLeavesAuditableFallback() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("scenarioId", "normal", "traceId", "test-diagnosis-explanation"));
@@ -972,6 +1028,41 @@ class AgriApplicationTest {
     }
 
     @Test
+    void severeDroughtCanUseControlledCooldownBypassAfterConfirmation() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-emergency-irrigation-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-emergency-" + suffix, "farmer-emergency-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "应急补水测试田", "cropCode", "tomato", "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
+        engine.ingest(Map.of("eventId", "emergency-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 4.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+
+        Map<String, Object> firstPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-" + suffix), farmer);
+        assertThat(firstPlan).containsEntry("readinessStatus", "READY").containsEntry("emergencyEligible", true);
+        Map<String, Object> first = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "planId", firstPlan.get("planId"), "idempotencyKey", "emergency-first-" + suffix,
+                "confirmed", true)), farmer);
+        assertThat(first).containsEntry("emergencyMode", "NORMAL");
+        assertThat(engine.irrigationGuard(plotId, farmer)).containsEntry("state", "COOLDOWN_ACTIVE");
+
+        Map<String, Object> secondPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-second-" + suffix), farmer);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                        "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-blocked-" + suffix,
+                        "confirmed", true)), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("COOLDOWN_ACTIVE"));
+
+        Map<String, Object> emergency = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-bypass-" + suffix,
+                "confirmed", true, "emergencyOverride", true)), farmer);
+        assertThat(emergency).containsEntry("emergencyMode", "CONTROLLED_COOLDOWN_BYPASS")
+                .containsEntry("riskLevel", "HIGH").containsEntry("cooldownMinutes", 120L);
+    }
+
+    @Test
     void farmerAgentActionExpiryAndCancelAreOwnerBound() {
         UserPrincipal farmer = new UserPrincipal("user-farmer-expiry", "farmer-expiry", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> preview = engine.agentChat(Map.of("message", "申请巡田", "plotId", "plot-a01",
@@ -1667,7 +1758,7 @@ class AgriApplicationTest {
 
         Map<String, Object> compare = engine.compareScenario(Map.of("scenarioId", "farmer-readonly", "plotId", "plot-a01", "seed", 42,
                 "leftBranch", "EXECUTE", "rightBranch", "NO_ACTION"), farmer);
-        assertThat(compare).containsEntry("readOnly", true).containsEntry("comparisonVersion", "branch-compare-v4");
+        assertThat(compare).containsEntry("readOnly", true).containsEntry("comparisonVersion", "branch-compare-v5");
         assertThat(Jsons.map(new ObjectMapper(), compare.get("branches"))).containsKeys("EXECUTE", "NO_ACTION");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.compareScenario(Map.of(
                         "scenarioId", "forbidden", "plotId", "plot-a01", "seed", 42), otherFarmer))

@@ -2,7 +2,7 @@
 
 ## 目的
 
-模拟器以“地块”为隔离边界。每个地块保存一条独立策略和一组参数。默认启动路径下，API 进程内的 `SimulationEngine` 直接读取这些记录并调用 `AgriEngine.ingest`，**不再经 MQTT 发布模拟遥测**。`simulator/runner.py` 保留作物理对照和离线回放，默认启动不再调用。
+模拟器以“地块”为隔离边界。每个地块保存一条独立策略和一组参数。默认启动路径下，API 进程内的 `SimulationEngine` 直接读取这些记录并调用 `AgriEngine.ingest`，**不再经 MQTT 发布模拟遥测**，也不再依赖独立 Python 进程。
 
 内置场景：
 
@@ -68,10 +68,6 @@ POST /api/v1/simulator/stop
 PUT  /api/v1/simulator/settings
 ```
 
-`scripts/run-simulator.sh` 不再拉起 Python 进程。若需要离线对照物理模型，可手工运行：
-
-```bash
-python3 simulator/runner.py --scenario drought --seed 42 --samples 30
-```
+`scripts/run-simulator.sh` 为兼容旧部署的空操作脚本，不会启动任何外部进程。物理回归由 `SimulationEngineTest` 与 Gradle API 测试覆盖。
 
 真实硬件（BearPi）仍通过 MQTT 接入；模拟遥测不走 MQTT。

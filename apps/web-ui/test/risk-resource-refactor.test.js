@@ -82,10 +82,12 @@ test('risk prediction is grouped under farmer tools while admin stays on shared 
   assert.doesNotMatch(app, /RiskForecastView|localPreviewCurve|risk-forecast-view/);
   assert.doesNotMatch(index, /tmpl-risk-forecast/);
   assert.match(farmerHtml, /tools_tab === 'risk'/);
-  assert.match(farmerHtml, /生成双轨预测/);
+  assert.match(farmerHtml, /历史 \+ 策略预测/);
+  assert.match(farmerHtml, /打开地块详情/);
   assert.match(farmer, /const match = raw\.match\(\/\^tools/);
   assert.match(farmer, /return \['risk', 'manual'\]\.includes\(tab\) \? tab : 'manual'/);
-  assert.match(farmer, /function dual_track_chart\(comparison\)/);
+  assert.match(farmer, /const plot_simulation_forecast = ref\(null\)/);
+  assert.match(farmer, /api\.getRiskForecast/);
 });
 
 test('plot detail uses debounced backend preview and stale-response sequencing', async () => {

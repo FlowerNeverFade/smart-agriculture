@@ -30,6 +30,14 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.ok(compare.branches.EXECUTE.points.length > 10);
   assert.equal(compare.branches.EXECUTE.points.length, compare.branches.NO_ACTION.points.length);
   assert.equal(compare.frozenSnapshot.plotId, 'plot-a01');
+  // 真实化双轨（branch-compare-v5）：执行分支按面积/流量/作物目标/水箱余量推导真实灌溉。
+  assert.equal(compare.comparisonVersion, 'branch-compare-v5');
+  assert.equal(compare.intervention.measure, 'IRRIGATION');
+  assert.equal(compare.intervention.status, 'PLANNED');
+  assert.ok(compare.intervention.waterLitre > 0);
+  assert.ok(compare.intervention.reservoirAvailableLitres > 0);
+  assert.ok(Number.isFinite(compare.divergence.moistureDeltaAtHorizon));
+  assert.ok(compare.markers.some((marker) => String(marker.label).includes('补水')));
 
   const audit = await service.getAgentRun('demo-audit');
   assert.ok(audit.knowledgeEvidence.length >= 2);
@@ -77,13 +85,29 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功', '地块模拟策略', '策略预测曲线', '策略由管理员维护']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
     assert.match(html, new RegExp(marker));
   }
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '生成双轨预测', 'risk_tool_parameters', 'wait_for_irrigation_completion', 'refresh_plot_telemetry']) {
+  // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
+  assert.doesNotMatch(html, /地块模拟策略/);
+  assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测']) {
     assert.match(html + source, new RegExp(marker));
   }
+  // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。
   assert.match(source, /compareScenario/);
+  assert.match(source, /load_plot_simulation_dual_track/);
+  // 双轨摘要与图表标注消费 intervention / divergence 载荷，并画出风险边界与补水触发线。
+  assert.match(source, /intervention/);
+  assert.match(source, /moistureDeltaAtHorizon/);
+  assert.match(source, /riskDelayMinutes/);
+  assert.match(source, /markLine/);
+  assert.match(source, /getRiskForecast/);
+  assert.match(source, /window\.echarts/);
+  assert.match(source, /getDom\?\.\(\)/);
+  assert.match(source, /silent: true/);
+  assert.match(html, /farmer-plot-simulation-chart-stage/);
+  assert.match(html, /is-overlay/);
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
@@ -114,6 +138,8 @@ test('farmer can read plot simulation strategy and forecast curve', async () => 
   });
   assert.equal(comparison.parameters.soilMoistureTrendPerHour, -8);
   assert.ok(comparison.branches.EXECUTE.points.length > 10);
+  assert.equal(comparison.intervention.measure, 'IRRIGATION');
+  assert.ok(comparison.intervention.waterLitre > 0);
   const manuals = await service.getCropManuals();
   assert.deepEqual(
     manuals.map((item) => item.cropCode).sort(),

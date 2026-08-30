@@ -15,7 +15,7 @@ metrics:
   - {code: AIR_TEMPERATURE, label: 环境温度, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
   - {code: AIR_HUMIDITY, label: 空气湿度, unit: '%RH', availability: SUPPORTED, range: {min: 0, max: 100}}
   - {code: LIGHT, label: 光照强度, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
-  - {code: CO2, label: 二氧化碳, unit: ppm, availability: UNAVAILABLE, range: {min: 0, max: 2000}}
+  - {code: CO2, label: 二氧化碳, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
   - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
   - {code: WATER_LEVEL, label: 田面水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
 rules:
