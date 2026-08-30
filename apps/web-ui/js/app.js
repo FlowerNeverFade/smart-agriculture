@@ -115,6 +115,7 @@ const ICON_CLASS = Object.freeze({
   login: 'ph-sign-in',
   update: 'ph-arrow-up',
   settings: 'ph-gear',
+  sync: 'ph-arrows-clockwise',
   notifications_active: 'ph-bell',
   notifications: 'ph-bell',
   sensors: 'ph-broadcast',
