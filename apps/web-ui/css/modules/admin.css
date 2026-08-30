@@ -329,10 +329,8 @@
 .sim-slider-label { font-size: 13px; font-weight: 500; color: var(--g-text-primary); }
 .sim-slider-hint { font-size: 12px; color: var(--g-text-secondary); }
 .sim-slider input[type="range"] { width: 100%; }
-.sim-interval-control { display: flex; align-items: center; gap: 10px; }
-.sim-interval-control input[type="range"] { flex: 1; }
-.sim-interval-control input[type="number"] { width: 74px; padding: 6px 8px; border: 1px solid var(--g-border-subtle); border-radius: 8px; background: var(--g-bg-surface); color: var(--g-text-primary); font: inherit; font-size: 13px; }
-.sim-interval-control .sim-interval-unit { font-size: 12px; color: var(--g-text-secondary); }
+.sim-slider-label { display: flex; align-items: center; gap: 6px; }
+.sim-slider-label input[type="number"] { vertical-align: middle; }
 
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;

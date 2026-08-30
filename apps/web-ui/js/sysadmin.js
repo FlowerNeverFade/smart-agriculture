@@ -944,6 +944,11 @@ const AdminSimulatorView = {
       sampleInterval.value = Number.isFinite(n) ? Math.max(5, Math.min(60, n)) : 20;
       void saveSimulatorSettings();
     };
+    const commitTimeScale = () => {
+      const n = Math.round(Number(timeScale.value));
+      timeScale.value = Number.isFinite(n) ? Math.max(1, Math.min(288, n)) : 144;
+      void saveSimulatorSettings();
+    };
     const applyPlotScenarios = async () => {
       if (simBusy.value) return;
       const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
@@ -1093,7 +1098,7 @@ const AdminSimulatorView = {
     return {
       simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, applyPlotScenarios, togglePlotSimulation,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
       scenarioLabel, localizedStatusLabel
@@ -1518,15 +1523,21 @@ const AdminAgentView = {
       }
     };
 
-    const delete_assistant_conversation = async (conversationId) => {
-      if (!conversationId || assistant_busy.value) return;
-      if (!confirm('确定删除该历史对话吗？此操作不可恢复。')) return;
+    const pendingDeleteConversation = ref(null);
+    const requestDeleteConversation = (conversation) => {
+      if (!conversation?.conversationId || assistant_busy.value) return;
+      pendingDeleteConversation.value = { conversationId: conversation.conversationId, title: conversation.title || '该历史对话' };
+    };
+    const confirmDeleteConversation = async () => {
+      const target = pendingDeleteConversation.value;
+      if (!target) return;
+      pendingDeleteConversation.value = null;
       assistant_busy.value = true;
       assistant_error.value = '';
       try {
-        await api.deleteAgentConversation(conversationId);
-        assistant_conversations.value = assistant_conversations.value.filter((c) => c.conversationId !== conversationId);
-        if (assistant_conversation_id.value === conversationId) {
+        await api.deleteAgentConversation(target.conversationId);
+        assistant_conversations.value = assistant_conversations.value.filter((c) => c.conversationId !== target.conversationId);
+        if (assistant_conversation_id.value === target.conversationId) {
           assistant_conversation_id.value = '';
           assistant_messages.value = [];
         }
@@ -1595,7 +1606,7 @@ const AdminAgentView = {
       assistant_action_expiry_label, assistant_action_result,
       send_assistant_message, ask_assistant_shortcut, assistant_keydown, toggle_assistant_details,
       start_assistant_conversation, load_assistant_conversations, select_assistant_conversation,
-      delete_assistant_conversation
+      pendingDeleteConversation, requestDeleteConversation, confirmDeleteConversation
     };
   }
 };
