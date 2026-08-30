@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260828-role-glass-v578-2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-pagination">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -223,7 +223,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260830-split"></script>
+<script type="module" src="js/sysadmin.js?v=20260830-pagination"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -502,13 +502,26 @@
         </select>
       </div>
 
+      <div class="admin-pagination-bar">
+        <span>共 {{ auditTotalRecords }} 条</span>
+        <select v-model.number="auditPageSize" @change="auditChangeSize()">
+          <option v-for="s in auditPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+        </select>
+        <button class="g-btn text sm" :disabled="auditPage <= 1" @click="auditPrevPage()">上一页</button>
+        <span class="admin-pagination-current">第 {{ auditPage }} / {{ auditTotalPages }} 页</span>
+        <button class="g-btn text sm" :disabled="auditPage >= auditTotalPages" @click="auditNextPage()">下一页</button>
+        <span>跳至 <input type="number" v-model.number="auditJumpInput" min="1" :max="auditTotalPages" class="admin-page-jump-input"> 页
+          <button class="g-btn text sm" @click="auditJumpTo()">跳转</button>
+        </span>
+      </div>
+
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>
             <th>时间</th><th>追踪编号</th><th>操作人</th><th>地块</th><th>类型</th><th>摘要</th><th>结果</th><th></th>
           </tr></thead>
           <tbody>
-            <template v-for="record in filteredRecords" :key="record.traceId">
+            <template v-for="record in auditPageRecords" :key="record.traceId">
               <tr @click="togglePassport(record.traceId)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ record.time }}</td>
                 <td style="font-family:var(--g-mono);font-size:11px;color:var(--g-primary)">{{ record.traceId }}</td>
@@ -658,13 +671,25 @@
       <div class="admin-section-head">
         <div class="admin-section-title"><app-icon name="history"></app-icon> 运行历史</div>
       </div>
+      <div class="admin-pagination-bar">
+        <span>共 {{ simTotalRecords }} 条</span>
+        <select v-model.number="simPageSize" @change="simChangeSize()">
+          <option v-for="s in simPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+        </select>
+        <button class="g-btn text sm" :disabled="simPage <= 1" @click="simPrevPage()">上一页</button>
+        <span class="admin-pagination-current">第 {{ simPage }} / {{ simTotalPages }} 页</span>
+        <button class="g-btn text sm" :disabled="simPage >= simTotalPages" @click="simNextPage()">下一页</button>
+        <span>跳至 <input type="number" v-model.number="simJumpInput" min="1" :max="simTotalPages" class="admin-page-jump-input"> 页
+          <button class="g-btn text sm" @click="simJumpTo()">跳转</button>
+        </span>
+      </div>
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>
             <th>场景编号</th><th>场景类型</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>
-            <tr v-for="run in state.adminSimHistory" :key="run.scenarioId">
+            <tr v-for="run in simPageRecords" :key="run.scenarioId">
               <td style="font-family:var(--g-mono);font-size:11px">{{ run.scenarioId }}</td>
               <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
               <td>{{ run.startTime }}</td>
