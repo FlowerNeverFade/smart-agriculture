@@ -55,6 +55,10 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(source, /当前地块[\s\S]*admin-ai-new-chat/);
   assert.match(source, /clampSidebarWidth/);
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed\s*\{[\s\S]*--ai-content-max:\s*100%/);
+  assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-conversation-sidebar\s*\{[\s\S]*display:\s*none/);
+  assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-sidebar-resizer\s*\{\s*display:\s*none/);
+  assert.match(css, /\.admin-ai-control-label\s*\{[^}]*white-space:\s*nowrap/);
   assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /keep-alive include="AdminAiChatView"/);
 });
 
