@@ -934,6 +934,9 @@ html[data-surface-style="classic"] {
   --agriloop-appearance-subtle: #f1f3f4;
   --agriloop-appearance-border: #dadce0;
   --agriloop-appearance-border-subtle: #e8eaed;
+  --agriloop-appearance-shadow-1: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
+  --agriloop-appearance-shadow-2: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 2px 6px 2px rgba(60, 64, 67, .15);
+  --agriloop-appearance-shadow-3: 0 1px 3px 0 rgba(60, 64, 67, .30), 0 4px 8px 3px rgba(60, 64, 67, .15);
 }
 html[data-theme="dark"][data-surface-style="classic"] {
   --agriloop-appearance-base: #202124;
@@ -941,6 +944,9 @@ html[data-theme="dark"][data-surface-style="classic"] {
   --agriloop-appearance-subtle: #35363a;
   --agriloop-appearance-border: #5f6368;
   --agriloop-appearance-border-subtle: #3c4043;
+  --agriloop-appearance-shadow-1: 0 1px 2px 0 rgba(0, 0, 0, .30), 0 1px 3px 1px rgba(0, 0, 0, .15);
+  --agriloop-appearance-shadow-2: 0 1px 2px 0 rgba(0, 0, 0, .30), 0 2px 6px 2px rgba(0, 0, 0, .15);
+  --agriloop-appearance-shadow-3: 0 1px 3px 0 rgba(0, 0, 0, .30), 0 4px 8px 3px rgba(0, 0, 0, .15);
 }
 html[data-surface-style="classic"] body {
   background: var(--agriloop-appearance-base);
@@ -952,6 +958,9 @@ html[data-surface-style="classic"] :is(#app, #farmer_app) {
   --g-bg-hover: var(--agriloop-appearance-subtle);
   --g-border: var(--agriloop-appearance-border);
   --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
 }
 html[data-surface-style="classic"] #app :is(
   .g-card,
