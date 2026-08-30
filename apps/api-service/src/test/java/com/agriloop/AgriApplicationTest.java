@@ -832,6 +832,142 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerAgentOnlyExposesSafeToolsAndRunsOwnTaskThroughPreview() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other-agent", "other-agent", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+
+        assertThat(engine.agentTools(farmer)).extracting(item -> item.get("name"))
+                .containsExactly("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status",
+                        "transition_assigned_work_order", "create_inspection_record", "create_evidence_request", "execute_virtual_irrigation");
+        assertThat(engine.agentTools(farmer)).noneMatch(item -> String.valueOf(item.get("name")).equals("create_plot"));
+
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "title", "检查滴灌管路 Agent 测试",
+                "reason", "核对接口是否渗漏", "actionType", "FIELD_OPERATION"), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+        engine.assignWorkOrder(workOrderId, Map.of("assigneeId", farmer.userId), admin);
+
+        Map<String, Object> preview = engine.agentChat(Map.of("message", "开始任务 " + workOrderId,
+                "plotId", "plot-a01", "conversationId", "conversation-agent-task"), farmer);
+        Map<String, Object> proposal = Jsons.map(new ObjectMapper(), preview.get("actionProposal"));
+        assertThat(preview.get("intent")).isEqualTo("AGENT_ACTION");
+        assertThat(proposal).containsEntry("toolName", "transition_assigned_work_order")
+                .containsEntry("status", "AWAITING_CONFIRMATION")
+                .containsEntry("actorRole", "FARMER")
+                .containsEntry("riskLevel", "MEDIUM")
+                .containsEntry("sourceMode", "USER_PROVIDED")
+                .containsEntry("requiresConfirmation", true)
+                .containsKey("expiresAt");
+        String actionId = String.valueOf(proposal.get("actionId"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentAction(actionId, otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AGENT_ACTION_FORBIDDEN"));
+
+        Map<String, Object> confirmed = engine.confirmAgentAction(actionId, Map.of("idempotencyKey", "agent-confirm:" + actionId), farmer);
+        assertThat(confirmed).containsEntry("status", "SUCCEEDED");
+        assertThat(store.find("work-order", workOrderId)).containsEntry("status", "IN_PROGRESS");
+        assertThat(engine.confirmAgentAction(actionId, Map.of("idempotencyKey", "agent-confirm:" + actionId), farmer))
+                .containsEntry("status", "SUCCEEDED");
+
+        Map<String, Object> submitPreview = engine.agentChat(Map.of("message", "提交任务 " + workOrderId + "：结果：已完成滴灌管路检查，未发现渗漏",
+                "plotId", "plot-a01", "conversationId", "conversation-agent-task"), farmer);
+        Map<String, Object> submitProposal = Jsons.map(new ObjectMapper(), submitPreview.get("actionProposal"));
+        assertThat(submitProposal).containsEntry("toolName", "transition_assigned_work_order");
+        Map<String, Object> submitted = engine.confirmAgentAction(String.valueOf(submitProposal.get("actionId")), Map.of(), farmer);
+        assertThat(submitted).containsEntry("status", "SUCCEEDED");
+        assertThat(store.find("work-order", workOrderId)).containsEntry("status", "SUBMITTED");
+    }
+
+    @Test
+    void farmerAgentInspectionAndEvidenceRequestsStayUserProvided() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer-inspection", "farmer-inspection", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+
+        Map<String, Object> inspectionPreview = engine.agentChat(Map.of(
+                "message", "帮我记录一次巡田：叶片正常，土壤表面偏干", "plotId", "plot-a01", "conversationId", "conversation-agent-inspection"), farmer);
+        Map<String, Object> inspectionProposal = Jsons.map(new ObjectMapper(), inspectionPreview.get("actionProposal"));
+        assertThat(inspectionProposal).containsEntry("toolName", "create_inspection_record")
+                .containsEntry("sourceMode", "USER_PROVIDED").containsEntry("status", "AWAITING_CONFIRMATION");
+        Map<String, Object> inspection = engine.confirmAgentAction(String.valueOf(inspectionProposal.get("actionId")), Map.of(), farmer);
+        assertThat(inspection).containsEntry("status", "SUCCEEDED");
+        Map<String, Object> record = Jsons.map(new ObjectMapper(), inspection.get("result"));
+        assertThat(record).containsEntry("plotId", "plot-a01").containsEntry("provenance", "USER_PROVIDED")
+                .containsEntry("sourceType", "HUMAN_OBSERVATION").containsEntry("operatorId", farmer.userId);
+
+        Map<String, Object> evidencePreview = engine.agentChat(Map.of(
+                "message", "申请复测：原因是在线传感器读数与现场不一致", "plotId", "plot-a01", "conversationId", "conversation-agent-evidence"), farmer);
+        Map<String, Object> evidenceProposal = Jsons.map(new ObjectMapper(), evidencePreview.get("actionProposal"));
+        assertThat(evidenceProposal).containsEntry("toolName", "create_evidence_request")
+                .containsEntry("sourceMode", "USER_PROVIDED");
+        Map<String, Object> evidence = engine.confirmAgentAction(String.valueOf(evidenceProposal.get("actionId")), Map.of(), farmer);
+        assertThat(evidence).containsEntry("status", "SUCCEEDED");
+        Map<String, Object> evidenceWork = Jsons.map(new ObjectMapper(), evidence.get("result"));
+        assertThat(evidenceWork).containsEntry("sourceType", "READINESS").containsEntry("actionType", "INSPECTION")
+                .containsEntry("status", "OPEN").containsEntry("createdBy", farmer.userId);
+
+        Map<String, Object> refused = engine.agentChat(Map.of(
+                "message", "帮我新增地块并绑定设备", "plotId", "plot-a01", "conversationId", "conversation-agent-refused"), farmer);
+        assertThat(refused).doesNotContainKey("actionProposal");
+        assertThat(String.valueOf(refused.get("narrative"))).contains("不能执行");
+    }
+
+    @Test
+    void farmerAgentIrrigationRechecksReadinessAndCompletesAfterVirtualAck() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-agent-irrigation-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-irrigation-" + suffix, "farmer-irrigation-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "Agent 灌溉测试田", "cropCode", "tomato", "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
+        engine.ingest(Map.of("eventId", "agent-irrigation-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 10.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+
+        Map<String, Object> preview = engine.agentChat(Map.of("message", "启动灌溉", "plotId", plotId,
+                "conversationId", "conversation-agent-irrigation-" + suffix), farmer);
+        Map<String, Object> proposal = Jsons.map(new ObjectMapper(), preview.get("actionProposal"));
+        assertThat(proposal).containsEntry("toolName", "execute_virtual_irrigation")
+                .containsEntry("riskLevel", "HIGH").containsEntry("sourceMode", "SIMULATED")
+                .containsEntry("status", "AWAITING_CONFIRMATION");
+        String actionId = String.valueOf(proposal.get("actionId"));
+        Map<String, Object> confirmed = engine.confirmAgentAction(actionId, Map.of(), farmer);
+        assertThat(confirmed).containsEntry("status", "EXECUTING");
+        Map<String, Object> completed = confirmed;
+        for (int attempt = 0; attempt < 20 && "EXECUTING".equals(Jsons.text(completed, "status", "")); attempt++) {
+            Thread.sleep(100);
+            completed = engine.agentAction(actionId, farmer);
+        }
+        assertThat(completed).containsEntry("status", "SUCCEEDED");
+        assertThat(Jsons.map(new ObjectMapper(), completed.get("result"))).containsKey("ack");
+
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
+        engine.ingest(Map.of("eventId", "agent-irrigation-drift-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 9.0, "unit", "%",
+                "scenarioId", "sensor-drift", "ts", Instant.now().plusMillis(1).toString()));
+        Map<String, Object> blocked = engine.agentChat(Map.of("message", "启动灌溉", "plotId", plotId,
+                "conversationId", "conversation-agent-irrigation-drift-" + suffix), farmer);
+        assertThat(blocked).doesNotContainKey("actionProposal").containsEntry("status", "NEEDS_EVIDENCE");
+        assertThat(String.valueOf(blocked.get("clarification"))).contains("不能生成灌溉执行卡");
+    }
+
+    @Test
+    void farmerAgentActionExpiryAndCancelAreOwnerBound() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer-expiry", "farmer-expiry", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        Map<String, Object> preview = engine.agentChat(Map.of("message", "申请巡田", "plotId", "plot-a01",
+                "conversationId", "conversation-agent-expiry"), farmer);
+        Map<String, Object> proposal = Jsons.map(new ObjectMapper(), preview.get("actionProposal"));
+        String actionId = String.valueOf(proposal.get("actionId"));
+        Map<String, Object> action = store.find("agent-action", actionId);
+        action.put("expiresAt", Instant.now().minusSeconds(1).toString());
+        store.save("agent-action", actionId, action);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.cancelAgentAction(actionId, farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("AGENT_ACTION_EXPIRED"));
+        assertThat(store.find("agent-action", actionId)).containsEntry("status", "EXPIRED");
+    }
+
+    @Test
     void deviceRegistrationBindingAndUnbindingDoNotFakeAnOnlineHeartbeat() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         String deviceId = "device-management-" + System.nanoTime();

@@ -185,6 +185,8 @@ export class ApiService {
     this.demoCropBatches = new Map();
     this.demoCropPlans = new Map();
     this.demoAgentActions = new Map();
+    this.demoAgentConversations = new Map();
+    this._demoHydrateAgentActions();
     this.demoValueLedgers = [];
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
@@ -989,7 +991,7 @@ export class ApiService {
     }
     const currentActorId = this._demoActorId();
     return Array.from(this.demoWorkOrders.values())
-      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId)
+      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))
       .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
       .filter((item) => !filters.plotId || item.plotId === filters.plotId)
       .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
@@ -1340,15 +1342,37 @@ export class ApiService {
     return { alertId, workOrder: assigned, reused: false, taskPurpose: 'ALERT_VERIFICATION' };
   }
 
+  async getAgentAction(actionId) {
+    if (!actionId) throw new ApiError('缺少 Agent 操作编号', { status: 400, code: 'AGENT_ACTION_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}`);
+      return resp?.data || resp;
+    }
+    this._demoHydrateAgentActions();
+    const action = this.demoAgentActions.get(actionId);
+    if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权查看该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    return { ...action };
+  }
+
   async confirmAgentAction(actionId, input = {}) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}/confirm`, { method: 'POST', body: JSON.stringify(input) });
       return resp?.data || resp;
     }
+    this._demoHydrateAgentActions();
     const action = this.demoAgentActions.get(actionId);
     if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权确认该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     if (action.status !== 'AWAITING_CONFIRMATION') return { ...action };
+    if (action.expiresAt && new Date(action.expiresAt).getTime() < Date.now()) {
+      const expired = { ...action, status: 'EXPIRED' };
+      this._demoSaveAgentAction(expired);
+      throw new ApiError('操作预览已过期，请重新生成', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    }
+    if (action.actorRole && action.actorRole !== this.user?.role) throw new ApiError('当前身份不能确认该操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     const message = action.message || '';
+    const args = action.arguments || {};
     let result;
     if (action.toolName === 'close_alert') {
       const alert = [...this.demoAlerts.values()].find(item => item.plotId === action.plotId && !['CLOSED', 'RESOLVED'].includes(item.status));
@@ -1362,11 +1386,19 @@ export class ApiService {
       result = await this.createWorkOrder({ farmId: 'farm-demo', plotId: action.plotId, title: message.replace(/^.*?(任务|农务)[：:]?/, '').trim() || 'Agent 创建任务', reason: message, actionType: 'FIELD_OPERATION', priority: 'MEDIUM' });
       const farmer = [...this.demoFarmMembers.values()].find(member => member.role === 'FARMER' && (member.plotIds.includes(action.plotId) || member.plotIds.includes('*')));
       if (farmer) result = await this.assignWorkOrder(result.workOrderId, { assigneeId: farmer.userId, note: 'Agent 确认后下发' });
+    } else if (action.toolName === 'transition_assigned_work_order') {
+      result = await this.transitionWorkOrder(args.workOrderId, { action: args.action, resultSummary: args.resultSummary, note: args.note, evidenceRefs: args.evidenceRefs || [] });
+    } else if (action.toolName === 'create_inspection_record') {
+      result = await this.createInspection({ ...args, observedAt: args.observedAt || new Date().toISOString(), sourceType: 'HUMAN_OBSERVATION' });
+    } else if (action.toolName === 'create_evidence_request') {
+      result = await this.createWorkOrder({ ...args, title: args.title || `申请${args.evidenceType || '现场巡田'}`, sourceType: 'READINESS', actionType: 'INSPECTION', provenance: 'USER_PROVIDED', status: 'OPEN' });
+    } else if (action.toolName === 'execute_virtual_irrigation') {
+      result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
     } else {
       result = { message: '演示 Agent 已完成操作预览确认', plotId: action.plotId };
     }
     const saved = { ...action, status: 'SUCCEEDED', result, completedAt: new Date().toISOString() };
-    this.demoAgentActions.set(actionId, saved);
+    this._demoSaveAgentAction(saved);
     return saved;
   }
 
@@ -1375,10 +1407,19 @@ export class ApiService {
       const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}/cancel`, { method: 'POST', body: '{}' });
       return resp?.data || resp;
     }
+    this._demoHydrateAgentActions();
     const action = this.demoAgentActions.get(actionId);
     if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权取消该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    if (action.actorRole && action.actorRole !== this.user?.role) throw new ApiError('当前身份不能取消该操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    if (action.expiresAt && new Date(action.expiresAt).getTime() < Date.now()) {
+      const expired = { ...action, status: 'EXPIRED' };
+      this._demoSaveAgentAction(expired);
+      throw new ApiError('操作预览已过期，请重新生成', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
+    }
+    if (action.status !== 'AWAITING_CONFIRMATION') return { ...action };
     const saved = { ...action, status: 'CANCELED', canceledAt: new Date().toISOString() };
-    this.demoAgentActions.set(actionId, saved);
+    this._demoSaveAgentAction(saved);
     return saved;
   }
 
@@ -1501,19 +1542,108 @@ export class ApiService {
     };
   }
 
+  _demoAgentStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-agent-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _readDemoAgentSession() {
+    const fallback = { conversations: [], messages: [], actions: [] };
+    try {
+      if (typeof sessionStorage === 'undefined') return fallback;
+      const raw = sessionStorage.getItem(this._demoAgentStorageKey());
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return {
+        conversations: Array.isArray(parsed?.conversations) ? parsed.conversations : [],
+        messages: Array.isArray(parsed?.messages) ? parsed.messages : [],
+        actions: Array.isArray(parsed?.actions) ? parsed.actions : []
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  _writeDemoAgentSession(session) {
+    const safe = {
+      conversations: Array.isArray(session?.conversations) ? session.conversations.slice(0, 20) : [],
+      messages: Array.isArray(session?.messages) ? session.messages.slice(-200) : [],
+      actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
+    };
+    try {
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
+    } catch {
+      // Browser storage can be disabled; the in-memory map still keeps the
+      // current page usable for the rest of the demo session.
+    }
+    this.demoAgentConversations.clear();
+    safe.conversations.forEach((item) => this.demoAgentConversations.set(item.conversationId, item));
+    this.demoAgentActions.clear();
+    safe.actions.forEach((item) => { if (item?.actionId) this.demoAgentActions.set(item.actionId, item); });
+    return safe;
+  }
+
+  _demoSaveAgentAction(action) {
+    if (!action?.actionId) return action;
+    const session = this._readDemoAgentSession();
+    session.actions = [...session.actions.filter((item) => item.actionId !== action.actionId), { ...action }];
+    this._writeDemoAgentSession(session);
+    return action;
+  }
+
+  _demoHydrateAgentActions() {
+    const session = this._readDemoAgentSession();
+    session.actions.forEach((action) => {
+      if (action?.actionId) this.demoAgentActions.set(action.actionId, action);
+    });
+    return session;
+  }
+
+  _demoSaveAgentTurn(conversationId, message, plotId, response) {
+    const current = this._readDemoAgentSession();
+    const now = new Date().toISOString();
+    const userEntry = {
+      messageId: `demo-msg-${Date.now().toString(36)}-u`, conversationId, role: 'USER', content: String(message || '').slice(0, 4000), plotId: plotId || '', createdAt: now
+    };
+    const assistantEntry = {
+      messageId: `demo-msg-${Date.now().toString(36)}-a`, conversationId, role: 'ASSISTANT', content: response?.narrative || response?.summary || '', intent: response?.intent || '', plotId: plotId || '', traceId: response?.traceId || '', adapter: response?.adapter || 'rules', degraded: response?.degraded === true, knowledgeEvidence: response?.knowledgeEvidence || [], actionProposal: response?.actionProposal || null, createdAt: new Date(Date.now() + 1).toISOString()
+    };
+    current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
+    const existing = current.conversations.find((item) => item.conversationId === conversationId);
+    const conversation = {
+      ...(existing || {}), conversationId, title: existing?.title || String(message || '').replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+    };
+    current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
+    this._writeDemoAgentSession(current);
+    return conversation;
+  }
+
   async getAgentHistory(conversationId = '', limit = 40) {
     if (this.sessionMode !== 'live') {
       const userId = this.user?.userId || this.user?.username || 'demo';
-      return {
-        conversation: { conversationId: `conversation-${userId}`, title: '我的农智对话', messageCount: 0 },
-        messages: []
-      };
+      const fallbackId = `conversation-${userId}`;
+      const session = this._readDemoAgentSession();
+      const resolved = conversationId || fallbackId;
+      const conversation = session.conversations.find((item) => item.conversationId === resolved) || { conversationId: resolved, title: '我的农智对话', messageCount: 0 };
+      const messages = session.messages.filter((item) => item.conversationId === resolved).slice(-Math.max(1, Math.min(Number(limit) || 40, 100)));
+      return { conversation, messages };
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
     if (conversationId) params.set('conversationId', conversationId);
     const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
     if (resp?.data) return resp.data;
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
+  }
+
+  async getAgentConversations(limit = 20) {
+    if (this.sessionMode !== 'live') {
+      const session = this._readDemoAgentSession();
+      return session.conversations.slice(0, Math.max(1, Math.min(Number(limit) || 20, 50)));
+    }
+    const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
+    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}`);
+    if (Array.isArray(resp?.data)) return resp.data;
+    throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {
@@ -1532,16 +1662,50 @@ export class ApiService {
     const lower = (message || '').toLowerCase();
     const traceId = 'run-' + Math.random().toString(36).substring(2, 10);
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const resolvedConversationId = conversationId || `conversation-${this._demoActorId()}`;
+    const persistDemoResponse = (response) => {
+      const payload = { ...response, conversationId: resolvedConversationId };
+      this._demoSaveAgentTurn(resolvedConversationId, message, plotId, payload);
+      return payload;
+    };
     if (/(新增|新建|创建|修改|更新|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/.test(message || '') && this.user?.role === 'FARM_ADMIN') {
       const toolName = /(关闭).*(告警|报警)/.test(message) ? 'close_alert' : /(核查|复核).*(发布|下发|创建)/.test(message) ? 'publish_alert_verification' : /(绑定|换绑|解绑).*(设备|传感器)/.test(message) ? 'set_plot_devices' : /(任务|农务)/.test(message) ? 'create_and_assign_work_order' : /(修改|更新|编辑).*(地块|田|棚)/.test(message) ? 'update_plot' : 'create_plot';
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
-      this.demoAgentActions.set(actionId, { ...proposal, message, plotId });
-      return { traceId, conversationId: conversationId || `conversation-${this._demoActorId()}`, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好操作内容，请核对预览后确认执行。', actionProposal: proposal, tools: [], confidence: 1 };
+      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARM_ADMIN', riskLevel: 'MEDIUM', sourceMode: 'DERIVED', argumentSummary: message, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
+      this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好操作内容，请核对预览后确认执行。', actionProposal: proposal, tools: [], confidence: 1 });
+    }
+
+    if (this.user?.role === 'FARMER' && /(新增|新建|创建|修改|更新|绑定|换绑|解绑|关闭|安排|派发|分配他人|管理员)/.test(message || '')) {
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', summary: '当前身份不能执行管理员操作', narrative: '农户账号只能操作本人任务、提交巡田或复测记录、申请补证，以及在安全门通过后执行虚拟灌溉。新增地块、绑定设备、关闭告警和分配他人任务请联系农场管理员。', tools: [], confidence: 1 });
+    }
+    if (this.user?.role === 'FARMER' && /(记录|提交).*(巡田|复测)/.test(message || '')) {
+      const notes = String(message || '').split(/[：:]/).slice(1).join('：').trim();
+      if (!notes) return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', summary: '缺少现场说明', narrative: '请补充明确的现场说明，例如“帮我记录一次巡田：叶片正常，土壤表面偏干”。聊天页本期只支持文字，照片请到巡田记录页补充。', tools: [], confidence: 1 });
+      const actionId = `demo-agent-${Date.now().toString(36)}`;
+      const proposal = { actionId, toolName: 'create_inspection_record', summary: `在 ${plot.name} 提交一次巡田记录`, argumentSummary: `${plot.name} · ${notes}`, arguments: { farmId: plot.farmId || 'farm-demo', plotId, notes, soilSurface: 'NORMAL', cropCondition: 'HEALTHY' }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'LOW', sourceMode: 'USER_PROVIDED', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['inspections', 'messages'] };
+      this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好巡田记录，请核对文字内容后确认提交。', actionProposal: proposal, tools: [], confidence: 1 });
+    }
+    if (this.user?.role === 'FARMER' && /(申请|请求).*(巡田|复测|设备检查|补证)/.test(message || '')) {
+      const actionId = `demo-agent-${Date.now().toString(36)}`;
+      const evidenceType = /设备/.test(message) ? 'DEVICE_CHECK' : /复测/.test(message) ? 'RETEST' : 'FIELD_INSPECTION';
+      const proposal = { actionId, toolName: 'create_evidence_request', summary: `为 ${plot.name} 申请${evidenceType === 'DEVICE_CHECK' ? '设备检查' : evidenceType === 'RETEST' ? '传感器复测' : '现场巡田'}`, argumentSummary: `${plot.name} · ${evidenceType}`, arguments: { farmId: plot.farmId || 'farm-demo', plotId, evidenceType, reason: message }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'LOW', sourceMode: 'USER_PROVIDED', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['workOrders', 'messages'] };
+      this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已准备补证任务申请，请确认后提交给农场管理员。', actionProposal: proposal, tools: [], confidence: 1 });
+    }
+    if (this.user?.role === 'FARMER' && /(执行|启动|开始).*(灌溉|浇水)/.test(message || '')) {
+      const planId = `plan-${traceId}`;
+      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED' };
+      this.decisionCache.plans.set(planId, plan);
+      const actionId = `demo-agent-${Date.now().toString(36)}`;
+      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510 }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
+      this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }], confidence: 1 });
     }
 
     if (lower.includes('灌溉') || lower.includes('浇水') || lower.includes('处方') || lower.includes('irrigation')) {
-      return {
+      return persistDemoResponse({
         traceId,
         mode: "rules-only",
         intent: "IRRIGATION_RECOMMENDATION",
@@ -1565,9 +1729,9 @@ export class ApiService {
           { source: "rules://agriloop/safety-limit", scope: "GENERAL", provenance: "RETRIEVED" }
         ],
         confidence: 0.95
-      };
+      });
     } else if (lower.includes('诊断') || lower.includes('异常') || lower.includes('为什么') || lower.includes('diagnos')) {
-      return {
+      return persistDemoResponse({
         traceId,
         mode: "rules-only",
         intent: "RISK_DIAGNOSIS",
@@ -1591,9 +1755,9 @@ export class ApiService {
           { source: `crop-packs/${plot.cropCode}/pack.yaml`, scope: "CROP", provenance: "RETRIEVED" }
         ],
         confidence: 0.92
-      };
+      });
     } else if (lower.includes('预测') || lower.includes('未来') || lower.includes('forecast')) {
-      return {
+      return persistDemoResponse({
         traceId,
         mode: "deterministic",
         intent: "RISK_FORECAST",
@@ -1614,9 +1778,9 @@ export class ApiService {
           }
         ],
         confidence: 0.88
-      };
+      });
     } else if (lower.includes('任务') || lower.includes('农务') || lower.includes('待办') || lower.includes('work')) {
-      return {
+      return persistDemoResponse({
         traceId,
         mode: "rules-only",
         intent: "TODAY_WORK",
@@ -1629,9 +1793,9 @@ export class ApiService {
           }
         ],
         confidence: 0.99
-      };
+      });
     } else {
-      return {
+      return persistDemoResponse({
         traceId,
         mode: "rules-only",
         intent: "PLOT_STATUS",
@@ -1644,7 +1808,7 @@ export class ApiService {
           }
         ],
         confidence: 0.96
-      };
+      });
     }
   }
 

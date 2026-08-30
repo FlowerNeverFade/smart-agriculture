@@ -269,13 +269,19 @@ paths:
         '200': {description: 按地块权限读取原始灌溉处方}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
+    post: {tags: [decision], description: 携带 message、plotId、conversationId；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出与可选 actionProposal}}}
+  /api/v1/agent/conversations:
+    get: {tags: [decision], description: 返回当前账号可见的 Agent 历史会话摘要；农户仅能看到自己的会话, responses: {'200': {description: 会话标题、关联地块、最后时间和消息数}}}
+  /api/v1/agent/history:
+    get: {tags: [decision], description: 按 conversationId 返回当前账号可见的消息历史, parameters: [{name: conversationId, in: query, required: false, schema: {type: string}}], responses: {'200': {description: 连续消息、来源和可选 actionProposal}}}
+  /api/v1/agent/actions/{actionId}:
+    get: {tags: [decision], description: 查询当前操作所有者的预览、执行中或最终状态, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: Agent 操作状态与结果}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 操作不存在}}}
   /api/v1/agent/actions/{actionId}/confirm:
-    post: {tags: [decision], description: 管理员确认 10 分钟内的 Agent 操作预览；服务端重新校验权限、范围和幂等键后执行白名单工具, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
+    post: {tags: [decision], description: 当前操作所有者确认 10 分钟内的 Agent 操作预览；服务端按工具与角色重新校验权限、范围、安全门和幂等键, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
   /api/v1/agent/actions/{actionId}/cancel:
-    post: {tags: [decision], description: 取消待确认的 Agent 操作预览, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 操作已取消}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已处理}}}
+    post: {tags: [decision], description: 当前操作所有者取消待确认的 Agent 操作预览, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 操作已取消}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已处理}}}
   /api/v1/agent/tools:
-    get: {tags: [decision], responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
+    get: {tags: [decision], description: 按当前身份返回白名单工具及 JSON Schema 版本；农户不返回管理员写工具, responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
   /api/v1/agent/runs/{traceId}:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], responses: {'200': {description: Agent trace}}}
   /api/v1/decision-passports/{traceId}:
