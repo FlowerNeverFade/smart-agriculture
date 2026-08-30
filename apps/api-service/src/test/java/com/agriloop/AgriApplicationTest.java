@@ -243,6 +243,10 @@ class AgriApplicationTest {
         }
         assertThat(completed).containsEntry("status", "SUCCEEDED");
         Map<String, Object> evaluation = engine.commandEvaluation(commandId, farmer);
+        for (int attempt = 0; attempt < 30 && !"COMPLETED".equals(evaluation.get("status")); attempt++) {
+            Thread.sleep(100);
+            evaluation = engine.commandEvaluation(commandId, farmer);
+        }
         assertThat(evaluation).containsEntry("status", "COMPLETED");
         Map<String, Object> actual = Jsons.map(new ObjectMapper(), evaluation.get("actual"));
         assertThat(Jsons.number(actual, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(actual, "soilMoistureBefore", 0));
