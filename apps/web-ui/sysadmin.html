@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260830-load-resilience-1">
+  <link rel="stylesheet" href="css/style.css?v=20260830-simulator-controls-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-load-resilience-1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-simulator-controls-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -232,7 +232,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260830-load-resilience-1"></script>
+<script type="module" src="js/sysadmin.js?v=20260830-simulator-controls-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -599,6 +599,14 @@
           <div class="sim-info-label">已发送事件</div>
           <div class="sim-info-value">{{ state.adminOverview.simulator.eventsEmitted }}</div>
         </div>
+        <div class="sim-info">
+          <div class="sim-info-label">采样间隔</div>
+          <div class="sim-info-value">{{ sampleInterval }} 秒</div>
+        </div>
+        <div class="sim-info">
+          <div class="sim-info-label">时间流速</div>
+          <div class="sim-info-value">{{ timeScale }}×</div>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="g-btn primary" v-if="!simRunning" :disabled="simBusy" @click="toggleSimulator">
             <app-icon name="play_arrow"></app-icon> 启动
@@ -607,6 +615,22 @@
             <app-icon name="stop"></app-icon> 停止
           </button>
         </div>
+      </div>
+
+      <!-- Global simulation clock controls -->
+      <div class="sim-settings-panel" aria-labelledby="sysadmin-simulator-settings-title">
+        <div id="sysadmin-simulator-settings-title" class="admin-section-title" style="margin-bottom:12px"><app-icon name="tune"></app-icon> 全局采样与时间流速</div>
+        <p class="sim-settings-help">调整后立即保存，下一批遥测开始生效；不会重启 API。采样间隔控制多久产生一批遥测，时间流速控制模拟日夜和环境变化的快慢。</p>
+        <label class="sim-slider">
+          <span class="sim-slider-label">采样间隔 {{ sampleInterval }} 秒</span>
+          <input type="range" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="saveSimulatorSettings" aria-label="采样间隔">
+          <span class="sim-slider-hint">每隔多少墙上秒产生一批遥测（5–60 秒，默认 20）</span>
+        </label>
+        <label class="sim-slider">
+          <span class="sim-slider-label">时间流速 {{ timeScale }}×</span>
+          <input type="range" min="1" max="288" step="1" v-model.number="timeScale" :disabled="simBusy" @change="saveSimulatorSettings" aria-label="时间流速">
+          <span class="sim-slider-hint">默认 144：约 10 分钟推进 1 个模拟日（1–288 倍）</span>
+        </label>
       </div>
 
       <!-- Scenario Selection -->

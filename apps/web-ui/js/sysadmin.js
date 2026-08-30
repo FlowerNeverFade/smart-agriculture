@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-load-resilience-1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-load-resilience-1';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -495,6 +495,9 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   // `openai-compatible`; the overview uses the concise product-facing mode
   // names used by the demo card.
   const aiMode = rawAiMode === 'openai-compatible' ? 'full' : rawAiMode;
+  const simulatorSettings = simulator.settings && typeof simulator.settings === 'object' ? simulator.settings : simulator;
+  const sampleIntervalSeconds = Number(simulator.sampleIntervalSeconds ?? simulatorSettings.sampleIntervalSeconds ?? 20);
+  const timeScale = Number(simulator.timeScale ?? simulatorSettings.timeScale ?? DEFAULT_SIMULATION_TIME_SCALE);
   const scenarios = [...new Set((overview.plots || [])
     .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
     .filter(Boolean)
@@ -511,6 +514,8 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
       running: simStatus === 'RUNNING',
       scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
+      sampleIntervalSeconds: Number.isFinite(sampleIntervalSeconds) ? Math.max(5, Math.min(60, Math.round(sampleIntervalSeconds))) : 20,
+      timeScale: Number.isFinite(timeScale) ? Math.max(1, Math.min(288, timeScale)) : DEFAULT_SIMULATION_TIME_SCALE,
       startTime: simulator.startedAt || null,
       history: simulator.history || []
     },
@@ -807,6 +812,8 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
+    const sampleInterval = ref(Number(props.state.adminOverview?.simulator?.sampleIntervalSeconds || 20));
+    const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -844,13 +851,23 @@ const AdminSimulatorView = {
 
     const syncSimulator = (status = {}) => {
       props.state.simulatorStatus = status;
+      const previous = props.state.adminOverview?.simulator || {};
+      const rawInterval = Number(status.sampleIntervalSeconds ?? status.settings?.sampleIntervalSeconds ?? previous.sampleIntervalSeconds ?? 20);
+      const rawScale = Number(status.timeScale ?? status.settings?.timeScale ?? previous.timeScale ?? DEFAULT_SIMULATION_TIME_SCALE);
+      const interval = Number.isFinite(rawInterval) ? Math.max(5, Math.min(60, Math.round(rawInterval))) : 20;
+      const scale = Number.isFinite(rawScale) ? Math.max(1, Math.min(288, rawScale)) : DEFAULT_SIMULATION_TIME_SCALE;
+      const statusCode = String(status.status || '').toUpperCase();
       props.state.adminOverview.simulator = {
-        ...(props.state.adminOverview.simulator || {}),
-        running: String(status.status || '').toUpperCase() === 'RUNNING',
+        ...previous,
+        running: statusCode ? statusCode === 'RUNNING' : status.running === true,
         scenario: status.scenario || status.scenarioId || '',
-        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0)
+        eventsEmitted: Number(status.eventsEmitted ?? status.eventCount ?? previous.eventsEmitted ?? 0),
+        sampleIntervalSeconds: interval,
+        timeScale: scale
       };
       simRunning.value = props.state.adminOverview.simulator.running;
+      sampleInterval.value = interval;
+      timeScale.value = scale;
     };
     const toggleSimulator = async () => {
       if (simBusy.value) return;
@@ -861,6 +878,20 @@ const AdminSimulatorView = {
         toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
       } catch (error) {
         toast(error.message || '模拟器控制失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const saveSimulatorSettings = async () => {
+      if (simBusy.value) return;
+      simBusy.value = true;
+      try {
+        const status = await api.updateSimulatorSettings({
+          sampleIntervalSeconds: sampleInterval.value,
+          timeScale: timeScale.value
+        });
+        syncSimulator(status);
+        toast('采样间隔与时间流速已保存，下一拍开始生效');
+      } catch (error) {
+        toast(error.message || '模拟器设置保存失败', 'error');
       } finally { simBusy.value = false; }
     };
     const applyPlotScenarios = async () => {
@@ -1000,10 +1031,14 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
+    watch(() => props.state.simulatorStatus, (status) => {
+      if (status && typeof status === 'object') syncSimulator(status);
+    }, { immediate: true });
+
     return {
-      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, applyPlotScenarios, togglePlotSimulation,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel
     };
   }

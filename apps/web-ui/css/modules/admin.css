@@ -2302,6 +2302,7 @@
   .admin-metric-card,
   .service-card,
   .sim-control-bar,
+  .sim-settings-panel,
   .pack-card,
   .admin-plot-card,
   .passport-panel,
@@ -2322,6 +2323,7 @@
 .role-system-admin .admin-metric-card { border-radius: 16px; }
 .role-system-admin .service-card,
 .role-system-admin .sim-control-bar,
+.role-system-admin .sim-settings-panel,
 .role-system-admin .pack-card,
 .role-system-admin .admin-plot-card { border-radius: 14px; }
 
@@ -2433,7 +2435,7 @@
 }
 
 @media (forced-colors: active) {
-  .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .sim-control-bar, .pack-card, .admin-plot-card, .admin-table-wrap) {
+  .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .sim-control-bar, .sim-settings-panel, .pack-card, .admin-plot-card, .admin-table-wrap) {
     border: 1px solid CanvasText;
   }
 }
@@ -2530,7 +2532,7 @@ html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
   color: var(--g-primary) !important;
 }
 html[data-surface-style="classic"] .role-system-admin :is(
-  .g-card, .admin-metric-card, .service-card, .sim-control-bar, .pack-card,
+  .g-card, .admin-metric-card, .service-card, .sim-control-bar, .sim-settings-panel, .pack-card,
   .admin-plot-card, .passport-panel, .admin-table-wrap, .admin-modal,
   .g-modal, .account-profile-popover, .g-header-farm-menu
 ) {
