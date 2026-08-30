@@ -12,11 +12,14 @@
   <link rel="stylesheet" href="css/style.css?v=20260831-three-branch-v1">
   <link rel="stylesheet" href="css/farmer.css?v=20260831-branch-merge-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-three-branch-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-ai-presentation-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-ai-presentation-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
   <script src="vendor/echarts.min.js"></script>
+  <script src="vendor/ort/ort.all.min.js?v=1.17.3"></script>
 </head>
 <body>
   <div id="farmer_app" v-cloak @click="on_app_click">
@@ -940,14 +943,25 @@
             </div>
           </section>
 
-          <section v-else-if="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant">
+          <section v-else-if="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant-shared">
+            <keep-alive include="AdminAiChatView">
+              <admin-ai-chat-view
+                :state="assistant_view_state"
+                route-view="assistant"
+                @navigate="navigate"
+                @data-invalidated="refresh_assistant_impacts">
+              </admin-ai-chat-view>
+            </keep-alive>
+          </section>
+
+          <section v-else-if="false" class="farmer-workspace farmer-agent-workspace" key="assistant-legacy">
             <div class="farmer-agent-page-header">
               <div>
                 <div class="farmer-agent-title-row">
                   <span class="farmer-agent-title-icon"><app-icon name="smart_toy"></app-icon></span>
                   <div>
-                    <h2>农智助手</h2>
-                    <p class="role-summary">用一句话描述农事问题，也可以让助手在你的权限范围内准备操作。</p>
+                    <h2>{{ role_presentation.assistantName }}</h2>
+                    <p class="role-summary">{{ role_presentation.titleDescription }}</p>
                   </div>
                 </div>
               </div>
@@ -956,14 +970,14 @@
                   <span class="farmer-agent-status-dot"></span>{{ assistant_service_label }}
                 </span>
                 <label class="farmer-agent-plot-picker">
-                  <span>当前地块</span>
+                  <span>{{ role_presentation.contextLabel }}</span>
                   <select v-if="plots.length" v-model="assistant_plot_id" :disabled="assistant_busy" aria-label="当前地块">
                     <option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option>
                   </select>
                   <span v-else>暂无可用地块</span>
                 </label>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="assistant_drawer_open = true" aria-label="打开历史对话">
-                  <app-icon name="history"></app-icon>历史对话
+                  <app-icon name="history"></app-icon>{{ role_presentation.historyTitle }}
                   <span v-if="assistant_conversations.length" class="farmer-agent-toolbar-count">{{ assistant_conversations.length }}</span>
                 </button>
                 <button type="button" class="g-btn primary farmer-btn-analyze" @click="start_assistant_conversation">
@@ -979,30 +993,32 @@
                 </div>
 
                 <div ref="assistant_message_list" class="farmer-agent-message-list" aria-live="polite">
-                  <div v-if="!assistant_messages.length && !assistant_busy" class="farmer-agent-empty-state">
+                  <div v-if="!assistant_messages.length && !assistant_busy" class="farmer-agent-empty-state ai-chat-empty-state">
                     <span class="farmer-agent-empty-icon"><app-icon name="smart_toy"></app-icon></span>
-                    <h3>今天想先处理什么？</h3>
-                    <p>我会先读取当前地块的可用证据；涉及写入的操作都会先给你预览。</p>
-                    <div class="farmer-agent-shortcuts">
+                    <h3>{{ role_presentation.emptyGreeting }}</h3>
+                    <p>{{ role_presentation.emptyCopy }}</p>
+                    <div class="farmer-agent-shortcuts ai-chat-shortcuts">
                       <button v-for="shortcut in assistant_shortcuts" :key="shortcut.label" type="button" @click="ask_assistant_shortcut(shortcut.question)">
                         <app-icon :name="shortcut.icon"></app-icon><span>{{ shortcut.label }}</span><app-icon name="arrow_forward"></app-icon>
                       </button>
                     </div>
                   </div>
 
-                  <article v-for="message in assistant_messages" :key="message.id" class="farmer-agent-message" :class="'is-' + message.role">
-                    <div v-if="message.role === 'user'" class="farmer-agent-user-bubble">{{ message.content }}</div>
+                  <article v-for="message in assistant_messages" :key="message.id" class="farmer-agent-message ai-chat-message" :class="'is-' + message.role">
+                    <div v-if="message.role === 'user'" class="farmer-agent-user-bubble ai-chat-user-bubble">{{ message.content }}</div>
                     <div v-else class="farmer-agent-assistant-block">
-                      <div class="farmer-agent-message-meta">
-                        <span class="farmer-agent-avatar"><app-icon name="smart_toy"></app-icon></span>
-                        <strong>农智助手</strong>
-                        <span class="g-badge" :class="message.degraded ? 'warning' : 'success'">{{ message.sourceLabel || assistant_source_label }}</span>
-                        <span v-if="message.intentLabel" class="farmer-agent-intent">{{ message.intentLabel }}</span>
+                      <div class="farmer-agent-message-meta ai-chat-message-meta">
+                        <span class="farmer-agent-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></span>
+                        <strong>{{ role_presentation.assistantName }}</strong>
+                        <span class="g-badge ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.sourceLabel || assistant_source_label }}</span>
+                        <span v-if="message.intentLabel" class="farmer-agent-intent ai-chat-intent">{{ message.intentLabel }}</span>
                       </div>
-                      <div class="farmer-agent-answer">{{ message.content }}</div>
-                      <div v-if="message.actionProposal" class="farmer-agent-action-card" :class="'status-' + assistant_action_tone(message.actionProposal)">
+                      <div class="farmer-agent-answer ai-chat-answer">{{ message.content }}</div>
+                      <div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="role_presentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div>
+                      <div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ role_presentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div>
+                      <div v-if="message.actionProposal" class="farmer-agent-action-card ai-chat-action-card" :class="'status-' + assistant_action_tone(message.actionProposal)">
                         <div class="farmer-agent-action-header">
-                          <div class="farmer-agent-action-heading"><span class="farmer-agent-action-icon"><app-icon name="verified_user"></app-icon></span><div><strong>操作预览</strong><small>{{ assistant_action_status_label(message.actionProposal.status) }}</small></div></div>
+                          <div class="farmer-agent-action-heading"><span class="farmer-agent-action-icon"><app-icon name="verified_user"></app-icon></span><div><strong>{{ role_presentation.actionTitle }}</strong><small>{{ assistant_action_status_label(message.actionProposal.status) }}</small></div></div>
                           <span class="farmer-agent-risk-chip" :class="'risk-' + String(message.actionProposal.riskLevel || 'LOW').toLowerCase()">{{ assistant_risk_label(message.actionProposal.riskLevel) }}</span>
                         </div>
                         <p class="farmer-agent-action-summary">{{ message.actionProposal.summary }}</p>
@@ -1021,37 +1037,37 @@
                         <p v-if="['FAILED', 'PARTIAL', 'TIMEOUT'].includes(message.actionProposal.status)" class="farmer-agent-action-result is-error"><app-icon name="error"></app-icon>{{ assistant_action_result(message.actionProposal) }}</p>
                         <p v-if="['CANCELED', 'EXPIRED'].includes(message.actionProposal.status)" class="farmer-agent-action-result is-muted"><app-icon name="schedule"></app-icon>{{ assistant_action_status_label(message.actionProposal.status) }}</p>
                       </div>
-                      <div v-if="message.turn" class="farmer-agent-answer-actions">
+                      <div v-if="message.turn" class="farmer-agent-answer-actions ai-chat-answer-actions">
                         <button v-if="message.turn.decisionCard && !message.actionProposal" type="button" class="g-btn secondary farmer-btn-light" @click="open_qa_decision_action(message.turn)"><app-icon name="arrow_forward"></app-icon>{{ message.turn.decisionCard.actionLabel }}</button>
-                        <button type="button" class="farmer-agent-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggle_assistant_details(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? '收起依据与执行记录' : '查看依据与执行记录' }}</button>
+                        <button type="button" class="farmer-agent-details-button ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggle_assistant_details(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? role_presentation.detailsCollapseLabel : role_presentation.detailsLabel }}</button>
                       </div>
-                      <div v-if="message.detailsOpen && message.turn" class="farmer-agent-details">
-                        <div class="farmer-agent-detail-grid"><span v-if="message.turn.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span><span v-if="message.turn.traceId"><small>traceId</small><code>{{ message.turn.traceId }}</code></span><span v-if="message.turn.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span><span v-if="message.turn.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示规则' }}</strong></span></div>
-                         <div v-if="message.turn.evidence && message.turn.evidence.length" class="farmer-agent-evidence"><strong>回答依据 · 知识证据与工具审计</strong><ul><li v-for="item in message.turn.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small></li></ul></div>
-                        <div v-if="message.audit" class="farmer-agent-audit"><strong>工具调用记录</strong><article v-for="(item, index) in (message.audit.tools || message.audit.calls || [])" :key="item.name || item.tool || index"><b>{{ item.name || item.tool }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><small>已校验 · {{ item.durationMs ?? '—' }} ms</small></article><small v-if="message.actionProposal">操作版本：{{ message.actionProposal.traceId || message.turn.traceId || '—' }}</small></div>
+                      <div v-if="message.detailsOpen && message.turn" class="farmer-agent-details ai-chat-details">
+                        <div class="farmer-agent-detail-grid ai-chat-detail-grid"><span v-if="message.turn.roleLabel"><small>回答身份</small><strong>{{ message.turn.roleLabel }}</strong></span><span v-if="message.turn.scopeLabel"><small>数据范围</small><strong>{{ message.turn.scopeLabel }}</strong></span><span v-if="message.turn.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span><span v-if="message.turn.traceId"><small>记录编号</small><code>{{ message.turn.traceId }}</code></span><span v-if="message.turn.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span><span v-if="message.turn.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示规则' }}</strong></span></div>
+                          <div v-if="message.turn.evidence && message.turn.evidence.length" class="farmer-agent-evidence"><strong>{{ role_presentation.evidenceTitle }}</strong><ul class="ai-chat-evidence"><li v-for="item in message.turn.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small></li></ul></div>
+                        <div v-if="message.audit" class="farmer-agent-audit"><strong>工具调用记录</strong><article v-for="(item, index) in (message.audit.tools || message.audit.calls || [])" :key="item.name || item.tool || index"><b>{{ assistant_tool_label(item.name || item.tool) }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><small>已校验 · {{ item.durationMs ?? '—' }} 毫秒</small></article><small v-if="message.actionProposal">操作版本：{{ message.actionProposal.traceId || message.turn.traceId || '—' }}</small></div>
                       </div>
                     </div>
                   </article>
-                  <div v-if="assistant_busy" class="farmer-agent-typing" aria-label="正在分析"><span></span><span></span><span></span><small>正在分析当前地块…</small></div>
+                  <div v-if="assistant_busy" class="farmer-agent-typing" aria-label="正在分析"><span></span><span></span><span></span><small>{{ role_presentation.typingLabel }}</small></div>
                 </div>
 
                 <form class="farmer-agent-composer" @submit.prevent="send_assistant_message">
-                  <textarea v-model="assistant_input" rows="1" :disabled="assistant_busy" placeholder="问问当前地块，或描述你想执行的农事操作…" aria-label="农智助手输入框" @keydown="assistant_keydown"></textarea>
+                  <textarea v-model="assistant_input" rows="1" :disabled="assistant_busy" :placeholder="role_presentation.inputPlaceholder" aria-label="农智助手输入框" @keydown="assistant_keydown"></textarea>
                   <button type="submit" class="farmer-agent-send-button" :disabled="assistant_busy || !assistant_input.trim()" :aria-busy="assistant_busy ? 'true' : 'false'"><span v-if="assistant_busy" class="material-symbols-outlined farmer-btn-spin">progress_activity</span><app-icon v-else name="send"></app-icon></button>
-                  <small>Enter 发送 · Shift+Enter 换行</small>
+                  <small>{{ role_presentation.composerFootnote }} Enter 发送 · Shift+Enter 换行</small>
                 </form>
               </div>
             </div>
 
             <div v-if="assistant_drawer_open" class="farmer-agent-drawer-backdrop" @click.self="assistant_drawer_open = false">
               <aside class="farmer-agent-history-drawer" aria-label="历史对话">
-                <header><div><strong>历史对话</strong><small>只显示本账号的对话</small></div><button type="button" class="g-btn icon-only farmer-btn-light" aria-label="关闭历史对话" @click="assistant_drawer_open = false"><app-icon name="close"></app-icon></button></header>
+                <header><div><strong>{{ role_presentation.historyTitle }}</strong><small>只显示本账号的对话</small></div><button type="button" class="g-btn icon-only farmer-btn-light" aria-label="关闭历史对话" @click="assistant_drawer_open = false"><app-icon name="close"></app-icon></button></header>
                 <div v-if="assistant_conversations.length" class="farmer-agent-history-list">
                   <button v-for="conversation in assistant_conversations" :key="conversation.conversationId" type="button" class="farmer-agent-history-item" :class="{ active: conversation.conversationId === assistant_conversation_id }" @click="select_assistant_conversation(conversation.conversationId)">
-                    <span class="farmer-agent-history-icon"><app-icon name="forum"></app-icon></span><span><strong>{{ conversation.title || '我的农智对话' }}</strong><small>{{ assistant_conversation_plot_label(conversation) }} · {{ assistant_conversation_time(conversation) }}</small><small>{{ conversation.messageCount || 0 }} 条消息</small></span>
+                    <span class="farmer-agent-history-icon"><app-icon name="forum"></app-icon></span><span><strong>{{ conversation.title || role_presentation.historyItemFallback }}</strong><small>{{ assistant_conversation_plot_label(conversation) }} · {{ assistant_conversation_time(conversation) }}</small><small>{{ conversation.messageCount || 0 }} 条消息</small></span>
                   </button>
                 </div>
-                <div v-else class="farmer-agent-history-empty"><app-icon name="history"></app-icon><p>还没有历史对话</p><small>发送第一条消息后会自动保存。</small></div>
+                <div v-else class="farmer-agent-history-empty"><app-icon name="history"></app-icon><p>还没有历史对话</p><small>{{ role_presentation.historyEmpty }}。</small></div>
                 <footer><button type="button" class="g-btn primary farmer-btn-analyze" @click="start_assistant_conversation"><app-icon name="add_task"></app-icon>开始新对话</button></footer>
               </aside>
             </div>
@@ -1465,6 +1481,12 @@
                   </div>
                 </div>
                 <div class="farmer-settings-field">
+                  <span class="farmer-settings-label">地块背景</span>
+                  <div class="farmer-settings-choice-row farmer-settings-surface-row">
+                    <button v-for="background in plot_background_options" :key="background.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :class="{active: user_settings.plotBackground === background.value}" @click="update_user_setting('plotBackground', background.value)" :title="background.hint"><span>{{ background.label }}</span><small>{{ background.hint }}</small></button>
+                  </div>
+                </div>
+                <div class="farmer-settings-field">
                   <span class="farmer-settings-label">强调色</span>
                   <div class="farmer-settings-accent-row">
                     <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
@@ -1488,7 +1510,7 @@
                 <div class="farmer-settings-note"><app-icon name="info"></app-icon><span>这些偏好保存在当前浏览器。清除站点数据后会恢复默认值；服务器上的三角色数据仍由后端统一管理。</span></div>
               </article>
             </div>
-            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ current_accent_label }}</span></div>
+            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 地块背景：{{ user_settings.plotBackground === 'crop' ? '作物背景' : '纯色背景' }} · 强调色：{{ current_accent_label }}</span></div>
           </section>
 
         </transition>
@@ -1627,6 +1649,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260831-branch-merge-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260831-ai-role-v1"></script>
 </body>
 </html>

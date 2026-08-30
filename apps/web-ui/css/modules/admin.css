@@ -592,7 +592,7 @@
 .admin-plot-summary .critical { color: var(--g-danger); }
 .admin-plot-summary .offline { color: var(--g-text-disabled); }
 .admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.admin-plot-card { position: relative; isolation: isolate; overflow: hidden; min-height: 226px; padding: 16px; background-color: var(--g-bg-surface); background-image: linear-gradient(180deg, rgba(9, 29, 22, 0.42) 0%, rgba(9, 29, 22, 0.66) 58%, rgba(9, 29, 22, 0.9) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png')); background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.2); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); color: #f6fbf7; transition: transform 0.2s, box-shadow 0.2s; }
+.admin-plot-card { position: relative; isolation: isolate; overflow: hidden; min-height: 226px; padding: 16px; background-color: var(--g-bg-surface); background-image: var(--plot-background, none); background-size: cover; background-position: center; border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); color: var(--g-text-primary); transition: transform 0.2s, box-shadow 0.2s; }
 .admin-plot-card > * { position: relative; z-index: 1; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
 .admin-plot-card { cursor: pointer; }
@@ -2808,7 +2808,7 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   min-height: 286px;
   border-color: rgba(255,255,255,.22);
   background-color: var(--g-bg-surface);
-  background-image: linear-gradient(180deg, rgba(9,29,22,.18) 0%, rgba(9,29,22,.36) 54%, rgba(9,29,22,.64) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png'));
+  background-image: var(--plot-background, none);
   background-position: center;
   background-size: cover;
   color: #f6fbf7;
@@ -4191,3 +4191,57 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 .admin-agent-send-button .admin-btn-spin { animation: admin-agent-btn-spin 0.75s linear infinite; }
 @keyframes admin-agent-btn-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .admin-agent-send-button .admin-btn-spin { animation-duration: 1.6s; } }
+
+/* Crop photography is an explicit presentation preference.  The default
+   neutral surface must remove both the image and its dark readability mask;
+   otherwise the card looks like a photo card even when the setting is off. */
+html[data-plot-background="none"] :is(.admin-plot-card, .role-farm-admin article.manager-plot-card) {
+  background-image: none !important;
+  background-color: var(--g-bg-surface) !important;
+  border-color: var(--g-border-subtle) !important;
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card :is(.admin-plot-id, .admin-plot-updated, .admin-plot-farm, .admin-plot-health, .admin-plot-metrics) {
+  color: var(--g-text-secondary) !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card :is(.admin-plot-crop, .admin-plot-health strong, .admin-plot-metrics strong) {
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card .admin-plot-metrics {
+  border-top-color: var(--g-border-subtle) !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card .admin-plot-health b {
+  background: var(--g-bg-subtle) !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card :is(.manager-plot-title h2, .manager-plot-title span, .manager-health-score, .manager-health-score strong, .manager-plot-meta) {
+  color: var(--g-text-primary) !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card :is(.manager-plot-meta, .manager-metric-target) {
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card .manager-more-button {
+  border-color: var(--g-border) !important;
+  background: var(--g-bg-subtle) !important;
+  color: var(--g-text-secondary) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="crop"] .admin-plot-card {
+  background-image: linear-gradient(180deg, rgba(9, 29, 22, .42) 0%, rgba(9, 29, 22, .66) 58%, rgba(9, 29, 22, .9) 100%), var(--plot-background, none);
+  border-color: rgba(255, 255, 255, .2);
+  color: #f6fbf7;
+}
+
+html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
+  background-image: linear-gradient(180deg, rgba(9, 29, 22, .18) 0%, rgba(9, 29, 22, .36) 54%, rgba(9, 29, 22, .64) 100%), var(--plot-background, none);
+}

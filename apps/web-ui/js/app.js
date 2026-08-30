@@ -1,16 +1,17 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-farm-admin-baseline-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-three-branch-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-ai-role-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-three-branch-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-three-branch-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-three-branch-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-three-branch-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-three-branch-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-three-branch-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-three-branch-v1';
+import { cropBackgroundFor } from './plot-background.js?v=20260831-ai-presentation-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
 import {
   agentResponseSource,
@@ -42,7 +43,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-three-branch-v1';
+} from './live-data.js?v=20260831-ai-role-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -584,7 +585,7 @@ function presentSystemEvent(event) {
 // 1. Define Components
 const DashboardView = {
   template: '#tmpl-dashboard',
-  props: ['state', 'routeParams'],
+  props: ['state', 'userSettings', 'routeParams'],
   emits: ['navigate', 'open-plot-detail', 'plot-change', 'data-invalidated', 'context-changed'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -2105,37 +2106,11 @@ const ValueLedgerView = {
   }
 };
 
-// Crop-specific photography used by the overview cards.  Keep this list
-// aligned with the crop selector: unknown/legacy values use a neutral farm
-// scene instead of borrowing a visually misleading crop image.
-const PLOT_CROP_BACKGROUNDS = Object.freeze({
-  tomato: new URL('../assets/crop-backgrounds/tomato.png', import.meta.url).href,
-  corn: new URL('../assets/crop-backgrounds/corn.png', import.meta.url).href,
-  cucumber: new URL('../assets/crop-backgrounds/cucumber.png', import.meta.url).href,
-  rice: new URL('../assets/crop-backgrounds/rice.png', import.meta.url).href,
-  sunflower: new URL('../assets/crop-backgrounds/sunflower.png', import.meta.url).href,
-  strawberry: new URL('../assets/crop-backgrounds/strawberry.png', import.meta.url).href
-});
-
-const cropBackgroundFor = (plot = {}) => {
-  const cropText = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''}`.trim().toLowerCase();
-  const aliases = [
-    ['tomato', ['tomato', '番茄']],
-    ['corn', ['corn', '玉米']],
-    ['cucumber', ['cucumber', '黄瓜']],
-    ['rice', ['rice', '水稻', '稻']],
-    ['sunflower', ['sunflower', '向日葵', '油葵']],
-    ['strawberry', ['strawberry', '草莓']]
-  ];
-  const match = aliases.find(([, names]) => names.some(name => cropText.includes(name)));
-  return PLOT_CROP_BACKGROUNDS[match?.[0]] || new URL('../assets/backgrounds/farm-day.png', import.meta.url).href;
-};
-
 // ---- SYSTEM ADMIN COMPONENTS ----
 
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
-  props: ['state', 'routeParams'],
+  props: ['state', 'userSettings', 'routeParams'],
   emits: ['navigate'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -2759,6 +2734,7 @@ const SettingsView = {
     const settings = ref(readUserSettings());
     const accentOptions = ACCENT_OPTIONS;
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
+    const plotBackgroundOptions = PLOT_BACKGROUND_OPTIONS;
     const themeOptions = [
       { value: 'light', label: '白色', hint: '之前的清爽白色主题（默认）' },
       { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
@@ -2769,13 +2745,14 @@ const SettingsView = {
     const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '跟随系统');
     const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
+    const plotBackgroundLabel = computed(() => plotBackgroundOptions.find((item) => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const updateSetting = (key, value) => {
       const next = saveUserSettings({ ...settings.value, [key]: value });
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout' || key === 'surfaceStyle') {
-        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : key === 'layout' ? '内容宽度' : '卡片风格'}已更新`);
+      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout' || key === 'surfaceStyle' || key === 'plotBackground') {
+        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : key === 'layout' ? '内容宽度' : key === 'surfaceStyle' ? '卡片风格' : '地块背景'}已更新`);
       }
     };
     const resetSettings = () => {
@@ -2789,12 +2766,14 @@ const SettingsView = {
       settings,
       accentOptions,
       surfaceStyleOptions,
+      plotBackgroundOptions,
       themeOptions,
       refreshOptions,
       roleLabel,
       themeLabel,
       accentLabel,
       surfaceStyleLabel,
+      plotBackgroundLabel,
       updateSetting,
       resetSettings
     };

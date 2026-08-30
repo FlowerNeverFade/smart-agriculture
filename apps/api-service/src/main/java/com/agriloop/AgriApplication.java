@@ -82,6 +82,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -5568,6 +5569,51 @@ class AgriEngine {
         action.put("status", "CANCELED"); action.put("canceledBy", principal.userId); action.put("canceledAt", Instant.now().toString()); store.save("agent-action", actionId, action); events.publish("agent.action.canceled", action); return action;
     }
 
+    /**
+     * The Agent endpoint is shared by all three workspaces, but its useful
+     * answer surface is intentionally role-scoped.  Keeping the profile in
+     * the response lets the UI share one visual language without suggesting
+     * that a farmer has platform-admin capabilities (or vice versa).
+     */
+    private Map<String, Object> agentRoleProfile(UserPrincipal principal) {
+        if (principal != null && principal.isSystemAdmin()) {
+            return Map.of(
+                    "scopeLabel", "全平台（跨农场）",
+                    "capabilities", List.of("查看平台与服务状态", "跨农场风险概览", "查询规则、策略与版本", "查看决策与工具审计", "排查数据链路与设备接入"),
+                    "restrictions", List.of("不直接修改农场业务数据", "不绕过审批、安全门或审计记录"),
+                    "guidance", "以平台稳定性、规则版本、数据链路和审计证据为重点；不要把农场操作建议写成已执行结果");
+        }
+        if (principal != null && principal.isFarmAdmin()) {
+            return Map.of(
+                    "scopeLabel", "当前农场（全场地块）",
+                    "capabilities", List.of("查看全场地块与告警", "诊断异常根因", "安排和分派农务任务", "管理设备绑定与灌溉计划", "复核执行结果"),
+                    "restrictions", List.of("只能操作当前农场范围", "写入操作必须预览、复核并确认"),
+                    "guidance", "以农场运营、告警处置、任务分派、设备健康和资源安排为重点；明确区分建议与已执行操作");
+        }
+        return Map.of(
+                "scopeLabel", "本人负责地块",
+                "capabilities", List.of("查看负责地块状态", "理解告警与诊断结论", "查看今日待办", "获取灌溉建议", "提交巡田、复测和任务结果"),
+                "restrictions", List.of("不能新增或修改地块", "不能绑定设备、关闭告警或给他人派任务", "灌溉等写入操作必须经过安全门和本人确认"),
+                "guidance", "以现场巡田、本人任务、地块风险和可执行的农事步骤为重点；用易懂语言说明需要补充的证据");
+    }
+
+    private String agentGreeting(UserPrincipal principal) {
+        if (principal != null && principal.isSystemAdmin()) return "你好！我是农智助手，负责平台运行、规则版本、跨农场风险和决策审计。";
+        if (principal != null && principal.isFarmAdmin()) return "你好！我是农智助手，协助你管理全农场告警、农务任务、设备和灌溉安排。";
+        return "你好！我是农智助手，专注你负责的地块、巡田记录、任务进度和灌溉建议。";
+    }
+
+    private String agentCapabilityNarrative(UserPrincipal principal, Map<String, Object> profile) {
+        String scope = Jsons.text(profile, "scopeLabel", "当前范围");
+        if (principal != null && principal.isSystemAdmin()) {
+            return "我服务于" + scope + "，可以查看平台与服务状态、跨农场风险、规则/策略版本、数据链路和决策审计。这里的实时事实来自后端记录；我不会直接修改农场业务数据，也不会绕过审批、安全门或审计。";
+        }
+        if (principal != null && principal.isFarmAdmin()) {
+            return "我服务于" + scope + "，可以汇总告警、诊断根因、安排农务任务、检查设备和试算灌溉计划。写入操作会先展示参数预览，再经过权限、安全门和你的确认；我不会把建议当成已执行结果。";
+        }
+        return "我服务于" + scope + "，可以查看地块状态、解释风险、整理今日待办、生成灌溉建议，并帮你提交巡田/复测/任务结果。涉及写入的操作会先展示预览并等待你的确认；新增地块、设备绑定和关闭告警请联系农场管理员。";
+    }
+
     Map<String, Object> agentChat(Map<String, Object> input, UserPrincipal principal) {
         String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
         String plotId = Jsons.text(input, "plotId", "plot-a01");
@@ -5584,6 +5630,10 @@ class AgriEngine {
         answer.put("plotId", plotId);
         answer.put("mode", properties.getAiMode());
         answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
+        Map<String, Object> roleProfile = agentRoleProfile(principal);
+        answer.put("role", principal.role);
+        answer.put("roleLabel", RolePolicy.label(principal.role));
+        answer.put("roleProfile", roleProfile);
 
         String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
         boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
@@ -5607,14 +5657,18 @@ class AgriEngine {
             // the model to echo the whole telemetry context.
             answer.put("intent", "GREETING");
             answer.put("summary", "已识别为问候");
-            answer.put("narrative", "你好！我是农智助手。你可以问我地块状态、异常诊断、风险预测、今日农务或灌溉建议。");
+            answer.put("narrative", agentGreeting(principal));
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
         } else if (isAmbiguousShortInput(message)) {
             answer.put("intent", "CLARIFICATION");
             answer.put("summary", "输入信息不足");
-            answer.put("narrative", "我已连接到农智闭环。请补充你要查询的内容，例如“查看 plot-a01 状态”或“分析番茄缺水风险”。");
+            answer.put("narrative", principal.isSystemAdmin()
+                    ? "请补充要排查的平台服务、数据链路、规则版本或审计内容。"
+                    : principal.isFarmAdmin()
+                    ? "请补充要查看的农场、地块、告警、任务、设备或灌溉内容。"
+                    : "请补充地块、风险、待办或农事操作，例如“查看当前地块状态”。");
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
@@ -5622,16 +5676,62 @@ class AgriEngine {
             answer.put("intent", "CAPABILITY_QUERY");
             answer.put("summary", "已读取农智助手能力范围");
             answer.put("result", Map.of(
-                    "capabilities", List.of("地块状态查询", "异常与根因诊断", "基于证据的诊断解释", "1/2/4 小时风险预测", "灌溉处方试算", "今日农务汇总", "在权限范围内准备并执行受控农事操作"),
+                    "capabilities", roleProfile.get("capabilities"),
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
-                    "unsupported", List.of("直接生成 SQL、MQTT topic、HTTP 请求或绕过权限、安全门和确认执行命令")));
+                    "scope", roleProfile.get("scopeLabel"),
+                    "unsupported", roleProfile.get("restrictions")));
             // Capability questions are a stable contract, not a generative task.
             // Answering them locally avoids a needless 27B round trip and keeps
             // the product boundary concise even when an LLM is enabled.
-            answer.put("narrative", "我可以查询地块状态、诊断并解释异常证据、做 1/2/4 小时风险预测、试算灌溉处方、汇总今日农务，并在你的权限范围内准备受控操作。实时事实来自规则、数据库和检索知识；执行控制会先展示参数预览，再经过权限、安全门和人工确认。");
+            answer.put("narrative", agentCapabilityNarrative(principal, roleProfile));
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
+        } else if (principal.isSystemAdmin() && isPlatformStatusQuestion(message)) {
+            boolean mqttCommandAvailable = mqttCommands.available();
+            Map<String, Object> status = dependencyStatus(mqttCommandAvailable);
+            // The Agent has access to the command gateway state, not the
+            // long-lived telemetry subscriber owned by the controller. Do not
+            // mislabel an idle command gateway as a confirmed broker outage.
+            if (!mqttCommandAvailable) status.put("mqtt", "UNKNOWN");
+            tools.add(tool("get_platform_status", Map.of("scope", "PLATFORM"), status));
+            answer.put("knowledgeEvidence", List.of());
+            answer.put("intent", "PLATFORM_STATUS");
+            answer.put("summary", "已读取平台服务与数据链路状态");
+            answer.put("result", status);
+        } else if (principal.isSystemAdmin() && isRuleStrategyStatusQuestion(message)) {
+            List<Map<String, Object>> packs = cropPacks();
+            List<Map<String, Object>> farmPacks = store.list("farm-crop-pack");
+            List<Map<String, Object>> candidates = governance.strategyCandidates(null, null, principal);
+            long ruleCount = Stream.concat(packs.stream(), farmPacks.stream())
+                    .mapToLong(pack -> Jsons.maps(mapper, pack.get("rules")).size()).sum();
+            long activeStrategies = candidates.stream().filter(candidate -> "ACTIVE".equalsIgnoreCase(Jsons.text(candidate, "status", ""))).count();
+            Map<String, Object> status = new LinkedHashMap<>();
+            status.put("cropPackCount", packs.size() + farmPacks.size());
+            status.put("ruleCount", ruleCount);
+            status.put("strategyCandidateCount", candidates.size());
+            status.put("activeStrategyCount", activeStrategies);
+            status.put("latestCandidates", candidates.stream().limit(5).map(this::publicProjection).toList());
+            tools.add(tool("get_rule_strategy_status", Map.of("scope", "PLATFORM"), status));
+            answer.put("knowledgeEvidence", List.of());
+            answer.put("intent", "RULE_STRATEGY_STATUS");
+            answer.put("summary", "已读取规则集、作物包与策略候选状态");
+            answer.put("result", status);
+        } else if (principal.isSystemAdmin() && isPlatformOverviewQuestion(message)) {
+            Map<String, Object> platform = overview(null, principal);
+            tools.add(tool("get_platform_risk_overview", Map.of("scope", "PLATFORM"), platform));
+            answer.put("knowledgeEvidence", List.of());
+            answer.put("intent", "PLATFORM_OVERVIEW");
+            answer.put("summary", "已汇总全平台地块风险与待处理事项");
+            answer.put("result", platform);
+        } else if (principal.isFarmAdmin() && isFarmOverviewQuestion(message)) {
+            String farmId = farmIdForPlot(plotId);
+            Map<String, Object> farm = overview(farmId, principal);
+            tools.add(tool("get_farm_overview", Map.of("farmId", farmId), farm));
+            answer.put("knowledgeEvidence", List.of());
+            answer.put("intent", "FARM_OVERVIEW");
+            answer.put("summary", "已汇总当前农场风险与待处理事项");
+            answer.put("result", farm);
         } else if (isRetestChecklistQuestion(message)) {
             Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
             tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
@@ -5669,7 +5769,7 @@ class AgriEngine {
             answer.put("summary", "已完成缺水与传感器风险分析");
             answer.put("diagnosis", diagnosis);
             answer.put("result", Map.of("diagnosis", diagnosis, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId)));
-        } else if (message.contains("任务") || message.contains("农务")) {
+        } else if (message.contains("任务") || message.contains("农务") || message.contains("待办")) {
             List<Map<String, Object>> work = todayWork(plotId, principal);
             tools.add(tool("get_today_work_items", Map.of("plotId", plotId), work));
             answer.put("intent", "TODAY_WORK");
@@ -5773,6 +5873,11 @@ class AgriEngine {
         request.put("model", configuredLlmModel());
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手，像一位耐心、务实的农技员与用户连续交谈。直接回答当前问题；如果用户是在追问清单、原因、步骤或‘然后呢’，要承接最近对话，不要重新复述上一轮结论，也不要把不同问题套进同一句风险模板。表达可以随问题变化：简单问题用一两句话，操作清单用编号，解释问题用‘结论—原因—下一步’；避免每次都以‘我看到’‘建议先’‘如果你愿意’开头。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。最多 3 个短段或 6 条要点。历史对话只用于理解指代和追问，当前公开事实才是实时依据；只能使用给定事实，不得编造观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，要自然说明不会自动执行，但仍应回答用户真正询问的内容。"));
+        Map<String, Object> profile = Jsons.map(mapper, deterministicContext.get("roleProfile"));
+        String roleLabel = Jsons.text(deterministicContext, "roleLabel", "当前用户");
+        String scopeLabel = Jsons.text(profile, "scopeLabel", "当前授权范围");
+        String roleGuidance = Jsons.text(profile, "guidance", "严格遵守当前用户权限范围");
+        messages.add(Map.of("role", "system", "content", "当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。" + roleGuidance + "。不要向用户展示超出该范围的事实或操作。"));
         for (Map<String, Object> historical : recentHistory == null ? List.<Map<String, Object>>of() : recentHistory) {
             String roleCode = Jsons.text(historical, "role", "");
             String role = "USER".equalsIgnoreCase(roleCode) ? "user" : "ASSISTANT".equalsIgnoreCase(roleCode) ? "assistant" : "";
@@ -5902,8 +6007,24 @@ class AgriEngine {
         if (message == null) return false;
         String normalized = message.toLowerCase(Locale.ROOT);
         return normalized.contains("诊断") || normalized.contains("缺水") || normalized.contains("漂移")
-                || normalized.contains("根因") || normalized.contains("异常") || normalized.contains("sensor drift")
+                || normalized.contains("根因") || normalized.contains("异常") || normalized.contains("风险") || normalized.contains("sensor drift")
                 || normalized.contains("drought risk") || normalized.contains("risk analysis");
+    }
+
+    private boolean isPlatformStatusQuestion(String message) {
+        return containsAny(message, "系统资源", "平台状态", "系统状态", "服务状态", "服务健康", "数据链路", "platform status", "service health");
+    }
+
+    private boolean isRuleStrategyStatusQuestion(String message) {
+        return containsAny(message, "规则变更", "规则状态", "规则版本", "策略状态", "策略版本", "策略候选", "rule version", "strategy status");
+    }
+
+    private boolean isPlatformOverviewQuestion(String message) {
+        return containsAny(message, "所有地块", "全局地块", "全平台风险", "跨农场风险", "平台风险概览", "platform risk");
+    }
+
+    private boolean isFarmOverviewQuestion(String message) {
+        return containsAny(message, "农场风险概览", "全场风险", "农场概览", "全场概览", "农场现在最需要", "farm overview");
     }
 
     /**
@@ -5970,37 +6091,93 @@ class AgriEngine {
 
     private String rulesNarrative(String message, Map<String, Object> answer) {
         String intent = Jsons.text(answer, "intent", "PLOT_STATUS");
-        if ("RETEST_CHECKLIST".equals(intent)) return retestChecklistNarrative(answer);
+        String role = agentRoleCode(answer);
+        if ("RETEST_CHECKLIST".equals(intent)) return retestChecklistNarrative(answer, role);
+        if ("PLATFORM_STATUS".equals(intent)) {
+            Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+            return "平台服务状态：数据库" + dependencyStateLabel(result.get("database"))
+                    + "、Redis " + dependencyStateLabel(result.get("redis"))
+                    + "、MQTT " + dependencyStateLabel(result.get("mqtt"))
+                    + "；当前智能模型模式为“" + Jsons.text(result, "ai", "未配置")
+                    + "”。建议优先排查处于降级状态的依赖，再核对消费积压与事件时间。";
+        }
+        if ("RULE_STRATEGY_STATUS".equals(intent)) {
+            Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+            return String.format(Locale.ROOT,
+                    "平台当前登记 %d 个作物包、%d 条规则和 %d 个策略候选，其中 %d 个策略已启用。策略候选只在通过离线验证并人工启用后参与处置预览，不会绕过诊断、安全门或确认。",
+                    Jsons.whole(result, "cropPackCount", 0), Jsons.whole(result, "ruleCount", 0),
+                    Jsons.whole(result, "strategyCandidateCount", 0), Jsons.whole(result, "activeStrategyCount", 0));
+        }
+        if ("PLATFORM_OVERVIEW".equals(intent) || "FARM_OVERVIEW".equals(intent)) {
+            Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
+            List<Map<String, Object>> plots = Jsons.maps(mapper, result.get("plots"));
+            long elevated = plots.stream().filter(plot -> Set.of("HIGH", "CRITICAL", "WARNING").contains(Jsons.text(plot, "riskLevel", "").toUpperCase(Locale.ROOT))).count();
+            String scope = "PLATFORM_OVERVIEW".equals(intent) ? "全平台" : "当前农场";
+            String handoff = "PLATFORM_OVERVIEW".equals(intent)
+                    ? "系统管理员可继续核对数据链路、设备在线率和规则版本，农场业务处置仍由对应农场完成。"
+                    : "建议先处理高风险地块和进行中告警，再结合人员与水资源安排任务。";
+            return String.format(Locale.ROOT, "%s共 %d 个在用地块，其中 %d 个需要关注；进行中告警 %d 条、待处理任务 %d 项。%s",
+                    scope, plots.size(), elevated, Jsons.whole(result, "activeAlertCount", 0),
+                    Jsons.whole(result, "pendingWorkOrderCount", 0), handoff);
+        }
         if ("IRRIGATION_RECOMMENDATION".equals(intent)) {
             Map<String, Object> plan = Jsons.map(mapper, answer.get("plan"));
             double water = Jsons.number(plan, "waterLitre", 0);
             long duration = Jsons.whole(plan, "durationSeconds", 0);
             if (Jsons.bool(plan, "executable", false)) {
-                return String.format(Locale.ROOT, "按当前数据，可提交一版约 %.1f L、持续 %d 秒的灌溉方案。它仍需经过页面上的确认流程，不会由对话直接执行。", water, duration);
+                if ("SYSTEM_ADMIN".equals(role)) {
+                    return String.format(Locale.ROOT, "平台已为该地块算出一版约 %.1f L、持续 %d 秒的灌溉试算。请核对数据新鲜度、规则版本和安全门；系统管理员不会直接修改农场业务或下发灌溉。", water, duration);
+                }
+                if ("FARM_ADMIN".equals(role)) {
+                    return String.format(Locale.ROOT, "当前农场可为该地块编排约 %.1f L、持续 %d 秒的灌溉计划。请复核水资源、设备状态和作业窗口，确认后才会下发。", water, duration);
+                }
+                return String.format(Locale.ROOT, "你负责的地块可准备约 %.1f L、持续 %d 秒的补水方案。先核对现场和阀门状态，页面确认后才会执行，不会由对话直接启动设备。", water, duration);
             }
             String guidance = safetyNarrativeOverride(message, answer);
-            return guidance == null ? "当前数据更适合先观察和复测，暂不需要生成可执行灌溉动作。" : guidance;
+            if (guidance != null) return guidance;
+            if ("SYSTEM_ADMIN".equals(role)) return "当前证据或安全门未通过，平台只保留只读试算；请先检查遥测新鲜度、设备心跳和规则配置。";
+            if ("FARM_ADMIN".equals(role)) return "当前证据或安全门未通过，先复核该地块的设备、水资源和现场任务，再决定是否安排灌溉。";
+            return "当前证据或安全门未通过，先完成现场观察或复测，暂不生成可执行灌溉动作。";
         }
-        if ("DIAGNOSIS".equals(intent)) {
+        if ("DIAGNOSIS".equals(intent) || "RISK_DIAGNOSIS".equals(intent)) {
             Map<String, Object> diagnosis = Jsons.map(mapper, answer.get("diagnosis"));
-            String cause = Jsons.text(diagnosis, "primaryCause", "EVIDENCE_INSUFFICIENT");
+            String cause = diagnosisCauseLabel(Jsons.text(diagnosis, "primaryCause", "EVIDENCE_INSUFFICIENT"));
             double confidence = Jsons.number(diagnosis, "confidence", 0);
-            return String.format(Locale.ROOT, "这次诊断更偏向 %s（置信度约 %.0f%%）。先核对支持证据与反对证据，再结合现场复测决定是否处理。", cause, confidence * 100);
+            if ("SYSTEM_ADMIN".equals(role)) {
+                return String.format(Locale.ROOT, "平台证据将该地块诊断偏向 %s（置信度约 %.0f%%）。请从遥测质量、设备心跳和规则版本核对证据，再判断是否需要转给农场处理。", cause, confidence * 100);
+            }
+            if ("FARM_ADMIN".equals(role)) {
+                return String.format(Locale.ROOT, "该农场地块目前更偏向 %s（置信度约 %.0f%%）。请查看支持/反对证据，并安排现场核查或设备检查后再分派处置任务。", cause, confidence * 100);
+            }
+            return String.format(Locale.ROOT, "你负责的地块目前更偏向 %s（置信度约 %.0f%%）。先看支持/反对证据，按复测清单核对现场，再决定是否处理。", cause, confidence * 100);
         }
         if ("TODAY_WORK".equals(intent)) {
             List<Map<String, Object>> work = Jsons.maps(mapper, answer.get("workItems"));
-            return work.isEmpty() ? "今天暂时没有新的高优先级农务。你也可以指定地块，我再按地块检查。"
-                    : "今天共汇总到 " + work.size() + " 项待办，建议先处理高风险告警和有时限的巡田任务，再安排常规作业。";
+            if (work.isEmpty()) {
+                if ("SYSTEM_ADMIN".equals(role)) return "当前没有需要平台侧审计的高优先级工单；可以继续查看服务健康、数据链路和规则变更。";
+                if ("FARM_ADMIN".equals(role)) return "当前农场没有新的高优先级待办；可以继续检查告警、资源安排和待验收任务。";
+                return "今天暂时没有分配给你的高优先级农务，可以按计划巡查负责地块。";
+            }
+            if ("SYSTEM_ADMIN".equals(role)) return "平台侧汇总到 " + work.size() + " 项相关工单记录，建议先看逾期、失败和待审计项，再核对数据链路。";
+            if ("FARM_ADMIN".equals(role)) return "当前农场共汇总到 " + work.size() + " 项待办，建议先处理高风险告警，再安排派单和待验收任务。";
+            return "你今天有 " + work.size() + " 项相关农务，建议先处理有时限的巡田和高风险地块，再提交执行结果。";
         }
         if ("RISK_FORECAST".equals(intent)) {
             Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
             String status = Jsons.text(result, "status", "AVAILABLE");
-            return "UNAVAILABLE".equalsIgnoreCase(status)
-                    ? "当前样本还不足以形成可靠预测。我可以先告诉你缺少哪些数据，补齐后再计算 1、2、4 小时风险。"
-                    : "短期水分趋势已经算出。请重点看预计越界时间和区间范围；如果新遥测持续进入，预测会随之更新。";
+            if ("UNAVAILABLE".equalsIgnoreCase(status)) {
+                if ("SYSTEM_ADMIN".equals(role)) return "当前样本不足以形成可靠预测。请检查遥测覆盖、时间戳和设备在线率，补齐窗口后再计算 1、2、4 小时风险。";
+                if ("FARM_ADMIN".equals(role)) return "当前样本不足以形成可靠预测。请先补齐该地块的遥测或安排复测，再决定是否调整农务计划。";
+                return "当前样本还不足以形成可靠预测。先补一组现场或传感器数据，补齐后再计算 1、2、4 小时风险。";
+            }
+            if ("SYSTEM_ADMIN".equals(role)) return "平台已算出短期水分趋势。请重点核对预测窗口、数据覆盖和算法版本；新遥测进入后结果会更新。";
+            if ("FARM_ADMIN".equals(role)) return "该地块的短期水分趋势已经算出。请结合全场资源和作业窗口安排处置，重点看预计越界时间与区间范围。";
+            return "你负责地块的短期水分趋势已经算出。重点看预计越界时间和区间范围，现场新数据进入后预测会随之更新。";
         }
         if ("FOLLOW_UP".equals(intent)) {
-            return "可以，我接着上一轮说明：当前数据只代表此刻的模拟观测，先确认异常项是否持续，再根据复测结果决定是处理设备还是调整农事。";
+            if ("SYSTEM_ADMIN".equals(role)) return "可以，我接着上一轮说明：当前数据是此刻的模拟观测，请先核对事件时间、设备心跳和规则版本，再判断是否需要转交农场处理。";
+            if ("FARM_ADMIN".equals(role)) return "可以，我接着上一轮说明：先确认异常是否持续，再结合设备、资源和现场结果安排或调整农务任务。";
+            return "可以，我接着上一轮说明：先确认异常项是否持续，再根据现场复测决定是报修设备还是调整农事。";
         }
 
         Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
@@ -6010,13 +6187,45 @@ class AgriEngine {
         String deviceStatus = Jsons.text(device, "status", "UNKNOWN");
         if (!soil.isEmpty()) {
             String quality = Jsons.text(Jsons.map(mapper, soil.get("quality")), "status", "GOOD");
-            return String.format(Locale.ROOT, "当前设备状态为 %s，最新土壤湿度约 %.1f%%（质量 %s）。这是只读状态说明；如果你想了解某个指标或异常原因，可以直接点名追问。",
-                    deviceStatus, Jsons.number(soil, "value", 0), quality);
+            double moisture = Jsons.number(soil, "value", 0);
+            if ("SYSTEM_ADMIN".equals(role)) {
+                return String.format(Locale.ROOT, "平台记录该地块设备状态为 %s，最新土壤湿度约 %.1f%%（质量 %s）。这是平台侧只读事实；还可以继续查看数据链路、规则版本或审计记录。", deviceStatus, moisture, quality);
+            }
+            if ("FARM_ADMIN".equals(role)) {
+                return String.format(Locale.ROOT, "当前农场记录该地块设备状态为 %s，最新土壤湿度约 %.1f%%（质量 %s）。可以继续查看告警、安排任务或核对灌溉计划。", deviceStatus, moisture, quality);
+            }
+            return String.format(Locale.ROOT, "你负责的地块设备状态为 %s，最新土壤湿度约 %.1f%%（质量 %s）。这是只读状态；需要处理时可以继续问风险、巡田或补水建议。", deviceStatus, moisture, quality);
         }
-        return Jsons.text(answer, "summary", "我已结合当前地块数据完成查询。你可以继续追问具体指标、原因或处理步骤。");
+        if ("SYSTEM_ADMIN".equals(role)) return "平台暂未拿到该地块的完整遥测。可以先检查设备心跳、数据接入和规则状态。";
+        if ("FARM_ADMIN".equals(role)) return "当前农场暂未拿到该地块的完整数据。可以先检查设备、告警和待办任务。";
+        return "当前地块暂未拿到完整数据。可以先检查设备是否在线，或提交一次现场巡田记录。";
     }
 
-    private String retestChecklistNarrative(Map<String, Object> answer) {
+    private String agentRoleCode(Map<String, Object> answer) {
+        return RolePolicy.canonical(Jsons.text(answer, "role", "FARMER"));
+    }
+
+    private String dependencyStateLabel(Object value) {
+        return switch (String.valueOf(value).toUpperCase(Locale.ROOT)) {
+            case "UP", "ONLINE", "HEALTHY" -> "正常";
+            case "DEGRADED", "FALLBACK_OR_IDLE" -> "降级或空闲";
+            case "DOWN", "OFFLINE", "UNAVAILABLE" -> "不可用";
+            default -> String.valueOf(value == null ? "未知" : value);
+        };
+    }
+
+    private String diagnosisCauseLabel(String cause) {
+        return switch (String.valueOf(cause).toUpperCase(Locale.ROOT)) {
+            case "WATER_DEFICIT" -> "缺水风险";
+            case "SENSOR_DRIFT" -> "传感器漂移";
+            case "DEVICE_FAULT" -> "设备故障";
+            case "HEAT_STRESS" -> "高温胁迫";
+            case "INSUFFICIENT_EVIDENCE" -> "证据不足";
+            default -> String.valueOf(cause);
+        };
+    }
+
+    private String retestChecklistNarrative(Map<String, Object> answer, String role) {
         Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
         Map<String, Object> latest = Jsons.map(mapper, result.get("latest"));
         Map<String, Object> device = Jsons.map(mapper, result.get("device"));
@@ -6035,7 +6244,12 @@ class AgriEngine {
             items.add("检查探头是否松动、污染或位置改变，并与邻近点位做一次交叉对照");
         }
         items.add("若准备灌溉，再核对阀门状态和流量计；复测合格后重新生成处方");
-        StringBuilder text = new StringBuilder("可以，按这个顺序复测：");
+        String heading = "SYSTEM_ADMIN".equals(role)
+                ? "平台排查建议（现场动作需由农场人员执行）："
+                : "FARM_ADMIN".equals(role)
+                ? "建议为该地块安排以下核查："
+                : "可以，按这个顺序复测：";
+        StringBuilder text = new StringBuilder(heading);
         for (int i = 0; i < items.size(); i++) text.append("\n").append(i + 1).append(". ").append(items.get(i));
         return text.toString();
     }
@@ -6104,6 +6318,16 @@ class AgriEngine {
         assistantEntry.put("intent", Jsons.text(answer, "intent", "")); assistantEntry.put("plotId", plotId);
         assistantEntry.put("traceId", traceId); assistantEntry.put("adapter", Jsons.text(answer, "adapter", "rules"));
         assistantEntry.put("degraded", Jsons.bool(answer, "degraded", false));
+        // Keep the role contract and the small deterministic result pieces with
+        // the history record.  The chat can therefore render the same facts,
+        // recommendations and scope after a reload instead of falling back to
+        // a plain text-only message.
+        assistantEntry.put("agentRole", answer.get("role"));
+        assistantEntry.put("roleLabel", answer.get("roleLabel"));
+        assistantEntry.put("roleProfile", publicProjection(answer.get("roleProfile")));
+        for (String key : List.of("result", "plan", "diagnosis", "workItems", "context", "confidence", "readiness", "warnings", "scenarioLabel")) {
+            if (answer.containsKey(key) && answer.get(key) != null) assistantEntry.put(key, publicProjection(answer.get(key)));
+        }
         if (answer.containsKey("llm")) assistantEntry.put("llm", publicProjection(answer.get("llm")));
         if (answer.containsKey("actionProposal")) assistantEntry.put("actionProposal", publicProjection(answer.get("actionProposal")));
         assistantEntry.put("knowledgeEvidence", answer.get("knowledgeEvidence"));
@@ -6119,6 +6343,7 @@ class AgriEngine {
             conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0);
         }
         conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
+        conversation.put("agentRole", answer.get("role")); conversation.put("roleLabel", answer.get("roleLabel"));
         conversation.put("lastMessageAt", now.toString()); conversation.put("updatedAt", now.toString());
         conversation.put("messageCount", Jsons.whole(conversation, "messageCount", 0) + 2);
         store.save("agent-conversation", conversationId, conversation);
@@ -6186,6 +6411,9 @@ class AgriEngine {
      */
     private Map<String, Object> narrativeContext(Map<String, Object> answer, String plotId) {
         Map<String, Object> context = new LinkedHashMap<>();
+        context.put("role", answer.get("role"));
+        context.put("roleLabel", answer.get("roleLabel"));
+        context.put("roleProfile", publicProjection(answer.get("roleProfile")));
         context.put("intent", answer.get("intent"));
         context.put("summary", answer.get("summary"));
         for (String key : List.of("result", "plan", "workItems")) {
@@ -6273,11 +6501,14 @@ class AgriEngine {
     }
 
     private Map<String, Object> tool(String name, Object input, Object output) {
-        Set<String> allowed = Set.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status");
+        Set<String> allowed = Set.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status",
+                "get_platform_status", "get_platform_risk_overview", "get_rule_strategy_status", "get_farm_overview");
         if (!allowed.contains(name)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TOOL_NOT_ALLOWED", "工具不在白名单中");
         if (!(input instanceof Map<?, ?>)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "TOOL_SCHEMA_INVALID", "工具入参必须是 JSON object");
         Map<String, Object> contract = new LinkedHashMap<>(); contract.put("name", name); contract.put("input", input); contract.put("output", output);
-        contract.put("inputSchema", Map.of("type", "object", "required", List.of("plotId"), "properties", Map.of("plotId", Map.of("type", "string", "minLength", 1))));
+        String scopeKey = Set.of("get_platform_status", "get_platform_risk_overview", "get_rule_strategy_status").contains(name)
+                ? "scope" : "get_farm_overview".equals(name) ? "farmId" : "plotId";
+        contract.put("inputSchema", Map.of("type", "object", "required", List.of(scopeKey), "properties", Map.of(scopeKey, Map.of("type", "string", "minLength", 1))));
         contract.put("validated", true); contract.put("schemaVersion", "tool-schema-1.0"); contract.put("durationMs", 1); return contract;
     }
 

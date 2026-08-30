@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260831-three-branch-v1';
+import { api } from './api.js?v=20260831-ai-role-v1';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260831-three-branch-v1';
 import { roleCan } from './roles.js?v=20260831-three-branch-v1';
 

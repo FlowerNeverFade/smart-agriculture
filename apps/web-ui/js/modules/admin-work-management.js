@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260831-three-branch-v1';
+import { api } from '../api.js?v=20260831-ai-role-v1';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260831-three-branch-v1';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-three-branch-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260831-three-branch-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260831-three-branch-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260831-ai-role-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

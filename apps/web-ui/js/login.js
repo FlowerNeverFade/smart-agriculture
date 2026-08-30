@@ -1,4 +1,4 @@
-import { ApiError, api } from './api.js?v=20260831-three-branch-v1';
+import { ApiError, api } from './api.js?v=20260831-ai-role-v1';
 import { createAmbientLiquidField } from './login-webgl.js';
 import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
 

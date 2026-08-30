@@ -1,16 +1,18 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-farm-admin-baseline-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-three-branch-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-ai-role-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-three-branch-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-three-branch-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-three-branch-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-three-branch-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-three-branch-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-three-branch-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-three-branch-v1';
+import { cropBackgroundFor } from './plot-background.js?v=20260831-ai-presentation-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
 import {
   agentResponseSource,
@@ -43,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-three-branch-v1';
+} from './live-data.js?v=20260831-ai-role-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -613,7 +615,7 @@ function presentSystemEvent(event) {
 // 1. Define Components
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
-  props: ['state', 'routeParams'],
+  props: ['state', 'userSettings', 'routeParams'],
   emits: ['navigate'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -1303,6 +1305,7 @@ const SettingsView = {
     const settings = ref(readUserSettings());
     const accentOptions = ACCENT_OPTIONS;
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
+    const plotBackgroundOptions = PLOT_BACKGROUND_OPTIONS;
     const themeOptions = [
       { value: 'light', label: '白色', hint: '清爽明亮，适合日常工作（默认）' },
       { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
@@ -1313,13 +1316,14 @@ const SettingsView = {
     const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '白色');
     const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
+    const plotBackgroundLabel = computed(() => plotBackgroundOptions.find((item) => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const updateSetting = (key, value) => {
       const next = saveUserSettings({ ...settings.value, [key]: value });
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (['theme', 'accent', 'density', 'layout', 'surfaceStyle'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格' };
+      if (['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
+        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
         toast(`${labels[key]}已更新`);
       }
     };
@@ -1331,8 +1335,8 @@ const SettingsView = {
       toast('工作台设置已恢复默认');
     };
     return {
-      settings, accentOptions, surfaceStyleOptions, themeOptions, refreshOptions,
-      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings
+      settings, accentOptions, surfaceStyleOptions, plotBackgroundOptions, themeOptions, refreshOptions,
+      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, plotBackgroundLabel, updateSetting, resetSettings
     };
   }
 };
@@ -1343,6 +1347,8 @@ const AdminAgentView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const isLiveSession = computed(() => props.state?.sessionMode === 'live');
+    const currentRole = computed(() => props.state?.currentUser?.role || 'SYSTEM_ADMIN');
+    const rolePresentation = computed(() => agentRolePresentation(currentRole.value));
     const assistant_input = ref('');
     const assistant_messages = ref([]);
     const assistant_conversations = ref([]);
@@ -1353,12 +1359,7 @@ const AdminAgentView = {
     const assistant_service_status = ref(isLiveSession.value ? 'CONNECTING' : 'DEMO');
     const assistant_plot_id = ref('');
     const assistant_message_list = ref(null);
-    const assistant_shortcuts = ref([
-      { label: '系统资源状态', question: '系统资源状态如何？', icon: 'monitoring' },
-      { label: '查询今日系统异常', question: '查询今日系统异常', icon: 'warning' },
-      { label: '最近的规则变更', question: '最近有哪些规则变更？', icon: 'rule_folder' },
-      { label: '全局地块风险概览', question: '当前所有地块的风险概览', icon: 'grid_view' }
-    ]);
+    const assistant_shortcuts = computed(() => rolePresentation.value.shortcutQuestions);
 
     // 系统管理员视角：可跨农场选择任意地块进行排查
     const agentPlots = computed(() => {
@@ -1402,7 +1403,7 @@ const AdminAgentView = {
       assistant_error.value = '';
       try {
         const response = await api.agentChat(question, plot_id || undefined, assistant_conversation_id.value);
-        const turn = normalizeAgentTurn(response, question, { plot, sessionMode: isLiveSession.value ? 'live' : 'demo' });
+        const turn = normalizeAgentTurn(response, question, { plot, role: props.state?.currentUser?.role || 'SYSTEM_ADMIN', sessionMode: isLiveSession.value ? 'live' : 'demo' });
         const audit = await api.getAgentRun(response?.traceId || `demo-${Date.now()}`).catch(() => null);
         assistant_messages.value.push({
           id: `assistant-${response?.traceId || Date.now()}`,
@@ -1411,6 +1412,8 @@ const AdminAgentView = {
           sourceLabel: turn.sourceLabel,
           degraded: turn.degraded,
           intentLabel: turn.intentLabel,
+          facts: turn.facts || [],
+          recommendations: turn.recommendations || [],
           turn,
           actionProposal: turn.actionProposal || response?.actionProposal || null,
           audit,
@@ -1420,7 +1423,7 @@ const AdminAgentView = {
         await load_assistant_conversations({ openRecent: false });
       } catch (error) {
         assistant_service_status.value = isLiveSession.value ? 'DEGRADED' : 'DEMO';
-        assistant_error.value = `Agent 暂不可用：${error.message || '后端服务错误'}`;
+      assistant_error.value = `智能助手暂不可用：${error.message || '后端服务错误'}`;
       } finally {
         assistant_busy.value = false;
         scrollToBottom();
@@ -1478,10 +1481,23 @@ const AdminAgentView = {
         adapter: item.adapter,
         degraded: item.degraded,
         knowledgeEvidence: item.knowledgeEvidence,
-        actionProposal: item.actionProposal
+        actionProposal: item.actionProposal,
+        agentRole: item.agentRole,
+        role: item.agentRole,
+        roleLabel: item.roleLabel,
+        roleProfile: item.roleProfile,
+        result: item.result,
+        plan: item.plan,
+        diagnosis: item.diagnosis,
+        workItems: item.workItems,
+        context: item.context,
+        confidence: item.confidence,
+        readiness: item.readiness,
+        warnings: item.warnings,
+        scenarioLabel: item.scenarioLabel
       };
       const plot = find_agent_plot(item.plotId || assistant_plot_id.value);
-      const turn = normalizeAgentTurn(response, question, { plot, sessionMode: isLiveSession.value ? 'live' : 'demo' });
+      const turn = normalizeAgentTurn(response, question, { plot, role: props.state?.currentUser?.role || 'SYSTEM_ADMIN', sessionMode: isLiveSession.value ? 'live' : 'demo' });
       return {
         id: item.messageId || `assistant-${Date.now()}-${Math.random()}`,
         role: 'assistant',
@@ -1489,6 +1505,8 @@ const AdminAgentView = {
         sourceLabel: turn.sourceLabel,
         degraded: turn.degraded,
         intentLabel: turn.intentLabel,
+        facts: turn.facts || [],
+        recommendations: turn.recommendations || [],
         turn,
         actionProposal: turn.actionProposal || item.actionProposal || null,
         detailsOpen: false
@@ -1600,7 +1618,7 @@ const AdminAgentView = {
     return {
       assistant_input, assistant_messages, assistant_conversations, assistant_conversation_id,
       assistant_drawer_open, assistant_busy, assistant_error, assistant_service_status,
-      assistant_plot_id, assistant_message_list, assistant_shortcuts, agentPlots,
+      assistant_plot_id, assistant_message_list, assistant_shortcuts, agentPlots, currentRole, rolePresentation,
       agent_conversation_plot_label, agent_conversation_time,
       assistant_service_label, assistant_service_tone, assistant_source_label,
       assistant_action_tone, assistant_action_status_label, assistant_risk_label,
@@ -1843,7 +1861,7 @@ const app = createApp({
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
-    'admin-agent-view': AdminAgentView,
+    'admin-agent-view': AdminAiChatView,
     'admin-settings-view': AdminSettingsView,
     'settings-view': SettingsView
   },

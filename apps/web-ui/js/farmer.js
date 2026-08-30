@@ -1,8 +1,10 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-farm-admin-baseline-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -23,9 +25,9 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-three-branch-v1';
+} from './live-data.js?v=20260831-ai-role-v1';
 
-const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
 // Keep the standalone farmer shell in lock-step with the shared role pages.
 const initial_user_settings = readUserSettings();
@@ -50,7 +52,10 @@ const FARMER_ICON_CLASS = Object.freeze({
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
   insights: 'ph-chart-line-up', menu_book: 'ph-book-open', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
   science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash'
+  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash',
+  chevron_left: 'ph-caret-left', chevron_right: 'ph-caret-right', chat_bubble_outline: 'ph-chat-circle',
+  location_on: 'ph-map-pin', add: 'ph-plus', attach_file: 'ph-paperclip', image_search: 'ph-image-square',
+  bolt: 'ph-lightning', arrow_upward: 'ph-arrow-up'
 });
 
 const FarmerAppIcon = {
@@ -1154,6 +1159,7 @@ const app = createApp({
         toasts.value = toasts.value.filter((t) => t.id !== id);
       }, 3000);
     };
+    provide('toast', show_toast);
 
     const session = api.readSession();
     const session_user = presentRoleUser(session?.user);
@@ -1171,6 +1177,8 @@ const app = createApp({
       contact: fallback_user.contact,
       plot_names: fallback_user.plot_names
     });
+    const current_role = computed(() => user.value?.role || 'FARMER');
+    const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
     const farm = ref(is_formal_session ? {} : MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
@@ -1179,6 +1187,12 @@ const app = createApp({
       healthScore: compute_plot_health_score(plot)
     }));
     const plots = ref(assigned_plots);
+    const assistant_view_state = computed(() => ({
+      currentUser: user.value,
+      plots: plots.value,
+      allPlots: plots.value,
+      sessionMode: is_formal_session ? 'live' : 'demo'
+    }));
 
     const messages = ref(is_formal_session ? [] : (MOCK_DATA.farmer_messages || []).map(normalize_demo_message));
     const tasks = ref(is_formal_session ? [] : MOCK_DATA.farmer_tasks.map((task) => ({ ...task })));
@@ -2080,12 +2094,7 @@ const app = createApp({
     const assistant_service_status = ref(is_formal_session ? 'CONNECTING' : 'DEMO');
     const assistant_plot_id = ref(plots.value[0]?.plotId || '');
     const assistant_message_list = ref(null);
-    const assistant_shortcuts = Object.freeze([
-      { label: '查看今天待办', question: '查看今天待办', icon: 'task' },
-      { label: '当前地块有什么风险', question: '当前地块有什么风险', icon: 'warning' },
-      { label: '生成当前地块补水建议', question: '生成当前地块补水建议', icon: 'water_drop' },
-      { label: '帮我记录一次巡田', question: '帮我记录一次巡田', icon: 'fact_check' }
-    ]);
+    const assistant_shortcuts = computed(() => role_presentation.value.shortcutQuestions);
 
     // Keep the old QA names as local aliases for the existing advice helpers;
     // the farmer-facing surface now lives at #assistant instead of a popup.
@@ -2737,8 +2746,8 @@ const app = createApp({
       if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
         start_live_polling();
       }
-      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格' };
+      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
+        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
         show_toast(`${labels[key]}已更新`);
       }
     };
@@ -3836,7 +3845,7 @@ const app = createApp({
     };
 
     const assistant_shortcut_icon = (question) => {
-      const found = assistant_shortcuts.find((item) => item.question === question);
+      const found = assistant_shortcuts.value.find((item) => item.question === question);
       return found?.icon || 'smart_toy';
     };
 
@@ -3969,10 +3978,23 @@ const app = createApp({
         adapter: item.adapter,
         degraded: item.degraded,
         knowledgeEvidence: item.knowledgeEvidence,
-        actionProposal: item.actionProposal
+        actionProposal: item.actionProposal,
+        agentRole: item.agentRole,
+        role: item.agentRole,
+        roleLabel: item.roleLabel,
+        roleProfile: item.roleProfile,
+        result: item.result,
+        plan: item.plan,
+        diagnosis: item.diagnosis,
+        workItems: item.workItems,
+        context: item.context,
+        confidence: item.confidence,
+        readiness: item.readiness,
+        warnings: item.warnings,
+        scenarioLabel: item.scenarioLabel
       };
-      const turn = normalizeAgentTurn(response, question, { plot, sessionMode: is_formal_session ? 'live' : 'demo' });
-      return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
+      const turn = normalizeAgentTurn(response, question, { plot, role: user.value?.role || 'FARMER', sessionMode: is_formal_session ? 'live' : 'demo' });
+      return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, facts: turn.facts || [], recommendations: turn.recommendations || [], turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
     };
 
     const load_assistant_conversations = async ({ openRecent = true } = {}) => {
@@ -4133,6 +4155,7 @@ const app = createApp({
         const response = await api.agentChat(question, plot_id || undefined, assistant_conversation_id.value);
         const turn = normalizeAgentTurn(response, question, {
           plot,
+          role: user.value?.role || 'FARMER',
           sessionMode: is_formal_session ? 'live' : 'demo'
         });
         const auditTraceId = response?.traceId || `demo-${Date.now()}`;
@@ -4140,7 +4163,7 @@ const app = createApp({
         turn.audit = audit;
         qa_audit.value = audit;
         apply_qa_turn(turn);
-        assistant_messages.value.push({ id: `assistant-${response?.traceId || Date.now()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, turn, actionProposal: turn.actionProposal || response?.actionProposal || null, audit, detailsOpen: false });
+        assistant_messages.value.push({ id: `assistant-${response?.traceId || Date.now()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, facts: turn.facts || [], recommendations: turn.recommendations || [], turn, actionProposal: turn.actionProposal || response?.actionProposal || null, audit, detailsOpen: false });
         assistant_service_status.value = turn.degraded ? 'DEGRADED' : (is_formal_session ? 'READY' : 'DEMO');
         await load_assistant_conversations({ openRecent: false });
       } catch (error) {
@@ -4597,6 +4620,7 @@ const app = createApp({
       user_settings,
       accent_options: ACCENT_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
+      plot_background_options: PLOT_BACKGROUND_OPTIONS,
       current_accent_label,
       current_surface_style_label,
       update_user_setting,
@@ -4760,6 +4784,9 @@ const app = createApp({
       assistant_service_label,
       assistant_service_tone,
       assistant_source_label,
+      assistant_view_state,
+      current_role,
+      role_presentation,
       assistant_plot_id,
       assistant_message_list,
       assistant_shortcuts,
@@ -4784,6 +4811,7 @@ const app = createApp({
       confirm_assistant_action,
       cancel_assistant_action,
       wait_for_assistant_action,
+      refresh_assistant_impacts,
       qa_input,
       qa_active_turn,
       qa_history,
@@ -4899,6 +4927,7 @@ const app = createApp({
 const _session = api.readSession();
 const _session_user = presentRoleUser(_session?.user);
 app.component('app-icon', FarmerAppIcon);
+app.component('admin-ai-chat-view', AdminAiChatView);
 if (!_session || !_session_user) {
   window.location.replace('login.html');
 } else if (_session_user.role !== 'FARMER') {

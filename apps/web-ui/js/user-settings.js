@@ -22,7 +22,10 @@ export const DEFAULT_USER_SETTINGS = Object.freeze({
   reducedMotion: false,
   autoRefresh: true,
   refreshInterval: 15,
-  showDataOrigin: true
+  showDataOrigin: true,
+  // Crop photography is opt-in.  A neutral surface keeps dense metric cards
+  // readable on first visit and avoids implying a crop that is not configured.
+  plotBackground: 'none'
 });
 
 export const ACCENT_OPTIONS = Object.freeze([
@@ -54,8 +57,14 @@ export const SURFACE_STYLE_OPTIONS = Object.freeze([
   })
 ]);
 
+export const PLOT_BACKGROUND_OPTIONS = Object.freeze([
+  Object.freeze({ value: 'none', label: '纯色背景', hint: '默认关闭图片，信息更清晰' }),
+  Object.freeze({ value: 'crop', label: '作物背景', hint: '按作物显示地块照片' })
+]);
+
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map((item) => item.value));
 const SURFACE_STYLE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map((item) => item.value));
+const PLOT_BACKGROUND_VALUES = new Set(PLOT_BACKGROUND_OPTIONS.map((item) => item.value));
 const SURFACE_STYLE_VERSION = 4;
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
@@ -88,7 +97,8 @@ export function normalizeUserSettings(input = {}) {
     reducedMotion: booleanValue(source.reducedMotion, DEFAULT_USER_SETTINGS.reducedMotion),
     autoRefresh: booleanValue(source.autoRefresh, DEFAULT_USER_SETTINGS.autoRefresh),
     refreshInterval: REFRESH_INTERVALS.has(interval) ? interval : DEFAULT_USER_SETTINGS.refreshInterval,
-    showDataOrigin: booleanValue(source.showDataOrigin, DEFAULT_USER_SETTINGS.showDataOrigin)
+    showDataOrigin: booleanValue(source.showDataOrigin, DEFAULT_USER_SETTINGS.showDataOrigin),
+    plotBackground: PLOT_BACKGROUND_VALUES.has(source.plotBackground) ? source.plotBackground : DEFAULT_USER_SETTINGS.plotBackground
   };
 }
 
@@ -163,6 +173,7 @@ export function applyUserSettings(settings, documentRef, windowRef) {
   root.dataset.layout = normalized.layout;
   root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false';
   root.dataset.showDataOrigin = normalized.showDataOrigin ? 'true' : 'false';
+  root.dataset.plotBackground = normalized.plotBackground;
   root.style.colorScheme = theme;
   // Inline root variables win over role-level defaults while still allowing
   // the existing role styles to supply all secondary colours.

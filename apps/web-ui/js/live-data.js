@@ -355,15 +355,16 @@ export function displayText(value, fallback = '—') {
 export function agentResponseText(response = {}, fallback = '') {
   for (const candidate of [response?.narrative, response?.summary, response?.message]) {
     if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim()
+      const cleaned = candidate.trim()
         .replace(/^\s*#{1,6}\s+/gm, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
         .replace(/__(.*?)__/g, '$1')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/^\s*[-*]\s+/gm, '• ');
+      return displayText(cleaned, fallback);
     }
   }
-  return fallback;
+  return displayText(fallback, fallback);
 }
 
 export function agentResponseSource(response = {}, sessionMode = 'live') {
@@ -381,6 +382,10 @@ const AGENT_INTENT_LABELS = Object.freeze({
   DIAGNOSIS: '风险诊断',
   RISK_DIAGNOSIS: '风险诊断',
   RISK_FORECAST: '风险预测',
+  PLATFORM_STATUS: '平台状态',
+  PLATFORM_OVERVIEW: '平台风险概览',
+  FARM_OVERVIEW: '农场风险概览',
+  RULE_STRATEGY_STATUS: '规则与策略状态',
   TODAY_WORK: '今日农务',
   PLOT_STATUS: '地块状态',
   GREETING: '问候',
@@ -390,6 +395,12 @@ const AGENT_INTENT_LABELS = Object.freeze({
   RETEST_CHECKLIST: '复测清单'
 });
 
+const AGENT_ROLE_LABELS = Object.freeze({
+  FARMER: '种植农户',
+  FARM_ADMIN: '农场管理员',
+  SYSTEM_ADMIN: '系统管理员'
+});
+
 const AGENT_PROVENANCE_LABELS = Object.freeze({
   OBSERVED: '观测',
   RETRIEVED: '检索',
@@ -397,6 +408,64 @@ const AGENT_PROVENANCE_LABELS = Object.freeze({
   SIMULATED: '模拟',
   USER_PROVIDED: '人工'
 });
+
+const AGENT_TOOL_LABELS = Object.freeze({
+  get_plot_status: '读取地块状态',
+  get_risk_forecast: '计算风险预测',
+  generate_irrigation_plan: '生成灌溉方案',
+  evaluate_diagnosis: '评估风险诊断',
+  diagnose_root_cause: '分析异常根因',
+  get_today_work_items: '汇总今日农务',
+  get_water_resource_status: '读取水资源状态',
+  transition_assigned_work_order: '更新本人任务',
+  create_inspection_record: '提交巡田记录',
+  create_evidence_request: '申请补证任务',
+  execute_virtual_irrigation: '执行虚拟灌溉',
+  create_plot: '新增地块',
+  update_plot: '更新地块',
+  set_plot_devices: '绑定设备',
+  create_and_assign_work_order: '创建并下发任务',
+  publish_alert_verification: '发布告警核查',
+  close_alert: '关闭告警',
+  get_platform_status: '读取平台服务状态',
+  get_platform_risk_overview: '汇总全平台风险',
+  get_rule_strategy_status: '读取规则与策略状态',
+  get_farm_overview: '汇总当前农场'
+});
+
+const AGENT_SCOPE_LABELS = Object.freeze({
+  PLOT: '当前地块', FARM: '当前农场', FARM_PLOTS: '当前农场地块', PLATFORM: '全平台',
+  CROP: '作物模型', GENERAL: '通用规则', USER: '当前账号', SYSTEM: '系统'
+});
+
+/**
+ * Keep the small vocabulary used by all three chat shells in one place.
+ * Stable API codes remain available on the normalized object, while the
+ * labels are what the person using the workspace should see.
+ */
+export function agentIntentLabel(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return AGENT_INTENT_LABELS[code] || (code ? displayText(code, '农事建议') : '农事建议');
+}
+
+export function agentRoleLabel(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return AGENT_ROLE_LABELS[code] || (code ? displayText(code, '当前身份') : '当前身份');
+}
+
+export function agentToolLabel(value) {
+  const code = String(value || '').trim();
+  return AGENT_TOOL_LABELS[code] || (code ? displayText(code, '受控工具') : '受控工具');
+}
+
+export function agentScopeLabel(value) {
+  const code = String(value || '').trim().toUpperCase();
+  return AGENT_SCOPE_LABELS[code] || (code ? displayText(code, '当前范围') : '当前范围');
+}
+
+export function agentProvenanceLabel(value) {
+  return agentProvenanceLabelInternal(value);
+}
 
 function agentToolOutput(response = {}, name = '') {
   return asArray(response.tools).find((tool) => tool?.name === name)?.output;
@@ -409,7 +478,7 @@ function formatAgentConfidence(value) {
   return `${percent}%`;
 }
 
-function agentProvenanceLabel(value) {
+function agentProvenanceLabelInternal(value) {
   const key = String(value || '').trim().toUpperCase();
   return AGENT_PROVENANCE_LABELS[key] || key || '—';
 }
@@ -426,18 +495,19 @@ export function normalizeAgentEvidence(response = {}) {
       type: 'knowledge',
       label: source.split('/').pop() || source,
       detail: source,
-      scope: text(entry.scope, '—'),
-      provenance: agentProvenanceLabel(entry.provenance)
+       scope: agentScopeLabel(entry.scope),
+      provenance: agentProvenanceLabelInternal(entry.provenance)
     });
   });
   asArray(response.tools).forEach((tool, index) => {
     const plotId = text(tool?.input?.plotId, '');
+    const scope = plotId || text(tool?.input?.farmId, '') || agentScopeLabel(tool?.input?.scope);
     items.push({
       id: `tool-${index}`,
       type: 'tool',
-      label: text(tool?.name, '工具调用'),
-      detail: plotId ? `地块 ${plotId}` : '受控工具输出',
-      scope: plotId || '—',
+      label: agentToolLabel(tool?.name),
+      detail: plotId ? `地块 ${plotId}` : scope ? `${scope}只读结果` : '受控工具输出',
+      scope: scope || '—',
       provenance: '观测',
       durationMs: tool?.durationMs
     });
@@ -447,13 +517,110 @@ export function normalizeAgentEvidence(response = {}) {
     items.push({
       id: 'context-pack',
       type: 'version',
-      label: `Crop Pack v${context.cropPackVersion}`,
+      label: `作物模型包 v${context.cropPackVersion}`,
       detail: `规则 ${text(context.ruleVersion, '—')} · 知识 ${text(context.knowledgeVersion, '—')}`,
       scope: text(context.stageCode, '—'),
       provenance: '推导'
     });
   }
   return items.slice(0, 8);
+}
+
+function agentFactValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { value: value.value ?? value.current ?? value.reading, unit: value.unit || '' };
+  }
+  return { value, unit: '' };
+}
+
+function appendAgentFact(items, label, value, unit = '') {
+  const normalized = agentFactValue(value);
+  if (normalized.value === undefined || normalized.value === null || normalized.value === '') return;
+  const numeric = Number(normalized.value);
+  const shown = Number.isFinite(numeric)
+    ? (Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, ''))
+    : String(normalized.value);
+  const suffix = normalized.unit || unit;
+  items.push({ label, value: `${shown}${suffix ? ` ${suffix}` : ''}`.trim() });
+}
+
+/**
+ * Project only explicit deterministic values into the shared chat facts row.
+ * This is presentation data, not a second source of truth: missing fields are
+ * omitted instead of being filled with demo values.
+ */
+export function normalizeAgentFacts(response = {}) {
+  const result = response.result && typeof response.result === 'object' ? response.result : {};
+  const latest = result.latest || result.latestTelemetry || result.telemetry || response.latest || {};
+  const diagnosis = response.diagnosis && typeof response.diagnosis === 'object' ? response.diagnosis : {};
+  const plan = response.plan && typeof response.plan === 'object' ? response.plan : {};
+  const facts = [];
+  // Newer responses may already contain a server-normalized facts row. Keep
+  // it first so a refreshed conversation preserves the exact values shown at
+  // the time of the answer, then fill any missing fields from the raw result.
+  if (Array.isArray(response.facts)) {
+    response.facts.forEach((fact) => {
+      if (fact && fact.label && fact.value !== undefined && fact.value !== null) {
+        facts.push({ label: String(fact.label), value: String(fact.value) });
+      }
+    });
+  }
+  const metric = (codes) => {
+    for (const code of codes) {
+      if (latest[code] !== undefined) return latest[code];
+    }
+    return undefined;
+  };
+  appendAgentFact(facts, '土壤湿度', metric(['SOIL_MOISTURE', 'soilMoisture', 'moisture']), '%');
+  appendAgentFact(facts, '空气温度', metric(['AIR_TEMPERATURE', 'airTemperature', 'temperature']), '°C');
+  appendAgentFact(facts, '空气湿度', metric(['AIR_HUMIDITY', 'airHumidity', 'humidity']), '%RH');
+  appendAgentFact(facts, '风险等级', diagnosis.riskLevel ?? diagnosis.level ?? result.riskLevel ?? response.riskLevel);
+  appendAgentFact(facts, '就绪状态', result.readinessStatus ?? plan.readinessStatus ?? response.readinessStatus);
+  appendAgentFact(facts, '建议水量', result.waterLitre ?? result.waterLitres ?? plan.waterLitre ?? plan.waterLitres, 'L');
+  appendAgentFact(facts, '执行时长', result.durationSeconds ?? plan.durationSeconds, '秒');
+  appendAgentFact(facts, '规则版本', response.context?.ruleVersion || response.ruleVersion);
+  appendAgentFact(facts, '场景', result.scenarioLabel || result.scenario || response.scenarioLabel);
+  if (Array.isArray(result.plots)) appendAgentFact(facts, '地块数量', result.plots.length, '个');
+  appendAgentFact(facts, '进行中告警', result.activeAlertCount, '条');
+  appendAgentFact(facts, '待处理任务', result.pendingWorkOrderCount, '项');
+  appendAgentFact(facts, '数据库', result.database);
+  appendAgentFact(facts, 'Redis', result.redis);
+  appendAgentFact(facts, 'MQTT', result.mqtt);
+  appendAgentFact(facts, '作物包', result.cropPackCount, '个');
+  appendAgentFact(facts, '规则', result.ruleCount, '条');
+  appendAgentFact(facts, '策略候选', result.strategyCandidateCount, '个');
+  appendAgentFact(facts, '已启用策略', result.activeStrategyCount, '个');
+  const quality = response.quality || result.quality || response.dataQuality;
+  if (typeof quality === 'string') appendAgentFact(facts, '数据质量', quality);
+  const evidenceCount = Array.isArray(response.knowledgeEvidence) ? response.knowledgeEvidence.length : 0;
+  if (evidenceCount) appendAgentFact(facts, '检索证据', evidenceCount, '条');
+  asArray(response.tools).forEach((tool) => {
+    const output = tool?.output && typeof tool.output === 'object' ? tool.output : {};
+    appendAgentFact(facts, '工具结果', output.readinessStatus || output.status || output.executionStatus);
+  });
+  return facts.filter((fact, index, list) => list.findIndex(item => item.label === fact.label) === index).slice(0, 6);
+}
+
+/** Return concise, explicit next steps without duplicating the narrative. */
+export function normalizeAgentRecommendations(response = {}) {
+  const plan = response.plan && typeof response.plan === 'object' ? response.plan : {};
+  const values = Array.isArray(response.recommendations)
+    ? response.recommendations.filter((item) => item !== undefined && item !== null && String(item).trim()).map((item) => String(item).trim())
+    : [];
+  if (response.actionProposal?.summary) values.push(`确认后执行：${String(response.actionProposal.summary).trim()}`);
+  [plan.nextStep, plan.recommendation, plan.advice, plan.action].forEach((value) => {
+    if (typeof value === 'string' && value.trim()) values.push(value.trim());
+  });
+  (Array.isArray(plan.alternatives) ? plan.alternatives : []).forEach((value) => {
+    const item = typeof value === 'string' ? value : value?.label || value?.summary;
+    if (item) values.push(String(item).trim());
+  });
+  (Array.isArray(response.warnings) ? response.warnings : []).forEach((value) => {
+    if (typeof value === 'string' && value.trim()) values.push(`先处理：${value.trim()}`);
+  });
+  const missing = response.readiness?.missingEvidence || response.result?.missingEvidence;
+  if (Array.isArray(missing) && missing.length) values.push(`补充证据：${missing.slice(0, 2).join('、')}`);
+  return [...new Set(values)].slice(0, 4);
 }
 
 /**
@@ -566,6 +733,9 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
   const plot = options.plot || null;
   const sessionMode = options.sessionMode || 'live';
   const intent = String(response.intent || '').toUpperCase();
+  const responseRole = String(response.role || '').toUpperCase();
+  const role = ['USER', 'ASSISTANT'].includes(responseRole) ? String(options.role || '').toUpperCase() : response.role || options.role;
+  const roleCode = String(role || '').toUpperCase();
   return {
     id: `qa-${Date.now()}`,
     question,
@@ -573,10 +743,17 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
     sourceLabel: agentResponseSource(response, sessionMode),
     traceId: text(response.traceId, ''),
     intent,
-    intentLabel: AGENT_INTENT_LABELS[intent] || '农事建议',
+    intentLabel: agentIntentLabel(intent),
+    role: text(role, ''),
+    agentRole: text(role, ''),
+    roleLabel: text(response.roleLabel || response.roleProfile?.label || agentRoleLabel(roleCode), ''),
+    scopeLabel: text(response.roleProfile?.scopeLabel || options.scopeLabel, ''),
+    roleProfile: response.roleProfile && typeof response.roleProfile === 'object' ? response.roleProfile : null,
     confidence: formatAgentConfidence(response.confidence),
     degraded: Boolean(response.degraded),
     evidence: normalizeAgentEvidence(response),
+    facts: normalizeAgentFacts(response),
+    recommendations: normalizeAgentRecommendations(response),
     decisionCard: normalizeAgentDecisionCard(response, plot),
     actionProposal: response?.actionProposal ? { ...response.actionProposal } : null,
     plotId: text(plot?.plotId || response.plotId, ''),
