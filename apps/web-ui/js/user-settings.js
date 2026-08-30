@@ -9,12 +9,12 @@
 export const USER_SETTINGS_KEY = 'agriloop-user-settings-v1';
 
 export const DEFAULT_USER_SETTINGS = Object.freeze({
-  // Keep the familiar white workspace as the first-run experience.  Users
+  // Keep the familiar white workspace as the first-run experience. Users
   // can still opt into the dark or system theme from the settings page.
   theme: 'light',
   accent: 'green',
   surfaceStyle: 'glass-latest',
-  surfaceStyleVersion: 2,
+  surfaceStyleVersion: 3,
   density: 'comfortable',
   layout: 'standard',
   reducedMotion: false,
@@ -54,7 +54,7 @@ export const SURFACE_STYLE_OPTIONS = Object.freeze([
 
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map((item) => item.value));
 const SURFACE_STYLE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map((item) => item.value));
-const SURFACE_STYLE_VERSION = 2;
+const SURFACE_STYLE_VERSION = 3;
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
@@ -103,9 +103,10 @@ export function readUserSettings(storage) {
         const oldTheme = store.getItem('agriloop-theme');
         if (THEME_VALUES.has(oldTheme)) parsed.theme = oldTheme === 'system' ? DEFAULT_USER_SETTINGS.theme : oldTheme;
       } else if (Number(parsed.surfaceStyleVersion) < SURFACE_STYLE_VERSION) {
-        // The first settings release used the classic card material as its
-        // default.  Upgrade that implicit choice to the current main liquid
-        // glass material; users can still select classic again explicitly.
+        // Older deployed copies used classic as the implicit default. Bring
+        // those records to the first reference image's main liquid-glass
+        // default. A user can still choose classic again in settings; that
+        // explicit choice is saved at version 3 and is not migrated again.
         if (!Object.prototype.hasOwnProperty.call(parsed, 'surfaceStyle') || parsed.surfaceStyle === 'classic') {
           parsed.surfaceStyle = DEFAULT_USER_SETTINGS.surfaceStyle;
         }

@@ -3340,11 +3340,12 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
   .farmer-settings-surface-row { grid-template-columns: 1fr; }
 }
 
-/* Unified sidebar geometry for the standalone farmer workspace.  It mirrors
- * the shared admin/system sidebar while retaining the farmer's green cues. */
+/* Unified compact sidebar geometry for the standalone farmer workspace.  It
+ * mirrors /srv/system-admin while retaining the first reference image's
+ * glass material and the farmer's green cues. */
 #farmer_app .farmer-sidebar {
-  width: 256px;
-  padding: 24px 18px 22px;
+  width: var(--g-sidebar-width, 210px);
+  padding: 12px;
   background: rgba(246, 251, 248, .72);
   border-right: 1px solid rgba(55, 89, 69, .16);
   box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
@@ -3355,38 +3356,44 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-height: 0;
 }
 #farmer_app .farmer-nav-footer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 0;
 }
 #farmer_app .farmer-nav-item {
   --sidebar-accent: #2f8b5c;
-  min-height: 56px;
-  height: 56px;
+  min-height: 48px;
+  height: 48px;
   margin: 0;
-  padding: 0 20px;
-  gap: 15px;
+  padding: 0 16px;
+  gap: 16px;
   border: 1px solid rgba(71, 102, 85, .14);
-  border-radius: 18px;
+  border-radius: 14px;
   background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
   box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
   color: var(--g-text-primary);
-  font: 600 15px/1.2 var(--g-font-family);
-  letter-spacing: -.01em;
+  font: 500 14px/1 var(--g-font-family);
   transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+html[data-density="compact"] #farmer_app .farmer-nav-item {
+  min-height: 40px;
+  height: 40px;
+  gap: 12px;
+  padding-inline: 12px;
+  font-size: 13px;
 }
 #farmer_app .farmer-nav-item .ph,
 #farmer_app .farmer-nav-item .material-symbols-outlined {
   flex: 0 0 auto;
   color: var(--sidebar-accent);
-  font-size: 22px;
+  font-size: 21px;
 }
 #farmer_app .farmer-nav-label {
   min-width: 0;
@@ -3452,7 +3459,7 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
   background: rgba(35, 57, 46, .78);
 }
 @media (max-width: 760px) {
-  #farmer_app .farmer-sidebar { width: 256px; padding: 18px 14px 18px; }
+  #farmer_app .farmer-sidebar { width: 230px; padding: 12px; }
   #farmer_app .farmer-sidebar.collapsed { width: 230px; padding: 12px; }
-  #farmer_app .farmer-nav-item { min-height: 52px; height: 52px; padding-inline: 16px; }
+  #farmer_app .farmer-nav-item { min-height: 48px; height: 48px; padding-inline: 16px; }
 }

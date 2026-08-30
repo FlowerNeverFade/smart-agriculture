@@ -1013,13 +1013,13 @@ html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card
 }
 
 /* Unified role sidebar ------------------------------------------------------
- * The three workspaces use the same large, calm navigation cards as the
- * reference farm-members view.  Role-specific sheets only provide accent
- * colours; this block owns the shared geometry and material.
+ * The three workspaces use the compact navigation geometry from the system
+ * admin workspace while retaining the first reference image's glass material.
+ * Role-specific sheets only provide accent colours; this block owns geometry.
  */
 #app .g-sidebar {
-  width: 256px;
-  padding: 24px 18px 22px;
+  width: var(--g-sidebar-width, 210px);
+  padding: 12px;
   background: rgba(246, 251, 248, .72);
   border-right: 1px solid rgba(55, 89, 69, .16);
   box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
@@ -1030,39 +1030,47 @@ html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-height: 0;
 }
 #app .g-sidebar-footer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 0;
 }
 #app .g-nav-item {
   --sidebar-accent: var(--g-primary);
   position: relative;
-  min-height: 56px;
-  height: 56px;
+  min-height: 48px;
+  height: 48px;
   margin: 0;
-  padding: 0 20px;
-  gap: 15px;
+  padding: 0 16px;
+  gap: 16px;
   border: 1px solid rgba(71, 102, 85, .14);
-  border-radius: 18px;
+  border-radius: 14px;
   background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
   box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
   color: var(--g-text-primary);
-  font: 600 15px/1.2 var(--g-font-family);
-  letter-spacing: -.01em;
+  font: 500 14px/1 var(--g-font-family);
   transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+/* Keep the user-selectable compact density meaningful after the shared
+ * sidebar geometry takes precedence over the legacy role sheets. */
+html[data-density="compact"] #app .g-nav-item {
+  min-height: 40px;
+  height: 40px;
+  gap: 12px;
+  padding-inline: 12px;
+  font-size: 13px;
 }
 #app .g-nav-item .ph,
 #app .g-nav-item .material-symbols-outlined {
   flex: 0 0 auto;
   color: var(--sidebar-accent);
-  font-size: 22px;
+  font-size: 21px;
 }
 #app .g-nav-label {
   min-width: 0;
@@ -1148,9 +1156,9 @@ html[data-surface-style="glass-soft"] #app .g-sidebar {
 }
 
 @media (max-width: 760px) {
-  #app .g-sidebar { width: 256px; padding: 18px 14px 18px; }
+  #app .g-sidebar { width: 230px; padding: 12px; }
   #app .g-sidebar.collapsed { width: 230px; padding: 12px; }
-  #app .g-nav-item { min-height: 52px; height: 52px; padding-inline: 16px; }
+  #app .g-nav-item { min-height: 48px; height: 48px; padding-inline: 16px; }
 }
 #app .g-sidebar.collapsed {
   width: 0;
