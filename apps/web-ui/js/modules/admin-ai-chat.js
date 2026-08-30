@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260830-ai-assistant-state-v2';
+import { api } from '../api.js?v=20260830-ai-assistant-state-v3';
 import { agentResponseSource, agentResponseText } from '../live-data.js?v=20260830-agent-assistant-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -376,7 +376,7 @@ export const AdminAiChatView = {
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手">
       <aside class="admin-ai-conversation-sidebar" aria-label="历史对话">
-        <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>历史对话</strong></div><div class="admin-ai-sidebar-heading-actions"><button class="g-btn primary compact" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button><button class="g-btn icon-only compact admin-ai-sidebar-collapse" type="button" aria-label="隐藏历史对话" title="隐藏历史对话" @click="toggleSidebar"><app-icon name="chevron_left"></app-icon></button></div></div>
+        <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>历史对话</strong></div><div class="admin-ai-sidebar-heading-actions"><button class="g-btn icon-only compact admin-ai-sidebar-collapse" type="button" aria-label="隐藏历史对话" title="隐藏历史对话" @click="toggleSidebar"><app-icon name="chevron_left"></app-icon></button></div></div>
         <div class="admin-ai-conversation-list" aria-live="polite">
           <div v-if="loadingConversations" class="admin-ai-sidebar-state"><app-icon name="hourglass_empty"></app-icon><span>正在读取…</span></div>
           <div v-else-if="!conversations.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>发送第一条消息后会保存到这里</span></div>

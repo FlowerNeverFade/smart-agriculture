@@ -15,11 +15,9 @@
 }
 
 .admin-ai-chat.is-sidebar-collapsed {
-  --ai-content-max: 1180px;
+  --ai-content-max: 100%;
   grid-template-columns: 0 0 minmax(0, 1fr);
 }
-
-html[data-layout="wide"] .admin-ai-chat.is-sidebar-collapsed { --ai-content-max: 1320px; }
 
 .admin-ai-chat-main {
   display: grid;
