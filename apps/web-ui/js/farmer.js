@@ -4226,9 +4226,13 @@ const app = createApp({
       load_crop_manual();
     });
 
-    watch(selected_plot, (plot) => {
+    watch(selected_plot, (plot, previous) => {
       risk_tool_plot_id.value = plot?.plotId || risk_tool_plot_id.value;
       plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
+      // 遥测轮询会整体替换 plots 数组，同一地块也会拿到新对象引用；
+      // 只有 plotId 真正变化时才重新加载模拟与预测，避免曲线容器被
+      // 反复销毁重建造成闪烁。
+      if (!plot?.plotId || plot.plotId === previous?.plotId) return;
       void load_plot_simulation(plot?.plotId);
     });
 

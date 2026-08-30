@@ -2334,6 +2334,9 @@
   gap: 14px;
   align-items: start;
 }
+.farmer-plot-simulation-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
 .farmer-plot-simulation-params {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

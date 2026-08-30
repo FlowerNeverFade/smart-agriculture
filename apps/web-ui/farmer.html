@@ -1347,11 +1347,7 @@
                   </label>
                 </div>
 
-                <div class="farmer-plot-simulation-grid">
-                  <div class="farmer-plot-simulation-params">
-                    <div v-for="item in plot_simulation_parameter_summary" :key="item.key" class="farmer-plot-simulation-param"><span>{{ item.label }}</span><strong>{{ item.value }}<small>{{ item.unit }}</small></strong></div>
-                    <p v-if="!plot_simulation_parameter_summary.length" class="farmer-panel-hint">暂无可展示的策略参数。</p>
-                  </div>
+                <div class="farmer-plot-simulation-grid farmer-plot-simulation-grid--single">
                   <div class="farmer-plot-simulation-chart">
                     <div class="farmer-plot-simulation-chart-head">
                       <div class="farmer-plot-simulation-chart-title"><strong>{{ plot_simulation_metric_label }}：历史 + 策略预测</strong><small>与管理员地块详情一致</small></div>
