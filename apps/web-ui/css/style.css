@@ -157,8 +157,10 @@ body {
 .g-nav-item:hover { background-color: var(--g-bg-hover); }
 .g-nav-item.active { background-color: var(--g-primary-bg); color: var(--g-primary); }
 .g-nav-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--g-primary) 36%, transparent); outline-offset: -2px; }
-.g-sidebar-main { flex: 1; }
+.g-sidebar-main { flex: 1; min-height: 0; }
 .g-sidebar-footer {
+  display: grid;
+  gap: 4px;
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--g-border-subtle);
@@ -826,6 +828,14 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 }
 
 /* Workspace settings ------------------------------------------------------- */
+html[data-accent="green"] :is(#app, #farmer_app) { --g-primary: #2f7d55 !important; --g-primary-hover: #22623f !important; --g-primary-bg: #e3f2e8 !important; }
+html[data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #2563a8 !important; --g-primary-hover: #1d4f87 !important; --g-primary-bg: #e5effb !important; }
+html[data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #a96716 !important; --g-primary-hover: #82500f !important; --g-primary-bg: #fff2d9 !important; }
+html[data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #7657c4 !important; --g-primary-hover: #5d439f !important; --g-primary-bg: #eee8fb !important; }
+[data-theme="dark"][data-accent="green"] :is(#app, #farmer_app) { --g-primary: #75d19b !important; --g-primary-hover: #9be8bb !important; --g-primary-bg: #254533 !important; }
+[data-theme="dark"][data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #8ab4f8 !important; --g-primary-hover: #aecbfa !important; --g-primary-bg: #394457 !important; }
+[data-theme="dark"][data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #f6c76b !important; --g-primary-hover: #ffda91 !important; --g-primary-bg: #51401f !important; }
+[data-theme="dark"][data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #c5a8ff !important; --g-primary-hover: #d8c4ff !important; --g-primary-bg: #42356b !important; }
 html[data-density="compact"] { --g-header-height: 56px; --g-sidebar-width: 196px; }
 html[data-density="compact"] .g-main { padding: 16px; }
 html[data-density="compact"] .g-nav-item { height: 40px; gap: 12px; padding-inline: 12px; font-size: 13px; }
@@ -885,5 +895,60 @@ html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .
 .settings-footer strong { color: var(--g-text-primary); font-size: 12px; }
 html[data-surface-style="glass-soft"] #app .g-card { backdrop-filter: blur(14px) saturate(112%); box-shadow: 0 8px 20px rgba(24,62,43,.10), inset 0 1px 0 rgba(255,255,255,.62); }
 html[data-surface-style="glass-latest"] #app .g-card { backdrop-filter: blur(24px) saturate(135%); box-shadow: 0 18px 42px rgba(24,62,43,.14), inset 0 1px 0 rgba(255,255,255,.72); }
+.settings-surface-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-surface-option { min-height: 92px; }
+.settings-surface-option .settings-theme-icon { border: 1px solid var(--g-border-subtle); }
+.settings-surface-option[data-style="classic"] .settings-theme-icon { background: var(--g-bg-surface); }
+html[data-surface-style="classic"] {
+  --agriloop-appearance-base: #f8f9fa;
+  --agriloop-appearance-surface: #ffffff;
+  --agriloop-appearance-subtle: #f1f3f4;
+  --agriloop-appearance-border: #dadce0;
+  --agriloop-appearance-border-subtle: #e8eaed;
+}
+html[data-theme="dark"][data-surface-style="classic"] {
+  --agriloop-appearance-base: #202124;
+  --agriloop-appearance-surface: #292a2d;
+  --agriloop-appearance-subtle: #35363a;
+  --agriloop-appearance-border: #5f6368;
+  --agriloop-appearance-border-subtle: #3c4043;
+}
+html[data-surface-style="classic"] body { background: var(--agriloop-appearance-base); }
+html[data-surface-style="classic"] :is(#app, #farmer_app) {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface);
+  --g-bg-subtle: var(--agriloop-appearance-subtle);
+  --g-bg-hover: var(--agriloop-appearance-subtle);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+}
+html[data-surface-style="classic"] #app :is(
+  .g-card, .admin-panel, .admin-alert-card, .admin-alert-empty, .manager-plot-card,
+  .manager-summary-strip, .simple-summary-row, .simple-data-panel, .simple-empty-state,
+  .work-summary, .work-filters, .work-order-card, .inspection-history, .rp-hero,
+  .rp-summary article, .rp-card
+) {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] #app :is(.g-header, .g-sidebar) {
+  background: var(--agriloop-appearance-surface) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="glass-soft"] :is(#app, #farmer_app) {
+  --agriloop-appearance-base: rgba(232, 242, 235, .72);
+}
+html[data-surface-style="glass-soft"] #app :is(.g-card, .admin-panel, .manager-plot-card, .simple-data-panel),
+html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card, .farmer-plot-overview-card, .farmer-task-column) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+  box-shadow: 0 8px 20px rgba(24, 62, 43, .10), inset 0 1px 0 rgba(255, 255, 255, .70) !important;
+}
 @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
-@media (max-width: 600px) { .settings-page-header { display: grid; gap: 12px; } .settings-page-header h1 { font-size: 23px; } .settings-theme-options { grid-template-columns: 1fr; } .settings-theme-option { min-height: auto; grid-template-columns: 28px 1fr; align-items: center; } .settings-theme-option small { grid-column: 2; } .settings-accent-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } .settings-footer { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) { .settings-page-header { display: grid; gap: 12px; } .settings-page-header h1 { font-size: 23px; } .settings-theme-options { grid-template-columns: 1fr; } .settings-theme-option { min-height: auto; grid-template-columns: 28px 1fr; align-items: center; } .settings-theme-option small { grid-column: 2; } .settings-accent-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } .settings-surface-options { grid-template-columns: 1fr; } .settings-footer { align-items: flex-start; flex-direction: column; } }
