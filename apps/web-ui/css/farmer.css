@@ -2315,6 +2315,13 @@
   color: var(--g-text-secondary);
   font-size: 12px;
 }
+.farmer-plot-simulation-scenario:is(button) {
+  font: inherit;
+  cursor: pointer;
+}
+.farmer-plot-simulation-scenario:is(button):hover {
+  border-color: color-mix(in srgb, var(--g-success) 45%, var(--g-border-subtle));
+}
 .farmer-plot-simulation-scenario.active {
   border-color: color-mix(in srgb, var(--g-success) 55%, var(--g-border));
   background: var(--g-success-bg);

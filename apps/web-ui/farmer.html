@@ -1314,7 +1314,7 @@
                   <div>
                     <span class="farmer-section-kicker">风险预测 · 地块未来趋势</span>
                     <h3>{{ risk_tool_plot ? risk_tool_plot.name : '负责地块' }} · 未来预测</h3>
-                    <p class="farmer-panel-hint">此处与农场管理员打开地块详情时使用同一套历史遥测、当前策略和预测接口；农户只能查看负责地块的结果。</p>
+                    <p class="farmer-panel-hint">此处与农场管理员打开地块详情时使用同一套历史遥测、当前策略和预测接口；农户可调整参数进行只读试算，但不会写回策略。</p>
                   </div>
                   <span class="g-badge" :class="plot_simulation_loading ? 'warning' : (plot_simulation_error ? 'warning' : 'success')">
                     {{ plot_simulation_loading ? '读取中' : (plot_simulation_scenario ? plot_simulation_scenario.label : '未设置') }}
@@ -1332,8 +1332,19 @@
                   <span>来源：{{ plot_simulation && plot_simulation.sourceMode ? plot_simulation.sourceMode : 'SIMULATION' }}</span>
                   <span v-if="plot_simulation && plot_simulation.revision">策略版本 {{ plot_simulation.revision }}</span>
                 </div>
-                <div class="farmer-plot-simulation-scenarios" role="group" aria-label="地块模拟场景（只读）">
-                  <span v-for="scenario in plot_simulation_options" :key="scenario.code" class="farmer-plot-simulation-scenario" :class="{active: plot_simulation_scenario && plot_simulation_scenario.code === scenario.code}">{{ scenario.emoji }} {{ scenario.label }}</span>
+                <div class="farmer-plot-simulation-scenarios" role="group" aria-label="选择预测场景">
+                  <button v-for="scenario in plot_simulation_options" :key="scenario.code" type="button" class="farmer-plot-simulation-scenario" :class="{active: plot_simulation_scenario && plot_simulation_scenario.code === scenario.code}" @click="select_plot_simulation_scenario(scenario.code)">{{ scenario.emoji }} {{ scenario.label }}</button>
+                </div>
+
+                <div class="farmer-risk-tool-parameters" v-if="plot_simulation_fields.length">
+                  <label v-for="field in plot_simulation_fields" :key="field.key" class="farmer-risk-tool-field">
+                    <span><b>{{ field.label }}</b><small>{{ field.help }}</small></span>
+                    <span class="farmer-risk-tool-control">
+                      <input type="range" :min="field.min" :max="field.max" :step="field.step" v-model.number="plot_simulation_form.parameters[field.key]" @input="schedule_plot_simulation_preview()" :aria-label="field.label">
+                      <input type="number" :min="field.min" :max="field.max" :step="field.step" v-model.number="plot_simulation_form.parameters[field.key]" @change="schedule_plot_simulation_preview()" :aria-label="field.label + '数值'">
+                      <em>{{ field.unit }}</em>
+                    </span>
+                  </label>
                 </div>
 
                 <div class="farmer-plot-simulation-grid">
@@ -1351,7 +1362,7 @@
                         </select>
                       </label>
                     </div>
-                    <div v-if="plot_simulation_loading || plot_simulation_metric_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取未来预测曲线…</span></div>
+                    <div v-if="plot_simulation_loading || plot_simulation_metric_loading || plot_simulation_evaluating" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取未来预测曲线…</span></div>
                     <div v-else-if="plot_simulation_chart_available" class="farmer-plot-simulation-chart-canvas">
                       <div ref="plot_simulation_chart_el" class="farmer-plot-simulation-echarts" role="img" :aria-label="`${plot_simulation_metric_label}历史与策略预测曲线`"></div>
                     </div>
@@ -1361,7 +1372,8 @@
                   </div>
                 </div>
                 <div class="farmer-form-footer farmer-plot-simulation-footer">
-                  <span class="farmer-panel-hint">只读展示，不会修改管理员策略或主状态。</span>
+                  <span class="farmer-panel-hint">参数仅用于本地只读试算，不会修改管理员策略或主状态。</span>
+                  <button type="button" class="g-btn secondary farmer-btn-light" @click="reset_plot_simulation_preview" :disabled="plot_simulation_loading || plot_simulation_evaluating">恢复当前策略</button>
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('plots')">打开地块详情</button>
                 </div>
               </article>

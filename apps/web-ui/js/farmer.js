@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -1268,12 +1268,40 @@ const app = createApp({
     const plot_simulation_metric_loading = ref(false);
     const plot_simulation_chart_el = ref(null);
     const plot_simulation_chart_instance = ref(null);
+    const plot_simulation_form = ref({ scenario: 'NORMAL', parameters: { ...PLOT_SIMULATION_DEFAULTS.NORMAL } });
+    const plot_simulation_evaluating = ref(false);
+    const plot_simulation_preview_dirty = ref(false);
+    const plot_simulation_parameter_meta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
+      timeScale: { label: '时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '墙上时钟与模拟时间的比例' },
+      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
+      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '场景平均降雨强度' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
+      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
+      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '未来趋势的时间范围' }
+    });
+    const plot_simulation_fields = computed(() => {
+      const scenario = String(plot_simulation_form.value.scenario || 'NORMAL').toUpperCase();
+      const extra = scenario === 'DROUGHT'
+        ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
+        : scenario === 'HEAVY_RAIN'
+          ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
+          : scenario === 'SENSOR_DRIFT'
+            ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
+            : scenario === 'DEVICE_OFFLINE' ? ['offlineRatio'] : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
+      return [...new Set(['volatility', 'timeScale', 'riskThreshold', 'forecastHours', ...extra])]
+        .map((key) => ({ key, ...plot_simulation_parameter_meta[key] }));
+    });
     const plot_simulation_options = computed(() => {
       const catalog = plot_simulation.value?.scenarioCatalog;
       return Array.isArray(catalog) && catalog.length ? catalog : PLOT_SIMULATION_SCENARIOS;
     });
     const plot_simulation_scenario = computed(() => {
-      const code = String(plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
+      const code = String(plot_simulation_form.value?.scenario || plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
       return plot_simulation_options.value.find((item) => item.code === code) || PLOT_SIMULATION_SCENARIOS[0];
     });
     const plot_simulation_parameter_summary = computed(() => {
@@ -1283,7 +1311,7 @@ const app = createApp({
         driftRatePerHour: ['漂移速率', '%/h', 2], offlineRatio: ['离线比例', '%', 0.01], riskThreshold: ['干旱阈值', '%', 1],
         waterloggingThreshold: ['积水阈值', '%', 1], forecastHours: ['预测时长', '小时', 0]
       };
-      return Object.entries(plot_simulation.value?.parameters || {}).map(([key, raw]) => {
+      return Object.entries(plot_simulation_form.value?.parameters || {}).map(([key, raw]) => {
         const meta = labels[key];
         const value = Number(raw);
         if (!meta || !Number.isFinite(value)) return null;
@@ -1306,6 +1334,8 @@ const app = createApp({
     const plot_simulation_preview_message = computed(() => {
       const scenario = plot_simulation_scenario.value;
       const forecast = plot_simulation_forecast.value;
+      if (plot_simulation_evaluating.value) return '正在使用当前参数刷新只读预测曲线…';
+      if (plot_simulation_preview_dirty.value) return '参数尚未保存，曲线来自只读后端试算；农户调整不会修改管理员策略或主状态。';
       if (forecast && String(forecast.status || '').toUpperCase() !== 'AVAILABLE') {
         const reason = forecast.reason || '当前样本或设备状态未满足预测条件';
         return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
@@ -1315,11 +1345,16 @@ const app = createApp({
 
     const render_plot_simulation_chart = async () => {
       await nextTick();
-      if (!plot_simulation_chart_el.value || typeof echarts === 'undefined') return;
-      if (!plot_simulation_chart_instance.value) plot_simulation_chart_instance.value = echarts.init(plot_simulation_chart_el.value);
+      const chartLibrary = window.echarts;
+      if (!plot_simulation_chart_el.value || !chartLibrary) return;
+      if (plot_simulation_chart_instance.value?.getDom?.() !== plot_simulation_chart_el.value) {
+        plot_simulation_chart_instance.value?.dispose();
+        plot_simulation_chart_instance.value = null;
+      }
+      if (!plot_simulation_chart_instance.value) plot_simulation_chart_instance.value = chartLibrary.init(plot_simulation_chart_el.value);
       const definition = plot_simulation_selected_metric.value;
       const historicalPoints = simulation_normalized_telemetry(plot_simulation_history.value);
-      const timeScale = Math.max(1, Number(plot_simulation.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
+      const timeScale = Math.max(1, Number(plot_simulation_form.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
       const now = Date.now();
       const toSimulated = (wall) => now - (now - wall) * timeScale;
       const historical = historicalPoints.map((item) => [toSimulated(simulation_telemetry_timestamp(item)), item.value]);
@@ -1366,11 +1401,19 @@ const app = createApp({
           { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted' } }
         ]
       }, true);
+      plot_simulation_chart_instance.value.resize();
     };
 
     let plot_simulation_request_version = 0;
     let plot_simulation_metric_request_version = 0;
+    let plot_simulation_preview_request_version = 0;
+    let plot_simulation_preview_timer = null;
     const load_plot_simulation = async (plotId = selected_plot.value?.plotId) => {
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      plot_simulation_preview_timer = null;
+      plot_simulation_preview_request_version += 1;
+      plot_simulation_preview_dirty.value = false;
+      plot_simulation_evaluating.value = false;
       const requestVersion = ++plot_simulation_request_version;
       if (!plotId) {
         plot_simulation.value = null;
@@ -1389,6 +1432,14 @@ const app = createApp({
       ]);
       if (requestVersion !== plot_simulation_request_version) return;
       plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
+      if (configResult.status === 'fulfilled') {
+        plot_simulation_form.value = {
+          scenario: String(configResult.value?.scenario || 'NORMAL').toUpperCase(),
+          parameters: { ...(configResult.value?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+        };
+      }
+      plot_simulation_preview_dirty.value = false;
+      plot_simulation_evaluating.value = false;
       plot_simulation_history.value = historyResult.status === 'fulfilled' ? (historyResult.value || []) : [];
       plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
       const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
@@ -1396,6 +1447,65 @@ const app = createApp({
       plot_simulation_error.value = [...new Set(errors)].join('；');
       plot_simulation_loading.value = false;
       await render_plot_simulation_chart();
+    };
+
+    const evaluate_plot_simulation_preview = async (requestId) => {
+      const plotId = selected_plot.value?.plotId;
+      if (!plotId) return;
+      try {
+        const evaluated = await api.evaluateRiskForecast({
+          plotId,
+          metric: plot_simulation_metric.value,
+          scenario: plot_simulation_form.value.scenario,
+          parameters: { ...(plot_simulation_form.value.parameters || {}) },
+          requestVersion: requestId
+        });
+        if (requestId !== plot_simulation_preview_request_version) return;
+        plot_simulation_forecast.value = evaluated || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+      } catch (error) {
+        if (requestId !== plot_simulation_preview_request_version) return;
+        plot_simulation_forecast.value = { status: 'UNAVAILABLE', reason: error?.message || '风险预测暂不可用' };
+      } finally {
+        if (requestId === plot_simulation_preview_request_version) {
+          plot_simulation_evaluating.value = false;
+          await render_plot_simulation_chart();
+        }
+      }
+    };
+
+    const schedule_plot_simulation_preview = (delay = 300) => {
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      const requestId = ++plot_simulation_preview_request_version;
+      plot_simulation_preview_dirty.value = true;
+      plot_simulation_evaluating.value = true;
+      plot_simulation_preview_timer = window.setTimeout(() => {
+        plot_simulation_preview_timer = null;
+        void evaluate_plot_simulation_preview(requestId);
+      }, delay);
+    };
+
+    const select_plot_simulation_scenario = (code) => {
+      const normalized = String(code || 'NORMAL').toUpperCase();
+      const scenario = plot_simulation_options.value.find((item) => item.code === normalized) || PLOT_SIMULATION_SCENARIOS[0];
+      plot_simulation_form.value = {
+        scenario: scenario.code,
+        parameters: { ...(PLOT_SIMULATION_DEFAULTS[scenario.code] || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+      };
+      schedule_plot_simulation_preview();
+    };
+
+    const reset_plot_simulation_preview = () => {
+      if (!plot_simulation.value) return;
+      plot_simulation_form.value = {
+        scenario: String(plot_simulation.value.scenario || 'NORMAL').toUpperCase(),
+        parameters: { ...(plot_simulation.value.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+      };
+      if (plot_simulation_preview_timer) window.clearTimeout(plot_simulation_preview_timer);
+      plot_simulation_preview_timer = null;
+      plot_simulation_preview_request_version += 1;
+      plot_simulation_preview_dirty.value = false;
+      plot_simulation_evaluating.value = false;
+      void load_plot_simulation(selected_plot.value?.plotId);
     };
 
     const load_plot_simulation_metric = async (metric = plot_simulation_metric.value, { preserveOnError = false } = {}) => {
@@ -1425,6 +1535,7 @@ const app = createApp({
       if (normalized === plot_simulation_metric.value && !plot_simulation_metric_loading.value) return;
       plot_simulation_metric.value = normalized;
       load_plot_simulation_metric(normalized, { preserveOnError: false });
+      if (plot_simulation_preview_dirty.value) schedule_plot_simulation_preview();
     };
 
     let plot_simulation_live_timer = null;
@@ -4100,6 +4211,7 @@ const app = createApp({
       } else if (!plot_simulation.value || plot_simulation.value.plotId !== risk_tool_plot.value?.plotId) {
         void load_plot_simulation(risk_tool_plot.value?.plotId);
       }
+      if (tools_tab.value === 'risk') void render_plot_simulation_chart();
     });
 
     watch([crop_manual_code, crop_manual_stage], () => {
@@ -4127,6 +4239,7 @@ const app = createApp({
     });
 
     watch(current_view, (view) => {
+      if (view === 'plots' || (view === 'tools' && tools_tab.value === 'risk')) void render_plot_simulation_chart();
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
@@ -4188,8 +4301,15 @@ const app = createApp({
       plot_simulation_metric_options,
       plot_simulation_metric_label,
       plot_simulation_metric_loading,
+      plot_simulation_form,
+      plot_simulation_fields,
+      plot_simulation_evaluating,
+      plot_simulation_preview_dirty,
       plot_simulation_preview_message,
       select_plot_simulation_metric,
+      select_plot_simulation_scenario,
+      schedule_plot_simulation_preview,
+      reset_plot_simulation_preview,
       load_plot_simulation,
       risk_tool_plot_id,
       risk_tool_plot,
