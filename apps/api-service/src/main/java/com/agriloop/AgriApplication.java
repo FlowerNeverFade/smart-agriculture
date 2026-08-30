@@ -3248,6 +3248,68 @@ class AgriEngine {
     }
 
     /**
+     * Runs a read-only what-if forecast.  The request is deliberately kept
+     * separate from updatePlotSimulation: sliders in the UI must never write
+     * a strategy, forecast record, event or simulator configuration.
+     */
+    Map<String, Object> forecastEvaluate(String plotId, String metric, Map<String, Object> input) {
+        requireRecord("plot", plotId);
+        Map<String, Object> current = simulationRecord(plotId);
+        String scenario = canonicalSimulationScenario(Jsons.text(input, "scenario", Jsons.text(current, "scenario", "NORMAL")));
+        boolean scenarioChanged = !scenario.equals(Jsons.text(current, "scenario", "NORMAL"));
+        Map<String, Object> parameters = scenarioChanged
+                ? simulationDefaults(scenario, plotId)
+                : Jsons.map(mapper, current.get("parameters"));
+        Map<String, Object> supplied = Jsons.map(mapper, input.get("parameters"));
+        for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+            String key = entry.getKey();
+            if (!supplied.containsKey(key)) continue;
+            double[] range = entry.getValue();
+            double fallback = Jsons.number(parameters, key, (range[0] + range[1]) / 2.0);
+            parameters.put(key, round(clamp(Jsons.number(supplied, key, fallback), fallback, range[0], range[1])));
+        }
+        if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
+        Map<String, Object> preview = new LinkedHashMap<>();
+        preview.put("plotId", plotId);
+        preview.put("scenario", scenario);
+        preview.put("parameters", parameters);
+        preview.put("revision", Jsons.whole(current, "revision", 1));
+        preview.put("sourceMode", "READ_ONLY_PREVIEW");
+        Map<String, Object> result = forecastForSimulation(plotId, metric, preview, false);
+        result.put("persisted", false);
+        result.put("requestVersion", Jsons.text(input, "requestVersion", ""));
+        result.put("modelMode", "DETERMINISTIC_WITH_AI_EXPLANATION");
+        result.put("dataSource", "OBSERVED_TELEMETRY_AND_CROP_PACK");
+        result.put("inputSnapshot", Map.of(
+                "simulationRevision", Jsons.whole(current, "revision", 1),
+                "scenario", scenario,
+                "parameters", parameters,
+                "metric", String.valueOf(metric == null ? "SOIL_MOISTURE" : metric).toUpperCase(Locale.ROOT)));
+        result.put("explanation", forecastExplanation(result));
+        result.put("warnings", String.valueOf(result.getOrDefault("status", "AVAILABLE")).equalsIgnoreCase("AVAILABLE")
+                ? List.of() : List.of(Jsons.text(result, "reason", "预测暂不可用")));
+        return result;
+    }
+
+    private String forecastExplanation(Map<String, Object> forecast) {
+        String scenario = Jsons.text(forecast, "scenario", "NORMAL");
+        String metric = Jsons.text(forecast, "metric", "SOIL_MOISTURE");
+        Map<String, Object> boundary = Jsons.map(mapper, forecast.get("riskBoundary"));
+        String boundaryText = boundary.isEmpty() ? "当前规则阈值" : String.format(Locale.ROOT, "%s %.1f %s",
+                "LT".equals(Jsons.text(boundary, "operator", "LT")) ? "低于" : "高于",
+                Jsons.number(boundary, "value", 0), Jsons.text(boundary, "unit", ""));
+        return switch (scenario) {
+            case "DROUGHT" -> metric + " 受高温/低湿和失水趋势影响，模型预计更快接近" + boundaryText + "，建议优先核验土壤并安排补水。";
+            case "HEAVY_RAIN" -> metric + " 叠加降雨输入后，模型重点观察积水阈值和排水能力，超过" + boundaryText + "时暂停灌溉。";
+            case "SENSOR_DRIFT" -> "模型已将传感器漂移速率计入不确定性，曲线仅用于补证和复测决策，不作为自动执行依据。";
+            case "DEVICE_OFFLINE" -> "设备离线，模型不生成可执行预测；请先恢复通信或创建人工核验任务。";
+            default -> "模型以最新实测值为起点，结合历史趋势、Crop Pack 阶段目标和当前策略生成曲线；数值可复现，AI仅补充解释。";
+        };
+    }
+
+    /**
      * Forecasts are strategy-aware projections rather than a straight line
      * through a tiny, stable sample window.  Observed telemetry still anchors
      * the starting point, while the selected plot strategy contributes bounded
@@ -5787,7 +5849,11 @@ class AgriController {
     ResponseEntity<?> forecast(@PathVariable String plotId, @RequestParam(defaultValue = "SOIL_MOISTURE") String metric, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.forecast(plotId, metric)); }
 
     @PostMapping("/forecasts/evaluate")
-    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) { String plot = Jsons.text(body, "plotId", "plot-a01"); engine.ensurePlotAccess(principal(a), plot); return ok(engine.forecast(plot, Jsons.text(body, "metric", "SOIL_MOISTURE"))); }
+    ResponseEntity<?> forecastEvaluate(@RequestBody Map<String, Object> body, Authentication a) {
+        String plot = Jsons.text(body, "plotId", "plot-a01");
+        engine.ensurePlotAccess(principal(a), plot);
+        return ok(engine.forecastEvaluate(plot, Jsons.text(body, "metric", "SOIL_MOISTURE"), body));
+    }
 
     @GetMapping("/plots/{plotId}/timeline")
     ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {

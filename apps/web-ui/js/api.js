@@ -2130,6 +2130,25 @@ export class ApiService {
     return this.mockRiskForecast(plotId, metric);
   }
 
+  async evaluateRiskForecast({ plotId = 'plot-a01', metric = 'SOIL_MOISTURE', scenario = 'NORMAL', parameters = {}, requestVersion = '' } = {}) {
+    const body = { plotId, metric, scenario, parameters, requestVersion };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/forecasts/evaluate', { method: 'POST', body: JSON.stringify(body) });
+      return this.normalizeForecast(resp?.data || resp, plotId, metric);
+    }
+    const preview = this.mockRiskForecast(plotId, metric, { scenario, parameters });
+    return this.normalizeForecast({
+      ...preview,
+      persisted: false,
+      requestVersion,
+      modelMode: 'DETERMINISTIC_WITH_AI_EXPLANATION',
+      dataSource: 'SIMULATED_TELEMETRY_AND_CROP_PACK',
+      inputSnapshot: { plotId, metric, scenario, parameters },
+      explanation: '演示模型以当前模拟遥测为起点，结合 Crop Pack 阶段目标生成可复现曲线；AI解释仅用于说明，不改变数值。',
+      warnings: preview.status === 'AVAILABLE' ? [] : [preview.reason || '预测暂不可用']
+    }, plotId, metric);
+  }
+
   normalizeForecast(raw, plotId, metric) {
     const live = this.sessionMode === 'live';
     const cfg = live ? {} : MOCK_DATA.riskForecastConfig;
@@ -2192,7 +2211,7 @@ export class ApiService {
     return points;
   }
 
-  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', simulationOverride = null) {
     const cfg = MOCK_DATA.riskForecastConfig;
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
@@ -2200,7 +2219,7 @@ export class ApiService {
     const currentRecord = plot?.metrics?.[code] || {};
     const currentValue = Number(currentRecord.value);
     const start = Number.isFinite(currentValue) ? currentValue : profile.defaultValue;
-    const strategy = this.demoSimulationStrategies.get(plotId);
+    const strategy = simulationOverride || this.demoSimulationStrategies.get(plotId);
     const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
     const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
     const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
