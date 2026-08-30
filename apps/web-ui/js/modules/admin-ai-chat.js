@@ -1,5 +1,6 @@
 import { api } from '../api.js?v=20260830-ai-assistant-state-v4';
 import { agentResponseSource, agentResponseText } from '../live-data.js?v=20260830-agent-assistant-v1';
+import { analyzeImageFiles } from './image-vision.js?v=20260830-ai-vision-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 
@@ -193,47 +194,25 @@ export const AdminAiChatView = {
       const size = Number(bytes || 0);
       return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
     };
-    const inspectPhoto = attachment => new Promise(resolve => {
-      const image = new Image();
-      image.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const sampleSize = 32;
-          canvas.width = sampleSize;
-          canvas.height = sampleSize;
-          const context = canvas.getContext('2d', { willReadFrequently: true });
-          context.drawImage(image, 0, 0, sampleSize, sampleSize);
-          const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
-          let brightness = 0;
-          let greenDominant = 0;
-          for (let index = 0; index < pixels.length; index += 4) {
-            const red = pixels[index]; const green = pixels[index + 1]; const blue = pixels[index + 2];
-            brightness += (red * 299 + green * 587 + blue * 114) / 1000;
-            if (green > red * 1.08 && green > blue * 1.05) greenDominant += 1;
-          }
-          const count = pixels.length / 4;
-          resolve({ width: image.naturalWidth, height: image.naturalHeight, brightness: Math.round(brightness / count), greenShare: Math.round(greenDominant / count * 100) });
-        } catch (error) { resolve({ width: image.naturalWidth, height: image.naturalHeight }); }
-      };
-      image.onerror = () => resolve({});
-      image.src = attachment.url;
-    });
+    const visionSummary = (items, sourceAttachments) => items.map((item, index) => {
+      const predictions = (item.predictions || []).slice(0, 5).map(prediction =>
+        `${prediction.label} ${Math.round(prediction.confidence * 100)}%`).join('、');
+      const quality = item.quality === 'CLEAR' ? '主要物体较清晰' : '画面识别不确定';
+      return `${sourceAttachments[index]?.name || `图片${index + 1}`}（${item.width}×${item.height}px；${quality}；候选物体：${predictions || '无'}）`;
+    }).join('；');
+    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片已由浏览器端视觉模型真实读取像素，识别证据如下：${summary}。请先回答图中是什么，再根据用户问题分析；候选结果不确定时必须明说并请用户补拍，不得用地块遥测代替图片内容。`;
     const analyzePhoto = async () => {
       if (!attachments.value.length || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
       const count = attachments.value.length;
       const photoAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
       messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: `请分析我上传的${count}张现场照片`, attachments: photoAttachments, time: messageTime(), source: '' });
-      const analyses = await Promise.all(attachments.value.map(inspectPhoto));
-      const summary = analyses.map((item, index) => {
-        const dimensions = item.width && item.height ? `${item.width}×${item.height}px` : '无法读取分辨率';
-        const visual = item.brightness === undefined ? '未能读取像素' : `亮度约 ${item.brightness}/255，绿色像素约 ${item.greenShare}%`;
-        return `${attachments.value[index].name}（${dimensions}，${visual}）`;
-      }).join('；');
-      const requestText = `我上传了${count}张现场照片，请结合当前地块的平台数据分析下一步。浏览器仅提取到以下客观图像特征：${summary}。不要根据这些特征虚构病害结论，如需现场信息请明确告诉我。`;
       sending.value = true;
       scrollToBottom();
       try {
+        const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
+        const summary = visionSummary(analyses, attachments.value);
+        const requestText = buildVisionRequest(`请分析我上传的${count}张图片。`, summary);
         if (!conversationId.value) conversationId.value = createConversationId();
         selectedConversationId.value = conversationId.value;
         const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
@@ -245,7 +224,7 @@ export const AdminAiChatView = {
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
-        messages.value.push({ id: `image-error-${Date.now()}`, role: 'assistant', content: `已完成图片基础分析：${summary}。当前 Agent 暂时无法继续结合平台数据回答：${error.message || '服务暂时不可用'}。`, time: messageTime(), source: '图片分析提示', error: true });
+        messages.value.push({ id: `image-error-${Date.now()}`, role: 'assistant', content: `这次没有成功读取图片：${error.message || '视觉模型暂时不可用'}。请刷新后重试，或换一张主体更清晰的图片。`, time: messageTime(), source: '图片分析失败', error: true });
       } finally {
         attachments.value = [];
         sending.value = false;
@@ -319,12 +298,15 @@ export const AdminAiChatView = {
       selectedConversationId.value = conversationId.value;
       input.value = '';
       const messageAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
-      const requestText = text || '我上传了现场图片，请结合平台数据告诉我下一步该怎么检查。';
+      let requestText = text || '我上传了现场图片，请分析图片内容。';
       messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text || '已上传现场图片', attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
-      attachments.value = [];
       sending.value = true;
       scrollToBottom();
       try {
+        if (hasAttachments) {
+          const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
+          requestText = buildVisionRequest(requestText, visionSummary(analyses, attachments.value));
+        }
         const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
         conversationId.value = response?.conversationId || conversationId.value;
         selectedConversationId.value = conversationId.value;
@@ -335,7 +317,7 @@ export const AdminAiChatView = {
         updateRoute(conversationId.value);
       } catch (error) {
         messages.value.push({ id: `error-${Date.now()}`, role: 'assistant', content: `这次没有成功回答：${error.message || '服务暂时不可用'}`, time: messageTime(), source: '系统提示', error: true, facts: [], recommendations: [] });
-      } finally { sending.value = false; scrollToBottom(); }
+      } finally { attachments.value = []; sending.value = false; scrollToBottom(); }
     };
 
     const selectConversation = id => loadConversation(id);
@@ -394,7 +376,7 @@ export const AdminAiChatView = {
               <div v-if="message.actionProposal" class="admin-ai-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>操作预览</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><small>{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message assistant" v-if="sending"><div class="admin-ai-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>正在分析地块数据和农务记录</span></div></article></template>
         </div>
-        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" placeholder="给 AI 助手发送消息" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div><p class="admin-ai-chat-footnote">可以上传 JPG、PNG 或 WebP 图片；图片仅保留在当前对话，现有 Agent 接口会继续基于平台数据回答。</p></footer>
+        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" placeholder="给 AI 助手发送消息" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div><p class="admin-ai-chat-footnote">JPG、PNG 和 WebP 会先在浏览器内进行真实视觉识别，再结合当前地块数据回答；不清晰时会明确要求补拍。</p></footer>
       </div>
     </section>
   `

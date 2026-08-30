@@ -220,6 +220,14 @@ export class ApiService {
     this.demoWaterProfile = { ...(MOCK_DATA.resourceProfile || {}), farmId: 'farm-demo', dailyQuotaLitres: Number(MOCK_DATA.resourceProfile?.dailyQuotaLitres ?? MOCK_DATA.resourceProfile?.capacityLitres ?? 900), flowRateLitresPerMinute: Number(MOCK_DATA.resourceProfile?.flowRateLitresPerMinute || 18), timezone: 'Asia/Shanghai', futureQuotas: [...(MOCK_DATA.resourceProfile?.futureQuotas || [])] };
     this.demoWaterBalance = { dailyQuotaLitres: this.demoWaterProfile.dailyQuotaLitres, reservedLitres: 0, actualUsedLitres: Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0), remainingLitres: Math.max(0, this.demoWaterProfile.dailyQuotaLitres - Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0)), revision: 1 };
     this.demoResourcePlans = new Map();
+    this.demoStrategyCandidates = new Map((MOCK_DATA.adminStrategyCandidates || []).map(item => [item.candidateId || item.id, { ...item, candidateId: item.candidateId || item.id, status: String(item.status || 'DRAFT').toUpperCase() }]));
+    this.demoFarmCropPacks = new Map();
+    try {
+      const storedPacks = JSON.parse(localStorage.getItem('agriloop_demo_farm_crop_packs') || '[]');
+      (Array.isArray(storedPacks) ? storedPacks : []).forEach(pack => {
+        if (pack?.farmId && pack?.cropCode && pack?.version) this.demoFarmCropPacks.set(`${pack.farmId}:${pack.cropCode}:${pack.version}`, pack);
+      });
+    } catch { /* a malformed demo cache must not block the app */ }
     this.demoFarmMembers = new Map((MOCK_DATA.farmMembers || []).map(member => [member.userId, normalizeFarmMember({
       ...member,
       farmIds: member.farmIds || ['farm-demo']
@@ -579,25 +587,31 @@ export class ApiService {
     return null;
   }
 
-  async getStrategyCandidates() {
+  async getStrategyCandidates({ farmId = '', status = '' } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/strategy-candidates');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (status) query.set('status', status);
+      const resp = await this._fetch(`/api/v1/strategy-candidates${query.toString() ? `?${query}` : ''}`);
       if (Array.isArray(resp?.data)) return resp.data;
       throw new ApiError('后端返回了无效的策略候选', { code: 'STRATEGY_CANDIDATES_INVALID', payload: resp });
     }
-    return [];
+    return Array.from(this.demoStrategyCandidates.values())
+      .filter(item => !farmId || !item.farmId || item.farmId === farmId)
+      .filter(item => !status || String(item.status || '').toUpperCase() === String(status).toUpperCase())
+      .map(item => JSON.parse(JSON.stringify(item)));
   }
 
-  async transitionStrategyCandidate(id, status) {
+  async transitionStrategyCandidate(id, status, options = {}) {
     if (!id) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(id)}/transition`, {
         method: 'POST',
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, ...(options || {}) })
       });
       return resp?.data || resp;
     }
-    return { id, status, sourceMode: 'SIMULATED' };
+    const key = id; const candidate = this.demoStrategyCandidates.get(key) || { candidateId: id, id };
+    candidate.status = String(status || candidate.status || 'DRAFT').toUpperCase(); candidate.revision = Number(candidate.revision || 1) + 1; this.demoStrategyCandidates.set(key, candidate);
+    return JSON.parse(JSON.stringify({ ...candidate, sourceMode: 'SIMULATED' }));
   }
 
   async getSimulatorStatus() {
@@ -686,6 +700,25 @@ export class ApiService {
     const saved = { ...(this.demoPlots.get(plotId) || {}), ...input, plotId, updatedAt: new Date().toISOString() };
     this.demoPlots.set(plotId, saved);
     return { ...saved };
+  }
+
+  async activateStrategyCandidate(id, options = {}) {
+    if (!id) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(id)}/activate`, { method: 'POST', body: JSON.stringify(options || {}) });
+      return resp?.data || resp;
+    }
+    return this.transitionStrategyCandidate(id, 'ACTIVE', options);
+  }
+
+  async getStrategyPreview(farmId, alertId) {
+    if (!farmId || !alertId) return { matched: false, previewOnly: true, requiresConfirmation: true };
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId, alertId });
+      const resp = await this._fetch(`/api/v1/strategy-candidates/preview?${query}`);
+      return resp?.data || resp;
+    }
+    return { farmId, alertId, matched: false, candidate: {}, previewOnly: true, requiresConfirmation: true, sourceMode: 'SIMULATED' };
   }
 
   async setPlotDevices(plotId, deviceIds = []) {
@@ -2657,25 +2690,83 @@ export class ApiService {
     return JSON.parse(JSON.stringify(ledger));
   }
 
-  async getCropPacks() {
+  async getCropPacks({ farmId = '', includeDrafts = false } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/crop-packs');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (includeDrafts) query.set('includeDrafts', 'true');
+      const resp = await this._fetch(`/api/v1/crop-packs${query.toString() ? `?${query}` : ''}`);
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
       if (raw?.cropCode) return [this.normalizeCropPack(raw)];
       throw new ApiError('后端返回了无效的作物包数据', { code: 'CROP_PACKS_INVALID', payload: resp });
     }
-    return JSON.parse(JSON.stringify(MOCK_DATA.cropPackDetails));
+    const base = (MOCK_DATA.cropPackDetails || []).map(pack => JSON.parse(JSON.stringify(pack)));
+    if (!farmId) return base;
+    const custom = Array.from(this.demoFarmCropPacks.values())
+      .filter(pack => pack.farmId === farmId && (includeDrafts || String(pack.status || '').toUpperCase() === 'ACTIVE'))
+      .map(pack => JSON.parse(JSON.stringify(pack)));
+    const overrideCodes = new Set(custom.map(pack => String(pack.cropCode || '').toLowerCase()));
+    return [...base.filter(pack => !overrideCodes.has(String(pack.cropCode || '').toLowerCase())), ...custom];
   }
 
-  async getCropManuals() {
+  async getRuleSets(farmId) {
+    if (!farmId) return [];
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/rule-sets?farmId=${encodeURIComponent(farmId)}`); return resp?.data || []; }
+    return this.getRules();
+  }
+
+  async getAlertLearningCases(farmId, candidateId = '') {
+    if (!farmId) return [];
+    if (this.sessionMode === 'live') { const query = new URLSearchParams({ farmId }); if (candidateId) query.set('candidateId', candidateId); const resp = await this._fetch(`/api/v1/alert-learning-cases?${query}`); return resp?.data || []; }
+    return [];
+  }
+
+  async createFarmCropPack(farmId, input) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs`, { method: 'POST', body: JSON.stringify(input || {}) }); return resp?.data || resp; }
+    const pack = { ...input, farmId, status: 'DRAFT', revision: 1, sourceMode: 'SIMULATED', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.demoFarmCropPacks.set(`${farmId}:${pack.cropCode}:${pack.version || '1.0.0'}`, pack);
+    this.persistDemoFarmCropPacks();
+    return JSON.parse(JSON.stringify(pack));
+  }
+  async updateFarmCropPack(farmId, cropCode, version, input) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}`, { method: 'PUT', body: JSON.stringify(input || {}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const current = this.demoFarmCropPacks.get(key) || { farmId, cropCode, version, status: 'DRAFT', revision: 1 };
+    const updated = { ...current, ...input, farmId, cropCode, version, revision: Number(current.revision || 1) + 1, updatedAt: new Date().toISOString() };
+    this.demoFarmCropPacks.set(key, updated); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(updated));
+  }
+  async validateFarmCropPack(farmId, cropCode, version) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/validate`, { method: 'POST', body: JSON.stringify({}) }); return resp?.data || resp; }
+    const pack = this.demoFarmCropPacks.get(`${farmId}:${cropCode}:${version}`); const errors = [];
+    if (!pack?.identity?.name) errors.push('缺少作物名称');
+    if (!pack?.identity?.variety) errors.push('缺少品种');
+    if (!Array.isArray(pack?.stages) || !pack.stages.length) errors.push('至少需要一个生长阶段');
+    return { valid: errors.length === 0, errors, cropCode, version };
+  }
+  async activateFarmCropPack(farmId, cropCode, version, options = {}) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/activate`, { method: 'POST', body: JSON.stringify(options || {}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const pack = this.demoFarmCropPacks.get(key); if (!pack) throw new ApiError('作物包草稿不存在', { code: 'CROP_PACK_NOT_FOUND' });
+    const validation = await this.validateFarmCropPack(farmId, cropCode, version); if (!validation.valid) throw new ApiError('作物包校验失败', { code: 'CROP_PACK_INVALID', details: validation });
+    for (const [otherKey, other] of this.demoFarmCropPacks) if (other.farmId === farmId && other.cropCode === cropCode && other.status === 'ACTIVE' && otherKey !== key) { other.status = 'ARCHIVED'; this.demoFarmCropPacks.set(otherKey, other); }
+    pack.status = 'ACTIVE'; pack.revision = Number(pack.revision || 1) + 1; pack.activatedAt = new Date().toISOString(); this.demoFarmCropPacks.set(key, pack); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(pack));
+  }
+  async archiveFarmCropPack(farmId, cropCode, version) {
+    if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/farms/${encodeURIComponent(farmId)}/crop-packs/${encodeURIComponent(cropCode)}/${encodeURIComponent(version)}/archive`, { method: 'POST', body: JSON.stringify({}) }); return resp?.data || resp; }
+    const key = `${farmId}:${cropCode}:${version}`; const pack = this.demoFarmCropPacks.get(key); if (!pack) throw new ApiError('作物包不存在', { code: 'CROP_PACK_NOT_FOUND' }); pack.status = 'ARCHIVED'; pack.revision = Number(pack.revision || 1) + 1; this.demoFarmCropPacks.set(key, pack); this.persistDemoFarmCropPacks(); return JSON.parse(JSON.stringify(pack));
+  }
+
+  persistDemoFarmCropPacks() {
+    try { localStorage.setItem('agriloop_demo_farm_crop_packs', JSON.stringify(Array.from(this.demoFarmCropPacks.values()))); } catch { /* storage may be unavailable in private mode */ }
+  }
+
+  async getCropManuals({ farmId = '', includeDrafts = false } = {}) {
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/crop-manuals');
+      const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (includeDrafts) query.set('includeDrafts', 'true');
+      const resp = await this._fetch(`/api/v1/crop-manuals${query.toString() ? `?${query}` : ''}`);
       const raw = resp?.data || resp;
       if (Array.isArray(raw)) return raw;
       throw new ApiError('后端返回了无效的培养手册目录', { code: 'CROP_MANUALS_INVALID', payload: resp });
     }
-    return (MOCK_DATA.cropPackDetails || []).map((pack) => ({
+    const packs = await this.getCropPacks({ farmId, includeDrafts });
+    return packs.map((pack) => ({
       cropCode: pack.cropCode,
       version: pack.version,
       name: pack.identity?.name,

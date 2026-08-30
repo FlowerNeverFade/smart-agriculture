@@ -36,7 +36,9 @@ test('演示 Agent 会话按账号持久化、排序并恢复最近消息', asyn
 
 test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口', () => {
   const source = readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8');
+  const visionSource = readFileSync(new URL('../js/modules/image-vision.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(source, /getAgentConversations/);
   assert.match(source, /persistDemoAgentTurn/);
   assert.match(source, /历史对话/);
@@ -44,6 +46,14 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(source, /startSidebarResize/);
   assert.match(source, /上传图片/);
   assert.match(source, /分析照片/);
+  assert.match(source, /analyzeImageFiles/);
+  assert.match(source, /视觉模型真实读取像素/);
+  assert.doesNotMatch(source, /绿色像素/);
+  assert.match(visionSource, /InferenceSession\.create/);
+  assert.match(visionSource, /new ort\.Tensor\('float32'/);
+  assert.match(visionSource, /squeezenet1\.1-7\.onnx/);
+  assert.match(index, /vendor\/ort\/ort\.all\.min\.js\?v=1\.17\.3/);
+  assert.equal(readFileSync(new URL('../assets/models/squeezenet1.1-7.onnx', import.meta.url)).byteLength > 4_000_000, true);
   assert.doesNotMatch(source, /admin-ai-layered-answer/);
   assert.match(source, /cleanAssistantText/);
   assert.match(css, /\.admin-ai-conversation-sidebar/);
@@ -59,7 +69,7 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-conversation-sidebar\s*\{[\s\S]*display:\s*none/);
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-sidebar-resizer\s*\{\s*display:\s*none/);
   assert.match(css, /\.admin-ai-control-label\s*\{[^}]*white-space:\s*nowrap/);
-  assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /keep-alive include="AdminAiChatView"/);
+  assert.match(index, /keep-alive include="AdminAiChatView"/);
 });
 
 test('演示 Agent 创建地块在确认后写入同一地块事实集合', async () => {

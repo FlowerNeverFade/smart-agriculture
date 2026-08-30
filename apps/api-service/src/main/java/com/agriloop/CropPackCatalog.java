@@ -72,10 +72,12 @@ class CropPackCatalog {
             "UNKNOWN", 0.58);
 
     private final ObjectMapper mapper;
+    private final AgriStore store;
     private volatile List<Map<String, Object>> packs = List.of();
 
-    CropPackCatalog(ObjectMapper mapper) {
+    CropPackCatalog(ObjectMapper mapper, AgriStore store) {
         this.mapper = mapper;
+        this.store = store;
     }
 
     @PostConstruct
@@ -103,6 +105,20 @@ class CropPackCatalog {
 
     List<Map<String, Object>> all() {
         return packs.stream().map(pack -> Jsons.copy(mapper, pack)).toList();
+    }
+
+    /** Published farm-scoped packs are layered on top of the classpath catalog. */
+    List<Map<String, Object>> allForFarm(String farmId, boolean includeDrafts) {
+        List<Map<String, Object>> result = new ArrayList<>(all());
+        if (farmId == null || farmId.isBlank()) return result;
+        List<Map<String, Object>> custom = store.list("farm-crop-pack").stream()
+                .filter(pack -> farmId.equals(Jsons.text(pack, "farmId", "")))
+                .filter(pack -> includeDrafts || "ACTIVE".equalsIgnoreCase(Jsons.text(pack, "status", "DRAFT")))
+                .map(this::asCropPack).toList();
+        Set<String> overridden = custom.stream().map(pack -> Jsons.text(pack, "cropCode", "").toLowerCase(Locale.ROOT)).collect(java.util.stream.Collectors.toSet());
+        result.removeIf(pack -> overridden.contains(Jsons.text(pack, "cropCode", "").toLowerCase(Locale.ROOT)));
+        result.addAll(custom);
+        return result;
     }
 
     void updateStatus(String cropCode, String version, String status) {
@@ -138,8 +154,25 @@ class CropPackCatalog {
         return Jsons.copy(mapper, packs.get(0));
     }
 
+    Map<String, Object> findOrDefaultForFarm(String cropCode, String version, String farmId) {
+        if (farmId != null && !farmId.isBlank()) {
+            Map<String, Object> custom = store.list("farm-crop-pack").stream()
+                    .filter(pack -> farmId.equals(Jsons.text(pack, "farmId", "")))
+                    .filter(pack -> "ACTIVE".equalsIgnoreCase(Jsons.text(pack, "status", "DRAFT")))
+                    .filter(pack -> cropCode != null && cropCode.equalsIgnoreCase(Jsons.text(pack, "cropCode", "")))
+                    .filter(pack -> version == null || version.isBlank() || version.equals(Jsons.text(pack, "version", "")))
+                    .findFirst().map(this::asCropPack).orElse(null);
+            if (custom != null) return custom;
+        }
+        return findOrDefault(cropCode, version);
+    }
+
     Map<String, Object> resolve(String cropCode, String version, String stageCode) {
-        Map<String, Object> pack = findOrDefault(cropCode, version);
+        return resolveForFarm(cropCode, version, stageCode, "");
+    }
+
+    Map<String, Object> resolveForFarm(String cropCode, String version, String stageCode, String farmId) {
+        Map<String, Object> pack = findOrDefaultForFarm(cropCode, version, farmId);
         Map<String, Object> stage = resolveStage(pack, stageCode);
         boolean stageMatched = stageCode == null || stageCode.isBlank()
                 || Jsons.text(stage, "code", "").equalsIgnoreCase(stageCode);
@@ -169,9 +202,30 @@ class CropPackCatalog {
         return resolved;
     }
 
+    private Map<String, Object> asCropPack(Map<String, Object> record) {
+        Object nested = record.get("pack");
+        Map<String, Object> pack = nested instanceof Map<?, ?> ? Jsons.map(mapper, nested) : Jsons.copy(mapper, record);
+        String farmId = Jsons.text(record, "farmId", "");
+        String status = Jsons.text(record, "status", "DRAFT");
+        long revision = Jsons.whole(record, "revision", 1);
+        pack.remove("farmId"); pack.remove("status"); pack.remove("revision"); pack.remove("createdBy"); pack.remove("updatedBy");
+        if (!farmId.isBlank()) pack.put("farmId", farmId);
+        pack.put("status", status); pack.put("revision", revision);
+        pack.putIfAbsent("ruleVersion", "farm-rule-1"); pack.putIfAbsent("knowledgeVersion", "farm-kb-1");
+        return pack;
+    }
+
     List<Map<String, Object>> manualIndex() {
+        return manualIndex(all());
+    }
+
+    List<Map<String, Object>> manualIndexForFarm(String farmId, boolean includeDrafts) {
+        return manualIndex(allForFarm(farmId, includeDrafts));
+    }
+
+    private List<Map<String, Object>> manualIndex(List<Map<String, Object>> source) {
         List<Map<String, Object>> index = new ArrayList<>();
-        for (Map<String, Object> pack : all()) {
+        for (Map<String, Object> pack : source) {
             Map<String, Object> identity = Jsons.map(mapper, pack.get("identity"));
             List<Map<String, Object>> stages = sortedStages(pack);
             Map<String, Object> item = new LinkedHashMap<>();
@@ -229,6 +283,27 @@ class CropPackCatalog {
         ));
         handbook.put("provenance", "DERIVED");
         handbook.put("sourceMode", "CROP_PACK");
+        return handbook;
+    }
+
+    Map<String, Object> handbookForFarm(String cropCode, String stageCode, String farmId) {
+        Map<String, Object> resolved = resolveForFarm(cropCode, null, stageCode, farmId);
+        if (stageCode != null && !stageCode.isBlank() && !Jsons.bool(resolved, "stageMatched", true)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "CROP_STAGE_NOT_FOUND", "该作物没有对应的生长阶段");
+        }
+        Map<String, Object> pack = Jsons.map(mapper, resolved.get("pack"));
+        Map<String, Object> stage = Jsons.map(mapper, resolved.get("stage"));
+        Map<String, Object> identity = Jsons.map(mapper, pack.get("identity"));
+        Map<String, Object> knowledge = Jsons.map(mapper, pack.get("knowledge"));
+        List<String> stageKnowledge = knowledgeLines(pack, Jsons.text(stage, "code", ""));
+        Map<String, Object> handbook = new LinkedHashMap<>();
+        handbook.put("cropCode", pack.get("cropCode")); handbook.put("version", pack.get("version"));
+        handbook.put("ruleVersion", resolved.get("ruleVersion")); handbook.put("knowledgeVersion", resolved.get("knowledgeVersion"));
+        handbook.put("identity", identity); handbook.put("stages", sortedStages(pack)); handbook.put("stage", stage);
+        handbook.put("envMetrics", envMetrics(pack, stage)); handbook.put("guideParagraphs", guideParagraphs(pack, stage, Jsons.maps(mapper, resolved.get("effectiveRules")), stageKnowledge));
+        handbook.put("rules", resolved.get("effectiveRules")); handbook.put("riskFocus", stage.get("riskFocus")); handbook.put("taskTemplates", stage.get("taskTemplates"));
+        handbook.put("knowledge", Map.of("documents", knowledge.getOrDefault("documents", List.of()), "fallback", knowledge.getOrDefault("fallback", List.of()), "content", stageKnowledge));
+        handbook.put("provenance", "DERIVED"); handbook.put("sourceMode", "FARM_CROP_PACK"); handbook.put("farmId", farmId);
         return handbook;
     }
 

@@ -6,7 +6,7 @@ import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUser
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-assistant-state-v4';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
@@ -3188,7 +3188,11 @@ const app = createApp({
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
-      if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
+      if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
+      if (wants('cropPacks') || wants('overview')) {
+        jobs.adminRules = api.getRuleSets(farmId);
+        jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
+      }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
         jobs.inspections = api.getPlots({ farmId, includeInactive: false })
@@ -3240,6 +3244,8 @@ const app = createApp({
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
       }
+      if (results.adminRules?.status === 'fulfilled') state.value.adminRules = results.adminRules.value || [];
+      if (results.adminStrategyCandidates?.status === 'fulfilled') state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());

@@ -120,9 +120,23 @@ paths:
         '400': {description: 重置目标无效}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/crop-packs:
-    get: {tags: [farm], responses: {'200': {description: 后端实际 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 全局与当前农场 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+  /api/v1/rule-sets:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 全局及当前农场启用的确定性告警规则集}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/alert-learning-cases:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: candidateId, in: query, schema: {type: string}}], responses: {'200': {description: 农场级告警闭环学习案例}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/farms/{farmId}/crop-packs:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已保存农场级 Crop Pack 草稿}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}:
+    put: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 草稿已更新}, '409': {description: 版本冲突或已启用版本不可覆盖}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/validate:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], responses: {'200': {description: Schema 与规则校验结果}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/activate:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 作物包已启用并替换同作物旧版本}, '409': {description: 版本冲突}}}
+  /api/v1/farms/{farmId}/crop-packs/{cropCode}/{version}/archive:
+    post: {tags: [management], parameters: [{name: farmId, in: path, required: true, schema: {type: string}}, {name: cropCode, in: path, required: true, schema: {type: string}}, {name: version, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 作物包已归档}}}
   /api/v1/crop-manuals:
-    get: {tags: [farm], responses: {'200': {description: 作物培养手册目录，来自当前发布的 Crop Pack}}}
+    get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 作物培养手册目录，来自当前农场可见的 Crop Pack}}}
   /api/v1/crop-manuals/{cropCode}:
     get:
       tags: [farm]
@@ -339,12 +353,16 @@ paths:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的价值账本}}}
     post: {tags: [management], description: 只按观测事实或管理员明确录入计算水量偏差、节水量和水费，并保存 sourceMode, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: COMPUTED/INCOMPLETE 价值账本}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/strategy-candidates:
-    get: {tags: [management], responses: {'200': {description: 策略候选}}}
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: status, in: query, schema: {type: string}}], responses: {'200': {description: 农场级策略候选；农场管理员只返回自己农场}}}
     post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: DRAFT}}}
   /api/v1/strategy-candidates/{id}/offline-validate:
     post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: OFFLINE_VALIDATED}}}
   /api/v1/strategy-candidates/{id}/transition:
     post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 审批/激活/回滚}}}
+  /api/v1/strategy-candidates/{id}/activate:
+    post: {tags: [management], parameters: [{name: id, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农场管理员批准并启用策略候选}, '409': {description: 版本冲突或候选状态不允许}}}
+  /api/v1/strategy-candidates/preview:
+    get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: alertId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 相似 ACTIVE 策略的只读决策预览；仍需人工确认}}}
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
     post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
