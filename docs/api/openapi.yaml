@@ -70,6 +70,8 @@ paths:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/system/ai-mode:
+    put: {tags: [management], description: 仅系统管理员可切换智能模型运行模式（full/openai-compatible、rules-only、mock、maxkb），运行期生效、重启后还原为配置文件 AI_MODE 值, requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {aiMode: {type: string, example: full}}}}}}, responses: {'200': {description: 模式保存成功，返回 aiMode/previous/changed}, '400': {description: AI_MODE_INVALID 不支持的智能模型模式}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/simulator/status:
     get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
   /api/v1/simulator/start:
@@ -337,6 +339,8 @@ paths:
     delete: {tags: [management], description: 从当前农场移除种植农户并保留其其他农场范围, parameters: [{name: userId, in: path, required: true, schema: {type: string}}, {name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 成员已从当前农场移除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 成员不存在或不属于当前农场}}}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
+  /api/v1/users/{userId}:
+    delete: {tags: [management], description: 系统管理员删除任意角色账号（含农场管理员/系统管理员）；不可删除自己, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 账号不存在}}}
   /api/v1/alerts:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前农场范围内的告警列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/alerts/{alertId}/ack:
