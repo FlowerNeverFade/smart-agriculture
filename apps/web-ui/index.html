@@ -15,9 +15,9 @@
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260827-work-order-flow-v3">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260826-admin-v56-9019096">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260828-role-glass-v578-2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -634,7 +634,7 @@
 
             <div class="flex gap-2">
               <button class="g-btn primary" style="flex:1" @click="openExecution">
-                <app-icon name="bolt"></app-icon> 虚拟执行
+                <app-icon name="bolt"></app-icon> 查看建议并执行
               </button>
               <button class="g-btn secondary" @click="showPassportModal = true">
                 <app-icon name="policy"></app-icon> 决策护照
@@ -685,12 +685,12 @@
               <button class="g-btn icon-only" @click="showDualTrackModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
-              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“下发处方 (执行)”与“不下发处方 (不执行)”的演化结果。</p>
+              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“执行处方”与“不执行处方”的演化结果；确认后由当前操作人直接创建虚拟命令。</p>
               <div id="dualTrackChart" style="width: 100%; height: 350px;"></div>
             </div>
             <div class="g-modal-footer">
               <button class="g-btn secondary" @click="showDualTrackModal = false">取消</button>
-              <button class="g-btn primary" @click="confirmExecution">正式下发指令</button>
+              <button class="g-btn primary" :disabled="executionBusy" @click="confirmExecution">{{ executionBusy ? '执行中…' : '确认并执行' }}</button>
             </div>
           </div>
         </div>
@@ -737,85 +737,6 @@
   </template>
 
   <!-- Risk Forecast Template -->
-  <template id="tmpl-risk-forecast">
-    <div>
-      <div class="flex justify-between items-center relative" style="position: sticky; top: -24px; z-index: 100; background: var(--g-bg-base); padding: 24px 24px 16px 24px; margin: -24px -24px 24px -24px; border-bottom: 1px solid var(--g-border);">
-        <h2 style="margin: 0;">未来风险确定性推演</h2>
-        <div style="position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;">
-          <span class="text-muted" style="font-size:14px; font-weight:500">推演目标:</span>
-          <select class="g-select" style="width:200px" v-model="selectedPlotId" @change="changePlot">
-            <option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">
-              {{ plot.name }}（{{ displayText(plot.cropVariety) }}）
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div class="g-grid" style="grid-template-columns: 3fr 1fr">
-        <div class="g-card" :class="{'highlight-pulse': highlightChart}">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="flex items-center gap-2">
-              <app-icon name="analytics" style="color:var(--g-primary)"></app-icon>
-              综合地块含水率推演模型
-            </h3>
-            <span class="g-badge primary">初始基线：{{ currentPlotBaseMoisture }}%</span>
-            <div class="risk-forecast-actions">
-              <button v-if="canConfigureSimulation && forecast?.status === 'RESET'" type="button" class="g-btn text" @click="loadForecast" :disabled="loading">重新生成预测</button>
-              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="resetForecast('FORECAST')" :disabled="loading">重置预测曲线</button>
-              <button v-if="canConfigureSimulation" type="button" class="g-btn text" @click="openPlotSettings">调整地块策略</button>
-            </div>
-          </div>
-          <div id="riskChart" style="width: 100%; height: 450px;"></div>
-        </div>
-
-        <div>
-          <h3 class="mb-4">情景假设</h3>
-          <div class="flex" style="flex-direction:column; gap:12px; margin-bottom: 24px">
-            <div class="scenario-btn"
-                 v-for="scenario in scenarioOptions"
-                 :key="scenario.code"
-                 :class="{active: currentScenario === scenario.code}"
-                 @click="changeScenario(scenario)">
-              <div style="font-size:16px; font-weight:500; margin-bottom:4px">{{ scenario.emoji }} {{ scenario.label }}</div>
-              <div class="text-muted" style="font-size:12px; margin-bottom:8px">{{ scenario.desc }}</div>
-              <div class="flex justify-between items-center">
-                <span class="g-badge" style="background:var(--g-bg-base); border:1px solid var(--g-border-subtle)">
-                  {{ scenario.description || scenario.desc }}
-                </span>
-                <span v-if="scenario.ttrMinutes" class="g-badge" :style="{backgroundColor: scenario.color, color:'#fff'}">
-                  预计风险时间：{{ scenario.ttrMinutes }} 分钟
-                </span>
-              </div>
-            </div>
-          <p v-if="loading" class="text-muted">正在读取后端预测结果…</p>
-          <p v-if="error" class="text-muted" style="color:var(--g-warning)">{{ error }}</p>
-          </div>
-
-          <h3 class="mb-4">算法说明</h3>
-          <div class="metric-box">
-            <ul class="gates-list">
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">推演内核</span><span class="g-badge purple">Agri-LSTM-v2.1</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">置信区间</span><span class="text-muted" style="font-size:12px">± 1.2% (高信度)</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">时间窗口</span><span class="text-muted" style="font-size:12px">未来 4 小时</span></div>
-              </li>
-              <li style="flex-direction:column; align-items:flex-start">
-                <div class="flex justify-between" style="width:100%"><span style="font-weight:500">输入因子</span><span class="text-muted" style="font-size:12px">土壤温度、历史作物蒸散量（ETc）、气象预报</span></div>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    </div>
-  </template>
-
-  <!-- Work Orders Template -->
   <template id="tmpl-work-orders">
     <div>
       <div class="flex justify-between items-center mb-4">
@@ -1242,7 +1163,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260828-merge-main"></script>
+  <script type="module" src="js/app.js?v=20260828-v58"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1592,7 +1513,7 @@
   <!-- ADMIN: Simulator -->
   <template id="tmpl-admin-simulator">
     <div>
-      <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真验证</h2>
+      <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真模拟</h2>
 
       <!-- Control Bar -->
       <div class="sim-control-bar">
@@ -1633,7 +1554,11 @@
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
           <thead><tr>
-            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块 ID</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块名称</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">当前种植</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">异常场景注入</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
             <tr v-for="plot in plotScenarios" :key="plot.plotId">
@@ -1645,12 +1570,28 @@
                   <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
                 </select>
               </td>
+              <td>
+                <button v-if="plot.enabled !== false" class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="stop" style="font-size:16px"></app-icon> 停止
+                </button>
+                <button v-else class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="play_arrow" style="font-size:16px"></app-icon> 启动
+                </button>
+              </td>
             </tr>
             <tr v-if="!plotScenarios || plotScenarios.length === 0">
-              <td colspan="4" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
+              <td colspan="5" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Scenario matrix actions -->
+      <div class="admin-section-actions" style="display:flex; align-items:center; gap:12px; margin-bottom:24px">
+        <button class="g-btn primary" :disabled="simBusy" @click="applyPlotScenarios">
+          <app-icon name="save"></app-icon> 保存场景配置
+        </button>
+        <span style="font-size:12px;color:var(--g-text-secondary)">保存后后端模拟器将按各地块所选场景生成遥测数据，刷新后保留。</span>
       </div>
 
       <!-- History -->

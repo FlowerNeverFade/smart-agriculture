@@ -686,8 +686,6 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .plot-simulation-chart { width: 100%; height: 220px; }
 .plot-simulation-note, .plot-simulation-readonly { margin-top: 4px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
 .plot-simulation-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
-.risk-forecast-actions { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
-.risk-forecast-actions .g-btn { min-height: 28px; padding: 0 8px; font-size: 11px; }
 
 @media (max-width: 760px) {
   .plot-simulation-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }

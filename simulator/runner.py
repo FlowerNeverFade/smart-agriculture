@@ -456,6 +456,7 @@ def run(args: argparse.Namespace) -> int:
     index = 0
     plot_configs: dict[str, dict] = {}
     config_signatures: dict[str, str] = {}
+    plot_stopped: dict[str, bool] = {}
     plot_config_path = Path(args.plot_config).expanduser() if args.plot_config else None
     config_mtime_ns = -1
     try:
@@ -478,6 +479,12 @@ def run(args: argparse.Namespace) -> int:
             known_plots.extend(plot_id for plot_id in plot_configs if plot_id not in known_plots)
             for plot_id in known_plots:
                 config = plot_configs.get(plot_id, {})
+                plot_enabled = bool(config.get("enabled", True))
+                if not plot_enabled:
+                    # 该地块模拟已停止：跳过遥测生成（状态保持最近一次）
+                    plot_stopped[plot_id] = True
+                    continue
+                plot_stopped[plot_id] = False
                 plot_scenario = normalize_scenario(config.get("scenario", args.scenario))
                 params = scenario_parameters(plot_scenario, config.get("parameters"))
                 revision = int(config.get("revision", 1) or 1)
@@ -534,6 +541,18 @@ def run(args: argparse.Namespace) -> int:
                 # simulated device is supposed to be reachable.
                 if http_client is not None and not is_offline:
                     http_client.publish_device_status(status)
+            if plot_stopped.get(plot_id, False):
+                # 该地块模拟已停止：上报设备离线，让前端呈现「已停止」。
+                stopped_status = {
+                    "deviceId": f"mock-{plot_id}", "farmId": "farm-demo", "plotId": plot_id,
+                    "status": "OFFLINE", "lastSeen": now_iso(ts), "sourceMode": "SIMULATION",
+                    "dataOrigin": "SIMULATOR", "provenance": "OBSERVED", "scenarioId": "stopped",
+                    "simulationRunId": scenario_id, "bindingState": "BOUND", "type": "ENVIRONMENTAL_SENSOR"
+                }
+                if client is not None:
+                    client.publish(f"agri/farm-demo/{plot_id}/device/status", json.dumps(stopped_status, ensure_ascii=False), qos=1)
+                if http_client is not None:
+                    http_client.publish_device_status(stopped_status)
             if args.speed > 0:
                 time.sleep(max(0.0, args.interval / args.speed))
             index += 1

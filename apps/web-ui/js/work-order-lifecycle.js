@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260826-live-refresh';
+import { api } from './api.js?v=20260828-v58';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
 import { roleCan } from './roles.js';
 

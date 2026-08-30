@@ -7,7 +7,7 @@
  * UI instead of being silently presented as real data.
  */
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
-import { isPublicRole, presentRoleUser, roleCan } from './roles.js';
+import { canExecuteIrrigation, isPublicRole, presentRoleUser, roleCan } from './roles.js';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -148,8 +148,7 @@ export class ApiService {
       plans: new Map(),
       readiness: new Map(),
       commands: new Map(),
-      evaluations: new Map(),
-      commandIdempotency: new Map()
+      evaluations: new Map()
     };
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
@@ -170,7 +169,7 @@ export class ApiService {
         controlStatus: 'SUCCEEDED'
       }];
     }));
-    this.demoSimulationStrategies = new Map((MOCK_DATA.plots || []).map((plot) => {
+    this.demoSimulationStrategies = this.loadDemoSimulationStrategies() || new Map((MOCK_DATA.plots || []).map((plot) => {
       const scenario = normalizePlotSimulationScenario(plot.simulation?.scenario || 'NORMAL');
       return [plot.plotId, {
         plotId: plot.plotId,
@@ -711,11 +710,11 @@ export class ApiService {
     };
   }
 
-  async updatePlotSimulation(plotId, { scenario = 'NORMAL', parameters = {} } = {}) {
+  async updatePlotSimulation(plotId, { scenario = 'NORMAL', parameters = {}, enabled } = {}) {
     const normalized = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/simulation`, {
-        method: 'PUT', body: JSON.stringify({ scenario: normalized, parameters })
+        method: 'PUT', body: JSON.stringify({ scenario: normalized, parameters, enabled })
       });
       const result = resp?.data || resp;
       if (result?.plotId) return result;
@@ -727,8 +726,57 @@ export class ApiService {
       parameters: cloneSimulationParameters(normalized, parameters),
       revision: Number(previous.revision || 0) + 1, updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION'
     };
+    if (typeof enabled === 'boolean') next.enabled = enabled;
     this.demoSimulationStrategies.set(plotId, next);
+    this.persistDemoSimulationStrategies();
     return next;
+  }
+
+  /** demo 模式：从 localStorage 恢复地块模拟策略（刷新后保留）。 */
+  loadDemoSimulationStrategies() {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('demoSimulationStrategies') : null;
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const map = new Map();
+      Object.entries(parsed).forEach(([plotId, value]) => {
+        if (!plotId || !value || typeof value !== 'object') return;
+        const scenario = normalizePlotSimulationScenario(value.scenario || 'NORMAL');
+        map.set(plotId, {
+          plotId,
+          scenario,
+          parameters: cloneSimulationParameters(scenario, value.parameters),
+          revision: Number(value.revision || 1) || 1,
+          sourceMode: 'SIMULATION',
+          updatedAt: value.updatedAt || new Date().toISOString(),
+          hardware: { bindingState: 'UNBOUND', status: 'NOT_BOUND', usability: 'NOT_BOUND', label: '未绑定硬件' },
+          simulatorDevice: { status: 'ONLINE', label: '模拟数据运行中' }
+        });
+      });
+      return map.size ? map : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /** demo 模式：把地块模拟策略写入 localStorage。 */
+  persistDemoSimulationStrategies() {
+    try {
+      if (typeof localStorage === 'undefined') return;
+      const plain = {};
+      this.demoSimulationStrategies.forEach((value, plotId) => {
+        plain[plotId] = {
+          scenario: value?.scenario || 'NORMAL',
+          parameters: value?.parameters || {},
+          revision: Number(value?.revision || 1) || 1,
+          updatedAt: value?.updatedAt || new Date().toISOString()
+        };
+      });
+      localStorage.setItem('demoSimulationStrategies', JSON.stringify(plain));
+    } catch (error) {
+      // localStorage 不可用时静默失败（demo 模式降级为内存态）
+    }
   }
 
   async resetPlotSimulation(plotId, target = 'ALL') {
@@ -803,7 +851,7 @@ export class ApiService {
     const now = Date.now();
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
     const profile = telemetryMetricProfile(code);
-    const targetPlot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const metricRecord = targetPlot?.metrics?.[code] || {};
     const configuredBase = Number(metricRecord.value);
     const baseValue = Number.isFinite(configuredBase) ? configuredBase : profile.defaultValue;
@@ -1125,11 +1173,11 @@ export class ApiService {
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
-  async createFarmMember({ farmId, username, password, displayName = '', plotIds = [] } = {}) {
+  async createFarmMember({ farmId, username, password, displayName = '', role = 'FARMER', plotIds = [] } = {}) {
     if (this.sessionMode === 'live') {
       const response = await this._fetch('/api/v1/farm-members', {
         method: 'POST',
-        body: JSON.stringify({ farmId, username, password, displayName, plotIds })
+        body: JSON.stringify({ farmId, username, password, displayName, role, plotIds })
       });
       if (response?.data?.userId) {
         return { ...normalizeFarmMember(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode || '' };
@@ -1143,14 +1191,16 @@ export class ApiService {
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
+    const memberRole = String(role || 'FARMER').toUpperCase();
+    const memberRoleLabel = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' }[memberRole] || '种植农户';
     const member = normalizeFarmMember({
       userId,
       username: normalized,
       displayName: displayName || normalized,
-      role: 'FARMER',
-      roleLabel: '种植农户',
+      role: memberRole,
+      roleLabel: memberRoleLabel,
       farmIds: [farmId],
-      plotIds,
+      plotIds: memberRole === 'SYSTEM_ADMIN' ? ['*'] : plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
@@ -1758,7 +1808,7 @@ export class ApiService {
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
     const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
     const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
-    const canControl = roleCan(this.user, 'irrigation:approve') || this.user?.role === 'FARMER';
+    const canControl = canExecuteIrrigation(this.user);
     const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
@@ -1794,7 +1844,10 @@ export class ApiService {
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
       readinessStatus,
-      requiresApproval: true,
+      requiresApproval: false,
+      requiresAdminApproval: false,
+      confirmationRequired: true,
+      executionMode: 'OPERATOR_CONFIRMED',
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
@@ -1819,7 +1872,7 @@ export class ApiService {
     const status = plan.readinessStatus || 'HUMAN_REVIEW';
     const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
     const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
-    const canControl = roleCan(this.user, 'irrigation:approve') || this.user?.role === 'FARMER';
+    const canControl = canExecuteIrrigation(this.user);
     const hardGates = {
       requiredMetrics: 'PASS',
       freshness: deviceOffline ? 'FAIL' : 'PASS',
@@ -1907,9 +1960,9 @@ export class ApiService {
 
   /**
    * Persist a farmer decision outcome without changing a strategy or issuing
-   * a control command.  Farmers use this contract to request administrator
-   * approval and to record the result of an inspection/task; direct
-   * irrigation execution remains guarded by irrigation:approve.
+   * a control command.  Farmers use this contract to record inspection/task
+   * feedback; legacy approval requests remain supported for old records, but
+   * current irrigation execution uses the separate guarded execute capability.
    */
   async submitDecisionFeedback(traceId, input = {}) {
     if (!traceId) {
@@ -2065,12 +2118,12 @@ export class ApiService {
     if (!plotId) {
       throw new ApiError('执行灌溉前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     }
-    const farmerVirtual = options.executionMode === 'FARMER_VIRTUAL' && this.user?.role === 'FARMER';
-    if (!roleCan(this.user, 'irrigation:approve') && !farmerVirtual) {
+    if (!canExecuteIrrigation(this.user)) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     }
-    if (options.approved !== true) {
-      throw new ApiError('虚拟灌溉必须经过当前操作人明确确认', { status: 409, code: 'APPROVAL_REQUIRED' });
+    const confirmed = options.confirmed === true || options.approved === true;
+    if (!confirmed) {
+      throw new ApiError('执行前需要当前操作人明确确认（人工确认），无需管理员审批', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     }
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/commands/virtual', {
@@ -2079,32 +2132,43 @@ export class ApiService {
           planId,
           plotId,
           idempotencyKey: options.idempotencyKey || 'cmd-key-' + Date.now(),
+          confirmed: true,
+          // Keep the old field for already deployed admin pages and servers.
           approved: true,
-          executionMode: options.executionMode || 'SIMULATED',
+          approvalRequired: false,
+          confirmationMode: 'OPERATOR_CONFIRMED',
           source: options.source || 'web-decision-console',
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
           ...(options.outcome ? { outcome: options.outcome } : {})
         })
       });
       if (resp && resp.data) {
-        const command = { ...resp.data, executionMode: resp.data.executionMode || options.executionMode || 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
+        const command = { ...resp.data, executionMode: 'SIMULATED', provenance: resp.data.provenance || 'SIMULATED' };
         this.decisionCache.commands.set(command.commandId, command);
         return command;
       }
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
-    const demoIdempotencyKey = options.idempotencyKey || '';
-    if (demoIdempotencyKey && this.decisionCache.commandIdempotency.has(demoIdempotencyKey)) {
-      return this.decisionCache.commandIdempotency.get(demoIdempotencyKey);
-    }
-
     const plan = this.decisionCache.plans.get(planId);
     if (!plan || plan.plotId !== plotId) {
       throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
     }
-    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false) {
+    if (plan.executable !== true || plan.readinessStatus !== 'READY' || options.approved === false || options.confirmed === false) {
       throw new ApiError('处方未通过安全门或尚未人工确认', { status: 409, code: 'IRRIGATION_NOT_READY' });
+    }
+
+    const existing = [...this.decisionCache.commands.values()].find((item) => (
+      options.idempotencyKey && item.idempotencyKey === options.idempotencyKey
+    ));
+    if (existing) {
+      if (existing.plotId !== plotId) {
+        throw new ApiError('幂等键已绑定其他地块的灌溉命令', { status: 409, code: 'IDEMPOTENCY_PLOT_MISMATCH' });
+      }
+      if (existing.planId !== planId) {
+        throw new ApiError('幂等键已绑定其他灌溉处方', { status: 409, code: 'IDEMPOTENCY_PLAN_MISMATCH' });
+      }
+      return { ...existing };
     }
 
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
@@ -2120,14 +2184,17 @@ export class ApiService {
       plotId,
       planId,
       traceId: plan.traceId,
+      idempotencyKey: options.idempotencyKey || `cmd-demo-${planId}`,
+      approvalRequired: false,
+      confirmationMode: 'OPERATOR_CONFIRMED',
+      confirmedBy: this._demoActorId(),
+      confirmedAt: new Date().toISOString(),
       status: outcome,
       type: "IRRIGATION_START",
       waterLitre: plannedWater,
       durationSeconds: plannedDuration,
       transport: "MQTT_VIRTUAL_ACTUATOR",
-      executionMode: farmerVirtual ? 'FARMER_VIRTUAL' : 'SIMULATED',
-      sourceMode: 'SIMULATION',
-      confirmationType: farmerVirtual ? 'FARMER_SELF_CONFIRMATION' : 'ADMIN_CONFIRMATION',
+      executionMode: 'SIMULATED',
       provenance: 'SIMULATED',
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
@@ -2148,30 +2215,8 @@ export class ApiService {
         provenance: 'SIMULATED'
       }
     };
-    const demoPlot = this.demoPlots.get(plotId);
-    if (outcome === 'SUCCEEDED' || outcome === 'PARTIAL') {
-      const ratio = outcome === 'PARTIAL' ? .4 : 1;
-      const soilBefore = Number(demoPlot?.metrics?.SOIL_MOISTURE?.value ?? plan.expectedResult?.from ?? 20);
-      const soilAfter = Math.min(100, Number((soilBefore + 10 * ratio).toFixed(1)));
-      const waterBefore = Number(demoPlot?.metrics?.WATER_LEVEL?.value ?? 80);
-      const waterAfter = Math.max(0, Number((waterBefore - actualWater / 900 * 100).toFixed(1)));
-      const updated = {
-        ...(demoPlot || {}),
-        metrics: {
-          ...(demoPlot?.metrics || {}),
-          SOIL_MOISTURE: { ...(demoPlot?.metrics?.SOIL_MOISTURE || {}), value: soilAfter, sourceMode: 'SIMULATION', dataOrigin: 'VIRTUAL_ACTUATOR', quality: { status: 'GOOD', freshnessMs: 0, confidence: .99 } },
-          WATER_LEVEL: { ...(demoPlot?.metrics?.WATER_LEVEL || {}), value: waterAfter, sourceMode: 'SIMULATION', dataOrigin: 'VIRTUAL_ACTUATOR', quality: { status: 'GOOD', freshnessMs: 0, confidence: .99 } }
-        }
-      };
-      this.demoPlots.set(plotId, updated);
-      command.ack.sensorEffect = { soilMoistureBefore: soilBefore, soilMoistureAfter: soilAfter, waterLevelBefore: waterBefore, waterLevelAfter: waterAfter, actualWaterLitre: actualWater, sourceMode: 'SIMULATION' };
-      command.evaluation.actualMoisture = `${soilAfter.toFixed(1)}%`;
-      command.evaluation.actual = { soilMoistureBefore: soilBefore, soilMoistureAfter: soilAfter, waterLevelBefore: waterBefore, waterLevelAfter: waterAfter, waterLitre: actualWater };
-      command.evaluation.sensorEffect = command.ack.sensorEffect;
-    }
     this.decisionCache.commands.set(command.commandId, command);
     this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId, planId });
-    if (demoIdempotencyKey) this.decisionCache.commandIdempotency.set(demoIdempotencyKey, command);
     return command;
   }
 
@@ -2205,6 +2250,68 @@ export class ApiService {
       return this.normalizeForecast(resp?.data || resp, plotId, metric);
     }
     return this.mockRiskForecast(plotId, metric);
+  }
+
+  async evaluateRiskForecast(input = {}) {
+    const plotId = String(input.plotId || '').trim();
+    const metric = String(input.metric || 'SOIL_MOISTURE').toUpperCase();
+    if (!plotId) throw new ApiError('请先选择地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/forecasts/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({ ...input, plotId, metric })
+      });
+      return this.normalizeForecast(resp?.data || resp, plotId, metric);
+    }
+
+    const current = this.demoSimulationStrategies.get(plotId) || { scenario: 'NORMAL', parameters: PLOT_SIMULATION_DEFAULTS.NORMAL };
+    const rawScenario = String(input.scenario || current.scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+    const scenarioAliases = { STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', OFFLINE: 'DEVICE_OFFLINE' };
+    const scenario = scenarioAliases[rawScenario] || rawScenario;
+    if (!PLOT_SIMULATION_DEFAULTS[scenario]) {
+      throw new ApiError('不支持的地块模拟场景', { status: 400, code: 'SIMULATION_SCENARIO_INVALID' });
+    }
+    const base = scenario === normalizePlotSimulationScenario(current.scenario)
+      ? { ...(current.parameters || {}) }
+      : { ...(PLOT_SIMULATION_DEFAULTS[scenario] || PLOT_SIMULATION_DEFAULTS.NORMAL) };
+    const supplied = input.parameters && typeof input.parameters === 'object' ? input.parameters : {};
+    const candidate = { ...base };
+    const warnings = [];
+    Object.entries(supplied).forEach(([key, value]) => {
+      const limits = PLOT_SIMULATION_LIMITS[key];
+      if (!limits) { warnings.push(`已忽略未知参数：${key}`); return; }
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return;
+      const bounded = Math.min(limits[1], Math.max(limits[0], numeric));
+      candidate[key] = bounded;
+      if (bounded !== numeric) warnings.push(`${key} 已限制在 ${limits[0]}–${limits[1]} 范围内`);
+    });
+    if (Number(candidate.riskThreshold) >= Number(candidate.waterloggingThreshold)) {
+      throw new ApiError('干旱阈值必须低于积水阈值', { status: 400, code: 'SIMULATION_THRESHOLD_INVALID' });
+    }
+    const parameters = cloneSimulationParameters(scenario, candidate);
+    const raw = this.mockRiskForecast(plotId, metric, { scenario, parameters });
+    if (String(raw?.status || '').toUpperCase() === 'UNAVAILABLE') warnings.push('当前数据条件不足，未生成可执行曲线');
+    return this.normalizeForecast({
+      ...raw,
+      persisted: false,
+      requestVersion: input.requestVersion ?? null,
+      modelMode: 'DETERMINISTIC_WHAT_IF',
+      dataSource: 'SIMULATED',
+      inputSnapshot: {
+        plotId, metric, scenario, parameters: { ...parameters },
+        startValue: raw?.startValue ?? raw?.startMoisture ?? null,
+        startTimestamp: raw?.startTimestamp ?? null,
+        requestVersion: input.requestVersion ?? null,
+        evaluatedAt: new Date().toISOString()
+      },
+      explanation: {
+        summary: '使用演示遥测锚点与未保存策略进行只读确定性试算',
+        strategySource: scenario === normalizePlotSimulationScenario(current.scenario) ? 'CURRENT_STRATEGY_WITH_OVERRIDES' : 'SCENARIO_DEFAULTS_WITH_OVERRIDES',
+        persistence: 'NONE'
+      },
+      warnings
+    }, plotId, metric);
   }
 
   normalizeForecast(raw, plotId, metric) {
@@ -2270,7 +2377,7 @@ export class ApiService {
     return points;
   }
 
-  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE') {
+  mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', strategyOverride = null) {
     const cfg = MOCK_DATA.riskForecastConfig;
     const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
@@ -2278,7 +2385,7 @@ export class ApiService {
     const currentRecord = plot?.metrics?.[code] || {};
     const currentValue = Number(currentRecord.value);
     const start = Number.isFinite(currentValue) ? currentValue : profile.defaultValue;
-    const strategy = this.demoSimulationStrategies.get(plotId);
+    const strategy = strategyOverride || this.demoSimulationStrategies.get(plotId);
     const scenario = String(strategy?.scenario || 'NORMAL').toUpperCase();
     const params = strategy?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL;
     const driftRate = scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) : 0;
