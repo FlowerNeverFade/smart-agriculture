@@ -5,7 +5,7 @@ import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-agent-assistant-history';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-chat-normal';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
@@ -125,7 +125,10 @@ const ICON_CLASS = Object.freeze({
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right'
+  chevron_right: 'ph-caret-right',
+  chevron_left: 'ph-caret-left',
+  attach_file: 'ph-paperclip',
+  image_search: 'ph-image-square'
 });
 
 const AppIcon = {

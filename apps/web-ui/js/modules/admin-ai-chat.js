@@ -1,7 +1,7 @@
 import { api } from '../api.js';
-import { agentResponseSource, agentResponseText, normalizeAgentEvidence } from '../live-data.js?v=20260830-agent-assistant-v1';
+import { agentResponseSource, agentResponseText } from '../live-data.js?v=20260830-agent-assistant-v1';
 
-const { ref, computed, inject, onMounted, nextTick, watch } = Vue;
+const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 
 function messageTime(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
@@ -41,7 +41,6 @@ function deriveFacts(response = {}) {
   addFact(facts, '就绪状态', result.readinessStatus ?? plan.readinessStatus ?? response.readinessStatus);
   addFact(facts, '建议水量', result.waterLitre ?? result.waterLitres ?? plan.waterLitre ?? plan.waterLitres, ' L');
   addFact(facts, '执行时长', result.durationSeconds ?? plan.durationSeconds, ' 秒');
-  addFact(facts, '置信度', typeof response.confidence === 'number' ? `${Math.round(response.confidence * 100)}%` : response.confidence);
   const quality = response.quality || result.quality || response.dataQuality;
   if (typeof quality === 'string') addFact(facts, '数据质量', quality);
   const evidenceCount = Array.isArray(response.knowledgeEvidence) ? response.knowledgeEvidence.length : 0;
@@ -76,11 +75,11 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live') {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,
     role, content, time: messageTime(item.createdAt || item.timestamp),
     source: role === 'assistant' ? (item.sourceLabel || agentResponseSource(response, sessionMode)) : '',
+    attachments: Array.isArray(item.attachments) ? item.attachments : (Array.isArray(response.attachments) ? response.attachments : []),
     actionProposal: item.actionProposal || response.actionProposal || null,
     facts: role === 'assistant' && !isError ? deriveFacts(response) : [],
     inference: role === 'assistant' && !isError ? content : '',
     recommendations: role === 'assistant' && !isError ? deriveRecommendations(response) : [],
-    evidence: role === 'assistant' && !isError ? normalizeAgentEvidence(response) : [],
     degraded: Boolean(item.degraded || response.degraded), error: isError
   };
 }
@@ -108,14 +107,110 @@ export const AdminAiChatView = {
     const loadingConversations = ref(false);
     const sending = ref(false);
     const messageList = ref(null);
+    const chatRoot = ref(null);
+    const sidebarCollapsed = ref(localStorage.getItem('agriloop-ai-sidebar-collapsed') === '1');
+    const storedSidebarWidth = Number(localStorage.getItem('agriloop-ai-sidebar-width'));
+    const sidebarWidth = ref(Number.isFinite(storedSidebarWidth) ? Math.min(360, Math.max(200, storedSidebarWidth)) : 240);
+    const draggingSidebar = ref(false);
+    const imageInput = ref(null);
+    const attachments = ref([]);
     const actionBusy = ref('');
     const isActionBusy = () => Boolean(actionBusy.value);
     const isActionRunning = actionId => actionBusy.value === actionId;
     const selectedPlotName = computed(() => props.state.plots?.find(item => item.plotId === selectedPlotId.value)?.name || '全农场');
     const suggestions = computed(() => {
       const name = selectedPlotName.value === '全农场' ? '当前农场' : selectedPlotName.value;
-      return [`总结${name}现在最需要处理的问题`, `分析${name}的告警可信度`, `今天${name}应该给农户安排哪些任务`, '按紧急程度列出今天的农务建议'];
+      return [`总结${name}现在最需要处理的问题`, `分析${name}最近的告警`, `今天${name}应该给农户安排哪些任务`, '按紧急程度列出今天的农务建议'];
     });
+
+    const setSidebarWidth = value => {
+      const width = Math.min(360, Math.max(200, Number(value) || 240));
+      sidebarWidth.value = width;
+      try { localStorage.setItem('agriloop-ai-sidebar-width', String(width)); } catch (error) { /* private browsing */ }
+    };
+    const toggleSidebar = () => {
+      sidebarCollapsed.value = !sidebarCollapsed.value;
+      try { localStorage.setItem('agriloop-ai-sidebar-collapsed', sidebarCollapsed.value ? '1' : '0'); } catch (error) { /* private browsing */ }
+    };
+    let resizeCleanup = null;
+    const stopSidebarResize = () => {
+      draggingSidebar.value = false;
+      if (resizeCleanup) { resizeCleanup(); resizeCleanup = null; }
+    };
+    const startSidebarResize = event => {
+      if (sidebarCollapsed.value) return;
+      event.preventDefault();
+      const rect = chatRoot.value?.getBoundingClientRect();
+      if (!rect) return;
+      draggingSidebar.value = true;
+      const move = pointerEvent => setSidebarWidth(pointerEvent.clientX - rect.left);
+      const stop = () => stopSidebarResize();
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', stop, { once: true });
+      resizeCleanup = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); };
+    };
+
+    const revokeAttachment = attachment => { if (attachment?.url) URL.revokeObjectURL(attachment.url); };
+    const releaseMessageImages = () => { messages.value.flatMap(message => message.attachments || []).forEach(revokeAttachment); };
+    const removeAttachment = id => {
+      const removed = attachments.value.find(item => item.id === id);
+      revokeAttachment(removed);
+      attachments.value = attachments.value.filter(item => item.id !== id);
+    };
+    const onImageSelected = event => {
+      const files = Array.from(event.target?.files || []);
+      const available = Math.max(0, 4 - attachments.value.length);
+      const accepted = files.slice(0, available).filter(file => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.size <= 8 * 1024 * 1024);
+      if (files.length > accepted.length) toast('仅支持 JPG、PNG、WebP 图片，单张不超过 8MB，最多 4 张', 'error');
+      attachments.value = [...attachments.value, ...accepted.map(file => ({ id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: file.name, size: file.size, type: file.type, url: URL.createObjectURL(file), file }))];
+      if (event.target) event.target.value = '';
+    };
+    const formatAttachmentSize = bytes => {
+      const size = Number(bytes || 0);
+      return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
+    };
+    const inspectPhoto = attachment => new Promise(resolve => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const sampleSize = 32;
+          canvas.width = sampleSize;
+          canvas.height = sampleSize;
+          const context = canvas.getContext('2d', { willReadFrequently: true });
+          context.drawImage(image, 0, 0, sampleSize, sampleSize);
+          const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
+          let brightness = 0;
+          let greenDominant = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            const red = pixels[index]; const green = pixels[index + 1]; const blue = pixels[index + 2];
+            brightness += (red * 299 + green * 587 + blue * 114) / 1000;
+            if (green > red * 1.08 && green > blue * 1.05) greenDominant += 1;
+          }
+          const count = pixels.length / 4;
+          resolve({ width: image.naturalWidth, height: image.naturalHeight, brightness: Math.round(brightness / count), greenShare: Math.round(greenDominant / count * 100) });
+        } catch (error) { resolve({ width: image.naturalWidth, height: image.naturalHeight }); }
+      };
+      image.onerror = () => resolve({});
+      image.src = attachment.url;
+    });
+    const analyzePhoto = async () => {
+      if (!attachments.value.length || sending.value) return;
+      const names = attachments.value.map(item => item.name).join('、');
+      const count = attachments.value.length;
+      const photoAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
+      messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: `请分析我上传的${count}张现场照片`, attachments: photoAttachments, time: messageTime(), source: '' });
+      const analyses = await Promise.all(attachments.value.map(inspectPhoto));
+      const summary = analyses.map((item, index) => {
+        const dimensions = item.width && item.height ? `${item.width}×${item.height}px` : '无法读取分辨率';
+        const visual = item.brightness === undefined ? '未能读取像素' : `亮度约 ${item.brightness}/255，绿色像素约 ${item.greenShare}%`;
+        return `${attachments.value[index].name}（${dimensions}，${visual}）`;
+      }).join('；');
+      const reply = `图片基础分析：${summary}。这些是照片的客观图像特征，不等同于病害或长势诊断；现有 Agent 接口未开放视觉识别能力，我不会虚构作物结论。请补充照片位置、症状和拍摄时间，我会结合平台遥测、告警与农务记录继续判断。`;
+      messages.value.push({ id: `assistant-image-${Date.now()}`, role: 'assistant', content: reply, time: messageTime(), source: '图片接收提示' });
+      attachments.value = [];
+      await scrollToBottom();
+    };
 
     watch(() => props.state.plots?.map(plot => plot.plotId).join('|'), () => { if (!selectedPlotId.value && props.state.plots?.[0]?.plotId) selectedPlotId.value = props.state.plots[0].plotId; });
     watch(() => props.routeParams?.plotId || props.routeParams?.targetPlot, value => { if (value) selectedPlotId.value = value; });
@@ -134,9 +229,11 @@ export const AdminAiChatView = {
         const history = await api.getAgentHistory(id, 60);
         conversationId.value = history?.conversation?.conversationId || id;
         selectedConversationId.value = conversationId.value;
+        releaseMessageImages();
         messages.value = (history?.messages || []).map(item => normalizeAgentMessage(item, props.state.sessionMode)).filter(item => item.content);
         if (updateHash) updateRoute(conversationId.value);
       } catch (error) {
+        releaseMessageImages();
         messages.value = [];
         toast(error.message || '历史对话加载失败', 'error');
       } finally { loadingHistory.value = false; scrollToBottom(); }
@@ -145,6 +242,7 @@ export const AdminAiChatView = {
     const startNewConversation = ({ updateHash: shouldUpdateHash = true } = {}) => {
       conversationId.value = createConversationId();
       selectedConversationId.value = '';
+      releaseMessageImages();
       messages.value = [];
       input.value = '';
       if (shouldUpdateHash) updateRoute('');
@@ -170,21 +268,25 @@ export const AdminAiChatView = {
 
     const send = async (preset = '') => {
       const text = String(preset || input.value).trim();
-      if (!text || sending.value) return;
+      const hasAttachments = attachments.value.length > 0;
+      if ((!text && !hasAttachments) || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
       if (!conversationId.value) conversationId.value = createConversationId();
       selectedConversationId.value = conversationId.value;
       input.value = '';
-      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text, time: messageTime(), source: '', facts: [], recommendations: [] });
+      const messageAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
+      const requestText = text || '我上传了现场图片，请结合平台数据告诉我下一步该怎么检查。';
+      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text || '已上传现场图片', attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
+      attachments.value = [];
       sending.value = true;
       scrollToBottom();
       try {
-        const response = await api.agentChat(text, selectedPlotId.value, conversationId.value);
+        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
         conversationId.value = response?.conversationId || conversationId.value;
         selectedConversationId.value = conversationId.value;
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', content: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。') }, props.state.sessionMode);
         messages.value.push(assistant);
-        if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text, assistantResponse: response });
+        if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
@@ -213,31 +315,36 @@ export const AdminAiChatView = {
     };
     const handleKeydown = event => { if (event.isComposing) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } };
     onMounted(loadConversations);
+    onBeforeUnmount(() => {
+      stopSidebarResize();
+      attachments.value.forEach(revokeAttachment);
+      messages.value.flatMap(message => message.attachments || []).forEach(revokeAttachment);
+    });
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, suggestions, selectedPlotName, conversationTime, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto };
   },
   template: `
-    <section class="admin-ai-chat" aria-label="AI助手">
+    <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手">
       <aside class="admin-ai-conversation-sidebar" aria-label="历史对话">
-        <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>历史对话</strong></div><button class="g-btn primary compact" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button></div>
+        <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>历史对话</strong></div><div class="admin-ai-sidebar-heading-actions"><button class="g-btn primary compact" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button><button class="g-btn icon-only compact admin-ai-sidebar-collapse" type="button" aria-label="隐藏历史对话" title="隐藏历史对话" @click="toggleSidebar"><app-icon name="chevron_left"></app-icon></button></div></div>
         <div class="admin-ai-conversation-list" aria-live="polite">
           <div v-if="loadingConversations" class="admin-ai-sidebar-state"><app-icon name="hourglass_empty"></app-icon><span>正在读取…</span></div>
           <div v-else-if="!conversations.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>发送第一条消息后会保存到这里</span></div>
           <button v-for="conversation in conversations" :key="conversation.conversationId" type="button" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId }" @click="selectConversation(conversation.conversationId)"><span class="admin-ai-conversation-title">{{ conversation.title || '农事对话' }}</span><span class="admin-ai-conversation-meta"><span>{{ conversation.plotId || '全农场' }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span></button>
         </div>
       </aside>
+      <button v-if="!sidebarCollapsed" class="admin-ai-sidebar-resizer" type="button" aria-label="调整历史对话栏宽度" title="拖动调整历史对话栏宽度" @pointerdown="startSidebarResize"><span></span></button>
       <div class="admin-ai-chat-main">
-        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>AI 助手已就绪</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">咨询地块</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label></div>
+        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" :title="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>AI 助手已就绪</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">咨询地块</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
-          <div class="admin-ai-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand">AgriLoop AI</p><strong class="admin-ai-empty-greeting">今天想先处理什么？</strong><p class="admin-ai-empty-copy">我会结合 {{ selectedPlotName }} 的遥测、告警和农务记录回答，并明确区分事实、推断与建议。</p><div class="admin-ai-suggestions" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
+          <div class="admin-ai-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand">AgriLoop AI</p><strong class="admin-ai-empty-greeting">今天想先处理什么？</strong><p class="admin-ai-empty-copy">我会结合 {{ selectedPlotName }} 的实时数据、告警和农务记录回答，先核对平台事实，再给出清晰的下一步建议。</p><div class="admin-ai-suggestions" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in messages" :key="message.id" class="admin-ai-message" :class="[message.role, { error: message.error }]">
-            <div class="admin-ai-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><span class="admin-ai-message-author">{{ message.role === 'user' ? '我' : 'AgriLoop AI' }}</span><p>{{ message.content }}</p>
-              <div v-if="message.role === 'assistant' && !message.error" class="admin-ai-layered-answer"><div v-if="message.facts?.length" class="admin-ai-layer admin-ai-facts"><strong>已知事实</strong><ul><li v-for="fact in message.facts" :key="fact.label"><span>{{ fact.label }}</span><b>{{ fact.value }}</b></li></ul></div><div class="admin-ai-layer admin-ai-inference"><strong>分析判断</strong><p>{{ message.inference }}</p><small v-if="message.degraded">当前为规则降级回答，指标仍以平台数据为准。</small></div><div class="admin-ai-layer admin-ai-recommendations"><strong>执行建议</strong><ul v-if="message.recommendations?.length"><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul><p v-else>当前没有可执行建议，请先补充数据或核对安全门。</p></div></div>
+            <div class="admin-ai-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><span class="admin-ai-message-author">{{ message.role === 'user' ? '我' : 'AgriLoop AI' }}</span><p>{{ message.content }}</p><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
               <div v-if="message.actionProposal" class="admin-ai-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>操作预览</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><small>{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message assistant" v-if="sending"><div class="admin-ai-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>正在分析地块数据和农务记录</span></div></article></template>
         </div>
-        <footer class="admin-ai-compose-area"><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" placeholder="给 AI 助手发送消息" @keydown="handleKeydown"></textarea><button class="admin-ai-send" type="button" :disabled="sending || !input.trim()" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div><p class="admin-ai-chat-footnote">AI 只解释平台事实，不会编造指标；Enter 发送，Shift + Enter 换行。</p></footer>
+        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" placeholder="给 AI 助手发送消息" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div><p class="admin-ai-chat-footnote">可以上传 JPG、PNG 或 WebP 图片；图片仅保留在当前对话，现有 Agent 接口会继续基于平台数据回答。</p></footer>
       </div>
     </section>
   `

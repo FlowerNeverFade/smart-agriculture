@@ -124,14 +124,14 @@ test('管理员入口拆分告警与 AI 助手，且对话正文字号不小于 
   assert.match(appSource, /id: 'ai-assistant'/);
   assert.doesNotMatch(appSource, /FARM_ADMIN: 'AI 告警处置'/);
   assert.match(chatCss, /\.admin-ai-bubble p\s*\{[^}]*font-size:\s*16px/s);
-  assert.match(chatCss, /grid-template-columns:\s*240px minmax\(0, 1fr\)/);
+  assert.match(chatCss, /grid-template-columns:\s*var\(--ai-sidebar-width, 240px\) 8px minmax\(0, 1fr\)/);
   assert.match(chatSource, /admin-ai-empty-state[\s\S]*admin-ai-suggestions[\s\S]*admin-ai-compose-area[\s\S]*admin-ai-composer/);
   assert.match(chatCss, /\.admin-ai-suggestions\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
   assert.match(chatCss, /\.admin-ai-composer\s*\{[^}]*border-radius:\s*24px/s);
   assert.match(chatSource, /历史对话/);
-  assert.match(chatSource, /已知事实/);
-  assert.match(chatSource, /分析判断/);
-  assert.match(chatSource, /执行建议/);
+  assert.match(chatSource, /toggleSidebar/);
+  assert.match(chatSource, /上传图片/);
+  assert.doesNotMatch(chatSource, /admin-ai-layered-answer/);
   assert.doesNotMatch(chatSource, /<h2/);
 });
 

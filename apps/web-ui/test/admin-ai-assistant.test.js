@@ -8,7 +8,7 @@ globalThis.localStorage = {
   setItem: (key, value) => storage.set(key, String(value)),
   removeItem: key => storage.delete(key)
 };
-globalThis.Vue = { ref: value => ({ value }), computed: getter => ({ get value() { return getter(); } }), inject: () => () => {}, watch: () => {}, onMounted: () => {}, nextTick: async () => {} };
+globalThis.Vue = { ref: value => ({ value }), computed: getter => ({ get value() { return getter(); } }), inject: () => () => {}, watch: () => {}, onMounted: () => {}, onBeforeUnmount: () => {}, nextTick: async () => {} };
 
 const { api } = await import('../js/api.js?assistant-history-test');
 const { AdminAiChatView } = await import('../js/modules/admin-ai-chat.js?assistant-history-test');
@@ -34,15 +34,19 @@ test('演示 Agent 会话按账号持久化、排序并恢复最近消息', asyn
   assert.deepEqual(await api.getAgentConversations(20), []);
 });
 
-test('AI 助手页面包含历史栏和事实/判断/建议三层结构', () => {
+test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口', () => {
   const source = readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
   assert.match(source, /getAgentConversations/);
   assert.match(source, /persistDemoAgentTurn/);
   assert.match(source, /历史对话/);
-  assert.match(source, /已知事实/);
-  assert.match(source, /分析判断/);
-  assert.match(source, /执行建议/);
+  assert.match(source, /toggleSidebar/);
+  assert.match(source, /startSidebarResize/);
+  assert.match(source, /上传图片/);
+  assert.match(source, /分析照片/);
+  assert.doesNotMatch(source, /admin-ai-layered-answer/);
+  assert.doesNotMatch(source, /置信度/);
   assert.match(css, /\.admin-ai-conversation-sidebar/);
-  assert.match(css, /grid-template-columns:\s*240px minmax\(0, 1fr\)/);
+  assert.match(css, /grid-template-columns:\s*var\(--ai-sidebar-width, 240px\) 8px minmax\(0, 1fr\)/);
+  assert.match(css, /\.admin-ai-sidebar-resizer/);
 });
