@@ -2355,6 +2355,16 @@
   background: var(--g-bg-subtle);
 }
 .farmer-plot-simulation-chart .farmer-chart-svg { height: 220px; margin-top: 0; }
+.farmer-plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.farmer-plot-simulation-chart-title { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.farmer-plot-simulation-chart-title strong { font-size: 12px; font-weight: 650; white-space: nowrap; }
+.farmer-plot-simulation-chart-title small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.farmer-plot-simulation-metric-picker { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; }
+.farmer-plot-simulation-metric-picker select { min-height: 27px; padding: 3px 24px 3px 8px; border: 1px solid var(--g-border); border-radius: 6px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-font-sans, system-ui, sans-serif); }
+.farmer-plot-simulation-metric-picker select:focus-visible { outline: 2px solid color-mix(in srgb, var(--g-primary) 45%, transparent); outline-offset: 1px; }
+.farmer-plot-simulation-chart-canvas { min-width: 0; }
+.farmer-plot-simulation-echarts { width: 100%; height: 220px; }
+.farmer-plot-simulation-note { margin-top: 6px; font-size: 11px; }
 .farmer-plot-simulation-footer { align-items: center; margin-top: 12px; }
 
 @media (max-width: 760px) {
@@ -2366,6 +2376,11 @@
   .farmer-risk-tool-chart .farmer-chart-svg { height: 230px; }
   .farmer-plot-simulation-grid { grid-template-columns: 1fr; }
   .farmer-plot-simulation-chart .farmer-chart-svg { height: 190px; }
+  .farmer-plot-simulation-echarts { height: 190px; }
+  .farmer-plot-simulation-chart-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .farmer-plot-simulation-chart-title { flex-wrap: wrap; gap: 3px 8px; }
+  .farmer-plot-simulation-metric-picker { width: 100%; justify-content: space-between; }
+  .farmer-plot-simulation-metric-picker select { flex: 1; }
 }
 
 /* 灌溉页：建议反馈与案例学习独立卡片 */

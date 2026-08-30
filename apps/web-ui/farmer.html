@@ -16,6 +16,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
+  <script src="vendor/echarts.min.js"></script>
 </head>
 <body>
   <div id="farmer_app" v-cloak @click="on_app_click">
@@ -560,20 +561,22 @@
                   <p v-if="!plot_simulation_parameter_summary.length" class="farmer-panel-hint">暂无可展示的策略参数。</p>
                 </div>
                 <div class="farmer-plot-simulation-chart">
+                  <div class="farmer-plot-simulation-chart-head">
+                    <div class="farmer-plot-simulation-chart-title"><strong>{{ plot_simulation_metric_label }}：历史 + 策略预测</strong><small>鼠标悬停查看局部数据</small></div>
+                    <label class="farmer-plot-simulation-metric-picker">
+                      <span>曲线指标</span>
+                      <select :value="plot_simulation_metric" @change="select_plot_simulation_metric" :disabled="plot_simulation_metric_loading" aria-label="选择曲线指标">
+                        <option v-for="metric in plot_simulation_metric_options" :key="metric.code" :value="metric.code">{{ metric.label }}（{{ metric.unit }}）</option>
+                      </select>
+                    </label>
+                  </div>
                   <div v-if="plot_simulation_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取策略预测曲线…</span></div>
-                  <div v-else-if="plot_simulation_chart" class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg farmer-moisture-svg" :viewBox="plot_simulation_chart.viewBox" role="img" :aria-label="selected_plot.name + '策略预测曲线'">
-                      <line v-for="line in plot_simulation_chart.grid" :key="'ps-grid-' + line.y" class="farmer-chart-grid-line" :x1="plot_simulation_chart.plotLeft" :y1="line.y" :x2="plot_simulation_chart.plotRight" :y2="line.y"></line>
-                      <text v-for="line in plot_simulation_chart.grid" :key="'ps-label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                      <line v-if="plot_simulation_chart.boundaryY != null" class="farmer-alert-threshold-line" :x1="plot_simulation_chart.plotLeft" :y1="plot_simulation_chart.boundaryY" :x2="plot_simulation_chart.plotRight" :y2="plot_simulation_chart.boundaryY"></line>
-                      <polygon v-if="plot_simulation_chart.bandPolygon" class="farmer-chart-confidence-band" :points="plot_simulation_chart.bandPolygon"></polygon>
-                      <polyline v-for="series in plot_simulation_chart.series" :key="'ps-series-' + series.label" class="farmer-chart-line" :class="{'is-moisture': series.primary, 'is-dashed': series.dashed}" :points="series.points" :stroke="series.color"></polyline>
-                      <text v-for="tick in plot_simulation_chart.xTicks" :key="'ps-tick-' + tick.x + tick.label" class="farmer-chart-axis-label" :x="tick.x" :y="tick.y" :text-anchor="tick.anchor">{{ tick.label }}</text>
-                    </svg>
-                    <div v-if="plot_simulation_chart.legend && plot_simulation_chart.legend.length" class="farmer-chart-legend" aria-label="策略曲线图例"><span v-for="item in plot_simulation_chart.legend" :key="'ps-legend-' + item.label" class="farmer-chart-legend-item"><i class="farmer-legend-swatch" :class="'is-' + item.style" :style="{'--legend-color': item.color}"></i>{{ item.label }}</span></div>
+                  <div v-else-if="plot_simulation_chart_available" class="farmer-plot-simulation-chart-canvas">
+                    <div ref="plot_simulation_chart_el" class="farmer-plot-simulation-echarts" role="img" :aria-label="`${plot_simulation_metric_label}历史与策略预测曲线`"></div>
                   </div>
                   <p v-else class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的策略预测曲线' }}</p>
                   <p v-if="plot_simulation_forecast && plot_simulation_forecast.uncertaintyNote" class="farmer-panel-hint">{{ plot_simulation_forecast.uncertaintyNote }}</p>
+                  <p class="farmer-panel-hint farmer-plot-simulation-note">{{ plot_simulation_preview_message }}</p>
                 </div>
               </div>
               <div class="farmer-form-footer farmer-plot-simulation-footer"><span class="farmer-panel-hint">只读展示，不会修改策略或写回主状态。</span><button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('advice')">在灌溉系统中展开</button></div>
