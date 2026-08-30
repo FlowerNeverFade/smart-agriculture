@@ -44,6 +44,8 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(plan.executionMode, 'OPERATOR_CONFIRMED');
   assert.equal(plan.readinessStatus, 'READY');
   assert.equal(plan.executable, true);
+  const beforeMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
+  const beforeTelemetry = (await service.getTelemetry(plan.plotId, 'SOIL_MOISTURE', 1))[0].value;
   await assert.rejects(
     () => service.executeIrrigation(plan.planId, plan.plotId, { idempotencyKey: 'direct-farmer-key' }),
     (error) => error.code === 'CONFIRMATION_REQUIRED'
@@ -60,6 +62,10 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(firstCommand.approvalRequired, false);
   assert.equal(firstCommand.confirmationMode, 'OPERATOR_CONFIRMED');
   assert.equal(firstCommand.ack.status, 'SUCCEEDED');
+  const afterMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
+  assert.ok(afterMoisture > beforeMoisture);
+  const afterTelemetry = (await service.getTelemetry(plan.plotId, 'SOIL_MOISTURE', 1))[0].value;
+  assert.ok(afterTelemetry > beforeTelemetry + 5);
   const passport = await service.getDecisionPassport(plan.traceId);
   assert.equal(passport.commands.at(-1).commandId, firstCommand.commandId);
   assert.equal(passport.evaluations.at(-1).commandId, firstCommand.commandId);

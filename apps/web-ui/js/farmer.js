@@ -2733,6 +2733,10 @@ const app = createApp({
               source: 'farmer-advice-direct',
               ...(is_live.value ? {} : { outcome: 'SUCCEEDED' })
             });
+            if (!is_live.value) {
+              await load_live_workspace({ announce: false });
+              await load_irrigation_plan(active.plotId, { silent: true });
+            }
           }
           suggestion_recovery_status.value = '灌溉命令已提交，等待设备 ACK 和效果评价。';
           suggestion_flow_stage.value = 'RESULT';

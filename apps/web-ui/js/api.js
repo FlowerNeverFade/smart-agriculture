@@ -851,7 +851,7 @@ export class ApiService {
     const now = Date.now();
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
     const profile = telemetryMetricProfile(code);
-    const targetPlot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const targetPlot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
     const metricRecord = targetPlot?.metrics?.[code] || {};
     const configuredBase = Number(metricRecord.value);
     const baseValue = Number.isFinite(configuredBase) ? configuredBase : profile.defaultValue;
@@ -881,7 +881,10 @@ export class ApiService {
       const progress = count <= 1 ? 0 : i / (count - 1);
       const elapsedHours = progress * trendWindowHours;
       const wave = Math.sin(i / 3) * profile.noise * volatility;
-      let value = baseValue + strategyTrend * elapsedHours + wave + (Math.random() * profile.noise * .65 - profile.noise * .325);
+      // The plot record is the current snapshot, so history is projected
+      // backwards from it; otherwise a drought window can overwrite a fresh
+      // irrigation result with an older synthetic endpoint.
+      let value = baseValue + strategyTrend * (elapsedHours - trendWindowHours) + wave + (Math.random() * profile.noise * .65 - profile.noise * .325);
       if (code === 'LIGHT') value += Math.sin(i / 8) * 2200 * volatility;
       if (code === 'RAINFALL') {
         const rate = Math.max(0, Number(params.rainfallRate ?? profile.defaultValue));
@@ -2217,6 +2220,31 @@ export class ApiService {
     };
     this.decisionCache.commands.set(command.commandId, command);
     this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId, planId });
+    const demoPlot = this.demoPlots.get(plotId);
+    if (demoPlot && ['SUCCEEDED', 'PARTIAL'].includes(outcome)) {
+      const metrics = { ...(demoPlot.metrics || {}) };
+      const moisture = metrics.SOIL_MOISTURE || {};
+      const waterLevel = metrics.WATER_LEVEL || {};
+      const moistureBefore = Number(moisture.value);
+      const moistureDelta = outcome === 'SUCCEEDED' ? 10 : 4;
+      const waterLevelBefore = Number(waterLevel.value);
+      const waterLevelDelta = plannedWater / 900 * 100;
+      metrics.SOIL_MOISTURE = {
+        ...moisture,
+        value: Number(Math.min(100, (Number.isFinite(moistureBefore) ? moistureBefore : 0) + moistureDelta).toFixed(1)),
+        status: 'NORMAL',
+        updatedAt: new Date().toISOString()
+      };
+      if (Number.isFinite(waterLevelBefore)) {
+        metrics.WATER_LEVEL = {
+          ...waterLevel,
+          value: Number(Math.max(0, waterLevelBefore - waterLevelDelta).toFixed(1)),
+          status: 'NORMAL',
+          updatedAt: new Date().toISOString()
+        };
+      }
+      this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
+    }
     return command;
   }
 
@@ -2561,7 +2589,7 @@ export class ApiService {
   }
 
   mockPlot(plotId) {
-    return MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    return this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   }
 
   async getDevices(filters = {}) {
