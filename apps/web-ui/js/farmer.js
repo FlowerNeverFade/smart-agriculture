@@ -2804,6 +2804,13 @@ const app = createApp({
         return true;
       } catch (error) {
         if (version !== workspace_request_version) return false;
+        // 会话已失效（token 过期、后端内存库重启导致账号丢失等）时，
+        // 自动清除本地会话并回到登录页，避免停留在没有田地的空工作台。
+        if (error?.status === 401 || error?.code === 'AUTH_REQUIRED' || error?.code === 'AUTH_INVALID') {
+          api.clearSession();
+          window.location.replace('login.html?reason=session_expired');
+          return false;
+        }
         load_error.value = error?.message || '正式数据读取失败';
         // Do not leave the module-level demo Crop Pack available after a
         // formal load fails.  A failed live request must render an empty
