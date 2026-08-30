@@ -243,6 +243,9 @@ class AdminManagementService {
         String plotId = Jsons.text(input, "plotId", Jsons.id("plot"));
         if (store.find("plot", plotId) != null) throw new ApiException(HttpStatus.CONFLICT, "PLOT_EXISTS", "地块编号已存在");
         Map<String, Object> plot = new LinkedHashMap<>(input);
+        String facilityType = PlotFacility.forPlot(plot);
+        plot.put("facilityType", facilityType);
+        plot.put("facilityLabel", PlotFacility.label(facilityType));
         plot.put("plotId", plotId); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
         plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", principal.userId);
         store.save("plot", plotId, plot);
@@ -255,7 +258,7 @@ class AdminManagementService {
         requireFarmAdmin(principal);
         Map<String, Object> current = managedPlot(plotId, principal);
         Map<String, Object> updated = new LinkedHashMap<>(current);
-        for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
+        for (String field : List.of("name", "cropCode", "cropName", "cropVariety", "stageCode", "stageLabel", "growthCycleDays", "areaM2", "facilityType", "metrics", "riskLevel", "healthScore", "deviceStatus", "lastSeen")) {
             if (input.containsKey(field)) updated.put(field, input.get(field));
         }
         // Historical/demo plots may predate the complete Crop Pack metadata
@@ -265,8 +268,12 @@ class AdminManagementService {
         // retaining the full invariant for already-complete records.
         if (isCompletePlot(current) || isCompletePlot(updated)) validatePlot(updated);
         else validatePlotPatch(input);
+        String facilityType = PlotFacility.forPlot(updated);
+        updated.put("facilityType", facilityType);
+        updated.put("facilityLabel", PlotFacility.label(facilityType));
         updated.put("plotId", plotId); updated.put("updatedAt", Instant.now().toString()); updated.put("updatedBy", principal.userId);
         store.save("plot", plotId, updated);
+        engine.syncSimulationConfiguration();
         publish("plot.updated", updated);
         return updated;
     }
@@ -295,6 +302,7 @@ class AdminManagementService {
         if (input.containsKey("growthCycleDays") && Jsons.whole(input, "growthCycleDays", 0) <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
         }
+        validateFacilityType(input);
     }
 
     Map<String, Object> unbindDevice(String deviceId, UserPrincipal principal) {
@@ -833,6 +841,15 @@ class AdminManagementService {
         if (Jsons.text(plot, "cropVariety", "").isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_VARIETY_REQUIRED", "请填写作物品种");
         if (Jsons.number(plot, "areaM2", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
         if (Jsons.whole(plot, "growthCycleDays", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
+        validateFacilityType(plot);
+    }
+
+    private void validateFacilityType(Map<String, Object> input) {
+        if (!input.containsKey("facilityType")) return;
+        String requested = String.valueOf(input.get("facilityType") == null ? "" : input.get("facilityType")).trim();
+        if (requested.isBlank() || PlotFacility.canonical(requested).isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_FACILITY_TYPE_INVALID", "请选择大棚、露地、遮阳棚或果园");
+        }
     }
 
     private LocalDate parseDate(Object value, LocalDate fallback) {

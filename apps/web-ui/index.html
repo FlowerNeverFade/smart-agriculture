@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260830-farm-admin-baseline-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260830-work-effects-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-crop-pack-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-work-effects-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -301,8 +301,11 @@
           </header>
           <p class="manager-plot-meta">
             <span>品种：{{ displayText(plot.cropVariety || '—') }}</span>
+            <span>类型：{{ plot.facilityLabel || facilityOptions.find(item => item.code === plot.facilityType)?.label || '露地（裸地）' }}</span>
             <span>面积：{{ plot.areaM2 ?? '—' }}㎡</span>
             <span>生长阶段：{{ plot.stageLabel || '—' }}</span>
+            <span v-if="plot.cultivationStatusLabel">种植状态：{{ plot.cultivationStatusLabel }}</span>
+            <span v-if="plot.lastOperationLabel">最近作业：{{ plot.lastOperationLabel }}</span>
             <span>生长周期：{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</span>
           </p>
           <div class="manager-metric-grid">
@@ -362,6 +365,13 @@
               <select class="g-select" v-model="plotDraft.stageCode" required>
                 <option v-for="stage in stageOptions" :key="stage.code" :value="stage.code">{{ stage.label }}</option>
               </select>
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">地块类型 *</span>
+              <select class="g-select" v-model="plotDraft.facilityType" required>
+                <option v-for="facility in facilityOptions" :key="facility.code" :value="facility.code">{{ facility.label }}</option>
+              </select>
+              <small>{{ facilityOptions.find(item => item.code === plotDraft.facilityType)?.description }}</small>
             </label>
             <label class="g-form-group">
               <span class="g-form-label">完整生长周期（天）*</span>
@@ -476,10 +486,25 @@
           <div class="g-modal-body plot-detail-body">
             <div class="plot-detail-facts">
               <div><span>品种</span><strong>{{ displayText(plot.cropVariety || '—') }}</strong></div>
+              <div><span>地块类型</span><strong>{{ plot.facilityLabel || '露地（裸地）' }}</strong></div>
               <div><span>面积</span><strong>{{ plot.areaM2 ?? '—' }}㎡</strong></div>
               <div><span>生长阶段</span><strong>{{ plot.stageLabel || '—' }}</strong></div>
+              <div><span>种植状态</span><strong>{{ plot.cultivationStatusLabel || '正常种植' }}</strong></div>
+              <div><span>最近作业</span><strong>{{ plot.lastOperationLabel || '暂无' }}</strong></div>
+              <div><span>作业结果</span><strong>{{ plot.lastOperationSummary || '暂无已验收作业' }}</strong></div>
               <div><span>综合健康</span><strong>{{ healthScore(plot.healthScore) }}</strong></div>
             </div>
+
+            <section v-if="plot.operationHistory?.length" class="plot-detail-section" aria-labelledby="plot-operation-history-title">
+              <h3 id="plot-operation-history-title">最近作业履历</h3>
+              <div class="plot-operation-history">
+                <article v-for="record in [...plot.operationHistory].reverse().slice(0, 5)" :key="record.workOrderId + record.completedAt">
+                  <div><strong>{{ record.actionLabel || '农务作业' }}</strong><span>{{ record.completedByName || record.completedBy || '种植农户' }}</span></div>
+                  <p>{{ record.resultSummary || '已完成并通过验收' }}</p>
+                  <small>{{ record.completedAt ? new Date(record.completedAt).toLocaleString('zh-CN') : '—' }} · 工单 {{ record.workOrderId }}</small>
+                </article>
+              </div>
+            </section>
 
             <section class="plot-detail-section" aria-labelledby="plot-detail-metrics-title">
               <h3 id="plot-detail-metrics-title">关键数据</h3>
@@ -860,7 +885,7 @@
               <div class="g-form-group">
                 <label class="g-form-label" for="task-type">任务类型</label>
                 <select id="task-type" class="g-select" v-model="workOrderForm.actionType">
-                  <option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option>
+                  <option value="SOWING">播种</option><option value="TRANSPLANTING">移栽</option><option value="FERTILIZATION">施肥</option><option value="PEST_CONTROL">植保</option><option value="WEEDING">除草</option><option value="PRUNING">整枝</option><option value="IRRIGATION">灌溉</option><option value="HARVEST">采收</option><option value="INSPECTION">巡田核验</option><option value="IRRIGATION_CHECK">灌溉巡检</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option>
                 </select>
               </div>
               <div class="g-form-group">
@@ -1173,7 +1198,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-crop-pack-sync-v1"></script>
+  <script type="module" src="js/app.js?v=20260830-work-effects-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->

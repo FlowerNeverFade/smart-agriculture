@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260830-load-resilience-1';
+import { api } from '../api.js?v=20260830-work-effects-v1';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -7,7 +7,7 @@ import {
   deviceRelatedWorkOrders,
   formatHealthScore
 } from '../admin-state.js';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260827-device-control-v1';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260830-work-effects-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

@@ -43,13 +43,21 @@ const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
 });
 
 const ADMIN_WORK_ACTION_META = Object.freeze({
+  SOWING: { label: '播种', icon: 'grass', tone: 'field' },
+  TRANSPLANTING: { label: '移栽', icon: 'potted_plant', tone: 'field' },
+  HARVEST: { label: '采收', icon: 'agriculture', tone: 'field' },
   INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
   FIELD_INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
   FIELD_OPERATION: { label: '田间作业', icon: 'eco', tone: 'field' },
   IRRIGATION_REVIEW: { label: '灌溉审批', icon: 'water_drop', tone: 'irrigation' },
   IRRIGATION_CHECK: { label: '灌溉巡检', icon: 'water_drop', tone: 'irrigation' },
+  IRRIGATION: { label: '灌溉', icon: 'water_drop', tone: 'irrigation' },
+  MANUAL_IRRIGATION: { label: '人工灌溉', icon: 'water_drop', tone: 'irrigation' },
   DEVICE_CHECK: { label: '设备检查', icon: 'monitoring', tone: 'device' },
-  FERTILIZATION: { label: '施肥检查', icon: 'nutrition', tone: 'fertilization' }
+  FERTILIZATION: { label: '施肥', icon: 'nutrition', tone: 'fertilization' },
+  PEST_CONTROL: { label: '植保', icon: 'pest_control', tone: 'field' },
+  WEEDING: { label: '除草', icon: 'grass', tone: 'field' },
+  PRUNING: { label: '整枝', icon: 'content_cut', tone: 'field' }
 });
 
 const ADMIN_WORK_STATUS_ALIASES = Object.freeze({
@@ -407,6 +415,17 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
       ...card,
       metrics,
       history: fact.history || card.history || {},
+      facilityType: fact.facilityType || card.facilityType || 'OPEN_FIELD',
+      facilityLabel: fact.facilityLabel || card.facilityLabel || '露地（裸地）',
+      cultivationStatus: fact.cultivationStatus || card.cultivationStatus || 'GROWING',
+      cultivationStatusLabel: fact.cultivationStatusLabel || card.cultivationStatusLabel || '正常种植',
+      lastOperationType: fact.lastOperationType || card.lastOperationType || '',
+      lastOperationLabel: fact.lastOperationLabel || card.lastOperationLabel || '',
+      lastOperationAt: fact.lastOperationAt || card.lastOperationAt || '',
+      lastOperationBy: fact.lastOperationBy || card.lastOperationBy || '',
+      lastOperationSummary: fact.lastOperationSummary || card.lastOperationSummary || '',
+      operationRevision: Number(fact.operationRevision ?? card.operationRevision ?? 0),
+      operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : []),
       deviceId: device?.deviceId || card.deviceId || fact.deviceId || null,
       deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
       healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,

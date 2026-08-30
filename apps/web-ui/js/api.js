@@ -88,6 +88,32 @@ function cloneSimulationParameters(scenario, supplied = {}) {
   return result;
 }
 
+function plotFacilityType(plot = {}) {
+  const raw = String(plot.facilityType || plot.plotType || '').trim().toUpperCase().replaceAll('-', '_');
+  if (['GREENHOUSE', 'SHADE_HOUSE', 'ORCHARD', 'OPEN_FIELD'].includes(raw)) return raw;
+  if (/温室|大棚|棚/.test(String(plot.name || ''))) return 'GREENHOUSE';
+  if (/果园/.test(String(plot.name || ''))) return 'ORCHARD';
+  return 'OPEN_FIELD';
+}
+
+function facilityLabel(type) {
+  return ({ GREENHOUSE: '大棚', SHADE_HOUSE: '遮阳棚', ORCHARD: '果园', OPEN_FIELD: '露地（裸地）' })[type] || '露地（裸地）';
+}
+
+function facilityRainExposure(type) {
+  return ({ GREENHOUSE: .1, SHADE_HOUSE: .48, ORCHARD: .76, OPEN_FIELD: 1 })[type] ?? 1;
+}
+
+function facilityClimateResponse(type) {
+  return ({ GREENHOUSE: .55, SHADE_HOUSE: .78, ORCHARD: .88, OPEN_FIELD: 1 })[type] ?? 1;
+}
+
+function facilitySoilResponse(type, scenario) {
+  if (scenario === 'HEAVY_RAIN') return facilityRainExposure(type);
+  if (scenario === 'DROUGHT') return ({ GREENHOUSE: .68, SHADE_HOUSE: .82, ORCHARD: .9, OPEN_FIELD: 1 })[type] ?? 1;
+  return ({ GREENHOUSE: .82, SHADE_HOUSE: .91 })[type] ?? 1;
+}
+
 export function moistureDeltaFromWater(waterLitre, areaM2 = DEFAULT_PLOT_AREA_M2) {
   const area = Math.max(1, Number(areaM2) || DEFAULT_PLOT_AREA_M2);
   const water = Math.max(0, Number(waterLitre) || 0);
@@ -97,6 +123,93 @@ export function moistureDeltaFromWater(waterLitre, areaM2 = DEFAULT_PLOT_AREA_M2
 function normalizeWorkOrderStatus(value) {
   const status = String(value || 'OPEN').trim().toUpperCase();
   return WORK_ORDER_STATUS_ALIASES[status] || status;
+}
+
+function normalizeWorkActionType(value) {
+  const action = String(value || 'FIELD_OPERATION').trim().toUpperCase().replaceAll('-', '_').replaceAll(' ', '_');
+  return ({
+    FIELD_WORK: 'FIELD_OPERATION', GENERAL_OPERATION: 'FIELD_OPERATION',
+    SOW: 'SOWING', SEED: 'SOWING', SEEDING: 'SOWING', PLANT: 'SOWING', PLANTING: 'SOWING',
+    TRANSPLANT: 'TRANSPLANTING', HARVESTING: 'HARVEST',
+    FERTILIZE: 'FERTILIZATION', FERTILIZING: 'FERTILIZATION',
+    PLANT_PROTECTION: 'PEST_CONTROL', SPRAY: 'PEST_CONTROL', SPRAYING: 'PEST_CONTROL',
+    WEED: 'WEEDING', PRUNE: 'PRUNING', IRRIGATE: 'IRRIGATION', WATERING: 'IRRIGATION',
+    FIELD_INSPECTION: 'INSPECTION'
+  })[action] || action;
+}
+
+function workActionLabel(actionType) {
+  return ({
+    SOWING: '播种', TRANSPLANTING: '移栽', HARVEST: '采收', FERTILIZATION: '施肥',
+    PEST_CONTROL: '植保', WEEDING: '除草', PRUNING: '整枝', IRRIGATION: '灌溉',
+    MANUAL_IRRIGATION: '灌溉', IRRIGATION_CHECK: '灌溉巡检', INSPECTION: '巡田核验',
+    DEVICE_CHECK: '设备检查', IRRIGATION_REVIEW: '灌溉方案审批', FIELD_OPERATION: '田间作业'
+  })[normalizeWorkActionType(actionType)] || '农务作业';
+}
+
+function plotOperationSnapshot(plot = {}) {
+  return {
+    cultivationStatus: plot.cultivationStatus || 'GROWING',
+    cultivationStatusLabel: plot.cultivationStatusLabel || '正常种植',
+    stageCode: plot.stageCode || '', stageLabel: plot.stageLabel || '',
+    lastOperationType: plot.lastOperationType || '', lastOperationLabel: plot.lastOperationLabel || '',
+    lastOperationAt: plot.lastOperationAt || '', operationRevision: Number(plot.operationRevision || 0)
+  };
+}
+
+function applyDemoPlotOperation(plot, work, completedAt, reviewerId) {
+  const actionType = normalizeWorkActionType(work.actionType);
+  if (actionType === 'IRRIGATION_REVIEW') return null;
+  const actionLabel = workActionLabel(actionType);
+  const outcome = String(work.outcome || 'SUCCEEDED').toUpperCase();
+  const before = plotOperationSnapshot(plot);
+  if (['FAILED', 'TIMEOUT'].includes(outcome)) {
+    return { plot, effect: {
+      plotId: plot.plotId, workOrderId: work.workOrderId, actionType, actionLabel,
+      summary: `${actionLabel}结果为${outcome === 'TIMEOUT' ? '超时' : '失败'}，地块作业状态未改变`,
+      before, after: before, appliedAt: completedAt, applied: false, outcome, telemetryChanged: false
+    } };
+  }
+  const operatorId = work.submittedBy || work.assigneeId || reviewerId;
+  const operatorName = work.assigneeName || operatorId;
+  const next = {
+    ...plot,
+    lastOperationType: actionType,
+    lastOperationLabel: actionLabel,
+    lastOperationAt: completedAt,
+    lastOperationBy: operatorId,
+    lastOperationByName: operatorName,
+    lastOperationWorkOrderId: work.workOrderId,
+    lastOperationSummary: work.resultSummary || `${actionLabel}已完成`,
+    operationRevision: Number(plot.operationRevision || 0) + 1,
+    operationCounters: { ...(plot.operationCounters || {}), [actionType]: Number(plot.operationCounters?.[actionType] || 0) + 1 },
+    updatedAt: completedAt
+  };
+  if (actionType === 'SOWING') Object.assign(next, { cultivationStatus: 'SOWN', cultivationStatusLabel: '已播种', stageCode: work.targetStageCode || 'seedling', stageLabel: work.targetStageLabel || '苗期', sownAt: completedAt, harvestedAt: null });
+  else if (actionType === 'TRANSPLANTING') Object.assign(next, { cultivationStatus: 'GROWING', cultivationStatusLabel: '生长中', stageCode: work.targetStageCode || 'vegetative', stageLabel: work.targetStageLabel || '营养生长期', transplantedAt: completedAt, harvestedAt: null });
+  else if (actionType === 'HARVEST') Object.assign(next, { cultivationStatus: 'HARVESTED', cultivationStatusLabel: '已采收待整地', stageCode: work.targetStageCode || 'fruiting', stageLabel: work.targetStageLabel || '采收完成', harvestedAt: completedAt, lastHarvestAt: completedAt });
+  else if (actionType === 'FERTILIZATION') Object.assign(next, { lastFertilizedAt: completedAt, soilManagementStatus: 'FERTILIZED', soilManagementStatusLabel: '已完成施肥' });
+  else if (actionType === 'PEST_CONTROL') Object.assign(next, { lastPestControlAt: completedAt, cropCareStatus: 'PROTECTED', cropCareStatusLabel: '已完成植保' });
+  else if (actionType === 'WEEDING') Object.assign(next, { lastWeededAt: completedAt, cropCareStatus: 'WEEDING_COMPLETED', cropCareStatusLabel: '已完成除草' });
+  else if (actionType === 'PRUNING') Object.assign(next, { lastPrunedAt: completedAt, cropCareStatus: 'PRUNING_COMPLETED', cropCareStatusLabel: '已完成整枝' });
+  else if (['IRRIGATION', 'MANUAL_IRRIGATION'].includes(actionType)) Object.assign(next, { lastIrrigatedAt: completedAt, waterManagementStatus: 'IRRIGATED', waterManagementStatusLabel: '已完成灌溉' });
+  else if (actionType === 'IRRIGATION_CHECK') Object.assign(next, { lastIrrigationCheckedAt: completedAt, waterManagementStatus: 'CHECKED', waterManagementStatusLabel: '已完成灌溉巡检' });
+  else if (actionType === 'INSPECTION') Object.assign(next, { lastInspectedAt: completedAt, fieldInspectionStatus: 'CHECKED', fieldInspectionStatusLabel: '已完成巡田核验' });
+  else if (actionType === 'DEVICE_CHECK') Object.assign(next, { lastDeviceCheckedAt: completedAt, deviceInspectionStatus: 'CHECKED', deviceInspectionStatusLabel: '已完成设备检查' });
+  else next.lastFieldOperationAt = completedAt;
+  const historyEntry = {
+    workOrderId: work.workOrderId, actionType, actionLabel, title: work.title || actionLabel,
+    resultSummary: work.resultSummary || `${actionLabel}已完成`, completedAt,
+    completedBy: operatorId, completedByName: operatorName, verifiedBy: reviewerId,
+    sourceType: work.sourceType || 'MANUAL'
+  };
+  next.operationHistory = [...(Array.isArray(plot.operationHistory) ? plot.operationHistory : []), historyEntry].slice(-30);
+  const effect = {
+    plotId: plot.plotId, workOrderId: work.workOrderId, actionType, actionLabel,
+    summary: `${actionLabel}${outcome === 'PARTIAL' ? '部分完成并已验收' : '已验收'}，地块作业状态已同步`, before,
+    after: plotOperationSnapshot(next), appliedAt: completedAt, applied: true, outcome, telemetryChanged: false
+  };
+  return { plot: next, effect };
 }
 
 function cloneWorkOrder(item) {
@@ -118,6 +231,8 @@ function cloneWorkOrder(item) {
   return {
     ...(item || {}),
     status,
+    actionType: normalizeWorkActionType(item?.actionType),
+    actionLabel: item?.actionLabel || workActionLabel(item?.actionType),
     history
   };
 }
@@ -169,7 +284,10 @@ export class ApiService {
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
-    this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => [item.plotId, { ...item, farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }]));
+    this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
+      const type = plotFacilityType(item);
+      return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
+    }));
     this.demoSimulator = {
       available: true,
       status: 'STOPPED',
@@ -735,8 +853,11 @@ export class ApiService {
       if (resp?.data?.plotId) return resp.data;
       throw new ApiError('后端返回了无效的新增地块结果', { code: 'PLOT_CREATE_INVALID', payload: resp });
     }
+    const type = plotFacilityType(input);
     const saved = {
       ...input,
+      facilityType: type,
+      facilityLabel: facilityLabel(type),
       plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
       status: 'ACTIVE',
       sourceMode: 'SIMULATED',
@@ -755,7 +876,9 @@ export class ApiService {
       if (resp?.data?.plotId) return resp.data;
       throw new ApiError('后端返回了无效的地块修改结果', { code: 'PLOT_UPDATE_INVALID', payload: resp });
     }
-    const saved = { ...(this.demoPlots.get(plotId) || {}), ...input, plotId, updatedAt: new Date().toISOString() };
+    const merged = { ...(this.demoPlots.get(plotId) || {}), ...input, plotId };
+    const type = plotFacilityType(merged);
+    const saved = { ...merged, facilityType: type, facilityLabel: facilityLabel(type), updatedAt: new Date().toISOString() };
     this.demoPlots.set(plotId, saved);
     return { ...saved };
   }
@@ -984,6 +1107,7 @@ export class ApiService {
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
     const profile = telemetryMetricProfile(code);
     const targetPlot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const facilityType = plotFacilityType(targetPlot);
     const metricRecord = targetPlot?.metrics?.[code] || {};
     const configuredBase = Number(metricRecord.value);
     const baseValue = Number.isFinite(configuredBase) ? configuredBase : profile.defaultValue;
@@ -1000,9 +1124,10 @@ export class ApiService {
     const startMs = Number.isFinite(requestedStart) ? requestedStart : endMs - defaultWindowMs;
     const stepMs = count > 1 ? Math.max(1, Math.floor((endMs - startMs) / (count - 1))) : 0;
     const strategyTrend = {
-      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .025 : 0) + driftRate,
-      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .35,
-      AIR_HUMIDITY: Number(params.humidityBias || 0) * .3,
+      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) * facilitySoilResponse(facilityType, scenario)
+        + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .025 * facilityRainExposure(facilityType) : 0) + driftRate,
+      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .35 * facilityClimateResponse(facilityType),
+      AIR_HUMIDITY: Number(params.humidityBias || 0) * .3 * facilityClimateResponse(facilityType),
       LIGHT: scenario === 'DROUGHT' ? 1800 : scenario === 'HEAVY_RAIN' ? -1400 : 0,
       CO2: scenario === 'HEAVY_RAIN' ? -30 : scenario === 'DROUGHT' ? 24 : 0,
       PH: scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) * .02 : 0,
@@ -1146,8 +1271,11 @@ export class ApiService {
     }
     const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
     const now = new Date().toISOString();
+    const actionType = normalizeWorkActionType(workOrder.actionType);
     const saved = cloneWorkOrder({
       ...workOrder,
+      actionType,
+      actionLabel: workActionLabel(actionType),
       workOrderId,
       workItemId: workOrder.workItemId || workOrderId,
       farmId: workOrder.farmId || 'farm-demo',
@@ -1251,7 +1379,8 @@ export class ApiService {
     if (action === 'SUBMIT' && current === 'IN_PROGRESS') {
       const resultSummary = String(input.resultSummary || input.note || '').trim();
       if (!resultSummary) throw new ApiError('请填写处理结果', { status: 400, code: 'WORK_RESULT_REQUIRED' });
-      return this._saveDemoTransition(work, { status: 'SUBMITTED', resultSummary, evidenceRefs: input.evidenceRefs || [], submittedAt: new Date().toISOString(), submittedBy: this._demoActorId() }, 'SUBMIT', resultSummary, input.evidenceRefs || []);
+      const outcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(String(input.outcome || '').toUpperCase()) ? String(input.outcome).toUpperCase() : 'SUCCEEDED';
+      return this._saveDemoTransition(work, { status: 'SUBMITTED', resultSummary, outcome, evidenceRefs: input.evidenceRefs || [], submittedAt: new Date().toISOString(), submittedBy: this._demoActorId() }, 'SUBMIT', resultSummary, input.evidenceRefs || []);
     }
     throw new ApiError('当前任务不能执行这个操作', { status: 409, code: 'WORK_ORDER_TRANSITION_INVALID' });
   }
@@ -1274,9 +1403,21 @@ export class ApiService {
     if (!approved && !rejected) throw new ApiError('请选择验收通过或退回处理', { status: 400, code: 'WORK_REVIEW_ACTION_INVALID' });
     if (rejected && !note) throw new ApiError('退回任务时请填写原因', { status: 400, code: 'WORK_REVIEW_NOTE_REQUIRED' });
     const now = new Date().toISOString();
-    return this._saveDemoTransition(work, approved
-      ? { status: 'DONE', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, completedAt: now, completedBy: this._demoActorId() }
-      : { status: 'REJECTED', reviewedAt: now, reviewedBy: this._demoActorId(), reviewNote: note, rejectedAt: now, rejectedBy: this._demoActorId(), rejectionReason: note },
+    const reviewerId = this._demoActorId();
+    const changes = approved
+      ? { status: 'DONE', reviewedAt: now, reviewedBy: reviewerId, reviewNote: note, completedAt: now, completedBy: reviewerId }
+      : { status: 'REJECTED', reviewedAt: now, reviewedBy: reviewerId, reviewNote: note, rejectedAt: now, rejectedBy: reviewerId, rejectionReason: note };
+    if (approved && !work.plotEffectResolvedAt) {
+      const plot = this.demoPlots.get(work.plotId);
+      const applied = plot ? applyDemoPlotOperation(plot, work, now, reviewerId) : null;
+      if (applied) {
+        this.demoPlots.set(work.plotId, applied.plot);
+        changes.plotEffect = applied.effect;
+        if (applied.effect.applied) changes.plotEffectAppliedAt = now;
+        changes.plotEffectResolvedAt = now;
+      }
+    }
+    return this._saveDemoTransition(work, changes,
     approved ? 'APPROVE' : 'REJECT', note || '验收通过');
   }
 
@@ -2786,7 +2927,8 @@ export class ApiService {
 
   mockRiskForecast(plotId = 'plot-a01', metric = 'SOIL_MOISTURE', strategyOverride = null) {
     const cfg = MOCK_DATA.riskForecastConfig;
-    const plot = MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const plot = this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
+    const facilityType = plotFacilityType(plot);
     const code = String(metric || 'SOIL_MOISTURE').toUpperCase();
     const profile = telemetryMetricProfile(code);
     const currentRecord = plot?.metrics?.[code] || {};
@@ -2802,9 +2944,10 @@ export class ApiService {
     }
     const horizonMinutes = Math.max(60, Math.min(720, Math.round(Number(params.forecastHours || 4) * 60)));
     const trend = {
-      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 : 0) + driftRate,
-      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .75,
-      AIR_HUMIDITY: Number(params.humidityBias || 0) * .65,
+      SOIL_MOISTURE: Number(params.soilMoistureTrendPerHour || 0) * facilitySoilResponse(facilityType, scenario)
+        + (scenario === 'HEAVY_RAIN' ? Number(params.rainfallRate || 0) * .04 * facilityRainExposure(facilityType) : 0) + driftRate,
+      AIR_TEMPERATURE: Number(params.temperatureBias || 0) * .75 * facilityClimateResponse(facilityType),
+      AIR_HUMIDITY: Number(params.humidityBias || 0) * .65 * facilityClimateResponse(facilityType),
       LIGHT: scenario === 'DROUGHT' ? 900 : scenario === 'HEAVY_RAIN' ? -650 : 0,
       CO2: scenario === 'HEAVY_RAIN' ? -22 : scenario === 'DROUGHT' ? 16 : 0,
       PH: scenario === 'SENSOR_DRIFT' ? Number(params.driftRatePerHour || 0) * .035 : 0,
@@ -2837,11 +2980,11 @@ export class ApiService {
       timeToRisk = riskPoint?.minute ?? null;
     }
     return {
-      status: 'AVAILABLE', plotId, metric: code, generatedAt: new Date().toISOString(), inputWindowMinutes: cfg.inputWindowMinutes,
+      status: 'AVAILABLE', plotId, metric: code, facilityType, facilityLabel: facilityLabel(facilityType), generatedAt: new Date().toISOString(), inputWindowMinutes: cfg.inputWindowMinutes,
       forecastRangeMinutes: horizonMinutes, algorithmVersion: cfg.algorithmVersion, algorithmLabel: cfg.algorithmLabel,
       startMoisture: start, startValue: start, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, timeToRiskMinutes: timeToRisk,
       horizons: [60, 120, 240].filter(minute => minute <= horizonMinutes).map(minute => { const p = curve.find(x => x.minute === minute); return { minute, expected: p.expected, lower: p.lower, upper: p.upper, band: `${p.lower.toFixed(profile.decimals)}${profile.unit} ~ ${p.upper.toFixed(profile.decimals)}${profile.unit}` }; }),
-      curve, assumptions: ['无外界灌溉', `PLOT_STRATEGY=${scenario}`, '设备保持在线，遥测质量 GOOD'],
+      curve, assumptions: ['无外界灌溉', `PLOT_STRATEGY=${scenario}`, `FACILITY_TYPE=${facilityType}`, '设备保持在线，遥测质量 GOOD'],
       uncertaintyNote: '置信区间随预测时距线性放大；超出 4h 不承诺，样本不足返回 UNAVAILABLE', provenance: 'SIMULATED'
     };
   }
@@ -2855,6 +2998,7 @@ export class ApiService {
     }
     const def = PLOT_SIMULATION_SCENARIOS.find((item) => item.code === normalizedScenario) || PLOT_SIMULATION_SCENARIOS[0];
     const plot = this.mockPlot(plotId);
+    const facilityType = plotFacilityType(plot);
     if (normalizedScenario === 'DEVICE_OFFLINE') {
       return {
         scenarioId: `device-offline-${seed}`,
@@ -2875,14 +3019,14 @@ export class ApiService {
     const curve = Array.from({ length: 49 }, (_, index) => {
       const minute = index * 5;
       const p = cloneSimulationParameters(normalizedScenario, parameters);
-      const trend = Number(p.soilMoistureTrendPerHour || 0);
-      const rain = Number(p.rainfallRate || 0) * .04;
+      const trend = Number(p.soilMoistureTrendPerHour || 0) * facilitySoilResponse(facilityType, normalizedScenario);
+      const rain = Number(p.rainfallRate || 0) * .04 * facilityRainExposure(facilityType);
       const drift = normalizedScenario === 'SENSOR_DRIFT' ? Number(p.driftRatePerHour || 0) : 0;
       const expected = Math.max(0, Math.min(100, start + (trend + rain + drift) * minute / 60 + Math.sin(index / 2.7 + seed) * Number(p.volatility || 1)));
       const spread = .6 + index * .04;
       return { minute, expected: Number(expected.toFixed(2)), lower: Number(Math.max(0, expected - spread).toFixed(2)), upper: Number(Math.min(100, expected + spread).toFixed(2)) };
     });
-    return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', curve, horizons: curve.filter((item) => [60, 120, 240].includes(item.minute)), frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
+    return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, facilityType, facilityLabel: facilityLabel(facilityType), runStatus: 'COMPLETED', curve, horizons: curve.filter((item) => [60, 120, 240].includes(item.minute)), frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, facilityType, facilityLabel: facilityLabel(facilityType), capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
   }
 
   async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '', parameters = {} } = {}) {
@@ -2902,6 +3046,7 @@ export class ApiService {
       || PLOT_SIMULATION_SCENARIOS.find(s => s.code === normalizedInput)
       || cfg.scenarioCatalog[0];
     const plot = this.mockPlot(plotId);
+    const facilityType = plotFacilityType(plot);
     const start = Number(plot.metrics.SOIL_MOISTURE.value || 25);
     if (def.code === 'OFFLINE') return { status: 'UNAVAILABLE', scenarioId: `offline-${seed}`, seed, plotId, reason: '设备断网离线，遥测样本不足：拒绝生成可执行处方', provenance: 'SIMULATED' };
     const normalizedScenario = def.code === 'STORM' ? 'HEAVY_RAIN' : (def.code === 'OFFLINE' ? 'DEVICE_OFFLINE' : def.code);
@@ -2915,8 +3060,9 @@ export class ApiService {
     const configuredTrend = Number(parameters.soilMoistureTrendPerHour || (def.code === 'DROUGHT' ? -0.45 : def.code === 'SENSOR_DRIFT' ? -0.12 : 0));
     const temperatureBias = Number(parameters.temperatureBias || 0);
     const humidityBias = Number(parameters.humidityBias || 0);
-    const trend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? .08 : .03) + humidityBias * .02;
-    const rainPeak = def.code === 'STORM' ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+    const trend = (configuredTrend - temperatureBias * (temperatureBias >= 0 ? .08 : .03) + humidityBias * .02)
+      * facilitySoilResponse(facilityType, normalizedScenario);
+    const rainPeak = def.code === 'STORM' ? Math.min(18, Math.max(4, rainBoost * 2.4)) * facilityRainExposure(facilityType) : 0;
     const boundary = def.code === 'STORM'
       ? Number(parameters.waterloggingThreshold || cfg.stressBoundary)
       : Number(parameters.riskThreshold || cfg.stressBoundary);
@@ -2956,8 +3102,8 @@ export class ApiService {
     const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
     const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
-      status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, plotId,
-      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, plotId, facilityType, facilityLabel: facilityLabel(facilityType),
+      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, facilityType, facilityLabel: facilityLabel(facilityType), capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
       parameters,
       seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
       markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],

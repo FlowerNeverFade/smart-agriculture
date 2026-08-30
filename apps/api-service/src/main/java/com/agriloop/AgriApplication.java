@@ -1776,6 +1776,16 @@ class AgriEngine {
                     !Set.of("DONE", "CANCELLED").contains(Jsons.text(w, "status", ""))).toList().size();
             Map<String, Object> card = new LinkedHashMap<>(); card.put("plotId", plotId); card.put("name", plot.get("name"));
             card.put("cropCode", plot.get("cropCode")); card.put("riskLevel", plot.get("riskLevel")); card.put("latest", latest); card.put("alerts", alerts.size());
+            String facilityType = PlotFacility.forPlot(plot);
+            card.put("facilityType", facilityType); card.put("facilityLabel", PlotFacility.label(facilityType));
+            card.put("cultivationStatus", Jsons.text(plot, "cultivationStatus", "GROWING"));
+            card.put("cultivationStatusLabel", Jsons.text(plot, "cultivationStatusLabel", "正常种植"));
+            card.put("lastOperationType", Jsons.text(plot, "lastOperationType", ""));
+            card.put("lastOperationLabel", Jsons.text(plot, "lastOperationLabel", ""));
+            card.put("lastOperationAt", Jsons.text(plot, "lastOperationAt", ""));
+            card.put("lastOperationSummary", Jsons.text(plot, "lastOperationSummary", ""));
+            card.put("operationRevision", Jsons.whole(plot, "operationRevision", 0));
+            card.put("operationHistory", plot.getOrDefault("operationHistory", List.of()));
             Map<String, Object> device = deviceForPlot(plotId); card.put("device", device);
             Map<String, Object> simulation = plotSimulationView(plotId);
             card.put("simulation", Map.of(
@@ -3503,6 +3513,8 @@ class AgriEngine {
     private Map<String, Object> forecastForSimulation(String plotId, String metric,
                                                        Map<String, Object> simulation, boolean persist) {
         Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> plotRecord = requireRecord("plot", plotId);
+        String facilityType = PlotFacility.forPlot(plotRecord);
         String usedMetric = metric == null ? "SOIL_MOISTURE" : metric.toUpperCase(Locale.ROOT);
         if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE", "AIR_HUMIDITY", "LIGHT", "CO2", "PH", "WATER_LEVEL", "RAINFALL").contains(usedMetric)) {
             usedMetric = "SOIL_MOISTURE";
@@ -3544,7 +3556,8 @@ class AgriEngine {
         double volatility = clamp(Jsons.number(parameters, "volatility", 1.25), .2, 3.0);
         double forecastHours = clamp(Jsons.number(parameters, "forecastHours", 4), 1, 12);
         int maxHorizon = Math.max(60, (int) Math.round(forecastHours * 60));
-        double strategyTrend = strategyTrendPerHour(usedMetric, scenario, parameters, observedSlopePerHour, points.size() >= minSamples);
+        double strategyTrend = strategyTrendPerHour(usedMetric, scenario, parameters, observedSlopePerHour,
+                points.size() >= minSamples, facilityType);
         double driftRate = "SENSOR_DRIFT".equals(scenario) ? Jsons.number(parameters, "driftRatePerHour", 2.4) : 0;
         double[] valueRange = metricRange(usedMetric);
         List<Map<String, Object>> curve = new ArrayList<>();
@@ -3555,7 +3568,7 @@ class AgriEngine {
             // the historical series even when the projection uses a
             // plot-specific phase for later volatility.
             double value = minute == 0 ? clamp(current, valueRange[0], valueRange[1])
-                    : projectMetric(usedMetric, current, hours, strategyTrend, driftRate, scenario, parameters, plotId);
+                    : projectMetric(usedMetric, current, hours, strategyTrend, driftRate, scenario, parameters, plotId, facilityType);
             double spread = Math.max(.35, mad * (1 + minute / 240.0) + volatility * .22 * Math.sqrt(Math.max(1, minute / 5.0)));
             double lower = clamp(value - spread, valueRange[0], valueRange[1]);
             double upper = clamp(value + spread, valueRange[0], valueRange[1]);
@@ -3591,6 +3604,7 @@ class AgriEngine {
         }).toList();
         Map<String, Object> result = new LinkedHashMap<>(); result.put("forecastId", Jsons.id("fc")); result.put("plotId", plotId); result.put("metric", usedMetric);
         result.put("issuedAt", Instant.now().toString()); result.put("status", "AVAILABLE"); result.put("scenario", scenario); result.put("simulation", simulation);
+        result.put("facilityType", facilityType); result.put("facilityLabel", PlotFacility.label(facilityType));
         result.put("startValue", curve.isEmpty() ? current : curve.get(0).get("expected"));
         result.put("startTimestamp", last.get("ts"));
         result.put("curve", curve); result.put("horizons", horizons); result.put("timeToRiskMinutes", timeToRisk);
@@ -3599,7 +3613,10 @@ class AgriEngine {
         if (!points.isEmpty()) { inputWindow.put("from", first.get("ts")); inputWindow.put("to", last.get("ts")); }
         result.put("inputWindow", inputWindow);
         result.put("quality", Map.of("coverage", points.isEmpty() ? .35 : points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", points.size() >= minSamples ? "RESIDUAL_MAD_PLUS_STRATEGY_VOLATILITY" : "STRATEGY_PRIOR"));
-        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", DEFAULT_SIMULATION_TIME_SCALE), "STAGE=" + context.get("stageCode")));
+        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario,
+                "FACILITY_TYPE=" + facilityType,
+                "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", DEFAULT_SIMULATION_TIME_SCALE),
+                "STAGE=" + context.get("stageCode")));
         result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "strategy-aware-trend-v2"));
         result.put("cropPackVersion", context.get("cropPackVersion")); result.put("ruleVersion", context.get("ruleVersion"));
         result.put("stageCode", context.get("stageCode")); result.put("stageLabel", context.get("stageLabel"));
@@ -3609,9 +3626,10 @@ class AgriEngine {
     }
 
     private double strategyTrendPerHour(String metric, String scenario, Map<String, Object> params,
-                                        double observedSlopePerHour, boolean enoughSamples) {
+                                        double observedSlopePerHour, boolean enoughSamples, String facilityType) {
         if ("SOIL_MOISTURE".equals(metric)) {
             double configured = Jsons.number(params, "soilMoistureTrendPerHour", 0);
+            double facilityResponse = PlotFacility.soilTrendResponse(facilityType, scenario);
             // The simulator publishes frequent samples (normally every
             // 20 seconds).  Extrapolating the first/last value of a tiny
             // window by 65% amplified ordinary sensor noise into a dramatic
@@ -3620,18 +3638,18 @@ class AgriEngine {
             // residual correction when there is enough history.
             if ("NORMAL".equals(scenario) && enoughSamples) {
                 double residual = clamp(observedSlopePerHour, -2.5, 2.5);
-                return clamp(configured * .88 + residual * .12, -3.0, 3.0);
+                return clamp((configured * .88 + residual * .12) * facilityResponse, -3.0, 3.0);
             }
-            return configured;
+            return configured * facilityResponse;
         }
-        if ("AIR_TEMPERATURE".equals(metric)) return Jsons.number(params, "temperatureBias", 0) * .75 + (enoughSamples ? observedSlopePerHour * .25 : 0);
-        if ("AIR_HUMIDITY".equals(metric)) return Jsons.number(params, "humidityBias", 0) * .65 + (enoughSamples ? observedSlopePerHour * .25 : 0);
+        if ("AIR_TEMPERATURE".equals(metric)) return (Jsons.number(params, "temperatureBias", 0) * .75 + (enoughSamples ? observedSlopePerHour * .25 : 0)) * PlotFacility.climateResponse(facilityType);
+        if ("AIR_HUMIDITY".equals(metric)) return (Jsons.number(params, "humidityBias", 0) * .65 + (enoughSamples ? observedSlopePerHour * .25 : 0)) * PlotFacility.climateResponse(facilityType);
         if ("RAINFALL".equals(metric)) return Jsons.number(params, "rainfallRate", 0);
         return enoughSamples ? observedSlopePerHour * .35 : 0;
     }
 
     private double projectMetric(String metric, double current, double hours, double trend, double driftRate,
-                                 String scenario, Map<String, Object> params, String plotId) {
+                                 String scenario, Map<String, Object> params, String plotId, String facilityType) {
         double volatility = Jsons.number(params, "volatility", 1.25);
         double phase = Math.abs(plotId.hashCode() % 17);
         double wave = (Math.sin((hours * 2.6) + phase) - Math.sin(phase)) * volatility;
@@ -3644,7 +3662,8 @@ class AgriEngine {
             double ramp = 1 - Math.exp(-hours * 3.0);
             value = current + (target - current) * ramp + wave * .5;
         } else {
-            value = current + trend * hours + wave * ("LIGHT".equals(metric) ? 900 : "CO2".equals(metric) ? 18 : .35);
+            value = current + trend * hours + wave * ("LIGHT".equals(metric)
+                    ? 900 * PlotFacility.lightTransmission(facilityType) : "CO2".equals(metric) ? 18 : .35);
             if ("SENSOR_DRIFT".equals(scenario)) value += driftRate * hours;
         }
         double[] range = metricRange(metric);
@@ -3982,6 +4001,9 @@ class AgriEngine {
         work.put("plotId", plotId);
         work.put("title", Jsons.text(input, "title", evidenceRequest ? "完成现场补证" : "未命名农务任务"));
         work.put("reason", Jsons.text(input, "reason", evidenceRequest ? "补充现场核验信息" : "请按任务要求完成处理"));
+        String actionType = canonicalWorkActionType(Jsons.text(input, "actionType", evidenceRequest ? "INSPECTION" : "FIELD_OPERATION"));
+        work.put("actionType", actionType);
+        work.put("actionLabel", workOperationLabel(actionType));
         work.put("status", "OPEN");
         work.put("priority", normalizePriority(Jsons.text(input, "priority", "MEDIUM")));
         work.put("assigneeId", null);
@@ -4083,6 +4105,9 @@ class AgriEngine {
                 if (resultSummary.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "WORK_RESULT_REQUIRED", "请填写处理结果");
                 target = "SUBMITTED";
                 work.put("resultSummary", resultSummary);
+                String outcome = Jsons.text(input, "outcome", "SUCCEEDED").trim().toUpperCase(Locale.ROOT);
+                if (!Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT").contains(outcome)) outcome = "SUCCEEDED";
+                work.put("outcome", outcome);
                 LinkedHashSet<String> evidenceRefs = new LinkedHashSet<>(Jsons.strings(work.get("evidenceRefs")));
                 evidenceRefs.addAll(Jsons.strings(input.get("evidenceRefs")));
                 work.put("evidenceRefs", new ArrayList<>(evidenceRefs));
@@ -4146,6 +4171,7 @@ class AgriEngine {
         if (approved) {
             work.put("completedAt", now.toString());
             work.put("completedBy", principal.userId);
+            applyCompletedWorkEffect(work, principal, now);
         } else {
             work.put("rejectedAt", now.toString());
             work.put("rejectedBy", principal.userId);
@@ -4429,6 +4455,9 @@ class AgriEngine {
         Map<String, Object> work = new LinkedHashMap<>(source);
         work.put("status", normalizeWorkStatus(work.get("status")));
         work.putIfAbsent("farmId", farmIdForPlot(Jsons.text(work, "plotId", "")));
+        String actionType = canonicalWorkActionType(Jsons.text(work, "actionType", "FIELD_OPERATION"));
+        work.put("actionType", actionType);
+        work.put("actionLabel", workOperationLabel(actionType));
         return work;
     }
 
@@ -4504,7 +4533,216 @@ class AgriEngine {
     }
 
     private void clearAttemptResult(Map<String, Object> work) {
-        for (String field : List.of("resultSummary", "evidenceRefs", "submittedAt", "submittedBy", "reviewedAt", "reviewedBy", "reviewNote", "rejectedAt", "rejectedBy", "rejectionReason")) work.remove(field);
+        for (String field : List.of("resultSummary", "outcome", "evidenceRefs", "submittedAt", "submittedBy", "reviewedAt", "reviewedBy", "reviewNote", "rejectedAt", "rejectedBy", "rejectionReason")) work.remove(field);
+    }
+
+    private String canonicalWorkActionType(String raw) {
+        String value = String.valueOf(raw == null ? "" : raw).trim().toUpperCase(Locale.ROOT)
+                .replace('-', '_').replace(' ', '_');
+        return switch (value) {
+            case "", "FIELD_WORK", "GENERAL_OPERATION" -> "FIELD_OPERATION";
+            case "SOW", "SEED", "SEEDING", "PLANT", "PLANTING" -> "SOWING";
+            case "TRANSPLANT" -> "TRANSPLANTING";
+            case "HARVESTING" -> "HARVEST";
+            case "FERTILIZE", "FERTILIZING" -> "FERTILIZATION";
+            case "PLANT_PROTECTION", "SPRAY", "SPRAYING" -> "PEST_CONTROL";
+            case "WEED" -> "WEEDING";
+            case "PRUNE" -> "PRUNING";
+            case "IRRIGATE", "WATERING" -> "IRRIGATION";
+            case "FIELD_INSPECTION" -> "INSPECTION";
+            default -> value;
+        };
+    }
+
+    private String workOperationLabel(String actionType) {
+        return switch (canonicalWorkActionType(actionType)) {
+            case "SOWING" -> "播种";
+            case "TRANSPLANTING" -> "移栽";
+            case "HARVEST" -> "采收";
+            case "FERTILIZATION" -> "施肥";
+            case "PEST_CONTROL" -> "植保";
+            case "WEEDING" -> "除草";
+            case "PRUNING" -> "整枝";
+            case "IRRIGATION", "MANUAL_IRRIGATION" -> "灌溉";
+            case "IRRIGATION_CHECK" -> "灌溉巡检";
+            case "INSPECTION" -> "巡田核验";
+            case "DEVICE_CHECK" -> "设备检查";
+            case "IRRIGATION_REVIEW" -> "灌溉方案审批";
+            case "FIELD_OPERATION" -> "田间作业";
+            default -> "农务作业";
+        };
+    }
+
+    /**
+     * Applies the operational consequence only after the manager accepts the
+     * farmer's result.  Sensor values remain observations: completing a task
+     * updates lifecycle and operational state, but never fabricates telemetry.
+     */
+    private void applyCompletedWorkEffect(Map<String, Object> work, UserPrincipal reviewer, Instant completedAt) {
+        if (work.containsKey("plotEffectResolvedAt")) return;
+        String actionType = canonicalWorkActionType(Jsons.text(work, "actionType", "FIELD_OPERATION"));
+        if ("IRRIGATION_REVIEW".equals(actionType)) return;
+        String plotId = Jsons.text(work, "plotId", "");
+        if (plotId.isBlank()) return;
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        String actionLabel = workOperationLabel(actionType);
+        String completedAtText = completedAt.toString();
+        String outcome = Jsons.text(work, "outcome", "SUCCEEDED").toUpperCase(Locale.ROOT);
+        String operatorId = Jsons.text(work, "submittedBy", Jsons.text(work, "assigneeId", reviewer.userId));
+        String operatorName = Jsons.text(work, "assigneeName", operatorId);
+
+        Map<String, Object> before = plotOperationalSnapshot(plot);
+        if (Set.of("FAILED", "TIMEOUT").contains(outcome)) {
+            Map<String, Object> effect = new LinkedHashMap<>();
+            effect.put("plotId", plotId);
+            effect.put("workOrderId", Jsons.text(work, "workOrderId", ""));
+            effect.put("actionType", actionType);
+            effect.put("actionLabel", actionLabel);
+            effect.put("summary", actionLabel + "结果为" + ("TIMEOUT".equals(outcome) ? "超时" : "失败") + "，地块作业状态未改变");
+            effect.put("before", before);
+            effect.put("after", before);
+            effect.put("appliedAt", completedAtText);
+            effect.put("applied", false);
+            effect.put("outcome", outcome);
+            effect.put("telemetryChanged", false);
+            work.put("plotEffect", effect);
+            work.put("plotEffectResolvedAt", completedAtText);
+            return;
+        }
+        plot.put("lastOperationType", actionType);
+        plot.put("lastOperationLabel", actionLabel);
+        plot.put("lastOperationAt", completedAtText);
+        plot.put("lastOperationBy", operatorId);
+        plot.put("lastOperationByName", operatorName);
+        plot.put("lastOperationWorkOrderId", Jsons.text(work, "workOrderId", ""));
+        plot.put("lastOperationSummary", Jsons.text(work, "resultSummary", actionLabel + "已完成"));
+        plot.put("operationRevision", Jsons.whole(plot, "operationRevision", 0) + 1);
+
+        Map<String, Object> counters = new LinkedHashMap<>();
+        Object rawCounters = plot.get("operationCounters");
+        if (rawCounters instanceof Map<?, ?> source) {
+            source.forEach((key, value) -> counters.put(String.valueOf(key), value));
+        }
+        counters.put(actionType, Jsons.whole(counters, actionType, 0) + 1);
+        plot.put("operationCounters", counters);
+
+        switch (actionType) {
+            case "SOWING" -> {
+                plot.put("cultivationStatus", "SOWN");
+                plot.put("cultivationStatusLabel", "已播种");
+                plot.put("stageCode", Jsons.text(work, "targetStageCode", "seedling"));
+                plot.put("stageLabel", Jsons.text(work, "targetStageLabel", "苗期"));
+                plot.put("sownAt", completedAtText);
+                plot.remove("harvestedAt");
+            }
+            case "TRANSPLANTING" -> {
+                plot.put("cultivationStatus", "GROWING");
+                plot.put("cultivationStatusLabel", "生长中");
+                plot.put("stageCode", Jsons.text(work, "targetStageCode", "vegetative"));
+                plot.put("stageLabel", Jsons.text(work, "targetStageLabel", "营养生长期"));
+                plot.put("transplantedAt", completedAtText);
+                plot.remove("harvestedAt");
+            }
+            case "HARVEST" -> {
+                plot.put("cultivationStatus", "HARVESTED");
+                plot.put("cultivationStatusLabel", "已采收待整地");
+                plot.put("stageCode", Jsons.text(work, "targetStageCode", "fruiting"));
+                plot.put("stageLabel", Jsons.text(work, "targetStageLabel", "采收完成"));
+                plot.put("harvestedAt", completedAtText);
+                plot.put("lastHarvestAt", completedAtText);
+            }
+            case "FERTILIZATION" -> {
+                plot.put("lastFertilizedAt", completedAtText);
+                plot.put("soilManagementStatus", "FERTILIZED");
+                plot.put("soilManagementStatusLabel", "已完成施肥");
+            }
+            case "PEST_CONTROL" -> {
+                plot.put("lastPestControlAt", completedAtText);
+                plot.put("cropCareStatus", "PROTECTED");
+                plot.put("cropCareStatusLabel", "已完成植保");
+            }
+            case "WEEDING" -> {
+                plot.put("lastWeededAt", completedAtText);
+                plot.put("cropCareStatus", "WEEDING_COMPLETED");
+                plot.put("cropCareStatusLabel", "已完成除草");
+            }
+            case "PRUNING" -> {
+                plot.put("lastPrunedAt", completedAtText);
+                plot.put("cropCareStatus", "PRUNING_COMPLETED");
+                plot.put("cropCareStatusLabel", "已完成整枝");
+            }
+            case "IRRIGATION", "MANUAL_IRRIGATION" -> {
+                plot.put("lastIrrigatedAt", completedAtText);
+                plot.put("waterManagementStatus", "IRRIGATED");
+                plot.put("waterManagementStatusLabel", "已完成灌溉");
+            }
+            case "IRRIGATION_CHECK" -> {
+                plot.put("lastIrrigationCheckedAt", completedAtText);
+                plot.put("waterManagementStatus", "CHECKED");
+                plot.put("waterManagementStatusLabel", "已完成灌溉巡检");
+            }
+            case "INSPECTION" -> {
+                plot.put("lastInspectedAt", completedAtText);
+                plot.put("fieldInspectionStatus", "CHECKED");
+                plot.put("fieldInspectionStatusLabel", "已完成巡田核验");
+            }
+            case "DEVICE_CHECK" -> {
+                plot.put("lastDeviceCheckedAt", completedAtText);
+                plot.put("deviceInspectionStatus", "CHECKED");
+                plot.put("deviceInspectionStatusLabel", "已完成设备检查");
+            }
+            default -> plot.put("lastFieldOperationAt", completedAtText);
+        }
+
+        Map<String, Object> historyEntry = new LinkedHashMap<>();
+        historyEntry.put("workOrderId", Jsons.text(work, "workOrderId", ""));
+        historyEntry.put("actionType", actionType);
+        historyEntry.put("actionLabel", actionLabel);
+        historyEntry.put("title", Jsons.text(work, "title", actionLabel));
+        historyEntry.put("resultSummary", Jsons.text(work, "resultSummary", actionLabel + "已完成"));
+        historyEntry.put("completedAt", completedAtText);
+        historyEntry.put("completedBy", operatorId);
+        historyEntry.put("completedByName", operatorName);
+        historyEntry.put("verifiedBy", reviewer.userId);
+        historyEntry.put("sourceType", Jsons.text(work, "sourceType", "MANUAL"));
+        List<Map<String, Object>> operationHistory = new ArrayList<>(Jsons.maps(mapper, plot.get("operationHistory")));
+        operationHistory.add(historyEntry);
+        if (operationHistory.size() > 30) operationHistory = new ArrayList<>(operationHistory.subList(operationHistory.size() - 30, operationHistory.size()));
+        plot.put("operationHistory", operationHistory);
+        plot.put("updatedAt", completedAtText);
+        store.save("plot", plotId, plot);
+
+        Map<String, Object> after = plotOperationalSnapshot(plot);
+        Map<String, Object> effect = new LinkedHashMap<>();
+        effect.put("plotId", plotId);
+        effect.put("workOrderId", Jsons.text(work, "workOrderId", ""));
+        effect.put("actionType", actionType);
+        effect.put("actionLabel", actionLabel);
+        effect.put("summary", actionLabel + ("PARTIAL".equals(outcome) ? "部分完成并已验收，地块作业状态已同步" : "已验收，地块作业状态已同步"));
+        effect.put("before", before);
+        effect.put("after", after);
+        effect.put("appliedAt", completedAtText);
+        effect.put("applied", true);
+        effect.put("outcome", outcome);
+        effect.put("telemetryChanged", false);
+        work.put("plotEffect", effect);
+        work.put("plotEffectAppliedAt", completedAtText);
+        work.put("plotEffectResolvedAt", completedAtText);
+        events.publish("plot.operation.completed", effect);
+        store.logEvent("plot.operation.completed", effect);
+    }
+
+    private Map<String, Object> plotOperationalSnapshot(Map<String, Object> plot) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("cultivationStatus", Jsons.text(plot, "cultivationStatus", "GROWING"));
+        snapshot.put("cultivationStatusLabel", Jsons.text(plot, "cultivationStatusLabel", "正常种植"));
+        snapshot.put("stageCode", Jsons.text(plot, "stageCode", ""));
+        snapshot.put("stageLabel", Jsons.text(plot, "stageLabel", ""));
+        snapshot.put("lastOperationType", Jsons.text(plot, "lastOperationType", ""));
+        snapshot.put("lastOperationLabel", Jsons.text(plot, "lastOperationLabel", ""));
+        snapshot.put("lastOperationAt", Jsons.text(plot, "lastOperationAt", ""));
+        snapshot.put("operationRevision", Jsons.whole(plot, "operationRevision", 0));
+        return snapshot;
     }
 
     private ApiException invalidWorkTransition(String current, String actionLabel) {
@@ -6023,6 +6261,7 @@ class AgriEngine {
         String scenario = canonicalScenarioForRun(scenarioRaw);
         if (scenarioId.isBlank()) scenarioId = scenario.toLowerCase(Locale.ROOT) + "-" + seed;
         Map<String, Object> plot = requireRecord("plot", plotId);
+        String facilityType = PlotFacility.forPlot(plot);
         Map<String, Object> latestMetric = Jsons.map(mapper, latestMetrics(plotId).get("SOIL_MOISTURE"));
         double startMoisture = Jsons.number(latestMetric, "value", baselineMetricValue(plotId, "SOIL_MOISTURE"));
         Map<String, Object> parameters = simulationDefaults(scenario, plotId);
@@ -6047,8 +6286,10 @@ class AgriEngine {
         double configuredTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -0.45);
         double temperatureBias = Jsons.number(parameters, "temperatureBias", 0.0);
         double humidityBias = Jsons.number(parameters, "humidityBias", 0.0);
-        double droughtTrend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? 0.08 : 0.03) + humidityBias * 0.02;
-        double rainPeak = "HEAVY_RAIN".equals(scenario) ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+        double droughtTrend = (configuredTrend - temperatureBias * (temperatureBias >= 0 ? 0.08 : 0.03) + humidityBias * 0.02)
+                * PlotFacility.soilTrendResponse(facilityType, scenario);
+        double rainPeak = "HEAVY_RAIN".equals(scenario)
+                ? Math.min(18, Math.max(4, rainBoost * 2.4)) * PlotFacility.rainExposure(facilityType) : 0;
         int forecastMinutes = (int) Math.round(Jsons.number(parameters, "forecastHours", 4.0) * 60.0);
         String operator = "HEAVY_RAIN".equals(scenario) ? "GT" : "LT";
         double boundary = "HEAVY_RAIN".equals(scenario)
@@ -6063,6 +6304,8 @@ class AgriEngine {
         frozenSnapshot.put("plotId", plotId);
         frozenSnapshot.put("plotName", Jsons.text(plot, "name", plotId));
         frozenSnapshot.put("startMoisture", round(startMoisture));
+        frozenSnapshot.put("facilityType", facilityType);
+        frozenSnapshot.put("facilityLabel", PlotFacility.label(facilityType));
         frozenSnapshot.put("capturedAt", Instant.now().toString());
         frozenSnapshot.put("snapshotLabel", "冻结快照（只读，不写回主状态）");
         Map<String, Object> result = new LinkedHashMap<>();
@@ -6070,6 +6313,8 @@ class AgriEngine {
         result.put("scenarioId", scenarioId);
         result.put("scenario", scenario);
         result.put("plotId", plotId);
+        result.put("facilityType", facilityType);
+        result.put("facilityLabel", PlotFacility.label(facilityType));
         result.put("seed", seed);
         result.put("branches", branches);
         result.put("leftBranch", branches.get("EXECUTE"));

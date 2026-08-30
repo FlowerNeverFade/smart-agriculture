@@ -9,8 +9,8 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260830-crop-pack-sync-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260830-crop-pack-sync-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260830-work-effects-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260830-work-effects-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -1124,7 +1124,7 @@
                        @click="open_task(task)">
                     <div class="farmer-task-card-head">
                       <span class="farmer-task-priority" :class="'priority-' + task.priority">{{ priority_label(task.priority) }}</span>
-                      <span class="farmer-task-due">{{ task.due_label }}</span>
+                      <span class="farmer-task-due">{{ task.action_label }} · {{ task.due_label }}</span>
                     </div>
                     <h4>{{ displayText(task.title) }}</h4>
                     <p class="farmer-task-reason">{{ displayText(task.reason) }}</p>
@@ -1144,6 +1144,7 @@
                   <div class="farmer-task-detail-header">
                     <div>
                       <span class="farmer-task-status-chip" :class="'status-' + selected_task.status">{{ status_label(selected_task.status) }}</span>
+                      <span class="g-badge info">{{ selected_task.action_label }}</span>
                       <h3>{{ displayText(selected_task.title) }}</h3>
                       <p class="farmer-detail-meta">
                         下达者：{{ selected_task.issuer }} · 创建于 {{ selected_task.created_label }} · 截止 {{ selected_task.due_label }}
@@ -1167,7 +1168,7 @@
                           <div>
                             <h5>{{ selected_task.plot_name }}</h5>
                             <p class="farmer-plot-meta">
-                              {{ selected_task.plot.crop_name }} · {{ displayText(selected_task.plot.crop_variety) }} · {{ selected_task.plot.stage_label }}
+                              {{ selected_task.plot.crop_name }} · {{ displayText(selected_task.plot.crop_variety) }} · {{ selected_task.plot.stage_label }} · {{ selected_task.plot.facility_label }} · {{ selected_task.plot.cultivation_status_label }}
                             </p>
                           </div>
                           <span class="g-badge" :class="selected_task.plot.device_status === 'ONLINE' ? 'success' : 'danger'">
@@ -1182,6 +1183,11 @@
                           </div>
                         </div>
                       </div>
+                    </div>
+
+                    <div v-if="selected_task.plotEffect?.summary" class="farmer-detail-section">
+                      <h4>完成后的地块影响</h4>
+                      <p>{{ selected_task.plotEffect.summary }}</p>
                     </div>
 
                     <div class="farmer-detail-section">
@@ -1634,6 +1640,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260830-crop-pack-sync-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260830-work-effects-v1"></script>
 </body>
 </html>

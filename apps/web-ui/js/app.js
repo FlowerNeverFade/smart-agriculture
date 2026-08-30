@@ -1,10 +1,10 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-crop-pack-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-work-effects-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-farm-admin-baseline-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260830-work-effects-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260828-v58';
@@ -42,7 +42,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260830-crop-pack-sync-v1';
+} from './live-data.js?v=20260830-work-effects-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -215,6 +215,12 @@ const STAGE_OPTIONS = Object.freeze([
   { code: 'flowering', label: '开花期' },
   { code: 'fruiting', label: '结果期' },
   { code: 'harvest', label: '采收期' }
+]);
+const PLOT_FACILITY_OPTIONS = Object.freeze([
+  { code: 'OPEN_FIELD', label: '露地（裸地）', description: '直接受降雨、风和温湿度变化影响' },
+  { code: 'GREENHOUSE', label: '大棚', description: '隔绝大部分降雨，温湿度变化更缓和' },
+  { code: 'SHADE_HOUSE', label: '遮阳棚', description: '部分遮雨遮光，环境响应介于大棚与露地之间' },
+  { code: 'ORCHARD', label: '果园', description: '冠层有缓冲，但仍会明显响应降雨' }
 ]);
 
 function normalizedStatus(value, fallback = 'UNKNOWN') {
@@ -607,6 +613,7 @@ const DashboardView = {
       cropCode: 'tomato',
       cropVariety: '',
       stageCode: 'vegetative',
+      facilityType: 'OPEN_FIELD',
       growthCycleDays: 120,
       areaM2: 100,
       deviceIds: []
@@ -663,6 +670,7 @@ const DashboardView = {
         cropCode: plot.cropCode || 'tomato',
         cropVariety: plot.cropVariety || '',
         stageCode: plot.stageCode || 'vegetative',
+        facilityType: plot.facilityType || 'OPEN_FIELD',
         growthCycleDays: Number(plot.growthCycleDays || 120),
         areaM2: Number(plot.areaM2 || 100),
         deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
@@ -702,6 +710,7 @@ const DashboardView = {
         cropVariety: draft.cropVariety.trim(),
         stageCode: stage.code,
         stageLabel: stage.label,
+        facilityType: draft.facilityType || 'OPEN_FIELD',
         growthCycleDays: Math.max(1, Math.round(Number(draft.growthCycleDays) || 1)),
         areaM2: Math.max(1, Number(draft.areaM2) || 1),
         lastSeen: plotEditor.value.mode === 'edit' ? '刚刚更新' : '等待设备接入',
@@ -828,6 +837,7 @@ const DashboardView = {
       deleteConfirm,
       cropOptions: CROP_OPTIONS,
       stageOptions: STAGE_OPTIONS,
+      facilityOptions: PLOT_FACILITY_OPTIONS,
       togglePlotMenu,
       openCreatePlot,
       openEditPlot,
@@ -955,7 +965,7 @@ const PlotDetailModal = {
       const timeScale = Math.max(1, Number(simulation.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
       const now = Date.now();
       const toSimulated = (wall) => now - (now - wall) * timeScale;
-      const historical = historicalPoints.map((item) => [toSimulated(telemetryTimestamp(item)), item.value]);
+      const historicalAll = historicalPoints.map((item) => [toSimulated(telemetryTimestamp(item)), item.value]);
       const fallback = plotMetricFallback(definition.code);
       const anchorPoint = historicalPoints.at(-1);
       const anchorValue = anchorPoint?.value ?? fallback;
@@ -972,8 +982,26 @@ const PlotDetailModal = {
       const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
       const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
       const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      // Keep the default viewport balanced when a sparse device history spans
+      // weeks or months.  The complete history remains in the series and can
+      // be inspected with the time slider; the initial window gives the
+      // forecast enough horizontal space to read its slope and band.
+      const configuredForecastHours = Number(simulationForecast.value?.simulation?.parameters?.forecastHours
+        || simulation.value?.parameters?.forecastHours || 4);
+      const forecastMinutes = Math.max(60, forecastPoints.length
+        ? Math.max(...forecastPoints.map((point) => point.minute), configuredForecastHours * 60)
+        : configuredForecastHours * 60);
+      const forecastSpanMs = forecastMinutes * 60000;
+      const historyWindowMs = Math.max(3 * 3600000, forecastSpanMs * 1.35);
+      const focusStart = forecastStart - historyWindowMs;
+      const historyInFocus = historicalAll.filter((item) => item[0] >= focusStart && item[0] <= forecastStart + 1000);
+      const historical = historyInFocus.length >= 2
+        ? historyInFocus
+        : historicalAll.slice(-Math.min(24, historicalAll.length));
+      const xMin = Math.min(focusStart, historical[0]?.[0] ?? forecastStart);
+      const xMax = Math.max(forecastStart + forecastSpanMs, historical.at(-1)?.[0] ?? forecastStart);
       const axis = chartAxisRange(definition, [
-        ...historical.map((item) => item[1]),
+        ...historicalAll.map((item) => item[1]),
         ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
       ]);
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -987,14 +1015,20 @@ const PlotDetailModal = {
           return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
         legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
-        grid: { left: 42, right: 18, top: 32, bottom: 30 },
-        xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
+        grid: { left: 42, right: 18, top: 32, bottom: 48 },
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none', startValue: xMin, endValue: xMax },
+          { type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 14, bottom: 8, startValue: xMin, endValue: xMax,
+            borderColor: dark ? '#4b5563' : '#d1d5db', fillerColor: dark ? 'rgba(96,165,250,.18)' : 'rgba(37,99,235,.12)', handleSize: 10,
+            textStyle: { color: textColor, fontSize: 9 } }
+        ],
+        xAxis: { type: 'time', min: xMin, max: xMax, axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
         yAxis: {
           type: 'value', min: axis.min, max: axis.max, name: definition.unit,
           nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => formatCurveValue(value, definition) }
         },
         series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '历史实测', type: 'line', data: historicalAll, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
           { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .35 : 1 } },
           { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } },
           { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } }
@@ -1639,8 +1673,14 @@ const WorkOrdersView = {
         return;
       }
       try {
+        const lifecycleTarget = ({
+          SOWING: { targetStageCode: 'seedling', targetStageLabel: '苗期' },
+          TRANSPLANTING: { targetStageCode: 'vegetative', targetStageLabel: '营养生长期' },
+          HARVEST: { targetStageCode: 'fruiting', targetStageLabel: '采收完成' }
+        })[String(draft.actionType || '').toUpperCase()] || {};
         const payload = {
           ...draft,
+          ...lifecycleTarget,
           title: draft.title.trim(),
           reason: draft.reason.trim(),
           dueAt: new Date(draft.dueAt).toISOString(),

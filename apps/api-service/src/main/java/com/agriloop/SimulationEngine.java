@@ -333,22 +333,29 @@ class SimulationEngine {
 
     static void evolveState(PlotState state, Random rng, String scenario, ZonedDateTime ts, int index,
                             Map<String, Double> parameters, double stepSeconds) {
+        evolveState(state, rng, scenario, ts, index, parameters, stepSeconds, PlotFacility.OPEN_FIELD);
+    }
+
+    static void evolveState(PlotState state, Random rng, String scenario, ZonedDateTime ts, int index,
+                            Map<String, Double> parameters, double stepSeconds, String facilityType) {
         String normalized = normalizeScenario(scenario);
         Map<String, Double> params = parameters != null ? parameters : scenarioParameters(normalized, null);
         double volatility = params.get("volatility");
         double simulatedHours = Math.max(0.1, stepSeconds) * params.get("timeScale") / 3600.0;
         double daylight = daylightFraction(ts);
-        double heatOffset = "heat-wave".equals(normalized) ? 7.0 : params.get("temperatureBias");
+        double climateResponse = PlotFacility.climateResponse(facilityType);
+        double heatOffset = ("heat-wave".equals(normalized) ? 7.0 : params.get("temperatureBias")) * climateResponse;
         double temperatureTarget = 20.5 + 8.0 * daylight + heatOffset;
-        double humidityTarget = 82.0 - 30.0 * daylight + params.get("humidityBias");
+        double humidityTarget = 82.0 - 30.0 * daylight + params.get("humidityBias") * climateResponse;
         double relax = Math.min(1.0, 1.0 - Math.exp(-simulatedHours / 2.4));
         state.temperature += (temperatureTarget - state.temperature) * relax + uniform(rng, -0.08, 0.08) * volatility * simulatedHours;
         state.temperature = clamp(state.temperature, -20, 55);
         state.humidity += (humidityTarget - state.humidity) * relax + uniform(rng, -0.18, 0.18) * volatility * simulatedHours;
         state.humidity = clamp(state.humidity, 10, 99.5);
         double legacySoilRate = "gradual-drydown".equals(normalized) ? -0.35 : "limited-water".equals(normalized) ? -0.22 : 0.0;
-        double soilRate = (params.get("soilMoistureTrendPerHour") + legacySoilRate) * simulatedHours;
-        double rainAbsorption = Math.min(params.get("rainfallRate"), 20.0) * simulatedHours * 0.025;
+        double soilResponse = PlotFacility.soilTrendResponse(facilityType, normalized);
+        double soilRate = (params.get("soilMoistureTrendPerHour") + legacySoilRate) * soilResponse * simulatedHours;
+        double rainAbsorption = Math.min(params.get("rainfallRate"), 20.0) * PlotFacility.rainExposure(facilityType) * simulatedHours * 0.025;
         state.soil += soilRate + rainAbsorption + uniform(rng, -0.12, 0.12) * volatility * simulatedHours;
         state.soil = clamp(state.soil, 4, 92);
         double co2Target = 430.0 + 180.0 * (1.0 - daylight);
@@ -362,6 +369,11 @@ class SimulationEngine {
 
     static double metricValue(PlotState state, Random rng, String scenario, String metric, ZonedDateTime ts,
                               int index, Map<String, Double> parameters, double stepSeconds) {
+        return metricValue(state, rng, scenario, metric, ts, index, parameters, stepSeconds, PlotFacility.OPEN_FIELD);
+    }
+
+    static double metricValue(PlotState state, Random rng, String scenario, String metric, ZonedDateTime ts,
+                              int index, Map<String, Double> parameters, double stepSeconds, String facilityType) {
         String normalized = normalizeScenario(scenario);
         Map<String, Double> params = parameters != null ? parameters : scenarioParameters(normalized, null);
         double volatility = params.get("volatility");
@@ -378,7 +390,7 @@ class SimulationEngine {
             case "AIR_HUMIDITY" -> value = state.humidity;
             case "LIGHT" -> {
                 double cloud = "heavy-rain".equals(normalized) ? 0.35 : "drought".equals(normalized) ? 1.12 : 1.0;
-                value = 45.0 + daylightFraction(ts) * 47_000.0 * cloud;
+                value = 45.0 + daylightFraction(ts) * 47_000.0 * cloud * PlotFacility.lightTransmission(facilityType);
             }
             case "CO2" -> value = state.co2;
             case "PH" -> {
@@ -439,6 +451,7 @@ class SimulationEngine {
         for (Map<String, Object> plot : activePlots()) {
             String plotId = Jsons.text(plot, "plotId", "");
             if (plotId.isBlank()) continue;
+            String facilityType = PlotFacility.forPlot(plot);
             Map<String, Object> simulation = engine.plotSimulationRecord(plotId);
             if (!Jsons.bool(simulation, "enabled", true)) continue;
             if (mockDeviceControlledOffline(plotId)) continue;
@@ -452,18 +465,22 @@ class SimulationEngine {
             else if (Math.abs(plotScale - 1.0) < 1e-9) plotScale = 1.0;
             params.put("timeScale", plotScale);
             int revision = (int) Jsons.whole(simulation, "revision", 1);
-            String signature = scenario + "|" + revision + "|" + params.get("volatility") + "|" + params.get("soilMoistureTrendPerHour")
+            String signature = scenario + "|" + revision + "|" + facilityType + "|" + params.get("volatility") + "|" + params.get("soilMoistureTrendPerHour")
                     + "|" + params.get("rainfallRate") + "|" + params.get("driftRatePerHour");
             if (!signature.equals(configSignatures.get(plotId)) || !states.containsKey(plotId)) {
                 PlotState created = initialState(plotId, rng);
                 if ("drought".equals(scenario)) {
-                    created.soil = Math.min(created.soil, 27.0);
-                    created.temperature = 31.0;
-                    created.humidity = 43.0;
+                    double soilResponse = PlotFacility.soilTrendResponse(facilityType, scenario);
+                    double climateResponse = PlotFacility.climateResponse(facilityType);
+                    created.soil = Math.min(created.soil, 35.0 - 8.0 * soilResponse);
+                    created.temperature += (31.0 - created.temperature) * climateResponse;
+                    created.humidity += (43.0 - created.humidity) * climateResponse;
                 } else if ("heavy-rain".equals(scenario)) {
-                    created.soil = Math.max(created.soil, 56.0);
-                    created.temperature = 20.5;
-                    created.humidity = 90.0;
+                    double exposure = PlotFacility.rainExposure(facilityType);
+                    double climateResponse = PlotFacility.climateResponse(facilityType);
+                    created.soil = Math.max(created.soil, 35.0 + 21.0 * exposure);
+                    created.temperature += (20.5 - created.temperature) * climateResponse;
+                    created.humidity += (90.0 - created.humidity) * climateResponse;
                     created.water = 90.0;
                 }
                 states.put(plotId, created);
@@ -476,7 +493,7 @@ class SimulationEngine {
             int phase = (index + plotId.chars().sum()) % 20;
             boolean scenarioOffline = offlineRatio > 0 && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
             if (!scenarioOffline) {
-                evolveState(state, rng, scenario, physicsTs, index, params, interval);
+                evolveState(state, rng, scenario, physicsTs, index, params, interval, facilityType);
             }
             String farmId = Jsons.text(plot, "farmId", "farm-demo");
             String deviceId = "mock-" + plotId;
@@ -486,7 +503,7 @@ class SimulationEngine {
             }
             for (MetricSpec metric : METRICS) {
                 Map<String, Object> event = buildEvent(state, rng, scenario, plotId, farmId, deviceId, metric, index,
-                        physicsTs, wallNow, params, interval, revision);
+                        physicsTs, wallNow, params, interval, revision, facilityType);
                 try {
                     engine.ingest(event);
                     emitted += 1;
@@ -521,8 +538,9 @@ class SimulationEngine {
 
     private Map<String, Object> buildEvent(PlotState state, Random rng, String scenario, String plotId, String farmId,
                                            String deviceId, MetricSpec metric, int index, ZonedDateTime physicsTs,
-                                           Instant wallNow, Map<String, Double> params, double stepSeconds, int revision) {
-        double value = metricValue(state, rng, scenario, metric.code, physicsTs, index, params, stepSeconds);
+                                           Instant wallNow, Map<String, Double> params, double stepSeconds, int revision,
+                                           String facilityType) {
+        double value = metricValue(state, rng, scenario, metric.code, physicsTs, index, params, stepSeconds, facilityType);
         String qualityStatus = "GOOD";
         double confidence = 0.98;
         if ("sensor-drift".equals(scenario) && Set.of("SOIL_MOISTURE", "PH").contains(metric.code)) {
@@ -551,6 +569,8 @@ class SimulationEngine {
         event.put("schemaVersion", "1.0");
         event.put("simulationRunId", runId);
         event.put("simulationRevision", revision);
+        event.put("facilityType", facilityType);
+        event.put("facilityLabel", PlotFacility.label(facilityType));
         return event;
     }
 

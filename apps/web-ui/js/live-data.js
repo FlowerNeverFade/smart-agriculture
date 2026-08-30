@@ -668,6 +668,11 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     ? { ...device, ...hardware, deviceId: hardware.deviceId || device.deviceId, sourceMode: 'REAL', dataOrigin: 'HARDWARE' }
     : device;
   const cropCode = text(plot.cropCode || overviewCard.cropCode, '');
+  const explicitFacility = text(plot.facilityType || overviewCard.facilityType || plot.plotType, '').toUpperCase();
+  const facilityType = explicitFacility || (/温室|大棚|棚/.test(text(plot.name || overviewCard.name, '')) ? 'GREENHOUSE' : /果园/.test(text(plot.name || overviewCard.name, '')) ? 'ORCHARD' : 'OPEN_FIELD');
+  const facilityLabel = text(plot.facilityLabel || overviewCard.facilityLabel, ({
+    GREENHOUSE: '大棚', SHADE_HOUSE: '遮阳棚', ORCHARD: '果园', OPEN_FIELD: '露地（裸地）'
+  })[facilityType] || '露地（裸地）');
   return {
     ...plot,
     ...overviewCard,
@@ -677,6 +682,17 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     cropName: text(plot.cropName || overviewCard.cropName, CROP_LABELS[cropCode] || cropCode || '—'),
     stageCode: text(plot.stageCode, ''),
     stageLabel: text(plot.stageLabel, '—'),
+    facilityType,
+    facilityLabel,
+    cultivationStatus: text(plot.cultivationStatus || overviewCard.cultivationStatus, 'GROWING').toUpperCase(),
+    cultivationStatusLabel: text(plot.cultivationStatusLabel || overviewCard.cultivationStatusLabel, '正常种植'),
+    lastOperationType: text(plot.lastOperationType || overviewCard.lastOperationType, ''),
+    lastOperationLabel: text(plot.lastOperationLabel || overviewCard.lastOperationLabel, ''),
+    lastOperationAt: text(plot.lastOperationAt || overviewCard.lastOperationAt, ''),
+    lastOperationBy: text(plot.lastOperationBy || overviewCard.lastOperationBy, ''),
+    lastOperationSummary: text(plot.lastOperationSummary || overviewCard.lastOperationSummary, ''),
+    operationRevision: Number(plot.operationRevision ?? overviewCard.operationRevision ?? 0),
+    operationHistory: Array.isArray(plot.operationHistory) ? plot.operationHistory : (Array.isArray(overviewCard.operationHistory) ? overviewCard.operationHistory : []),
     metrics,
     history,
     deviceId: text(effectiveDevice.deviceId || plot.deviceId, ''),
@@ -732,6 +748,14 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const createdAt = work.createdAt || work.created_at || work.created_iso;
   const dueAt = work.dueAt || work.due_at || work.due_iso;
   const issuer = text(work.createdByName || work.createdBy || work.issuer, '—');
+  const actionType = text(work.actionType, 'FIELD_OPERATION').trim().toUpperCase();
+  const actionLabel = text(work.actionLabel, ({
+    SOWING: '播种', TRANSPLANTING: '移栽', HARVEST: '采收', FERTILIZATION: '施肥',
+    PEST_CONTROL: '植保', WEEDING: '除草', PRUNING: '整枝', IRRIGATION: '灌溉',
+    MANUAL_IRRIGATION: '人工灌溉', IRRIGATION_CHECK: '灌溉巡检', INSPECTION: '巡田核验',
+    FIELD_INSPECTION: '巡田核验', DEVICE_CHECK: '设备检查', FIELD_OPERATION: '田间作业',
+    IRRIGATION_REVIEW: '灌溉方案审批'
+  })[actionType] || '农务作业');
   return {
     ...work,
     id: text(work.workOrderId || work.workItemId || work.id, `work-${createdAt || Date.now()}`),
@@ -741,6 +765,8 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
     instruction: text(work.instruction || work.description, ''),
     status,
     priority: text(work.priority, 'MEDIUM').toUpperCase(),
+    action_type: actionType,
+    action_label: actionLabel,
     plot_id: plotId || null,
     plot_name: text(work.plotName || work.plot_name || plot.name, plotId || '全场任务'),
     issuer,

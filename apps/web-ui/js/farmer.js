@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-crop-pack-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-work-effects-v1';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -23,7 +23,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260830-crop-pack-sync-v1';
+} from './live-data.js?v=20260830-work-effects-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
 
@@ -2802,6 +2802,8 @@ const app = createApp({
             crop_name: plot.cropName,
             crop_variety: plot.cropVariety,
             stage_label: plot.stageLabel,
+            cultivation_status_label: plot.cultivationStatusLabel || '正常种植',
+            facility_label: plot.facilityLabel || '露地（裸地）',
             device_status: plot.deviceStatus,
             metrics: plot.metrics
           };
