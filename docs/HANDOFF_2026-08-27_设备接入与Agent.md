@@ -26,7 +26,7 @@
 - AI 助手读取正式接口 `GET /api/v1/agent/conversations?limit=20` 与 `GET /api/v1/agent/history?conversationId=&limit=60`；演示模式使用 `agriloop_agent_conversations:<actorId>` 本地存储，按账号隔离，最多保留 50 个会话、每个会话 60 条消息。新会话首条消息自动生成 36 字标题。
 - 回答 UI 固定分为“已知事实、分析判断、执行建议”。已知事实只从 Agent 的 `result/diagnosis/plan/tools/knowledgeEvidence` 等结构化响应投影；没有返回的指标不补造，规则降级会明确标注。
 - Agent 写操作预览、确认/取消、幂等和 `data-invalidated` 事实域刷新逻辑保持原合同；确认后仍通过 `plots/devices/workOrders/alerts/overview` 域刷新全平台。
-- 本轮只完成本地代码、测试与文档，未部署服务器、未操作真实 BearPi、未推送 GitHub。接手后先运行 Web 回归和 Vite 构建，再做管理员桌面/窄屏浏览器验收。
+- 本轮已将提交 `c21ef4c38dc7352d51fc8f43bf7de3f4f55a2331` 原地同步到 `/srv/agriloop/app/apps/web-ui` 与 `/srv/farm-admin/app/apps/web-ui`；备份为 `/srv/backups/agriloop-ai-assistant-20260830-142743`。自定义 Supervisor 的 API 已恢复 `UP`，两套静态入口和未授权会话接口边界已检查。未操作真实 BearPi、未推送 GitHub；正式管理员 JWT 浏览器写操作待下次服务器窗口复核。接手后先运行 Web 回归和 Vite 构建，再做管理员桌面/窄屏浏览器验收。
 
 ## 3. 本日完成内容
 
