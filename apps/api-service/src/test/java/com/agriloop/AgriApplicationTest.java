@@ -234,6 +234,13 @@ class AgriApplicationTest {
         Map<String, Object> actual = Jsons.map(new ObjectMapper(), evaluation.get("actual"));
         assertThat(Jsons.number(actual, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(actual, "soilMoistureBefore", 0));
         assertThat(Jsons.number(actual, "waterLitre", 0)).isGreaterThan(0);
+        Map<String, Object> virtualSoil = store.latestTelemetry(plotId, "SOIL_MOISTURE",
+                observedAt, Instant.now().plusSeconds(1));
+        assertThat(Jsons.number(virtualSoil, "value", 0)).isGreaterThan(16.0);
+        assertThat(virtualSoil).containsEntry("sourceMode", "SIMULATION").containsEntry("dataOrigin", "VIRTUAL_ACTUATOR");
+        Map<String, Object> virtualWater = store.latestTelemetry(plotId, "WATER_LEVEL",
+                observedAt, Instant.now().plusSeconds(1));
+        assertThat(Jsons.number(virtualWater, "value", 100)).isLessThan(82.0);
         assertThat(store.list("work-order").stream().noneMatch(work -> commandId.equals(Jsons.text(work, "commandId", "")))).isTrue();
     }
 

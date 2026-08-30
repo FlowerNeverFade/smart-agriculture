@@ -2467,7 +2467,8 @@ const app = createApp({
         schedule_live_refresh('telemetry');
         return;
       }
-      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection') || type.includes('plot.')) {
+      if (type.includes('workorder') || type.includes('work-order') || type.includes('alert') || type.includes('inspection')
+        || type.includes('plot.') || type.includes('command') || type.includes('evaluation')) {
         schedule_live_refresh('workspace');
       }
     };
@@ -2698,6 +2699,29 @@ const app = createApp({
       show_suggestion_flow.value = false;
     };
 
+    const wait_for_irrigation_completion = async (submitted) => {
+      if (!is_live.value || !submitted?.commandId) return submitted;
+      let current = submitted;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const status = String(current?.ack?.status || current?.status || '').toUpperCase();
+        if (['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(status)) {
+          for (let evaluationAttempt = 0; evaluationAttempt < 6; evaluationAttempt += 1) {
+            const evaluation = await api.getCommandEvaluation(submitted.commandId).catch(() => null);
+            if (evaluation && evaluation.status !== 'PENDING') return { ...current, evaluation };
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+          return current;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        try {
+          current = await api.getCommand(submitted.commandId);
+        } catch {
+          break;
+        }
+      }
+      return current;
+    };
+
     const prepare_suggestion_confirmation = async () => {
       if (!active_suggestion.value) return;
       if (active_suggestion.value.kind === 'IRRIGATION') {
@@ -2733,7 +2757,15 @@ const app = createApp({
               source: 'farmer-advice-direct',
               ...(is_live.value ? {} : { outcome: 'SUCCEEDED' })
             });
-            if (!is_live.value) {
+            if (is_live.value) {
+              suggestion_result.value = await wait_for_irrigation_completion(suggestion_result.value);
+              await refresh_plot_telemetry();
+              await load_live_workspace({ announce: false });
+              if (suggestion_result.value?.commandId) {
+                const evaluation = await api.getCommandEvaluation(suggestion_result.value.commandId).catch(() => null);
+                if (evaluation) suggestion_result.value = { ...suggestion_result.value, evaluation };
+              }
+            } else {
               await load_live_workspace({ announce: false });
               await load_irrigation_plan(active.plotId, { silent: true });
             }
