@@ -133,7 +133,9 @@ const CROP_ICONS = {
   rice: '🌾',
   sunflower: '🌻',
   strawberry: '🍓',
-  pepper: '🌶️'
+  pepper: '🌶️',
+  lettuce: '🥬',
+  eggplant: '🍆'
 };
 
 const CROP_MANUAL_AVAILABILITY = Object.freeze({

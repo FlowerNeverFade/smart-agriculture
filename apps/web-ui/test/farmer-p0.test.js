@@ -108,6 +108,13 @@ test('farmer can read plot simulation strategy and forecast curve', async () => 
     manuals.map((item) => item.cropCode).sort(),
     MOCK_DATA.cropPackDetails.map((item) => item.cropCode).sort()
   );
+  for (const cropCode of ['lettuce', 'eggplant']) {
+    const manual = MOCK_DATA.cropPackDetails.find((item) => item.cropCode === cropCode);
+    assert.ok(manual, `${cropCode} manual should be listed`);
+    assert.equal(manual.stages.length, 4);
+    assert.ok(Object.keys(manual.knowledge.byStage).length >= 4);
+    assert.ok(manual.knowledge.sourceNotes.length >= 2);
+  }
 });
 
 test('farmer plot cards hide soil EC charts and localize metric codes', async () => {

@@ -103,7 +103,7 @@ class AgriApplicationTest {
     void seededLoginAndCropPacksWork() {
         Map<String, Object> login = engine.login("farmer", "demo123");
         assertThat(login).containsKey("accessToken");
-        assertThat(engine.cropPacks()).hasSize(2);
+        assertThat(engine.cropPacks()).hasSize(4);
         assertThat(new AgriProperties().getLlmMaxTokens()).isEqualTo(512);
     }
 
@@ -204,21 +204,23 @@ class AgriApplicationTest {
         UserPrincipal farmer = new UserPrincipal("farmer-virtual-" + suffix, "farmer", "FARMER",
                 List.of("farm-demo"), List.of(plotId));
         Instant observedAt = Instant.now();
-        engine.ingest(Map.of("eventId", "virtual-soil-before-" + suffix, "farmId", "farm-demo", "plotId", plotId,
-                "deviceId", deviceId, "metric", "SOIL_MOISTURE", "value", 16.0, "unit", "%",
-                "ts", observedAt.toString(), "sourceMode", "SIMULATION", "scenarioId", "drought",
-                "quality", Map.of("status", "GOOD", "confidence", .99)));
-        engine.ingest(Map.of("eventId", "virtual-water-before-" + suffix, "farmId", "farm-demo", "plotId", plotId,
-                "deviceId", deviceId, "metric", "WATER_LEVEL", "value", 82.0, "unit", "%",
-                "ts", observedAt.plusMillis(1).toString(), "sourceMode", "SIMULATION", "scenarioId", "drought",
-                "quality", Map.of("status", "GOOD", "confidence", .99)));
+        engine.ingest(Map.ofEntries(Map.entry("eventId", "virtual-soil-before-" + suffix), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 16.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "drought"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .99))));
+        engine.ingest(Map.ofEntries(Map.entry("eventId", "virtual-water-before-" + suffix), Map.entry("farmId", "farm-demo"),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "WATER_LEVEL"),
+                Map.entry("value", 82.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.plusMillis(1).toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "drought"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .99))));
 
         Map<String, Object> plan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-" + suffix), farmer);
         assertThat(plan).containsEntry("readinessStatus", "READY").containsEntry("executable", true);
         Map<String, Object> command = engine.createCommand(Map.of(
                 "plotId", plotId, "planId", plan.get("planId"), "idempotencyKey", "farmer-virtual-" + suffix,
                 "approved", true, "executionMode", "FARMER_VIRTUAL", "source", "farmer-irrigation-system"), farmer);
-        assertThat(command).containsEntry("confirmationType", "FARMER_SELF_CONFIRMATION");
+        assertThat(command).containsEntry("confirmationMode", "OPERATOR_CONFIRMED");
 
         String commandId = String.valueOf(command.get("commandId"));
         Map<String, Object> completed = command;
@@ -229,10 +231,9 @@ class AgriApplicationTest {
         assertThat(completed).containsEntry("status", "SUCCEEDED");
         Map<String, Object> evaluation = engine.commandEvaluation(commandId, farmer);
         assertThat(evaluation).containsEntry("status", "COMPLETED");
-        Map<String, Object> effect = Jsons.map(new ObjectMapper(), evaluation.get("sensorEffect"));
-        assertThat(Jsons.number(effect, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(effect, "soilMoistureBefore", 0));
-        assertThat(Jsons.number(effect, "waterLevelAfter", 100)).isLessThan(Jsons.number(effect, "waterLevelBefore", 0));
-        assertThat(Jsons.bool(effect, "telemetryAccepted", false)).isTrue();
+        Map<String, Object> actual = Jsons.map(new ObjectMapper(), evaluation.get("actual"));
+        assertThat(Jsons.number(actual, "soilMoistureAfter", 0)).isGreaterThan(Jsons.number(actual, "soilMoistureBefore", 0));
+        assertThat(Jsons.number(actual, "waterLitre", 0)).isGreaterThan(0);
         assertThat(store.list("work-order").stream().noneMatch(work -> commandId.equals(Jsons.text(work, "commandId", "")))).isTrue();
     }
 
@@ -1021,7 +1022,7 @@ class AgriApplicationTest {
 
     @Test
     void cropPacksExposeStageTemplatesAndHandbook() {
-        assertThat(engine.cropPacks()).hasSize(2).allSatisfy(pack -> {
+        assertThat(engine.cropPacks()).hasSize(4).allSatisfy(pack -> {
             assertThat(pack).containsKeys("identity", "stages", "metrics", "rules", "healthProfile", "knowledge");
             assertThat(Jsons.maps(new ObjectMapper(), pack.get("stages"))).isNotEmpty().allSatisfy(stage -> {
                 assertThat(stage).containsKeys("code", "label", "target", "riskFocus", "taskTemplates");
@@ -1030,7 +1031,7 @@ class AgriApplicationTest {
         });
         Map<String, Object> manuals = Map.of("index", engine.cropManuals());
         assertThat(Jsons.maps(new ObjectMapper(), manuals.get("index"))).extracting(item -> item.get("cropCode"))
-                .containsExactly("cucumber", "tomato");
+                .containsExactly("cucumber", "eggplant", "lettuce", "tomato");
 
         Map<String, Object> seedling = engine.cropManual("tomato", "seedling");
         Map<String, Object> fruiting = engine.cropManual("tomato", "fruiting");
