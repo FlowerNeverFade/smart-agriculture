@@ -3,6 +3,21 @@ import { agentResponseSource, agentResponseText } from '../live-data.js?v=202608
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 
+const AI_SIDEBAR_MIN = 184;
+const AI_SIDEBAR_MAX = 560;
+const AI_SIDEBAR_DEFAULT = 248;
+
+function clampSidebarWidth(value, containerWidth = 1280) {
+  const available = Number(containerWidth);
+  const maxByLayout = Number.isFinite(available) && available > 0
+    ? Math.min(AI_SIDEBAR_MAX, Math.max(AI_SIDEBAR_MIN, Math.floor(available * .48)))
+    : AI_SIDEBAR_MAX;
+  const minByLayout = Number.isFinite(available) && available > 0
+    ? Math.min(AI_SIDEBAR_MIN, Math.max(160, Math.floor(available * .32)))
+    : AI_SIDEBAR_MIN;
+  return Math.min(maxByLayout, Math.max(minByLayout, Number(value) || AI_SIDEBAR_DEFAULT));
+}
+
 function messageTime(value = new Date()) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -101,6 +116,7 @@ function conversationTime(value) {
 }
 
 export const AdminAiChatView = {
+  name: 'AdminAiChatView',
   props: { state: { type: Object, required: true }, routeParams: { type: Object, default: () => ({}) } },
   emits: ['data-invalidated', 'navigate'],
   setup(props, { emit }) {
@@ -118,7 +134,7 @@ export const AdminAiChatView = {
     const chatRoot = ref(null);
     const sidebarCollapsed = ref(localStorage.getItem('agriloop-ai-sidebar-collapsed') === '1');
     const storedSidebarWidth = Number(localStorage.getItem('agriloop-ai-sidebar-width'));
-    const sidebarWidth = ref(Number.isFinite(storedSidebarWidth) ? Math.min(360, Math.max(200, storedSidebarWidth)) : 240);
+    const sidebarWidth = ref(Number.isFinite(storedSidebarWidth) ? clampSidebarWidth(storedSidebarWidth) : AI_SIDEBAR_DEFAULT);
     const draggingSidebar = ref(false);
     const imageInput = ref(null);
     const attachments = ref([]);
@@ -131,8 +147,8 @@ export const AdminAiChatView = {
       return [`总结${name}现在最需要处理的问题`, `分析${name}最近的告警`, `今天${name}应该给农户安排哪些任务`, '按紧急程度列出今天的农务建议'];
     });
 
-    const setSidebarWidth = value => {
-      const width = Math.min(360, Math.max(200, Number(value) || 240));
+    const setSidebarWidth = (value, containerWidth = chatRoot.value?.clientWidth) => {
+      const width = clampSidebarWidth(value, containerWidth);
       sidebarWidth.value = width;
       try { localStorage.setItem('agriloop-ai-sidebar-width', String(width)); } catch (error) { /* private browsing */ }
     };
@@ -151,7 +167,7 @@ export const AdminAiChatView = {
       const rect = chatRoot.value?.getBoundingClientRect();
       if (!rect) return;
       draggingSidebar.value = true;
-      const move = pointerEvent => setSidebarWidth(pointerEvent.clientX - rect.left);
+      const move = pointerEvent => setSidebarWidth(pointerEvent.clientX - rect.left, rect.width);
       const stop = () => stopSidebarResize();
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', stop, { once: true });
@@ -239,6 +255,9 @@ export const AdminAiChatView = {
 
     watch(() => props.state.plots?.map(plot => plot.plotId).join('|'), () => { if (!selectedPlotId.value && props.state.plots?.[0]?.plotId) selectedPlotId.value = props.state.plots[0].plotId; });
     watch(() => props.routeParams?.plotId || props.routeParams?.targetPlot, value => { if (value) selectedPlotId.value = value; });
+    watch(() => props.routeParams?.conversationId, value => {
+      if (value && value !== conversationId.value && !loadingHistory.value) loadConversation(value, { updateHash: false });
+    });
 
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
     const updateRoute = id => {
@@ -327,7 +346,7 @@ export const AdminAiChatView = {
         const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `ui-agent:${proposal.actionId}` });
         proposal.status = result?.status || 'SUCCEEDED'; proposal.result = result?.result || result;
         messages.value.push({ id: `agent-result-${Date.now()}`, role: 'assistant', content: `已确认执行：${proposal.summary || '操作'}。${result?.status === 'SUCCEEDED' ? '操作已完成，相关页面正在同步。' : '操作未成功完成。'}`, time: messageTime(), source: 'Agent 执行结果', facts: [], inference: '执行结果以平台返回状态为准。', recommendations: [] });
-        emit('data-invalidated', { domains: result?.affectedDomains || proposal.affectedDomains || ['plots', 'devices', 'workOrders', 'alerts', 'overview'], record: result });
+        emit('data-invalidated', { domains: result?.affectedDomains || proposal.affectedDomains || ['plots', 'devices', 'workOrders', 'alerts', 'overview'], record: result?.result || result, actionResult: result });
       } catch (error) { proposal.status = 'FAILED'; toast(error.message || 'Agent 操作执行失败', 'error'); }
       finally { actionBusy.value = ''; }
     };
@@ -339,9 +358,15 @@ export const AdminAiChatView = {
       finally { actionBusy.value = ''; }
     };
     const handleKeydown = event => { if (event.isComposing) return; if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } };
-    onMounted(loadConversations);
+    const normalizeViewportWidth = () => setSidebarWidth(sidebarWidth.value);
+    onMounted(() => {
+      normalizeViewportWidth();
+      window.addEventListener('resize', normalizeViewportWidth);
+      loadConversations();
+    });
     onBeforeUnmount(() => {
       stopSidebarResize();
+      window.removeEventListener('resize', normalizeViewportWidth);
       attachments.value.forEach(revokeAttachment);
       messages.value.flatMap(message => message.attachments || []).forEach(revokeAttachment);
     });
@@ -360,7 +385,7 @@ export const AdminAiChatView = {
       </aside>
       <button v-if="!sidebarCollapsed" class="admin-ai-sidebar-resizer" type="button" aria-label="调整历史对话栏宽度" title="拖动调整历史对话栏宽度" @pointerdown="startSidebarResize"><span></span></button>
       <div class="admin-ai-chat-main">
-        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" :title="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>AI 助手已就绪</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">咨询地块</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label></div>
+        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" :title="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>AI 助手已就绪</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><div class="admin-ai-chat-tools"><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">当前地块</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><button class="g-btn secondary admin-ai-new-chat" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button></div></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
           <div class="admin-ai-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand">AgriLoop AI</p><strong class="admin-ai-empty-greeting">今天想先处理什么？</strong><p class="admin-ai-empty-copy">我会结合 {{ selectedPlotName }} 的实时数据、告警和农务记录回答，先核对平台事实，再给出清晰的下一步建议。</p><div class="admin-ai-suggestions" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>

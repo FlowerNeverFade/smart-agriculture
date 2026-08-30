@@ -83,6 +83,37 @@ function normalizeWorkOrderStatus(value) {
   return WORK_ORDER_STATUS_ALIASES[status] || status;
 }
 
+const DEMO_CROP_ALIASES = Object.freeze([
+  ['tomato', ['番茄', '西红柿', 'tomato']],
+  ['corn', ['玉米', 'corn']],
+  ['cucumber', ['黄瓜', 'cucumber']],
+  ['rice', ['水稻', '稻', 'rice']],
+  ['sunflower', ['向日葵', '油葵', 'sunflower']],
+  ['strawberry', ['草莓', 'strawberry']]
+]);
+
+function inferDemoPlotInput(message = '', fallbackPlot = {}) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
+  const cropCode = DEMO_CROP_ALIASES.find(([, aliases]) => aliases.some(alias => lower.includes(alias.toLowerCase())))?.[0] || 'tomato';
+  const nameMatch = text.match(/(?:名称|叫做|命名为)\s*[：:]?\s*[“\"]?([^，。；;”\"]+)/)
+    || text.match(/(?:地块|田|棚)\s*[：:]?\s*([^，。；;]+)/);
+  const areaMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:㎡|平方米|平米|m2)/i);
+  const cycleMatch = text.match(/(\d+)\s*天/);
+  const varietyMatch = text.match(/(?:品种|品名)\s*[：:]?\s*([^，。；;]+)/);
+  const name = String(nameMatch?.[1] || '').trim().replace(/^(?:一个|一块|新的?)\s*/, '') || 'AI 新建地块';
+  return {
+    farmId: fallbackPlot.farmId || 'farm-demo',
+    name,
+    cropCode,
+    cropVariety: String(varietyMatch?.[1] || '').trim() || '演示品种',
+    stageCode: 'vegetative',
+    growthCycleDays: Number(cycleMatch?.[1] || 120),
+    areaM2: Number(areaMatch?.[1] || 100),
+    deviceIds: []
+  };
+}
+
 function cloneWorkOrder(item) {
   const status = normalizeWorkOrderStatus(item?.status);
   const history = Array.isArray(item?.history) ? item.history.map((entry) => ({ ...entry })) : [];
@@ -630,6 +661,10 @@ export class ApiService {
     }
     const saved = {
       ...input,
+      farmId: input.farmId || 'farm-demo',
+      cropCode: input.cropCode || 'tomato',
+      cropName: input.cropName || ({ tomato: '番茄', corn: '玉米', cucumber: '黄瓜', rice: '水稻', sunflower: '向日葵', strawberry: '草莓' }[input.cropCode] || '番茄'),
+      areaM2: Number(input.areaM2 || 100),
       plotId: input.plotId || `plot-local-${Date.now().toString(36)}`,
       status: 'ACTIVE',
       sourceMode: 'SIMULATED',
@@ -1299,7 +1334,10 @@ export class ApiService {
     if (action.status !== 'AWAITING_CONFIRMATION') return { ...action };
     const message = action.message || '';
     let result;
-    if (action.toolName === 'close_alert') {
+    if (action.toolName === 'create_plot') {
+      const sourcePlot = this.demoPlots.get(action.plotId) || MOCK_DATA.plots.find(item => item.plotId === action.plotId) || {};
+      result = await this.createPlot({ ...(action.arguments || inferDemoPlotInput(message, sourcePlot)), farmId: action.farmId || sourcePlot.farmId || 'farm-demo' });
+    } else if (action.toolName === 'close_alert') {
       const alert = [...this.demoAlerts.values()].find(item => item.plotId === action.plotId && !['CLOSED', 'RESOLVED'].includes(item.status));
       if (!alert) throw new ApiError('当前地块没有待处理告警', { status: 404, code: 'ALERT_NOT_FOUND' });
       result = await this.closeAlert(alert.alertId || alert.id);
@@ -1604,8 +1642,10 @@ export class ApiService {
     if (/(新增|新建|创建|修改|更新|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/.test(message || '') && this.user?.role === 'FARM_ADMIN') {
       const toolName = /(关闭).*(告警|报警)/.test(message) ? 'close_alert' : /(核查|复核).*(发布|下发|创建)/.test(message) ? 'publish_alert_verification' : /(绑定|换绑|解绑).*(设备|传感器)/.test(message) ? 'set_plot_devices' : /(任务|农务)/.test(message) ? 'create_and_assign_work_order' : /(修改|更新|编辑).*(地块|田|棚)/.test(message) ? 'update_plot' : 'create_plot';
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'] };
-      this.demoAgentActions.set(actionId, { ...proposal, message, plotId });
+      const sourcePlot = this.demoPlots.get(plotId) || plot;
+      const argumentsForAction = toolName === 'create_plot' ? inferDemoPlotInput(message, sourcePlot) : {};
+      const proposal = { actionId, toolName, summary: `准备执行：${message}`, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, affectedDomains: ['plots', 'devices', 'workOrders', 'alerts', 'overview'], ...(toolName === 'create_plot' ? { arguments: argumentsForAction } : {}) };
+      this.demoAgentActions.set(actionId, { ...proposal, message, plotId, farmId: sourcePlot.farmId || 'farm-demo', arguments: argumentsForAction });
       return { traceId, conversationId: conversationId || `conversation-${this._demoActorId()}`, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '我已整理好操作内容，请核对预览后确认执行。', actionProposal: proposal, tools: [], confidence: 1 };
     }
 

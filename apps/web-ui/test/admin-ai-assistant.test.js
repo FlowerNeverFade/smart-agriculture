@@ -49,4 +49,20 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(css, /\.admin-ai-conversation-sidebar/);
   assert.match(css, /grid-template-columns:\s*var\(--ai-sidebar-width, 240px\) 8px minmax\(0, 1fr\)/);
   assert.match(css, /\.admin-ai-sidebar-resizer/);
+  assert.match(source, /name:\s*'AdminAiChatView'/);
+  assert.match(source, /当前地块/);
+  assert.match(source, /clampSidebarWidth/);
+  assert.match(css, /--ai-content-max/);
+  assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /keep-alive include="AdminAiChatView"/);
+});
+
+test('演示 Agent 创建地块在确认后写入同一地块事实集合', async () => {
+  api.sessionMode = 'demo';
+  api.user = { userId: 'user-plot-create', username: '管理员', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const response = await api.agentChat('新建地块：AI验收温室，种植黄瓜，面积 88㎡', 'plot-a01');
+  assert.equal(response.actionProposal.toolName, 'create_plot');
+  const result = await api.confirmAgentAction(response.actionProposal.actionId);
+  assert.equal(result.status, 'SUCCEEDED');
+  assert.equal(result.result.name, 'AI验收温室');
+  assert.equal((await api.getPlots({ farmId: 'farm-demo', includeInactive: true })).some(plot => plot.plotId === result.result.plotId), true);
 });

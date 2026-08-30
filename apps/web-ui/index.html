@@ -154,7 +154,7 @@
     <div class="g-body">
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
         <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
-          <button v-for="nav in navItems" :key="nav.id" type="button"
+          <button v-for="nav in mainNavItems" :key="nav.id" type="button"
                class="g-nav-item"
                :data-nav="nav.id"
                :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
@@ -165,7 +165,16 @@
             <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
           </button>
         </div>
-        <div v-if="isFarmer || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
+        <div v-if="footerNavItems.length || isFarmer || farmerReturnPage" class="g-sidebar-footer" :class="{ 'farmer-nav-footer': isFarmer }">
+          <button v-for="nav in footerNavItems" :key="nav.id" type="button"
+               class="g-nav-item"
+               :data-nav="nav.id"
+               :class="{active: currentView === nav.id, 'farmer-nav-item': isFarmer}"
+               :aria-current="currentView === nav.id ? 'page' : null"
+               @click="navigate(nav.id)">
+            <app-icon :name="nav.icon"></app-icon>
+            <span class="g-nav-label" :class="{ 'farmer-nav-label': isFarmer }">{{ nav.label }}</span>
+          </button>
           <button type="button" class="g-nav-item g-nav-return-farmer" :class="{ 'farmer-nav-item': isFarmer }" @click="returnToFarmer">
             <app-icon v-if="isFarmer" name="arrow_back"></app-icon>
             <app-icon v-else name="arrow_back"></app-icon>
@@ -176,10 +185,13 @@
 
       <main class="g-main" :class="{ 'farmer-main': isFarmer }">
         <transition name="fade" mode="out-in">
-          <component :is="currentViewComponent" :state="state" :route-params="routeParams"
-                     @navigate="navigate" @open-plot-detail="openPlotDetail"
-                     @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
-                     @context-changed="handleContextChanged"></component>
+          <keep-alive include="AdminAiChatView">
+            <component :is="currentViewComponent" :state="state" :route-params="routeParams"
+                       @navigate="navigate" @open-plot-detail="openPlotDetail"
+                       @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
+                       @context-changed="handleContextChanged"
+                       @settings-changed="handleSettingsChanged"></component>
+          </keep-alive>
         </transition>
 
         <plot-detail-modal v-if="selectedPlot" :plot="selectedPlot" :work-orders="state.workOrders" :state="state"
@@ -1165,6 +1177,39 @@
 
   <script type="module" src="js/app.js?v=20260830-ai-chat-normal3"></script>
 
+
+  <!-- Shared workspace settings -->
+  <template id="tmpl-settings">
+    <section class="settings-page" aria-labelledby="settings-page-title">
+      <header class="settings-page-header">
+        <div>
+          <span class="settings-kicker">{{ roleLabel }} · 个人偏好</span>
+          <h1 id="settings-page-title"><app-icon name="settings"></app-icon> 工作台设置</h1>
+          <p>自定义当前浏览器中的外观、信息密度和数据刷新方式。设置即时生效，不会修改服务器上的业务数据。</p>
+        </div>
+        <span class="settings-local-badge"><app-icon name="lock_reset"></app-icon> 仅本机保存</span>
+      </header>
+
+      <div class="settings-grid">
+        <article class="g-card settings-card">
+          <div class="settings-card-head"><div><span class="settings-card-kicker">显示外观</span><h2>主题与颜色</h2><p>保持农场管理员工作台清晰统一，也可以按个人习惯调整。</p></div><app-icon name="tune"></app-icon></div>
+          <div class="settings-field"><span class="settings-label">主题</span><div class="settings-theme-options" role="group" aria-label="选择主题"><button v-for="theme in themeOptions" :key="theme.value" type="button" class="settings-theme-option" :class="{active: settings.theme === theme.value}" @click="updateSetting('theme', theme.value)"><span class="settings-theme-icon"><app-icon :name="theme.value === 'dark' ? 'dark_mode' : theme.value === 'light' ? 'light_mode' : 'settings'"></app-icon></span><strong>{{ theme.label }}</strong><small>{{ theme.hint }}</small></button></div></div>
+          <div class="settings-field"><span class="settings-label">卡片风格</span><div class="settings-theme-options settings-surface-options" role="group" aria-label="选择卡片风格"><button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :data-surface-style="surface.value" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button></div></div>
+          <div class="settings-field"><span class="settings-label">强调色</span><div class="settings-accent-options" role="group" aria-label="选择强调色"><button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value" name="check_circle"></app-icon></button></div></div>
+          <div class="settings-two-col"><label>显示密度<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label><label>内容宽度<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label></div>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>减少动效</strong><small>减少过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
+        </article>
+        <article class="g-card settings-card">
+          <div class="settings-card-head"><div><span class="settings-card-kicker">数据体验</span><h2>刷新与提示</h2><p>控制工作台如何更新信息，以及是否保留来源标识。</p></div><app-icon name="sync"></app-icon></div>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.autoRefresh" @change="updateSetting('autoRefresh', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>自动刷新工作台</strong><small>保持页面打开时拉取最新任务、遥测和建议。</small></span></label>
+          <label class="settings-select-field">刷新间隔<select :value="settings.refreshInterval" :disabled="!settings.autoRefresh" @change="updateSetting('refreshInterval', Number($event.target.value))"><option v-for="seconds in refreshOptions" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select></label>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.showDataOrigin" @change="updateSetting('showDataOrigin', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>显示数据来源</strong><small>保留模拟、后端或人工记录标识，便于核对信息。</small></span></label>
+          <div class="settings-info"><app-icon name="info"></app-icon><p>外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。</p></div>
+        </article>
+      </div>
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+    </section>
+  </template>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 

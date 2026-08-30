@@ -2,6 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -44,6 +45,9 @@ import {
 } from './live-data.js?v=20260827-boot-fix-1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
+
+const initialUserSettings = readUserSettings();
+applyUserSettings(initialUserSettings);
 
 const ICON_CLASS = Object.freeze({
   dashboard: 'ph-squares-four',
@@ -154,7 +158,8 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真验证', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
-  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } }
+  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
+  { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
@@ -2668,6 +2673,42 @@ const AdminRulesView = {
   }
 };
 
+const SettingsView = {
+  template: '#tmpl-settings',
+  props: ['state'],
+  emits: ['settings-changed'],
+  setup(props, { emit }) {
+    const toast = inject('toast');
+    const settings = ref(readUserSettings());
+    const themeOptions = [
+      { value: 'light', label: '白色', hint: '清爽明亮的工作台' },
+      { value: 'dark', label: '黑色', hint: '低光环境更舒适' },
+      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
+    ];
+    const refreshOptions = [5, 15, 30, 60];
+    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
+    const themeLabel = computed(() => themeOptions.find(item => item.value === settings.value.theme)?.label || '白色');
+    const accentLabel = computed(() => ACCENT_OPTIONS.find(item => item.value === settings.value.accent)?.label || '田野绿');
+    const surfaceStyleLabel = computed(() => SURFACE_STYLE_OPTIONS.find(item => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
+    const updateSetting = (key, value) => {
+      const next = saveUserSettings({ ...settings.value, [key]: value });
+      settings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格' };
+      if (labels[key]) toast(`${labels[key]}已更新`);
+    };
+    const resetSettings = () => {
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      settings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      toast('工作台设置已恢复默认');
+    };
+    return { settings, themeOptions, refreshOptions, accentOptions: ACCENT_OPTIONS, surfaceStyleOptions: SURFACE_STYLE_OPTIONS, roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings };
+  }
+};
+
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
   props: ['state', 'routeParams'],
@@ -2825,11 +2866,13 @@ const app = createApp({
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
-    'admin-settings-view': AdminSettingsView
+    'admin-settings-view': AdminSettingsView,
+    'settings-view': SettingsView
   },
   setup() {
     const isLive = ref(false);
-    const isDark = ref(false);
+    const userSettings = ref(initialUserSettings);
+    const isDark = ref(resolveTheme(userSettings.value.theme) === 'dark');
     const isSidebarOpen = ref(!window.matchMedia('(max-width: 760px)').matches);
     const showProfileMenu = ref(false);
     const showFarmMenu = ref(false);
@@ -2910,6 +2953,7 @@ const app = createApp({
     let liveEventsConnecting = false;
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
+    const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
       'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
     ]);
@@ -3005,6 +3049,8 @@ const app = createApp({
         .filter(Boolean)
         .map((item) => ({ ...item, label: item.labels?.[currentRole.value?.code] || item.label }));
     });
+    const mainNavItems = computed(() => navItems.value.filter(item => !item.isFooter));
+    const footerNavItems = computed(() => navItems.value.filter(item => item.isFooter));
     const initialRoute = parseHashRoute();
     const initialView = initialRoute.view === 'plot-detail' ? currentRole.value.defaultView : initialRoute.view;
     const currentView = ref(state.value.allowedViews.includes(initialView) ? initialView : currentRole.value.defaultView);
@@ -3018,13 +3064,20 @@ const app = createApp({
       document.getElementById('app')?.setAttribute('class', className);
     }, { immediate: true });
 
-    const toggleTheme = () => {
-      isDark.value = !isDark.value;
-      const theme = isDark.value ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', theme);
-      document.documentElement.style.colorScheme = theme;
-      localStorage.setItem('agriloop-theme', theme);
+    const applySettings = patch => {
+      const next = saveUserSettings({ ...userSettings.value, ...patch });
+      userSettings.value = next;
+      applyUserSettings(next);
+      isDark.value = resolveTheme(next.theme) === 'dark';
+      return next;
     };
+    const handleSettingsChanged = next => {
+      userSettings.value = saveUserSettings(next);
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
+      startLiveRefresh();
+    };
+    const toggleTheme = () => applySettings({ theme: resolveTheme(userSettings.value.theme) === 'dark' ? 'light' : 'dark' });
 
     const toggleSidebar = () => {
       isSidebarOpen.value = !isSidebarOpen.value;
@@ -3155,11 +3208,22 @@ const app = createApp({
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
       });
       const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
+      const plotsReadSucceeded = results.plots?.status === 'fulfilled';
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
       if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
       if (hasFarmPlotRefresh(results)) {
         const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
+        const fetchedFacts = Array.isArray(facts) ? facts : [];
+        const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || '')));
+        const now = Date.now();
+        const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
+        pending.forEach(([plotId, entry]) => {
+          if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
+        });
+        const pendingFacts = pending
+          .filter(([plotId, entry]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
+          .map(([, entry]) => entry.plot);
+        const merged = mergeFarmPlots([...fetchedFacts, ...pendingFacts], overview?.plots || [], refreshedDevices || []);
         state.value.allPlots = merged;
         state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
       }
@@ -3404,7 +3468,8 @@ const app = createApp({
     const startLiveRefresh = () => {
       stopLiveRefresh();
       if (state.value.sessionMode !== 'live') return;
-      const interval = state.value.currentUser?.role === 'SYSTEM_ADMIN' ? 12000 : 8000;
+      if (!userSettings.value.autoRefresh) return;
+      const interval = Math.max(5000, Number(userSettings.value.refreshInterval || 15) * 1000);
       livePollTimer = window.setInterval(runLivePoll, interval);
       liveVisibilityHandler = () => { if (!document.hidden) runLivePoll(); };
       liveOnlineHandler = () => runLivePoll();
@@ -3582,11 +3647,12 @@ const app = createApp({
         if (selectedPlotId.value === plot.plotId) selectedPlotId.value = '';
         return;
       }
-      const allIndex = state.value.allPlots.findIndex((item) => item.plotId === plot.plotId);
+      const normalized = normalizePlot({ status: 'ACTIVE', ...plot });
+      const allIndex = state.value.allPlots.findIndex((item) => item.plotId === normalized.plotId);
       if (allIndex >= 0) {
-        state.value.allPlots.splice(allIndex, 1, { ...state.value.allPlots[allIndex], ...plot });
+        state.value.allPlots.splice(allIndex, 1, { ...state.value.allPlots[allIndex], ...normalized });
       } else {
-        state.value.allPlots.push(plot);
+        state.value.allPlots.push(normalized);
       }
       state.value.plots = state.value.allPlots.filter(item => String(item.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
     };
@@ -3600,6 +3666,17 @@ const app = createApp({
         return;
       }
       if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      const plotRecord = record?.plotId
+        ? record
+        : (record?.plot?.plotId ? record.plot : (record?.result?.plotId ? record.result : null));
+      if (plotRecord?.plotId && domains.includes('plots')) {
+        const farmId = state.value.adminContext.farmId;
+        if (!plotRecord.farmId || !farmId || plotRecord.farmId === farmId) {
+          const normalizedPlot = normalizePlot({ status: 'ACTIVE', ...plotRecord });
+          applyPlotChange({ type: 'upsert', plot: normalizedPlot });
+          pendingFarmPlots.set(normalizedPlot.plotId, { farmId, plot: normalizedPlot, expiresAt: Date.now() + 30000 });
+        }
+      }
       const normalized = [...new Set(domains.flatMap(domain => {
         if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
         if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
@@ -3751,6 +3828,9 @@ const app = createApp({
       isLive.value = api.isLive;
       if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
+      userSettings.value = readUserSettings();
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
         routeParams.value = params;
@@ -3787,6 +3867,8 @@ const app = createApp({
       currentRole,
       isFarmer,
       navItems,
+      mainNavItems,
+      footerNavItems,
       currentView,
       currentViewComponent,
       routeParams,
@@ -3794,6 +3876,8 @@ const app = createApp({
       state,
       toasts,
       showToast,
+      userSettings,
+      handleSettingsChanged,
       toggleTheme,
       toggleSidebar,
       toggleProfileMenu,
