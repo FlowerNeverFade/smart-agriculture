@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260827-merge-farmer">
-  <link rel="stylesheet" href="css/farmer.css?v=20260830-chart-stable">
+  <link rel="stylesheet" href="css/farmer.css?v=20260830-boot-unblock">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -535,55 +535,6 @@
               </div>
             </div>
 
-            <div v-if="selected_plot" class="g-card farmer-plot-simulation-panel">
-              <div class="farmer-panel-header">
-                <div>
-                  <span class="farmer-section-kicker">风险预测 · 地块模拟策略</span>
-                  <h3>{{ selected_plot.name }} · 模拟策略与预测曲线</h3>
-                  <p class="farmer-panel-hint">策略由管理员维护；农户可查看当前情景、参数摘要和策略预测，历史实测曲线见上方指标趋势。</p>
-                </div>
-                <span class="g-badge" :class="plot_simulation_loading ? 'warning' : (plot_simulation_error ? 'warning' : 'success')">
-                  {{ plot_simulation_loading ? '读取中' : (plot_simulation_scenario ? plot_simulation_scenario.label : '未设置') }}
-                </span>
-              </div>
-              <div class="farmer-plot-simulation-meta">
-                <span>模拟器：{{ plot_simulation_device_label }}</span>
-                <span>状态：{{ plot_simulation_device_status === 'ONLINE' ? '在线' : (plot_simulation_device_status || '未知') }}</span>
-                <span>来源：{{ plot_simulation && plot_simulation.sourceMode ? plot_simulation.sourceMode : 'SIMULATION' }}</span>
-                <span v-if="plot_simulation && plot_simulation.revision">策略版本 {{ plot_simulation.revision }}</span>
-              </div>
-              <div class="farmer-plot-simulation-scenarios" role="group" aria-label="地块模拟场景（只读）">
-                <span v-for="scenario in plot_simulation_options" :key="scenario.code" class="farmer-plot-simulation-scenario" :class="{active: plot_simulation_scenario && plot_simulation_scenario.code === scenario.code}">{{ scenario.emoji }} {{ scenario.label }}</span>
-              </div>
-              <div class="farmer-plot-simulation-grid">
-                <div class="farmer-plot-simulation-params">
-                  <div v-for="item in plot_simulation_parameter_summary" :key="item.key" class="farmer-plot-simulation-param"><span>{{ item.label }}</span><strong>{{ item.value }}<small>{{ item.unit }}</small></strong></div>
-                  <p v-if="!plot_simulation_parameter_summary.length" class="farmer-panel-hint">暂无可展示的策略参数。</p>
-                </div>
-                <div class="farmer-plot-simulation-chart">
-                  <div class="farmer-plot-simulation-chart-head">
-                    <div class="farmer-plot-simulation-chart-title"><strong>{{ plot_simulation_metric_label }}：历史 + 策略预测</strong><small>鼠标悬停查看局部数据</small></div>
-                    <label class="farmer-plot-simulation-metric-picker">
-                      <span>曲线指标</span>
-                      <select :value="plot_simulation_metric" @change="select_plot_simulation_metric" :disabled="plot_simulation_metric_loading" aria-label="选择曲线指标">
-                        <option v-for="metric in plot_simulation_metric_options" :key="metric.code" :value="metric.code">{{ metric.label }}（{{ metric.unit }}）</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="farmer-plot-simulation-chart-stage">
-                    <div v-if="plot_simulation_chart_available" class="farmer-plot-simulation-chart-canvas">
-                      <div ref="plot_simulation_chart_el" class="farmer-plot-simulation-echarts" role="img" :aria-label="`${plot_simulation_metric_label}历史与策略预测曲线`"></div>
-                    </div>
-                    <p v-else class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的策略预测曲线' }}</p>
-                    <div v-if="plot_simulation_loading && !plot_simulation_chart_available" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取策略预测曲线…</span></div>
-                    <div v-else-if="plot_simulation_loading" class="farmer-chart-loading is-overlay" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在更新…</span></div>
-                  </div>
-                  <p v-if="plot_simulation_forecast && plot_simulation_forecast.uncertaintyNote" class="farmer-panel-hint">{{ plot_simulation_forecast.uncertaintyNote }}</p>
-                  <p class="farmer-panel-hint farmer-plot-simulation-note">{{ plot_simulation_preview_message }}</p>
-                </div>
-              </div>
-              <div class="farmer-form-footer farmer-plot-simulation-footer"><span class="farmer-panel-hint">只读展示，不会修改策略或写回主状态。</span><button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('advice')">在灌溉系统中展开</button></div>
-            </div>
           </section>
 
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
@@ -1604,6 +1555,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260830-chart-stable"></script>
+  <script type="module" src="js/farmer.js?v=20260830-boot-unblock"></script>
 </body>
 </html>

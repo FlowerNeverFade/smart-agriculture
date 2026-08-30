@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-boot-unblock';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -22,7 +22,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260827-boot-fix-1';
+} from './live-data.js?v=20260830-boot-unblock';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick } = Vue;
 
@@ -1304,21 +1304,7 @@ const app = createApp({
       const code = String(plot_simulation_form.value?.scenario || plot_simulation.value?.scenario || 'NORMAL').toUpperCase();
       return plot_simulation_options.value.find((item) => item.code === code) || PLOT_SIMULATION_SCENARIOS[0];
     });
-    const plot_simulation_parameter_summary = computed(() => {
-      const labels = {
-        volatility: ['波动强度', '倍', 2], timeScale: ['时间倍率', '倍', 0], temperatureBias: ['温度偏移', '°C', 1],
-        humidityBias: ['湿度偏移', '%RH', 0], rainfallRate: ['降雨强度', 'mm/h', 1], soilMoistureTrendPerHour: ['土壤变化速率', '%/h', 2],
-        driftRatePerHour: ['漂移速率', '%/h', 2], offlineRatio: ['离线比例', '%', 0.01], riskThreshold: ['干旱阈值', '%', 1],
-        waterloggingThreshold: ['积水阈值', '%', 1], forecastHours: ['预测时长', '小时', 0]
-      };
-      return Object.entries(plot_simulation_form.value?.parameters || {}).map(([key, raw]) => {
-        const meta = labels[key];
-        const value = Number(raw);
-        if (!meta || !Number.isFinite(value)) return null;
-        const display = key === 'offlineRatio' ? value * 100 : value;
-        return { key, label: meta[0], unit: meta[1], value: display.toFixed(meta[2]) };
-      }).filter(Boolean);
-    });
+
     const plot_simulation_device_label = computed(() => plot_simulation.value?.simulatorDevice?.label || '模拟数据运行中');
     const plot_simulation_device_status = computed(() => String(plot_simulation.value?.simulatorDevice?.status || '').toUpperCase());
     const plot_simulation_metric_options = computed(() => SIMULATION_METRIC_OPTIONS);
@@ -1424,29 +1410,35 @@ const app = createApp({
       }
       plot_simulation_loading.value = true;
       plot_simulation_error.value = '';
-      const metric = plot_simulation_metric.value;
-      const [configResult, historyResult, forecastResult] = await Promise.allSettled([
-        api.getPlotSimulation(plotId),
-        api.getTelemetry(plotId, metric, 120),
-        api.getRiskForecast(plotId, metric)
-      ]);
-      if (requestVersion !== plot_simulation_request_version) return;
-      plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
-      if (configResult.status === 'fulfilled') {
-        plot_simulation_form.value = {
-          scenario: String(configResult.value?.scenario || 'NORMAL').toUpperCase(),
-          parameters: { ...(configResult.value?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
-        };
+      try {
+        const metric = plot_simulation_metric.value;
+        const [configResult, historyResult, forecastResult] = await Promise.allSettled([
+          api.getPlotSimulation(plotId),
+          api.getTelemetry(plotId, metric, 120),
+          api.getRiskForecast(plotId, metric)
+        ]);
+        if (requestVersion !== plot_simulation_request_version) return;
+        plot_simulation.value = configResult.status === 'fulfilled' ? configResult.value : null;
+        if (configResult.status === 'fulfilled') {
+          plot_simulation_form.value = {
+            scenario: String(configResult.value?.scenario || 'NORMAL').toUpperCase(),
+            parameters: { ...(configResult.value?.parameters || PLOT_SIMULATION_DEFAULTS.NORMAL) }
+          };
+        }
+        plot_simulation_preview_dirty.value = false;
+        plot_simulation_evaluating.value = false;
+        plot_simulation_history.value = historyResult.status === 'fulfilled' ? (historyResult.value || []) : [];
+        plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
+        const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
+        if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
+        plot_simulation_error.value = [...new Set(errors)].join('；');
+        await render_plot_simulation_chart();
+      } catch (error) {
+        if (requestVersion !== plot_simulation_request_version) return;
+        plot_simulation_error.value = error?.message || '地块预测加载失败';
+      } finally {
+        if (requestVersion === plot_simulation_request_version) plot_simulation_loading.value = false;
       }
-      plot_simulation_preview_dirty.value = false;
-      plot_simulation_evaluating.value = false;
-      plot_simulation_history.value = historyResult.status === 'fulfilled' ? (historyResult.value || []) : [];
-      plot_simulation_forecast.value = forecastResult.status === 'fulfilled' ? forecastResult.value : null;
-      const errors = [configResult, forecastResult].filter((result) => result.status === 'rejected').map((result) => result.reason?.message || '地块模拟策略读取失败');
-      if (String(plot_simulation_forecast.value?.status || '').toUpperCase() === 'UNAVAILABLE') errors.push(plot_simulation_forecast.value.reason || '样本、数据质量或设备状态不足');
-      plot_simulation_error.value = [...new Set(errors)].join('；');
-      plot_simulation_loading.value = false;
-      await render_plot_simulation_chart();
     };
 
     const evaluate_plot_simulation_preview = async (requestId) => {
@@ -4158,12 +4150,17 @@ const app = createApp({
       if (farmer_enhancements_refresh_in_flight) return false;
       farmer_enhancements_refresh_in_flight = true;
       try {
-        const forecastPlot = plots.value.slice().sort((a, b) => health_score(a) - health_score(b))[0] || plots.value[0];
+        const forecastPlot = plots.value.slice().sort((a, b) => {
+          try { return health_score(a) - health_score(b); }
+          catch (error) { return 0; }
+        })[0] || plots.value[0];
         const forecastPromise = forecastPlot
           ? api.getRiskForecast(forecastPlot.plotId, 'SOIL_MOISTURE')
           : Promise.resolve({ status: 'UNAVAILABLE', reason: '没有可预测的地块' });
         const demands = plots.value.map((plot) => {
-          const band = resolve_moisture_band_status(plot);
+          let band = 'OK';
+          try { band = resolve_moisture_band_status(plot); }
+          catch (error) { band = 'OK'; }
           return {
             plotId: plot.plotId,
             requestedLitres: band === 'ALERT' ? 153 : (band === 'WARN' ? 96 : 60),
@@ -4183,6 +4180,10 @@ const app = createApp({
           : { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         resource_plan.value = resourceResult.status === 'fulfilled' ? resourceResult.value : null;
         return true;
+      } catch (error) {
+        risk_forecast.value = { status: 'UNAVAILABLE', reason: error?.message || '预测服务暂不可用' };
+        resource_plan.value = null;
+        return false;
       } finally {
         farmer_enhancements_refresh_in_flight = false;
       }
@@ -4192,45 +4193,57 @@ const app = createApp({
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
 
-      const saved_theme = localStorage.getItem('agriloop-theme');
-      if (saved_theme === 'dark') {
-        is_dark.value = true;
-        document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.colorScheme = 'dark';
+      try {
+        const saved_theme = localStorage.getItem('agriloop-theme');
+        if (saved_theme === 'dark') {
+          is_dark.value = true;
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+        // Keep the current farmer page across refresh / back-forward.
+        if (!window.location.hash) {
+          window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
+        } else {
+          apply_farmer_hash();
+        }
+        window.addEventListener('hashchange', apply_farmer_hash);
+        set_workspace_progress(12, '正在检查服务状态…');
+        is_live.value = await api.checkHealth();
+        if (is_formal_session) {
+          await load_live_workspace({ announce: true, trackProgress: true });
+          is_live.value = api.isLive;
+          set_workspace_progress(90, '正在连接实时事件…');
+          await Promise.race([
+            connect_live_events(),
+            new Promise((resolve) => window.setTimeout(() => resolve(false), 4500))
+          ]);
+        } else {
+          set_workspace_progress(55, '正在载入演示数据…');
+        }
+        // Secondary panels must not block the boot overlay.  Prior builds
+        // awaited forecast / irrigation / tools here and stayed at 88% when
+        // any call hung, threw, or reused a stale api.js without timeouts.
+        set_workspace_progress(96, '正在完成首屏…');
+        void load_farmer_enhancements();
+        void load_plot_simulation(selected_plot.value?.plotId);
+        void load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
+        if (current_view.value === 'advice' && advice_plot.value?.plotId) {
+          void load_advice_decision(advice_plot.value.plotId);
+        }
+        if (current_view.value === 'tools') {
+          if (tools_tab.value === 'manual') void load_crop_manual();
+          else void load_plot_simulation(risk_tool_plot_id.value);
+        }
+        if (current_view.value === 'assistant') void load_assistant_conversations({ openRecent: true });
+        start_live_polling();
+        start_plot_simulation_live();
+      } catch (error) {
+        load_error.value = load_error.value || error?.message || '农户工作台初始化未完成';
+        show_toast(load_error.value, 'error');
+      } finally {
+        bootstrap_loading.value = false;
+        finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
       }
-      // Keep the current farmer page across refresh / back-forward.
-      if (!window.location.hash) {
-        window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
-      } else {
-        apply_farmer_hash();
-      }
-      window.addEventListener('hashchange', apply_farmer_hash);
-      set_workspace_progress(12, '正在检查服务状态…');
-      is_live.value = await api.checkHealth();
-      if (is_formal_session) {
-        await load_live_workspace({ announce: true, trackProgress: true });
-        is_live.value = api.isLive;
-        set_workspace_progress(96, '正在连接实时事件…');
-        await connect_live_events();
-      } else {
-        set_workspace_progress(55, '正在载入演示数据…');
-      }
-      set_workspace_progress(88, '正在加载预警与资源协同…');
-      await load_farmer_enhancements();
-      await load_plot_simulation(selected_plot.value?.plotId);
-      await load_irrigation_plan(advice_plot.value?.plotId, { silent: true });
-      if (current_view.value === 'advice' && advice_plot.value?.plotId) {
-        void load_advice_decision(advice_plot.value.plotId);
-      }
-      if (current_view.value === 'tools') {
-        if (tools_tab.value === 'manual') await load_crop_manual();
-        else await load_plot_simulation(risk_tool_plot_id.value);
-      }
-      if (current_view.value === 'assistant') await load_assistant_conversations({ openRecent: true });
-      start_live_polling();
-      start_plot_simulation_live();
-      bootstrap_loading.value = false;
-      finish_workspace_progress(load_error.value ? '部分数据未就绪' : '农户数据已就绪');
     });
 
     watch([current_view, tools_tab], () => {
@@ -4273,7 +4286,7 @@ const app = createApp({
     });
 
     watch(current_view, (view) => {
-      if (view === 'plots' || (view === 'tools' && tools_tab.value === 'risk')) void render_plot_simulation_chart();
+      if (view === 'tools' && tools_tab.value === 'risk') void render_plot_simulation_chart();
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
@@ -4326,7 +4339,7 @@ const app = createApp({
       plot_simulation_error,
       plot_simulation_options,
       plot_simulation_scenario,
-      plot_simulation_parameter_summary,
+
       plot_simulation_device_label,
       plot_simulation_device_status,
       plot_simulation_chart_available,

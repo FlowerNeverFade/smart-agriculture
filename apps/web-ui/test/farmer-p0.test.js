@@ -77,9 +77,12 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功', '地块模拟策略', '策略预测曲线', '策略由管理员维护']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
     assert.match(html, new RegExp(marker));
   }
+  // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
+  assert.doesNotMatch(html, /地块模拟策略/);
+  assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
   for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry']) {
     assert.match(html + source, new RegExp(marker));
   }
