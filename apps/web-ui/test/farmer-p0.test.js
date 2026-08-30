@@ -30,6 +30,14 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.ok(compare.branches.EXECUTE.points.length > 10);
   assert.equal(compare.branches.EXECUTE.points.length, compare.branches.NO_ACTION.points.length);
   assert.equal(compare.frozenSnapshot.plotId, 'plot-a01');
+  // 真实化双轨（branch-compare-v5）：执行分支按面积/流量/作物目标/水箱余量推导真实灌溉。
+  assert.equal(compare.comparisonVersion, 'branch-compare-v5');
+  assert.equal(compare.intervention.measure, 'IRRIGATION');
+  assert.equal(compare.intervention.status, 'PLANNED');
+  assert.ok(compare.intervention.waterLitre > 0);
+  assert.ok(compare.intervention.reservoirAvailableLitres > 0);
+  assert.ok(Number.isFinite(compare.divergence.moistureDeltaAtHorizon));
+  assert.ok(compare.markers.some((marker) => String(marker.label).includes('补水')));
 
   const audit = await service.getAgentRun('demo-audit');
   assert.ok(audit.knowledgeEvidence.length >= 2);
@@ -89,6 +97,11 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。
   assert.match(source, /compareScenario/);
   assert.match(source, /load_plot_simulation_dual_track/);
+  // 双轨摘要与图表标注消费 intervention / divergence 载荷，并画出风险边界与补水触发线。
+  assert.match(source, /intervention/);
+  assert.match(source, /moistureDeltaAtHorizon/);
+  assert.match(source, /riskDelayMinutes/);
+  assert.match(source, /markLine/);
   assert.match(source, /getRiskForecast/);
   assert.match(source, /window\.echarts/);
   assert.match(source, /getDom\?\.\(\)/);
@@ -125,6 +138,8 @@ test('farmer can read plot simulation strategy and forecast curve', async () => 
   });
   assert.equal(comparison.parameters.soilMoistureTrendPerHour, -8);
   assert.ok(comparison.branches.EXECUTE.points.length > 10);
+  assert.equal(comparison.intervention.measure, 'IRRIGATION');
+  assert.ok(comparison.intervention.waterLitre > 0);
   const manuals = await service.getCropManuals();
   assert.deepEqual(
     manuals.map((item) => item.cropCode).sort(),

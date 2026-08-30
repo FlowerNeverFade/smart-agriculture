@@ -5706,7 +5706,8 @@ class AgriEngine {
         String scenario = canonicalScenarioForRun(scenarioRaw);
         if (scenarioId.isBlank()) scenarioId = scenario.toLowerCase(Locale.ROOT) + "-" + seed;
         Map<String, Object> plot = requireRecord("plot", plotId);
-        Map<String, Object> latestMetric = Jsons.map(mapper, latestMetrics(plotId).get("SOIL_MOISTURE"));
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> latestMetric = Jsons.map(mapper, latest.get("SOIL_MOISTURE"));
         double startMoisture = Jsons.number(latestMetric, "value", baselineMetricValue(plotId, "SOIL_MOISTURE"));
         Map<String, Object> parameters = simulationDefaults(scenario, plotId);
         Map<String, Object> suppliedParameters = Jsons.map(mapper, input.get("parameters"));
@@ -5723,7 +5724,6 @@ class AgriEngine {
         }
         Random random = new Random(seed);
         double volatility = Jsons.number(parameters, "volatility", 1.0);
-        double jumpBoost = (11.8 + random.nextDouble() * 2.8) * volatility;
         double rainBoost = ("HEAVY_RAIN".equals(scenario) ? Jsons.number(parameters, "rainfallRate", 4.0) : 0.0) * (0.8 + random.nextDouble() * 0.4);
         double driftRate = Jsons.number(parameters, "driftRatePerHour", 0.08) * (0.9 + random.nextDouble() * 0.2);
         double decayK = 0.03 + random.nextDouble() * 0.012;
@@ -5737,11 +5737,36 @@ class AgriEngine {
         double boundary = "HEAVY_RAIN".equals(scenario)
                 ? Jsons.number(parameters, "waterloggingThreshold", 82)
                 : Jsons.number(parameters, "riskThreshold", 20);
-        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
-        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
+        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, forecastMinutes, null);
+        // 真实化执行分支：不再用随机跳跃模拟“措施后”，而是按地块面积、水泵流量、
+        // 作物阶段目标湿度与水箱余量推导一次真实灌溉——需要多少水、泵最多送多少、
+        // 水箱还剩多少；缺水时只能补到实际可用的量。
+        double areaM2 = Math.max(1, Jsons.number(plot, "areaM2", DEFAULT_PLOT_AREA_M2));
+        double irrigationTarget = cropPackCatalog.irrigationTarget(plotCropContext(plotId));
+        Map<String, Object> resource = store.find("resource-profile", "resource-default");
+        double flowLitresPerMinute = Math.max(1, Jsons.number(resource, "flowRateLitresPerMinute", 18));
+        Map<String, Object> waterLevelMetric = Jsons.map(mapper, latest.get("WATER_LEVEL"));
+        double reservoirLevelPercent = Jsons.number(waterLevelMetric, "value", 100);
+        double reservoirAvailableLitres = Math.max(0, reservoirLevelPercent) / 100.0 * DEFAULT_RESERVOIR_LITRES;
+        Map<String, Object> intervention = scenarioInterventionPlan(scenario, noActionPoints, parameters, areaM2,
+                irrigationTarget, flowLitresPerMinute, reservoirLevelPercent, reservoirAvailableLitres, volatility, random);
+        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, forecastMinutes, intervention);
         Map<String, Object> branches = new LinkedHashMap<>();
-        branches.put("NO_ACTION", scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator));
-        branches.put("EXECUTE", scenarioBranchPayload("EXECUTE", executePoints, boundary, operator));
+        Map<String, Object> noActionPayload = scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator);
+        Map<String, Object> executePayload = scenarioBranchPayload("EXECUTE", executePoints, boundary, operator);
+        branches.put("NO_ACTION", noActionPayload);
+        branches.put("EXECUTE", executePayload);
+        // 双轨差异指标：时点湿度差与风险推迟时长，供前端摘要直接引用。
+        Map<String, Object> divergence = new LinkedHashMap<>();
+        double executeFinal = Jsons.number(executePoints.get(executePoints.size() - 1), "value", 0);
+        double noActionFinal = Jsons.number(noActionPoints.get(noActionPoints.size() - 1), "value", 0);
+        divergence.put("moistureDeltaAtHorizon", round(executeFinal - noActionFinal));
+        Integer executeRisk = (Integer) executePayload.get("timeToRiskMinutes");
+        Integer noActionRisk = (Integer) noActionPayload.get("timeToRiskMinutes");
+        if (noActionRisk != null) {
+            divergence.put("riskDelayMinutes", executeRisk == null ? forecastMinutes - noActionRisk : executeRisk - noActionRisk);
+            divergence.put("riskAvoidedWithinWindow", executeRisk == null);
+        }
         Map<String, Object> frozenSnapshot = new LinkedHashMap<>();
         frozenSnapshot.put("plotId", plotId);
         frozenSnapshot.put("plotName", Jsons.text(plot, "name", plotId));
@@ -5761,21 +5786,23 @@ class AgriEngine {
         result.put("parameters", parameters);
         result.put("frozenSnapshot", frozenSnapshot);
         result.put("stressBoundary", boundary);
+        result.put("intervention", intervention);
+        result.put("divergence", divergence);
         result.put("readOnly", true);
-        result.put("comparisonVersion", "branch-compare-v4");
-        result.put("note", "双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态");
+        result.put("comparisonVersion", "branch-compare-v5");
+        result.put("note", "双轨使用同一冻结快照与随机种子；执行分支按地块面积、水泵流量、作物目标湿度与水箱余量推导真实灌溉，结果只读，不写回主状态");
         result.put("provenance", "SIMULATED");
         return result;
     }
 
     private List<Map<String, Object>> buildScenarioBranchPoints(String scenario, double startMoisture, boolean execute,
                                                                   double droughtTrend, double rainPeak, double driftRate,
-                                                                  double decayK, double jumpBoost, int horizonMinutes) {
+                                                                  double decayK, int horizonMinutes, Map<String, Object> intervention) {
         List<Map<String, Object>> points = new ArrayList<>();
         for (int index = 0; index * 5 <= horizonMinutes; index++) {
             int minute = index * 5;
             double hours = minute / 60.0;
-            double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+            double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, intervention);
             Map<String, Object> point = new LinkedHashMap<>();
             point.put("minute", minute);
             point.put("value", round(value));
@@ -5785,7 +5812,8 @@ class AgriEngine {
     }
 
     private double scenarioMoistureAtMinute(String scenario, int minute, double hours, double startMoisture, boolean execute,
-                                            double droughtTrend, double rainPeak, double driftRate, double decayK, double jumpBoost) {
+                                            double droughtTrend, double rainPeak, double driftRate, double decayK,
+                                            Map<String, Object> intervention) {
         double value;
         if ("HEAVY_RAIN".equals(scenario)) {
             double wetting = minute <= 45
@@ -5809,17 +5837,101 @@ class AgriEngine {
             }
         } else if ("DROUGHT".equals(scenario)) {
             value = startMoisture + droughtTrend * hours;
-            if (execute && minute >= 30) {
-                double atExec = startMoisture + droughtTrend * 0.5;
-                value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (minute - 30)));
-            }
+            if (execute) value = irrigationAdjustedValue(value, intervention, minute, droughtTrend / 60.0);
         } else {
             double natural = Math.max(0, startMoisture - minute * 0.025);
-            value = execute && minute >= 30
-                    ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (minute - 30)))
-                    : natural;
+            value = execute ? irrigationAdjustedValue(natural, intervention, minute, -0.025) : natural;
         }
         return clamp(value, 0, 100);
+    }
+
+    /**
+     * 灌溉干预下的曲线：干预前与不干预完全一致；灌溉时长内水位线性爬升到补水后
+     * 水位，灌溉结束后恢复自然失水——浇过一次水并不能让土壤停止蒸发。
+     */
+    private double irrigationAdjustedValue(double naturalValue, Map<String, Object> intervention, int minute, double trendPerMinute) {
+        if (intervention == null || !"PLANNED".equals(intervention.get("status"))
+                || !"IRRIGATION".equals(intervention.get("measure"))) {
+            return naturalValue;
+        }
+        int triggerMinute = (int) Jsons.whole(intervention, "triggerMinute", 0);
+        if (minute <= triggerMinute) return naturalValue;
+        double moistureAtTrigger = Jsons.number(intervention, "moistureAtTrigger", naturalValue);
+        double gain = Jsons.number(intervention, "moistureGain", 0);
+        int durationMinutes = (int) Math.max(1, Jsons.whole(intervention, "durationMinutes", 1));
+        if (minute <= triggerMinute + durationMinutes) {
+            double progress = (minute - triggerMinute) / (double) durationMinutes;
+            return moistureAtTrigger + gain * progress;
+        }
+        return moistureAtTrigger + gain + trendPerMinute * (minute - triggerMinute - durationMinutes);
+    }
+
+    /**
+     * 干旱/常景下的干预计划：以“不干预曲线预计跌破干旱阈值 + 3 个百分点预警线”
+     * 为触发时点（再叠加人工确认与开泵的响应延迟），按作物阶段目标湿度算出
+     * 需水量，依次受水泵流量上限与水箱余量约束；预测窗口内无风险则不安排灌溉。
+     */
+    private Map<String, Object> scenarioInterventionPlan(String scenario, List<Map<String, Object>> noActionPoints,
+                                                         Map<String, Object> parameters, double areaM2, double irrigationTarget,
+                                                         double flowLitresPerMinute, double reservoirLevelPercent,
+                                                         double reservoirAvailableLitres, double volatility, Random random) {
+        Map<String, Object> plan = new LinkedHashMap<>();
+        plan.put("reservoirLevelPercent", round(reservoirLevelPercent));
+        plan.put("reservoirAvailableLitres", round(reservoirAvailableLitres));
+        plan.put("pumpFlowLitresPerMinute", flowLitresPerMinute);
+        plan.put("irrigationTargetMoisture", round(irrigationTarget));
+        if ("HEAVY_RAIN".equals(scenario)) {
+            plan.put("measure", "DRAINAGE");
+            plan.put("status", "PLANNED");
+            plan.put("triggerMinute", 0);
+            plan.put("triggerReason", "暴雨来临即启动排水，削峰并加快退水");
+            return plan;
+        }
+        if ("SENSOR_DRIFT".equals(scenario)) {
+            plan.put("measure", "SENSOR_RECALIBRATION");
+            plan.put("status", "PLANNED");
+            plan.put("triggerMinute", 30);
+            plan.put("triggerReason", "读数漂移 30 分钟后安排复测校准");
+            return plan;
+        }
+        plan.put("measure", "IRRIGATION");
+        double earlyWarning = Jsons.number(parameters, "riskThreshold", 20) + 3;
+        int horizonMinutes = noActionPoints.isEmpty() ? 0 : (int) Jsons.whole(noActionPoints.get(noActionPoints.size() - 1), "minute", 0);
+        Map<String, Object> crossPoint = noActionPoints.stream()
+                .filter(point -> Jsons.number(point, "value", 0) <= earlyWarning)
+                .findFirst().orElse(null);
+        if (crossPoint == null) {
+            plan.put("status", "NO_RISK_IN_WINDOW");
+            plan.put("triggerReason", "预测窗口内不会跌破干旱预警线，无需灌溉");
+            return plan;
+        }
+        int responseDelayMinutes = 15;
+        int triggerMinute = (int) Math.min(horizonMinutes, Jsons.whole(crossPoint, "minute", 0) + responseDelayMinutes);
+        final int trigger = triggerMinute;
+        Map<String, Object> triggerPoint = noActionPoints.stream()
+                .filter(point -> Jsons.whole(point, "minute", 0) == trigger)
+                .findFirst().orElse(crossPoint);
+        double moistureAtTrigger = Jsons.number(triggerPoint, "value", 0);
+        double neededLitres = Math.max(0, (irrigationTarget - moistureAtTrigger) * areaM2 * SOIL_WATER_LITRES_PER_POINT_PER_M2);
+        double pumpCapLitres = flowLitresPerMinute * properties.getMaxIrrigationSeconds() / 60.0;
+        double plannedLitres = Math.min(neededLitres, pumpCapLitres);
+        boolean reservoirSufficient = reservoirAvailableLitres + 0.5 >= plannedLitres;
+        double deliveredLitres = Math.min(plannedLitres, reservoirAvailableLitres);
+        // 泵送损耗随波动强度浮动并限制在 85%~100%，同一随机种子结果仍可复现。
+        double deliveryEfficiency = Math.min(1.0, Math.max(0.85, 0.94 + (random.nextDouble() - 0.5) * 0.08 * volatility));
+        double moistureGain = moistureDeltaFromWater(deliveredLitres, areaM2) * deliveryEfficiency;
+        plan.put("status", "PLANNED");
+        plan.put("triggerMinute", triggerMinute);
+        plan.put("triggerReason", "不干预曲线预计跌破干旱预警线（阈值+3 个百分点），触发补水");
+        plan.put("responseDelayMinutes", responseDelayMinutes);
+        plan.put("durationMinutes", (int) Math.max(1, Math.round(deliveredLitres / Math.max(1, flowLitresPerMinute))));
+        plan.put("neededWaterLitre", round(neededLitres));
+        plan.put("waterLitre", round(deliveredLitres));
+        plan.put("reservoirSufficient", reservoirSufficient);
+        plan.put("moistureAtTrigger", round(moistureAtTrigger));
+        plan.put("moistureGain", round(moistureGain));
+        plan.put("moistureAfterIrrigation", round(Math.min(100, moistureAtTrigger + moistureGain)));
+        return plan;
     }
 
     private Map<String, Object> scenarioBranchPayload(String branchId, List<Map<String, Object>> points, double boundary, String operator) {

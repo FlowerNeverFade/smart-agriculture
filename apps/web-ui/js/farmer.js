@@ -1353,10 +1353,32 @@ const app = createApp({
       const boundary = Number(track.stressBoundary);
       const isStorm = String(track.scenario || '').toUpperCase() === 'HEAVY_RAIN';
       const boundaryLabel = Number.isFinite(boundary) ? `${isStorm ? '积水' : '干旱'}阈值 ${boundary}%` : '风险边界';
+      const horizonHours = Number(track?.parameters?.forecastHours || 4);
+      const intervention = track.intervention;
+      const divergence = track.divergence;
       const parts = [
         `措施后：${formatTime(execute.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`,
         `不干预：${formatTime(noAction.timeToRiskMinutes)}${isStorm ? '高于' : '低于'}${boundaryLabel}`
       ];
+      if (intervention?.measure === 'IRRIGATION' && intervention.status === 'PLANNED') {
+        parts.push(`预计 ${Math.round(Number(intervention.triggerMinute))} 分钟后补水 ${intervention.waterLitre} 升（${intervention.durationMinutes} 分钟），湿度回升至 ${intervention.moistureAfterIrrigation}% 后继续自然回落`);
+        if (intervention.reservoirSufficient === false) {
+          parts.push(`水箱仅剩 ${intervention.reservoirLevelPercent}%（约 ${intervention.reservoirAvailableLitres} 升），只能按余量补水`);
+        }
+      } else if (intervention?.status === 'NO_RISK_IN_WINDOW') {
+        parts.push('预测窗口内不会跌破干旱预警线，无需灌溉，双轨重合');
+      } else if (intervention?.measure === 'DRAINAGE') {
+        parts.push('措施为启动排水：削峰并加快退水');
+      }
+      const deltaAtHorizon = Number(divergence?.moistureDeltaAtHorizon);
+      if (Number.isFinite(deltaAtHorizon) && deltaAtHorizon > 0) {
+        parts.push(`${horizonHours} 小时时点措施后比不干预高约 ${deltaAtHorizon.toFixed(1)} 个百分点`);
+      }
+      if (divergence?.riskAvoidedWithinWindow) {
+        parts.push(`措施可把风险推迟到 ${horizonHours} 小时窗口之外`);
+      } else if (Number.isFinite(Number(divergence?.riskDelayMinutes)) && Number(divergence.riskDelayMinutes) > 0) {
+        parts.push(`风险触发推迟约 ${Math.round(Number(divergence.riskDelayMinutes))} 分钟`);
+      }
       return `${parts.join('；')}。双轨基于同一冻结快照与随机种子，只读对比，不写回主状态。`;
     });
 
@@ -1427,6 +1449,32 @@ const app = createApp({
         && show_dual_track.value
         && plot_simulation_dual_available.value;
       const dualTrack = dualUsable ? plot_simulation_dual_track.value : null;
+      const dualIntervention = dualTrack?.intervention;
+      const dualIsStorm = String(dualTrack?.scenario || '').toUpperCase() === 'HEAVY_RAIN';
+      const dualBoundary = Number(dualTrack?.stressBoundary);
+      // 双轨标注：风险边界横线 + 灌溉触发竖线，让“何时补水、跌破哪条线”在图上可见。
+      const dualMarkLine = dualTrack
+        ? {
+            silent: true,
+            symbol: 'none',
+            data: [
+              ...(Number.isFinite(dualBoundary)
+                ? [{
+                    yAxis: dualBoundary,
+                    lineStyle: { color: '#f59e0b', type: 'dotted', width: 1 },
+                    label: { formatter: `${dualIsStorm ? '积水' : '干旱'}阈值 ${dualBoundary}%`, color: '#f59e0b', fontSize: 10, position: 'insideEndTop' }
+                  }]
+                : []),
+              ...(dualIntervention?.measure === 'IRRIGATION' && dualIntervention.status === 'PLANNED'
+                ? [{
+                    xAxis: forecastStart + Number(dualIntervention.triggerMinute) * 60000,
+                    lineStyle: { color: '#3fb950', type: 'dashed', width: 1 },
+                    label: { formatter: `补水 ${dualIntervention.waterLitre} L`, color: '#3fb950', fontSize: 10, position: 'insideEndBottom' }
+                  }]
+                : [])
+            ]
+          }
+        : null;
       const toDualSeries = (points) => points.map((item) => [forecastStart + Number(item.minute) * 60000, Number(item.value)]);
       const executeSeries = dualTrack ? toDualSeries(dualTrack.branches.EXECUTE.points) : [];
       const noActionSeries = dualTrack ? toDualSeries(dualTrack.branches.NO_ACTION.points) : [];
@@ -1461,7 +1509,7 @@ const app = createApp({
           { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
           { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: plot_simulation_evaluating.value ? .42 : 1 } },
           ...(dualTrack ? [
-            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#3fb950', width: 2, opacity: plot_simulation_dual_loading.value ? .45 : 1 } },
+            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#3fb950', width: 2, opacity: plot_simulation_dual_loading.value ? .45 : 1 }, ...(dualMarkLine ? { markLine: dualMarkLine } : {}) },
             { name: '不干预预测', type: 'line', data: noActionSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#f85149', width: 2, type: 'dashed', opacity: plot_simulation_dual_loading.value ? .45 : 1 } }
           ] : [
             { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },

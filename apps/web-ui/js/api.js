@@ -2761,7 +2761,6 @@ export class ApiService {
     const parameters = cloneSimulationParameters(normalizedScenario, suppliedParameters);
     const rnd = mulberry32(Number(seed) || 42);
     const kFactor = 0.9 + rnd() * 0.2;
-    const jumpBoost = 11.8 + rnd() * 2.8;
     const rainBoost = (parameters.rainfallRate || def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
     const driftRate = (parameters.driftRatePerHour || def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
     const decayK = 0.03 + rnd() * 0.012;
@@ -2774,13 +2773,82 @@ export class ApiService {
       ? Number(parameters.waterloggingThreshold || cfg.stressBoundary)
       : Number(parameters.riskThreshold || cfg.stressBoundary);
     const horizonMinutes = Math.max(5, Math.round(Number(parameters.forecastHours || 4) * 60));
+    const naturalAt = (t) => {
+      const hours = t / 60;
+      if (def.code === 'STORM') return t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
+      if (def.code === 'SENSOR_DRIFT') return start + driftRate * hours;
+      if (def.code === 'DROUGHT') return start + trend * hours;
+      return Math.max(0, start - t * 0.025);
+    };
+    // 真实化执行分支（与后端 branch-compare-v5 同一模型）：按地块面积、水泵流量、
+    // 作物阶段目标湿度与水箱余量推导一次真实灌溉，缺水时只补实际可用的量。
+    const areaM2 = Math.max(1, Number(plot.areaM2) || DEFAULT_PLOT_AREA_M2);
+    const stageTarget = MOCK_DATA.cropPackDetails
+      .find(pack => pack.cropCode === plot.cropCode)?.stages
+      .find(stage => stage.code === plot.stageCode)?.target;
+    const irrigationTarget = stageTarget ? (stageTarget.soilMoistureLow + stageTarget.soilMoistureHigh) / 2 : 35;
+    const flowLitresPerMinute = Number(MOCK_DATA.resourceProfile.flowRateLitresPerMinute) || 18;
+    const reservoirCapacityLitres = Number(MOCK_DATA.resourceProfile.capacityLitres) || 900;
+    const reservoirLevelPercent = Number(plot.metrics?.WATER_LEVEL?.value ?? 100);
+    const reservoirAvailableLitres = Math.max(0, reservoirLevelPercent) / 100 * reservoirCapacityLitres;
+    const pumpCapLitres = flowLitresPerMinute * 15; // 后端 maxIrrigationSeconds 默认 900 秒
+    const intervention = (() => {
+      const plan = {
+        reservoirLevelPercent: Number(reservoirLevelPercent.toFixed(1)),
+        reservoirAvailableLitres: Number(reservoirAvailableLitres.toFixed(1)),
+        pumpFlowLitresPerMinute: flowLitresPerMinute,
+        irrigationTargetMoisture: Number(irrigationTarget.toFixed(1))
+      };
+      if (def.code === 'STORM') return { ...plan, measure: 'DRAINAGE', status: 'PLANNED', triggerMinute: 0, triggerReason: '暴雨来临即启动排水，削峰并加快退水' };
+      if (def.code === 'SENSOR_DRIFT') return { ...plan, measure: 'SENSOR_RECALIBRATION', status: 'PLANNED', triggerMinute: 30, triggerReason: '读数漂移 30 分钟后安排复测校准' };
+      plan.measure = 'IRRIGATION';
+      const earlyWarning = boundary + 3;
+      let crossMinute = -1;
+      for (let t = 0; t <= horizonMinutes; t += 5) {
+        if (naturalAt(t) <= earlyWarning) { crossMinute = t; break; }
+      }
+      if (crossMinute < 0) return { ...plan, status: 'NO_RISK_IN_WINDOW', triggerReason: '预测窗口内不会跌破干旱预警线，无需灌溉' };
+      const responseDelayMinutes = 15;
+      const triggerMinute = Math.min(horizonMinutes, crossMinute + responseDelayMinutes);
+      const moistureAtTrigger = naturalAt(triggerMinute);
+      const neededLitres = Math.max(0, (irrigationTarget - moistureAtTrigger) * areaM2 * SOIL_WATER_LITRES_PER_POINT_PER_M2);
+      const plannedLitres = Math.min(neededLitres, pumpCapLitres);
+      const reservoirSufficient = reservoirAvailableLitres + .5 >= plannedLitres;
+      const deliveredLitres = Math.min(plannedLitres, reservoirAvailableLitres);
+      const deliveryEfficiency = Math.min(1, Math.max(.85, .94 + (rnd() - .5) * .08 * Number(parameters.volatility || 1)));
+      const moistureGain = moistureDeltaFromWater(deliveredLitres, areaM2) * deliveryEfficiency;
+      return {
+        ...plan,
+        status: 'PLANNED',
+        triggerMinute,
+        triggerReason: '不干预曲线预计跌破干旱预警线（阈值+3 个百分点），触发补水',
+        responseDelayMinutes,
+        durationMinutes: Math.max(1, Math.round(deliveredLitres / flowLitresPerMinute)),
+        neededWaterLitre: Number(neededLitres.toFixed(1)),
+        waterLitre: Number(deliveredLitres.toFixed(1)),
+        reservoirSufficient,
+        moistureAtTrigger: Number(moistureAtTrigger.toFixed(1)),
+        moistureGain: Number(moistureGain.toFixed(1)),
+        moistureAfterIrrigation: Number(Math.min(100, moistureAtTrigger + moistureGain).toFixed(1))
+      };
+    })();
+    // 灌溉干预下的曲线：干预前与不干预一致；灌溉时长内线性爬升，之后恢复自然失水。
+    const irrigationAdjusted = (natural, t, trendPerMinute) => {
+      if (intervention.measure !== 'IRRIGATION' || intervention.status !== 'PLANNED') return natural;
+      if (t <= intervention.triggerMinute) return natural;
+      if (t <= intervention.triggerMinute + intervention.durationMinutes) {
+        return intervention.moistureAtTrigger
+          + intervention.moistureGain * (t - intervention.triggerMinute) / intervention.durationMinutes;
+      }
+      return intervention.moistureAtTrigger + intervention.moistureGain
+        + trendPerMinute * (t - intervention.triggerMinute - intervention.durationMinutes);
+    };
     const build = (execute) => Array.from({ length: Math.floor(horizonMinutes / 5) + 1 }, (_, i) => {
       const t = i * 5;
       const hours = t / 60;
       let value;
       if (def.code === 'STORM') {
-        const wetting = t <= 45 ? start + rainPeak * (t / 45) : (start + rainPeak) * Math.exp(-decayK * (t - 45) / 45);
-        if (!execute) value = wetting;
+        if (!execute) value = naturalAt(t);
         else {
           const managedPeak = start + rainPeak * 0.72;
           value = t <= 45 ? start + rainPeak * 0.72 * (t / 45) : managedPeak * Math.exp(-decayK * 1.35 * (t - 45) / 45);
@@ -2796,27 +2864,46 @@ export class ApiService {
         }
       } else if (def.code === 'DROUGHT') {
         value = start + trend * hours;
-        if (execute && t >= 30) {
-          const atExec = start + trend * 0.5;
-          value = Math.min(42, atExec + jumpBoost * Math.exp(-0.0025 * (t - 30)));
-        }
+        if (execute) value = irrigationAdjusted(value, t, trend / 60);
       } else {
         const natural = Math.max(0, start - t * 0.025);
-        value = execute && t >= 30 ? Math.min(45, natural + jumpBoost * Math.exp(-0.0025 * (t - 30))) : natural;
+        value = execute ? irrigationAdjusted(natural, t, -0.025) : natural;
       }
       return { minute: t, value: Number(Math.max(0, Math.min(100, value)).toFixed(2)) };
     });
+    const executePoints = build(true);
+    const noActionPoints = build(false);
+    const riskMinuteOf = (points) => {
+      const hit = points.find((point) => (def.code === 'STORM' ? point.value >= boundary : point.value <= boundary));
+      return hit ? hit.minute : null;
+    };
+    const executeRisk = riskMinuteOf(executePoints);
+    const noActionRisk = riskMinuteOf(noActionPoints);
+    const divergence = {
+      moistureDeltaAtHorizon: Number((executePoints.at(-1).value - noActionPoints.at(-1).value).toFixed(1)),
+      ...(noActionRisk != null ? {
+        riskDelayMinutes: executeRisk == null ? horizonMinutes - noActionRisk : executeRisk - noActionRisk,
+        riskAvoidedWithinWindow: executeRisk == null
+      } : {})
+    };
     const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
     const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
       status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, plotId,
-      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture,
       parameters,
-      seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
-      markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],
-      branches: { EXECUTE: { label: executeLabel, points: build(true), color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: build(false), color: '#f85149' } },
-      comparisonVersion: 'branch-compare-v4',
-      note: '双轨使用同一冻结快照与随机种子；分支结果只读，不写回主状态', provenance: 'SIMULATED'
+      seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
+      intervention,
+      divergence,
+      markers: [
+        { minute: 0, label: '冻结快照' },
+        ...(intervention.measure === 'IRRIGATION' && intervention.status === 'PLANNED'
+          ? [{ minute: intervention.triggerMinute, label: `补水 ${intervention.waterLitre} 升 · ${intervention.durationMinutes} 分钟` }]
+          : intervention.measure === 'DRAINAGE' ? [{ minute: 0, label: '启动排水' }] : [])
+      ],
+      branches: { EXECUTE: { label: executeLabel, points: executePoints, color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: noActionPoints, color: '#f85149' } },
+      comparisonVersion: 'branch-compare-v5',
+      note: '双轨使用同一冻结快照与随机种子；执行分支按地块面积、水泵流量、作物目标湿度与水箱余量推导真实灌溉，结果只读，不写回主状态', provenance: 'SIMULATED'
     };
   }
 
