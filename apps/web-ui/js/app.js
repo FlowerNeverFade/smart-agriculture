@@ -861,7 +861,7 @@ const PlotDetailModal = {
     const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
     const parameterMeta = Object.freeze({
       volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制随机扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 180, step: 1, help: '每个采样点代表的加速时间' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 12, step: 1, help: '每个采样点代表的加速时间；默认按接近实时速度推进' },
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },

@@ -369,7 +369,7 @@ smart-agriculture/
 docker compose -f infra/docker-compose.yml up -d
 ./gradlew :apps:api-service:test :apps:api-service:bootJar
 java -jar apps/api-service/build/libs/api-service-0.1.0.jar
-python simulator/runner.py --scenario drought --mqtt --speed 20
+python simulator/runner.py --scenario drought --mqtt --speed 1
 ```
 
 Docker 镜像拉取失败、或暂时只有 standalone API 时，可跳过 MQTT，改用 HTTP 直推（设备在线状态同样会刷新）：

@@ -1260,7 +1260,7 @@ class AgriEngine {
             "NORMAL", "DROUGHT", "HEAVY_RAIN", "SENSOR_DRIFT", "DEVICE_OFFLINE");
     private static final Map<String, double[]> SIMULATION_PARAMETER_LIMITS = Map.ofEntries(
             Map.entry("volatility", new double[]{.2, 3.0}),
-            Map.entry("timeScale", new double[]{1, 180}),
+            Map.entry("timeScale", new double[]{1, 12}),
             Map.entry("temperatureBias", new double[]{-15, 15}),
             Map.entry("humidityBias", new double[]{-40, 40}),
             Map.entry("rainfallRate", new double[]{0, 120}),
@@ -1589,7 +1589,7 @@ class AgriEngine {
         }
         Map<String, Object> context = plotId == null || store.find("plot", plotId) == null ? Map.of() : plotCropContext(plotId);
         params.put("riskThreshold", Jsons.number(cropPackCatalog.rule(context, "WATER_DEFICIT"), "threshold", 20));
-        params.put("waterloggingThreshold", 82.0); params.put("forecastHours", 4.0); params.put("timeScale", 60.0);
+        params.put("waterloggingThreshold", 82.0); params.put("forecastHours", 4.0); params.put("timeScale", 1.0);
         return params;
     }
 
@@ -1971,8 +1971,8 @@ class AgriEngine {
         boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
                 && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
         if (!realControlPending) {
-            device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
-            device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
+        device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
         }
         device.put("sourceMode", sourceMode);
         device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
@@ -3131,7 +3131,7 @@ class AgriEngine {
                     ? "当前地块处于暴雨模拟场景，先观察积水和排水状态"
                 : reviewOnly
                     ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
-                : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+                    : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
         boolean executable = !hardDataBlock && !reviewOnly && !noWaterNeeded && "READY".equals(readinessStatus) && duration > 0;
         plan.put("readinessId", readinessResult.get("readinessId"));
@@ -3514,7 +3514,7 @@ class AgriEngine {
         if (!points.isEmpty()) { inputWindow.put("from", first.get("ts")); inputWindow.put("to", last.get("ts")); }
         result.put("inputWindow", inputWindow);
         result.put("quality", Map.of("coverage", points.isEmpty() ? .35 : points.stream().filter(p -> "GOOD".equals(Jsons.text(Jsons.map(mapper, p.get("quality")), "status", "BAD"))).count() / (double) points.size(), "confidenceBandSource", points.size() >= minSamples ? "RESIDUAL_MAD_PLUS_STRATEGY_VOLATILITY" : "STRATEGY_PRIOR"));
-        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", 60), "STAGE=" + context.get("stageCode")));
+        result.put("assumptions", List.of("NO_IRRIGATION", "PLOT_STRATEGY=" + scenario, "SIMULATION_TIME_SCALE=" + Jsons.number(parameters, "timeScale", 1), "STAGE=" + context.get("stageCode")));
         result.put("algorithmVersion", Jsons.text(forecastProfile, "algorithm", "strategy-aware-trend-v2"));
         result.put("cropPackVersion", context.get("cropPackVersion")); result.put("ruleVersion", context.get("ruleVersion"));
         result.put("stageCode", context.get("stageCode")); result.put("stageLabel", context.get("stageLabel"));
@@ -5484,27 +5484,41 @@ class AgriEngine {
         }
         if (scenarioRaw.isBlank()) scenarioRaw = "DROUGHT";
         String scenario = canonicalScenarioForRun(scenarioRaw);
-        if ("NORMAL".equals(scenario)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "SCENARIO_COMPARE_INVALID", "正常运行情景无需双轨对照");
-        }
         if (scenarioId.isBlank()) scenarioId = scenario.toLowerCase(Locale.ROOT) + "-" + seed;
         Map<String, Object> plot = requireRecord("plot", plotId);
         Map<String, Object> latestMetric = Jsons.map(mapper, latestMetrics(plotId).get("SOIL_MOISTURE"));
         double startMoisture = Jsons.number(latestMetric, "value", baselineMetricValue(plotId, "SOIL_MOISTURE"));
         Map<String, Object> parameters = simulationDefaults(scenario, plotId);
+        Map<String, Object> suppliedParameters = Jsons.map(mapper, input.get("parameters"));
+        for (Map.Entry<String, double[]> entry : SIMULATION_PARAMETER_LIMITS.entrySet()) {
+            String key = entry.getKey();
+            if (!suppliedParameters.containsKey(key)) continue;
+            double[] range = entry.getValue();
+            double fallback = Jsons.number(parameters, key, (range[0] + range[1]) / 2.0);
+            double candidate = Jsons.number(suppliedParameters, key, fallback);
+            parameters.put(key, round(clamp(candidate, fallback, range[0], range[1])));
+        }
+        if (Jsons.number(parameters, "riskThreshold", 20) >= Jsons.number(parameters, "waterloggingThreshold", 82)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "SIMULATION_THRESHOLD_INVALID", "干旱阈值必须低于积水阈值");
+        }
         Random random = new Random(seed);
-        double jumpBoost = 11.8 + random.nextDouble() * 2.8;
-        double rainBoost = ("HEAVY_RAIN".equals(scenario) ? 32.0 : 0.0) * (0.8 + random.nextDouble() * 0.4);
+        double volatility = Jsons.number(parameters, "volatility", 1.0);
+        double jumpBoost = (11.8 + random.nextDouble() * 2.8) * volatility;
+        double rainBoost = ("HEAVY_RAIN".equals(scenario) ? Jsons.number(parameters, "rainfallRate", 32.0) : 0.0) * (0.8 + random.nextDouble() * 0.4);
         double driftRate = Jsons.number(parameters, "driftRatePerHour", 2.4) * (0.9 + random.nextDouble() * 0.2);
         double decayK = 0.03 + random.nextDouble() * 0.012;
-        double droughtTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -3.6);
+        double configuredTrend = Jsons.number(parameters, "soilMoistureTrendPerHour", -3.6);
+        double temperatureBias = Jsons.number(parameters, "temperatureBias", 0.0);
+        double humidityBias = Jsons.number(parameters, "humidityBias", 0.0);
+        double droughtTrend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? 0.08 : 0.03) + humidityBias * 0.02;
         double rainPeak = "HEAVY_RAIN".equals(scenario) ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
+        int forecastMinutes = (int) Math.round(Jsons.number(parameters, "forecastHours", 4.0) * 60.0);
         String operator = "HEAVY_RAIN".equals(scenario) ? "GT" : "LT";
         double boundary = "HEAVY_RAIN".equals(scenario)
                 ? Jsons.number(parameters, "waterloggingThreshold", 82)
                 : Jsons.number(parameters, "riskThreshold", 20);
-        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
-        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);
+        List<Map<String, Object>> noActionPoints = buildScenarioBranchPoints(scenario, startMoisture, false, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
+        List<Map<String, Object>> executePoints = buildScenarioBranchPoints(scenario, startMoisture, true, droughtTrend, rainPeak, driftRate, decayK, jumpBoost, forecastMinutes);
         Map<String, Object> branches = new LinkedHashMap<>();
         branches.put("NO_ACTION", scenarioBranchPayload("NO_ACTION", noActionPoints, boundary, operator));
         branches.put("EXECUTE", scenarioBranchPayload("EXECUTE", executePoints, boundary, operator));
@@ -5524,6 +5538,7 @@ class AgriEngine {
         result.put("leftBranch", branches.get("EXECUTE"));
         result.put("rightBranch", branches.get("NO_ACTION"));
         result.put("sameSeed", seed);
+        result.put("parameters", parameters);
         result.put("frozenSnapshot", frozenSnapshot);
         result.put("stressBoundary", boundary);
         result.put("readOnly", true);
@@ -5535,9 +5550,9 @@ class AgriEngine {
 
     private List<Map<String, Object>> buildScenarioBranchPoints(String scenario, double startMoisture, boolean execute,
                                                                   double droughtTrend, double rainPeak, double driftRate,
-                                                                  double decayK, double jumpBoost) {
+                                                                  double decayK, double jumpBoost, int horizonMinutes) {
         List<Map<String, Object>> points = new ArrayList<>();
-        for (int index = 0; index <= 48; index++) {
+        for (int index = 0; index * 5 <= horizonMinutes; index++) {
             int minute = index * 5;
             double hours = minute / 60.0;
             double value = scenarioMoistureAtMinute(scenario, minute, hours, startMoisture, execute, droughtTrend, rainPeak, driftRate, decayK, jumpBoost);

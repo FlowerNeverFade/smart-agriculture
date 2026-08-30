@@ -12,6 +12,7 @@ try:
         initial_state,
         load_plot_strategies,
         metric_value,
+        scenario_parameters,
     )
 except ImportError:  # Running this file directly from the repository root.
     from simulator.runner import (
@@ -20,10 +21,17 @@ except ImportError:  # Running this file directly from the repository root.
         initial_state,
         load_plot_strategies,
         metric_value,
+        scenario_parameters,
     )
 
 
 class PlotSimulationTest(unittest.TestCase):
+    def test_default_time_scale_is_slow_and_legacy_values_are_bounded(self):
+        defaults = scenario_parameters("drought")
+        legacy = scenario_parameters("drought", {"timeScale": 180})
+        self.assertEqual(defaults["timeScale"], 1.0)
+        self.assertEqual(legacy["timeScale"], 12.0)
+
     def test_plot_configuration_is_independent_and_bounded(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "plot-simulation.json"

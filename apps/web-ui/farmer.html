@@ -1304,22 +1304,75 @@
           <section v-else-if="current_view === 'tools'" class="farmer-workspace" key="tools">
             <div class="farmer-page-header">
               <div>
-                <h2>作物培养手册</h2>
-                <p class="role-summary">手册内容由系统管理员维护，本页仅供查阅；风险信息统一回到地块与灌溉系统查看。</p>
+                <h2>更多工具</h2>
+                <p class="role-summary">在负责地块范围内进行风险预测试算，或查阅完整的作物培养手册。</p>
               </div>
             </div>
 
-            <div class="farmer-tools-manual">
+            <div class="farmer-tools-tabs" role="tablist" aria-label="更多工具">
+              <button type="button" role="tab" class="farmer-tools-tab" :class="{ active: tools_tab === 'risk' }" :aria-selected="tools_tab === 'risk'" @click="navigate('tools', { tab: 'risk' })"><app-icon name="insights"></app-icon><span>风险预测</span><small>模拟环境与双轨曲线</small></button>
+              <button type="button" role="tab" class="farmer-tools-tab" :class="{ active: tools_tab === 'manual' }" :aria-selected="tools_tab === 'manual'" @click="navigate('tools', { tab: 'manual' })"><app-icon name="menu_book"></app-icon><span>作物培养手册</span><small>所有作物与阶段资料</small></button>
+            </div>
+
+            <div v-if="tools_tab === 'risk'" class="farmer-tools-risk">
+              <article class="g-card farmer-risk-tool-card">
+                <div class="farmer-panel-header">
+                  <div>
+                    <span class="farmer-section-kicker">只读确定性试算</span>
+                    <h3>负责地块风险预测</h3>
+                    <p class="farmer-panel-hint">调整参数后点击“生成双轨预测”。试算使用同一冻结快照和随机种子，不修改管理员策略、设备数据或主状态。</p>
+                  </div>
+                  <span class="g-badge" :class="risk_tool_loading ? 'warning' : (risk_tool_error ? 'warning' : 'success')">{{ risk_tool_loading ? '预测中' : (risk_tool_error ? '暂不可用' : '只读试算') }}</span>
+                </div>
+
+                <div class="farmer-risk-tool-context">
+                  <label><span>负责地块</span><select v-model="risk_tool_plot_id" @change="select_risk_tool_plot(risk_tool_plot_id)" aria-label="选择负责地块"><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }} · {{ plot.cropName || plot.cropCode }}</option></select></label>
+                  <div v-if="risk_tool_plot" class="farmer-risk-tool-fact"><span>当前作物</span><strong>{{ risk_tool_plot.cropName || risk_tool_plot.cropCode || '未设置' }}</strong><small>{{ risk_tool_plot.stageLabel || '阶段待确认' }} · 当前湿度 {{ risk_tool_plot.metrics && risk_tool_plot.metrics.SOIL_MOISTURE ? risk_tool_plot.metrics.SOIL_MOISTURE.value : '—' }}%</small></div>
+                </div>
+
+                <div class="farmer-risk-tool-scenarios" role="group" aria-label="选择模拟场景">
+                  <button v-for="scenario in risk_tool_scenario_options" :key="scenario.code" type="button" class="farmer-risk-tool-scenario" :class="{ active: risk_tool_scenario === scenario.code }" @click="select_risk_tool_scenario(scenario.code)"><span>{{ scenario.emoji }}</span><strong>{{ scenario.label }}</strong><small>{{ scenario.description }}</small></button>
+                </div>
+
+                <div class="farmer-risk-tool-parameters">
+                  <label v-for="field in risk_tool_fields" :key="field.key" class="farmer-risk-tool-field">
+                    <span><b>{{ field.label }}</b><small>{{ field.help }}</small></span>
+                    <span class="farmer-risk-tool-control"><input type="range" :min="field.min" :max="field.max" :step="field.step" v-model.number="risk_tool_parameters[field.key]" :aria-label="field.label"><input type="number" :min="field.min" :max="field.max" :step="field.step" v-model.number="risk_tool_parameters[field.key]" :aria-label="field.label + '数值'"><em>{{ field.unit }}</em></span>
+                  </label>
+                </div>
+
+                <div class="farmer-risk-tool-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_risk_tool" :disabled="risk_tool_loading">恢复场景默认</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="run_risk_tool" :disabled="risk_tool_loading || !risk_tool_plot">{{ risk_tool_loading ? '正在生成…' : '生成双轨预测' }}</button></div>
+              </article>
+
+              <article class="g-card farmer-risk-tool-chart-card">
+                <div class="farmer-panel-header"><div><span class="farmer-section-kicker">EXECUTE / NO_ACTION</span><h3>{{ risk_tool_plot ? risk_tool_plot.name : '负责地块' }} · 风险预测曲线</h3></div><span v-if="risk_tool_comparison && risk_tool_comparison.seed" class="farmer-panel-hint">随机种子 {{ risk_tool_comparison.seed }}</span></div>
+                <div v-if="risk_tool_loading" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在使用同一快照生成双轨曲线…</span></div>
+                <div v-else-if="risk_tool_chart" class="farmer-chart-interactive farmer-risk-tool-chart">
+                  <svg class="farmer-chart-svg farmer-moisture-svg" :viewBox="risk_tool_chart.viewBox" role="img" :aria-label="`${risk_tool_plot.name}风险预测双轨曲线`">
+                    <line v-for="line in risk_tool_chart.grid" :key="'risk-grid-' + line.y" class="farmer-chart-grid-line" :x1="risk_tool_chart.plotLeft" :y1="line.y" :x2="risk_tool_chart.plotRight" :y2="line.y"></line>
+                    <text v-for="line in risk_tool_chart.grid" :key="'risk-label-' + line.y" class="farmer-chart-axis-label" x="3" :y="line.y + 3">{{ line.label }}</text>
+                    <line v-if="risk_tool_chart.boundaryY != null" class="farmer-alert-threshold-line" :x1="risk_tool_chart.plotLeft" :y1="risk_tool_chart.boundaryY" :x2="risk_tool_chart.plotRight" :y2="risk_tool_chart.boundaryY"></line>
+                    <polyline v-for="series in risk_tool_chart.series" :key="'risk-series-' + series.key" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
+                    <text v-for="tick in risk_tool_chart.xTicks" :key="'risk-tick-' + tick.x + tick.label" class="farmer-chart-axis-label" :x="tick.x" :y="tick.y" :text-anchor="tick.anchor">{{ tick.label }}</text>
+                  </svg>
+                  <div class="farmer-chart-legend" aria-label="风险预测双轨图例"><span v-for="series in risk_tool_chart.series" :key="'risk-legend-' + series.key" class="farmer-chart-legend-item"><i class="farmer-legend-swatch is-solid" :style="{ '--legend-color': series.color }"></i>{{ series.label }}</span><span v-if="risk_tool_chart.boundaryY != null" class="farmer-chart-legend-item"><i class="farmer-legend-swatch is-threshold"></i>风险阈值</span></div>
+                </div>
+                <p v-else class="farmer-panel-hint farmer-chart-empty">{{ risk_tool_error || '请先选择负责地块并生成预测曲线' }}</p>
+                <div v-if="risk_tool_comparison" class="farmer-risk-tool-result"><span>冻结快照：{{ risk_tool_comparison.frozenSnapshot && risk_tool_comparison.frozenSnapshot.startMoisture }}%</span><span>预测边界：{{ risk_tool_comparison.stressBoundary ?? '—' }}%</span><span>{{ risk_tool_comparison.note || '双轨结果仅用于辅助判断' }}</span></div>
+              </article>
+            </div>
+
+            <div v-else class="farmer-tools-manual">
               <p v-if="crop_manual_error" class="farmer-panel-hint">{{ crop_manual_error }}</p>
               <article class="g-card farmer-advice-card">
                 <div class="farmer-panel-header">
                   <div>
                     <span class="farmer-section-kicker">系统管理员发布</span>
-                    <h3>作物培养手册</h3>
+                    <h3>全部作物培养手册</h3>
                   </div>
                   <span v-if="crop_manual_pack" class="g-badge primary">v{{ crop_manual_pack.version || '—' }}</span>
                 </div>
-                <p class="farmer-panel-hint">以下内容来自系统管理员维护的作物包，农户可查阅，不能在本页编辑。</p>
+                <p class="farmer-panel-hint">以下内容来自 mock-data 中的完整作物包目录，农户可查阅，不能在本页编辑。</p>
 
                 <div class="farmer-cm-section">
                   <div class="farmer-cm-label">作物种类</div>
@@ -1362,6 +1415,13 @@
                   <small>知识版本 {{ crop_manual_pack && crop_manual_pack.knowledgeVersion }} · 规则版本 {{ crop_manual_pack && crop_manual_pack.ruleVersion }}</small>
                 </div>
 
+                <div v-if="crop_manual_pack && crop_manual_pack.identity" class="farmer-cm-facts">
+                  <span>品种：{{ crop_manual_pack.identity.variety || '—' }}</span>
+                  <span>区域：{{ crop_manual_pack.identity.region || '—' }}</span>
+                  <span>环境：{{ crop_manual_pack.identity.environment || '—' }}</span>
+                  <span>状态：{{ crop_manual_pack.status || 'ACTIVE' }}</span>
+                </div>
+
                 <div class="farmer-cm-metrics">
                   <div v-for="metric in crop_manual_metrics_list" :key="metric.code" class="farmer-cm-metric">
                     <div class="farmer-cm-metric-head">
@@ -1376,6 +1436,16 @@
                 <div class="farmer-cm-guide">
                   <h4>阶段培养说明</h4>
                   <p v-for="(paragraph, index) in crop_manual_guide_list" :key="index">{{ paragraph }}</p>
+                </div>
+
+                <div v-if="crop_manual_rules.length" class="farmer-cm-rules">
+                  <h4>硬性规则与阈值</h4>
+                  <div v-for="rule in crop_manual_rules" :key="rule.code" class="farmer-cm-rule">
+                    <strong>{{ rule.code }}</strong><span>{{ metric_label(rule.metric, rule.metric) }} {{ rule.operator || '—' }} {{ rule.threshold }} · 持续 {{ rule.durationMinutes || '—' }} 分钟 · 冷却 {{ rule.cooldownMinutes || '—' }} 分钟</span>
+                  </div>
+                </div>
+                <div v-if="crop_manual_documents.length" class="farmer-cm-documents">
+                  <h4>知识文档</h4><span v-for="document in crop_manual_documents" :key="document">{{ document }}</span>
                 </div>
               </article>
             </div>

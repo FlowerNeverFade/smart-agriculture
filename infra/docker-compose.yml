@@ -55,7 +55,7 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.simulator
-    command: ["--scenario", "drought", "--mqtt", "--mqtt-host", "mqtt", "--speed", "20"]
+    command: ["--scenario", "drought", "--mqtt", "--mqtt-host", "mqtt", "--speed", "1"]
     depends_on: [api, mqtt]
 
 volumes:

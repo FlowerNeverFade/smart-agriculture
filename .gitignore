@@ -3,6 +3,7 @@ build/
 out/
 *.iml
 .idea/
+.codeartsdoer/
 
 # Python and environment artifacts
 __pycache__/

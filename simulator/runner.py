@@ -126,31 +126,31 @@ SCENARIO_ALIASES = {
 
 SCENARIO_DEFAULTS = {
     "normal": {
-        "volatility": 1.25, "timeScale": 60.0, "temperatureBias": 0.0,
+        "volatility": 1.25, "timeScale": 1.0, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
         "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "drought": {
-        "volatility": 1.75, "timeScale": 60.0, "temperatureBias": 7.0,
+        "volatility": 1.75, "timeScale": 1.0, "temperatureBias": 7.0,
         "humidityBias": -20.0, "rainfallRate": 0.0,
         "soilMoistureTrendPerHour": -3.6, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "heavy-rain": {
-        "volatility": 1.9, "timeScale": 60.0, "temperatureBias": -4.5,
+        "volatility": 1.9, "timeScale": 1.0, "temperatureBias": -4.5,
         "humidityBias": 20.0, "rainfallRate": 32.0,
         "soilMoistureTrendPerHour": 7.2, "driftRatePerHour": 0.0,
         "offlineRatio": 0.0,
     },
     "sensor-drift": {
-        "volatility": 1.45, "timeScale": 60.0, "temperatureBias": 0.0,
+        "volatility": 1.45, "timeScale": 1.0, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
         "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 2.4,
         "offlineRatio": 0.0,
     },
     "device-offline": {
-        "volatility": 1.3, "timeScale": 60.0, "temperatureBias": 0.0,
+        "volatility": 1.3, "timeScale": 1.0, "temperatureBias": 0.0,
         "humidityBias": 0.0, "rainfallRate": 0.2,
         "soilMoistureTrendPerHour": -0.18, "driftRatePerHour": 0.0,
         "offlineRatio": 0.55,
@@ -159,7 +159,7 @@ SCENARIO_DEFAULTS = {
 
 PARAMETER_LIMITS = {
     "volatility": (0.2, 3.0),
-    "timeScale": (1.0, 180.0),
+    "timeScale": (1.0, 12.0),
     "temperatureBias": (-15.0, 15.0),
     "humidityBias": (-40.0, 40.0),
     "rainfallRate": (0.0, 120.0),

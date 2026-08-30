@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260828-v58';
 import { MOCK_DATA } from './mock-data.js';
 import { presentRoleUser } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -43,7 +43,7 @@ const FARMER_ICON_CLASS = Object.freeze({
   edit_note: 'ph-note-pencil', schedule: 'ph-clock', history: 'ph-clock-counter-clockwise',
   radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
   smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
-  insights: 'ph-chart-line-up', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
+  insights: 'ph-chart-line-up', menu_book: 'ph-book-open', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
   science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
   send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone'
 });
@@ -200,18 +200,20 @@ const FARMER_VIEWS = Object.freeze([
 function parse_farmer_hash(hash = window.location.hash) {
   const raw = String(hash || '').replace(/^#/, '').trim();
   if (!raw) return 'dashboard';
-  if (/^tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(raw)) return 'dashboard';
   const view = raw.split(/[?&/]/)[0];
   return FARMER_VIEWS.includes(view) ? view : 'dashboard';
 }
 
 function parse_tools_tab(hash = window.location.hash) {
-  return 'manual';
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  const match = raw.match(/^tools(?:\/([^?&#/]+)|[?&]tab=([^&#/]+))/i);
+  const tab = String(match?.[1] || match?.[2] || 'manual').toLowerCase();
+  return ['risk', 'manual'].includes(tab) ? tab : 'manual';
 }
 
 function farmer_hash_for(view_id, tab = 'manual') {
   const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
-  if (view === 'tools') return '#tools/manual';
+  if (view === 'tools') return `#tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}`;
   return `#${view}`;
 }
 
@@ -529,6 +531,50 @@ function simulation_forecast_chart(forecast, baseMoisture) {
       { label: '置信区间', color: 'var(--g-success)', style: 'band' },
       ...(Number.isFinite(boundary) ? [{ label: '风险阈值', color: '#f9ab00', style: 'threshold' }] : [])
     ]
+  };
+}
+
+function dual_track_chart(comparison) {
+  const execute = comparison?.branches?.EXECUTE;
+  const noAction = comparison?.branches?.NO_ACTION;
+  const branches = [
+    { key: 'EXECUTE', label: execute?.label || '执行处置', color: '#1e8e3e', points: execute?.points || [] },
+    { key: 'NO_ACTION', label: noAction?.label || '不干预', color: '#d93025', points: noAction?.points || [] }
+  ].map((branch) => ({
+    ...branch,
+    values: branch.points.map((point) => Number(point.value ?? point.expected)).filter(Number.isFinite)
+  })).filter((branch) => branch.values.length > 1);
+  if (!branches.length) return null;
+  const pointCount = Math.max(...branches.map((branch) => branch.values.length));
+  const allValues = branches.flatMap((branch) => branch.values);
+  const boundary = Number(comparison?.stressBoundary);
+  const min = Math.max(0, Math.floor(Math.min(...allValues, Number.isFinite(boundary) ? boundary : 100) - 5));
+  const max = Math.min(100, Math.ceil(Math.max(...allValues, Number.isFinite(boundary) ? boundary : 0) + 5));
+  const layout = { width: 640, height: 280, left: 44, right: 16, top: 18, bottom: 30 };
+  const labels = (branches[0].points || []).map((point) => Number(point.minute) === 0 ? '现在' : `${Math.round(Number(point.minute) / 60)} 小时`);
+  const grid = [max, (max + min) / 2, min].map((value) => ({
+    y: chart_y_at(value, min, max, layout),
+    label: `${Number(value.toFixed(0))}%`
+  }));
+  const xTicks = [0, Math.floor((pointCount - 1) / 2), pointCount - 1]
+    .filter((index, position, list) => index >= 0 && list.indexOf(index) === position)
+    .map((index, position, list) => ({
+      x: chart_x_at(index, pointCount, layout),
+      y: layout.height - 7,
+      label: labels[index] || `${index * 5} 分钟`,
+      anchor: position === 0 ? 'start' : (position === list.length - 1 ? 'end' : 'middle')
+    }));
+  return {
+    viewBox: `0 0 ${layout.width} ${layout.height}`,
+    plotLeft: layout.left,
+    plotRight: layout.width - layout.right,
+    grid,
+    xTicks,
+    boundaryY: Number.isFinite(boundary) ? chart_y_at(boundary, min, max, layout) : null,
+    series: branches.map((branch) => ({
+      ...branch,
+      points: chart_points(branch.values, min, max, layout)
+    }))
   };
 }
 
@@ -1075,6 +1121,89 @@ const app = createApp({
       plot_simulation_error.value = [...new Set(errors)].join('；');
       plot_simulation_loading.value = false;
     };
+
+    const risk_tool_plot_id = ref(plots.value[0]?.plotId || '');
+    const risk_tool_scenario = ref('DROUGHT');
+    const risk_tool_parameters = ref({ ...PLOT_SIMULATION_DEFAULTS.DROUGHT });
+    const risk_tool_comparison = ref(null);
+    const risk_tool_loading = ref(false);
+    const risk_tool_error = ref('');
+    const risk_tool_dirty = ref(true);
+    let risk_tool_request_version = 0;
+    const risk_tool_plot = computed(() => plots.value.find((plot) => plot.plotId === risk_tool_plot_id.value) || plots.value[0] || null);
+    const risk_tool_scenario_options = computed(() => PLOT_SIMULATION_SCENARIOS);
+    const risk_tool_parameter_meta = Object.freeze({
+      volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制环境扰动幅度' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 12, step: 1, help: '每个采样点代表的加速时间；默认按接近实时速度推进' },
+      temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
+      humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
+      rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '降雨场景平均强度' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
+      riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
+      waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
+      forecastHours: { label: '预测时长', unit: '小时', min: 1, max: 12, step: 1, help: '双轨曲线的时间范围' }
+    });
+    const risk_tool_fields = computed(() => {
+      const common = ['volatility', 'timeScale', 'riskThreshold', 'forecastHours'];
+      const extra = risk_tool_scenario.value === 'DROUGHT'
+        ? ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour']
+        : risk_tool_scenario.value === 'HEAVY_RAIN'
+          ? ['rainfallRate', 'temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour', 'waterloggingThreshold']
+          : risk_tool_scenario.value === 'SENSOR_DRIFT'
+            ? ['driftRatePerHour', 'soilMoistureTrendPerHour']
+            : risk_tool_scenario.value === 'DEVICE_OFFLINE' ? ['offlineRatio'] : ['temperatureBias', 'humidityBias', 'soilMoistureTrendPerHour'];
+      return [...new Set([...common, ...extra])].map((key) => ({ key, ...risk_tool_parameter_meta[key] }));
+    });
+    const risk_tool_chart = computed(() => dual_track_chart(risk_tool_comparison.value));
+    const select_risk_tool_scenario = (code) => {
+      const normalized = String(code || 'DROUGHT').toUpperCase();
+      risk_tool_scenario.value = risk_tool_scenario_options.value.some((item) => item.code === normalized) ? normalized : 'DROUGHT';
+      risk_tool_parameters.value = { ...(PLOT_SIMULATION_DEFAULTS[risk_tool_scenario.value] || PLOT_SIMULATION_DEFAULTS.DROUGHT) };
+      risk_tool_dirty.value = true;
+      risk_tool_comparison.value = null;
+    };
+    const run_risk_tool = async () => {
+      const plot = risk_tool_plot.value;
+      if (!plot?.plotId || risk_tool_loading.value) return;
+      const requestVersion = ++risk_tool_request_version;
+      risk_tool_loading.value = true;
+      risk_tool_error.value = '';
+      try {
+        const comparison = await api.compareScenario({
+          plotId: plot.plotId,
+          scenario: risk_tool_scenario.value,
+          seed: 42,
+          scenarioId: `farmer-tool-${risk_tool_scenario.value.toLowerCase()}-${plot.plotId}`,
+          parameters: { ...risk_tool_parameters.value }
+        });
+        if (requestVersion !== risk_tool_request_version) return;
+        risk_tool_comparison.value = comparison;
+        if (String(comparison?.status || '').toUpperCase() !== 'AVAILABLE') {
+          risk_tool_error.value = comparison?.reason || '当前样本或设备状态不满足预测条件';
+        }
+        risk_tool_dirty.value = false;
+      } catch (error) {
+        if (requestVersion === risk_tool_request_version) {
+          risk_tool_comparison.value = null;
+          risk_tool_error.value = error?.message || '风险预测暂不可用';
+        }
+      } finally {
+        if (requestVersion === risk_tool_request_version) risk_tool_loading.value = false;
+      }
+    };
+    const reset_risk_tool = () => {
+      select_risk_tool_scenario(risk_tool_scenario.value);
+      risk_tool_error.value = '';
+    };
+    const select_risk_tool_plot = (plotId) => {
+      risk_tool_plot_id.value = plotId;
+      risk_tool_comparison.value = null;
+      risk_tool_dirty.value = true;
+      risk_tool_error.value = '';
+    };
+
     const advice_selected_plot = ref(plots.value[0] || null);
     const advice_plot = computed(() => advice_selected_plot.value || plots.value[0] || null);
     const select_advice_plot = (plot_id) => {
@@ -1426,7 +1555,7 @@ const app = createApp({
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
         { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
-        { id: 'tools', label: '作物培养手册', icon: 'menu_book', is_footer: true }
+        { id: 'tools', label: '更多工具', icon: 'apps', is_footer: true }
       ];
     });
 
@@ -1837,6 +1966,11 @@ const app = createApp({
     });
     const crop_manual_stages = computed(() => (crop_manual_pack.value?.stages || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0)));
     const crop_manual_stage_item = computed(() => crop_manual_live.value?.stage || crop_manual_stages.value.find((stage) => stage.code === crop_manual_stage.value) || crop_manual_stages.value[0] || null);
+    const crop_manual_rules = computed(() => crop_manual_live.value?.rules || crop_manual_pack.value?.rules || []);
+    const crop_manual_documents = computed(() => {
+      const knowledge = crop_manual_live.value?.knowledge || crop_manual_pack.value?.knowledge || {};
+      return knowledge.documents || [];
+    });
     const crop_manual_metrics_list = computed(() => {
       if (crop_manual_live.value?.envMetrics?.length) return crop_manual_live.value.envMetrics;
       return crop_manual_pack.value && crop_manual_stage_item.value
@@ -1886,7 +2020,7 @@ const app = createApp({
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       current_view.value = next_view;
-      if (next_view === 'tools') tools_tab.value = 'manual';
+      if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
         const target = farmer_hash_for(next_view, tools_tab.value);
         if (window.location.hash !== target) {
@@ -1913,12 +2047,6 @@ const app = createApp({
     };
 
     const apply_farmer_hash = () => {
-      if (/^#?tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(window.location.hash)) {
-        window.history.replaceState(null, '', '#dashboard');
-        navigate('dashboard', { sync_hash: false });
-        tools_tab.value = 'manual';
-        return;
-      }
       const view = parse_farmer_hash();
       const tab = parse_tools_tab();
       if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value)) return;
@@ -3295,11 +3423,7 @@ const app = createApp({
         document.documentElement.style.colorScheme = 'dark';
       }
       // Keep the current farmer page across refresh / back-forward.
-      if (/^#?tools(?:\/risk|\?tab=risk)(?:[?&#/]|$)/i.test(window.location.hash)) {
-        window.history.replaceState(null, '', '#dashboard');
-        current_view.value = 'dashboard';
-        tools_tab.value = 'manual';
-      } else if (!window.location.hash) {
+      if (!window.location.hash) {
         window.history.replaceState(null, '', farmer_hash_for(current_view.value, tools_tab.value));
       } else {
         apply_farmer_hash();
@@ -3323,7 +3447,8 @@ const app = createApp({
         void load_advice_decision(advice_plot.value.plotId);
       }
       if (current_view.value === 'tools') {
-        await load_crop_manual();
+        if (tools_tab.value === 'manual') await load_crop_manual();
+        else await run_risk_tool();
       }
       start_live_polling();
       bootstrap_loading.value = false;
@@ -3332,7 +3457,8 @@ const app = createApp({
 
     watch([current_view, tools_tab], () => {
       if (current_view.value !== 'tools') return;
-      load_crop_manual();
+      if (tools_tab.value === 'manual') load_crop_manual();
+      else if (risk_tool_dirty.value) void run_risk_tool();
     });
 
     watch([crop_manual_code, crop_manual_stage], () => {
@@ -3344,6 +3470,14 @@ const app = createApp({
       plot_stage_preview.value = plot?.stageCode || crop_stage_for(plot)?.code || '';
       void load_plot_simulation(plot?.plotId);
     });
+
+    watch(plots, (nextPlots) => {
+      if (!nextPlots.some((plot) => plot.plotId === risk_tool_plot_id.value)) {
+        risk_tool_plot_id.value = nextPlots[0]?.plotId || '';
+        risk_tool_comparison.value = null;
+        risk_tool_dirty.value = true;
+      }
+    }, { deep: true });
 
     watch(advice_selected_plot, (plot, previous) => {
       if (!plot?.plotId || plot.plotId === previous?.plotId) return;
@@ -3406,6 +3540,21 @@ const app = createApp({
       plot_simulation_device_status,
       plot_simulation_chart,
       load_plot_simulation,
+      risk_tool_plot_id,
+      risk_tool_plot,
+      risk_tool_scenario,
+      risk_tool_parameters,
+      risk_tool_comparison,
+      risk_tool_loading,
+      risk_tool_error,
+      risk_tool_dirty,
+      risk_tool_scenario_options,
+      risk_tool_fields,
+      risk_tool_chart,
+      select_risk_tool_plot,
+      select_risk_tool_scenario,
+      run_risk_tool,
+      reset_risk_tool,
       advice_plot,
       advice_selected_plot,
       select_advice_plot,
@@ -3466,6 +3615,8 @@ const app = createApp({
       crop_manual_pack,
       crop_manual_stages,
       crop_manual_stage_item,
+      crop_manual_rules,
+      crop_manual_documents,
       crop_manual_metrics_list,
       crop_manual_guide_list,
       crop_manual_error,

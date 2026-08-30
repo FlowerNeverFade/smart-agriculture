@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { metricLabel } from '../js/live-data.js';
+import { MOCK_DATA } from '../js/mock-data.js';
 import { canExecuteIrrigation, roleCan } from '../js/roles.js';
 
 const storage = new Map();
@@ -64,7 +65,7 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(passport.evaluations.at(-1).commandId, firstCommand.commandId);
 });
 
-test('farmer page keeps P0 evidence and execution surfaces after retiring the standalone risk tool', async () => {
+test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
   const [html, source] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
@@ -72,7 +73,10 @@ test('farmer page keeps P0 evidence and execution surfaces after retiring the st
   for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功', '地块模拟策略', '策略预测曲线', '策略由管理员维护']) {
     assert.match(html, new RegExp(marker));
   }
-  assert.doesNotMatch(html, /tools_tab === 'risk'|只读双轨试算/);
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '生成双轨预测', 'risk_tool_parameters']) {
+    assert.match(html + source, new RegExp(marker));
+  }
+  assert.match(source, /compareScenario/);
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
@@ -91,6 +95,19 @@ test('farmer can read plot simulation strategy and forecast curve', async () => 
   assert.ok(strategy.scenario);
   assert.ok(Array.isArray(strategy.scenarioCatalog) && strategy.scenarioCatalog.length >= 4);
   assert.ok(Array.isArray(forecast.curve) && forecast.curve.length > 1);
+  const comparison = await service.compareScenario({
+    plotId: 'plot-a01',
+    scenario: 'DROUGHT',
+    seed: 42,
+    parameters: { soilMoistureTrendPerHour: -8 }
+  });
+  assert.equal(comparison.parameters.soilMoistureTrendPerHour, -8);
+  assert.ok(comparison.branches.EXECUTE.points.length > 10);
+  const manuals = await service.getCropManuals();
+  assert.deepEqual(
+    manuals.map((item) => item.cropCode).sort(),
+    MOCK_DATA.cropPackDetails.map((item) => item.cropCode).sort()
+  );
 });
 
 test('farmer plot cards hide soil EC charts and localize metric codes', async () => {

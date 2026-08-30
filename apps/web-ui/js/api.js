@@ -13,11 +13,11 @@ const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', 
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 
 export const PLOT_SIMULATION_DEFAULTS = Object.freeze({
-  NORMAL: { volatility: 1.25, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  DROUGHT: { volatility: 1.75, timeScale: 60, temperatureBias: 7, humidityBias: -20, rainfallRate: 0, soilMoistureTrendPerHour: -3.6, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  HEAVY_RAIN: { volatility: 1.9, timeScale: 60, temperatureBias: -4.5, humidityBias: 20, rainfallRate: 32, soilMoistureTrendPerHour: 7.2, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  SENSOR_DRIFT: { volatility: 1.45, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 2.4, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
-  DEVICE_OFFLINE: { volatility: 1.3, timeScale: 60, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: .55, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 }
+  NORMAL: { volatility: 1.25, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  DROUGHT: { volatility: 1.75, timeScale: 1, temperatureBias: 7, humidityBias: -20, rainfallRate: 0, soilMoistureTrendPerHour: -3.6, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  HEAVY_RAIN: { volatility: 1.9, timeScale: 1, temperatureBias: -4.5, humidityBias: 20, rainfallRate: 32, soilMoistureTrendPerHour: 7.2, driftRatePerHour: 0, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+  SENSOR_DRIFT: { volatility: 1.45, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 2.4, offlineRatio: 0, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 },
+    DEVICE_OFFLINE: { volatility: 1.3, timeScale: 1, temperatureBias: 0, humidityBias: 0, rainfallRate: .2, soilMoistureTrendPerHour: -.18, driftRatePerHour: 0, offlineRatio: .55, riskThreshold: 20, waterloggingThreshold: 82, forecastHours: 4 }
 });
 
 export const PLOT_SIMULATION_SCENARIOS = Object.freeze([
@@ -29,7 +29,7 @@ export const PLOT_SIMULATION_SCENARIOS = Object.freeze([
 ]);
 
 const PLOT_SIMULATION_LIMITS = Object.freeze({
-  volatility: [.2, 3], timeScale: [1, 180], temperatureBias: [-15, 15], humidityBias: [-40, 40],
+  volatility: [.2, 3], timeScale: [1, 12], temperatureBias: [-15, 15], humidityBias: [-40, 40],
   rainfallRate: [0, 120], soilMoistureTrendPerHour: [-12, 12], driftRatePerHour: [0, 10],
   offlineRatio: [0, 1], riskThreshold: [1, 99], waterloggingThreshold: [40, 99], forecastHours: [1, 12]
 });
@@ -702,7 +702,7 @@ export class ApiService {
       ...current,
       scenarioCatalog: PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description, defaultParameters: cloneSimulationParameters(item.code) })),
       parameterLimits: {
-        volatility: { min: .2, max: 3 }, timeScale: { min: 1, max: 180 }, temperatureBias: { min: -15, max: 15 },
+        volatility: { min: .2, max: 3 }, timeScale: { min: 1, max: 12 }, temperatureBias: { min: -15, max: 15 },
         humidityBias: { min: -40, max: 40 }, rainfallRate: { min: 0, max: 120 }, soilMoistureTrendPerHour: { min: -12, max: 12 },
         driftRatePerHour: { min: 0, max: 10 }, offlineRatio: { min: 0, max: 1 }, riskThreshold: { min: 1, max: 99 },
         waterloggingThreshold: { min: 40, max: 99 }, forecastHours: { min: 1, max: 12 }
@@ -1833,8 +1833,8 @@ export class ApiService {
       agentVersion: 'rules-agent-1.0',
       what: 'IRRIGATION',
       where: plotId,
-      when: { start: new Date(now + 5 * 60000).toISOString(), end: new Date(now + 35 * 60000).toISOString() },
-      recommendedWindow: { start: new Date(now + 5 * 60000).toISOString(), end: new Date(now + 35 * 60000).toISOString() },
+      when: { start: new Date(now + 2 * 60000).toISOString(), end: new Date(now + 12 * 60000).toISOString() },
+      recommendedWindow: { start: new Date(now + 2 * 60000).toISOString(), end: new Date(now + 12 * 60000).toISOString() },
       howMuch: { durationSeconds, waterLitre },
       durationSeconds,
       waterLitre,
@@ -2478,31 +2478,43 @@ export class ApiService {
     return { scenarioId: `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, runStatus: 'COMPLETED', curve, horizons: curve.filter((item) => [60, 120, 240].includes(item.minute)), frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString(), snapshotLabel: '冻结快照（只读，不写回主状态）' }, params: def, provenance: 'SIMULATED' };
   }
 
-  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '' } = {}) {
+  async compareScenario({ scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', scenarioId = '', parameters = {} } = {}) {
     const normalizedScenario = normalizePlotSimulationScenario(scenario);
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, seed, plotId, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
+      const resp = await this._fetch('/api/v1/scenarios/compare', { method: 'POST', body: JSON.stringify({ scenarioId: scenarioId || `${normalizedScenario.toLowerCase()}-${seed}`, scenario: normalizedScenario, seed, plotId, parameters, leftBranch: 'EXECUTE', rightBranch: 'NO_ACTION' }) });
       const server = resp?.data || resp;
       return { ...(server || {}), scenario: normalizedScenario, seed, plotId, dataOrigin: 'BACKEND', provenance: 'BACKEND' };
     }
-    return this.mockScenarioCompare(normalizedScenario === 'HEAVY_RAIN' ? 'STORM' : normalizedScenario, seed, plotId);
+    return this.mockScenarioCompare(normalizedScenario === 'HEAVY_RAIN' ? 'STORM' : normalizedScenario, seed, plotId, parameters);
   }
 
-  mockScenarioCompare(scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01') {
+  mockScenarioCompare(scenario = 'DROUGHT', seed = 42, plotId = 'plot-a01', suppliedParameters = {}) {
     const cfg = MOCK_DATA.riskForecastConfig;
-    const def = cfg.scenarioCatalog.find(s => s.code === String(scenario).toUpperCase()) || cfg.scenarioCatalog[0];
+    const normalizedInput = String(scenario).toUpperCase();
+    const def = cfg.scenarioCatalog.find(s => s.code === normalizedInput)
+      || PLOT_SIMULATION_SCENARIOS.find(s => s.code === normalizedInput)
+      || cfg.scenarioCatalog[0];
     const plot = this.mockPlot(plotId);
     const start = Number(plot.metrics.SOIL_MOISTURE.value || 25);
     if (def.code === 'OFFLINE') return { status: 'UNAVAILABLE', scenarioId: `offline-${seed}`, seed, plotId, reason: '设备断网离线，遥测样本不足：拒绝生成可执行处方', provenance: 'SIMULATED' };
+    const normalizedScenario = def.code === 'STORM' ? 'HEAVY_RAIN' : (def.code === 'OFFLINE' ? 'DEVICE_OFFLINE' : def.code);
+    const parameters = cloneSimulationParameters(normalizedScenario, suppliedParameters);
     const rnd = mulberry32(Number(seed) || 42);
     const kFactor = 0.9 + rnd() * 0.2;
     const jumpBoost = 11.8 + rnd() * 2.8;
-    const rainBoost = (def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
-    const driftRate = (def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
+    const rainBoost = (parameters.rainfallRate || def.rainBoostPct || 0) * (0.8 + rnd() * 0.4);
+    const driftRate = (parameters.driftRatePerHour || def.driftRatePerHour || 0) * (0.9 + rnd() * 0.2);
     const decayK = 0.03 + rnd() * 0.012;
-    const trend = def.code === 'DROUGHT' ? -3.6 : def.code === 'SENSOR_DRIFT' ? -0.18 : 0;
+    const configuredTrend = Number(parameters.soilMoistureTrendPerHour || (def.code === 'DROUGHT' ? -3.6 : def.code === 'SENSOR_DRIFT' ? -0.18 : 0));
+    const temperatureBias = Number(parameters.temperatureBias || 0);
+    const humidityBias = Number(parameters.humidityBias || 0);
+    const trend = configuredTrend - temperatureBias * (temperatureBias >= 0 ? .08 : .03) + humidityBias * .02;
     const rainPeak = def.code === 'STORM' ? Math.min(18, Math.max(4, rainBoost * 2.4)) : 0;
-    const build = (execute) => Array.from({ length: 49 }, (_, i) => {
+    const boundary = def.code === 'STORM'
+      ? Number(parameters.waterloggingThreshold || cfg.stressBoundary)
+      : Number(parameters.riskThreshold || cfg.stressBoundary);
+    const horizonMinutes = Math.max(5, Math.round(Number(parameters.forecastHours || 4) * 60));
+    const build = (execute) => Array.from({ length: Math.floor(horizonMinutes / 5) + 1 }, (_, i) => {
       const t = i * 5;
       const hours = t / 60;
       let value;
@@ -2537,8 +2549,9 @@ export class ApiService {
     const noActionLabel = def.code === 'STORM' ? '分支 B · 暴雨不干预' : def.code === 'SENSOR_DRIFT' ? '分支 B · 读数漂移' : def.code === 'DROUGHT' ? '分支 B · 干旱不干预' : '分支 B · 不干预';
     const executeLabel = def.code === 'STORM' ? '分支 A · 执行处方（排水）' : def.code === 'SENSOR_DRIFT' ? '分支 A · 复测校准' : '分支 A · 执行处方';
     return {
-      status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: def.code, scenarioLabel: def.label, seed, plotId,
-      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: cfg.stressBoundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      status: 'AVAILABLE', scenarioId: `${def.code.toLowerCase()}-${seed}`, scenario: normalizedScenario, scenarioLabel: def.label, seed, plotId,
+      frozenSnapshot: { plotId, plotName: plot.name, startMoisture: start, capturedAt: new Date().toISOString() }, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, execMinute: 30,
+      parameters,
       seedParams: { evapotranspirationFactor: Number(kFactor.toFixed(3)), irrigationBoostPct: Number(jumpBoost.toFixed(1)), rainBoostPct: Number(rainBoost.toFixed(1)), driftRatePerHour: Number(driftRate.toFixed(2)) },
       markers: [{ minute: 0, label: '冻结快照' }, { minute: 30, label: def.code === 'SENSOR_DRIFT' ? '复测校准' : def.code === 'STORM' ? '启动排水' : `虚拟补水 ≈${jumpBoost.toFixed(1)}%` }],
       branches: { EXECUTE: { label: executeLabel, points: build(true), color: '#3fb950' }, NO_ACTION: { label: noActionLabel, points: build(false), color: '#f85149' } },
