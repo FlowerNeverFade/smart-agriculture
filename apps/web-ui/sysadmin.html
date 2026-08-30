@@ -341,7 +341,7 @@
       <section class="admin-plot-landscape">
         <div class="admin-section-head">
           <div>
-            <div class="admin-section-title"><app-icon name="grid_view"></app-icon> 全局地块态势</div>
+            <div class="admin-section-title"><app-icon name="grid_view"></app-icon> 地块态势</div>
             <div class="admin-section-caption">跨农场查看作物、环境指标与设备健康</div>
           </div>
           <div class="admin-landscape-actions">
@@ -371,11 +371,11 @@
           <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
-              <span class="admin-plot-id">{{ plot.id }}</span>
+              <span class="admin-plot-id">{{ plot.name }}</span>
               <span class="admin-plot-updated">{{ plot.updated }}</span>
             </div>
             <div class="admin-plot-crop">{{ plot.crop }}</div>
-            <div class="admin-plot-farm">{{ plot.farm }}</div>
+            <div class="admin-plot-farm">{{ plot.farm }} {{ plot.id }}</div>
             <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) }}%</strong><b><i :style="{width: healthPercent(plot) + '%'}"></i></b></div>
             <div class="admin-plot-metrics">
               <template v-for="metric in telemetryMetrics" :key="metric.code">
@@ -950,6 +950,130 @@
 
       <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
     </section>
+  </template>
+
+  <!-- ADMIN: Agent -->
+  <template id="tmpl-admin-agent">
+    <div class="admin-agent-workspace">
+      <div class="admin-agent-page-header">
+        <div>
+          <div class="admin-agent-title-row">
+            <span class="admin-agent-title-icon"><app-icon name="smart_toy"></app-icon></span>
+            <div>
+              <h2>Agent</h2>
+              <p class="role-summary">面向平台排查与审计的智能助手：可查询全局地块、诊断根因、风险预测与规则版本，回答附带证据与工具审计。</p>
+            </div>
+          </div>
+        </div>
+        <div class="admin-agent-toolbar">
+          <span class="admin-agent-service-status" :class="assistant_service_tone" role="status">
+            <span class="admin-agent-status-dot"></span>{{ assistant_service_label }}
+          </span>
+          <label class="admin-agent-plot-picker">
+            <span>地块</span>
+            <select v-if="agentPlots.length" v-model="assistant_plot_id" :disabled="assistant_busy" aria-label="关联地块">
+              <option v-for="plot in agentPlots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}（{{ plot.farm }}）</option>
+            </select>
+            <span v-else>暂无地块</span>
+          </label>
+          <button type="button" class="g-btn secondary" @click="assistant_drawer_open = true" aria-label="打开历史对话">
+            <app-icon name="history"></app-icon>历史对话
+            <span v-if="assistant_conversations.length" class="admin-agent-toolbar-count">{{ assistant_conversations.length }}</span>
+          </button>
+          <button type="button" class="g-btn primary" @click="start_assistant_conversation">
+            <app-icon name="add_task"></app-icon>新对话
+          </button>
+        </div>
+      </div>
+
+      <div class="admin-agent-shell">
+        <div class="admin-agent-chat-card">
+          <div v-if="assistant_error" class="admin-agent-inline-error" role="alert">
+            <app-icon name="cloud_off"></app-icon><span>{{ assistant_error }}</span>
+          </div>
+
+          <div ref="assistant_message_list" class="admin-agent-message-list" aria-live="polite">
+            <div v-if="!assistant_messages.length && !assistant_busy" class="admin-agent-empty-state">
+              <span class="admin-agent-empty-icon"><app-icon name="smart_toy"></app-icon></span>
+              <h3>需要排查什么？</h3>
+              <p>我会结合后端遥测与规则给出分析；涉及依据的回答会附证据与工具审计。</p>
+              <div class="admin-agent-shortcuts">
+                <button v-for="shortcut in assistant_shortcuts" :key="shortcut.label" type="button" @click="ask_assistant_shortcut(shortcut.question)">
+                  <app-icon :name="shortcut.icon"></app-icon><span>{{ shortcut.label }}</span><app-icon name="arrow_forward"></app-icon>
+                </button>
+              </div>
+            </div>
+
+            <article v-for="message in assistant_messages" :key="message.id" class="admin-agent-message" :class="'is-' + message.role">
+              <div v-if="message.role === 'user'" class="admin-agent-user-bubble">{{ message.content }}</div>
+              <div v-else class="admin-agent-assistant-block">
+                <div class="admin-agent-message-meta">
+                  <span class="admin-agent-avatar"><app-icon name="smart_toy"></app-icon></span>
+                  <strong>Agent</strong>
+                  <span class="g-badge" :class="message.degraded ? 'warning' : 'success'">{{ message.sourceLabel || assistant_source_label }}</span>
+                  <span v-if="message.intentLabel" class="admin-agent-intent">{{ message.intentLabel }}</span>
+                </div>
+                <div class="admin-agent-answer">{{ message.content }}</div>
+                <div v-if="message.actionProposal" class="admin-agent-action-card" :class="'status-' + assistant_action_tone(message.actionProposal)">
+                  <div class="admin-agent-action-header">
+                    <div class="admin-agent-action-heading"><span class="admin-agent-action-icon"><app-icon name="verified_user"></app-icon></span><div><strong>操作预览</strong><small>{{ assistant_action_status_label(message.actionProposal.status) }}</small></div></div>
+                    <span class="admin-agent-risk-chip" :class="'risk-' + String(message.actionProposal.riskLevel || 'LOW').toLowerCase()">{{ assistant_risk_label(message.actionProposal.riskLevel) }}</span>
+                  </div>
+                  <p class="admin-agent-action-summary">{{ message.actionProposal.summary }}</p>
+                  <dl class="admin-agent-action-facts">
+                    <div><dt>操作</dt><dd>{{ assistant_tool_label(message.actionProposal.toolName) }}</dd></div>
+                    <div><dt>参数</dt><dd>{{ assistant_action_arguments(message.actionProposal) }}</dd></div>
+                    <div><dt>来源</dt><dd>{{ assistant_source_label_for(message.actionProposal.sourceMode) }}</dd></div>
+                    <div><dt>有效期</dt><dd>{{ assistant_action_expiry_label(message.actionProposal) }}</dd></div>
+                  </dl>
+                  <p v-if="message.actionProposal.status === 'SUCCEEDED'" class="admin-agent-action-result is-success"><app-icon name="check_circle"></app-icon>已完成：{{ assistant_action_result(message.actionProposal) }}</p>
+                  <p v-if="['FAILED', 'PARTIAL', 'TIMEOUT'].includes(message.actionProposal.status)" class="admin-agent-action-result is-error"><app-icon name="error"></app-icon>{{ assistant_action_result(message.actionProposal) }}</p>
+                  <p v-if="['CANCELED', 'EXPIRED'].includes(message.actionProposal.status)" class="admin-agent-action-result is-muted"><app-icon name="schedule"></app-icon>{{ assistant_action_status_label(message.actionProposal.status) }}</p>
+                </div>
+                <button v-if="message.turn || message.audit" type="button" class="admin-agent-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggle_assistant_details(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? '收起依据与执行记录' : '查看依据与执行记录' }}</button>
+                <div v-if="message.detailsOpen" class="admin-agent-details">
+                  <div class="admin-agent-detail-grid">
+                    <span v-if="message.turn?.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span>
+                    <span v-if="message.turn?.traceId"><small>traceId</small><code>{{ message.turn.traceId }}</code></span>
+                    <span v-if="message.turn?.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span>
+                    <span v-if="message.turn?.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示规则' }}</strong></span>
+                  </div>
+                  <div v-if="message.turn?.evidence && message.turn.evidence.length" class="admin-agent-evidence">
+                    <strong>回答依据 · 知识证据与工具审计</strong>
+                    <ul><li v-for="item in message.turn.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small></li></ul>
+                  </div>
+                  <div v-if="message.audit" class="admin-agent-audit">
+                    <strong>工具调用记录</strong>
+                    <article v-for="(item, index) in (message.audit.tools || message.audit.calls || [])" :key="item.name || item.tool || index"><b>{{ item.name || item.tool }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><small>已校验 · {{ item.durationMs ?? '—' }} ms</small></article>
+                    <small v-if="message.actionProposal">操作版本：{{ message.actionProposal.traceId || message.turn?.traceId || '—' }}</small>
+                  </div>
+                </div>
+              </div>
+            </article>
+            <div v-if="assistant_busy" class="admin-agent-typing" aria-label="正在分析"><span></span><span></span><span></span><small>正在分析…</small></div>
+          </div>
+
+          <form class="admin-agent-composer" @submit.prevent="send_assistant_message">
+            <textarea v-model="assistant_input" rows="1" :disabled="assistant_busy" placeholder="查询平台状态、诊断根因、风险预测或规则版本…" aria-label="Agent 输入框" @keydown="assistant_keydown"></textarea>
+            <button type="submit" class="admin-agent-send-button" :disabled="assistant_busy || !assistant_input.trim()" :aria-busy="assistant_busy ? 'true' : 'false'"><span v-if="assistant_busy" class="material-symbols-outlined admin-btn-spin">progress_activity</span><app-icon v-else name="send"></app-icon></button>
+            <small>Enter 发送 · Shift+Enter 换行</small>
+          </form>
+        </div>
+      </div>
+
+      <div v-if="assistant_drawer_open" class="admin-agent-drawer-backdrop" @click.self="assistant_drawer_open = false">
+        <aside class="admin-agent-history-drawer" aria-label="历史对话">
+          <header><div><strong>历史对话</strong><small>只显示本账号的对话</small></div><button type="button" class="g-btn icon-only" aria-label="关闭历史对话" @click="assistant_drawer_open = false"><app-icon name="close"></app-icon></button></header>
+          <div v-if="assistant_conversations.length" class="admin-agent-history-list">
+            <button v-for="conversation in assistant_conversations" :key="conversation.conversationId" type="button" class="admin-agent-history-item" :class="{ active: conversation.conversationId === assistant_conversation_id }" @click="select_assistant_conversation(conversation.conversationId)">
+              <span class="admin-agent-history-icon"><app-icon name="forum"></app-icon></span><span><strong>{{ conversation.title || '我的 Agent 对话' }}</strong><small>{{ agent_conversation_plot_label(conversation) }} · {{ agent_conversation_time(conversation) }}</small><small>{{ conversation.messageCount || 0 }} 条消息</small></span>
+            </button>
+          </div>
+          <div v-else class="admin-agent-history-empty"><app-icon name="history"></app-icon><p>还没有历史对话</p><small>发送第一条消息后会自动保存。</small></div>
+          <footer><button type="button" class="g-btn primary" @click="start_assistant_conversation"><app-icon name="add_task"></app-icon>开始新对话</button></footer>
+        </aside>
+      </div>
+    </div>
   </template>
 
   <!-- ADMIN: System Settings -->

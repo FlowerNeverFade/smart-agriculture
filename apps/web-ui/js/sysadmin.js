@@ -39,6 +39,7 @@ import {
   serviceNameLabel,
   serviceStatusLabel,
   modeLabel,
+  normalizeAgentTurn,
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
@@ -167,6 +168,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
+  { id: 'admin-agent', label: 'Agent', icon: 'smart_toy', labels: { SYSTEM_ADMIN: 'Agent' } },
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
@@ -1320,6 +1322,256 @@ const SettingsView = {
   }
 };
 
+
+const AdminAgentView = {
+  template: '#tmpl-admin-agent',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const isLiveSession = computed(() => props.state?.sessionMode === 'live');
+    const assistant_input = ref('');
+    const assistant_messages = ref([]);
+    const assistant_conversations = ref([]);
+    const assistant_conversation_id = ref('');
+    const assistant_drawer_open = ref(false);
+    const assistant_busy = ref(false);
+    const assistant_error = ref('');
+    const assistant_service_status = ref(isLiveSession.value ? 'CONNECTING' : 'DEMO');
+    const assistant_plot_id = ref('');
+    const assistant_message_list = ref(null);
+    const assistant_shortcuts = ref([
+      { label: '系统资源状态', question: '系统资源状态如何？', icon: 'monitoring' },
+      { label: '查询今日系统异常', question: '查询今日系统异常', icon: 'warning' },
+      { label: '最近的规则变更', question: '最近有哪些规则变更？', icon: 'rule_folder' },
+      { label: '全局地块风险概览', question: '当前所有地块的风险概览', icon: 'grid_view' }
+    ]);
+
+    // 系统管理员视角：可跨农场选择任意地块进行排查
+    const agentPlots = computed(() => {
+      const plots = props.state?.adminGlobalPlots || props.state?.allPlots || [];
+      return Array.isArray(plots) ? plots : [];
+    });
+    watch(agentPlots, (plots) => {
+      if (!assistant_plot_id.value && plots.length) assistant_plot_id.value = plots[0].plotId;
+    }, { immediate: true });
+
+    const assistant_create_conversation_id = () => {
+      const identity = String(props.state?.currentUser?.userId || props.state?.currentUser?.username || 'sysadmin')
+        .replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 42) || 'sysadmin';
+      return `conversation-${identity}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.slice(0, 116);
+    };
+    const assistant_service_label = computed(() => ({
+      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示规则'
+    }[assistant_service_status.value] || '服务状态未知'));
+    const assistant_service_tone = computed(() => assistant_service_status.value === 'DEGRADED' ? 'is-degraded' : assistant_service_status.value === 'DEMO' ? 'is-demo' : 'is-ready');
+    const assistant_source_label = computed(() => isLiveSession.value ? (assistant_service_status.value === 'DEGRADED' ? '规则降级回答' : '后端智能服务') : '演示规则');
+
+    const scrollToBottom = () => {
+      setTimeout(() => {
+        if (assistant_message_list.value) {
+          assistant_message_list.value.scrollTop = assistant_message_list.value.scrollHeight;
+        }
+      }, 50);
+    };
+
+    const find_agent_plot = (plotId) => agentPlots.value.find((p) => p.plotId === plotId) || null;
+
+    const send_assistant_message = async () => {
+      const question = assistant_input.value.trim();
+      if (!question || assistant_busy.value) return;
+      if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      const plot_id = assistant_plot_id.value || agentPlots.value[0]?.plotId || '';
+      const plot = find_agent_plot(plot_id);
+      assistant_messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: question, plotId: plot_id });
+      assistant_input.value = '';
+      assistant_busy.value = true;
+      assistant_error.value = '';
+      try {
+        const response = await api.agentChat(question, plot_id || undefined, assistant_conversation_id.value);
+        const turn = normalizeAgentTurn(response, question, { plot, sessionMode: isLiveSession.value ? 'live' : 'demo' });
+        const audit = await api.getAgentRun(response?.traceId || `demo-${Date.now()}`).catch(() => null);
+        assistant_messages.value.push({
+          id: `assistant-${response?.traceId || Date.now()}`,
+          role: 'assistant',
+          content: turn.answer,
+          sourceLabel: turn.sourceLabel,
+          degraded: turn.degraded,
+          intentLabel: turn.intentLabel,
+          turn,
+          actionProposal: turn.actionProposal || response?.actionProposal || null,
+          audit,
+          detailsOpen: false
+        });
+        assistant_service_status.value = turn.degraded ? 'DEGRADED' : (isLiveSession.value ? 'READY' : 'DEMO');
+        await load_assistant_conversations({ openRecent: false });
+      } catch (error) {
+        assistant_service_status.value = isLiveSession.value ? 'DEGRADED' : 'DEMO';
+        assistant_error.value = `Agent 暂不可用：${error.message || '后端服务错误'}`;
+      } finally {
+        assistant_busy.value = false;
+        scrollToBottom();
+      }
+    };
+
+    const ask_assistant_shortcut = (question) => {
+      assistant_input.value = question;
+      void send_assistant_message();
+    };
+
+    const assistant_keydown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        void send_assistant_message();
+      }
+    };
+
+    const toggle_assistant_details = (msg) => {
+      msg.detailsOpen = !msg.detailsOpen;
+    };
+
+    const start_assistant_conversation = () => {
+      assistant_conversation_id.value = assistant_create_conversation_id();
+      assistant_messages.value = [];
+      assistant_input.value = '';
+      assistant_error.value = '';
+      assistant_drawer_open.value = false;
+    };
+
+    const load_assistant_conversations = async ({ openRecent = true } = {}) => {
+      try {
+        assistant_service_status.value = isLiveSession.value ? 'CONNECTING' : 'DEMO';
+        const list = await api.getAgentConversations(20);
+        assistant_conversations.value = Array.isArray(list) ? list : [];
+        assistant_error.value = '';
+        assistant_service_status.value = isLiveSession.value ? 'READY' : 'DEMO';
+        if (openRecent && assistant_conversations.value.length && !assistant_messages.value.length) {
+          await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+        }
+        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      } catch (error) {
+        assistant_service_status.value = isLiveSession.value ? 'DEGRADED' : 'DEMO';
+        assistant_error.value = `历史对话暂不可用：${error.message || '服务异常'}`;
+        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
+      }
+    };
+
+    const assistant_history_message = (item, question) => {
+      const response = {
+        narrative: item.content,
+        summary: item.content,
+        intent: item.intent,
+        traceId: item.traceId,
+        adapter: item.adapter,
+        degraded: item.degraded,
+        knowledgeEvidence: item.knowledgeEvidence,
+        actionProposal: item.actionProposal
+      };
+      const plot = find_agent_plot(item.plotId || assistant_plot_id.value);
+      const turn = normalizeAgentTurn(response, question, { plot, sessionMode: isLiveSession.value ? 'live' : 'demo' });
+      return {
+        id: item.messageId || `assistant-${Date.now()}-${Math.random()}`,
+        role: 'assistant',
+        content: turn.answer,
+        sourceLabel: turn.sourceLabel,
+        degraded: turn.degraded,
+        intentLabel: turn.intentLabel,
+        turn,
+        actionProposal: turn.actionProposal || item.actionProposal || null,
+        detailsOpen: false
+      };
+    };
+
+    const select_assistant_conversation = async (conversationId) => {
+      if (!conversationId || assistant_busy.value) return;
+      assistant_busy.value = true;
+      assistant_error.value = '';
+      try {
+        const payload = await api.getAgentHistory(conversationId, 100);
+        const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+        const next = [];
+        let latestQuestion = '';
+        rawMessages.forEach((item) => {
+          const role = String(item?.role || '').toUpperCase();
+          if (role === 'USER') {
+            latestQuestion = item.content || '';
+            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: item.content || '', plotId: item.plotId || '' });
+          } else if (role === 'ASSISTANT') {
+            next.push(assistant_history_message(item, latestQuestion));
+          }
+        });
+        assistant_messages.value = next;
+        assistant_conversation_id.value = conversationId;
+        if (payload?.conversation?.plotId) assistant_plot_id.value = payload.conversation.plotId;
+        assistant_drawer_open.value = false;
+      } catch (error) {
+        assistant_error.value = error.message || '历史消息读取失败';
+      } finally {
+        assistant_busy.value = false;
+        scrollToBottom();
+      }
+    };
+
+    const assistant_tool_labels = Object.freeze({
+      create_plot: '新增地块',
+      update_plot: '更新地块',
+      set_plot_devices: '绑定设备',
+      create_and_assign_work_order: '创建并下发任务',
+      publish_alert_verification: '发布告警核查',
+      close_alert: '关闭告警',
+      create_inspection_record: '提交巡田记录',
+      create_evidence_request: '申请补证任务',
+      execute_virtual_irrigation: '执行虚拟灌溉',
+      transition_assigned_work_order: '更新任务状态'
+    });
+    const assistant_action_status_labels = Object.freeze({
+      AWAITING_CONFIRMATION: '待确认', EXECUTING: '执行中', SUCCEEDED: '已完成',
+      FAILED: '失败', PARTIAL: '部分完成', TIMEOUT: '超时', CANCELED: '已取消', EXPIRED: '已过期'
+    });
+    const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
+    const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
+    const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
+    const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
+    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
+    const assistant_action_arguments = (proposal) => {
+      const summary = proposal?.argumentSummary || proposal?.argumentsSummary || proposal?.parameterSummary;
+      if (summary) return summary;
+      const args = proposal?.arguments || {};
+      const entries = Object.entries(args).filter(([key]) => !['farmId'].includes(key));
+      return entries.slice(0, 3).map(([key, value]) => `${key}=${value}`).join(' · ') || '参数已校验';
+    };
+    const assistant_action_expiry_label = (proposal) => {
+      const expires = new Date(proposal?.expiresAt || 0);
+      if (!Number.isFinite(expires.getTime()) || expires.getTime() < Date.now()) return '已过期';
+      const minutes = Math.max(1, Math.ceil((expires.getTime() - Date.now()) / 60000));
+      return `${minutes} 分钟内有效`;
+    };
+    const assistant_action_result = (proposal) => {
+      const result = proposal?.result || {};
+      if (proposal?.error) return proposal.error;
+      if (result?.ack?.status) return `虚拟执行/模拟结果：${assistant_action_status_label(result.ack.status)}`;
+      if (result?.status) return result.status === 'SUCCEEDED' ? '已写入记录' : assistant_action_status_label(result.status);
+      return result?.message || '已完成本次受控操作';
+    };
+
+    const agent_conversation_plot_label = (conversation) => conversation.plotId || '全局';
+    const agent_conversation_time = (conversation) => conversation.updatedAt || conversation.createdAt || '';
+
+    onMounted(() => { void load_assistant_conversations({ openRecent: false }); });
+
+    return {
+      assistant_input, assistant_messages, assistant_conversations, assistant_conversation_id,
+      assistant_drawer_open, assistant_busy, assistant_error, assistant_service_status,
+      assistant_plot_id, assistant_message_list, assistant_shortcuts, agentPlots,
+      agent_conversation_plot_label, agent_conversation_time,
+      assistant_service_label, assistant_service_tone, assistant_source_label,
+      assistant_action_tone, assistant_action_status_label, assistant_risk_label,
+      assistant_tool_label, assistant_source_label_for, assistant_action_arguments,
+      assistant_action_expiry_label, assistant_action_result,
+      send_assistant_message, ask_assistant_shortcut, assistant_keydown, toggle_assistant_details,
+      start_assistant_conversation, load_assistant_conversations, select_assistant_conversation
+    };
+  }
+};
+
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
   props: ['state', 'routeParams'],
@@ -1550,6 +1802,7 @@ const app = createApp({
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
+    'admin-agent-view': AdminAgentView,
     'admin-settings-view': AdminSettingsView,
     'settings-view': SettingsView
   },
