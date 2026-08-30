@@ -1,11 +1,11 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260826-live-refresh';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260830-agent-history';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260828-agent-buttons';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-agent-assistant-history';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
@@ -139,7 +139,8 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI告警分析与智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
@@ -766,6 +767,7 @@ const DashboardView = {
       metricTone,
       metricVisualIcon,
       metricStatusIcon,
+      cropBackgroundFor,
       openPlotDetail,
       plotMenuId,
       plotSaving,
@@ -1432,34 +1434,20 @@ const DecisionConsoleView = {
 };
 
 const RoleAwareDecisionConsoleView = {
-  components: { AdminAlertCenter, AdminAiChat: AdminAiChatView, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
+  components: { AdminAlertCenter, AdminDecision: AdminDecisionView, LegacyDecisionConsole: DecisionConsoleView },
   props: ['state', 'routeParams'],
   emits: ['navigate', 'data-invalidated'],
   setup(props) {
-    const showChat = ref(Boolean(['diagnosis', 'chat'].includes(props.routeParams?.highlight) || ['diagnosis', 'chat'].includes(props.routeParams?.section)));
-    watch(() => props.routeParams?.highlight, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-    });
-    watch(() => props.routeParams?.section, (value) => {
-      if (['diagnosis', 'chat'].includes(value)) showChat.value = true;
-      if (value === 'alerts') showChat.value = false;
-    });
     const isFarmAdmin = computed(() => props.state.currentUser?.role === 'FARM_ADMIN');
     const isFarmer = computed(() => props.state.currentUser?.role === 'FARMER');
-    return { showChat, isFarmAdmin, isFarmer };
+    return { isFarmAdmin, isFarmer };
   },
   template: `
     <div class="role-decision-shell">
       <template v-if="isFarmAdmin">
-        <nav class="admin-decision-tabs" aria-label="AI 告警分析与对话功能切换">
-          <button class="g-btn" :class="{ active: !showChat }" :aria-pressed="!showChat" type="button" @click="showChat = false">告警智能处理</button>
-          <button class="g-btn" :class="{ active: showChat }" :aria-pressed="showChat" type="button" @click="showChat = true">AI 对话助手</button>
-        </nav>
-        <admin-alert-center v-if="!showChat" :state="state"
+        <admin-alert-center :state="state"
                             @navigate="(view, params) => $emit('navigate', view, params)"
                             @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-alert-center>
-        <admin-ai-chat v-else :state="state" :route-params="routeParams"
-                       @data-invalidated="payload => $emit('data-invalidated', payload)"></admin-ai-chat>
       </template>
       <admin-decision v-else-if="isFarmer" :state="state" :route-params="routeParams"
                       @navigate="(view, params) => $emit('navigate', view, params)"
@@ -2162,6 +2150,32 @@ const ValueLedgerView = {
   }
 };
 
+// Crop-specific photography used by the overview cards.  Keep this list
+// aligned with the crop selector: unknown/legacy values use a neutral farm
+// scene instead of borrowing a visually misleading crop image.
+const PLOT_CROP_BACKGROUNDS = Object.freeze({
+  tomato: new URL('../assets/crop-backgrounds/tomato.png', import.meta.url).href,
+  corn: new URL('../assets/crop-backgrounds/corn.png', import.meta.url).href,
+  cucumber: new URL('../assets/crop-backgrounds/cucumber.png', import.meta.url).href,
+  rice: new URL('../assets/crop-backgrounds/rice.png', import.meta.url).href,
+  sunflower: new URL('../assets/crop-backgrounds/sunflower.png', import.meta.url).href,
+  strawberry: new URL('../assets/crop-backgrounds/strawberry.png', import.meta.url).href
+});
+
+const cropBackgroundFor = (plot = {}) => {
+  const cropText = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''}`.trim().toLowerCase();
+  const aliases = [
+    ['tomato', ['tomato', '番茄']],
+    ['corn', ['corn', '玉米']],
+    ['cucumber', ['cucumber', '黄瓜']],
+    ['rice', ['rice', '水稻', '稻']],
+    ['sunflower', ['sunflower', '向日葵', '油葵']],
+    ['strawberry', ['strawberry', '草莓']]
+  ];
+  const match = aliases.find(([, names]) => names.some(name => cropText.includes(name)));
+  return PLOT_CROP_BACKGROUNDS[match?.[0]] || new URL('../assets/backgrounds/farm-day.png', import.meta.url).href;
+};
+
 // ---- SYSTEM ADMIN COMPONENTS ----
 
 const AdminOverviewView = {
@@ -2269,7 +2283,7 @@ const AdminOverviewView = {
       emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
     };
     return {
-      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, cropBackgroundFor,
       telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
       openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
       serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
@@ -2797,6 +2811,7 @@ const app = createApp({
     'dashboard-view': DashboardView,
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
+    'ai-assistant-view': AdminAiChatView,
     'work-orders-view': RoleAwareWorkOrdersView,
     'resource-coordination-view': AdminResourceCenterView,
     'farm-members-view': AdminMemberManagementView,
@@ -3486,7 +3501,12 @@ const app = createApp({
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
       }
       const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
-        ? legacyAdminTabTarget(route.view, route.params?.tab, route.params?.farmId || state.value.adminContext.farmId)
+        ? legacyAdminTabTarget(
+          route.view,
+          route.params?.tab || route.params?.section || route.params?.highlight,
+          route.params?.farmId || state.value.adminContext.farmId,
+          route.params
+        )
         : null;
       if (legacyTarget) {
         const targetHash = routeHash(legacyTarget.view, legacyTarget.params);

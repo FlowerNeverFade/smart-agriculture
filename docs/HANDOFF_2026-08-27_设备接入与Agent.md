@@ -19,6 +19,15 @@
 - SSH：`connect.westd.seetacloud.com:22602`
 - 服务器状态：已完成原地升级并通过公网验收；后续变更仍需先备份并保留回滚点。
 
+## 2026-08-30 追加：告警智能处理与独立 AI 助手
+
+- 农场管理员左侧导航已拆分为“告警智能处理”和独立“AI助手”；`ai-assistant` 仅加入 `FARM_ADMIN` 视图白名单，农户与系统管理员不会看到该入口。
+- `RoleAwareDecisionConsoleView` 不再包含 AI 对话 tab，告警组件只处理待审核、已下发、已关闭和全部进行中的告警业务。旧 `decision-console&section=chat`、`highlight=chat`、`tab=assistant` 地址会保留农场/地块上下文并跳转到 `ai-assistant`。
+- AI 助手读取正式接口 `GET /api/v1/agent/conversations?limit=20` 与 `GET /api/v1/agent/history?conversationId=&limit=60`；演示模式使用 `agriloop_agent_conversations:<actorId>` 本地存储，按账号隔离，最多保留 50 个会话、每个会话 60 条消息。新会话首条消息自动生成 36 字标题。
+- 回答 UI 固定分为“已知事实、分析判断、执行建议”。已知事实只从 Agent 的 `result/diagnosis/plan/tools/knowledgeEvidence` 等结构化响应投影；没有返回的指标不补造，规则降级会明确标注。
+- Agent 写操作预览、确认/取消、幂等和 `data-invalidated` 事实域刷新逻辑保持原合同；确认后仍通过 `plots/devices/workOrders/alerts/overview` 域刷新全平台。
+- 本轮只完成本地代码、测试与文档，未部署服务器、未操作真实 BearPi、未推送 GitHub。接手后先运行 Web 回归和 Vite 构建，再做管理员桌面/窄屏浏览器验收。
+
 ## 3. 本日完成内容
 
 ### 3.1 设备接入与安全开关

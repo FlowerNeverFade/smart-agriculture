@@ -230,6 +230,26 @@ paths:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
   /api/v1/agent/chat:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
+  /api/v1/agent/conversations:
+    get:
+      tags: [decision]
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；正式模式只返回当前账号拥有的 agent-conversation 记录。
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+      responses:
+        '200': {description: 会话摘要列表（conversationId、title、plotId、messageCount、updatedAt）}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/agent/history:
+    get:
+      tags: [decision]
+      description: 读取当前 JWT 账号指定会话的最近消息；会话归属由服务端校验，越权读取返回 403。
+      parameters:
+        - {name: conversationId, in: query, schema: {type: string, maxLength: 120}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 40}}
+      responses:
+        '200': {description: conversation 摘要及 USER/ASSISTANT 消息列表}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/actions/{actionId}/confirm:
     post: {tags: [decision], description: 管理员确认 10 分钟内的 Agent 操作预览；服务端重新校验权限、范围和幂等键后执行白名单工具, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
   /api/v1/agent/actions/{actionId}/cancel:

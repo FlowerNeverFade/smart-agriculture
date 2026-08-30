@@ -93,13 +93,13 @@ test('后端百分制可信度会归一化，服务不可用时不能自动下�
   assert.ok(unavailable.score < 0.5);
 });
 
-test('告警页面保留 main 卡片详情结构并提供新的批量入口', () => {
-  assert.match(AdminAlertCenter.template, /AI告警分析与智能处理/);
+test('告警页面保留卡片详情结构并提供新的批量入口', () => {
+  assert.match(AdminAlertCenter.template, /告警智能处理/);
   assert.match(AdminAlertCenter.template, /全选当前列表/);
   assert.match(AdminAlertCenter.template, /一键关闭告警/);
   assert.match(AdminAlertCenter.template, /AI智能处理/);
   assert.match(AdminAlertCenter.template, /一键发布核查任务/);
-  assert.match(AdminAlertCenter.template, /全部未关闭/);
+  assert.match(AdminAlertCenter.template, /全部进行中/);
   assert.match(AdminAlertCenter.template, /admin-alert-card-footer/);
   assert.match(AdminAlertCenter.template, /admin-alert-detail/);
   assert.doesNotMatch(AdminAlertCenter.template, /确认收到|升级处理|转成任务|一键下发任务/);
@@ -116,17 +116,22 @@ test('演示告警覆盖自动下发和多种人工审核场景', () => {
   assert.ok(activeAlerts.some(alert => alert.diagnosisScenario === 'device-offline'));
 });
 
-test('管理员入口使用新名称且 AI 对话正文字号不小于 16px', () => {
+test('管理员入口拆分告警与 AI 助手，且对话正文字号不小于 16px', () => {
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   const chatSource = readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8');
   const chatCss = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
-  assert.match(appSource, /FARM_ADMIN: 'AI告警分析与智能处理'/);
+  assert.match(appSource, /FARM_ADMIN: '告警智能处理'/);
+  assert.match(appSource, /id: 'ai-assistant'/);
   assert.doesNotMatch(appSource, /FARM_ADMIN: 'AI 告警处置'/);
   assert.match(chatCss, /\.admin-ai-bubble p\s*\{[^}]*font-size:\s*16px/s);
-  assert.match(chatCss, /grid-template-rows:\s*auto minmax\(260px, 1fr\) auto/);
+  assert.match(chatCss, /grid-template-columns:\s*240px minmax\(0, 1fr\)/);
   assert.match(chatSource, /admin-ai-empty-state[\s\S]*admin-ai-suggestions[\s\S]*admin-ai-compose-area[\s\S]*admin-ai-composer/);
   assert.match(chatCss, /\.admin-ai-suggestions\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
   assert.match(chatCss, /\.admin-ai-composer\s*\{[^}]*border-radius:\s*24px/s);
+  assert.match(chatSource, /历史对话/);
+  assert.match(chatSource, /已知事实/);
+  assert.match(chatSource, /分析判断/);
+  assert.match(chatSource, /执行建议/);
   assert.doesNotMatch(chatSource, /<h2/);
 });
 

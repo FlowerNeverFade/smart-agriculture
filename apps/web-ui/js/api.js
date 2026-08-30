@@ -1520,17 +1520,69 @@ export class ApiService {
 
   async getAgentHistory(conversationId = '', limit = 40) {
     if (this.sessionMode !== 'live') {
-      const userId = this.user?.userId || this.user?.username || 'demo';
-      return {
-        conversation: { conversationId: `conversation-${userId}`, title: '我的农智对话', messageCount: 0 },
-        messages: []
-      };
+      const conversations = this._readDemoAgentConversations();
+      const resolvedId = conversationId || conversations[0]?.conversationId || `conversation-${this._demoActorId()}`;
+      const conversation = conversations.find(item => item.conversationId === resolvedId)
+        || { conversationId: resolvedId, title: '新对话', messageCount: 0, plotId: null, messages: [] };
+      const messages = Array.isArray(conversation.messages) ? conversation.messages.slice(-Math.max(1, Math.min(Number(limit) || 40, 100))) : [];
+      return { conversation: { ...conversation, messages: undefined }, messages };
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
     if (conversationId) params.set('conversationId', conversationId);
     const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
     if (resp?.data) return resp.data;
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
+  }
+
+  async getAgentConversations(limit = 20) {
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 20, 50));
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations?limit=${boundedLimit}`);
+      const raw = resp?.data || resp;
+      if (Array.isArray(raw)) return raw;
+      throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
+    }
+    return this._readDemoAgentConversations().slice(0, boundedLimit).map(({ messages, ...conversation }) => conversation);
+  }
+
+  _demoAgentConversationStorageKey() {
+    return `agriloop_agent_conversations:${this._demoActorId()}`;
+  }
+
+  _readDemoAgentConversations() {
+    try {
+      const raw = localStorage.getItem(this._demoAgentConversationStorageKey());
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter(item => item?.conversationId).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))) : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  /** Persist a simulated Agent turn so offline preview has the same session UX as live mode. */
+  persistDemoAgentTurn({ conversationId, plotId = '', userMessage = '', assistantResponse = {} } = {}) {
+    if (this.sessionMode === 'live' || !conversationId) return null;
+    const now = new Date().toISOString();
+    const conversations = this._readDemoAgentConversations();
+    const existing = conversations.find(item => item.conversationId === conversationId);
+    const userText = String(userMessage || '').trim();
+    const assistantText = String(assistantResponse?.narrative || assistantResponse?.summary || assistantResponse?.message || '').trim();
+    const userEntry = { messageId: `demo-msg-${Date.now()}-u`, conversationId, role: 'USER', content: userText, plotId, createdAt: now };
+    const assistantEntry = {
+      messageId: assistantResponse?.traceId || `demo-msg-${Date.now()}-a`, conversationId, role: 'ASSISTANT', content: assistantText,
+      plotId, createdAt: new Date(Date.now() + 1).toISOString(), sourceLabel: assistantResponse?.sourceLabel || '',
+      actionProposal: assistantResponse?.actionProposal || null, response: assistantResponse
+    };
+    const messages = [...(existing?.messages || []), userEntry, assistantEntry].slice(-60);
+    const firstQuestion = existing?.title && existing.title !== '新对话' ? existing.title : userText.replace(/\s+/g, ' ');
+    const title = firstQuestion.length > 36 ? `${firstQuestion.slice(0, 36)}…` : (firstQuestion || '新对话');
+    const next = {
+      ...(existing || {}), conversationId, title, plotId: plotId || existing?.plotId || null,
+      createdAt: existing?.createdAt || now, updatedAt: now, messageCount: messages.length, messages
+    };
+    const merged = [next, ...conversations.filter(item => item.conversationId !== conversationId)].slice(0, 50);
+    try { localStorage.setItem(this._demoAgentConversationStorageKey(), JSON.stringify(merged)); } catch (error) { /* best effort in private browsing */ }
+    return { ...next, messages: undefined };
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '') {

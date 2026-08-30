@@ -202,7 +202,12 @@ export const AdminAlertCenter = {
       CLOSED: closedAlerts.value,
       ALL: activeAlerts.value
     })[filter.value]?.filter(alert => filter.value === 'CLOSED' || !dismissedAlertIds.value.includes(alertKey(alert))) || reviewAlerts.value);
-    const selectableAlerts = computed(() => visibleAlerts.value.filter(alert => !isClosed(alert)));
+    // Only the review queue is actionable.  Dispatched and closed tabs are
+    // deliberately read-only so their cards cannot accidentally enter a
+    // batch operation after the filter changes.
+    const selectableAlerts = computed(() => filter.value === 'REVIEW'
+      ? visibleAlerts.value.filter(alert => !isClosed(alert))
+      : []);
     const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert)));
     const allVisibleSelected = computed(() => selectableAlerts.value.length > 0
       && selectableAlerts.value.every(alert => selectedIds.value.includes(alertKey(alert))));
@@ -213,6 +218,8 @@ export const AdminAlertCenter = {
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
     const sourceLabel = source => localizedSourceLabel(source, adminMetricLabel(source, '系统规则'));
     const auditFor = alert => aiAudits.value[alertKey(alert)] || null;
+    const reviewActionsVisible = alert => filter.value === 'REVIEW'
+      && Boolean(alert) && !isClosed(alert) && !isDispatched(alert);
     const confidenceText = audit => audit ? `${Math.round(audit.score * 100)}%` : '未分析';
     const nextStep = alert => {
       if (isClosed(alert)) return '告警已结束';
@@ -243,6 +250,7 @@ export const AdminAlertCenter = {
       aiAudits.value = {};
       aiSummary.value = null;
     });
+    watch(filter, () => { selectedIds.value = []; });
 
     const invalidate = (records, reason) => emit('data-invalidated', {
       type: 'data-invalidated',
@@ -484,6 +492,8 @@ export const AdminAlertCenter = {
       closedCount: computed(() => closedAlerts.value.length),
       isClosed,
       existingTask,
+      isDispatched,
+      reviewActionsVisible,
       plotName,
       statusLabel,
       levelLabel,
@@ -505,12 +515,12 @@ export const AdminAlertCenter = {
     };
   },
   template: `
-    <section class="admin-alert-view" aria-label="AI告警分析与智能处理">
+    <section class="admin-alert-view" aria-label="告警智能处理">
       <div class="admin-alert-tabs" role="group" aria-label="告警筛选">
         <button type="button" :class="{ active: filter === 'REVIEW' }" @click="filter = 'REVIEW'">待审核 {{ reviewCount }}</button>
         <button type="button" :class="{ active: filter === 'DISPATCHED' }" @click="filter = 'DISPATCHED'">已下发 {{ dispatchedCount }}</button>
         <button type="button" :class="{ active: filter === 'CLOSED' }" @click="filter = 'CLOSED'">已关闭 {{ closedCount }}</button>
-        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部未关闭</button>
+        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部进行中</button>
       </div>
 
       <div class="admin-alert-ai-summary" v-if="aiSummary" role="status">
@@ -521,7 +531,14 @@ export const AdminAlertCenter = {
         </div>
       </div>
 
-      <div class="admin-alert-batch-bar">
+      <div v-if="filter !== 'REVIEW'" class="admin-alert-readonly-hint" role="status">
+        <app-icon name="visibility"></app-icon>
+        <span v-if="filter === 'DISPATCHED'">已下发记录仅支持查看关联任务与处理进度。</span>
+        <span v-else-if="filter === 'CLOSED'">已关闭记录仅保留处理事实，当前为只读。</span>
+        <span v-else>全部进行中记录按当前状态汇总展示，操作请回到待审核队列。</span>
+      </div>
+
+      <div v-if="filter === 'REVIEW'" class="admin-alert-batch-bar">
         <div class="admin-alert-selection-group">
           <label class="admin-alert-select-all" :class="{ disabled: !selectableAlerts.length }">
             <input type="checkbox" :checked="allVisibleSelected" :disabled="!selectableAlerts.length || busyKey !== ''" @change="toggleSelectAll">
@@ -550,7 +567,7 @@ export const AdminAlertCenter = {
           @click="openDetail(alert)" @keydown="openDetailFromKeyboard($event, alert)">
           <div class="admin-alert-main">
             <div class="admin-alert-card-top">
-              <label class="admin-alert-card-select" v-if="!isClosed(alert)" @click.stop>
+              <label class="admin-alert-card-select" v-if="filter === 'REVIEW' && !isClosed(alert)" @click.stop>
                 <input type="checkbox" v-model="selectedIds" :value="alertKey(alert)" :disabled="busyKey !== ''" @click.stop>
                 <span>选择</span>
               </label>
@@ -574,7 +591,7 @@ export const AdminAlertCenter = {
           <footer class="admin-alert-card-footer">
             <span>来源：{{ sourceLabel(alert.source) }}</span>
             <div class="admin-alert-card-actions">
-              <button v-if="!isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
+              <button v-if="filter === 'REVIEW' && !isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
               <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
             </div>
           </footer>
@@ -610,18 +627,18 @@ export const AdminAlertCenter = {
           </div>
           <div class="g-modal-footer admin-alert-detail-footer">
             <button class="g-btn secondary" type="button" @click="closeDetail">返回</button>
-            <template v-if="!isClosed(activeAlert)">
+            <template v-if="reviewActionsVisible(activeAlert)">
               <button v-if="!existingTask(activeAlert)?.assigneeId && (!auditFor(activeAlert) || auditFor(activeAlert).highConfidence)" class="g-btn primary" type="button" :disabled="busyKey !== ''" @click="aiProcess([activeAlert])">
                 <app-icon name="auto_awesome"></app-icon><span>AI智能处理</span>
               </button>
               <button v-if="!existingTask(activeAlert)?.assigneeId" class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click="publishVerificationTasks([activeAlert])">
                 <app-icon name="fact_check"></app-icon><span>发布核查任务</span>
               </button>
-              <button v-if="existingTask(activeAlert)?.assigneeId" class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="openAssignedTask(activeAlert)">
-                <app-icon name="task_alt"></app-icon><span>查看已下发任务</span>
-              </button>
               <button class="g-btn secondary admin-alert-close-action" type="button" :disabled="busyKey !== ''" @click="closeAlerts([activeAlert])">关闭告警</button>
             </template>
+            <button v-if="isDispatched(activeAlert) && !isClosed(activeAlert)" class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="openAssignedTask(activeAlert)">
+              <app-icon name="task_alt"></app-icon><span>查看已下发任务</span>
+            </button>
           </div>
         </section>
       </div>

@@ -532,7 +532,8 @@
 .admin-plot-summary .critical { color: var(--g-danger); }
 .admin-plot-summary .offline { color: var(--g-text-disabled); }
 .admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.admin-plot-card { padding: 16px; background: var(--g-bg-surface); border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); transition: transform 0.2s, box-shadow 0.2s; }
+.admin-plot-card { position: relative; isolation: isolate; overflow: hidden; min-height: 226px; padding: 16px; background-color: var(--g-bg-surface); background-image: linear-gradient(180deg, rgba(9, 29, 22, 0.42) 0%, rgba(9, 29, 22, 0.66) 58%, rgba(9, 29, 22, 0.9) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png')); background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.2); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); color: #f6fbf7; transition: transform 0.2s, box-shadow 0.2s; }
+.admin-plot-card > * { position: relative; z-index: 1; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
 .admin-plot-card { cursor: pointer; }
 .admin-plot-card.warning { border-left-color: var(--g-warning); }
@@ -543,19 +544,19 @@
 .warning .admin-plot-status-dot { background: var(--g-warning); }
 .critical .admin-plot-status-dot { background: var(--g-danger); }
 .offline .admin-plot-status-dot { background: var(--g-text-disabled); }
-.admin-plot-id { font: 12px var(--g-mono); color: var(--g-text-secondary); }
-.admin-plot-updated { margin-left: auto; font-size: 11px; color: var(--g-text-disabled); }
-.admin-plot-crop { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--g-text-primary); }
-.admin-plot-farm { margin-top: 2px; font-size: 12px; color: var(--g-text-secondary); }
-.admin-plot-health { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--g-text-secondary); }
-.admin-plot-health strong { color: var(--g-text-primary); font-size: 12px; }
-.admin-plot-health b { height: 5px; overflow: hidden; border-radius: 5px; background: var(--g-bg-subtle); }
+.admin-plot-id { font: 12px var(--g-mono); color: rgba(246,251,247,0.82); }
+.admin-plot-updated { margin-left: auto; font-size: 11px; color: rgba(246,251,247,0.7); }
+.admin-plot-crop { margin-top: 14px; font-size: 18px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.32); }
+.admin-plot-farm { margin-top: 2px; font-size: 12px; color: rgba(246,251,247,0.82); }
+.admin-plot-health { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: rgba(246,251,247,0.84); }
+.admin-plot-health strong { color: #fff; font-size: 12px; }
+.admin-plot-health b { height: 5px; overflow: hidden; border-radius: 5px; background: rgba(255,255,255,0.28); }
 .admin-plot-health b i { display: block; height: 100%; border-radius: inherit; background: var(--g-success); }
 .warning .admin-plot-health b i { background: var(--g-warning); }
 .critical .admin-plot-health b i { background: var(--g-danger); }
 .offline .admin-plot-health b i { background: var(--g-text-disabled); }
-.admin-plot-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--g-border-subtle); font-size: 11px; color: var(--g-text-secondary); }
-.admin-plot-metrics strong { margin-right: 2px; color: var(--g-text-primary); font-size: 14px; }
+.admin-plot-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.25); font-size: 11px; color: rgba(246,251,247,0.84); }
+.admin-plot-metrics strong { margin-right: 2px; color: #fff; font-size: 14px; }
 .admin-plot-issue { display: flex; align-items: center; gap: 4px; margin-top: 12px; font-size: 11px; color: var(--g-danger); }
 .admin-plot-issue.quiet { color: var(--g-success); }
 .admin-plot-issue .material-symbols-outlined { font-size: 15px; }
@@ -2048,4 +2049,130 @@
   .role-farm-admin :is(.manager-summary-item, .manager-plot-card, .work-order-card, .admin-alert-card, .admin-device-card, .admin-member-card) {
     border: 1px solid CanvasText;
   }
+}
+
+/* The farm-admin dashboard is the primary farm overview route.  Its cards
+   have a later glass-surface rule, so keep the crop photography and the
+   readability overlay at the role-specific layer as well. */
+.role-farm-admin article.manager-plot-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 286px;
+  border-color: rgba(255,255,255,.22);
+  background-color: var(--g-bg-surface);
+  background-image: linear-gradient(180deg, rgba(9,29,22,.18) 0%, rgba(9,29,22,.36) 54%, rgba(9,29,22,.64) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png'));
+  background-position: center;
+  background-size: cover;
+  color: #f6fbf7;
+  text-shadow: 0 1px 2px rgba(0,0,0,.22);
+}
+
+.role-farm-admin article.manager-plot-card > * { position: relative; z-index: 1; }
+.role-farm-admin article.manager-plot-card .manager-plot-title h2,
+.role-farm-admin article.manager-plot-card .manager-plot-title span,
+.role-farm-admin article.manager-plot-card .manager-health-score,
+.role-farm-admin article.manager-plot-card .manager-health-score strong,
+.role-farm-admin article.manager-plot-card .manager-plot-meta { color: #f6fbf7; }
+.role-farm-admin article.manager-plot-card .manager-more-button { color: rgba(246,251,247,.88); }
+.role-farm-admin article.manager-plot-card .manager-more-button:hover,
+.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] { background: rgba(255,255,255,.18); color: #fff; }
+.role-farm-admin article.manager-plot-card .manager-more-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255,255,255,.72);
+  background: rgba(4, 35, 22, .72);
+  color: #fff;
+  box-shadow: 0 2px 7px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.24);
+  text-shadow: 0 1px 2px rgba(0,0,0,.65);
+}
+.role-farm-admin article.manager-plot-card .manager-more-button .ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+}
+.role-farm-admin article.manager-plot-card .manager-more-button:hover,
+.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] {
+  border-color: rgba(255,255,255,.94);
+  background: rgba(6, 68, 40, .90);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(0,0,0,.32), 0 0 0 2px rgba(190,255,215,.20);
+}
+.role-farm-admin article.manager-plot-card.has-open-menu {
+  z-index: 300;
+  overflow: visible;
+}
+.role-farm-admin article.manager-plot-card.has-open-menu .manager-plot-card-header {
+  position: relative;
+  z-index: 20;
+}
+.role-farm-admin article.manager-plot-card.has-open-menu .manager-plot-card-tools,
+.role-farm-admin article.manager-plot-card.has-open-menu .manager-plot-actions {
+  position: relative;
+  z-index: 21;
+}
+.role-farm-admin article.manager-plot-card.has-open-menu .manager-plot-menu {
+  z-index: 1000;
+}
+.role-farm-admin article.manager-plot-card .manager-plot-menu {
+  min-width: 164px;
+  border-color: rgba(255,255,255,.74);
+  background: rgba(248, 253, 250, .97);
+  box-shadow: 0 18px 38px rgba(14, 42, 27, .30), 0 4px 10px rgba(14, 42, 27, .16);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+  backdrop-filter: blur(16px) saturate(125%);
+}
+.role-farm-admin article.manager-plot-card .manager-plot-meta span:not(:last-child)::after { background: rgba(255,255,255,.34); }
+.role-farm-admin article.manager-plot-card .manager-metric-grid { border-color: rgba(255,255,255,.34); background: rgba(6,25,18,.25); }
+.role-farm-admin article.manager-plot-card .manager-metric { background: rgba(7,31,22,.28); box-shadow: inset 0 1px 0 rgba(255,255,255,.16); backdrop-filter: blur(2px); }
+.role-farm-admin article.manager-plot-card .manager-metric-label,
+.role-farm-admin article.manager-plot-card .manager-metric-target,
+.role-farm-admin article.manager-plot-card .manager-metric-value small { color: rgba(246,251,247,.82); }
+.role-farm-admin article.manager-plot-card .manager-metric-value { color: #fff; }
+
+/* Keep the plot lifecycle badge readable over every crop photograph. */
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid rgba(224, 255, 235, .74);
+  border-radius: 999px;
+  background: rgba(5, 50, 30, .70);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .01em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .24);
+  -webkit-backdrop-filter: blur(4px) saturate(115%);
+  backdrop-filter: blur(4px) saturate(115%);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #8af0b5;
+  box-shadow: 0 0 0 2px rgba(138, 240, 181, .20), 0 0 8px rgba(138, 240, 181, .60);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive {
+  border-color: rgba(255, 230, 183, .82);
+  background: rgba(88, 57, 16, .72);
+  color: #fff9e9;
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive::before {
+  background: #ffd37a;
+  box-shadow: 0 0 0 2px rgba(255, 211, 122, .20), 0 0 8px rgba(255, 211, 122, .52);
 }

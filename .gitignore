@@ -36,6 +36,7 @@ training/checkpoints/
 # Generated visual assets and Office temporary lock files
 output/
 artifacts/
+apps/web-ui/assets/crop-backgrounds/pepper.png
 ~$*.doc
 ~$*.docx
 ~$*.xls
