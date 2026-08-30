@@ -2957,6 +2957,7 @@ class AgriEngine {
             case "SENSOR_DRIFT" -> "传感器读数可疑";
             case "DEVICE_FAULT" -> "采集设备异常";
             case "HEAT_STRESS" -> "高温胁迫";
+            case "INSUFFICIENT_EVIDENCE", "EVIDENCE_INSUFFICIENT" -> "证据不足";
             default -> "证据不足";
         };
     }
@@ -6211,17 +6212,6 @@ class AgriEngine {
             case "DEGRADED", "FALLBACK_OR_IDLE" -> "降级或空闲";
             case "DOWN", "OFFLINE", "UNAVAILABLE" -> "不可用";
             default -> String.valueOf(value == null ? "未知" : value);
-        };
-    }
-
-    private String diagnosisCauseLabel(String cause) {
-        return switch (String.valueOf(cause).toUpperCase(Locale.ROOT)) {
-            case "WATER_DEFICIT" -> "缺水风险";
-            case "SENSOR_DRIFT" -> "传感器漂移";
-            case "DEVICE_FAULT" -> "设备故障";
-            case "HEAT_STRESS" -> "高温胁迫";
-            case "INSUFFICIENT_EVIDENCE" -> "证据不足";
-            default -> String.valueOf(cause);
         };
     }
 
