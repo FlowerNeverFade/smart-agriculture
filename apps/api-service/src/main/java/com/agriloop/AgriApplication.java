@@ -136,7 +136,7 @@ class AgriProperties {
     private boolean simulatorAutoStart = true;
     private String supervisorConfig = "/srv/agriloop/supervisor.conf";
     private String simulatorProgram = "agriloop-simulator";
-    /** Shared JSON hand-off reloaded by the Python simulator while it runs. */
+    /** Shared JSON hand-off reloaded by the in-process simulation engine while it runs. */
     private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";

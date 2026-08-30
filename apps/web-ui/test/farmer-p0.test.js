@@ -80,10 +80,10 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功', '地块模拟策略', '策略预测曲线', '策略由管理员维护']) {
     assert.match(html, new RegExp(marker));
   }
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '生成双轨预测', 'risk_tool_parameters', 'wait_for_irrigation_completion', 'refresh_plot_telemetry']) {
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry']) {
     assert.match(html + source, new RegExp(marker));
   }
-  assert.match(source, /compareScenario/);
+  assert.match(source, /getRiskForecast/);
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);

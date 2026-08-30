@@ -2163,7 +2163,7 @@
 .farmer-advice-chart-head { align-items: center; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-advice-moisture-chart .farmer-chart-svg { height: 112px; margin-top: 4px; }
 
-/* 更多工具：农户可在负责地块范围内进行只读风险双轨试算 */
+/* 更多工具：农户查看负责地块的管理员策略与未来风险预测 */
 .farmer-tools-tabs {
   display: flex;
   gap: 10px;
