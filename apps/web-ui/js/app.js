@@ -2,7 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-glass-default-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-farm-admin-baseline-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-work-order-flow-v3';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -2632,7 +2632,8 @@ const SettingsView = {
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['settings-changed'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref(props.routeParams?.tab || 'users');
@@ -2640,10 +2641,26 @@ const AdminSettingsView = {
     const logFilter = ref('all');
     const showCreateUser = ref(false);
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
+    const appearanceStyleOptions = surfaceStyleOptions.filter((item) => item.value !== DEFAULT_USER_SETTINGS.surfaceStyle);
+    const appearanceSettings = ref(readUserSettings());
+    const appearanceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === appearanceSettings.value.surfaceStyle)?.label || '经典卡片');
 
     watch(() => props.routeParams, (params) => {
       if (params?.tab) activeTab.value = params.tab;
     });
+
+    const selectAppearanceStyle = (value) => {
+      const option = surfaceStyleOptions.find((item) => item.value === value);
+      if (!option) return;
+      const next = saveUserSettings({ ...appearanceSettings.value, surfaceStyle: option.value });
+      appearanceSettings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      toast(`界面风格已切换为${option.label}`);
+    };
+
+    const resetAppearanceStyle = () => selectAppearanceStyle(DEFAULT_USER_SETTINGS.surfaceStyle);
 
     const filteredUsers = computed(() => {
       const users = props.state.adminUsers || [];
@@ -2764,7 +2781,9 @@ const AdminSettingsView = {
       };
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
+      surfaceStyleOptions, appearanceStyleOptions, appearanceSettings, appearanceStyleLabel,
+      selectAppearanceStyle, resetAppearanceStyle
     };
   }
 };

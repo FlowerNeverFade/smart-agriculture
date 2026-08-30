@@ -923,30 +923,58 @@ html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .
 }
 
 /* Appearance material presets -------------------------------------------------
- * `classic` is the calm, solid-card treatment used by the 4e9326a main
- * snapshot.  `glass-soft` keeps a little transparency without the stronger
- * reflections of the current main liquid-glass preset.  The latter remains
- * the role CSS default whenever it is selected.
+ * `classic` is the farm-manager baseline from main@4e9326a: a light canvas,
+ * translucent white cards, crisp edges and restrained inner highlights.
+ * `glass-soft` keeps a little transparency without the stronger reflections
+ * of the newer c9b6282/main liquid-glass treatment.
  */
 html[data-surface-style="classic"] {
-  --agriloop-appearance-base: #f8f9fa;
-  --agriloop-appearance-surface: #ffffff;
-  --agriloop-appearance-subtle: #f1f3f4;
-  --agriloop-appearance-border: #dadce0;
-  --agriloop-appearance-border-subtle: #e8eaed;
-  --agriloop-appearance-shadow-1: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
-  --agriloop-appearance-shadow-2: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 2px 6px 2px rgba(60, 64, 67, .15);
-  --agriloop-appearance-shadow-3: 0 1px 3px 0 rgba(60, 64, 67, .30), 0 4px 8px 3px rgba(60, 64, 67, .15);
+  --agriloop-appearance-base: #f7f9f8;
+  --agriloop-appearance-surface: rgba(255, 255, 255, .64);
+  --agriloop-appearance-surface-strong: rgba(255, 255, 255, .78);
+  --agriloop-appearance-surface-soft: rgba(248, 251, 249, .52);
+  --agriloop-appearance-subtle: rgba(248, 251, 249, .52);
+  --agriloop-appearance-cell: rgba(255, 255, 255, .48);
+  --agriloop-appearance-border: rgba(67, 86, 76, .20);
+  --agriloop-appearance-border-subtle: rgba(68, 88, 78, .22);
+  --agriloop-appearance-edge: rgba(255, 255, 255, .96);
+  --agriloop-appearance-control: linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .46) 48%, rgba(236, 244, 239, .62));
+  --agriloop-appearance-control-hover: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .62) 48%, rgba(232, 243, 237, .78));
+  --agriloop-appearance-control-pressed: linear-gradient(145deg, rgba(235, 243, 238, .76), rgba(255, 255, 255, .52) 58%, rgba(229, 239, 233, .72));
+  --agriloop-appearance-sidebar: rgba(250, 252, 251, .76);
+  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(27, 59, 42, .04), inset -1px 0 0 rgba(255, 255, 255, .62);
+  --agriloop-appearance-control-shadow: 0 7px 18px rgba(24, 49, 36, .09), 0 1px 3px rgba(24, 49, 36, .06), inset 0 1px 0 rgba(255, 255, 255, .98), inset 1px 0 0 rgba(255, 255, 255, .72), inset -1px 0 0 rgba(218, 231, 223, .44), inset 0 -1px 0 rgba(38, 68, 51, .11);
+  --agriloop-appearance-control-shadow-hover: 0 11px 24px rgba(24, 49, 36, .13), 0 2px 5px rgba(24, 49, 36, .07), inset 0 1px 0 #fff, inset 1px 0 0 rgba(255, 255, 255, .82), inset -1px 0 0 rgba(218, 231, 223, .52), inset 0 -1px 0 rgba(38, 68, 51, .12);
+  --agriloop-appearance-control-text-shadow: 0 1px 0 rgba(255, 255, 255, .72);
+  --agriloop-appearance-hover: rgba(255, 255, 255, .82);
+  --agriloop-appearance-main-highlight: linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(247, 249, 248, 0) 180px);
+  --agriloop-appearance-shadow-1: 0 10px 26px rgba(24, 49, 36, .10), 0 2px 7px rgba(27, 59, 42, .035), inset 0 1px 0 rgba(255, 255, 255, .96), inset 1px 0 0 rgba(255, 255, 255, .48), inset -1px 0 0 rgba(232, 240, 235, .38), inset 0 -1px 0 rgba(41, 72, 55, .08);
+  --agriloop-appearance-shadow-2: 0 15px 34px rgba(27, 59, 42, .10), 0 4px 10px rgba(27, 59, 42, .05), inset 0 1px 0 rgba(255, 255, 255, .96), inset 1px 0 0 rgba(255, 255, 255, .54), inset -1px 0 0 rgba(232, 240, 235, .42), inset 0 -1px 0 rgba(41, 72, 55, .09);
+  --agriloop-appearance-shadow-3: 0 28px 72px rgba(24, 42, 33, .20), 0 8px 24px rgba(24, 42, 33, .09), inset 0 1px 0 rgba(255, 255, 255, .72);
 }
 html[data-theme="dark"][data-surface-style="classic"] {
-  --agriloop-appearance-base: #202124;
-  --agriloop-appearance-surface: #292a2d;
-  --agriloop-appearance-subtle: #35363a;
-  --agriloop-appearance-border: #5f6368;
-  --agriloop-appearance-border-subtle: #3c4043;
-  --agriloop-appearance-shadow-1: 0 1px 2px 0 rgba(0, 0, 0, .30), 0 1px 3px 1px rgba(0, 0, 0, .15);
-  --agriloop-appearance-shadow-2: 0 1px 2px 0 rgba(0, 0, 0, .30), 0 2px 6px 2px rgba(0, 0, 0, .15);
-  --agriloop-appearance-shadow-3: 0 1px 3px 0 rgba(0, 0, 0, .30), 0 4px 8px 3px rgba(0, 0, 0, .15);
+  --agriloop-appearance-base: #181c1a;
+  --agriloop-appearance-surface: rgba(40, 44, 42, .68);
+  --agriloop-appearance-surface-strong: rgba(46, 51, 48, .82);
+  --agriloop-appearance-surface-soft: rgba(46, 51, 48, .54);
+  --agriloop-appearance-subtle: rgba(46, 51, 48, .54);
+  --agriloop-appearance-cell: rgba(52, 58, 55, .50);
+  --agriloop-appearance-border: rgba(255, 255, 255, .14);
+  --agriloop-appearance-border-subtle: rgba(255, 255, 255, .17);
+  --agriloop-appearance-edge: rgba(255, 255, 255, .16);
+  --agriloop-appearance-control: linear-gradient(145deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .055) 50%, rgba(255, 255, 255, .085));
+  --agriloop-appearance-control-hover: linear-gradient(145deg, rgba(255, 255, 255, .19), rgba(255, 255, 255, .08) 50%, rgba(255, 255, 255, .12));
+  --agriloop-appearance-control-pressed: linear-gradient(145deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .12) 60%, rgba(255, 255, 255, .055));
+  --agriloop-appearance-sidebar: rgba(31, 37, 34, .86);
+  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(0, 0, 0, .26), inset -1px 0 0 rgba(255, 255, 255, .08);
+  --agriloop-appearance-control-shadow: 0 8px 20px rgba(0, 0, 0, .26), 0 1px 3px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .18), inset 1px 0 0 rgba(255, 255, 255, .08), inset -1px 0 0 rgba(255, 255, 255, .04), inset 0 -1px 0 rgba(0, 0, 0, .30);
+  --agriloop-appearance-control-shadow-hover: 0 12px 26px rgba(0, 0, 0, .34), 0 2px 5px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .23), inset 1px 0 0 rgba(255, 255, 255, .10), inset -1px 0 0 rgba(255, 255, 255, .05), inset 0 -1px 0 rgba(0, 0, 0, .34);
+  --agriloop-appearance-control-text-shadow: 0 1px 0 rgba(0, 0, 0, .32);
+  --agriloop-appearance-hover: rgba(55, 64, 59, .82);
+  --agriloop-appearance-main-highlight: linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(24, 28, 26, 0) 180px);
+  --agriloop-appearance-shadow-1: 0 10px 26px rgba(0, 0, 0, .24), 0 2px 7px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .16), inset 1px 0 0 rgba(255, 255, 255, .05), inset -1px 0 0 rgba(255, 255, 255, .025), inset 0 -1px 0 rgba(0, 0, 0, .24);
+  --agriloop-appearance-shadow-2: 0 15px 34px rgba(0, 0, 0, .34), 0 4px 10px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .16), inset 1px 0 0 rgba(255, 255, 255, .06), inset -1px 0 0 rgba(255, 255, 255, .03), inset 0 -1px 0 rgba(0, 0, 0, .28);
+  --agriloop-appearance-shadow-3: 0 28px 72px rgba(0, 0, 0, .42), 0 8px 24px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .08);
 }
 html[data-surface-style="classic"] body {
   background: var(--agriloop-appearance-base);
@@ -962,36 +990,15 @@ html[data-surface-style="classic"] :is(#app, #farmer_app) {
   --g-shadow-2: var(--agriloop-appearance-shadow-2);
   --g-shadow-3: var(--agriloop-appearance-shadow-3);
 }
-html[data-surface-style="classic"] #app :is(
-  .g-card,
-  .admin-panel,
-  .admin-alert-card,
-  .admin-alert-empty,
-  .manager-plot-card,
-  .manager-summary-strip,
-  .simple-summary-row,
-  .simple-data-panel,
-  .simple-empty-state,
-  .work-summary,
-  .work-filters,
-  .work-order-card,
-  .inspection-history,
-  .rp-hero,
-  .rp-summary article,
-  .rp-card
-) {
-  background: var(--agriloop-appearance-surface) !important;
+/* Role sheets below own the content surfaces so semantic borders (warning,
+ * danger and per-entry accents) are not flattened by the global preset. */
+html[data-surface-style="classic"] #app .settings-card,
+html[data-surface-style="classic"] #app .settings-info {
+  background: var(--agriloop-appearance-surface-strong) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-html[data-surface-style="classic"] #app :is(.g-header, .g-sidebar) {
-  background: var(--agriloop-appearance-surface) !important;
-  border-color: var(--agriloop-appearance-border) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
 }
 html[data-surface-style="glass-soft"] :is(#app, #farmer_app) {
   --agriloop-appearance-base: rgba(232, 242, 235, .72);
@@ -1007,7 +1014,7 @@ html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card
 .settings-surface-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .settings-surface-option { min-height: 92px; }
 .settings-surface-option .settings-theme-icon { border: 1px solid var(--g-border-subtle); }
-.settings-surface-option[data-style="classic"] .settings-theme-icon { background: var(--g-bg-surface); }
+.settings-surface-option[data-surface-style="classic"] .settings-theme-icon { background: var(--g-bg-surface); }
 @media (max-width: 600px) {
   .settings-surface-options { grid-template-columns: 1fr; }
 }
@@ -1127,22 +1134,24 @@ html[data-density="compact"] #app .g-nav-item {
   background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 24%, #304639), color-mix(in srgb, var(--sidebar-accent) 12%, #20372b));
 }
 
-/* Classic material remains available from settings. */
+/* The default classic preset keeps the 4e9326a farm-manager glass shell. */
 html[data-surface-style="classic"] #app .g-sidebar {
-  background: var(--agriloop-appearance-surface) !important;
+  background: var(--agriloop-appearance-sidebar) !important;
   border-color: var(--agriloop-appearance-border) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
 }
 html[data-surface-style="classic"] #app .g-nav-item {
-  background: var(--agriloop-appearance-surface) !important;
+  background: var(--agriloop-appearance-control) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
-  box-shadow: var(--g-shadow-1) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
 html[data-surface-style="classic"] #app .g-nav-item.active {
-  background: var(--g-primary-bg) !important;
-  border-color: var(--g-primary) !important;
+  background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--sidebar-accent) 34%, var(--agriloop-appearance-border)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
   color: var(--sidebar-accent);
 }
 html[data-surface-style="glass-soft"] #app .g-sidebar {

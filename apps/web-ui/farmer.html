@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light" data-surface-style="glass-latest">
+<html lang="zh-CN" data-theme="light" data-surface-style="classic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,8 +9,8 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260830-glass-default-v2">
-  <link rel="stylesheet" href="css/farmer.css?v=20260830-glass-default-v2">
+  <link rel="stylesheet" href="css/style.css?v=20260830-farm-admin-baseline-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260830-farm-admin-baseline-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260827-merge-farmer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -1363,7 +1363,7 @@
                 <div class="farmer-settings-field">
                   <span class="farmer-settings-label">卡片风格</span>
                   <div class="farmer-settings-choice-row farmer-settings-surface-row">
-                    <button v-for="surface in surface_style_options" :key="surface.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :class="{active: user_settings.surfaceStyle === surface.value}" @click="update_user_setting('surfaceStyle', surface.value)" :title="surface.hint"><span>{{ surface.label }}</span><small>{{ surface.hint }}</small></button>
+                    <button v-for="surface in surface_style_options" :key="surface.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :data-surface-style="surface.value" :class="{active: user_settings.surfaceStyle === surface.value}" @click="update_user_setting('surfaceStyle', surface.value)" :title="surface.hint"><span>{{ surface.label }}</span><small>{{ surface.hint }}</small></button>
                   </div>
                 </div>
                 <div class="farmer-settings-field">
@@ -1527,6 +1527,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260830-glass-default-v2"></script>
+  <script type="module" src="js/farmer.js?v=20260830-farm-admin-baseline-v1"></script>
 </body>
 </html>

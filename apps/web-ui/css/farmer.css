@@ -3263,29 +3263,42 @@
   .farmer-settings-actions span { text-align: left; }
 }
 
-/* User-selectable surface material ----------------------------------------- */
+/* User-selectable surface material -----------------------------------------
+ * The default `classic` preset is the light farm-manager material from
+ * main@4e9326a.  Keep the farmer's green semantic accents while sharing the
+ * same translucent surfaces, edge highlights and compact shell.
+ */
 html[data-surface-style="classic"] #farmer_app {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface-strong);
+  --g-bg-subtle: var(--agriloop-appearance-surface-soft);
+  --g-bg-hover: var(--agriloop-appearance-hover);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
   --farmer-glass-surface: var(--agriloop-appearance-surface);
-  --farmer-glass-surface-strong: var(--agriloop-appearance-surface);
-  --farmer-glass-surface-soft: var(--agriloop-appearance-subtle);
-  --farmer-glass-cell: var(--agriloop-appearance-surface);
-  --farmer-glass-edge: var(--agriloop-appearance-border);
+  --farmer-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --farmer-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --farmer-glass-cell: var(--agriloop-appearance-cell);
+  --farmer-glass-edge: var(--agriloop-appearance-edge);
   --farmer-glass-outline: var(--agriloop-appearance-border);
-  --farmer-glass-control-outline: var(--agriloop-appearance-border);
-  --farmer-glass-shadow: var(--g-shadow-1);
-  --farmer-glass-shadow-raised: var(--g-shadow-2);
+  --farmer-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --farmer-glass-shadow: var(--agriloop-appearance-shadow-1);
+  --farmer-glass-shadow-raised: var(--agriloop-appearance-shadow-2);
   background: var(--agriloop-appearance-base) !important;
   background-attachment: initial !important;
 }
 html[data-surface-style="classic"] #farmer_app .farmer-main {
-  background: var(--agriloop-appearance-base) !important;
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
 }
 html[data-surface-style="classic"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
-  background: var(--agriloop-appearance-surface) !important;
+  background: var(--agriloop-appearance-surface-strong) !important;
   border-color: var(--agriloop-appearance-border) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
 }
 html[data-surface-style="classic"] #farmer_app :is(
   .g-card, .farmer-stat-card, .farmer-plot-overview-card,
@@ -3295,24 +3308,42 @@ html[data-surface-style="classic"] #farmer_app :is(
   .farmer-metric-chart, .farmer-moisture-chart-card, .farmer-device-card,
   .farmer-priority-panel, .farmer-cm-card
 ) {
-  background: var(--agriloop-appearance-surface) !important;
-  border-color: var(--agriloop-appearance-border-subtle) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  background: var(--farmer-glass-surface) !important;
+  box-shadow: var(--farmer-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
 }
 html[data-surface-style="classic"] #farmer_app :is(
   .farmer-mini-item, .farmer-task-card, .farmer-metric-item,
   .farmer-metric-chart, .farmer-shared-tools-entry, .farmer-shared-tool-card,
   .farmer-case-item, .farmer-priority-item, .farmer-cm-summary,
   .farmer-cm-metric, .farmer-suggestion-facts > div, .farmer-weather-controls,
-  .farmer-allocation-detail, .farmer-ai-consult-details, .farmer-ai-decision-card,
-  .farmer-nav-item
+  .farmer-allocation-detail, .farmer-ai-consult-details, .farmer-ai-decision-card
 ) {
-  background: var(--agriloop-appearance-surface) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  background: var(--farmer-glass-cell) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-btn, .farmer-account-trigger, .farmer-message-filter-btn,
+  .farmer-chart-range-btn
+) {
+  background: var(--agriloop-appearance-control) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-input, .g-select, .farmer-question-form input,
+  .farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
+  .farmer-form-card select, .farmer-form-card textarea,
+  .farmer-ai-consult-form textarea, .farmer-weather-controls input
+) {
+  background: var(--farmer-glass-cell) !important;
+  border-color: var(--farmer-glass-control-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
 }
 
 html[data-surface-style="glass-soft"] #farmer_app {
@@ -3438,15 +3469,19 @@ html[data-density="compact"] #farmer_app .farmer-nav-item {
 }
 html[data-surface-style="classic"] #farmer_app .farmer-sidebar,
 html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
-  background: var(--agriloop-appearance-surface) !important;
+  background: var(--agriloop-appearance-sidebar) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
+  background: var(--agriloop-appearance-control) !important;
 }
 html[data-surface-style="classic"] #farmer_app .farmer-nav-item.active {
-  background: var(--g-primary-bg) !important;
-  border-color: var(--g-primary) !important;
+  background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--farmer-glass-control-outline)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
   color: var(--sidebar-accent);
 }
 html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {

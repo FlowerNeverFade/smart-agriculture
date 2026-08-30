@@ -2415,8 +2415,9 @@
 }
 
 /* User-selectable surface material -----------------------------------------
- * These rules intentionally live after the role skins above so a preference
- * can change the material without changing any role's semantic colours.
+ * These rules intentionally live after the role skins above.  The default
+ * `classic` preset is the farm-manager treatment from main@4e9326a; semantic
+ * colours (summary cards, warning borders and role accents) remain intact.
  */
 html[data-surface-style="classic"] .role-farm-admin,
 html[data-surface-style="classic"] .role-system-admin {
@@ -2426,71 +2427,127 @@ html[data-surface-style="classic"] .role-system-admin {
 
 html[data-surface-style="classic"] .role-farm-admin {
   --admin-glass-surface: var(--agriloop-appearance-surface);
-  --admin-glass-surface-strong: var(--agriloop-appearance-surface);
-  --admin-glass-surface-soft: var(--agriloop-appearance-subtle);
-  --admin-glass-cell: var(--agriloop-appearance-surface);
-  --admin-glass-edge: var(--agriloop-appearance-border);
+  --admin-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --admin-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --admin-glass-cell: var(--agriloop-appearance-cell);
+  --admin-glass-edge: var(--agriloop-appearance-edge);
   --admin-glass-outline: var(--agriloop-appearance-border);
-  --admin-glass-control-outline: var(--agriloop-appearance-border);
-  --admin-liquid-control: var(--agriloop-appearance-surface);
-  --admin-liquid-control-hover: var(--agriloop-appearance-subtle);
-  --admin-liquid-control-pressed: var(--agriloop-appearance-subtle);
-  --admin-glass-shadow: var(--g-shadow-1);
-  --admin-glass-shadow-raised: var(--g-shadow-2);
+  --admin-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --admin-liquid-control: var(--agriloop-appearance-control);
+  --admin-liquid-control-hover: var(--agriloop-appearance-control-hover);
+  --admin-liquid-control-pressed: var(--agriloop-appearance-control-pressed);
+  --admin-glass-shadow: var(--agriloop-appearance-shadow-1);
+  --admin-glass-shadow-raised: var(--agriloop-appearance-shadow-2);
+}
+
+html[data-surface-style="classic"] .role-farm-admin .g-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] .role-farm-admin :is(.g-header, .g-sidebar) {
+  background: var(--admin-glass-surface-strong) !important;
+  border-color: var(--admin-glass-outline) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-farm-admin :is(
+  .g-card, .manager-plot-card, .simple-summary-row, .simple-data-panel,
+  .simple-empty-state, .admin-panel, .admin-alert-card, .admin-alert-empty,
+  .work-summary, .work-filters, .work-order-card, .inspection-history,
+  .rp-hero, .rp-summary article, .rp-card, .g-modal, .admin-modal,
+  .manager-plot-menu, .account-profile-popover
+) {
+  background: var(--admin-glass-surface) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
 }
 
 html[data-surface-style="classic"] .role-system-admin {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface-strong);
+  --g-bg-subtle: var(--agriloop-appearance-surface-soft);
+  --g-bg-hover: var(--agriloop-appearance-hover);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
   --system-glass-surface: var(--agriloop-appearance-surface);
-  --system-glass-surface-strong: var(--agriloop-appearance-surface);
-  --system-glass-surface-soft: var(--agriloop-appearance-subtle);
-  --system-glass-cell: var(--agriloop-appearance-surface);
-  --system-glass-edge: var(--agriloop-appearance-border);
+  --system-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --system-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --system-glass-cell: var(--agriloop-appearance-cell);
+  --system-glass-edge: var(--agriloop-appearance-edge);
   --system-glass-outline: var(--agriloop-appearance-border);
-  --system-glass-control-outline: var(--agriloop-appearance-border);
-  --system-liquid-control: var(--agriloop-appearance-surface);
-  --system-liquid-control-hover: var(--agriloop-appearance-subtle);
+  --system-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --system-liquid-control: var(--agriloop-appearance-control);
+  --system-liquid-control-hover: var(--agriloop-appearance-control-hover);
 }
-
-html[data-surface-style="classic"] .role-farm-admin :is(
-  .g-header, .g-sidebar, .g-card, .manager-summary-strip, .manager-plot-card,
-  .simple-summary-row, .simple-data-panel, .simple-empty-state, .admin-panel,
-  .admin-alert-card, .admin-alert-empty, .work-summary, .work-filters,
-  .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
-  .rp-card, .g-modal, .admin-modal, .manager-plot-menu, .account-profile-popover
-),
-html[data-surface-style="classic"] .role-system-admin :is(
-  .g-header, .g-sidebar, .g-card, .admin-metric-card, .service-card,
-  .sim-control-bar, .pack-card, .admin-plot-card, .passport-panel,
-  .admin-table-wrap, .admin-modal, .g-modal, .account-profile-popover,
-  .g-header-farm-menu
-) {
-  background: var(--agriloop-appearance-surface) !important;
-  border-color: var(--agriloop-appearance-border-subtle) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-
-html[data-surface-style="classic"] .role-farm-admin :is(
-  .g-btn:not(.primary):not(.danger), .g-nav-item, .account-profile-trigger,
-  .manager-more-button, .manager-plot-menu button, .admin-local-tabs button,
-  .admin-alert-tabs button, .admin-tab, .admin-knowledge-chip,
-  .admin-icon-picker button, .work-summary button, .text-action
-),
-html[data-surface-style="classic"] .role-system-admin :is(
-  .g-btn:not(.primary):not(.danger), .account-profile-trigger, .admin-tab,
-  .admin-knowledge-chip, .admin-icon-picker button
-) {
-  background: var(--agriloop-appearance-surface) !important;
-  box-shadow: var(--g-shadow-1) !important;
-  text-shadow: none !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-
-html[data-surface-style="classic"] .role-farm-admin .g-main,
 html[data-surface-style="classic"] .role-system-admin .g-main {
-  background: var(--agriloop-appearance-base) !important;
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: var(--system-glass-surface-strong) !important;
+  border-color: var(--system-glass-outline) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
+  background: var(--system-liquid-control) !important;
+  border-color: var(--system-glass-control-outline) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
+  background: var(--system-liquid-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--system-glass-control-outline)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
+  color: var(--g-primary) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-card, .admin-metric-card, .service-card, .sim-control-bar, .pack-card,
+  .admin-plot-card, .passport-panel, .admin-table-wrap, .admin-modal,
+  .g-modal, .account-profile-popover, .g-header-farm-menu
+) {
+  background: var(--system-glass-surface) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-btn, .account-profile-trigger, .admin-tab, .admin-knowledge-chip,
+  .admin-icon-picker button
+) {
+  background: var(--system-liquid-control) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .admin-tabs {
+  background: var(--system-glass-surface-soft) !important;
+  border-color: var(--system-glass-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(128%) !important;
+  backdrop-filter: blur(24px) saturate(128%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .admin-filter-bar select, .admin-filter-bar input,
+  .admin-landscape-actions select, .admin-modal-body input,
+  .admin-modal-body select, .admin-modal-body textarea,
+  .admin-doc-editor, .admin-doc-editor textarea, .admin-pack-form textarea,
+  .admin-metric-picker label, .g-input, .g-select
+) {
+  background: var(--system-glass-cell) !important;
+  border-color: var(--system-glass-control-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+  background: var(--system-glass-surface-strong) !important;
+  box-shadow: var(--agriloop-appearance-shadow-3) !important;
+  -webkit-backdrop-filter: blur(42px) saturate(138%) !important;
+  backdrop-filter: blur(42px) saturate(138%) !important;
 }
 
 html[data-surface-style="glass-soft"] .role-farm-admin,
@@ -2507,4 +2564,163 @@ html[data-surface-style="glass-soft"] .role-farm-admin :is(.g-card, .manager-plo
 html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .admin-plot-card, .g-header, .g-sidebar) {
   -webkit-backdrop-filter: blur(14px) saturate(112%);
   backdrop-filter: blur(14px) saturate(112%);
+}
+
+/* Appearance management ----------------------------------------------------
+ * Keep the 4e9326a farm-admin treatment as the baseline while making the
+ * newer c9b6282 glass materials discoverable in one deliberate management
+ * area. This panel is browser-scoped, like the shared workspace settings.
+ */
+.admin-appearance-management {
+  display: grid;
+  gap: 14px;
+  max-width: 920px;
+}
+.admin-appearance-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 14px;
+  background: var(--g-bg-surface);
+  box-shadow: var(--g-shadow-1);
+}
+.admin-appearance-intro-icon,
+.admin-appearance-option-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+}
+.admin-appearance-intro-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 21px;
+}
+.admin-appearance-intro .admin-section-kicker {
+  color: var(--g-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.admin-appearance-intro h3 {
+  margin: 4px 0 5px;
+  color: var(--g-text-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+.admin-appearance-intro p {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.admin-appearance-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-pill);
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.admin-appearance-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--g-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.admin-appearance-section-title small {
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+.admin-appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.admin-appearance-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 66px;
+  padding: 11px 13px;
+  border: 1px solid var(--g-border);
+  border-radius: 12px;
+  background: var(--g-bg-surface);
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.admin-appearance-option:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 42%, var(--g-border));
+  background: color-mix(in srgb, var(--g-primary-bg) 44%, var(--g-bg-surface));
+  box-shadow: var(--g-shadow-1);
+  transform: translateY(-1px);
+}
+.admin-appearance-option.active {
+  border-color: var(--g-primary);
+  background: var(--g-primary-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-primary) 32%, transparent), var(--g-shadow-1);
+}
+.admin-appearance-option-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 18px;
+}
+.admin-appearance-option strong {
+  display: block;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+.admin-appearance-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.admin-appearance-option.active small { color: inherit; opacity: .78; }
+.admin-appearance-check {
+  color: var(--g-primary);
+  font-size: 19px;
+}
+.admin-appearance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+.admin-appearance-footer p {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.admin-appearance-footer p .ph { flex: 0 0 auto; color: var(--g-primary); }
+@media (max-width: 720px) {
+  .admin-appearance-intro { grid-template-columns: auto minmax(0, 1fr); }
+  .admin-appearance-current { grid-column: 2; justify-self: start; }
+  .admin-appearance-grid { grid-template-columns: 1fr; }
+  .admin-appearance-footer { align-items: flex-start; flex-direction: column; }
 }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light" data-surface-style="glass-latest">
+<html lang="zh-CN" data-theme="light" data-surface-style="classic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260830-glass-default-v2">
+  <link rel="stylesheet" href="css/style.css?v=20260830-farm-admin-baseline-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260826-ai-alert-v2">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260826-ai-alert-v2">
@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260828-v58">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-glass-default-v2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-farm-admin-baseline-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -1173,7 +1173,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-glass-default-v2"></script>
+  <script type="module" src="js/app.js?v=20260830-farm-admin-baseline-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1814,7 +1814,7 @@
           <div class="settings-field">
             <span class="settings-label">卡片风格</span>
             <div class="settings-theme-options settings-surface-options" role="group" aria-label="选择卡片风格">
-              <button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button>
+              <button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :data-surface-style="surface.value" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button>
             </div>
           </div>
           <div class="settings-field">
@@ -1852,7 +1852,42 @@
         <button class="admin-tab" :class="{active: activeTab === 'users'}" @click="activeTab = 'users'">账号管理</button>
         <button class="admin-tab" :class="{active: activeTab === 'permissions'}" @click="activeTab = 'permissions'">权限矩阵</button>
         <button class="admin-tab" :class="{active: activeTab === 'config'}" @click="activeTab = 'config'">系统配置</button>
+        <button class="admin-tab" :class="{active: activeTab === 'appearance'}" @click="activeTab = 'appearance'">界面风格</button>
         <button class="admin-tab" :class="{active: activeTab === 'logs'}" @click="activeTab = 'logs'">操作审计日志</button>
+      </div>
+
+      <!-- Tab: Appearance Management -->
+      <div v-if="activeTab === 'appearance'" class="admin-appearance-management">
+        <section class="admin-appearance-intro">
+          <span class="admin-appearance-intro-icon"><app-icon name="tune"></app-icon></span>
+          <div>
+            <span class="admin-section-kicker">默认基线 · main@4e9326a</span>
+            <h3>农场管理员经典界面</h3>
+            <p>默认使用 main@4e9326a 农场管理员的白色玻璃卡片和紧凑导航。main@c9b6282 之后新增的玻璃材质集中在这里管理，切换后立即作用于当前浏览器。</p>
+          </div>
+          <span class="admin-appearance-current"><app-icon name="check_circle"></app-icon>{{ appearanceStyleLabel }}</span>
+        </section>
+
+        <div class="admin-appearance-section-title"><span>默认风格</span><small>新用户和“恢复默认设置”会使用此风格</small></div>
+        <button type="button" class="admin-appearance-option is-default" :class="{active: appearanceSettings.surfaceStyle === 'classic'}" data-surface-style="classic" @click="selectAppearanceStyle('classic')">
+          <span class="admin-appearance-option-icon"><app-icon name="grid_view"></app-icon></span>
+          <span><strong>经典卡片</strong><small>4e9326a 农场管理员基线 · 白色玻璃、清晰边框、紧凑信息层级</small></span>
+          <app-icon v-if="appearanceSettings.surfaceStyle === 'classic'" name="check_circle" class="admin-appearance-check"></app-icon>
+        </button>
+
+        <div class="admin-appearance-section-title"><span>新版风格（管理）</span><small>来自 c9b6282 及后续版本，可随时切换</small></div>
+        <div class="admin-appearance-grid">
+          <button v-for="surface in appearanceStyleOptions" :key="surface.value" type="button" class="admin-appearance-option" :class="{active: appearanceSettings.surfaceStyle === surface.value}" :data-surface-style="surface.value" @click="selectAppearanceStyle(surface.value)">
+            <span class="admin-appearance-option-icon"><app-icon :name="surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span>
+            <span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></span>
+            <app-icon v-if="appearanceSettings.surfaceStyle === surface.value" name="check_circle" class="admin-appearance-check"></app-icon>
+          </button>
+        </div>
+
+        <div class="admin-appearance-footer">
+          <p><app-icon name="info"></app-icon>外观偏好保存在当前浏览器，不会修改农场数据、账号权限或模拟策略。</p>
+          <button type="button" class="g-btn secondary" @click="resetAppearanceStyle"><app-icon name="replay"></app-icon>恢复经典默认</button>
+        </div>
       </div>
 
       <!-- Tab: Users -->
