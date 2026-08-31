@@ -2,7 +2,8 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, LANGUAGE_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, LANGUAGE_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v4';
+import { installWorkspaceI18n } from './workspace-i18n.js?v=20260831-workspace-i18n-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -2741,7 +2742,9 @@ const SettingsView = {
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (copy.value.changed[key]) toast(copy.value.changed[key]);
+      // Card style is a visual preference and its live preview is already
+      // visible, so do not interrupt the user with a success toast.
+      if (key !== 'surfaceStyle' && copy.value.changed[key]) toast(copy.value.changed[key]);
     };
     const resetSettings = () => {
       const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
@@ -3139,11 +3142,16 @@ const app = createApp({
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme('system') === 'dark';
     };
+    let workspaceI18nController = null;
+    watch(() => userSettings.value.language, (language) => {
+      workspaceI18nController?.setLanguage(language);
+    });
     onMounted(() => {
       try {
         systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
         systemThemeMedia.addEventListener?.('change', handleSystemThemeChange);
       } catch (error) { systemThemeMedia = null; }
+      workspaceI18nController = installWorkspaceI18n(userSettings.value.language);
     });
 
     const toggleSidebar = () => {
@@ -3898,6 +3906,7 @@ const app = createApp({
       userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
+      workspaceI18nController?.setLanguage(userSettings.value.language);
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
         routeParams.value = params;
@@ -3914,6 +3923,8 @@ const app = createApp({
       api.sseAbortController?.abort();
       window.removeEventListener('hashchange', applyHashRoute);
       systemThemeMedia?.removeEventListener?.('change', handleSystemThemeChange);
+      workspaceI18nController?.dispose();
+      workspaceI18nController = null;
     });
 
     // Provide toast globally
