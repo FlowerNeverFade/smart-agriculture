@@ -1347,6 +1347,9 @@ const AdminSettingsView = {
       pendingUserAction.value = { type: user.enabled ? 'disable' : 'enable', user };
     };
 
+    // 当前登录账号不可停用/删除（后端已有 ACCOUNT_SELF_DELETE_FORBIDDEN / MEMBER_SELF_STATUS_FORBIDDEN 防护，前端一并禁用）
+    const isCurrentUser = (userId) => !!userId && !!props.state?.currentUser && props.state.currentUser.userId === userId;
+
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
       if (!action) return;
@@ -1510,6 +1513,7 @@ const AdminSettingsView = {
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      isCurrentUser,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,
       userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
       logPageSize: logPage.pageSize, logPageSizeOptions: logPage.pageSizeOptions, logCurrentPage: logPage.currentPage, logJumpInput: logPage.jumpInput, logTotalRecords: logPage.totalRecords, logTotalPages: logPage.totalPages, logPageRecords: logPage.pageRecords, logPrevPage: logPage.prevPage, logNextPage: logPage.nextPage, logChangeSize: logPage.changeSize, logJumpTo: logPage.jumpTo
