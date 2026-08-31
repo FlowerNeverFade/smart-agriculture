@@ -2176,3 +2176,158 @@
   background: #ffd37a;
   box-shadow: 0 0 0 2px rgba(255, 211, 122, .20), 0 0 8px rgba(255, 211, 122, .52);
 }
+
+/* Workspace surface modes --------------------------------------------------
+ * The admin skin has several older card rules in this file.  Keep the mode
+ * variables at the end of the cascade so every module inherits one coherent
+ * surface, instead of leaving overview/alert/device/Crop Pack cards behind.
+ * Plot cards keep their crop photograph; only their frame changes. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin {
+  --g-bg-surface: var(--workspace-bg-surface);
+  --g-bg-subtle: var(--workspace-bg-subtle);
+  --g-bg-hover: var(--workspace-bg-hover);
+  --admin-glass-surface: var(--workspace-bg-surface);
+  --admin-glass-surface-strong: var(--workspace-sidebar);
+  --admin-glass-surface-soft: var(--workspace-bg-subtle);
+  --admin-glass-cell: var(--workspace-bg-base);
+  --admin-glass-outline: var(--workspace-border);
+  --admin-glass-control-outline: var(--workspace-border);
+  --admin-glass-shadow: 0 1px 3px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+  --admin-glass-shadow-raised: 0 8px 18px color-mix(in srgb, var(--workspace-text) 14%, transparent);
+  --admin-surface-radius: 10px;
+  --admin-surface-inner-radius: 7px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 86%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 90%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 90%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 72%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 74%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 20%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 16%, var(--workspace-border));
+  --admin-glass-shadow: 0 12px 30px color-mix(in srgb, var(--workspace-text) 12%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+  --admin-glass-shadow-raised: 0 18px 38px color-mix(in srgb, var(--workspace-primary) 16%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 78%, transparent);
+  --admin-surface-radius: 16px;
+  --admin-surface-inner-radius: 11px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 62%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 66%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 76%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 60%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 74%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 58%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 56%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 34%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 26%, var(--workspace-border));
+  --admin-glass-shadow: 0 22px 52px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 76%, transparent);
+  --admin-glass-shadow-raised: 0 28px 64px color-mix(in srgb, var(--workspace-primary) 24%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 86%, transparent);
+  --admin-surface-radius: 22px;
+  --admin-surface-inner-radius: 14px;
+}
+
+/* All non-photo business surfaces share the selected treatment. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: var(--workspace-bg-surface) !important;
+  background-image: none !important;
+  border-color: var(--workspace-border-subtle) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 78%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 28%, transparent), transparent 42%) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 22%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(118%) !important;
+  backdrop-filter: blur(16px) saturate(118%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 56%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 44%, transparent), transparent 34%, color-mix(in srgb, var(--workspace-primary) 12%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 36%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(142%) !important;
+  backdrop-filter: blur(26px) saturate(142%) !important;
+}
+
+/* Photograph-backed plot cards retain their image, but inherit the mode's
+   frame, depth and corner treatment so the overview changes too. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 32%, rgba(255,255,255,.38)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(112%) !important;
+  backdrop-filter: blur(4px) saturate(112%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 48%, rgba(255,255,255,.48)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(128%) !important;
+  backdrop-filter: blur(7px) saturate(128%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin .g-main {
+  background-image: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--workspace-primary) 14%, transparent), transparent 36%), radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--workspace-primary) 10%, transparent), transparent 32%) !important;
+}
+
+/* Make the three choices themselves communicate the difference before a
+   setting is saved. */
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] {
+  border-radius: 10px;
+  background: var(--workspace-bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--workspace-bg-surface) 74%, transparent);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--workspace-text) 11%, transparent), inset 0 1px 0 rgba(255,255,255,.72);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+  backdrop-filter: blur(8px) saturate(115%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] {
+  border-radius: 22px;
+  background: linear-gradient(135deg, color-mix(in srgb, #fff 32%, transparent), color-mix(in srgb, var(--workspace-primary) 12%, transparent));
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] .settings-theme-icon { border-radius: 5px; }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] .settings-theme-icon { border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255,255,255,.72); }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] .settings-theme-icon { border-radius: 11px; box-shadow: 0 4px 10px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86); }
