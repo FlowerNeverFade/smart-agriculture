@@ -1078,7 +1078,6 @@ html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-ad
 .settings-preview-caption span { overflow: hidden; color: var(--g-text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .settings-footer { border-top-color: var(--g-border-subtle); }
 .settings-field-hint { display: block; margin-top: 5px; color: var(--g-text-secondary); font-size: 10px; font-weight: 400; line-height: 1.35; }
-html[data-language="en-US"] #app.role-farm-admin .settings-page { letter-spacing: -.01em; }
 @media (max-width: 1080px) { .settings-preset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .settings-grid { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .settings-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .settings-preset-option { grid-template-rows: 36px auto; } }

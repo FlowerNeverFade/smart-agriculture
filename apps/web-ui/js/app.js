@@ -2,8 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, LANGUAGE_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v4';
-import { installWorkspaceI18n } from './workspace-i18n.js?v=20260831-workspace-i18n-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v5';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -2690,20 +2689,9 @@ const SETTINGS_COPY = Object.freeze({
     contentWidth: '内容宽度', standard: '标准', wide: '宽屏', reducedMotion: '减少动效', reducedMotionHint: '减少过渡和动画，适合低性能设备或对动效敏感时使用。',
     dataExperience: '数据体验', refreshTips: '刷新与提示', refreshDescription: '控制工作台如何更新信息，以及是否保留来源标识。', autoRefresh: '自动刷新工作台', autoRefreshHint: '保持页面打开时拉取最新任务、遥测和建议。',
     refreshInterval: '刷新间隔', seconds: ' 秒', showOrigin: '显示数据来源', showOriginHint: '保留模拟、后端或人工记录标识，便于核对信息。', info: '外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。',
-    current: '当前设置', restore: '恢复默认设置', language: '界面语言', font: '界面字体', languageHint: '切换工作台导航和设置中心的显示语言。', fontHint: '选择适合当前设备和阅读习惯的字体。',
+    current: '当前设置', restore: '恢复默认设置', font: '界面字体', fontHint: '选择适合当前设备和阅读习惯的字体。',
     themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗',
-    changed: { theme: '主题已更新', accent: '强调色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', fontFamily: '字体已更新', language: '语言已更新' }
-  }),
-  'en-US': Object.freeze({
-    preference: 'Personal preferences', localOnly: 'Saved on this device', title: 'Workspace settings', description: 'Customize appearance, density and refresh behavior for this browser. Changes are immediate and never alter farm data.',
-    appearance: 'Appearance', themeColor: 'Theme and color', themeDescription: 'Keep the farm workspace focused while adapting it to your preferences.', theme: 'Color mode', workspaceTheme: 'Workspace theme',
-    cardStyle: 'Card surface', accent: 'Accent color', custom: 'Custom', preview: 'Live preview', previewCaption: 'The selected style applies across the admin workspace', density: 'Display density', comfortable: 'Comfortable', compact: 'Compact',
-    contentWidth: 'Content width', standard: 'Standard', wide: 'Wide', reducedMotion: 'Reduce motion', reducedMotionHint: 'Reduce transitions and animations for low-power devices or motion sensitivity.',
-    dataExperience: 'Data experience', refreshTips: 'Refresh and signals', refreshDescription: 'Control how the workspace updates and whether source labels remain visible.', autoRefresh: 'Auto-refresh workspace', autoRefreshHint: 'Pull the latest tasks, telemetry and advice while this page is open.',
-    refreshInterval: 'Refresh interval', seconds: ' sec', showOrigin: 'Show data sources', showOriginHint: 'Keep simulation, backend and human-record labels for traceability.', info: 'Appearance and workspace preferences are stored only in this browser. Farm, device and task facts are not changed.',
-    current: 'Current settings', restore: 'Restore defaults', language: 'Interface language', font: 'Interface font', languageHint: 'Switch the workspace navigation and settings language.', fontHint: 'Choose a typeface that suits this device and your reading preference.',
-    themeLight: 'Light', themeDark: 'Dark', themeSystem: 'System', themeLightHint: 'A clear, bright workspace', themeDarkHint: 'Comfortable in low light', themeSystemHint: 'Follow the device preference',
-    changed: { theme: 'Theme updated', accent: 'Accent updated', density: 'Density updated', layout: 'Content width updated', surfaceStyle: 'Card style updated', fontFamily: 'Font updated', language: 'Language updated' }
+    changed: { theme: '主题已更新', accent: '强调色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', fontFamily: '字体已更新' }
   })
 });
 
@@ -2715,27 +2703,23 @@ const SettingsView = {
     const toast = inject('toast');
     const account = computed(() => props.state?.currentUser || null);
     const settings = ref(readUserSettings(undefined, account.value));
-    const copy = computed(() => SETTINGS_COPY[settings.value.language] || SETTINGS_COPY['zh-CN']);
+    const copy = computed(() => SETTINGS_COPY['zh-CN']);
     const themeOptions = computed(() => [
       { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
       { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
       { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
     ]);
-    const presetOptions = computed(() => PRESET_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ codex: 'Codex neutral', field: 'Field green', sky: 'Clear sky', harvest: 'Harvest gold', orchard: 'Orchard purple' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ codex: 'Calm, clear and content-first', field: 'Keep the natural AgriLoop tone', sky: 'Light and easy to scan', harvest: 'Warm and focused', orchard: 'Soft, layered and professional' }[item.value] || item.hint) : item.hint })));
-    const accentOptions = computed(() => ACCENT_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ green: 'Field green', blue: 'Clear sky', amber: 'Harvest gold', purple: 'Orchard purple' }[item.value] || item.label) : item.label })));
-    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ classic: 'Classic', 'glass-soft': 'Soft glass', 'glass-latest': 'Liquid glass' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ classic: 'Solid surface with clear edges', 'glass-soft': 'Light transparency and a soft layer', 'glass-latest': 'Deep blur with a liquid gradient' }[item.value] || item.hint) : item.hint })));
-    const fontOptions = computed(() => FONT_FAMILY_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ system: 'System default', yahei: 'Microsoft YaHei', pingfang: 'PingFang / Noto Sans', sans: 'Modern sans-serif', serif: 'Humanist serif' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ system: 'Follow the device UI font', yahei: 'Crisp Chinese text on Windows', pingfang: 'Light, modern Chinese glyphs', sans: 'Compact Latin and numbers', serif: 'Editorial reading texture' }[item.value] || item.hint) : item.hint })));
-    const languageOptions = computed(() => LANGUAGE_OPTIONS.map(item => ({ ...item, label: item.value === 'en-US' ? 'English' : '简体中文', hint: settings.value.language === 'en-US' ? (item.value === 'en-US' ? 'Use English for the workspace shell' : 'Use Chinese for the workspace shell') : item.hint })));
+    const presetOptions = computed(() => PRESET_OPTIONS);
+    const accentOptions = computed(() => ACCENT_OPTIONS);
+    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
+    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
     const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => settings.value.language === 'en-US'
-      ? ({ FARM_ADMIN: 'Farm administrator', FARMER: 'Farmer', SYSTEM_ADMIN: 'System administrator' }[props.state?.currentUser?.role] || 'Current role')
-      : (props.state?.currentUser?.roleLabel || '当前身份'));
+    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
     const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
     const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
     const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
     const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
-    const languageLabel = computed(() => languageOptions.value.find(item => item.value === settings.value.language)?.label || '简体中文');
     const updateSetting = (key, value) => {
       const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
       const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
@@ -2751,9 +2735,9 @@ const SettingsView = {
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast(SETTINGS_COPY[next.language].restore);
+      toast(SETTINGS_COPY['zh-CN'].restore);
     };
-    return { settings, copy, themeOptions, refreshOptions, presetOptions, accentOptions, surfaceStyleOptions, fontOptions, languageOptions, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, fontLabel, languageLabel, updateSetting, resetSettings };
+    return { settings, copy, themeOptions, refreshOptions, presetOptions, accentOptions, surfaceStyleOptions, fontOptions, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, fontLabel, updateSetting, resetSettings };
   }
 };
 
@@ -3092,20 +3076,16 @@ const app = createApp({
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
     const isFarmer = computed(() => state.value.currentUser?.role === 'FARMER');
-    const shellCopy = computed(() => userSettings.value.language === 'en-US' ? {
-      toggleTheme: 'Toggle theme', logout: 'Sign out', openProfile: 'Open profile', closeProfile: 'Close profile',
-      simulation: 'Simulation mode', online: 'System online', offline: 'Backend offline', chooseFarm: 'Choose farm'
-    } : {
+    const shellCopy = Object.freeze({
       toggleTheme: '切换主题', logout: '退出登录', openProfile: '打开个人中心', closeProfile: '关闭个人中心',
       simulation: '仿真模式', online: '系统在线', offline: '后端离线', chooseFarm: '选择农场'
     });
-    const sessionModeLabel = computed(() => state.value.sessionMode === 'demo' ? shellCopy.value.simulation : (isLive.value ? shellCopy.value.online : shellCopy.value.offline));
+    const sessionModeLabel = computed(() => state.value.sessionMode === 'demo' ? shellCopy.simulation : (isLive.value ? shellCopy.online : shellCopy.offline));
     const navItems = computed(() => {
-      const english = userSettings.value.language === 'en-US';
       return state.value.allowedViews
         .map((viewId) => NAV_CATALOG.find((item) => item.id === viewId))
         .filter(Boolean)
-        .map((item) => ({ ...item, label: english ? (item.enLabels?.[currentRole.value?.code] || item.enLabel || item.label) : (item.labels?.[currentRole.value?.code] || item.label) }));
+        .map((item) => ({ ...item, label: item.labels?.[currentRole.value?.code] || item.label }));
     });
     const mainNavItems = computed(() => navItems.value.filter(item => !item.isFooter));
     const footerNavItems = computed(() => navItems.value.filter(item => item.isFooter));
@@ -3142,16 +3122,11 @@ const app = createApp({
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme('system') === 'dark';
     };
-    let workspaceI18nController = null;
-    watch(() => userSettings.value.language, (language) => {
-      workspaceI18nController?.setLanguage(language);
-    });
     onMounted(() => {
       try {
         systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
         systemThemeMedia.addEventListener?.('change', handleSystemThemeChange);
       } catch (error) { systemThemeMedia = null; }
-      workspaceI18nController = installWorkspaceI18n(userSettings.value.language);
     });
 
     const toggleSidebar = () => {
@@ -3906,7 +3881,6 @@ const app = createApp({
       userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
-      workspaceI18nController?.setLanguage(userSettings.value.language);
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
         routeParams.value = params;
@@ -3923,8 +3897,6 @@ const app = createApp({
       api.sseAbortController?.abort();
       window.removeEventListener('hashchange', applyHashRoute);
       systemThemeMedia?.removeEventListener?.('change', handleSystemThemeChange);
-      workspaceI18nController?.dispose();
-      workspaceI18nController = null;
     });
 
     // Provide toast globally
@@ -3942,7 +3914,6 @@ const app = createApp({
       passwordForm,
       passwordError,
       accountProfile,
-      language: computed(() => userSettings.value.language),
       shellCopy,
       sessionModeLabel,
       roleClass,

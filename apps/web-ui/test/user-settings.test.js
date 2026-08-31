@@ -18,12 +18,14 @@ test('工作台设置按白名单归一化并保存到浏览器本地', () => {
 
 test('工作台设置应用主题、布局、密度和来源标记数据属性', () => {
   const root = { dataset: {}, style: { setProperty() {}, colorScheme: '' } };
-  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', language: 'en-US', fontFamily: 'yahei', showDataOrigin: false }, { documentElement: root });
+  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', fontFamily: 'yahei', showDataOrigin: false }, { documentElement: root });
   assert.equal(normalized.theme, 'dark');
   assert.equal(root.dataset.theme, 'dark');
   assert.equal(root.dataset.layout, 'wide');
   assert.equal(root.dataset.density, 'compact');
-  assert.equal(root.dataset.language, 'en-US');
+  assert.equal(Object.hasOwn(normalized, 'language'), false);
+  assert.equal(root.dataset.language, undefined);
+  assert.equal(root.lang, 'zh-CN');
   assert.equal(root.dataset.fontFamily, 'yahei');
   assert.equal(root.dataset.showDataOrigin, 'false');
   assert.match(getFontFamily('yahei'), /Microsoft YaHei/);
@@ -34,10 +36,10 @@ test('工作台设置按账号隔离，并支持主题预设与安全自选色',
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };
   const alice = { userId: 'User-A', username: 'Alice' };
   const bob = { userId: 'User-B', username: 'Bob' };
-  saveUserSettings({ ...DEFAULT_USER_SETTINGS, preset: 'sky', customAccent: '#abcdef', language: 'en-US', fontFamily: 'sans' }, storage, alice);
+  saveUserSettings({ ...DEFAULT_USER_SETTINGS, preset: 'sky', customAccent: '#abcdef', fontFamily: 'sans' }, storage, alice);
   assert.equal(readUserSettings(storage, alice).preset, 'sky');
   assert.equal(readUserSettings(storage, alice).customAccent, '#abcdef');
-  assert.equal(readUserSettings(storage, alice).language, 'en-US');
+  assert.equal(Object.hasOwn(readUserSettings(storage, alice), 'language'), false);
   assert.equal(readUserSettings(storage, alice).fontFamily, 'sans');
   assert.equal(readUserSettings(storage, bob).preset, DEFAULT_USER_SETTINGS.preset);
   assert.equal(userSettingsKey(alice), 'agriloop-user-settings-v2:user-a');

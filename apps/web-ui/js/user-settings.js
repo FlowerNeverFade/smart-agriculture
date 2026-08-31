@@ -5,7 +5,7 @@ export const SETTINGS_MIGRATION_KEY = 'agriloop-user-settings-v2-migrated';
 
 export const DEFAULT_USER_SETTINGS = Object.freeze({
   theme: 'light', preset: 'codex', accent: 'green', customAccent: '',
-  surfaceStyle: 'classic', surfaceStyleVersion: 6, fontFamily: 'system', language: 'zh-CN', density: 'comfortable', layout: 'standard',
+  surfaceStyle: 'classic', surfaceStyleVersion: 6, fontFamily: 'system', density: 'comfortable', layout: 'standard',
   reducedMotion: false, autoRefresh: true, refreshInterval: 15, showDataOrigin: true
 });
 
@@ -38,17 +38,11 @@ export const FONT_FAMILY_OPTIONS = Object.freeze([
   Object.freeze({ value: 'serif', label: '人文衬线', hint: '更有编辑感的阅读体验', stack: "'Noto Serif SC', 'Songti SC', 'SimSun', serif" })
 ]);
 
-export const LANGUAGE_OPTIONS = Object.freeze([
-  Object.freeze({ value: 'zh-CN', label: '简体中文', hint: '使用中文显示工作台' }),
-  Object.freeze({ value: 'en-US', label: 'English', hint: 'Use English for the workspace shell' })
-]);
-
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const PRESET_VALUES = new Set(PRESET_OPTIONS.map(item => item.value));
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map(item => item.value));
 const SURFACE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map(item => item.value));
 const FONT_VALUES = new Set(FONT_FAMILY_OPTIONS.map(item => item.value));
-const LANGUAGE_VALUES = new Set(LANGUAGE_OPTIONS.map(item => item.value));
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
 const REFRESH_INTERVALS = new Set([5, 15, 30, 60]);
@@ -99,7 +93,6 @@ export function normalizeUserSettings(input = {}) {
     surfaceStyle: SURFACE_VALUES.has(source.surfaceStyle) ? source.surfaceStyle : DEFAULT_USER_SETTINGS.surfaceStyle,
     surfaceStyleVersion: 6,
     fontFamily: FONT_VALUES.has(source.fontFamily) ? source.fontFamily : DEFAULT_USER_SETTINGS.fontFamily,
-    language: LANGUAGE_VALUES.has(source.language) ? source.language : DEFAULT_USER_SETTINGS.language,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
     reducedMotion: typeof source.reducedMotion === 'boolean' ? source.reducedMotion : DEFAULT_USER_SETTINGS.reducedMotion,
@@ -166,7 +159,7 @@ export function applyUserSettings(settings, documentRef, windowRef) {
   if (!doc?.documentElement) return normalized;
   const root = doc.documentElement; const appearance = getAppearancePalette(normalized, windowRef); const theme = appearance.theme;
   root.dataset.theme = theme; root.dataset.userTheme = normalized.theme; root.dataset.accent = appearance.accent.value; root.dataset.workspacePreset = normalized.preset;
-  root.dataset.surfaceStyle = normalized.surfaceStyle; root.dataset.fontFamily = normalized.fontFamily; root.dataset.language = normalized.language; root.dataset.density = normalized.density; root.dataset.layout = normalized.layout; root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false'; root.dataset.showDataOrigin = normalized.showDataOrigin ? 'true' : 'false'; root.lang = normalized.language; root.style.colorScheme = theme;
+  root.dataset.surfaceStyle = normalized.surfaceStyle; root.dataset.fontFamily = normalized.fontFamily; root.dataset.density = normalized.density; root.dataset.layout = normalized.layout; root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false'; root.dataset.showDataOrigin = normalized.showDataOrigin ? 'true' : 'false'; root.lang = 'zh-CN'; root.style.colorScheme = theme;
   const variables = {
     '--workspace-bg-base': appearance.base, '--workspace-bg-surface': appearance.surface, '--workspace-bg-subtle': appearance.subtle, '--workspace-bg-hover': appearance.hover,
     '--workspace-border': appearance.border, '--workspace-border-subtle': appearance.borderSubtle, '--workspace-text': appearance.text, '--workspace-text-secondary': appearance.secondary,
