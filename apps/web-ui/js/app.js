@@ -3,7 +3,7 @@ import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, LANGUAGE_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v4';
-import { installWorkspaceI18n } from './workspace-i18n.js?v=20260831-workspace-i18n-v1';
+import { installWorkspaceI18n } from './workspace-i18n.js?v=20260831-workspace-i18n-v3';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
