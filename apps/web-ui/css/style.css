@@ -3,7 +3,7 @@
    ============================================================ */
 
 :root {
-  --g-font-family: 'Google Sans', 'Roboto', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --g-font-family: 'Google Sans', 'Roboto', 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, sans-serif;
   --g-mono: 'Roboto Mono', monospace;
 
   --g-bg-base: #f8f9fa;
@@ -1073,7 +1073,7 @@ html[data-surface-style="glass-latest"] #app .g-card {
   background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
   box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
   color: var(--g-text-primary);
-  font: 500 14px/1 var(--g-font-family);
+  font: 500 14px/1.4 var(--g-font-family);
   transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
 }
 /* Keep the user-selectable compact density meaningful after the shared
