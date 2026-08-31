@@ -2372,13 +2372,15 @@ export class ApiService {
     return { success: true, conversationId, sourceMode: 'SIMULATED' };
   }
 
-  async agentChat(message, plotId = 'plot-a01', conversationId = '') {
+  async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };
       if (conversationId) body.conversationId = conversationId;
+      if (Array.isArray(options?.images) && options.images.length) body.images = options.images.slice(0, 4);
       const resp = await this._fetch('/api/v1/agent/chat', {
         method: 'POST',
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        timeoutMs: body.images?.length ? 90000 : 65000
       });
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });
@@ -2395,6 +2397,16 @@ export class ApiService {
       this._demoSaveAgentTurn(resolvedConversationId, message, plotId, payload);
       return payload;
     };
+    if (Array.isArray(options?.images) && options.images.length) {
+      return persistDemoResponse({
+        traceId, plotId, mode: 'demo', adapter: 'demo', intent: 'IMAGE_ANALYSIS',
+        summary: '演示模式未调用视觉模型', degraded: true,
+        degradationReason: 'LIVE_VISION_REQUIRED',
+        narrative: '图片已在浏览器中完成安全预处理，但演示模式不会把图片发送到模型。切换到实时服务后，可以直接分析画面内容。',
+        vision: { imageCount: Math.min(4, options.images.length), provenance: 'USER_PROVIDED' },
+        tools: [], confidence: 1
+      });
+    }
     const asksMutation = DEMO_AGENT_MUTATION_PATTERN.test(message || '');
     const asksControl = DEMO_AGENT_CONTROL_PATTERN.test(message || '');
     const asksFarmMutation = DEMO_AGENT_FARM_MUTATION_PATTERN.test(message || '');

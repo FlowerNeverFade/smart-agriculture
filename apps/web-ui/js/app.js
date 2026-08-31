@@ -1,12 +1,12 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-vision-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-ai-role-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-vision-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-three-branch-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-three-branch-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-three-branch-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-three-branch-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-three-branch-v1';
@@ -43,7 +43,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-ai-role-v1';
+} from './live-data.js?v=20260831-vision-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and

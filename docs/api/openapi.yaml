@@ -313,7 +313,7 @@ paths:
         '200': {description: 按地块权限读取原始灌溉处方}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
-    post: {tags: [decision], description: 携带 message、plotId、conversationId；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出与可选 actionProposal}}}
+    post: {tags: [decision], description: 携带 message、plotId、conversationId；可选 images 最多 4 张经过客户端压缩的 JPG/PNG/WebP data URL，由原生多模态模型读取且不持久化原图；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出、可选 vision 元数据与 actionProposal}, '400': {description: 图片格式、数量或体积不符合限制}}}
   /api/v1/agent/conversations:
     get:
       tags: [decision]

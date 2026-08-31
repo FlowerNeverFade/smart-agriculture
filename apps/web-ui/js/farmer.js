@@ -1,9 +1,9 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-vision-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-vision-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
 import {
   agentResponseSource,
@@ -25,7 +25,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-ai-role-v1';
+} from './live-data.js?v=20260831-vision-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 

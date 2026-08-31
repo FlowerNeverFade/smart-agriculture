@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260831-ai-role-v1';
-import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-ai-role-v1';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-three-branch-v1';
+import { api } from '../api.js?v=20260831-vision-v1';
+import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-vision-v1';
+import { analyzeImageFiles } from './image-vision.js?v=20260831-vision-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260831-ai-presentation-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -171,13 +171,21 @@ export const AdminAiChatView = {
       const size = Number(bytes || 0);
       return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
     };
-    const visionSummary = (items, sourceAttachments) => items.map((item, index) => {
-      const predictions = (item.predictions || []).slice(0, 5).map(prediction =>
-        `${prediction.label} ${Math.round(prediction.confidence * 100)}%`).join('、');
-      const quality = item.quality === 'CLEAR' ? '主要物体较清晰' : '画面识别不确定';
-      return `${sourceAttachments[index]?.name || `图片${index + 1}`}（${item.width}×${item.height}px；${quality}；候选物体：${predictions || '无'}）`;
-    }).join('；');
-    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片已由浏览器端视觉模型真实读取像素，识别证据如下：${summary}。请先回答图中是什么，再根据用户问题分析；候选结果不确定时必须明说并请用户补拍，不得用地块遥测代替图片内容。`;
+    const qualityLabel = value => ({
+      CLEAR: '画面质量正常', LOW_LIGHT: '画面偏暗', OVEREXPOSED: '画面偏亮', BLURRY: '画面细节较少', UNKNOWN: '画面质量未检查'
+    })[String(value || '').toUpperCase()] || '画面质量正常';
+    const visionSummary = (items, sourceAttachments) => items.map((item, index) =>
+      `${sourceAttachments[index]?.name || `图片${index + 1}`}（原图 ${item.width}×${item.height}px，送入模型 ${item.processedWidth}×${item.processedHeight}px，${qualityLabel(item.quality)}）`
+    ).join('；');
+    const visionPayloads = (items, sourceAttachments) => items.map((item, index) => ({
+      name: sourceAttachments[index]?.name || `图片${index + 1}`,
+      mimeType: item.mimeType,
+      dataUrl: item.dataUrl,
+      width: item.processedWidth,
+      height: item.processedHeight,
+      quality: item.quality
+    }));
+    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片会随本次请求直接送入视觉模型。预处理信息：${summary}。请基于图片实际可见内容回答；先说看到了什么，再回答我的问题。只有关键部位确实看不清时才说明具体限制，不要把“不确定”作为默认结论，也不要用地块遥测代替图片内容。`;
     const analyzePhoto = async () => {
       if (!attachments.value.length || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
@@ -192,7 +200,9 @@ export const AdminAiChatView = {
         const requestText = buildVisionRequest(`请分析我上传的${count}张图片。`, summary);
         if (!conversationId.value) conversationId.value = createConversationId();
         selectedConversationId.value = conversationId.value;
-        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
+        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
+          images: visionPayloads(analyses, attachments.value)
+        });
         conversationId.value = response?.conversationId || conversationId.value;
         selectedConversationId.value = conversationId.value;
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
@@ -283,6 +293,17 @@ export const AdminAiChatView = {
         if (hasAttachments) {
           const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
           requestText = buildVisionRequest(requestText, visionSummary(analyses, attachments.value));
+          const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
+            images: visionPayloads(analyses, attachments.value)
+          });
+          conversationId.value = response?.conversationId || conversationId.value;
+          selectedConversationId.value = conversationId.value;
+          const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
+          messages.value.push(assistant);
+          if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+          await refreshConversations();
+          updateRoute(conversationId.value);
+          return;
         }
         const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
         conversationId.value = response?.conversationId || conversationId.value;

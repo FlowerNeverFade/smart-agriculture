@@ -388,6 +388,7 @@ const AGENT_INTENT_LABELS = Object.freeze({
   RULE_STRATEGY_STATUS: '规则与策略状态',
   TODAY_WORK: '今日农务',
   PLOT_STATUS: '地块状态',
+  IMAGE_ANALYSIS: '图片分析',
   GREETING: '问候',
   CLARIFICATION: '澄清',
   CAPABILITY_QUERY: '能力说明',
@@ -633,7 +634,7 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
   const traceId = text(response.traceId, '');
   const plotId = text(response.plotId || plot?.plotId, '');
   const plotName = text(plot?.name, plotId || '关联地块');
-  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS'].includes(intent)) {
+  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS', 'IMAGE_ANALYSIS'].includes(intent)) {
     return null;
   }
 

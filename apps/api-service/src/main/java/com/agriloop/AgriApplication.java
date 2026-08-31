@@ -107,6 +107,8 @@ class AgriProperties {
     /** OpenAI-compatible endpoint used by the optional Qwen/vLLM adapter. */
     private String llmBaseUrl = "http://127.0.0.1:8000/v1";
     private String llmModel = "Qwen3.8-27B";
+    /** Optional base multimodal model used when a chat turn contains images. */
+    private String llmVisionModel = "Qwen3.8-27B";
     private String llmApiKey = "";
     private long llmTimeoutMs = 60000;
     private int llmMaxTokens = 512;
@@ -152,6 +154,8 @@ class AgriProperties {
     public void setLlmBaseUrl(String llmBaseUrl) { this.llmBaseUrl = llmBaseUrl; }
     public String getLlmModel() { return llmModel; }
     public void setLlmModel(String llmModel) { this.llmModel = llmModel; }
+    public String getLlmVisionModel() { return llmVisionModel; }
+    public void setLlmVisionModel(String llmVisionModel) { this.llmVisionModel = llmVisionModel; }
     public String getLlmApiKey() { return llmApiKey; }
     public void setLlmApiKey(String llmApiKey) { this.llmApiKey = llmApiKey; }
     public long getLlmTimeoutMs() { return llmTimeoutMs; }
@@ -1216,6 +1220,12 @@ class AgriEngine {
     private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int INSPECTION_PHOTO_MAX_COUNT = 6;
     private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+    private static final Set<String> AGENT_IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
+    private static final int AGENT_IMAGE_MAX_COUNT = 4;
+    private static final int AGENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+    private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 6 * 1024 * 1024;
+    private static final Pattern AGENT_IMAGE_DATA_URL = Pattern.compile(
+            "^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$", Pattern.CASE_INSENSITIVE);
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -2817,7 +2827,7 @@ class AgriEngine {
             try {
                 rawNarrative = callOpenAiCompatible(
                         "请解释这次农业根因诊断。规则字段 primaryCause 和 confidence 是最终结论，不得改写；只使用给定的支持、反对和缺失证据。用‘结论—证据—下一步’的简洁结构回答，证据不足时明确说明需要复测。不要生成灌溉剂量、控制命令、SQL、MQTT topic 或 HTTP 请求。",
-                        facts, List.of());
+                        facts, List.of(), List.of());
                 String modelText = sanitizeDiagnosisExplanation(rawNarrative);
                 if (modelText.isBlank()) throw new IOException("LLM_EMPTY_EXPLANATION");
                 // Always keep the deterministic conclusion visible beside the
@@ -5619,6 +5629,7 @@ class AgriEngine {
         String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
         String plotId = Jsons.text(input, "plotId", "plot-a01");
         ensurePlotAccess(principal, plotId);
+        List<Map<String, Object>> agentImages = normalizeAgentImages(input.get("images"));
         String conversationId = resolveConversationId(input, principal);
         List<Map<String, Object>> recentHistory = conversationMessages(principal, conversationId,
                 Math.max(0, Math.min(12, properties.getLlmHistoryMessages())));
@@ -5635,6 +5646,14 @@ class AgriEngine {
         answer.put("role", principal.role);
         answer.put("roleLabel", RolePolicy.label(principal.role));
         answer.put("roleProfile", roleProfile);
+        if (!agentImages.isEmpty()) {
+            answer.put("vision", Map.of(
+                    "imageCount", agentImages.size(),
+                    "provider", "openai-compatible",
+                    "model", configuredVisionModel(),
+                    "provenance", "USER_PROVIDED",
+                    "images", agentImageMetadata(agentImages)));
+        }
 
         String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
         boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
@@ -5642,7 +5661,9 @@ class AgriEngine {
         answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
         boolean fastPath = false;
-        Map<String, Object> actionProposal = planAgentAction(message, plotId, principal, traceId);
+        // A photo is evidence for a model-assisted observation, not a safe basis
+        // for silently triggering the deterministic mutation parser.
+        Map<String, Object> actionProposal = agentImages.isEmpty() ? planAgentAction(message, plotId, principal, traceId) : null;
         if (actionProposal != null) {
             boolean hasPreview = actionProposal.containsKey("actionId");
             answer.put("intent", hasPreview ? "AGENT_ACTION" : "CLARIFICATION");
@@ -5652,6 +5673,14 @@ class AgriEngine {
             answer.put("summary", Jsons.text(actionProposal, "summary", "需要补充信息"));
             answer.put("narrative", Jsons.text(actionProposal, "clarification", Jsons.text(actionProposal, "summary", "已生成操作预览，等待确认执行。")));
             answer.put("narrativeProvenance", "DERIVED"); answer.put("adapter", "rules-agent"); fastPath = true;
+        } else if (!agentImages.isEmpty()) {
+            answer.put("intent", "IMAGE_ANALYSIS");
+            answer.put("summary", "已读取 " + agentImages.size() + " 张用户图片并结合问题分析");
+            answer.put("result", Map.of(
+                    "imageCount", agentImages.size(),
+                    "inputSource", "USER_PROVIDED",
+                    "plotId", plotId,
+                    "cropContext", plotCropContext(plotId)));
         } else if (isGreeting(message)) {
             // Greetings and other social pleasantries do not need a 27B inference call.
             // Keeping this deterministic also prevents a one-word message from causing
@@ -5805,14 +5834,17 @@ class AgriEngine {
         } else if (openAiCompatible) {
             long started = System.nanoTime();
             try {
-                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId), recentHistory);
+                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId), recentHistory, agentImages);
                 String narrative = sanitizeNarrative(rawNarrative);
                 narrative = applySafetyGuidance(message, answer, narrative);
                 if (narrative.isBlank()) narrative = Jsons.text(answer, "summary", "已完成规则评估");
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
                 answer.put("narrativeProvenance", "DERIVED");
-                answer.put("llm", Map.of("provider", "openai-compatible", "model", configuredLlmModel(), "latencyMs", latencyMs));
+                answer.put("llm", Map.of("provider", "openai-compatible",
+                        "model", agentImages.isEmpty() ? configuredLlmModel() : configuredVisionModel(),
+                        "latencyMs", latencyMs,
+                        "multimodal", !agentImages.isEmpty()));
             } catch (Exception ex) {
                 degraded = true;
                 degradationReason = "AI_DEPENDENCY_UNAVAILABLE_FALLBACK";
@@ -5846,13 +5878,84 @@ class AgriEngine {
         return answer;
     }
 
+    private List<Map<String, Object>> normalizeAgentImages(Object rawImages) {
+        if (rawImages == null) return List.of();
+        if (!(rawImages instanceof Collection<?> collection)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGES_INVALID", "图片参数格式无效");
+        }
+        if (collection.size() > AGENT_IMAGE_MAX_COUNT) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_LIMIT_EXCEEDED", "单次最多分析 4 张图片");
+        }
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        int totalBytes = 0;
+        int index = 0;
+        for (Object value : collection) {
+            index++;
+            Map<String, Object> image = Jsons.map(mapper, value);
+            String dataUrl = Jsons.text(image, "dataUrl", "").trim();
+            Matcher matcher = AGENT_IMAGE_DATA_URL.matcher(dataUrl);
+            if (!matcher.matches()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_FORMAT_UNSUPPORTED",
+                        "第 " + index + " 张图片不是有效的 JPG、PNG 或 WebP 数据");
+            }
+            String mimeType = matcher.group(1).toLowerCase(Locale.ROOT);
+            if (!AGENT_IMAGE_TYPES.contains(mimeType)) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_FORMAT_UNSUPPORTED", "不支持该图片格式");
+            }
+            String encoded = matcher.group(2);
+            if (encoded.length() > ((AGENT_IMAGE_MAX_BYTES + 2) / 3) * 4 + 8) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张图片处理后不能超过 2MB");
+            }
+            byte[] decoded;
+            try {
+                decoded = Base64.getDecoder().decode(encoded);
+            } catch (IllegalArgumentException error) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_BASE64_INVALID", "图片数据损坏，请重新选择");
+            }
+            if (decoded.length == 0 || decoded.length > AGENT_IMAGE_MAX_BYTES) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张图片处理后不能超过 2MB");
+            }
+            totalBytes += decoded.length;
+            if (totalBytes > AGENT_IMAGE_MAX_TOTAL_BYTES) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOTAL_TOO_LARGE", "单次图片总量不能超过 6MB");
+            }
+            String name = Jsons.text(image, "name", "图片" + index)
+                    .replaceAll("[\\r\\n\\p{Cntrl}]+", " ").trim();
+            if (name.isBlank()) name = "图片" + index;
+            if (name.length() > 100) name = name.substring(0, 100);
+            int width = (int) Math.max(0, Math.min(10000, Jsons.whole(image, "width", 0)));
+            int height = (int) Math.max(0, Math.min(10000, Jsons.whole(image, "height", 0)));
+            Map<String, Object> accepted = new LinkedHashMap<>();
+            accepted.put("name", name);
+            accepted.put("mimeType", mimeType);
+            accepted.put("width", width);
+            accepted.put("height", height);
+            accepted.put("byteSize", decoded.length);
+            accepted.put("quality", Jsons.text(image, "quality", "UNKNOWN"));
+            accepted.put("dataUrl", dataUrl);
+            normalized.add(accepted);
+        }
+        return normalized;
+    }
+
+    private List<Map<String, Object>> agentImageMetadata(List<Map<String, Object>> images) {
+        return images.stream().map(image -> Map.<String, Object>of(
+                "name", Jsons.text(image, "name", "图片"),
+                "mimeType", Jsons.text(image, "mimeType", "image/jpeg"),
+                "width", Jsons.whole(image, "width", 0),
+                "height", Jsons.whole(image, "height", 0),
+                "byteSize", Jsons.whole(image, "byteSize", 0),
+                "quality", Jsons.text(image, "quality", "UNKNOWN"))).toList();
+    }
+
     /**
      * Calls a local or remote OpenAI-compatible chat endpoint only for
      * narrative generation.  Rules and tools above remain the source of
      * truth for measurements, plans, permissions, and commands.
      */
     private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
-                                        List<Map<String, Object>> recentHistory) throws IOException {
+                                        List<Map<String, Object>> recentHistory,
+                                        List<Map<String, Object>> imageInputs) throws IOException {
         String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
         if (baseUrl.isBlank()) throw new IOException("LLM_BASE_URL_NOT_CONFIGURED");
         while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
@@ -5869,9 +5972,14 @@ class AgriEngine {
         if (context.length() > 10000) context = context.substring(0, 10000) + "…";
         String prompt = (userMessage == null ? "" : userMessage);
         if (prompt.length() > 4000) prompt = prompt.substring(0, 4000) + "…";
-        String userContent = "当前问题：" + prompt + "\n\n当前公开事实（优先级高于历史对话，只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
+        boolean hasImages = imageInputs != null && !imageInputs.isEmpty();
+        String imageNotice = hasImages
+                ? "\n\n本轮附有 " + imageInputs.size() + " 张用户现场图片。请直接观察图片像素；图片是 USER_PROVIDED 证据，与下列平台事实分开判断。"
+                : "";
+        String userContent = "当前问题：" + prompt + imageNotice
+                + "\n\n当前公开事实（优先级高于历史对话，只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
         Map<String, Object> request = new LinkedHashMap<>();
-        request.put("model", configuredLlmModel());
+        request.put("model", hasImages ? configuredVisionModel() : configuredLlmModel());
         Map<String, Object> profile = Jsons.map(mapper, deterministicContext.get("roleProfile"));
         String roleLabel = Jsons.text(deterministicContext, "roleLabel", "当前用户");
         String scopeLabel = Jsons.text(profile, "scopeLabel", "当前授权范围");
@@ -5879,7 +5987,11 @@ class AgriEngine {
         // Qwen's chat template accepts only one system message at the beginning.
         // Keep the general behavior and role boundary in that single message;
         // sending a second system message makes vLLM return HTTP 400.
-        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位耐心、务实的农技员与用户连续交谈。直接回答当前问题；如果用户是在追问清单、原因、步骤或‘然后呢’，要承接最近对话，不要重新复述上一轮结论，也不要把不同问题套进同一句风险模板。表达可以随问题变化：简单问题用一两句话，操作清单用编号，解释问题用‘结论—原因—下一步’；避免每次都以‘我看到’‘建议先’‘如果你愿意’开头。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。最多 3 个短段或 6 条要点。历史对话只用于理解指代和追问，当前公开事实才是实时依据；只能使用给定事实，不得编造观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，要自然说明不会自动执行，但仍应回答用户真正询问的内容。"
+        String visionGuidance = hasImages
+                ? "本轮有图片：直接看图后先回答用户真正关心的内容。先说清楚画面中实际可见的对象、状态或症状，再给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。不要默认说识别不确定，也不要因为分类概率低就要求补拍；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制和补拍位置。不要把平台遥测冒充成图片内容。"
+                : "";
+        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位熟悉现场的同事或农技员自然交谈，而不是照模板填表。第一句直接回答问题，再按需要补充；简单问题一两句话即可，复杂问题可以用短段或清单。不要默认套用‘结论—分析依据—排查建议’等固定标题，不要机械复述身份、权限、数据边界或安全声明，也不要每次都用相同开场和收尾。追问时承接最近对话，只补充新信息。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。优先简洁，通常不超过 4 个短段或 8 条要点。历史对话只用于理解指代，当前公开事实才是实时平台依据；不得编造未提供的观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，用一句自然的话说明即可，然后继续回答用户真正询问的内容。"
+                + visionGuidance
                 + "\n\n当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。"
                 + roleGuidance + "。不要向用户展示超出该范围的事实或操作。";
         List<Map<String, Object>> messages = new ArrayList<>();
@@ -5892,13 +6004,23 @@ class AgriEngine {
             if (content.length() > 800) content = content.substring(0, 800) + "…";
             messages.add(Map.of("role", role, "content", content));
         }
-        messages.add(Map.of("role", "user", "content", userContent));
+        if (hasImages) {
+            List<Map<String, Object>> content = new ArrayList<>();
+            content.add(Map.of("type", "text", "text", userContent));
+            for (Map<String, Object> image : imageInputs) {
+                content.add(Map.of("type", "image_url", "image_url",
+                        Map.of("url", Jsons.text(image, "dataUrl", ""))));
+            }
+            messages.add(Map.of("role", "user", "content", content));
+        } else {
+            messages.add(Map.of("role", "user", "content", userContent));
+        }
         request.put("messages", messages);
-        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.78);
-        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.9);
+        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.84);
+        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.92);
         request.put("top_k", 20);
-        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.35);
-        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.25);
+        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.18);
+        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.12);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
         Map<String, Object> chatTemplate = new LinkedHashMap<>();
@@ -5956,6 +6078,11 @@ class AgriEngine {
 
     private String configuredLlmModel() {
         return properties.getLlmModel() == null || properties.getLlmModel().isBlank() ? "Qwen3.8-27B" : properties.getLlmModel().trim();
+    }
+
+    private String configuredVisionModel() {
+        return properties.getLlmVisionModel() == null || properties.getLlmVisionModel().isBlank()
+                ? configuredLlmModel() : properties.getLlmVisionModel().trim();
     }
 
     private String safeLlmError(Exception ex) {
@@ -6099,6 +6226,9 @@ class AgriEngine {
         String intent = Jsons.text(answer, "intent", "PLOT_STATUS");
         String role = agentRoleCode(answer);
         if ("RETEST_CHECKLIST".equals(intent)) return retestChecklistNarrative(answer, role);
+        if ("IMAGE_ANALYSIS".equals(intent)) {
+            return "图片已经收到，但视觉模型这次没有完成分析。图片不会被当成遥测数据猜测；请稍后重试，或先补充你想确认的作物、部位和异常表现。";
+        }
         if ("PLATFORM_STATUS".equals(intent)) {
             Map<String, Object> result = Jsons.map(mapper, answer.get("result"));
             return "平台服务状态：数据库" + dependencyStateLabel(result.get("database"))
@@ -6320,7 +6450,7 @@ class AgriEngine {
         assistantEntry.put("agentRole", answer.get("role"));
         assistantEntry.put("roleLabel", answer.get("roleLabel"));
         assistantEntry.put("roleProfile", publicProjection(answer.get("roleProfile")));
-        for (String key : List.of("result", "plan", "diagnosis", "workItems", "context", "confidence", "readiness", "warnings", "scenarioLabel")) {
+        for (String key : List.of("result", "plan", "diagnosis", "workItems", "context", "confidence", "readiness", "warnings", "scenarioLabel", "vision")) {
             if (answer.containsKey(key) && answer.get(key) != null) assistantEntry.put(key, publicProjection(answer.get(key)));
         }
         if (answer.containsKey("llm")) assistantEntry.put("llm", publicProjection(answer.get("llm")));
