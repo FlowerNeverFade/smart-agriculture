@@ -2170,6 +2170,8 @@ const app = createApp({
     const irrigation_guard = ref(null);
     const automatic_watering_result = ref(null);
     const automatic_watering_busy = ref(false);
+    const automatic_watering_setting = ref(null);
+    const automatic_watering_setting_busy = ref(false);
     const advice_passport = ref(null);
     const evidence_request_busy = ref(false);
     const advice_loading = ref(false);
@@ -2201,12 +2203,16 @@ const app = createApp({
         ?? irrigation_guard.value?.automaticWatering?.threshold
         ?? irrigation_plan.value?.automaticWatering?.threshold
         ?? 10);
+      const enabled = automatic_watering_setting.value?.enabled
+        ?? irrigation_guard.value?.automaticWatering?.enabled
+        ?? irrigation_plan.value?.automaticWatering?.enabled
+        ?? true;
       const resultStatus = String(automatic_watering_result.value?.status || '').toUpperCase();
       const eligible = Number.isFinite(moisture) && moisture < threshold;
-      const status = resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
-      const statusLabel = { TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
-      const label = status === 'TRIGGERED' ? '已根据最新读数发起虚拟浇水' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
-      return { enabled: true, threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
+      const status = !enabled ? 'DISABLED' : resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
+      const statusLabel = { DISABLED: '未开启', TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
+      const label = !enabled ? '自动浇水未开启' : status === 'TRIGGERED' ? '已根据最新读数发起' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
+      return { enabled: Boolean(enabled), threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible: Boolean(enabled) && eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
     });
 
     // Keep the old QA names as local aliases for the existing advice helpers;
@@ -3435,6 +3441,7 @@ const app = createApp({
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
       irrigation_guard.value = null;
+      automatic_watering_setting.value = null;
       if (automatic_watering_result.value?.plotId !== plotId) automatic_watering_result.value = null;
       try {
         const plan = await api.estimateIrrigation({
@@ -3459,11 +3466,25 @@ const app = createApp({
             // stay disabled until the guard can be read again.
             irrigation_guard.value = null;
           }
+          try {
+            automatic_watering_setting.value = await api.getAutomaticWateringSetting(plotId);
+          } catch {
+            // Keep the existing default-on behavior if an older server does
+            // not expose the optional setting endpoint yet.  The guard remains
+            // the source of truth for eligibility and safety checks.
+            automatic_watering_setting.value = {
+              plotId,
+              enabled: irrigation_guard.value?.automaticWatering?.enabled !== false,
+              threshold: irrigation_guard.value?.automaticWatering?.threshold || 10,
+              sourceMode: 'SIMULATION',
+              provenance: 'DERIVED'
+            };
+          }
           // The server also evaluates this on every telemetry event.  The
           // page-level check catches an already-low reading when a farmer
           // opens the irrigation view and is idempotent per reading in demo
           // mode.
-          if (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true) {
+          if (automatic_watering_status.value.enabled && (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true)) {
             void check_automatic_watering(plotId, { silent: true });
           }
         }
@@ -3480,8 +3501,37 @@ const app = createApp({
       }
     };
 
+    const toggle_automatic_watering = async (plotId = advice_plot.value?.plotId) => {
+      if (!plotId || automatic_watering_setting_busy.value) return null;
+      const currentEnabled = automatic_watering_setting.value?.enabled
+        ?? automatic_watering_status.value.enabled;
+      automatic_watering_setting_busy.value = true;
+      try {
+        const setting = await api.setAutomaticWateringSetting(plotId, !currentEnabled);
+        automatic_watering_setting.value = setting;
+        automatic_watering_result.value = null;
+        try {
+          irrigation_guard.value = await api.getIrrigationGuard(plotId);
+        } catch {
+          // The saved setting is still reflected immediately; a later refresh
+          // can fill the guard details when the service is available again.
+        }
+        show_toast(setting.enabled ? '已开启自动浇水' : '已关闭自动浇水');
+        return setting;
+      } catch (error) {
+        show_toast(error?.message || '自动浇水设置保存失败', 'error');
+        return null;
+      } finally {
+        automatic_watering_setting_busy.value = false;
+      }
+    };
+
     const check_automatic_watering = async (plotId = advice_plot.value?.plotId, { silent = false } = {}) => {
       if (!plotId || automatic_watering_busy.value) return null;
+      if (!automatic_watering_status.value.enabled) {
+        if (!silent) show_toast('请先开启自动浇水');
+        return { plotId, enabled: false, status: 'DISABLED', reason: 'AUTOMATIC_WATERING_DISABLED' };
+      }
       automatic_watering_busy.value = true;
       try {
         const result = await api.autoWaterIfNeeded(plotId);
@@ -4949,6 +4999,8 @@ const app = createApp({
       automatic_watering_status,
       automatic_watering_result,
       automatic_watering_busy,
+      automatic_watering_setting,
+      automatic_watering_setting_busy,
       advice_passport,
       evidence_request_busy,
       advice_plan,
@@ -5075,6 +5127,7 @@ const app = createApp({
       open_plot,
       open_tools,
       load_irrigation_plan,
+      toggle_automatic_watering,
       check_automatic_watering,
       toggle_irrigation,
       open_suggestion,

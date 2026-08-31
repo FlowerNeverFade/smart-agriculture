@@ -3174,8 +3174,13 @@ class AgriEngine {
         String readinessStatus = Jsons.text(readinessResult, "status", "HUMAN_REVIEW");
         if (reviewOnly && "READY".equals(readinessStatus)) readinessStatus = "HUMAN_REVIEW";
         double currentMoisture = Jsons.number(soil, "value", 18);
-        boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
-        boolean emergencyEligible = !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
+        // A healthy reading at or above the deterministic irrigation target is
+        // a complete NO_ACTION decision.  A low-confidence root-cause label is
+        // not a reason to send the farmer through an evidence workflow when
+        // there is no moisture deficit to treat.
+        boolean noWaterNeeded = !hardDataBlock && duration <= 0 && currentMoisture >= target;
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
+        boolean emergencyEligible = automaticEnabled && !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
                 && duration > 0 && currentMoisture < emergencyThreshold;
         String why = hardDataBlock
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
@@ -3199,13 +3204,13 @@ class AgriEngine {
         plan.put("emergency", emergency);
         plan.put("emergencyEligible", emergencyEligible);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", currentMoisture);
         automatic.put("eligible", emergencyEligible);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
         automatic.put("note", emergencyEligible
                 ? "土壤含水量低于 10%，满足自动虚拟浇水触发条件"
                 : "土壤含水量达到 10% 或以上时不自动浇水");
@@ -3266,14 +3271,15 @@ class AgriEngine {
         emergency.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         emergency.put("note", "低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验");
         result.put("emergency", emergency);
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", Double.isNaN(moisture) ? null : moisture);
-        automatic.put("eligible", !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
+        automatic.put("eligible", automaticEnabled && !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
         result.put("automaticWatering", automatic);
         Map<String, Object> hysteresisView = new LinkedHashMap<>();
         hysteresisView.put("state", hysteresisState);
@@ -3286,6 +3292,43 @@ class AgriEngine {
         result.put("cropPackVersion", context.get("cropPackVersion"));
         result.put("evaluatedAt", Instant.now().toString());
         result.put("provenance", "DERIVED");
+        return result;
+    }
+
+    private boolean automaticWateringEnabled(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        return plot == null || Jsons.bool(plot, "automaticWateringEnabled", true);
+    }
+
+    Map<String, Object> automaticWateringSetting(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        result.put("threshold", AUTO_WATERING_THRESHOLD);
+        result.put("updatedAt", plot.get("automaticWateringUpdatedAt"));
+        result.put("updatedBy", plot.get("automaticWateringUpdatedBy"));
+        result.put("sourceMode", "SIMULATION");
+        result.put("provenance", plot.get("automaticWateringUpdatedBy") == null ? "DERIVED" : "USER_PROVIDED");
+        return result;
+    }
+
+    Map<String, Object> updateAutomaticWateringSetting(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        if (!principal.canRequestIrrigation()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色不能修改自动浇水设置");
+        }
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        boolean enabled = Jsons.bool(input, "enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        Instant now = Instant.now();
+        plot.put("automaticWateringEnabled", enabled);
+        plot.put("automaticWateringUpdatedAt", now.toString());
+        plot.put("automaticWateringUpdatedBy", principal.userId);
+        store.save("plot", plotId, plot);
+        Map<String, Object> result = automaticWateringSetting(plotId, principal);
+        events.publish("irrigation.automatic.updated", result);
+        store.logEvent("irrigation.automatic.updated", result);
         return result;
     }
 
@@ -3319,12 +3362,18 @@ class AgriEngine {
         double moisture = Jsons.number(soil, "value", Double.NaN);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("plotId", plotId);
-        result.put("enabled", true);
+        boolean enabled = automaticWateringEnabled(plotId);
+        result.put("enabled", enabled);
         result.put("threshold", AUTO_WATERING_THRESHOLD);
         result.put("currentMoisture", Double.isFinite(moisture) ? moisture : null);
         result.put("sourceMode", "SIMULATION");
         result.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         result.put("virtualExecution", true);
+        if (!enabled) {
+            result.put("status", "DISABLED");
+            result.put("reason", "AUTOMATIC_WATERING_DISABLED");
+            return result;
+        }
         if (!Double.isFinite(moisture)) {
             result.put("status", "BLOCKED");
             result.put("reason", "SOIL_MOISTURE_UNAVAILABLE");
@@ -7286,6 +7335,18 @@ class AgriController {
     @GetMapping("/plots/{plotId}/irrigation-guard")
     ResponseEntity<?> irrigationGuard(@PathVariable String plotId, Authentication a) {
         return ok(engine.irrigationGuard(plotId, principal(a)));
+    }
+
+    @GetMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> automaticWateringSetting(@PathVariable String plotId, Authentication a) {
+        return ok(engine.automaticWateringSetting(plotId, principal(a)));
+    }
+
+    @PutMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> updateAutomaticWateringSetting(@PathVariable String plotId,
+                                                      @RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication a) {
+        return ok(engine.updateAutomaticWateringSetting(plotId, body == null ? Map.of() : body, principal(a)));
     }
 
     @GetMapping("/plots/{plotId}/simulation")

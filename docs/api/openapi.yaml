@@ -299,6 +299,23 @@ paths:
         - {$ref: '#/components/parameters/PlotId'}
       responses:
         '200': {description: 当前阶段迟滞状态、无时间冷却的灌溉可用状态、自动浇水阈值和最近有效命令；仅限授权地块}
+  /api/v1/plots/{plotId}/automatic-watering:
+    get:
+      tags: [decision]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      responses:
+        '200': {description: 当前地块自动浇水开关、阈值和来源；仅限授权地块}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [decision]
+      description: 按当前操作人确认开启或关闭自动浇水；关闭只阻断自动触发，不改变手动灌溉的安全确认流程。
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: 已保存的自动浇水开关状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/estimate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
   /api/v1/irrigation/auto:

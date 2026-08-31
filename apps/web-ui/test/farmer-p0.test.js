@@ -82,6 +82,18 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(passport.evaluations.at(-1).commandId, firstCommand.commandId);
 });
 
+test('demo automatic watering setting gates the automatic trigger without changing manual irrigation', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'toggle-farmer', username: 'farmer', role: 'FARMER', permissions: ['irrigation:request', 'irrigation:execute'] } });
+  const disabled = await service.setAutomaticWateringSetting('plot-a02', false);
+  assert.equal(disabled.enabled, false);
+  assert.equal((await service.getIrrigationGuard('plot-a02')).automaticWatering.enabled, false);
+  assert.equal((await service.autoWaterIfNeeded('plot-a02')).status, 'DISABLED');
+  const enabled = await service.setAutomaticWateringSetting('plot-a02', true);
+  assert.equal(enabled.enabled, true);
+  assert.equal((await service.getAutomaticWateringSetting('plot-a02')).enabled, true);
+});
+
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
   const [html, source, presentation] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
@@ -121,6 +133,10 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /plot_simulation_chart/);
   assert.match(source, /chart_points_in_window/);
   assert.match(source, /windowStart/);
+  assert.match(html, /<span class="farmer-section-kicker">自动浇水<\/span>/);
+  assert.doesNotMatch(html, /自动浇水 · 虚拟执行/);
+  assert.match(html, /toggle_automatic_watering/);
+  assert.match(source, /setAutomaticWateringSetting/);
 });
 
 test('farmer can read plot simulation strategy and forecast curve', async () => {

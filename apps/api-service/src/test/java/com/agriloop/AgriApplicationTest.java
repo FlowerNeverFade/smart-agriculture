@@ -1065,6 +1065,36 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerCanToggleAutomaticWateringAndDisabledStateBlocksOnlyAutomaticTrigger() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-auto-toggle-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-auto-toggle-" + suffix, "farmer-auto-toggle-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "自动浇水开关测试田", "cropCode", "tomato",
+                "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        try {
+            Map<String, Object> disabled = engine.updateAutomaticWateringSetting(plotId, Map.of("enabled", false), farmer);
+            assertThat(disabled).containsEntry("plotId", plotId).containsEntry("enabled", false)
+                    .containsEntry("sourceMode", "SIMULATION");
+            Map<String, Object> guard = engine.irrigationGuard(plotId, farmer);
+            assertThat(Jsons.map(new ObjectMapper(), guard.get("automaticWatering")))
+                    .containsEntry("enabled", false).containsEntry("eligible", false).containsEntry("status", "DISABLED");
+            assertThat(engine.automaticWatering(Map.of("plotId", plotId), farmer))
+                    .containsEntry("enabled", false).containsEntry("status", "DISABLED")
+                    .containsEntry("reason", "AUTOMATIC_WATERING_DISABLED");
+
+            Map<String, Object> enabled = engine.updateAutomaticWateringSetting(plotId, Map.of("enabled", true), farmer);
+            assertThat(enabled).containsEntry("enabled", true).containsKeys("updatedAt", "updatedBy");
+            assertThat(engine.automaticWatering(Map.of("plotId", plotId), farmer))
+                    .containsEntry("enabled", true).containsEntry("status", "BLOCKED")
+                    .containsEntry("reason", "SOIL_MOISTURE_UNAVAILABLE");
+        } finally {
+            store.delete("plot", plotId);
+        }
+    }
+
+    @Test
     void farmerAgentActionExpiryAndCancelAreOwnerBound() {
         UserPrincipal farmer = new UserPrincipal("user-farmer-expiry", "farmer-expiry", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> preview = engine.agentChat(Map.of("message", "申请巡田", "plotId", "plot-a01",

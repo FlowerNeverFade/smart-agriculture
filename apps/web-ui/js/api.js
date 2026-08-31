@@ -602,6 +602,7 @@ export class ApiService {
     this._demoHydrateAgentActions();
     this.demoAutoWatering = new Map();
     this._demoHydrateAutoWatering();
+    this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
     this.demoValueLedgers = [];
     this.demoAiMode = this.loadDemoAiMode();
     this.demoWaterProfile = {
@@ -751,6 +752,7 @@ export class ApiService {
     // method may use the local demo store or must surface a backend error.
     if (mode !== 'live') this.isLive = false;
     this.user = normalizedUser;
+    if (mode === 'demo') this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
     localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
     localStorage.setItem('agriloop_session_mode', mode);
     if (this.token) localStorage.setItem('agriloop_token', this.token);
@@ -2333,6 +2335,35 @@ export class ApiService {
     return `agriloop-auto-watering:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
+  _demoAutomaticWateringSettingStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-auto-watering-settings:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _loadDemoAutomaticWateringSettings() {
+    const settings = new Map();
+    try {
+      if (typeof sessionStorage === 'undefined') return settings;
+      const raw = sessionStorage.getItem(this._demoAutomaticWateringSettingStorageKey());
+      const parsed = raw ? JSON.parse(raw) : {};
+      Object.entries(parsed && typeof parsed === 'object' ? parsed : {}).forEach(([plotId, value]) => {
+        if (plotId && value && typeof value === 'object') settings.set(plotId, value);
+      });
+    } catch { /* demo storage is optional */ }
+    return settings;
+  }
+
+  _saveDemoAutomaticWateringSettings() {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(
+          this._demoAutomaticWateringSettingStorageKey(),
+          JSON.stringify(Object.fromEntries(this.demoAutomaticWateringSettings.entries()))
+        );
+      }
+    } catch { /* demo storage is optional */ }
+  }
+
   _demoHydrateAutoWatering() {
     try {
       const storage = this._demoSessionStorage();
@@ -2975,6 +3006,7 @@ export class ApiService {
     const target = 30;
     const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const area = Number(plot?.areaM2 || 80);
     const flow = 18;
     const rawWater = Math.max(0, (target - current) * area * .08);
@@ -2984,7 +3016,7 @@ export class ApiService {
     const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
-    const emergencyEligible = executable && current < emergencyThreshold;
+    const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -3013,13 +3045,13 @@ export class ApiService {
       },
       emergencyEligible,
       automaticWatering: {
-        enabled: true,
+        enabled: automaticSetting.enabled,
         threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
         currentMoisture: current,
         eligible: emergencyEligible,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         sourceMode: 'SIMULATION',
-        status: emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
+        status: !automaticSetting.enabled ? 'DISABLED' : emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
       },
       alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
@@ -3267,6 +3299,7 @@ export class ApiService {
     const emergencyThreshold = Number(rule.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
     const hysteresis = Number(rule.hysteresis ?? 2);
     const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const commands = [...this.decisionCache.commands.values()]
       .filter(item => item?.plotId === plotId && item?.type === 'IRRIGATION_START' && ['SUCCEEDED', 'PARTIAL', 'CONFIRMED', 'APPROVED'].includes(String(item.status || '').toUpperCase()))
       .sort((a, b) => new Date(b.ack?.receivedAt || b.confirmedAt || 0).getTime() - new Date(a.ack?.receivedAt || a.confirmedAt || 0).getTime());
@@ -3283,18 +3316,18 @@ export class ApiService {
       emergency: {
         threshold: emergencyThreshold,
         currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
-        eligibleByMoisture: Number.isFinite(currentValue) && currentValue < emergencyThreshold,
+        eligibleByMoisture: automaticSetting.enabled && Number.isFinite(currentValue) && currentValue < emergencyThreshold,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         note: '低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验'
       },
       automaticWatering: {
-        enabled: true,
+        enabled: automaticSetting.enabled,
         threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
         currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
-        eligible: Number.isFinite(currentValue) && currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold,
+        eligible: automaticSetting.enabled && Number.isFinite(currentValue) && currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         sourceMode: 'SIMULATION',
-        status: Number.isFinite(currentValue) ? (currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold ? 'READY' : 'NOT_TRIGGERED') : 'UNAVAILABLE'
+        status: !automaticSetting.enabled ? 'DISABLED' : Number.isFinite(currentValue) ? (currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold ? 'READY' : 'NOT_TRIGGERED') : 'UNAVAILABLE'
       },
       hysteresis: {
         state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
@@ -3306,6 +3339,51 @@ export class ApiService {
       evaluatedAt: new Date().toISOString(),
       provenance: 'SIMULATED'
     };
+  }
+
+  async getAutomaticWateringSetting(plotId) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/automatic-watering`);
+      return resp?.data || resp;
+    }
+    const saved = this.demoAutomaticWateringSettings.get(plotId);
+    return {
+      plotId,
+      enabled: saved?.enabled !== false,
+      threshold: Number(saved?.threshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold),
+      updatedAt: saved?.updatedAt || null,
+      updatedBy: saved?.updatedBy || null,
+      sourceMode: 'SIMULATION',
+      provenance: saved?.provenance || 'DERIVED'
+    };
+  }
+
+  async setAutomaticWateringSetting(plotId, enabled) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) {
+      throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
+    const nextEnabled = Boolean(enabled);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/automatic-watering`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: nextEnabled })
+      });
+      return resp?.data || resp;
+    }
+    const setting = {
+      plotId,
+      enabled: nextEnabled,
+      threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
+      updatedAt: new Date().toISOString(),
+      updatedBy: this.user?.userId || this.user?.username || 'demo-farmer',
+      sourceMode: 'SIMULATION',
+      provenance: 'USER_PROVIDED'
+    };
+    this.demoAutomaticWateringSettings.set(plotId, setting);
+    this._saveDemoAutomaticWateringSettings();
+    return setting;
   }
 
   /** Start virtual watering when the latest soil reading is below 10%. */
@@ -3322,16 +3400,18 @@ export class ApiService {
       return resp?.data || resp;
     }
     const plot = this.mockPlot(plotId);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value);
     const base = {
       plotId,
-      enabled: true,
+      enabled: automaticSetting.enabled,
       threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
       currentMoisture: Number.isFinite(moisture) ? moisture : null,
       mode: 'AUTOMATIC_SOIL_MOISTURE',
       sourceMode: 'SIMULATION',
       virtualExecution: true
     };
+    if (!automaticSetting.enabled) return { ...base, status: 'DISABLED', reason: 'AUTOMATIC_WATERING_DISABLED' };
     if (!Number.isFinite(moisture)) return { ...base, status: 'BLOCKED', reason: 'SOIL_MOISTURE_UNAVAILABLE' };
     if (moisture >= IRRIGATION_DEFAULTS.automaticWateringThreshold) {
       return { ...base, status: 'NOT_TRIGGERED', reason: 'MOISTURE_ABOVE_THRESHOLD' };
