@@ -23,7 +23,7 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   SOIL_EC: '土壤电导率',
   EC: '电导率',
   ELECTRICAL_CONDUCTIVITY: '电导率',
-  NPK_RATIO: '氮磷钾',
+  NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾',
   PH: '酸碱度',
   SOIL_PH: '土壤酸碱度',
   WATER_LEVEL: '水位',

@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260831-classic-button-contrast-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260831-message-wrap">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-three-branch-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-ai-presentation-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-ai-presentation-v1">
@@ -554,6 +554,29 @@
                 </button>
                 <span class="g-badge warning">{{ stats.risk_alerts }} 条风险提醒</span>
               </div>
+            </div>
+
+            <div class="farmer-water-resource-readonly" aria-label="水库水量查看">
+              <div class="farmer-water-resource-head">
+                <div>
+                  <span class="farmer-section-kicker">水库水量</span>
+                  <h3>今日蓄水池余量</h3>
+                </div>
+                <span v-if="water_resource_loading" class="g-badge">读取中…</span>
+                <span v-else-if="water_resource_error" class="g-badge warning">{{ water_resource_error }}</span>
+                <span v-else-if="water_resource_summary" class="g-badge" :class="water_resource_summary.percent <= 20 ? 'warning' : 'success'">{{ water_resource_summary.percent }}% 可用</span>
+              </div>
+              <div v-if="water_resource_summary" class="farmer-water-resource-body">
+                <div class="farmer-water-resource-progress"><div class="farmer-water-resource-bar" :style="{width: water_resource_summary.percent + '%'}"></div></div>
+                <div class="farmer-water-resource-stats">
+                  <div><small>今日配额</small><strong>{{ water_resource_summary.quota.toLocaleString() }} L</strong></div>
+                  <div><small>实际已用</small><strong>{{ water_resource_summary.used.toLocaleString() }} L</strong></div>
+                  <div><small>已预留</small><strong>{{ water_resource_summary.reserved.toLocaleString() }} L</strong></div>
+                  <div :class="{'is-warning': water_resource_summary.percent <= 20}"><small>可分配余额</small><strong>{{ water_resource_summary.remaining.toLocaleString() }} L</strong></div>
+                </div>
+                <p class="farmer-panel-hint">只读查看，配额与计划由管理员维护；执行灌溉时会再次校验余量与安全门。</p>
+              </div>
+              <p v-else-if="!water_resource_loading && !water_resource_error" class="farmer-panel-hint">暂无水库水量数据。</p>
             </div>
 
             <div class="farmer-risk-cards" aria-label="各地块风险提醒">

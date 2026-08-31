@@ -172,7 +172,9 @@ const PLOT_CHART_SPECS = [
   { code: 'LIGHT', label: '光照强度', unit: '勒克斯', min: 0, max: 70000, amplitude: 4500, precision: 0, color: 'var(--g-warning)' },
   { code: 'CO2', label: '二氧化碳浓度', unit: 'ppm', min: 300, max: 1200, amplitude: 60, precision: 0, color: 'var(--g-info)' },
   { code: 'RAINFALL', label: '降雨强度', unit: '毫米/小时', min: 0, max: 120, amplitude: 8, precision: 1, color: 'var(--g-primary)' },
-  { code: 'NPK_RATIO', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 300, amplitude: 14, precision: 0, multi: true }
+  { code: 'NITROGEN', label: '速效氮', unit: 'mg/kg', min: 0, max: 300, amplitude: 10, precision: 0, color: 'var(--g-success)' },
+  { code: 'PHOSPHORUS', label: '速效磷', unit: 'mg/kg', min: 0, max: 200, amplitude: 5, precision: 0, color: 'var(--g-primary)' },
+  { code: 'POTASSIUM', label: '速效钾', unit: 'mg/kg', min: 0, max: 400, amplitude: 12, precision: 0, color: 'var(--g-warning)' }
 ];
 
 const CHART_RANGE_OPTIONS = [
@@ -245,7 +247,9 @@ function crop_manual_metrics(pack, stage) {
     CO2: 'CO2',
     PH: '土壤酸碱度',
     SOIL_EC: '土壤 EC',
-    NPK_RATIO: '氮磷钾'
+    NITROGEN: '速效氮',
+    PHOSPHORUS: '速效磷',
+    POTASSIUM: '速效钾'
   };
   const items = [
     { code: 'SOIL_MOISTURE', label: labels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
@@ -615,8 +619,13 @@ function clamp_chart_value(value, min, max) {
 }
 
 function parse_npk(value) {
-  const numbers = String(value || '').split(':').map((item) => Number(item));
-  return numbers.length === 3 && numbers.every((item) => Number.isFinite(item)) ? numbers : [0, 0, 0];
+  const raw = String(value || '').trim();
+  const parts = raw.split(':').map((item) => Number(item));
+  if (parts.length === 3 && parts.every((item) => Number.isFinite(item))) return parts;
+  // 后端 NPK_RATIO 遥测存的是综合肥力单值（mg/kg），按常见比例派生氮/磷/钾基线。
+  const single = Number(raw);
+  if (Number.isFinite(single) && single > 0) return [single, single * 0.4, single * 0.6];
+  return [0, 0, 0];
 }
 
 function format_chart_axis_value(value, precision = 0) {
@@ -775,8 +784,10 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const risk_color = metric.status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
   const series = spec.multi
     ? parse_npk(metric.value).map((base, index) => {
-      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : []);
-      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      // NPK_RATIO 为 SIMULATION_ONLY 综合肥力，三元素按基线派生合成展示；
+      // 不依赖单值历史（单值无法还原氮/磷/钾三条独立曲线）。
+      const values = build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index);
+      const plotted = derivedSamples(values);
       return {
         label: ['氮', '磷', '钾'][index],
         color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],
@@ -1280,7 +1291,58 @@ const app = createApp({
           series: chart.series.map((item) => ({ ...item, color: is_risk ? risk_color : item.color }))
         };
       })
-      .filter(Boolean));
+      .filter(Boolean)
+      .flatMap((chart, _, arr) => {
+        // 把速效氮/磷/钾三张独立卡片聚合成一张三线图，统一坐标重算。
+        const NPK_CODES = ['NITROGEN', 'PHOSPHORUS', 'POTASSIUM'];
+        const npkReady = NPK_CODES.every((code) => arr.some((item) => item.code === code && !item.unavailable));
+        if (!npkReady) return [chart];
+        // 氮触发聚合，磷/钾被吞入聚合卡片，其余 6 个原样保留。
+        if (chart.code !== 'NITROGEN') return NPK_CODES.includes(chart.code) ? [] : [chart];
+        const npkCharts = NPK_CODES.map((code) => arr.find((item) => item.code === code));
+        const npkSpec = { code: 'NPK', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 400, precision: 0, multi: true };
+        const labels = ['速效氮', '速效磷', '速效钾'];
+        const colors = ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'];
+        const series = npkCharts.map((c, index) => {
+          const samples = c.series[0]?.samples || [];
+          return {
+            label: labels[index],
+            color: colors[index],
+            values: samples.map((sample) => sample.value),
+            samples,
+            points: chart_points_in_window(samples, npkSpec.min, npkSpec.max)
+          };
+        });
+        const base = npkCharts[0];
+        return [{
+          ...npkSpec,
+          current_label: npkCharts.map((c) => c.current_label).join(' / '),
+          target: '—',
+          targetBand: null,
+          stageLabel: base.stageLabel,
+          quality: base.quality,
+          status: 'NORMAL',
+          is_risk: false,
+          risk_label: '',
+          range_title: base.range_title,
+          simHours: base.simHours,
+          timeScale: base.timeScale,
+          windowStart: base.windowStart,
+          windowEnd: base.windowEnd,
+          labels: base.labels,
+          sample_labels: base.sample_labels,
+          samples: series[0]?.samples || [],
+          grid: [
+            { y: 10, label: format_chart_axis_value(npkSpec.max, npkSpec.precision) },
+            { y: 62, label: format_chart_axis_value((npkSpec.max + npkSpec.min) / 2, npkSpec.precision) },
+            { y: 114, label: format_chart_axis_value(npkSpec.min, npkSpec.precision) }
+          ],
+          is_multi: true,
+          history_source: base.history_source,
+          history_available: base.history_available,
+          series
+        }];
+      }));
 
     // 农户只读查看管理员维护的地块模拟策略和风险预测。
     const plot_simulation_forecast = ref(null);
@@ -1821,6 +1883,33 @@ const app = createApp({
     const irrigation_plan_loading = ref(false);
     const irrigation_plan_error = ref('');
     let irrigation_plan_request_version = 0;
+    // 农户只读查看农场水库/蓄水池水量（今日配额、已用、余额）。
+    const water_resource_profile = ref(null);
+    const water_resource_loading = ref(false);
+    const water_resource_error = ref('');
+    const water_resource_summary = computed(() => {
+      const profile = water_resource_profile.value;
+      if (!profile) return null;
+      const quota = Number(profile.dailyQuotaLitres ?? 0);
+      const used = Number(profile.actualUsedLitres ?? profile.balance?.actualUsedLitres ?? 0);
+      const reserved = Number(profile.reservedLitres ?? profile.balance?.reservedLitres ?? 0);
+      const remaining = Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? Math.max(0, quota - used - reserved));
+      const percent = quota > 0 ? Math.round((remaining / quota) * 100) : 0;
+      return { quota, used, reserved, remaining, percent };
+    });
+    const load_water_resource_profile = async () => {
+      const farmId = farm.value?.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo';
+      water_resource_loading.value = true;
+      water_resource_error.value = '';
+      try {
+        water_resource_profile.value = null;
+        water_resource_profile.value = await api.getWaterResourceProfile(farmId);
+      } catch (error) {
+        water_resource_error.value = error?.message || '水库水量读取失败';
+      } finally {
+        water_resource_loading.value = false;
+      }
+    };
     const selected_crop_band = computed(() => {
       const plot = advice_selected_plot.value;
       if (!plot) return null;
@@ -3210,9 +3299,8 @@ const app = createApp({
       selected_message.value = msg;
       analysis_result.value = '';
       analysis_error.value = '';
-      if (!msg.read) {
-        msg.read = true;
-      }
+      // 不在打开时自动标记已读，保留“标记已读”按钮的可操作性；
+      // 未读状态由用户在详情页主动点击按钮后切换。
     };
 
     const open_message_from_dashboard = (msg) => {
@@ -4593,8 +4681,9 @@ const app = createApp({
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
+      if (view === 'advice') void load_water_resource_profile();
       if (view === 'assistant') void load_assistant_conversations({ openRecent: true });
-    });
+    }, { immediate: true });
 
     onBeforeUnmount(() => {
       if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
@@ -4693,6 +4782,10 @@ const app = createApp({
       irrigation_readiness_detail,
       irrigation_plan_loading,
       irrigation_plan_error,
+      water_resource_profile,
+      water_resource_loading,
+      water_resource_error,
+      water_resource_summary,
       irrigation_target_label,
       advice_moisture_chart,
       selected_message,

@@ -18,6 +18,9 @@ metrics:
   - {code: CO2, label: 二氧化碳, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
   - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
   - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: NITROGEN, label: 速效氮, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 300}}
+  - {code: PHOSPHORUS, label: 速效磷, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 200}}
+  - {code: POTASSIUM, label: 速效钾, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 400}}
 rules:
   - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
   - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, threshold: 32, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}

@@ -57,7 +57,10 @@ class SimulationEngine {
             new MetricSpec("CO2", "ppm", 0, 10000),
             new MetricSpec("PH", "pH", 0, 14),
             new MetricSpec("WATER_LEVEL", "%", 0, 100),
-            new MetricSpec("RAINFALL", "mm/h", 0, 250)
+            new MetricSpec("RAINFALL", "mm/h", 0, 250),
+            new MetricSpec("NITROGEN", "mg/kg", 0, 300),
+            new MetricSpec("PHOSPHORUS", "mg/kg", 0, 200),
+            new MetricSpec("POTASSIUM", "mg/kg", 0, 400)
     );
     private static final Map<String, String> SCENARIO_ALIASES = Map.ofEntries(
             Map.entry("normal", "normal"),
@@ -399,6 +402,9 @@ class SimulationEngine {
                 }
             }
             case "WATER_LEVEL" -> value = state.water;
+            case "NITROGEN" -> value = 120.0 + Math.sin(index / 5.5) * 10.0 + Math.cos(simulatedHours / 9.0) * 6.0;
+            case "PHOSPHORUS" -> value = 45.0 + Math.sin(index / 7.0 + 1.2) * 5.0 + Math.cos(simulatedHours / 14.0) * 3.0;
+            case "POTASSIUM" -> value = 180.0 + Math.sin(index / 6.0 + 2.4) * 12.0 + Math.cos(simulatedHours / 11.0) * 7.0;
             default -> {
                 double rainfall = params.get("rainfallRate");
                 if ("heavy-rain".equals(normalized)) {
@@ -417,6 +423,9 @@ class SimulationEngine {
             case "SOIL_MOISTURE" -> 0.12;
             case "CO2" -> 5.0;
             case "WATER_LEVEL" -> 0.16;
+            case "NITROGEN" -> 2.4;
+            case "PHOSPHORUS" -> 1.2;
+            case "POTASSIUM" -> 3.0;
             case "RAINFALL" -> 0.7;
             default -> 0.08;
         } * volatility;
