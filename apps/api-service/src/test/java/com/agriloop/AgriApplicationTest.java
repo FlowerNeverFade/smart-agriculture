@@ -897,8 +897,8 @@ class AgriApplicationTest {
         List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
         assertThat(farmerMessages).hasSize(2);
         assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
-        assertThat(engine.agentConversations(20, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
-        assertThat(engine.agentConversations(20, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, secondFarmer))
                 .isInstanceOf(ApiException.class);
