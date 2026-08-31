@@ -2330,12 +2330,14 @@ export class ApiService {
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
   }
 
-  async getAgentConversations(limit = 20) {
+  async getAgentConversations(limit = 20, archived = false) {
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
-      return session.conversations.slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
+      return session.conversations
+        .filter((item) => Boolean(item.archived) === Boolean(archived))
+        .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
         agentRole: item.agentRole || role,
         roleLabel: item.roleLabel || profile.label,
@@ -2344,9 +2346,24 @@ export class ApiService {
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
-    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}`);
+    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
     if (Array.isArray(resp?.data)) return resp.data;
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
+  }
+
+  async archiveAgentConversation(conversationId, archived = true) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}/archive`, { method: 'POST', body: JSON.stringify({ archived }) });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((c) => c.conversationId === conversationId);
+    if (conversation) {
+      conversation.archived = archived;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, archived, sourceMode: 'SIMULATED' };
   }
 
   /** Persist an externally generated demo turn, deduplicating replies already saved by agentChat. */

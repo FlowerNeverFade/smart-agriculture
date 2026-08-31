@@ -156,7 +156,8 @@ const ICON_CLASS = Object.freeze({
   image_search: 'ph-image',
   location_on: 'ph-map-pin',
   more_vert: 'ph-dots-three-vertical',
-  push_pin: 'ph-push-pin'
+  push_pin: 'ph-push-pin',
+  inbox: 'ph-tray'
 });
 
 const AppIcon = {

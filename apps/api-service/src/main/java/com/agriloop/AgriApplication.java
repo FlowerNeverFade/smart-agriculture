@@ -6456,7 +6456,7 @@ class AgriEngine {
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
             String title = userMessage.replaceAll("\\s+", " ").trim();
             conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
-            conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0);
+            conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0); conversation.put("archived", false);
         }
         conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
         conversation.put("agentRole", answer.get("role")); conversation.put("roleLabel", answer.get("roleLabel"));
@@ -6471,18 +6471,31 @@ class AgriEngine {
         if (conversation == null) {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
-            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0);
+            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false);
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
         result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
         return result;
     }
 
-    List<Map<String, Object>> agentConversations(int limit, UserPrincipal principal) {
+    List<Map<String, Object>> agentConversations(int limit, boolean archived, UserPrincipal principal) {
         return store.list("agent-conversation").stream()
                 .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
+                .filter(item -> archived == Boolean.TRUE.equals(item.get("archived")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
                 .limit(Math.max(1, Math.min(limit, 50))).toList();
+    }
+
+    Map<String, Object> archiveAgentConversation(String conversationId, boolean archived, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
+        if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权归档该对话");
+        conversation.put("archived", archived);
+        conversation.put("updatedAt", Instant.now().toString());
+        store.save("agent-conversation", resolved, conversation);
+        return conversation;
     }
 
     void deleteAgentConversation(String conversationId, UserPrincipal principal) {
@@ -7501,8 +7514,8 @@ class AgriController {
     }
 
     @GetMapping("/agent/conversations")
-    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, Authentication a) {
-        return ok(engine.agentConversations(limit, principal(a)));
+    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, @RequestParam(defaultValue = "false") boolean archived, Authentication a) {
+        return ok(engine.agentConversations(limit, archived, principal(a)));
     }
 
     @DeleteMapping("/agent/conversations/{conversationId}")
@@ -7515,6 +7528,12 @@ class AgriController {
     ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
         String title = body == null ? "" : Jsons.text(body, "title", "");
         return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
+    }
+
+    @PostMapping("/agent/conversations/{conversationId}/archive")
+    ResponseEntity<?> archiveAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        boolean archived = body == null || !Boolean.FALSE.equals(body.get("archived"));
+        return ok(engine.archiveAgentConversation(conversationId, archived, principal(a)));
     }
 
     @GetMapping("/agent/tools")

@@ -96,6 +96,11 @@
 .admin-ai-conversation-item:hover .admin-ai-conversation-delete { opacity: 1; }
 .admin-ai-conversation-delete:hover { background: var(--g-danger-bg); color: var(--g-danger); }
 .admin-ai-conversation-delete:disabled { opacity: .4; cursor: default; }
+.admin-ai-archived-toggle { padding: 4px 8px; }
+.admin-ai-load-older { display: block; width: fit-content; margin: 8px auto; padding: 5px 12px; border: 1px solid var(--g-border); border-radius: 999px; background: var(--g-bg-surface); color: var(--g-text-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: color .18s ease, border-color .18s ease; }
+.admin-ai-load-older:hover { color: var(--g-primary); border-color: var(--g-primary); }
+.admin-ai-conversation-item.archived .admin-ai-conversation-delete { color: var(--g-danger); opacity: .7; }
+.admin-ai-conversation-item.archived:hover .admin-ai-conversation-delete { opacity: 1; }
 .admin-ai-sidebar-state { display: grid; justify-items: center; gap: 8px; padding: 32px 13px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; text-align: center; }
 .admin-ai-sidebar-state .material-symbols-outlined { color: var(--admin-orange, var(--g-primary)); font-size: 21px; }
 
