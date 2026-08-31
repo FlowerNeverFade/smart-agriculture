@@ -424,7 +424,7 @@ export const MOCK_DATA = {
       alertId: "alert-water-b01",
       farmId: "farm-demo",
       plotId: "plot-b01",
-      level: "CRITICAL",
+      level: "HIGH",
       status: "ACTIVE",
       source: "SOIL_MOISTURE",
       ruleState: "CONFIRMED",
@@ -1329,11 +1329,11 @@ export const MOCK_DATA = {
   ],
 
   adminAlerts: [
-    { id: 'alrt-01', time: '11:45', level: 'CRITICAL', source: 'plot-a01', summary: '土壤湿度持续低于安全阈值 14%，已触发干旱告警', status: 'OPEN' },
-    { id: 'alrt-02', time: '07:20', level: 'WARNING', source: 'plot-b01', summary: '设备 dev-b01-th 心跳超时 >120s', status: 'OPEN' },
-    { id: 'alrt-03', time: '07:15', level: 'WARNING', source: 'plot-b01', summary: '智能助手检测到传感器漂移（温度读数偏差 >3°C）', status: 'OPEN' },
+    { id: 'alrt-01', time: '11:45', level: 'HIGH', source: 'plot-a01', summary: '土壤湿度持续低于安全阈值 14%，已触发干旱告警', status: 'OPEN' },
+    { id: 'alrt-02', time: '07:20', level: 'MEDIUM', source: 'plot-b01', summary: '设备 dev-b01-th 心跳超时 >120s', status: 'OPEN' },
+    { id: 'alrt-03', time: '07:15', level: 'HIGH', source: 'plot-b01', summary: '智能助手检测到传感器漂移（温度读数偏差 >3°C）', status: 'OPEN' },
     { id: 'alrt-04', time: '06:30', level: 'INFO', source: 'system', summary: '番茄作物模型包已更新至 v2.1', status: 'ACK' },
-    { id: 'alrt-05', time: '前日 22:10', level: 'CRITICAL', source: 'plot-a02', summary: '灌溉执行超时（命令 cmd-042 未收到回执）', status: 'CLOSED' },
+    { id: 'alrt-05', time: '前日 22:10', level: 'HIGH', source: 'plot-a02', summary: '灌溉执行超时（命令 cmd-042 未收到回执）', status: 'CLOSED' },
     { id: 'alrt-06', time: '前日 18:00', level: 'WARNING', source: 'system', summary: 'Redis 消息流消费延迟 >5 秒', status: 'CLOSED' },
     { id: 'alrt-07', time: '前日 15:30', level: 'INFO', source: 'system', summary: '接口服务重启完成（版本升级 1.3→1.4）', status: 'CLOSED' }
   ],

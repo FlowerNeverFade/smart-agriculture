@@ -2452,6 +2452,23 @@ export class ApiService {
     return { success: true, conversationId, sourceMode: 'SIMULATED' };
   }
 
+  async renameAgentConversation(conversationId, title) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    const clean = String(title || '').trim().replace(/\s+/g, ' ').slice(0, 36);
+    if (!clean) throw new ApiError('对话标题不能为空', { status: 400, code: 'CONVERSATION_TITLE_INVALID' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, { method: 'PUT', body: JSON.stringify({ title: clean }) });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((c) => c.conversationId === conversationId);
+    if (conversation) {
+      conversation.title = clean;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, title: clean, sourceMode: 'SIMULATED' };
+  }
+
   async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };

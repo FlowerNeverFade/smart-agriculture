@@ -332,6 +332,8 @@ class AgriStore {
             databaseReady = false;
         }
         if (properties.isSeedData()) seed();
+        // 服务重启系统告警（INFO）：每次启动记录一条，便于审计服务生命周期
+        createSystemAlert("SYSTEM", "INFO", "接口服务已启动", "AgriLoop 后端已完成启动并加载配置。", "");
     }
 
     boolean databaseReady() { return databaseReady; }
@@ -2071,12 +2073,69 @@ class AgriEngine {
         status.put("mqtt", mqttConnected ? "UP" : "DEGRADED");
         status.put("mqttCommandTransport", mqttCommands.available() ? "UP" : "FALLBACK_OR_IDLE");
         status.put("persistence", store.persistenceKind());
-        status.put("ai", properties.getAiMode());
+        // ai 字段为真实连通性探测结果（UP/DEGRADED/DOWN/规则模式），aiMode 保留配置模式
+        status.put("ai", checkLlmHealth());
+        status.put("aiMode", properties.getAiMode());
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
         status.put("mqttLatencyMs", mqttConnected ? mqttCommands.latencyMs() : -1);
         return status;
+    }
+
+    // ---- 外部 AI 服务真实连通性探测（结果缓存 15 秒）----
+    private volatile String llmHealthStatus = null;
+    private volatile long llmHealthCheckedAt = 0L;
+    private final Object llmHealthLock = new Object();
+
+    /**
+     * 探测配置的外部 AI 服务是否真实在线。
+     * - openai / openai-compatible：GET {baseUrl}/models，3 秒超时，2xx=UP，否则 DOWN
+     * - maxkb / mock：未接入真实适配器，保守返回 DEGRADED（不宣称外部 AI 在线）
+     * - rules-only 等规则模式：不依赖外部 AI，返回配置模式（由前端展示为规则模式）
+     */
+    String checkLlmHealth() {
+        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        boolean needsExternal = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        if (!needsExternal) {
+            // 规则/演示/未接通适配：不探测，返回保守语义
+            return aiMode.equals("mock") || aiMode.equals("maxkb") ? "DEGRADED" : aiMode;
+        }
+        long now = System.currentTimeMillis();
+        if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+        synchronized (llmHealthLock) {
+            now = System.currentTimeMillis();
+            if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+            llmHealthStatus = probeLlmModels(aiMode);
+            llmHealthCheckedAt = System.currentTimeMillis();
+            return llmHealthStatus;
+        }
+    }
+
+    /** OpenAI-compatible 端点探测：GET {baseUrl}/models，2xx 视为在线。 */
+    private String probeLlmModels(String aiMode) {
+        String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
+        if (baseUrl.isBlank()) return "DOWN";
+        while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        String endpoint;
+        if (baseUrl.endsWith("/chat/completions")) {
+            endpoint = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length()) + "/models";
+        } else {
+            endpoint = baseUrl + "/models";
+        }
+        try {
+            URI uri = URI.create(endpoint);
+            if (!Set.of("http", "https").contains(uri.getScheme())) return "DOWN";
+            HttpRequest.Builder builder = HttpRequest.newBuilder(uri).GET().timeout(Duration.ofSeconds(3));
+            if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
+                builder.header("Authorization", "Bearer " + properties.getLlmApiKey());
+            }
+            HttpResponse<String> response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            int code = response.statusCode();
+            return code >= 200 && code < 300 ? "UP" : "DOWN";
+        } catch (Exception ex) {
+            return "DOWN";
+        }
     }
 
     /** 真实测量 Redis PING 往返延迟（毫秒），失败返回 -1。 */
@@ -2228,6 +2287,64 @@ class AgriEngine {
             }
         }
         return result;
+    }
+
+    // ---- 系统级自动告警（非规则触发：服务/设备/超时/延迟）----
+    private final Map<String, Long> systemAlertCooldown = new ConcurrentHashMap<>();
+
+    /**
+     * 创建系统级告警（设备心跳、命令超时、Redis 延迟、服务重启等）。
+     * 同一 source+plotId 10 分钟冷却，避免定时扫描刷屏。
+     */
+    private Map<String, Object> createSystemAlert(String source, String level, String title, String message, String plotId) {
+        Instant now = Instant.now();
+        String cooldownKey = source + ":" + (plotId == null ? "" : plotId);
+        Long last = systemAlertCooldown.get(cooldownKey);
+        if (last != null && now.toEpochMilli() - last < 10 * 60 * 1000L) return null;
+        systemAlertCooldown.put(cooldownKey, now.toEpochMilli());
+        Map<String, Object> alert = new LinkedHashMap<>();
+        alert.put("alertId", Jsons.id("alert"));
+        alert.put("farmId", "farm-demo");
+        alert.put("plotId", plotId == null ? "" : plotId);
+        alert.put("level", level);
+        alert.put("source", source);
+        alert.put("status", "ACTIVE");
+        alert.put("title", title);
+        alert.put("message", message);
+        alert.put("createdAt", now.toString());
+        alert.put("updatedAt", now.toString());
+        store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+        events.publish("alert.created", alert);
+        store.logEvent("alert.created", alert);
+        return alert;
+    }
+
+    /** 定时检查设备心跳超时（默认 90 秒），超时产生 MEDIUM 告警。 */
+    @Scheduled(fixedDelay = 30000)
+    void checkDeviceHeartbeatAlerts() {
+        Instant now = Instant.now();
+        long timeoutSeconds = properties.getDeviceTimeoutSeconds();
+        for (Map<String, Object> device : store.list("device")) {
+            if (!"ONLINE".equalsIgnoreCase(Jsons.text(device, "status", ""))) continue;
+            Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
+            if (lastSeen.getEpochSecond() <= 0) continue;
+            long seconds = Duration.between(lastSeen, now).getSeconds();
+            if (seconds > timeoutSeconds) {
+                createSystemAlert("DEVICE_HEARTBEAT", "MEDIUM", "设备心跳超时",
+                        "设备 " + Jsons.text(device, "deviceId", "未知") + " 已 " + seconds + " 秒未上报心跳（阈值 " + timeoutSeconds + " 秒）。",
+                        Jsons.text(device, "plotId", ""));
+            }
+        }
+    }
+
+    /** 定时检查 Redis 往返延迟，超过 5 秒产生 WARNING 告警。 */
+    @Scheduled(fixedDelay = 30000)
+    void checkRedisLatencyAlert() {
+        long latency = redisPingLatencyMs();
+        if (latency >= 5000) {
+            createSystemAlert("REDIS_LATENCY", "WARNING", "Redis 响应延迟过高",
+                    "Redis PING 往返延迟 " + latency + "ms，超过 5 秒阈值。", "");
+        }
     }
 
     private Map<String, Object> upsertRuleAlert(String plotId, String source, String level, String title, String message,
@@ -2589,6 +2706,10 @@ class AgriEngine {
             if (Jsons.instant(command.get("requestedAt"), Instant.now()).isAfter(cutoff)) continue;
             Map<String, Object> ack = new LinkedHashMap<>(); ack.put("status", "TIMEOUT"); ack.put("reason", "设备在 15 秒内未返回控制回执");
             ack.put("receivedAt", Instant.now().toString()); handleDeviceControlAck(command, ack);
+            // 控制命令执行超时告警（HIGH）：设备未在窗口内返回回执
+            createSystemAlert("CONTROL_TIMEOUT", "HIGH", "控制命令执行超时",
+                    "命令 " + Jsons.text(command, "commandId", "未知") + "（" + Jsons.text(command, "type", "") + "）未在 15 秒内收到设备回执。",
+                    Jsons.text(command, "plotId", ""));
         }
     }
 
@@ -6743,6 +6864,20 @@ class AgriEngine {
                 .forEach(item -> store.delete("agent-message", Jsons.text(item, "messageId", "")));
     }
 
+    Map<String, Object> renameAgentConversation(String conversationId, String title, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
+        if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权重命名该对话");
+        String clean = title == null ? "" : title.replaceAll("\\s+", " ").trim();
+        if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
+        conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+        conversation.put("updatedAt", Instant.now().toString());
+        store.save("agent-conversation", resolved, conversation);
+        return conversation;
+    }
+
     List<Map<String, Object>> agentTools(UserPrincipal principal) {
         List<Map<String, Object>> tools = new ArrayList<>();
         List.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status", "get_water_resource_status")
@@ -7761,6 +7896,12 @@ class AgriController {
     ResponseEntity<?> deleteAgentConversation(@PathVariable String conversationId, Authentication a) {
         engine.deleteAgentConversation(conversationId, principal(a));
         return ok(Map.of("success", true, "conversationId", conversationId));
+    }
+
+    @PutMapping("/agent/conversations/{conversationId}")
+    ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        String title = body == null ? "" : Jsons.text(body, "title", "");
+        return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
     }
 
     @GetMapping("/agent/tools")
