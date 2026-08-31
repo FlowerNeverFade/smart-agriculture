@@ -810,7 +810,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -821,7 +821,7 @@ export const MOCK_DATA = {
         riskWeight: 0.18,
         metricWeights: { SOIL_MOISTURE: 0.30, AIR_TEMPERATURE: 0.20, AIR_HUMIDITY: 0.16, LIGHT: 0.12, WATER_LEVEL: 0.12, CO2: 0.10 }
       },
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.1.0",
@@ -847,7 +847,7 @@ export const MOCK_DATA = {
           ],
           fruiting: [
             "结果期先确认土壤湿度时间窗口和设备流量，再决定灌溉时长。土壤湿度目标 20%~40%。",
-            "灌溉时长受 900 秒安全上限和 120 分钟冷却约束。",
+            "灌溉时长受 900 秒安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水。",
             "数据质量不足时先巡田复测，不直接下发控制命令。"
           ]
         },
@@ -858,7 +858,7 @@ export const MOCK_DATA = {
           "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。",
           "",
           "- 结果期土壤含水率适宜区间：20%~40%",
-          "- 灌溉时长受 900 秒安全上限和 120 分钟冷却约束",
+          "- 灌溉时长受 900 秒安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水",
           "- 数据质量不足时先巡田复测，不直接下发控制命令",
           "",
           "> 证据范围：作物：番茄，阶段：fruiting，地区：重庆，知识版本：kb-1.1.0"
@@ -889,7 +889,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -900,7 +900,7 @@ export const MOCK_DATA = {
         riskWeight: 0.18,
         metricWeights: { SOIL_MOISTURE: 0.32, AIR_TEMPERATURE: 0.20, AIR_HUMIDITY: 0.16, LIGHT: 0.10, WATER_LEVEL: 0.12, CO2: 0.10 }
       },
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.1.0",
@@ -966,10 +966,10 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 32, durationMinutes: 10, cooldownMinutes: 60 }
       ],
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.0.0",
@@ -984,7 +984,7 @@ export const MOCK_DATA = {
           "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。",
           "",
           "- 果实膨大期土壤含水率适宜区间：25%~45%，过湿易引发灰霉病",
-          "- 灌溉时长受 900s 安全上限约束，冷却窗口 120 分钟",
+          "- 灌溉时长受 900s 安全上限约束；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水",
           "- 高温时段（>32°C）蒸散加快，优先在清晨/傍晚补水",
           "",
           "> 证据范围：作物：草莓，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
@@ -1019,10 +1019,10 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 18, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 18, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 38, durationMinutes: 10, cooldownMinutes: 60 }
       ],
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.0.0",
@@ -1037,7 +1037,7 @@ export const MOCK_DATA = {
           "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。",
           "",
           "- 采收期土壤含水率适宜区间：20%~40%，高温强光时段需及时补水",
-          "- 灌溉时长受 900s 安全上限约束，冷却窗口 120 分钟",
+          "- 灌溉时长受 900s 安全上限约束；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水",
           "- 数据质量 DEGRADED/BAD 时只触发巡田、复测，不生成可执行处方",
           "",
           "> 证据范围：作物：辣椒，阶段：fruiting，地区：重庆，知识版本：kb-1.0.0"
@@ -1072,10 +1072,10 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 25, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 25, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
       ],
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.9, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.0.0",
@@ -1083,7 +1083,7 @@ export const MOCK_DATA = {
       knowledge: { documents: ["knowledge/irrigation.md"], fallback: ["plot", "region", "stage", "crop", "general"], content: [
         "# 玉米抽雄开花期灌溉知识", "", "玉米拔节至灌浆期为需水临界期，抽雄开花期缺水易导致秃尖缺粒、授粉不良。",
         "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。", "",
-        "- 抽雄开花期土壤含水率适宜区间：25%~45%，需保持充足供水", "- 灌溉时长受 900s 安全上限和 120 分钟冷却约束", "- 高温（>35°C）伴随干旱会加重热害，优先早晚补水", "",
+        "- 抽雄开花期土壤含水率适宜区间：25%~45%，需保持充足供水", "- 灌溉时长受 900s 安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水", "- 高温（>35°C）伴随干旱会加重热害，优先早晚补水", "",
         "> 证据范围：作物：玉米，阶段：flowering，地区：重庆，知识版本：kb-1.0.0"
       ] },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
@@ -1109,10 +1109,10 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "田面水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 30, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 30, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, durationMinutes: 10, cooldownMinutes: 60 }
       ],
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.0.0",
@@ -1120,7 +1120,7 @@ export const MOCK_DATA = {
       knowledge: { documents: ["knowledge/irrigation.md"], fallback: ["plot", "region", "stage", "crop", "general"], content: [
         "# 水稻分蘖期灌溉知识", "", "水稻喜水耐淹，分蘖期保持浅水层，抽穗扬花期田面湿度需维持 85%~100%。",
         "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。", "",
-        "- 分蘖期田面湿度适宜区间：30%~55%，需浅水勤灌", "- 灌溉时长受 900s 安全上限和 120 分钟冷却约束", "- 抽穗扬花期遇高温（>35°C）易导致空壳率上升，需深水调温", "",
+        "- 分蘖期田面湿度适宜区间：30%~55%，需浅水勤灌", "- 灌溉时长受 900s 安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水", "- 抽穗扬花期遇高温（>35°C）易导致空壳率上升，需深水调温", "",
         "> 证据范围：作物：水稻，阶段：vegetative，地区：重庆，知识版本：kb-1.0.0"
       ] },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
@@ -1146,10 +1146,10 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱储水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 38, durationMinutes: 10, cooldownMinutes: 60 }
       ],
-      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+      prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
       forecastProfile: { algorithm: "robust-trend-v1", horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
       coordinationProfile: { stageSensitivity: 0.8, starvationGuardMinutes: 120 },
       knowledgeVersion: "kb-1.0.0",
@@ -1157,7 +1157,7 @@ export const MOCK_DATA = {
       knowledge: { documents: ["knowledge/irrigation.md"], fallback: ["plot", "region", "stage", "crop", "general"], content: [
         "# 向日葵开花结盘期灌溉知识", "", "向日葵耐旱怕涝，现蕾至开花为需水临界期，过湿易倒伏感病。",
         "低质量或漂移数据只能触发巡田、复测和流量校准，不能直接生成可执行处方。", "",
-        "- 开花结盘期土壤含水率适宜区间：20%~38%，需适度供水", "- 灌溉时长受 900 秒安全上限和 120 分钟冷却约束", "- 高温强光时段（>38°C）蒸散加快，优先清晨补水", "",
+        "- 开花结盘期土壤含水率适宜区间：20%~38%，需适度供水", "- 灌溉时长受 900 秒安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水", "- 高温强光时段（>38°C）蒸散加快，优先清晨补水", "",
         "> 证据范围：作物：向日葵，阶段：flowering，地区：重庆，知识版本：kb-1.0.0"
       ] },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
@@ -1187,7 +1187,7 @@ export const MOCK_DATA = {
       time: "2026-08-22 14:30",
       tag: "v1.2",
       title: "数据主线持久化去重与命令幂等锁升级",
-      content: "重构持久化事件去重机制，命令超时或失败时不占用 120 分钟灌溉冷却。"
+      content: "重构持久化事件去重机制，灌溉执行无时间冷却；命令仍使用幂等键避免重复提交。"
     },
     {
       time: "2026-08-21 17:00",
@@ -1411,7 +1411,7 @@ export const MOCK_DATA = {
   ],
 
   adminCropPacks: [
-    { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['苗期', '营养生长期', '开花坐果期', '果实成熟期'], knowledgeDocs: [{ title: '苗期管理', content: '苗期土壤湿度 30%~50%，气温 18~28°C；根系浅，避免忽干忽湿，低于下限先复测再补水。' }, { title: '营养生长期', content: '土壤湿度目标 25%~45%，高温注意通风；连续低于阶段下限才进入缺水规则。' }, { title: '开花坐果期', content: '土壤湿度 23%~43%，避免午后高温落花；处方前确认设备流量和数据新鲜度。' }, { title: '果实成熟期', content: '结果期土壤含水率 20%~40%，灌溉受 900s 上限与 120 分钟冷却约束；低质量数据不生成可执行处方。' }], availableForPlanting: true },
+    { id: 'cp-tomato', icon: '🍅', name: '番茄', status: 'published', stages: ['苗期', '营养生长期', '开花坐果期', '果实成熟期'], knowledgeDocs: [{ title: '苗期管理', content: '苗期土壤湿度 30%~50%，气温 18~28°C；根系浅，避免忽干忽湿，低于下限先复测再补水。' }, { title: '营养生长期', content: '土壤湿度目标 25%~45%，高温注意通风；连续低于阶段下限才进入缺水规则。' }, { title: '开花坐果期', content: '土壤湿度 23%~43%，避免午后高温落花；处方前确认设备流量和数据新鲜度。' }, { title: '果实成熟期', content: '结果期土壤含水率 20%~40%，灌溉受 900s 上限；执行无时间冷却，低于 10% 可自动发起虚拟浇水；低质量数据不生成可执行处方。' }], availableForPlanting: true },
     { id: 'cp-cucumber', icon: '🥒', name: '黄瓜', status: 'published', stages: ['苗期', '营养生长期', '初花期', '采收盛期'], knowledgeDocs: [{ title: '苗期管理', content: '苗期喜湿怕涝，土壤湿度 32%~52%，气温 19~28°C；不要把短时读数波动当成缺水。' }, { title: '营养生长期', content: '土壤湿度目标 28%~48%；高温强光时先确认数据质量再试算补水，漂移优先人工核验。' }, { title: '初花期', content: '土壤湿度 26%~46%，既防干旱落花也防过湿诱病；DEGRADED/BAD 只触发巡田复测。' }, { title: '采收盛期', content: '采收盛期土壤含水率 24%~44%，保持根区稳定，避免过湿积水。' }], availableForPlanting: true },
     { id: 'cp-strawberry', icon: '🍓', name: '草莓', status: 'draft', stages: ['缓苗期', '营养生长期', '开花期', '膨果期', '采收期'], knowledgeDocs: [{ title: '草莓温湿度管理', content: '草莓开花和膨果期需关注温度、土壤湿度及设备在线状态，数据质量不足时转人工复核。' }], availableForPlanting: true },
     { id: 'cp-corn', icon: '🌽', name: '玉米', status: 'published', stages: ['播种出苗期', '拔节期', '抽雄吐丝期', '灌浆成熟期'], knowledgeDocs: [{ title: '玉米水分管理', content: '拔节期和抽雄吐丝期是需水关键期，灌溉前应核对土壤湿度和水位。' }, { title: '玉米生长巡查', content: '重点记录株高、叶片卷曲和倒伏情况，人工观察与遥测分别保存。' }], availableForPlanting: true },
@@ -1420,7 +1420,7 @@ export const MOCK_DATA = {
 
   adminRules: [
     { id: 'RULE-SAFETY-001', description: '灌溉上限检查（每次不超过 100 升）', type: '安全门', version: '1.3', status: 'published' },
-    { id: 'RULE-SAFETY-002', description: '命令冷却窗口（同一设备 60 秒内不重复）', type: '安全门', version: '1.3', status: 'published' },
+    { id: 'RULE-SAFETY-002', description: '灌溉执行无时间冷却（同一遥测事件仅按幂等键处理一次）', type: '安全门', version: '1.4', status: 'published' },
     { id: 'RULE-DIAG-001', description: '干旱与传感器漂移分流规则', type: '诊断', version: '1.3', status: 'published' },
     { id: 'RULE-DIAG-002', description: '多源证据融合置信度计算', type: '诊断', version: '1.2', status: 'published' },
     { id: 'RULE-THRESH-001', description: '土壤湿度告警阈值 (按作物阶段)', type: '阈值', version: '1.3', status: 'published' },
@@ -1686,7 +1686,7 @@ export const MOCK_DATA = {
       },
       stageRules: {
         fruiting: [
-          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
+          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10 },
           { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, cooldownMinutes: 60 }
         ]
       },
@@ -1778,7 +1778,7 @@ export const MOCK_DATA = {
       conclusion: "支持干旱、排除传感器漂移，置信度 92%"
     },
 
-    // I-05 迟滞与冷却窗口
+    // I-05 迟滞与告警去重（灌溉执行无时间冷却）
     hysteresisAndCooldown: {
       ruleCode: "WATER_DEFICIT",
       metric: "SOIL_MOISTURE",
@@ -1786,9 +1786,9 @@ export const MOCK_DATA = {
       hysteresis: 2,
       boundaryState: "BELOW_LOWER",
       lastTriggeredAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-      cooldownMinutes: 120,
-      cooldownRemainingMinutes: 30,
-      cooldownActive: true,
+      cooldownMinutes: 0,
+      cooldownRemainingMinutes: 0,
+      cooldownActive: false,
       idempotency: {
         lastCommandId: "cmd-a01-20260822-001",
         duplicateClicksBlocked: 1,
@@ -1941,7 +1941,7 @@ export const MOCK_DATA = {
         },
         {
           id: "kb-tomato-fruiting-02",
-          content: "灌溉时长受 900 秒安全上限和 120 分钟冷却约束",
+          content: "灌溉时长受 900 秒安全上限；灌溉执行无时间冷却，土壤含水量低于 10% 可自动发起虚拟浇水",
           source: "knowledge/irrigation.md",
           citation: "番茄作物模型包 v1.0.0 · 知识库 kb-1.0.0"
         }

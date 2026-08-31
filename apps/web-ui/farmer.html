@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260831-classic-button-contrast-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260831-message-wrap">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-three-branch-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-ai-presentation-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-ai-presentation-v1">
@@ -19,7 +19,6 @@
 
   <script src="vendor/vue.global.prod.js"></script>
   <script src="vendor/echarts.min.js"></script>
-  <script src="vendor/ort/ort.all.min.js?v=1.17.3"></script>
 </head>
 <body>
   <div id="farmer_app" v-cloak @click="on_app_click">
@@ -556,6 +555,29 @@
               </div>
             </div>
 
+            <div class="farmer-water-resource-readonly" aria-label="水库水量查看">
+              <div class="farmer-water-resource-head">
+                <div>
+                  <span class="farmer-section-kicker">水库水量</span>
+                  <h3>今日蓄水池余量</h3>
+                </div>
+                <span v-if="water_resource_loading" class="g-badge">读取中…</span>
+                <span v-else-if="water_resource_error" class="g-badge warning">{{ water_resource_error }}</span>
+                <span v-else-if="water_resource_summary" class="g-badge" :class="water_resource_summary.percent <= 20 ? 'warning' : 'success'">{{ water_resource_summary.percent }}% 可用</span>
+              </div>
+              <div v-if="water_resource_summary" class="farmer-water-resource-body">
+                <div class="farmer-water-resource-progress"><div class="farmer-water-resource-bar" :style="{width: water_resource_summary.percent + '%'}"></div></div>
+                <div class="farmer-water-resource-stats">
+                  <div><small>今日配额</small><strong>{{ water_resource_summary.quota.toLocaleString() }} L</strong></div>
+                  <div><small>实际已用</small><strong>{{ water_resource_summary.used.toLocaleString() }} L</strong></div>
+                  <div><small>已预留</small><strong>{{ water_resource_summary.reserved.toLocaleString() }} L</strong></div>
+                  <div :class="{'is-warning': water_resource_summary.percent <= 20}"><small>可分配余额</small><strong>{{ water_resource_summary.remaining.toLocaleString() }} L</strong></div>
+                </div>
+                <p class="farmer-panel-hint">只读查看，配额与计划由管理员维护；执行灌溉时会再次校验余量与安全门。</p>
+              </div>
+              <p v-else-if="!water_resource_loading && !water_resource_error" class="farmer-panel-hint">暂无水库水量数据。</p>
+            </div>
+
             <div class="farmer-risk-cards" aria-label="各地块风险提醒">
               <button
                 type="button"
@@ -712,6 +734,17 @@
                 <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
                 <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
+                <div v-if="automatic_watering_status" class="farmer-auto-water-card" :class="{ 'is-ready': automatic_watering_status.eligible, 'is-blocked': automatic_watering_status.status === 'BLOCKED', 'is-triggered': automatic_watering_status.status === 'TRIGGERED' }">
+                  <div class="farmer-auto-water-icon"><app-icon name="bolt"></app-icon></div>
+                  <div class="farmer-auto-water-copy">
+                    <span class="farmer-section-kicker">自动浇水 · 虚拟执行</span>
+                    <strong>{{ automatic_watering_status.label }}</strong>
+                    <p>土壤含水量低于 {{ automatic_watering_status.threshold }}% 时自动发起；当前 {{ automatic_watering_status.moisture === null ? '—' : automatic_watering_status.moisture.toFixed(1) }}%。仍会校验数据质量、设备健康和水量上限。</p>
+                  </div>
+                  <span class="g-badge" :class="automatic_watering_status.status === 'BLOCKED' ? 'warning' : automatic_watering_status.status === 'TRIGGERED' ? 'success' : 'primary'">{{ automatic_watering_status.statusLabel }}</span>
+                  <button v-if="automatic_watering_status.eligible && automatic_watering_status.status !== 'TRIGGERED'" type="button" class="g-btn secondary farmer-btn-light farmer-auto-water-check" :disabled="automatic_watering_busy" @click="check_automatic_watering(automatic_watering_status.plotId)">{{ automatic_watering_busy ? '检查中…' : '立即检查' }}</button>
+                </div>
+
                 <div v-if="show_advice_diagnosis && advice_diagnosis_summary" class="farmer-fold-section farmer-advice-diagnosis-panel">
                   <div class="farmer-panel-header">
                     <div>
@@ -749,7 +782,7 @@
                     </div>
                     <div v-if="irrigation_guard" class="farmer-irrigation-guard">
                       <div><span>迟滞状态</span><strong>{{ irrigation_guard.hysteresis?.state || 'UNAVAILABLE' }}</strong><small>{{ irrigation_guard.hysteresis?.currentValue ?? '—' }}{{ irrigation_guard.hysteresis?.unit || '%' }} · 触发 {{ irrigation_guard.hysteresis?.threshold ?? '—' }} / 复位 {{ irrigation_guard.hysteresis?.resetThreshold ?? '—' }}</small></div>
-                      <div><span>冷却窗口</span><strong>{{ irrigation_guard.state }}</strong><small v-if="irrigation_guard.remainingSeconds">剩余 {{ Math.ceil(irrigation_guard.remainingSeconds / 60) }} 分钟 · 至 {{ format_suggestion_time(irrigation_guard.cooldownUntil) }}</small><small v-else>当前无执行冷却 · {{ irrigation_guard.cooldownMinutes }} 分钟策略</small></div>
+                      <div><span>重复保护</span><strong>已关闭</strong><small>灌溉可按需再次执行 · 自动浇水阈值 {{ irrigation_guard.automaticWatering?.threshold || 10 }}%</small></div>
                     </div>
                     <div v-if="advice_execution_summary.workOrderId || advice_execution_summary.command" class="farmer-execution-evidence">
                       <strong>执行与效果</strong>
@@ -759,7 +792,7 @@
                       <div><span>前后对比</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
                     </div>
                     <p v-if="irrigation_plan?.why || advice_plan?.why" class="farmer-panel-hint">处方说明：{{ irrigation_plan?.why || advice_plan?.why }}</p>
-                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 当前操作人可直接执行虚拟灌溉；系统仍保留安全门、幂等和冷却保护。</small>
+                    <small class="farmer-case-note">追踪编号 {{ advice_trace || irrigation_plan?.traceId || '—' }} · 当前操作人可直接执行虚拟灌溉；不设置灌溉冷却，仍保留安全门、幂等和资源校验。</small>
                   </div>
                 </div>
 
@@ -815,7 +848,10 @@
                 <h2>消息中心</h2>
                 <p class="role-summary">统一查看告警、任务和通知；告警关闭与派单由农场管理员处理，你可从这里跳转去执行。</p>
               </div>
-              <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
+              <div class="farmer-page-actions">
+                <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="clear_read_messages" :disabled="!messages.some(m => m.read)"><app-icon name="delete_sweep"></app-icon>一键清除已读</button>
+              </div>
             </div>
 
             <div class="farmer-message-filters" role="tablist" aria-label="消息分类">
@@ -1089,6 +1125,7 @@
                 <div class="farmer-task-column-header">
                   <span class="farmer-task-status-chip" :class="'status-' + column.status">{{ column.label }}</span>
                   <span class="farmer-task-count">{{ column.items.length }}</span>
+                  <button v-if="column.status === 'DONE' && column.items.length" type="button" class="g-btn secondary farmer-btn-light farmer-task-delete-all" @click.stop="delete_all_completed_tasks"><app-icon name="delete_sweep"></app-icon>一键删除</button>
                 </div>
                 <div class="farmer-task-column-body">
                   <div v-for="task in column.items" :key="task.id"
@@ -1105,6 +1142,7 @@
                       <app-icon name="grass"></app-icon>
                       {{ task.plot_name }}
                     </div>
+                    <button v-if="column.status === 'DONE'" type="button" class="g-btn icon-only farmer-task-delete-btn" @click.stop="delete_task(task)" title="删除"><app-icon name="delete"></app-icon></button>
                   </div>
                   <div v-if="!column.items.length" class="farmer-empty">暂无{{ column.label }}任务</div>
                 </div>
@@ -1442,7 +1480,7 @@
                 <div v-if="crop_manual_rules.length" class="farmer-cm-rules">
                   <h4>硬性规则与阈值</h4>
                   <div v-for="rule in crop_manual_rules" :key="rule.code" class="farmer-cm-rule">
-                    <strong>{{ rule.code }}</strong><span>{{ metric_label(rule.metric, rule.metric) }} {{ rule.operator || '—' }} {{ rule.threshold }} · 持续 {{ rule.durationMinutes || '—' }} 分钟 · 冷却 {{ rule.cooldownMinutes || '—' }} 分钟</span>
+                    <strong>{{ rule.code }}</strong><span>{{ metric_label(rule.metric, rule.metric) }} {{ rule.operator || '—' }} {{ rule.threshold }} · 持续 {{ rule.durationMinutes || '—' }} 分钟 · 冷却 {{ rule.cooldownMinutes === 0 ? '无' : (rule.cooldownMinutes || '—') }} </span>
                   </div>
                 </div>
                 <div v-if="crop_manual_documents.length" class="farmer-cm-documents">
@@ -1591,9 +1629,9 @@
                 <span class="material-symbols-outlined">fact_check</span>
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
-              <div v-if="suggestion_emergency_notice" class="farmer-suggestion-emergency" role="status"><span class="material-symbols-outlined">emergency</span><div><strong>严重干旱 · 可受限补水</strong><p>{{ suggestion_emergency_notice }}</p></div></div>
+              <div v-if="suggestion_emergency_notice" class="farmer-suggestion-emergency" role="status"><span class="material-symbols-outlined">emergency</span><div><strong>低湿度 · 自动浇水条件</strong><p>{{ suggestion_emergency_notice }}</p></div></div>
               <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? (suggestion_emergency_mode ? '、水量和时间，并确认立即执行受限应急补水' : '、水量和时间，并确认立即执行虚拟灌溉') : '，并确认按提示操作' }}。</span></label>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认立即执行虚拟灌溉' : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="suggestion_flow_stage = 'VIEW'">返回查看</button>
                 <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="!suggestion_confirm_enabled" @click="confirm_suggestion_action">{{ suggestion_busy ? '执行中…' : (active_suggestion && active_suggestion.kind === 'IRRIGATION' ? (suggestion_emergency_mode ? '确认应急补水' : '确认并执行') : '确认并进入结果填写') }}<span class="material-symbols-outlined">verified_user</span></button>
@@ -1649,6 +1687,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260831-ai-role-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260831-agent-history-v1"></script>
 </body>
 </html>

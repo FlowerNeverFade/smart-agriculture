@@ -21,8 +21,9 @@ spring:
       maximum-pool-size: ${DATABASE_POOL_SIZE:8}
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 8MB
+      max-file-size: 8MB
+      # Four original images may total 24 MB; JSON/Base64 framing adds overhead.
+      max-request-size: 40MB
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true
@@ -39,6 +40,7 @@ agriloop:
   ai-mode: ${AI_MODE:rules-only}
   llm-base-url: ${LLM_BASE_URL:http://127.0.0.1:8000/v1}
   llm-model: ${LLM_MODEL:Qwen3.8-27B}
+  llm-vision-model: ${LLM_VISION_MODEL:Qwen3.8-27B}
   llm-api-key: ${LLM_API_KEY:}
   llm-timeout-ms: ${LLM_TIMEOUT_MS:60000}
   llm-max-tokens: ${LLM_MAX_TOKENS:512}

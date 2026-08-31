@@ -1,17 +1,17 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-agent-history-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-ai-role-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-three-branch-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-three-branch-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-three-branch-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-three-branch-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-three-branch-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-three-branch-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-agent-history-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-agent-history-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-agent-history-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-agent-history-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-agent-history-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-agent-history-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-agent-history-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-agent-history-v1';
 import { cropBackgroundFor } from './plot-background.js?v=20260831-ai-presentation-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
 import {
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-ai-role-v1';
+} from './live-data.js?v=20260831-agent-history-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();

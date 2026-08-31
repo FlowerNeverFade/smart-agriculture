@@ -140,7 +140,7 @@ const METRIC_LABELS = Object.freeze({
   AIR_HUMIDITY: '空气湿度', HUMIDITY: '湿度', LIGHT: '光照', LIGHT_INTENSITY: '光照',
   ILLUMINANCE: '光照', CO2: '二氧化碳', CO2_CONCENTRATION: '二氧化碳',
   CARBON_DIOXIDE: '二氧化碳', SOIL_EC: '土壤电导率', EC: '电导率',
-  ELECTRICAL_CONDUCTIVITY: '电导率', NPK_RATIO: '氮磷钾', PH: '酸碱度',
+  ELECTRICAL_CONDUCTIVITY: '电导率', NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾', PH: '酸碱度',
   SOIL_PH: '土壤酸碱度', WATER_LEVEL: '水位', WATER_FLOW: '水流量',
   FLOW_RATE: '流量', WIND_SPEED: '风速', RAINFALL: '降雨量',
   DATA_FRESHNESS: '数据新鲜度', DEVICE_HEALTH: '设备健康',
@@ -297,7 +297,7 @@ const DISPLAY_TOKEN_LABELS = Object.freeze({
   WATER_DEFICIT: '缺水风险', HEAT_STRESS: '高温胁迫', COLD_STRESS: '低温冷害',
   DEVICE_FAULT: '设备异常', SENSOR_DRIFT: '传感器漂移', SOIL_MOISTURE: '土壤湿度',
   AIR_TEMPERATURE: '空气温度', AIR_HUMIDITY: '空气湿度', WATER_LEVEL: '水位',
-  SOIL_EC: '土壤电导率', NPK_RATIO: '氮磷钾', RAINFALL: '降雨量',
+  SOIL_EC: '土壤电导率', NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾', RAINFALL: '降雨量',
   DIAGNOSIS: '诊断', PRESCRIPTION: '处方', FORECAST: '预测', PREDICTION: '预测',
   COMMAND: '命令', EVALUATION: '评价', INSPECTION: '巡田', DEVICE_CHECK: '设备检查',
   WORK_ORDER: '农务工单', CROP_PACK: '作物模型包', CORE_AI: '智能内核',
@@ -358,13 +358,30 @@ export function agentResponseText(response = {}, fallback = '') {
       const cleaned = candidate.trim()
         .replace(/^\s*#{1,6}\s+/gm, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*\*/g, '')
         .replace(/__(.*?)__/g, '$1')
+        .replace(/__/g, '')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/^\s*[-*]\s+/gm, '• ');
       return displayText(cleaned, fallback);
     }
   }
   return displayText(fallback, fallback);
+}
+
+/**
+ * Older image requests accidentally persisted the private model prompt as the
+ * user's message. Trim that scaffolding when restoring a conversation while
+ * leaving normal questions untouched.
+ */
+export function agentHistoryUserText(value, fallback = '已上传现场图片') {
+  const raw = value === undefined || value === null
+    ? ''
+    : String(value).replace(/\r/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
+  if (!raw) return fallback;
+  const marker = raw.search(/\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\s\S]*$/i);
+  if (marker >= 0) return raw.slice(0, marker).trim() || fallback;
+  return raw;
 }
 
 export function agentResponseSource(response = {}, sessionMode = 'live') {
@@ -388,6 +405,7 @@ const AGENT_INTENT_LABELS = Object.freeze({
   RULE_STRATEGY_STATUS: '规则与策略状态',
   TODAY_WORK: '今日农务',
   PLOT_STATUS: '地块状态',
+  IMAGE_ANALYSIS: '图片分析',
   GREETING: '问候',
   CLARIFICATION: '澄清',
   CAPABILITY_QUERY: '能力说明',
@@ -633,7 +651,7 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
   const traceId = text(response.traceId, '');
   const plotId = text(response.plotId || plot?.plotId, '');
   const plotName = text(plot?.name, plotId || '关联地块');
-  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS'].includes(intent)) {
+  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP', 'PLOT_STATUS', 'IMAGE_ANALYSIS'].includes(intent)) {
     return null;
   }
 
@@ -955,6 +973,29 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
     status_label: workStatusLabel(status),
     dataOrigin: 'BACKEND'
   };
+}
+
+/**
+ * The farmer workspace reads both the work-order collection and the
+ * today-work read model.  They can briefly disagree while a completed order
+ * is being indexed, so retain every real work-order record from either
+ * response and ignore aggregate-only alert/diagnosis items.
+ */
+export function mergeFarmerWorkOrders(primary = [], supplemental = []) {
+  const records = new Map();
+  const add = (record) => {
+    if (!record || typeof record !== 'object') return;
+    const workOrderId = text(record.workOrderId, '');
+    // `/work-items/today` also contains synthetic alert/diagnosis entries
+    // identified only by workItemId; those are not executable task cards.
+    if (!workOrderId) return;
+    const recordId = workOrderId;
+    const previous = records.get(recordId);
+    records.set(recordId, previous ? { ...previous, ...record } : record);
+  };
+  asArray(primary).forEach(add);
+  asArray(supplemental).forEach(add);
+  return [...records.values()];
 }
 
 function messageBase({

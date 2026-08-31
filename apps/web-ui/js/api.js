@@ -16,7 +16,7 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
-const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 8, cooldownMinutes: 120 });
+const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 10, cooldownMinutes: 0, automaticWateringThreshold: 10 });
 
 // The backend returns the same contract in a live session.  These profiles
 // keep the explicit offline/demo path honest when the API is unavailable and
@@ -45,6 +45,31 @@ const DEMO_AGENT_ROLE_PROFILES = Object.freeze({
 const DEMO_AGENT_MUTATION_PATTERN = /(新增|新建|创建|修改|更新|编辑|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/;
 const DEMO_AGENT_CONTROL_PATTERN = /(执行|启动|开始)/;
 const DEMO_AGENT_FARM_MUTATION_PATTERN = /(地块|田|棚|设备|传感器|灌溉|浇水|任务|农务|告警|报警|农户|巡田|复测)/;
+
+function cleanPersistedAgentUserText(value, fallback = '已上传现场图片') {
+  const raw = value === undefined || value === null
+    ? ''
+    : String(value).replace(/\r/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
+  if (!raw) return fallback;
+  const marker = raw.search(/\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\s\S]*$/i);
+  if (marker >= 0) return raw.slice(0, marker).trim() || fallback;
+  return raw;
+}
+
+function cleanAgentHistoryRecord(item) {
+  if (!item || typeof item !== 'object') return item;
+  if (String(item.role || '').toUpperCase() !== 'USER') return item;
+  return { ...item, content: cleanPersistedAgentUserText(item.content, '') };
+}
+
+function cleanAgentHistoryPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const conversation = payload.conversation && typeof payload.conversation === 'object'
+    ? { ...payload.conversation, title: cleanPersistedAgentUserText(payload.conversation.title, '') }
+    : payload.conversation;
+  const messages = Array.isArray(payload.messages) ? payload.messages.map(cleanAgentHistoryRecord) : payload.messages;
+  return { ...payload, conversation, messages };
+}
 
 function demoAgentRoleCode(value) {
   return normalizeRole(value) || 'FARMER';
@@ -594,6 +619,8 @@ export class ApiService {
     this.demoAgentActions = new Map();
     this.demoAgentConversations = new Map();
     this._demoHydrateAgentActions();
+    this.demoAutoWatering = new Map();
+    this._demoHydrateAutoWatering();
     this.demoValueLedgers = [];
     this.demoAiMode = this.loadDemoAiMode();
     this.demoWaterProfile = {
@@ -1749,6 +1776,15 @@ export class ApiService {
     approved ? 'APPROVE' : 'REJECT', note || '验收通过');
   }
 
+  async deleteWorkOrder(workOrderId) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}`, { method: 'DELETE' });
+      return response?.data || response;
+    }
+    this.demoWorkOrders.delete(workOrderId);
+    return { workOrderId, deleted: true };
+  }
+
   async getFarmMembers({ farmId } = {}) {
     if (this.sessionMode === 'live') {
       if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
@@ -2233,6 +2269,32 @@ export class ApiService {
     return `agriloop-agent-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
+  _demoAutoWateringStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-auto-watering:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoHydrateAutoWatering() {
+    try {
+      if (typeof sessionStorage === 'undefined') return;
+      const raw = sessionStorage.getItem(this._demoAutoWateringStorageKey());
+      const parsed = raw ? JSON.parse(raw) : {};
+      Object.entries(parsed && typeof parsed === 'object' ? parsed : {}).forEach(([key, value]) => {
+        if (value?.status === 'TRIGGERED' && value.command?.commandId) this.demoAutoWatering.set(key, value);
+      });
+    } catch { /* demo storage is optional */ }
+  }
+
+  _saveDemoAutoWatering(key, result) {
+    if (result?.status === 'TRIGGERED') this.demoAutoWatering.set(key, result);
+    try {
+      if (typeof sessionStorage === 'undefined') return result;
+      const entries = Object.fromEntries([...this.demoAutoWatering.entries()].slice(-50));
+      sessionStorage.setItem(this._demoAutoWateringStorageKey(), JSON.stringify(entries));
+    } catch { /* demo storage is optional */ }
+    return result;
+  }
+
   _readDemoAgentSession() {
     const fallback = { conversations: [], messages: [], actions: [] };
     try {
@@ -2250,8 +2312,12 @@ export class ApiService {
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return {
-        conversations: Array.isArray(parsed?.conversations) ? parsed.conversations : [],
-        messages: Array.isArray(parsed?.messages) ? parsed.messages : [],
+        conversations: Array.isArray(parsed?.conversations)
+          ? parsed.conversations.map((item) => item && typeof item === 'object'
+            ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+            : item)
+          : [],
+        messages: Array.isArray(parsed?.messages) ? parsed.messages.map(cleanAgentHistoryRecord) : [],
         actions: Array.isArray(parsed?.actions) ? parsed.actions : []
       };
     } catch {
@@ -2261,8 +2327,12 @@ export class ApiService {
 
   _writeDemoAgentSession(session) {
     const safe = {
-      conversations: Array.isArray(session?.conversations) ? session.conversations.slice(0, 20) : [],
-      messages: Array.isArray(session?.messages) ? session.messages.slice(-200) : [],
+      conversations: Array.isArray(session?.conversations)
+        ? session.conversations.slice(0, 20).map((item) => item && typeof item === 'object'
+          ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+          : item)
+        : [],
+      messages: Array.isArray(session?.messages) ? session.messages.slice(-200).map(cleanAgentHistoryRecord) : [],
       actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
     };
     try {
@@ -2300,7 +2370,7 @@ export class ApiService {
     const role = demoAgentRoleCode(response?.agentRole || response?.role || this.user?.role);
     const roleProfile = response?.roleProfile || demoAgentRoleProfile(role);
     const userEntry = {
-      messageId: `demo-msg-${Date.now().toString(36)}-u`, conversationId, role: 'USER', content: String(message || '').slice(0, 4000), plotId: plotId || '', createdAt: now
+      messageId: `demo-msg-${Date.now().toString(36)}-u`, conversationId, role: 'USER', content: cleanPersistedAgentUserText(message).slice(0, 4000), plotId: plotId || '', createdAt: now
     };
     const assistantEntry = {
       messageId: `demo-msg-${Date.now().toString(36)}-a`, conversationId, role: 'ASSISTANT', content: response?.narrative || response?.summary || '', intent: response?.intent || '', plotId: plotId || '', traceId: response?.traceId || '', adapter: response?.adapter || 'rules', degraded: response?.degraded === true, knowledgeEvidence: response?.knowledgeEvidence || [], actionProposal: response?.actionProposal || null, agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, createdAt: new Date(Date.now() + 1).toISOString()
@@ -2313,7 +2383,7 @@ export class ApiService {
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
     const existing = current.conversations.find((item) => item.conversationId === conversationId);
     const conversation = {
-      ...(existing || {}), conversationId, title: existing?.title || String(message || '').replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
     };
     current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
     this._writeDemoAgentSession(current);
@@ -2328,14 +2398,20 @@ export class ApiService {
       const resolved = conversationId || fallbackId;
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
-      const conversation = session.conversations.find((item) => item.conversationId === resolved) || { conversationId: resolved, title: agentRolePresentation(role).historyTitle, agentRole: role, roleLabel: profile.label, roleProfile: profile, messageCount: 0 };
-      const messages = session.messages.filter((item) => item.conversationId === resolved).slice(-Math.max(1, Math.min(Number(limit) || 40, 100)));
-      return { conversation, messages };
+      const conversation = session.conversations.find((item) => item.conversationId === resolved)
+        || { conversationId: resolved, title: agentRolePresentation(role).historyTitle, agentRole: role, roleLabel: profile.label, roleProfile: profile, messageCount: 0 };
+      const cleanedConversation = {
+        ...conversation,
+        title: cleanPersistedAgentUserText(conversation.title, agentRolePresentation(role).historyTitle)
+      };
+      const messages = session.messages.filter((item) => item.conversationId === resolved)
+        .slice(-Math.max(1, Math.min(Number(limit) || 40, 100))).map(cleanAgentHistoryRecord);
+      return { conversation: cleanedConversation, messages };
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
     if (conversationId) params.set('conversationId', conversationId);
     const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
-    if (resp?.data) return resp.data;
+    if (resp?.data) return cleanAgentHistoryPayload(resp.data);
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
   }
 
@@ -2348,15 +2424,19 @@ export class ApiService {
         .filter((item) => Boolean(item.archived) === Boolean(archived))
         .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
+        title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
         agentRole: item.agentRole || role,
         roleLabel: item.roleLabel || profile.label,
-        roleProfile: item.roleProfile || profile,
-        title: item.title || agentRolePresentation(role).historyItemFallback
+        roleProfile: item.roleProfile || profile
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
     const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
-    if (Array.isArray(resp?.data)) return resp.data;
+    if (Array.isArray(resp?.data)) {
+      return resp.data.map((item) => item && typeof item === 'object'
+        ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+        : item);
+    }
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
   }
 
@@ -2415,13 +2495,21 @@ export class ApiService {
     return { conversationId, title: clean, sourceMode: 'SIMULATED' };
   }
 
-  async agentChat(message, plotId = 'plot-a01', conversationId = '') {
+  async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };
       if (conversationId) body.conversationId = conversationId;
+      // `message` may contain a private vision instruction assembled for the
+      // model. Keep the user's short, readable question separate so the
+      // backend can persist and restore the conversation without exposing
+      // prompt scaffolding in the chat bubble.
+      const displayMessage = String(options?.displayMessage || '').trim();
+      if (displayMessage) body.displayMessage = displayMessage.slice(0, 1000);
+      if (Array.isArray(options?.images) && options.images.length) body.images = options.images.slice(0, 4);
       const resp = await this._fetch('/api/v1/agent/chat', {
         method: 'POST',
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        timeoutMs: body.images?.length ? 150000 : 65000
       });
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });
@@ -2434,10 +2522,21 @@ export class ApiService {
     const role = demoAgentRoleCode(this.user?.role);
     const resolvedConversationId = conversationId || `conversation-${this._demoActorId()}`;
     const persistDemoResponse = (response) => {
-      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, message);
-      this._demoSaveAgentTurn(resolvedConversationId, message, plotId, payload);
+      const displayMessage = String(options?.displayMessage || '').trim() || message;
+      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, displayMessage);
+      this._demoSaveAgentTurn(resolvedConversationId, displayMessage, plotId, payload);
       return payload;
     };
+    if (Array.isArray(options?.images) && options.images.length) {
+      return persistDemoResponse({
+        traceId, plotId, mode: 'demo', adapter: 'demo', intent: 'IMAGE_ANALYSIS',
+        summary: '演示模式未调用视觉模型', degraded: true,
+        degradationReason: 'LIVE_VISION_REQUIRED',
+        narrative: '图片已在浏览器中完成安全预处理，但演示模式不会把图片发送到模型。切换到实时服务后，可以直接分析画面内容。',
+        vision: { imageCount: Math.min(4, options.images.length), provenance: 'USER_PROVIDED' },
+        tools: [], confidence: 1
+      });
+    }
     const asksMutation = DEMO_AGENT_MUTATION_PATTERN.test(message || '');
     const asksControl = DEMO_AGENT_CONTROL_PATTERN.test(message || '');
     const asksFarmMutation = DEMO_AGENT_FARM_MUTATION_PATTERN.test(message || '');
@@ -2516,7 +2615,7 @@ export class ApiService {
     if (!asksMutation && /(你能做什么|你可以做什么|能力|功能|帮助|支持哪些|能帮我)/i.test(String(message || ''))) {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CAPABILITY_QUERY', summary: '已读取农智助手能力范围', narrative: '', tools: [], confidence: 1 });
     }
-    if (!asksMutation && String(message || '').trim().length <= 4 && !/(水|田|地块|温度|湿度|风险|任务|告警|设备|规则|预测)/.test(String(message || ''))) {
+    if (!asksMutation && String(message || '').trim().length <= 4 && !/(水|灌溉|浇水|田|地块|温度|湿度|风险|任务|告警|设备|规则|预测)/.test(String(message || ''))) {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CLARIFICATION', summary: '输入信息不足', narrative: role === 'SYSTEM_ADMIN' ? '请补充要排查的平台服务、数据链路、规则版本或审计内容。' : role === 'FARM_ADMIN' ? '请补充要查看的农场告警、任务、设备或灌溉内容。' : '请补充地块、风险、待办或农事操作，例如“查看当前地块状态”。', tools: [], confidence: 1 });
     }
     if (role === 'FARMER' && /(记录|提交).*(巡田|复测)/.test(message || '')) {
@@ -2538,20 +2637,15 @@ export class ApiService {
       const planId = `plan-${traceId}`;
       const currentMoisture = Number(plot.metrics?.SOIL_MOISTURE?.value ?? 22);
       const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
-        .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
-      const emergencyEligible = currentMoisture <= emergencyThreshold;
+        .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
+      const emergencyEligible = currentMoisture < emergencyThreshold;
       const guard = await this.getIrrigationGuard(plotId);
-      const emergencyOverride = Number(guard.remainingSeconds || 0) > 0 && emergencyEligible;
-      if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
-        const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
-        return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', status: 'COOLDOWN_ACTIVE', summary: '当前地块处于防重复灌溉保护', narrative: `该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟；当前湿度未达到应急补水阈值。`, tools: [{ name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
-      }
-      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'CONTROLLED_COOLDOWN_BYPASS' }, emergencyEligible };
+      const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'AUTOMATIC_SOIL_MOISTURE' }, automaticWatering: { enabled: true, threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold, currentMoisture, eligible: currentMoisture < IRRIGATION_DEFAULTS.automaticWateringThreshold, mode: 'AUTOMATIC_SOIL_MOISTURE', sourceMode: 'SIMULATION' }, emergencyEligible };
       this.decisionCache.plans.set(planId, plan);
       const actionId = `demo-agent-${Date.now().toString(36)}`;
-      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `${emergencyOverride ? '对 ' + plot.name + ' 发起受限应急虚拟补水' : '对 ' + plot.name + ' 执行虚拟灌溉'}约 153 L（8.5 分钟）`, argumentSummary: `${emergencyOverride ? '应急补水 · ' : ''}${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: emergencyOverride ? 'EMERGENCY_COOLDOWN_BYPASS' : 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
+      const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride: false }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
       this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: emergencyOverride ? '当前湿度已达到应急阈值。我会先展示受限应急补水预览，确认后才运行模拟结果。' : '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }, { name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
+      return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'AGENT_ACTION', summary: proposal.summary, narrative: '灌溉处方已通过演示安全门。我会先展示虚拟执行预览，确认后才运行模拟结果。', actionProposal: proposal, tools: [{ name: 'generate_irrigation_plan', input: { plotId }, output: plan }, { name: 'get_irrigation_guard', input: { plotId }, output: guard }], confidence: 1 });
     }
 
     if (role === 'SYSTEM_ADMIN' && /(系统资源|平台状态|系统状态|服务状态|服务健康|数据链路|platform status|service health)/i.test(message || '')) {
@@ -2884,7 +2978,7 @@ export class ApiService {
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
     const target = 30;
     const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
-      .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.emergencyThreshold ?? IRRIGATION_DEFAULTS.emergencyThreshold);
+      .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
     const area = Number(plot?.areaM2 || 80);
     const flow = 18;
     const rawWater = Math.max(0, (target - current) * area * .08);
@@ -2894,7 +2988,7 @@ export class ApiService {
     const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
-    const emergencyEligible = executable && current <= emergencyThreshold;
+    const emergencyEligible = executable && current < emergencyThreshold;
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -2918,18 +3012,27 @@ export class ApiService {
         eligible: emergencyEligible,
         threshold: emergencyThreshold,
         currentMoisture: current,
-        mode: 'CONTROLLED_COOLDOWN_BYPASS',
-        note: emergencyEligible ? '仅用于严重干旱；确认时仍会重新检查数据、设备、资源和权限' : '当前湿度未达到应急阈值'
+        mode: 'AUTOMATIC_SOIL_MOISTURE',
+        note: emergencyEligible ? '低于 10% 时可自动发起虚拟浇水；仍会重新检查数据、设备、资源和权限' : '当前湿度未达到自动浇水阈值'
       },
       emergencyEligible,
+      automaticWatering: {
+        enabled: true,
+        threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
+        currentMoisture: current,
+        eligible: emergencyEligible,
+        mode: 'AUTOMATIC_SOIL_MOISTURE',
+        sourceMode: 'SIMULATION',
+        status: emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
+      },
       alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
       readinessId: `ready-demo-${now}`,
       readinessStatus,
       requiresApproval: false,
       requiresAdminApproval: false,
-      confirmationRequired: true,
-      executionMode: 'OPERATOR_CONFIRMED',
+      confirmationRequired: input.automatic !== true,
+      executionMode: input.automatic === true ? 'AUTOMATIC_THRESHOLD' : 'OPERATOR_CONFIRMED',
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
@@ -3164,33 +3267,37 @@ export class ApiService {
     const rule = (MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT') || {};
     const threshold = Number(rule.threshold ?? IRRIGATION_DEFAULTS.threshold);
-    const emergencyThreshold = Number(rule.emergencyThreshold ?? Math.min(threshold, IRRIGATION_DEFAULTS.emergencyThreshold));
+    const emergencyThreshold = Number(rule.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
     const hysteresis = Number(rule.hysteresis ?? 2);
     const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
-    const cooldownMinutes = Number(rule.cooldownMinutes ?? IRRIGATION_DEFAULTS.cooldownMinutes);
     const commands = [...this.decisionCache.commands.values()]
       .filter(item => item?.plotId === plotId && item?.type === 'IRRIGATION_START' && ['SUCCEEDED', 'PARTIAL', 'CONFIRMED', 'APPROVED'].includes(String(item.status || '').toUpperCase()))
       .sort((a, b) => new Date(b.ack?.receivedAt || b.confirmedAt || 0).getTime() - new Date(a.ack?.receivedAt || a.confirmedAt || 0).getTime());
     const lastCommand = commands[0] || null;
-    const startedAt = lastCommand ? new Date(lastCommand.ack?.receivedAt || lastCommand.confirmedAt || 0) : null;
-    const validStartedAt = startedAt && Number.isFinite(startedAt.getTime()) && startedAt.getTime() > 0 ? startedAt : null;
-    const cooldownUntil = validStartedAt ? new Date(validStartedAt.getTime() + cooldownMinutes * 60000) : null;
-    const remainingSeconds = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil.getTime() - Date.now()) / 1000)) : 0;
     return {
       plotId,
-      state: remainingSeconds > 0 ? 'COOLDOWN_ACTIVE' : 'AVAILABLE',
-      cooldownMinutes,
-      cooldownStartedAt: validStartedAt?.toISOString() || null,
-      cooldownUntil: cooldownUntil?.toISOString() || null,
-      remainingSeconds,
+      state: 'AVAILABLE',
+      cooldownMinutes: 0,
+      cooldownStartedAt: null,
+      cooldownUntil: null,
+      remainingSeconds: 0,
       lastCommandId: lastCommand?.commandId || null,
       lastOutcome: lastCommand?.status || null,
       emergency: {
         threshold: emergencyThreshold,
         currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
-        eligibleByMoisture: Number.isFinite(currentValue) && currentValue <= emergencyThreshold,
-        mode: 'CONTROLLED_COOLDOWN_BYPASS',
-        note: '应急补水仍需通过最新数据、设备健康、资源上限和当前操作人确认'
+        eligibleByMoisture: Number.isFinite(currentValue) && currentValue < emergencyThreshold,
+        mode: 'AUTOMATIC_SOIL_MOISTURE',
+        note: '低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验'
+      },
+      automaticWatering: {
+        enabled: true,
+        threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
+        currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
+        eligible: Number.isFinite(currentValue) && currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold,
+        mode: 'AUTOMATIC_SOIL_MOISTURE',
+        sourceMode: 'SIMULATION',
+        status: Number.isFinite(currentValue) ? (currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold ? 'READY' : 'NOT_TRIGGERED') : 'UNAVAILABLE'
       },
       hysteresis: {
         state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
@@ -3202,6 +3309,56 @@ export class ApiService {
       evaluatedAt: new Date().toISOString(),
       provenance: 'SIMULATED'
     };
+  }
+
+  /** Start virtual watering when the latest soil reading is below 10%. */
+  async autoWaterIfNeeded(plotId, options = {}) {
+    if (!plotId) throw new ApiError('自动浇水前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) {
+      throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/irrigation/auto', {
+        method: 'POST',
+        body: JSON.stringify({ plotId, ...(options.traceId ? { traceId: options.traceId } : {}), ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) })
+      });
+      return resp?.data || resp;
+    }
+    const plot = this.mockPlot(plotId);
+    const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+    const base = {
+      plotId,
+      enabled: true,
+      threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
+      currentMoisture: Number.isFinite(moisture) ? moisture : null,
+      mode: 'AUTOMATIC_SOIL_MOISTURE',
+      sourceMode: 'SIMULATION',
+      virtualExecution: true
+    };
+    if (!Number.isFinite(moisture)) return { ...base, status: 'BLOCKED', reason: 'SOIL_MOISTURE_UNAVAILABLE' };
+    if (moisture >= IRRIGATION_DEFAULTS.automaticWateringThreshold) {
+      return { ...base, status: 'NOT_TRIGGERED', reason: 'MOISTURE_ABOVE_THRESHOLD' };
+    }
+    const eventKey = String(plot.metrics?.SOIL_MOISTURE?.eventId || plot.metrics?.SOIL_MOISTURE?.updatedAt || `${moisture}`);
+    const cacheKey = `${plotId}:${eventKey}`;
+    const cached = this.demoAutoWatering.get(cacheKey);
+    if (cached) return { ...cached, reused: true };
+    const plan = await this.estimateIrrigation({ plotId, automatic: true, traceId: options.traceId || `auto-watering:${cacheKey}` });
+    if (plan.executable !== true || plan.readinessStatus !== 'READY') {
+      return this._saveDemoAutoWatering(cacheKey, { ...base, status: 'BLOCKED', reason: plan.why || 'IRRIGATION_PLAN_NOT_READY', plan });
+    }
+    try {
+      const command = await this.executeIrrigation(plan.planId, plotId, {
+        confirmed: true,
+        automatic: true,
+        idempotencyKey: options.idempotencyKey || `auto-watering:${cacheKey}`,
+        source: 'auto-soil-moisture',
+        outcome: options.outcome || 'SUCCEEDED'
+      });
+      return this._saveDemoAutoWatering(cacheKey, { ...base, status: 'TRIGGERED', reason: 'SOIL_MOISTURE_BELOW_THRESHOLD', plan, command });
+    } catch (error) {
+      return this._saveDemoAutoWatering(cacheKey, { ...base, status: 'BLOCKED', reason: error?.code || 'AUTO_WATERING_FAILED', message: error?.message || '自动浇水未能发起', plan });
+    }
   }
 
   async getIrrigationPlan(planId) {
@@ -3220,8 +3377,9 @@ export class ApiService {
     if (!canExecuteIrrigation(this.user)) {
       throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     }
+    const automaticWatering = options.automatic === true;
     const confirmed = options.confirmed === true || options.approved === true;
-    if (!confirmed) {
+    if (!confirmed && !automaticWatering) {
       throw new ApiError('执行前需要当前操作人明确确认（人工确认），无需管理员审批', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     }
     if (this.sessionMode === 'live') {
@@ -3235,7 +3393,9 @@ export class ApiService {
           // Keep the old field for already deployed admin pages and servers.
           approved: true,
           approvalRequired: false,
-          confirmationMode: 'OPERATOR_CONFIRMED',
+          confirmationMode: automaticWatering ? 'AUTOMATIC_THRESHOLD' : 'OPERATOR_CONFIRMED',
+          automatic: automaticWatering,
+          automaticWatering,
           source: options.source || 'web-decision-console',
           emergencyOverride: options.emergencyOverride === true,
           ...(options.workOrderId ? { workOrderId: options.workOrderId } : {}),
@@ -3272,19 +3432,13 @@ export class ApiService {
     }
 
     const guard = await this.getIrrigationGuard(plotId);
-    const emergency = plan.emergency || {};
-    const emergencyEligible = emergency.eligible === true
-      && guard.emergency?.eligibleByMoisture === true
+    const automaticEligible = plan.automaticWatering?.eligible === true
+      && guard.automaticWatering?.eligible === true
       && plan.readinessStatus === 'READY';
-    const requestedEmergencyOverride = options.emergencyOverride === true;
-    if (requestedEmergencyOverride && !emergencyEligible) {
-      throw new ApiError('当前数据未达到应急补水条件，不能绕过普通冷却保护', { status: 409, code: 'EMERGENCY_NOT_ELIGIBLE', payload: { guard, plan } });
+    if (automaticWatering && !automaticEligible) {
+      throw new ApiError('当前土壤湿度、数据质量或设备状态未满足自动浇水条件', { status: 409, code: 'AUTO_WATERING_NOT_ELIGIBLE', payload: { guard, plan } });
     }
-    const emergencyOverride = requestedEmergencyOverride && Number(guard.remainingSeconds || 0) > 0;
-    if (Number(guard.remainingSeconds || 0) > 0 && !emergencyOverride) {
-      const minutes = Math.max(1, Math.ceil(Number(guard.remainingSeconds) / 60));
-      throw new ApiError(`该地块刚完成灌溉，防重复保护还剩约 ${minutes} 分钟`, { status: 409, code: 'COOLDOWN_ACTIVE', payload: { guard, plan } });
-    }
+    const emergencyOverride = options.emergencyOverride === true && automaticEligible;
 
     // 演示模式只创建虚拟命令；剂量来自当前处方，不使用固定演示数字。
     const requestedOutcome = String(options.outcome || 'SUCCEEDED').toUpperCase();
@@ -3307,7 +3461,8 @@ export class ApiService {
       traceId: plan.traceId,
       idempotencyKey: options.idempotencyKey || `cmd-demo-${planId}`,
       approvalRequired: false,
-      confirmationMode: 'OPERATOR_CONFIRMED',
+      confirmationMode: automaticWatering ? 'AUTOMATIC_THRESHOLD' : 'OPERATOR_CONFIRMED',
+      automaticWatering,
       confirmedBy: this._demoActorId(),
       confirmedAt: new Date().toISOString(),
       status: outcome,
@@ -3317,9 +3472,10 @@ export class ApiService {
       transport: "MQTT_VIRTUAL_ACTUATOR",
       executionMode: 'SIMULATED',
       provenance: 'SIMULATED',
-      emergencyMode: emergencyOverride ? 'CONTROLLED_COOLDOWN_BYPASS' : 'NORMAL',
-      cooldownMinutes: Number(guard.cooldownMinutes || IRRIGATION_DEFAULTS.cooldownMinutes),
-      riskLevel: emergencyOverride ? 'HIGH' : 'MEDIUM',
+      emergencyMode: automaticWatering ? 'AUTOMATIC_SOIL_MOISTURE' : emergencyOverride ? 'AUTOMATIC_SOIL_MOISTURE' : 'NORMAL',
+      cooldownMinutes: 0,
+      riskLevel: automaticWatering || emergencyOverride ? 'HIGH' : 'MEDIUM',
+      ...(automaticWatering ? { automaticTrigger: { metric: 'SOIL_MOISTURE', threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold, mode: 'AUTOMATIC_SOIL_MOISTURE', sourceMode: 'SIMULATION' } } : {}),
       ack: {
         ackId: "ack-" + Math.random().toString(36).substring(2, 8),
         status: outcome,

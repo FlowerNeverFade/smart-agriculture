@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260831-ai-role-v1';
-import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-ai-role-v1';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-three-branch-v1';
+import { api } from '../api.js?v=20260831-agent-history-v1';
+import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-agent-history-v1';
+import { analyzeImageFiles } from './image-vision.js?v=20260831-agent-history-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260831-ai-presentation-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -33,7 +33,11 @@ function textValue(value) { return value === undefined || value === null ? '' : 
 
 function cleanAssistantText(value) {
   return textValue(value)
-    .replace(/(?:[，,；;]\s*)?(?:置信度|confidence)\s*(?:约|为|是|:|：)?\s*\d+(?:\.\d+)?\s*%?\s*[，,；;]?/gi, '')
+    .replace(/[^，。！？；;\n]{0,36}(?:置信度|confidence)[^，。！？；;\n]{0,36}/gi, '')
+    .replace(/[^，。！？；;\n]{0,36}(?:识别概率|模型评分|识别评分)[^，。！？；;\n]{0,36}/gi, '')
+    .replace(/[，,]{2,}/g, '，')
+    .replace(/^[，,；;\s]+/gm, '')
+    .replace(/[，,]\s*([。！？])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
@@ -51,7 +55,13 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
     restrictions: []
   };
   const rawContent = textValue(item.content || item.message || item.summary || agentResponseText(response, ''));
-  const content = role === 'assistant' ? cleanAssistantText(rawContent) : rawContent;
+  // History records may contain the model's original lightweight Markdown even
+  // when a fresh response has already passed through agentResponseText.  Run
+  // both paths through the same display normalizer so `**bold**`, headings and
+  // inline code never leak into the plain-text chat surface.
+  const content = role === 'assistant'
+    ? cleanAssistantText(agentResponseText({ narrative: rawContent }, rawContent))
+    : agentHistoryUserText(rawContent, '已上传现场图片');
   const isError = Boolean(item.error);
   return {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,
@@ -162,8 +172,15 @@ export const AdminAiChatView = {
     const onImageSelected = event => {
       const files = Array.from(event.target?.files || []);
       const available = Math.max(0, 4 - attachments.value.length);
-      const accepted = files.slice(0, available).filter(file => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.size <= 8 * 1024 * 1024);
-      if (files.length > accepted.length) toast('仅支持 JPG、PNG、WebP 图片，单张不超过 8MB，最多 4 张', 'error');
+      const accepted = [];
+      let totalBytes = attachments.value.reduce((sum, item) => sum + Number(item.size || 0), 0);
+      files.slice(0, available).forEach(file => {
+        const supported = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
+        if (!supported || file.size > 8 * 1024 * 1024 || totalBytes + file.size > 24 * 1024 * 1024) return;
+        accepted.push(file);
+        totalBytes += file.size;
+      });
+      if (files.length > accepted.length) toast('仅支持 JPG、PNG、WebP 原图，单张不超过 8MB、单次总计不超过 24MB，最多 4 张', 'error');
       attachments.value = [...attachments.value, ...accepted.map(file => ({ id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: file.name, size: file.size, type: file.type, url: URL.createObjectURL(file), file }))];
       if (event.target) event.target.value = '';
     };
@@ -171,28 +188,41 @@ export const AdminAiChatView = {
       const size = Number(bytes || 0);
       return size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
     };
-    const visionSummary = (items, sourceAttachments) => items.map((item, index) => {
-      const predictions = (item.predictions || []).slice(0, 5).map(prediction =>
-        `${prediction.label} ${Math.round(prediction.confidence * 100)}%`).join('、');
-      const quality = item.quality === 'CLEAR' ? '主要物体较清晰' : '画面识别不确定';
-      return `${sourceAttachments[index]?.name || `图片${index + 1}`}（${item.width}×${item.height}px；${quality}；候选物体：${predictions || '无'}）`;
-    }).join('；');
-    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片已由浏览器端视觉模型真实读取像素，识别证据如下：${summary}。请先回答图中是什么，再根据用户问题分析；候选结果不确定时必须明说并请用户补拍，不得用地块遥测代替图片内容。`;
+    const qualityLabel = value => ({
+      CLEAR: '画面质量正常', LOW_LIGHT: '画面偏暗', OVEREXPOSED: '画面偏亮', BLURRY: '画面细节较少', UNKNOWN: '画面质量未检查'
+    })[String(value || '').toUpperCase()] || '画面质量正常';
+    const visionSummary = (items, sourceAttachments) => items.map((item, index) =>
+      `${sourceAttachments[index]?.name || `图片${index + 1}`}（${item.width}×${item.height}px，${formatAttachmentSize(item.byteSize)}，原文件未压缩，${qualityLabel(item.quality)}）`
+    ).join('；');
+    const visionPayloads = (items, sourceAttachments) => items.map((item, index) => ({
+      name: sourceAttachments[index]?.name || `图片${index + 1}`,
+      mimeType: item.mimeType,
+      dataUrl: item.dataUrl,
+      width: item.width,
+      height: item.height,
+      quality: item.quality
+    }));
+    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片会以原文件字节直接送入视觉模型，不缩放、不转码、不压缩。原图信息：${summary}。请只基于图片实际可见内容回答，不要输出置信度、概率、百分比、模型评分或识别过程。我只问“这是什么”时，直接说对象名称和一两个可见特征，不要自动追加无关的地块遥测或灌溉建议。只有关键部位确实看不清时才简短说明具体限制。`;
     const analyzePhoto = async () => {
       if (!attachments.value.length || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
       const count = attachments.value.length;
+      const displayMessage = `请分析我上传的${count}张现场照片`;
       const photoAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
-      messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: `请分析我上传的${count}张现场照片`, attachments: photoAttachments, time: messageTime(), source: '' });
+      messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: displayMessage, attachments: photoAttachments, time: messageTime(), source: '' });
       sending.value = true;
       scrollToBottom();
       try {
         const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
-        const summary = visionSummary(analyses, attachments.value);
-        const requestText = buildVisionRequest(`请分析我上传的${count}张图片。`, summary);
+        // Keep the readable question in `displayMessage`; the model still
+        // receives the image-specific instructions and original-file metadata.
+        const requestText = buildVisionRequest(displayMessage, visionSummary(analyses, attachments.value));
         if (!conversationId.value) conversationId.value = createConversationId();
         selectedConversationId.value = conversationId.value;
-        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
+        const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
+          images: visionPayloads(analyses, attachments.value),
+          displayMessage
+        });
         conversationId.value = response?.conversationId || conversationId.value;
         selectedConversationId.value = conversationId.value;
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
@@ -276,14 +306,27 @@ export const AdminAiChatView = {
       selectedConversationId.value = conversationId.value;
       input.value = '';
       const messageAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
+      const displayMessage = text || '已上传现场图片';
       let requestText = text || '我上传了现场图片，请分析图片内容。';
-      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text || '已上传现场图片', attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
+      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: displayMessage, attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
       sending.value = true;
       scrollToBottom();
       try {
         if (hasAttachments) {
           const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
           requestText = buildVisionRequest(requestText, visionSummary(analyses, attachments.value));
+          const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
+            images: visionPayloads(analyses, attachments.value),
+            displayMessage
+          });
+          conversationId.value = response?.conversationId || conversationId.value;
+          selectedConversationId.value = conversationId.value;
+          const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
+          messages.value.push(assistant);
+          if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+          await refreshConversations();
+          updateRoute(conversationId.value);
+          return;
         }
         const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value);
         conversationId.value = response?.conversationId || conversationId.value;

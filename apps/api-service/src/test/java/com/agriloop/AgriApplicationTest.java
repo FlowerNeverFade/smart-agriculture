@@ -1028,7 +1028,7 @@ class AgriApplicationTest {
     }
 
     @Test
-    void severeDroughtCanUseControlledCooldownBypassAfterConfirmation() {
+    void severeDroughtStartsAutomaticWateringAndAllowsImmediateRepeat() {
         String suffix = String.valueOf(System.nanoTime());
         String plotId = "plot-emergency-irrigation-" + suffix;
         UserPrincipal farmer = new UserPrincipal("user-farmer-emergency-" + suffix, "farmer-emergency-" + suffix,
@@ -1037,9 +1037,11 @@ class AgriApplicationTest {
                 "plotId", plotId, "farmId", "farm-demo", "name", "应急补水测试田", "cropCode", "tomato", "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
         store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
                 "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
-        engine.ingest(Map.of("eventId", "emergency-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+        Map<String, Object> telemetry = engine.ingest(Map.of("eventId", "emergency-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
                 "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 4.0, "unit", "%",
                 "scenarioId", "normal", "ts", Instant.now().toString()));
+        assertThat(Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), telemetry.get("ruleResult")).get("automaticWatering")))
+                .containsEntry("status", "TRIGGERED");
 
         Map<String, Object> firstPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-" + suffix), farmer);
         assertThat(firstPlan).containsEntry("readinessStatus", "READY").containsEntry("emergencyEligible", true);
@@ -1047,19 +1049,19 @@ class AgriApplicationTest {
                 "plotId", plotId, "planId", firstPlan.get("planId"), "idempotencyKey", "emergency-first-" + suffix,
                 "confirmed", true)), farmer);
         assertThat(first).containsEntry("emergencyMode", "NORMAL");
-        assertThat(engine.irrigationGuard(plotId, farmer)).containsEntry("state", "COOLDOWN_ACTIVE");
+        assertThat(engine.irrigationGuard(plotId, farmer)).containsEntry("state", "AVAILABLE").containsEntry("cooldownMinutes", 0);
 
         Map<String, Object> secondPlan = engine.irrigationPlan(Map.of("plotId", plotId, "traceId", "trace-emergency-second-" + suffix), farmer);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
-                        "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-blocked-" + suffix,
-                        "confirmed", true)), farmer))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("COOLDOWN_ACTIVE"));
+        Map<String, Object> repeated = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-repeat-" + suffix,
+                "confirmed", true)), farmer);
+        assertThat(repeated).containsEntry("cooldownMinutes", 0);
 
         Map<String, Object> emergency = engine.createCommand(new java.util.LinkedHashMap<>(Map.of(
                 "plotId", plotId, "planId", secondPlan.get("planId"), "idempotencyKey", "emergency-bypass-" + suffix,
                 "confirmed", true, "emergencyOverride", true)), farmer);
-        assertThat(emergency).containsEntry("emergencyMode", "CONTROLLED_COOLDOWN_BYPASS")
-                .containsEntry("riskLevel", "HIGH").containsEntry("cooldownMinutes", 120L);
+        assertThat(emergency).containsEntry("emergencyMode", "AUTOMATIC_SOIL_MOISTURE")
+                .containsEntry("riskLevel", "HIGH").containsEntry("cooldownMinutes", 0);
     }
 
     @Test
@@ -1808,7 +1810,7 @@ class AgriApplicationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.commandById(commandId, otherFarmer))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_FORBIDDEN"));
         Map<String, Object> guard = engine.irrigationGuard("plot-a01", farmer);
-        assertThat(guard).containsEntry("state", "COOLDOWN_ACTIVE").containsKeys("remainingSeconds", "hysteresis", "ruleVersion");
+        assertThat(guard).containsEntry("state", "AVAILABLE").containsEntry("cooldownMinutes", 0).containsKeys("remainingSeconds", "hysteresis", "ruleVersion", "automaticWatering");
     }
 
     @Test
