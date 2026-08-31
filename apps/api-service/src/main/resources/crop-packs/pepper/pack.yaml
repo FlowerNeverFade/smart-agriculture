@@ -18,12 +18,15 @@ metrics:
   - {code: CO2, label: 二氧化碳, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
   - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
   - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: NITROGEN, label: 速效氮, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 300}}
+  - {code: PHOSPHORUS, label: 速效磷, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 200}}
+  - {code: POTASSIUM, label: 速效钾, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 400}}
 rules:
-  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 18, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 18, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10}
   - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, threshold: 38, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
   - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, threshold: 15, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
 healthProfile: {algorithm: crop-stage-health-v1, metricWeight: 0.70, deviceWeight: 0.14, riskWeight: 0.16, metricWeights: {SOIL_MOISTURE: 0.34, AIR_TEMPERATURE: 0.20, AIR_HUMIDITY: 0.18, LIGHT: 0.10, WATER_LEVEL: 0.10, PH: 0.08}}
-prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000}
 forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
 coordinationProfile: {stageSensitivity: 0.90, starvationGuardMinutes: 120}
 knowledge:

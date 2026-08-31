@@ -255,12 +255,20 @@ test('farmer demo Agent irrigation keeps execution source simulated and idempote
   assert.equal(first.result.provenance, 'SIMULATED');
 });
 
-test('farmer demo irrigation exposes cooldown and allows severe-drought emergency bypass', async () => {
+test('farmer demo irrigation has no cooldown and auto-waters below ten percent', async () => {
   sessionStorage.clear();
   const service = new ApiService();
   service.sessionMode = 'demo';
   service.user = { userId: 'farmer-emergency-ui', username: 'farmer-emergency-ui', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-emergency-ui'] };
   const base = service.demoPlots.get('plot-a01');
+  const autoPlot = JSON.parse(JSON.stringify({ ...base, plotId: 'plot-auto-ui', name: '演示自动浇水田' }));
+  autoPlot.metrics.SOIL_MOISTURE.value = 4;
+  service.demoPlots.set(autoPlot.plotId, autoPlot);
+  const automatic = await service.autoWaterIfNeeded(autoPlot.plotId);
+  assert.equal(automatic.status, 'TRIGGERED');
+  assert.equal(automatic.command.automaticWatering, true);
+  assert.equal(automatic.command.confirmationMode, 'AUTOMATIC_THRESHOLD');
+
   const emergencyPlot = JSON.parse(JSON.stringify({ ...base, plotId: 'plot-emergency-ui', name: '演示应急补水田' }));
   emergencyPlot.metrics.SOIL_MOISTURE.value = 4;
   service.demoPlots.set(emergencyPlot.plotId, emergencyPlot);
@@ -269,18 +277,37 @@ test('farmer demo irrigation exposes cooldown and allows severe-drought emergenc
   assert.equal(firstPlan.emergency.eligible, true);
   const first = await service.executeIrrigation(firstPlan.planId, emergencyPlot.plotId, { confirmed: true, idempotencyKey: 'ui-emergency-first' });
   assert.equal(first.emergencyMode, 'NORMAL');
-  assert.equal((await service.getIrrigationGuard(emergencyPlot.plotId)).state, 'COOLDOWN_ACTIVE');
+  const guard = await service.getIrrigationGuard(emergencyPlot.plotId);
+  assert.equal(guard.state, 'AVAILABLE');
+  assert.equal(guard.cooldownMinutes, 0);
 
+  // Keep the latest reading below the automatic threshold so this second,
+  // distinct request proves that no time-based duplicate guard remains.
+  const refreshedEmergencyPlot = service.demoPlots.get(emergencyPlot.plotId);
+  service.demoPlots.set(emergencyPlot.plotId, {
+    ...refreshedEmergencyPlot,
+    metrics: {
+      ...refreshedEmergencyPlot.metrics,
+      SOIL_MOISTURE: { ...refreshedEmergencyPlot.metrics.SOIL_MOISTURE, value: 4 }
+    }
+  });
   const secondPlan = await service.estimateIrrigation({ plotId: emergencyPlot.plotId, scenarioId: 'NORMAL' });
-  await assert.rejects(
-    () => service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, { confirmed: true, idempotencyKey: 'ui-emergency-blocked' }),
-    (error) => error.code === 'COOLDOWN_ACTIVE'
-  );
-  const emergency = await service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, {
+  const repeated = await service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, { confirmed: true, idempotencyKey: 'ui-emergency-repeat' });
+  assert.equal(repeated.status, 'SUCCEEDED');
+  const lowMoistureAgain = service.demoPlots.get(emergencyPlot.plotId);
+  service.demoPlots.set(emergencyPlot.plotId, {
+    ...lowMoistureAgain,
+    metrics: {
+      ...lowMoistureAgain.metrics,
+      SOIL_MOISTURE: { ...lowMoistureAgain.metrics.SOIL_MOISTURE, value: 4 }
+    }
+  });
+  const legacyFlag = await service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, {
     confirmed: true,
     emergencyOverride: true,
-    idempotencyKey: 'ui-emergency-bypass'
+    idempotencyKey: 'ui-emergency-legacy-flag'
   });
-  assert.equal(emergency.emergencyMode, 'CONTROLLED_COOLDOWN_BYPASS');
-  assert.equal(emergency.riskLevel, 'HIGH');
+  assert.equal(legacyFlag.emergencyMode, 'AUTOMATIC_SOIL_MOISTURE');
+  assert.equal(legacyFlag.riskLevel, 'HIGH');
+  assert.equal(legacyFlag.cooldownMinutes, 0);
 });

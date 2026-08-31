@@ -1244,10 +1244,43 @@
 .farmer-task-column-body {
   flex: 1;
   padding: 12px;
+  max-height: 340px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.farmer-task-column-body::-webkit-scrollbar {
+  width: 6px;
+}
+.farmer-task-column-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb {
+  background: var(--g-border);
+  border-radius: 3px;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb:hover {
+  background: var(--g-text-secondary);
+}
+.farmer-task-delete-all {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.farmer-task-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.farmer-task-card {
+  position: relative;
+}
+.farmer-task-card:hover .farmer-task-delete-btn {
+  opacity: 1;
 }
 
 .farmer-task-card {
@@ -1898,6 +1931,18 @@
 .farmer-irrigation-amount small { margin-left: auto; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-irrigation-progress { height: 10px; margin: 20px 0 10px; border-radius: 8px; background: var(--g-bg-subtle); overflow: hidden; }
 .farmer-irrigation-progress span { display: block; height: 100%; border-radius: inherit; background: var(--g-success); transition: width .25s ease; }
+.farmer-auto-water-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-primary-bg) 45%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-ready { border-color: color-mix(in srgb, var(--g-warning) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-warning-bg) 55%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-blocked { border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border)); background: color-mix(in srgb, var(--g-danger-bg) 45%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-triggered { border-color: color-mix(in srgb, var(--g-success) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-success-bg) 55%, var(--g-bg-base)); }
+.farmer-auto-water-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--g-primary); background: var(--g-primary-bg); font-size: 18px; }
+.farmer-auto-water-card.is-ready .farmer-auto-water-icon { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-auto-water-card.is-blocked .farmer-auto-water-icon { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-auto-water-card.is-triggered .farmer-auto-water-icon { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-auto-water-copy { min-width: 0; }
+.farmer-auto-water-copy strong { display: block; font-size: 13px; }
+.farmer-auto-water-copy p { margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-auto-water-check { white-space: nowrap; }
 .farmer-operation-status { margin-top: 12px; color: var(--g-success); font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .farmer-question-form { display: flex; gap: 8px; margin: 12px 0; }
 .farmer-question-form input,
@@ -1972,6 +2017,8 @@
   .farmer-question-form { flex-direction: column; }
   .farmer-task-tool-card { grid-template-columns: auto 1fr; }
   .farmer-task-tool-card .g-btn { grid-column: 2; justify-self: start; }
+  .farmer-auto-water-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .farmer-auto-water-card > .g-badge, .farmer-auto-water-check { grid-column: 2; justify-self: start; }
 }
 
 /* ============================================================
@@ -3087,16 +3134,16 @@
 .farmer-agent-shortcuts button:hover { border-color: var(--g-success); transform: translateY(-1px); }
 .farmer-agent-shortcuts button > .material-symbols-outlined:first-child { color: var(--g-success); font-size: 18px; }
 .farmer-agent-shortcuts button > .material-symbols-outlined:last-child { color: var(--g-text-tertiary); font-size: 16px; }
-.farmer-agent-message { display: flex; margin: 0 0 22px; }
+.farmer-agent-message { display: flex; width: 100%; min-width: 0; margin: 0 0 22px; }
 .farmer-agent-message.is-user { justify-content: flex-end; }
-.farmer-agent-user-bubble { max-width: min(75%, 580px); padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.farmer-agent-assistant-block { width: min(100%, 690px); }
+.farmer-agent-user-bubble { width: fit-content; max-width: min(75%, 580px); min-width: 0; padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
+.farmer-agent-assistant-block { width: min(100%, 690px); min-width: 0; }
 .farmer-agent-message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--g-text-secondary); font-size: 11px; }
 .farmer-agent-avatar { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: var(--g-success-bg); color: var(--g-success); font-size: 14px; }
 .farmer-agent-message-meta strong { color: var(--g-text-primary); font-size: 12px; }
 .farmer-agent-message-meta .g-badge { font-size: 10px; }
 .farmer-agent-intent { padding: 2px 7px; border-radius: 999px; background: var(--g-bg-subtle); }
-.farmer-agent-answer { color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-answer { min-width: 0; color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 .farmer-agent-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
 .farmer-agent-details-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .farmer-agent-details-button:hover { color: var(--g-success); }
@@ -4115,3 +4162,15 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
   .farmer-activity-actions { width: 100%; }
   .farmer-activity-actions .g-btn { flex: 1 1 auto; }
 }
+
+.farmer-water-resource-readonly { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-surface); }
+.farmer-water-resource-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.farmer-water-resource-head h3 { margin: 2px 0 0; font-size: 15px; }
+.farmer-water-resource-body { display: grid; gap: 10px; }
+.farmer-water-resource-progress { height: 8px; border-radius: 4px; background: var(--g-bg-subtle); overflow: hidden; }
+.farmer-water-resource-bar { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--g-primary), var(--g-info)); transition: width .4s ease; }
+.farmer-water-resource-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.farmer-water-resource-stats div { display: grid; gap: 2px; }
+.farmer-water-resource-stats small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-water-resource-stats strong { color: var(--g-text-primary); font-size: 14px; }
+.farmer-water-resource-stats .is-warning strong { color: var(--g-warning); }
