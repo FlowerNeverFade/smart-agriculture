@@ -528,6 +528,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
+    ai: systemStatus.ai,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
     devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
@@ -1392,6 +1393,13 @@ const AdminSettingsView = {
     // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
     const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
     const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
+    // AI 连接状态（探测结果）独立于模式显示；完整模式 + AI 离线 → 自动降级规则兜底
+    const aiStatus = computed(() => props.state.adminOverview?.ai || '');
+    const aiStatusText = computed(() => ({ UP: 'AI 在线', DOWN: 'AI 离线', DEGRADED: 'AI 降级' }[aiStatus.value] || ''));
+    const aiStatusClass = computed(() => aiStatus.value === 'UP' ? 'online' : aiStatus.value === 'DOWN' ? 'offline' : aiStatus.value === 'DEGRADED' ? 'degraded' : '');
+    const degradeNote = computed(() => (draftAiMode.value === 'full' && aiStatus.value && aiStatus.value !== 'UP')
+      ? `AI ${aiStatusText.value.replace('AI ', '')}，当前以规则兜底运行；AI 恢复后自动切回完整模式`
+      : '');
     watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
       if (mode) draftAiMode.value = mode;
     });
@@ -1597,6 +1605,7 @@ const AdminSettingsView = {
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      aiStatus, aiStatusText, aiStatusClass, degradeNote,
       userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
       logPageSize: logPage.pageSize, logPageSizeOptions: logPage.pageSizeOptions, logCurrentPage: logPage.currentPage, logJumpInput: logPage.jumpInput, logTotalRecords: logPage.totalRecords, logTotalPages: logPage.totalPages, logPageRecords: logPage.pageRecords, logPrevPage: logPage.prevPage, logNextPage: logPage.nextPage, logChangeSize: logPage.changeSize, logJumpTo: logPage.jumpTo
     };

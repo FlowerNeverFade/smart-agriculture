@@ -4118,3 +4118,34 @@ html[data-plot-background="crop"] .admin-plot-card {
 html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
   background-image: linear-gradient(180deg, rgba(9, 29, 22, .18) 0%, rgba(9, 29, 22, .36) 54%, rgba(9, 29, 22, .64) 100%), var(--plot-background, none);
 }
+
+/* AI 状态徽标与降级提示（智能模型运行模式） */
+.admin-ai-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: 1px;
+}
+.admin-ai-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.admin-ai-status.online { color: var(--g-success); background: color-mix(in srgb, var(--g-success) 14%, transparent); }
+.admin-ai-status.offline { color: var(--g-danger); background: color-mix(in srgb, var(--g-danger) 14%, transparent); }
+.admin-ai-status.degraded { color: var(--g-warning, #d97706); background: color-mix(in srgb, var(--g-warning, #d97706) 14%, transparent); }
+.admin-ai-degrade-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--g-warning, #d97706) 42%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--g-warning, #d97706) 10%, transparent);
+  color: var(--g-warning, #d97706);
+  font-size: 12px;
+  line-height: 1.5;
+}

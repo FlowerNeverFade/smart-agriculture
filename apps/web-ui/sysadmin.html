@@ -259,7 +259,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}<span v-if="state.adminOverview.ai" class="admin-ai-status" :class="state.adminOverview.ai === 'UP' ? 'online' : state.adminOverview.ai === 'DOWN' ? 'offline' : state.adminOverview.ai === 'DEGRADED' ? 'degraded' : ''">{{ {UP:'· AI 在线',DOWN:'· AI 离线',DEGRADED:'· AI 降级'}[state.adminOverview.ai] || '' }}</span></div></div>
         </div>
       </div>
 
@@ -1158,12 +1158,13 @@
       <div v-if="activeTab === 'config'">
         <div class="g-grid" style="grid-template-columns: 1fr 1fr; gap: 20px">
           <div class="g-card" style="padding:20px">
-            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式</div>
+            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式 <span v-if="aiStatus" class="admin-ai-status" :class="aiStatusClass">{{ aiStatusText }}</span></div>
             <select v-model="draftAiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
               <option value="full">完整模式（智能模型 + 知识检索 + 规则）</option>
               <option value="rules-only">规则兜底（仅确定性规则）</option>
               <option value="mock">模拟模式（固定输出）</option>
             </select>
+            <p v-if="degradeNote" class="admin-ai-degrade-note"><app-icon name="warning"></app-icon>{{ degradeNote }}</p>
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
                 <button class="g-btn secondary sm" @click="saveAiMode">保存模式</button>
               <span style="font-size:12px;color:var(--g-text-tertiary)">切换后需点击保存</span>
