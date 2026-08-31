@@ -1038,16 +1038,16 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>用户编号</th><th>用户名</th><th>角色</th><th>所属农场</th><th>关联地块</th><th>状态</th><th>创建时间</th><th>操作</th>
+              <th>用户编号</th><th>用户名</th><th class="admin-user-role">角色</th><th>所属农场</th><th>关联地块</th><th class="admin-user-status">状态</th><th>创建时间</th><th>操作</th>
             </tr></thead>
             <tbody>
               <tr v-for="u in userPageRecords" :key="u.userId">
                 <td style="font-family:var(--g-mono);font-size:11px">{{ u.userId }}</td>
                 <td style="font-weight:500">{{ u.username }}</td>
-                <td><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
+                <td class="admin-user-role"><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
                 <td>{{ u.farmName }}</td>
                 <td>{{ u.plotIds.join(', ') }}</td>
-                <td><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
+                <td class="admin-user-status"><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
                   <button class="g-btn text sm" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>

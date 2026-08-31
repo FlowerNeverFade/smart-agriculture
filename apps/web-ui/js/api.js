@@ -64,9 +64,28 @@ function isDemoLowInformationInput(message) {
   if (!raw) return true;
   const compact = raw.replace(/[\s，。！？,.!?、:：;；]+/g, '');
   if (!compact || demoAgentNumberOrIdentifier(compact) || DEMO_AGENT_SOCIAL_PATTERN.test(compact)) return true;
+  // A general status question is meaningful because the selected plot is
+  // already part of the chat context; it should not be sent to the generic
+  // "please be more specific" branch.
+  if (isDemoGeneralPlotStatusQuestion(compact)) return false;
   if (!DEMO_AGENT_TOPIC_PATTERN.test(compact)) return true;
   return !DEMO_AGENT_DIRECT_METRIC_PATTERN.test(compact)
     && !DEMO_AGENT_DIRECT_INTENT_PATTERN.test(compact);
+}
+
+function isDemoGeneralPlotStatusQuestion(message) {
+  const normalized = String(message || '').toLowerCase().replace(/[\s，。！？,.!?、:：;；]+/g, '');
+  if (!normalized) return false;
+  if (new Set(['目前情况', '现在情况', '当前情况', '目前怎么样', '现在怎么样', '当前怎么样', '情况怎么样', '状态怎么样', '现在状态', '当前状态']).has(normalized)) return true;
+  return /(?:目前|现在|当前|此刻|最近|这块地|该地块).*(?:情况|状态|怎么样|如何|正常|变化)/.test(normalized);
+}
+
+function isDemoContextualFollowUp(message) {
+  const normalized = String(message || '').toLowerCase().replace(/[\s，。！？,.!?、:：;；]+/g, '');
+  if (!normalized) return false;
+  return new Set(['继续', '接着说', '然后呢', '为什么', '怎么办', '那怎么办', '怎么做', '详细一点', '说具体点', '列出来']).has(normalized)
+    || (normalized.startsWith('那') && normalized.length <= 8)
+    || (normalized.startsWith('再说') && normalized.length <= 10);
 }
 
 function demoAgentLowInformationNarrative(role, message) {
@@ -165,7 +184,35 @@ function demoAgentMutationNarrative(role, proposal) {
   return '我已整理这项本人任务操作，确认后才会写入记录。';
 }
 
-function decorateDemoAgentResponse(response = {}, role, plot, message = '') {
+function demoPlotStatusNarrative(code, plot, facts, message, previousMessages = []) {
+  const question = String(message || '').toLowerCase();
+  const statusLabel = ({ ONLINE: '在线', OFFLINE: '离线', UNKNOWN: '未知' })[String(facts.deviceStatus || '').toUpperCase()] || facts.deviceStatus || '未知';
+  const metricText = (value, unit = '') => value === undefined || value === null || value === '—' ? '暂无' : `${value}${unit}`;
+  const soil = metricText(facts.soilMoisture, '%');
+  const temp = metricText(facts.airTemperature, '°C');
+  const humidity = metricText(facts.airHumidity, '%RH');
+  const focus = [];
+  if (/湿度|干旱|缺水|浇水|灌溉|moisture|humidity/.test(question)) focus.push(`土壤湿度约 ${soil}`);
+  if (/温度|高温|低温|temperature/.test(question)) focus.push(`空气温度约 ${temp}`);
+  if (/设备|传感器|在线|离线|心跳|device|sensor|status/.test(question)) focus.push(`采集设备${statusLabel}`);
+  if (!focus.length) focus.push(`土壤湿度约 ${soil}`, `空气温度约 ${temp}`, `空气湿度约 ${humidity}`);
+  const previousUser = [...(previousMessages || [])].reverse().find(item => String(item?.role || '').toUpperCase() === 'USER')?.content;
+  const continuity = previousUser && /^(那|然后|继续|为什么|所以|它|这个|该)/.test(String(message || '').trim())
+    ? '接着你上一轮提到的情况，' : '';
+  const roleLead = code === 'SYSTEM_ADMIN' ? '平台侧' : code === 'FARM_ADMIN' ? '当前农场' : '你负责的地块';
+  return `${continuity}${roleLead}的${facts.plotName}（${facts.cropName}，${facts.stageLabel}）${focus.join('，')}，设备${statusLabel}。${statusLabel === '离线' ? '这组读数需要先确认采集链路，暂不宜据此安排动作。' : '如果你想继续，我可以按风险、作物或某一项指标展开。'}`;
+}
+
+function demoFollowUpNarrative(code, plot, facts, message, previousMessages = []) {
+  const previous = [...(previousMessages || [])].reverse().find(item => String(item?.role || '').toUpperCase() === 'ASSISTANT')?.content;
+  const status = demoPlotStatusNarrative(code, plot, facts, '', previousMessages);
+  if (/为什么|怎么办|怎么做/.test(String(message || ''))) {
+    return `${status} 结合上一轮信息，先从这组实时数据和设备状态核对原因，再决定下一步；如果你指的是上一轮里的某一项，直接点出指标或操作，我会继续往下拆解。`;
+  }
+  return previous ? `沿着上一轮继续：${status} 我可以把刚才的结论拆成具体步骤。` : status;
+}
+
+function decorateDemoAgentResponse(response = {}, role, plot, message = '', previousMessages = []) {
   const code = demoAgentRoleCode(role);
   const presentation = agentRolePresentation(code);
   const roleProfile = demoAgentRoleProfile(code);
@@ -180,8 +227,7 @@ function decorateDemoAgentResponse(response = {}, role, plot, message = '') {
   const intent = String(payload.intent || '').toUpperCase();
   const facts = demoAgentPlotSnapshot(plot);
   const plotName = facts.plotName;
-  const moisture = Number(facts.soilMoisture);
-  const temperature = Number(facts.airTemperature);
+  const suppliedNarrative = String(payload.narrative || '').trim();
 
   // Promote tool outputs into the same structured fields returned by the
   // backend.  The UI can then render facts/recommendations consistently in
@@ -207,13 +253,13 @@ function decorateDemoAgentResponse(response = {}, role, plot, message = '') {
 
   if (intent === 'AGENT_ACTION') {
     payload.narrative = demoAgentMutationNarrative(code, payload.actionProposal);
-  } else if (intent === 'GREETING') {
+  } else if (intent === 'GREETING' && !suppliedNarrative) {
     payload.narrative = code === 'SYSTEM_ADMIN'
       ? `你好，我是${presentation.assistantName}，负责平台运行、规则版本、跨农场风险和决策审计。`
       : code === 'FARM_ADMIN'
         ? `你好，我是${presentation.assistantName}，协助你管理全农场告警、农务任务、设备和灌溉安排。`
         : `你好，我是${presentation.assistantName}，专注你负责的地块、巡田记录、任务进度和灌溉建议。`;
-  } else if (intent === 'CAPABILITY_QUERY') {
+  } else if (intent === 'CAPABILITY_QUERY' && !suppliedNarrative) {
     payload.result = {
       ...(payload.result || {}),
       capabilities: roleProfile.capabilities,
@@ -226,11 +272,11 @@ function decorateDemoAgentResponse(response = {}, role, plot, message = '') {
       : code === 'FARM_ADMIN'
         ? '我服务于当前农场（全场地块），可以汇总告警、诊断根因、安排农务任务、检查设备和试算灌溉计划；写入操作会先展示预览并等待确认。'
         : '我服务于本人负责地块，可以查看地块状态、解释风险、整理今日待办、生成灌溉建议，并提交巡田或复测结果；新增地块和设备绑定请联系农场管理员。';
-  } else if (intent === 'CLARIFICATION' && payload.roleReason === 'FORBIDDEN') {
+  } else if (intent === 'CLARIFICATION' && payload.roleReason === 'FORBIDDEN' && !suppliedNarrative) {
     payload.narrative = code === 'SYSTEM_ADMIN'
       ? '这项请求涉及农场业务写入。系统管理员可以查看相关平台证据和审计记录，但不能直接修改地块、设备、告警或农务数据；请在对应受控页面发起变更。'
       : '当前身份没有这项操作权限。请先确认你负责的地块和任务范围，或联系有权限的农场管理员。';
-  } else if (intent === 'IRRIGATION_RECOMMENDATION') {
+  } else if (intent === 'IRRIGATION_RECOMMENDATION' && !suppliedNarrative) {
     const plan = payload.plan || {};
     const water = Number(plan.waterLitre ?? plan.waterLitres ?? 153);
     const duration = Number(plan.durationSeconds ?? 510);
@@ -242,64 +288,52 @@ function decorateDemoAgentResponse(response = {}, role, plot, message = '') {
     } else {
       payload.narrative = `你负责的${plotName}可准备约 ${water.toFixed(1)} L、持续 ${Math.round(duration / 6) / 10} 分钟的补水方案。先核对现场和阀门状态，页面确认后才会执行。`;
     }
-  } else if (intent === 'RISK_DIAGNOSIS' || intent === 'DIAGNOSIS') {
+  } else if ((intent === 'RISK_DIAGNOSIS' || intent === 'DIAGNOSIS') && !suppliedNarrative) {
     const diagnosis = payload.diagnosis || {};
     const cause = String(diagnosis.primaryCause || 'WATER_DEFICIT').toUpperCase();
     const causeLabel = { WATER_DEFICIT: '缺水风险', SENSOR_DRIFT: '传感器漂移', DEVICE_FAULT: '设备故障', HEAT_STRESS: '高温胁迫', INSUFFICIENT_EVIDENCE: '证据不足' }[cause] || cause;
-    const confidence = Number(diagnosis.confidence ?? payload.confidence ?? .92);
-    const percent = Math.round((confidence <= 1 ? confidence * 100 : confidence));
     payload.narrative = code === 'SYSTEM_ADMIN'
-      ? `平台证据将${plotName}诊断偏向${causeLabel}（置信度约 ${percent}%）。请从遥测质量、设备心跳和规则版本核对证据，再决定是否转给农场处理。`
+      ? `平台证据目前更支持${plotName}存在${causeLabel}。请从遥测质量、设备心跳和规则版本核对依据，再决定是否转给农场处理。`
       : code === 'FARM_ADMIN'
-        ? `当前农场的${plotName}更偏向${causeLabel}（置信度约 ${percent}%）。请查看支持/反对证据，并安排现场核查或设备检查。`
-        : `你负责的${plotName}更偏向${causeLabel}（置信度约 ${percent}%）。先按复测清单核对现场，再决定是否处理。`;
-  } else if (intent === 'RISK_FORECAST') {
+        ? `当前农场的${plotName}更像是${causeLabel}，先查看支持和反向证据，再安排现场核查或设备检查。`
+        : `你负责的${plotName}目前更像是${causeLabel}，先按复测清单核对现场，再决定怎么处理。`;
+  } else if (intent === 'RISK_FORECAST' && !suppliedNarrative) {
     payload.narrative = code === 'SYSTEM_ADMIN'
       ? `平台已生成${plotName}的短期水分趋势。请重点核对预测窗口、数据覆盖和算法版本；新遥测进入后结果会更新。`
       : code === 'FARM_ADMIN'
         ? `已生成${plotName}的短期水分趋势。请结合全场资源和作业窗口安排处置，重点查看预计越界时间与区间范围。`
         : `已生成你负责的${plotName}短期水分趋势。重点查看预计越界时间和区间范围，现场新数据进入后预测会更新。`;
-  } else if (intent === 'TODAY_WORK') {
+  } else if (intent === 'TODAY_WORK' && !suppliedNarrative) {
     const count = Array.isArray(payload.workItems) ? payload.workItems.length : 0;
     payload.narrative = code === 'SYSTEM_ADMIN'
       ? `平台侧汇总到 ${count} 项相关工单记录，建议先看逾期、失败和待审计项，再核对数据链路。`
       : code === 'FARM_ADMIN'
         ? `当前农场共汇总到 ${count} 项待办，建议先处理高风险告警，再安排派单和待验收任务。`
         : `你今天有 ${count} 项相关农务，建议先处理有时限的巡田和高风险地块，再提交执行结果。`;
-  } else if (intent === 'PLATFORM_STATUS') {
+  } else if (intent === 'PLATFORM_STATUS' && !suppliedNarrative) {
     const result = payload.result || {};
     const state = value => ({ UP: '正常', HEALTHY: '正常', DEGRADED: '降级', DOWN: '不可用', OFFLINE: '离线' }[String(value || '').toUpperCase()] || '未知');
     payload.narrative = `平台服务状态：数据库${state(result.database)}、Redis ${state(result.redis)}、MQTT ${state(result.mqtt)}，智能模型模式为“${result.ai || '未配置'}”。建议先排查降级依赖，再核对消费积压和事件时间。`;
-  } else if (intent === 'RULE_STRATEGY_STATUS') {
+  } else if (intent === 'RULE_STRATEGY_STATUS' && !suppliedNarrative) {
     const result = payload.result || {};
     payload.narrative = `平台当前登记 ${Number(result.cropPackCount || 0)} 个作物包、${Number(result.ruleCount || 0)} 条规则和 ${Number(result.strategyCandidateCount || 0)} 个策略候选，其中 ${Number(result.activeStrategyCount || 0)} 个已启用。候选只在离线验证和人工启用后参与处置预览，不会绕过安全门。`;
-  } else if (intent === 'PLATFORM_OVERVIEW' || intent === 'FARM_OVERVIEW') {
+  } else if ((intent === 'PLATFORM_OVERVIEW' || intent === 'FARM_OVERVIEW') && !suppliedNarrative) {
     const result = payload.result || {};
     const plots = Array.isArray(result.plots) ? result.plots : [];
     const elevated = plots.filter(item => ['HIGH', 'CRITICAL', 'WARNING'].includes(String(item.riskLevel || item.status || '').toUpperCase())).length;
     const scope = intent === 'PLATFORM_OVERVIEW' ? '全平台' : '当前农场';
     const handoff = intent === 'PLATFORM_OVERVIEW' ? '农场业务处置仍由对应农场完成。' : '建议先安排高风险告警和有时限的农务。';
     payload.narrative = `${scope}共 ${plots.length} 个在用地块，其中 ${elevated} 个需要关注；进行中告警 ${Number(result.activeAlertCount || 0)} 条、待处理任务 ${Number(result.pendingWorkOrderCount || 0)} 项。${handoff}`;
-  } else if (intent === 'PLOT_STATUS') {
-    const moistureText = Number.isFinite(moisture) ? `${moisture}%` : '暂无';
-    const temperatureText = Number.isFinite(temperature) ? `${temperature}°C` : '暂无';
-    payload.narrative = code === 'SYSTEM_ADMIN'
-      ? `平台记录${plotName}设备状态为${facts.deviceStatus}，最新土壤湿度约 ${moistureText}、温度 ${temperatureText}。这是平台侧只读事实，可继续查看数据链路、规则版本或审计记录。`
-      : code === 'FARM_ADMIN'
-        ? `当前农场记录${plotName}设备状态为${facts.deviceStatus}，最新土壤湿度约 ${moistureText}、温度 ${temperatureText}。可以继续查看告警、安排任务或核对灌溉计划。`
-        : `你负责的${plotName}设备状态为${facts.deviceStatus}，最新土壤湿度约 ${moistureText}、温度 ${temperatureText}。需要处理时可以继续问风险、巡田或补水建议。`;
-  } else if (intent === 'WATER_RESOURCE_STATUS') {
+  } else if (intent === 'PLOT_STATUS' && !suppliedNarrative) {
+    payload.narrative = demoPlotStatusNarrative(code, plot, facts, message, previousMessages);
+  } else if (intent === 'WATER_RESOURCE_STATUS' && !suppliedNarrative) {
     payload.narrative = code === 'SYSTEM_ADMIN'
       ? '平台已读取当前农场水资源余额和计划状态，可继续核对配额、服务健康与审计记录。'
       : code === 'FARM_ADMIN'
         ? '已读取当前农场水资源余额和计划状态，可以结合地块风险安排灌溉资源。'
         : '农户账号可以查看与本人任务相关的灌溉安排；配额调整和全场资源调度请联系农场管理员。';
-  } else if (intent === 'FOLLOW_UP') {
-    payload.narrative = code === 'SYSTEM_ADMIN'
-      ? '可以，我接着上一轮说明：请先核对事件时间、设备心跳和规则版本，再判断是否需要转交农场处理。'
-      : code === 'FARM_ADMIN'
-        ? '可以，我接着上一轮说明：先确认异常是否持续，再结合设备、资源和现场结果安排农务任务。'
-        : '可以，我接着上一轮说明：先确认异常项是否持续，再根据现场复测决定是报修设备还是调整农事。';
+  } else if (intent === 'FOLLOW_UP' && !suppliedNarrative) {
+    payload.narrative = demoFollowUpNarrative(code, plot, facts, message, previousMessages);
   }
   if (!payload.summary) payload.summary = payload.narrative || String(message || '').trim();
   return payload;
@@ -2531,9 +2565,12 @@ export class ApiService {
     const plot = this.mockPlot(plotId);
     const role = demoAgentRoleCode(this.user?.role);
     const resolvedConversationId = conversationId || `conversation-${this._demoActorId()}`;
+    const demoHistory = this._readDemoAgentSession().messages
+      .filter((item) => item?.conversationId === resolvedConversationId)
+      .slice(-8);
     const persistDemoResponse = (response) => {
       const displayMessage = String(options?.displayMessage || '').trim() || message;
-      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, displayMessage);
+      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, displayMessage, demoHistory);
       this._demoSaveAgentTurn(resolvedConversationId, displayMessage, plotId, payload);
       return payload;
     };
@@ -2624,6 +2661,17 @@ export class ApiService {
     }
     if (!asksMutation && /(你能做什么|你可以做什么|能力|功能|帮助|支持哪些|能帮我)/i.test(String(message || ''))) {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CAPABILITY_QUERY', summary: '已读取农智助手能力范围', narrative: '', tools: [], confidence: 1 });
+    }
+    if (!asksMutation && isDemoContextualFollowUp(message) && demoHistory.length) {
+      return persistDemoResponse({
+        traceId,
+        plotId,
+        mode: 'contextual-agent',
+        intent: 'FOLLOW_UP',
+        summary: '已结合当前对话继续说明',
+        result: { plotId, latest: plot.metrics || {}, device: { status: plot.deviceStatus || 'UNKNOWN' } },
+        tools: [{ name: 'get_plot_status', input: { plotId }, output: plot }]
+      });
     }
     if (!asksMutation && isDemoLowInformationInput(message)) {
       return persistDemoResponse({
@@ -2753,7 +2801,7 @@ export class ApiService {
         traceId,
         mode: "rules-only",
         intent: "RISK_DIAGNOSIS",
-        summary: `【${plot.name}】当前首要风险为 WATER_DEFICIT (真实土壤缺水)，置信度 92%。已完成传感器漂移校验与阶跃跳变检测，确认非传感器故障。`,
+        summary: `【${plot.name}】当前更支持真实土壤缺水，传感器漂移校验未发现明显冲突。`,
         tools: [
           {
             name: "diagnose_root_cause",
@@ -2927,7 +2975,6 @@ export class ApiService {
       INSUFFICIENT_EVIDENCE: '证据不足'
     };
     const cause = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE').toUpperCase();
-    const confidence = Math.round(Number(diagnosis.confidence || 0) * 100);
     const supporting = (diagnosis.supportingEvidence || []).slice(0, 2).map((item) => {
       if (item.type === 'telemetry') return `${item.metric || '指标'} ${item.value ?? '—'}${item.unit || ''}`;
       if (item.type === 'quality') return `数据质量 ${item.status || '未知'}`;
@@ -2943,7 +2990,7 @@ export class ApiService {
           ? '连续复测根区土壤湿度，确认缺水持续后再查看补水试算。'
           : '补充连续遥测和现场观察，再决定是否进入处方试算。';
     const text = [
-      `结论：当前规则诊断更偏向 ${labels[cause] || labels.INSUFFICIENT_EVIDENCE}（置信度约 ${confidence}%，演示规则）。`,
+      `结论：当前规则诊断更偏向 ${labels[cause] || labels.INSUFFICIENT_EVIDENCE}。`,
       supporting.length ? `依据：${supporting.join('；')}` : '',
       missing ? `还缺：${missing}` : '',
       `下一步：${next}`,

@@ -217,6 +217,14 @@
   border-bottom: 1px solid var(--g-border-subtle);
 }
 
+/* Keep user role and status labels readable at narrow widths. */
+.admin-table .admin-user-role,
+.admin-table .admin-user-status,
+.admin-table .admin-user-role .status-pill,
+.admin-table .admin-user-status .status-pill {
+  white-space: nowrap;
+}
+
 .admin-table tbody tr { transition: background 0.15s; }
 .admin-table tbody tr:hover { background: var(--g-bg-hover); }
 .admin-table tbody tr:last-child td { border-bottom: none; }
