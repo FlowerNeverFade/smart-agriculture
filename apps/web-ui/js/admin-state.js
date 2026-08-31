@@ -42,6 +42,36 @@ const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   FLOW_METER: '流量计'
 });
 
+const ADMIN_CROP_ALIASES = Object.freeze([
+  ['tomato', ['tomato', '番茄']],
+  ['corn', ['corn', '玉米']],
+  ['cucumber', ['cucumber', '黄瓜']],
+  ['rice', ['rice', '水稻', '稻']],
+  ['sunflower', ['sunflower', '向日葵', '油葵']],
+  ['strawberry', ['strawberry', '草莓']],
+  ['pepper', ['pepper', '辣椒']]
+]);
+
+const ADMIN_CROP_EMOJIS = Object.freeze({
+  tomato: '🍅',
+  corn: '🌽',
+  cucumber: '🥒',
+  rice: '🌾',
+  sunflower: '🌻',
+  strawberry: '🍓',
+  pepper: '🌶️',
+  unknown: '🌱'
+});
+
+export function adminCropKey(plot = {}) {
+  const cropText = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''}`.trim().toLowerCase();
+  return ADMIN_CROP_ALIASES.find(([, aliases]) => aliases.some(alias => cropText.includes(alias)))?.[0] || 'unknown';
+}
+
+export function adminCropEmoji(plot = {}) {
+  return ADMIN_CROP_EMOJIS[adminCropKey(plot)] || ADMIN_CROP_EMOJIS.unknown;
+}
+
 const ADMIN_WORK_ACTION_META = Object.freeze({
   INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },
   FIELD_INSPECTION: { label: '巡田核验', icon: 'fact_check', tone: 'inspection' },

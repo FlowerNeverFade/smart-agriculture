@@ -4,6 +4,8 @@ import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
   adminDeviceTypeLabel,
+  adminCropEmoji,
+  adminCropKey,
   adminHealthTone,
   adminMetricLabel,
   adminSummary,
@@ -27,6 +29,17 @@ import {
   workOrderMatchesAttention,
   workOrderMatchesSummaryScope
 } from '../js/admin-state.js';
+
+test('farm dashboard crop Emoji use stable aliases and a neutral fallback', () => {
+  assert.equal(adminCropKey({ cropCode: 'tomato', cropName: '设施番茄' }), 'tomato');
+  assert.equal(adminCropKey({ cropName: '鲜食玉米' }), 'corn');
+  assert.equal(adminCropKey({ cropName: '油葵花海' }), 'sunflower');
+  assert.equal(adminCropKey({ cropCode: 'pepper', cropName: '辣椒' }), 'pepper');
+  assert.equal(adminCropKey({ cropCode: 'dragon-fruit', cropName: '火龙果' }), 'unknown');
+  assert.equal(adminCropEmoji({ cropCode: 'tomato' }), '🍅');
+  assert.equal(adminCropEmoji({ cropName: '鲜食玉米' }), '🌽');
+  assert.equal(adminCropEmoji({ cropCode: 'dragon-fruit', cropName: '火龙果' }), '🌱');
+});
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];

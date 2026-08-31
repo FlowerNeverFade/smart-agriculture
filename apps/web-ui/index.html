@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260830-crop-status7">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-crop-emoji-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -266,7 +266,7 @@
 
       <div class="manager-plot-grid" aria-label="地块状态和管理列表">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
-                 class="manager-plot-card" :class="[`is-${cardTone(plot)}`, { 'has-open-menu': plotMenuId === plot.plotId }]" :style="{ '--plot-background': 'url(' + cropBackgroundFor(plot) + ')' }"
+                 class="manager-plot-card" :class="[`is-${cardTone(plot)}`, { 'has-open-menu': plotMenuId === plot.plotId }]"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
                  :aria-label="`查看${plot.name}二维详情`"
                  @click="openPlotDetail(plot, $event)"
@@ -302,12 +302,23 @@
               </div>
             </div>
           </header>
-          <p class="manager-plot-meta">
-            <span>品种：{{ displayText(plot.cropVariety || '—') }}</span>
-            <span>面积：{{ plot.areaM2 ?? '—' }}㎡</span>
-            <span>生长阶段：{{ plot.stageLabel || '—' }}</span>
-            <span>生长周期：{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</span>
-          </p>
+          <div class="manager-plot-context">
+            <section class="manager-crop-identity" :data-crop="cropKeyFor(plot)" :aria-label="`${cropLabelFor(plot)}作物信息`">
+              <span class="manager-crop-art" aria-hidden="true">
+                {{ cropEmojiFor(plot) }}
+              </span>
+              <span class="manager-crop-copy">
+                <span>作物种类</span>
+                <strong>{{ cropLabelFor(plot) }}</strong>
+                <small>{{ displayText(plot.cropVariety || '品种待补充') }}</small>
+              </span>
+            </section>
+            <dl class="manager-plot-facts" aria-label="地块生长信息">
+              <div><dt>地块面积</dt><dd>{{ plot.areaM2 ?? '—' }}㎡</dd></div>
+              <div><dt>生长阶段</dt><dd>{{ plot.stageLabel || '—' }}</dd></div>
+              <div><dt>生长周期</dt><dd>{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</dd></div>
+            </dl>
+          </div>
           <div class="manager-metric-grid">
             <div class="manager-metric" :class="`is-${metricTone(metric)}`" :data-metric="metric.code" v-for="metric in plotMetrics(plot)" :key="metric.code">
               <div class="manager-metric-label">
@@ -1176,7 +1187,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260830-ai-vision-v1"></script>
+  <script type="module" src="js/app.js?v=20260831-crop-emoji-v2"></script>
 
 
   <!-- Shared workspace settings -->

@@ -11,7 +11,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js'
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
 import {
   agentResponseSource,
   agentResponseText,
@@ -601,6 +601,9 @@ const DashboardView = {
     const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
     const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
+    const cropKeyFor = (plot) => adminCropKey(plot);
+    const cropEmojiFor = (plot) => adminCropEmoji(plot);
+    const cropLabelFor = (plot) => plot?.cropName || CROP_OPTIONS.find((crop) => crop.code === cropKeyFor(plot))?.name || '其他作物';
     const openPlotDetail = (plot, event) => emit('open-plot-detail', {
       plotId: plot.plotId,
       trigger: event?.currentTarget || null
@@ -776,6 +779,9 @@ const DashboardView = {
       metricTone,
       metricVisualIcon,
       metricStatusIcon,
+      cropKeyFor,
+      cropEmojiFor,
+      cropLabelFor,
       cropBackgroundFor,
       openPlotDetail,
       plotMenuId,
