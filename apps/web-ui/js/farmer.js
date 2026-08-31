@@ -1,13 +1,14 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-vision-v2-original';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-agent-history-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
 import { presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-vision-v2-original';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-agent-history-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
 import {
   agentResponseSource,
   agentResponseText,
+  agentHistoryUserText,
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
@@ -25,7 +26,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-vision-v2-original';
+} from './live-data.js?v=20260831-agent-history-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -4027,8 +4028,8 @@ const app = createApp({
         rawMessages.forEach((item) => {
           const role = String(item?.role || '').toUpperCase();
           if (role === 'USER') {
-            latestQuestion = item.content || '';
-            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: item.content || '', plotId: item.plotId || '' });
+            latestQuestion = agentHistoryUserText(item.content, '已上传现场图片');
+            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: latestQuestion, plotId: item.plotId || '' });
           } else if (role === 'ASSISTANT') {
             const plot = find_plot_by_id(plots.value, item.plotId || assistant_plot_id.value);
             next.push(assistant_history_message(item, latestQuestion, plot));

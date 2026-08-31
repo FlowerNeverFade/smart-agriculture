@@ -369,6 +369,21 @@ export function agentResponseText(response = {}, fallback = '') {
   return displayText(fallback, fallback);
 }
 
+/**
+ * Older image requests accidentally persisted the private model prompt as the
+ * user's message. Trim that scaffolding when restoring a conversation while
+ * leaving normal questions untouched.
+ */
+export function agentHistoryUserText(value, fallback = '已上传现场图片') {
+  const raw = value === undefined || value === null
+    ? ''
+    : String(value).replace(/\r/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
+  if (!raw) return fallback;
+  const marker = raw.search(/\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\s\S]*$/i);
+  if (marker >= 0) return raw.slice(0, marker).trim() || fallback;
+  return raw;
+}
+
 export function agentResponseSource(response = {}, sessionMode = 'live') {
   if (sessionMode !== 'live') return '演示规则';
   const adapter = String(response?.adapter || '').trim().toLowerCase();

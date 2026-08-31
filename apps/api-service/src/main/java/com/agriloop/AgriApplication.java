@@ -1226,6 +1226,8 @@ class AgriEngine {
     private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
     private static final Pattern AGENT_IMAGE_DATA_URL = Pattern.compile(
             "^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AGENT_VISION_HISTORY_MARKER = Pattern.compile(
+            "\\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\\s\\S]*$", Pattern.CASE_INSENSITIVE);
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
     private final HttpClient llmHttpClient;
@@ -5627,6 +5629,8 @@ class AgriEngine {
 
     Map<String, Object> agentChat(Map<String, Object> input, UserPrincipal principal) {
         String message = Jsons.text(input, "message", Jsons.text(input, "query", "")).trim();
+        String displayMessage = Jsons.text(input, "displayMessage", "").trim();
+        if (displayMessage.isBlank()) displayMessage = cleanAgentHistoryUserMessage(message);
         String plotId = Jsons.text(input, "plotId", "plot-a01");
         ensurePlotAccess(principal, plotId);
         List<Map<String, Object>> agentImages = normalizeAgentImages(input.get("images"));
@@ -5878,7 +5882,7 @@ class AgriEngine {
         auditAnswer.put("username", principal.username);
         if (rawNarrative != null && !rawNarrative.isBlank()) auditAnswer.put("narrativeRaw", rawNarrative);
         store.save("agent-run", traceId, auditAnswer);
-        saveAgentTurn(principal, conversationId, plotId, message, answer);
+        saveAgentTurn(principal, conversationId, plotId, displayMessage, answer);
         store.logEvent("agent.run", answer);
         events.publish("agent.run.completed", answer);
         return answer;
@@ -6426,7 +6430,28 @@ class AgriEngine {
                 .sorted(Comparator.comparing(item -> Jsons.instant(item.get("createdAt"), Instant.EPOCH)))
                 .collect(Collectors.toCollection(ArrayList::new));
         int from = Math.max(0, messages.size() - Math.max(1, Math.min(limit, 100)));
-        return new ArrayList<>(messages.subList(from, messages.size()));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> item : messages.subList(from, messages.size())) {
+            Map<String, Object> copy = new LinkedHashMap<>(item);
+            if ("USER".equalsIgnoreCase(Jsons.text(item, "role", ""))) {
+                copy.put("content", cleanAgentHistoryUserMessage(Jsons.text(item, "content", "")));
+            }
+            result.add(copy);
+        }
+        return result;
+    }
+
+    /** Hide the private image prompt from conversation history and model context. */
+    private String cleanAgentHistoryUserMessage(String value) {
+        String raw = value == null ? "" : value.replace("\r", "")
+                .replaceAll("[\\u200B\\u200C\\u200D\\uFEFF]", "").trim();
+        if (raw.isBlank()) return "已上传现场图片";
+        Matcher marker = AGENT_VISION_HISTORY_MARKER.matcher(raw);
+        if (marker.find()) {
+            String question = raw.substring(0, marker.start()).trim();
+            return question.isBlank() ? "已上传现场图片" : question;
+        }
+        return raw;
     }
 
     private String lastAssistantIntent(List<Map<String, Object>> history) {
@@ -6442,10 +6467,11 @@ class AgriEngine {
                                             String userMessage, Map<String, Object> answer) {
         Instant now = Instant.now();
         String traceId = Jsons.text(answer, "traceId", Jsons.id("run"));
+        String persistedUserMessage = cleanAgentHistoryUserMessage(userMessage);
         Map<String, Object> userEntry = new LinkedHashMap<>();
         userEntry.put("messageId", Jsons.id("msg")); userEntry.put("conversationId", conversationId);
         userEntry.put("userId", principal.userId); userEntry.put("username", principal.username); userEntry.put("role", "USER");
-        userEntry.put("content", userMessage.length() > 4000 ? userMessage.substring(0, 4000) + "…" : userMessage);
+        userEntry.put("content", persistedUserMessage.length() > 4000 ? persistedUserMessage.substring(0, 4000) + "…" : persistedUserMessage);
         userEntry.put("plotId", plotId); userEntry.put("traceId", traceId); userEntry.put("createdAt", now.toString());
         store.save("agent-message", Jsons.text(userEntry, "messageId", ""), userEntry);
 
@@ -6476,7 +6502,7 @@ class AgriEngine {
         if (conversation == null) {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", conversationId);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
-            String title = userMessage.replaceAll("\\s+", " ").trim();
+            String title = persistedUserMessage.replaceAll("\\s+", " ").trim();
             conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
             conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0);
         }
@@ -6494,6 +6520,11 @@ class AgriEngine {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
             conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0);
+        } else {
+            // Existing conversations may have a title generated from the old
+            // image prompt. Project the readable question on history reads.
+            conversation = new LinkedHashMap<>(conversation);
+            conversation.put("title", cleanAgentHistoryUserMessage(Jsons.text(conversation, "title", "")));
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
         result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
@@ -6504,7 +6535,12 @@ class AgriEngine {
         return store.list("agent-conversation").stream()
                 .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
-                .limit(Math.max(1, Math.min(limit, 50))).toList();
+                .limit(Math.max(1, Math.min(limit, 50)))
+                .map(item -> {
+                    Map<String, Object> copy = new LinkedHashMap<>(item);
+                    copy.put("title", cleanAgentHistoryUserMessage(Jsons.text(item, "title", "")));
+                    return copy;
+                }).toList();
     }
 
     void deleteAgentConversation(String conversationId, UserPrincipal principal) {

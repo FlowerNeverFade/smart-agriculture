@@ -46,6 +46,31 @@ const DEMO_AGENT_MUTATION_PATTERN = /(新增|新建|创建|修改|更新|编辑|
 const DEMO_AGENT_CONTROL_PATTERN = /(执行|启动|开始)/;
 const DEMO_AGENT_FARM_MUTATION_PATTERN = /(地块|田|棚|设备|传感器|灌溉|浇水|任务|农务|告警|报警|农户|巡田|复测)/;
 
+function cleanPersistedAgentUserText(value, fallback = '已上传现场图片') {
+  const raw = value === undefined || value === null
+    ? ''
+    : String(value).replace(/\r/g, '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
+  if (!raw) return fallback;
+  const marker = raw.search(/\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\s\S]*$/i);
+  if (marker >= 0) return raw.slice(0, marker).trim() || fallback;
+  return raw;
+}
+
+function cleanAgentHistoryRecord(item) {
+  if (!item || typeof item !== 'object') return item;
+  if (String(item.role || '').toUpperCase() !== 'USER') return item;
+  return { ...item, content: cleanPersistedAgentUserText(item.content, '') };
+}
+
+function cleanAgentHistoryPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const conversation = payload.conversation && typeof payload.conversation === 'object'
+    ? { ...payload.conversation, title: cleanPersistedAgentUserText(payload.conversation.title, '') }
+    : payload.conversation;
+  const messages = Array.isArray(payload.messages) ? payload.messages.map(cleanAgentHistoryRecord) : payload.messages;
+  return { ...payload, conversation, messages };
+}
+
 function demoAgentRoleCode(value) {
   return normalizeRole(value) || 'FARMER';
 }
@@ -2241,8 +2266,12 @@ export class ApiService {
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return {
-        conversations: Array.isArray(parsed?.conversations) ? parsed.conversations : [],
-        messages: Array.isArray(parsed?.messages) ? parsed.messages : [],
+        conversations: Array.isArray(parsed?.conversations)
+          ? parsed.conversations.map((item) => item && typeof item === 'object'
+            ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+            : item)
+          : [],
+        messages: Array.isArray(parsed?.messages) ? parsed.messages.map(cleanAgentHistoryRecord) : [],
         actions: Array.isArray(parsed?.actions) ? parsed.actions : []
       };
     } catch {
@@ -2252,8 +2281,12 @@ export class ApiService {
 
   _writeDemoAgentSession(session) {
     const safe = {
-      conversations: Array.isArray(session?.conversations) ? session.conversations.slice(0, 20) : [],
-      messages: Array.isArray(session?.messages) ? session.messages.slice(-200) : [],
+      conversations: Array.isArray(session?.conversations)
+        ? session.conversations.slice(0, 20).map((item) => item && typeof item === 'object'
+          ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+          : item)
+        : [],
+      messages: Array.isArray(session?.messages) ? session.messages.slice(-200).map(cleanAgentHistoryRecord) : [],
       actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
     };
     try {
@@ -2291,7 +2324,7 @@ export class ApiService {
     const role = demoAgentRoleCode(response?.agentRole || response?.role || this.user?.role);
     const roleProfile = response?.roleProfile || demoAgentRoleProfile(role);
     const userEntry = {
-      messageId: `demo-msg-${Date.now().toString(36)}-u`, conversationId, role: 'USER', content: String(message || '').slice(0, 4000), plotId: plotId || '', createdAt: now
+      messageId: `demo-msg-${Date.now().toString(36)}-u`, conversationId, role: 'USER', content: cleanPersistedAgentUserText(message).slice(0, 4000), plotId: plotId || '', createdAt: now
     };
     const assistantEntry = {
       messageId: `demo-msg-${Date.now().toString(36)}-a`, conversationId, role: 'ASSISTANT', content: response?.narrative || response?.summary || '', intent: response?.intent || '', plotId: plotId || '', traceId: response?.traceId || '', adapter: response?.adapter || 'rules', degraded: response?.degraded === true, knowledgeEvidence: response?.knowledgeEvidence || [], actionProposal: response?.actionProposal || null, agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, createdAt: new Date(Date.now() + 1).toISOString()
@@ -2304,7 +2337,7 @@ export class ApiService {
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
     const existing = current.conversations.find((item) => item.conversationId === conversationId);
     const conversation = {
-      ...(existing || {}), conversationId, title: existing?.title || String(message || '').replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
     };
     current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
     this._writeDemoAgentSession(current);
@@ -2319,14 +2352,20 @@ export class ApiService {
       const resolved = conversationId || fallbackId;
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
-      const conversation = session.conversations.find((item) => item.conversationId === resolved) || { conversationId: resolved, title: agentRolePresentation(role).historyTitle, agentRole: role, roleLabel: profile.label, roleProfile: profile, messageCount: 0 };
-      const messages = session.messages.filter((item) => item.conversationId === resolved).slice(-Math.max(1, Math.min(Number(limit) || 40, 100)));
-      return { conversation, messages };
+      const conversation = session.conversations.find((item) => item.conversationId === resolved)
+        || { conversationId: resolved, title: agentRolePresentation(role).historyTitle, agentRole: role, roleLabel: profile.label, roleProfile: profile, messageCount: 0 };
+      const cleanedConversation = {
+        ...conversation,
+        title: cleanPersistedAgentUserText(conversation.title, agentRolePresentation(role).historyTitle)
+      };
+      const messages = session.messages.filter((item) => item.conversationId === resolved)
+        .slice(-Math.max(1, Math.min(Number(limit) || 40, 100))).map(cleanAgentHistoryRecord);
+      return { conversation: cleanedConversation, messages };
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
     if (conversationId) params.set('conversationId', conversationId);
     const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
-    if (resp?.data) return resp.data;
+    if (resp?.data) return cleanAgentHistoryPayload(resp.data);
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
   }
 
@@ -2337,15 +2376,19 @@ export class ApiService {
       const profile = demoAgentRoleProfile(role);
       return session.conversations.slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
+        title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
         agentRole: item.agentRole || role,
         roleLabel: item.roleLabel || profile.label,
-        roleProfile: item.roleProfile || profile,
-        title: item.title || agentRolePresentation(role).historyItemFallback
+        roleProfile: item.roleProfile || profile
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
     const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}`);
-    if (Array.isArray(resp?.data)) return resp.data;
+    if (Array.isArray(resp?.data)) {
+      return resp.data.map((item) => item && typeof item === 'object'
+        ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
+        : item);
+    }
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
   }
 
@@ -2376,6 +2419,12 @@ export class ApiService {
     if (this.sessionMode === 'live') {
       const body = { message, plotId };
       if (conversationId) body.conversationId = conversationId;
+      // `message` may contain a private vision instruction assembled for the
+      // model. Keep the user's short, readable question separate so the
+      // backend can persist and restore the conversation without exposing
+      // prompt scaffolding in the chat bubble.
+      const displayMessage = String(options?.displayMessage || '').trim();
+      if (displayMessage) body.displayMessage = displayMessage.slice(0, 1000);
       if (Array.isArray(options?.images) && options.images.length) body.images = options.images.slice(0, 4);
       const resp = await this._fetch('/api/v1/agent/chat', {
         method: 'POST',
@@ -2393,8 +2442,9 @@ export class ApiService {
     const role = demoAgentRoleCode(this.user?.role);
     const resolvedConversationId = conversationId || `conversation-${this._demoActorId()}`;
     const persistDemoResponse = (response) => {
-      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, message);
-      this._demoSaveAgentTurn(resolvedConversationId, message, plotId, payload);
+      const displayMessage = String(options?.displayMessage || '').trim() || message;
+      const payload = decorateDemoAgentResponse({ ...response, conversationId: resolvedConversationId }, role, plot, displayMessage);
+      this._demoSaveAgentTurn(resolvedConversationId, displayMessage, plotId, payload);
       return payload;
     };
     if (Array.isArray(options?.images) && options.images.length) {

@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260831-vision-v2-original';
-import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-vision-v2-original';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-vision-v2-original';
+import { api } from '../api.js?v=20260831-agent-history-v1';
+import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-agent-history-v1';
+import { analyzeImageFiles } from './image-vision.js?v=20260831-agent-history-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260831-ai-presentation-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -61,7 +61,7 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
   // inline code never leak into the plain-text chat surface.
   const content = role === 'assistant'
     ? cleanAssistantText(agentResponseText({ narrative: rawContent }, rawContent))
-    : rawContent;
+    : agentHistoryUserText(rawContent, '已上传现场图片');
   const isError = Boolean(item.error);
   return {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,
@@ -207,18 +207,21 @@ export const AdminAiChatView = {
       if (!attachments.value.length || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
       const count = attachments.value.length;
+      const displayMessage = `请分析我上传的${count}张现场照片`;
       const photoAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
-      messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: `请分析我上传的${count}张现场照片`, attachments: photoAttachments, time: messageTime(), source: '' });
+      messages.value.push({ id: `user-image-${Date.now()}`, role: 'user', content: displayMessage, attachments: photoAttachments, time: messageTime(), source: '' });
       sending.value = true;
       scrollToBottom();
       try {
         const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
-        const summary = visionSummary(analyses, attachments.value);
-        const requestText = buildVisionRequest(`请分析我上传的${count}张图片。`, summary);
+        // Keep the readable question in `displayMessage`; the model still
+        // receives the image-specific instructions and original-file metadata.
+        const requestText = buildVisionRequest(displayMessage, visionSummary(analyses, attachments.value));
         if (!conversationId.value) conversationId.value = createConversationId();
         selectedConversationId.value = conversationId.value;
         const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
-          images: visionPayloads(analyses, attachments.value)
+          images: visionPayloads(analyses, attachments.value),
+          displayMessage
         });
         conversationId.value = response?.conversationId || conversationId.value;
         selectedConversationId.value = conversationId.value;
@@ -302,8 +305,9 @@ export const AdminAiChatView = {
       selectedConversationId.value = conversationId.value;
       input.value = '';
       const messageAttachments = attachments.value.map(({ file, ...item }) => ({ ...item }));
+      const displayMessage = text || '已上传现场图片';
       let requestText = text || '我上传了现场图片，请分析图片内容。';
-      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text || '已上传现场图片', attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
+      messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: displayMessage, attachments: messageAttachments, time: messageTime(), source: '', facts: [], recommendations: [] });
       sending.value = true;
       scrollToBottom();
       try {
@@ -311,7 +315,8 @@ export const AdminAiChatView = {
           const analyses = await analyzeImageFiles(attachments.value.map(item => item.file));
           requestText = buildVisionRequest(requestText, visionSummary(analyses, attachments.value));
           const response = await api.agentChat(requestText, selectedPlotId.value, conversationId.value, {
-            images: visionPayloads(analyses, attachments.value)
+            images: visionPayloads(analyses, attachments.value),
+            displayMessage
           });
           conversationId.value = response?.conversationId || conversationId.value;
           selectedConversationId.value = conversationId.value;
