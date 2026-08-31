@@ -843,7 +843,7 @@
               <div style="margin-top: 12px; display: flex; gap: 8px;">
                 <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
                 <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
-                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
+                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="requestDeletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
               </div>
             </div>
           </div>
@@ -875,6 +875,22 @@
               <button class="g-btn" @click="showPackModal = false">取消</button>
               <button class="g-btn primary" :disabled="savingPack || !packForm.id || !packForm.name" @click="savePack">{{ savingPack ? '保存中…' : '保存' }}</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="pendingDeletePack" class="admin-modal-overlay" @click.self="pendingDeletePack = null">
+        <div class="admin-modal">
+          <div class="admin-modal-header">
+            <h3>删除作物包</h3>
+            <button type="button" class="g-btn icon-only" :disabled="savingPack" @click="pendingDeletePack = null"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="admin-modal-body">
+            <p style="margin:0 0 8px;line-height:1.7">确定要<strong style="color:var(--g-danger)">删除</strong>作物包「{{ pendingDeletePack.name }}」吗？<br>内置版本不会被物理删除，重启后会恢复。</p>
+          </div>
+          <div class="admin-modal-footer">
+            <button class="g-btn" @click="pendingDeletePack = null">取消</button>
+            <button class="g-btn danger" :disabled="savingPack" @click="confirmDeletePack">删除</button>
           </div>
         </div>
       </div>

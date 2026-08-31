@@ -1238,9 +1238,13 @@ const AdminRulesView = {
         savingPack.value = false;
       }
     };
-    const canDeletePack = (pack) => !pack?.builtIn && String(pack?.sourceMode || '').toUpperCase() === 'USER_MANAGED';
-    const deletePack = async (pack) => {
-      if (savingPack.value || !confirm(`确定删除作物包“${pack.name}”吗？内置版本不会被物理删除。`)) return;
+    const canDeletePack = (pack) => !!(pack?.cropCode || pack?.id);
+    const pendingDeletePack = ref(null);
+    const requestDeletePack = (pack) => { if (savingPack.value) return; pendingDeletePack.value = pack; };
+    const confirmDeletePack = async () => {
+      const pack = pendingDeletePack.value;
+      if (!pack) return;
+      pendingDeletePack.value = null;
       savingPack.value = true;
       try {
         const key = packKey(pack);
@@ -1313,7 +1317,7 @@ const AdminRulesView = {
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
-      deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
+      pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
       toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
       candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
