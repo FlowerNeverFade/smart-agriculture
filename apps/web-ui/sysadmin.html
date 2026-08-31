@@ -482,6 +482,8 @@
             <option value="all">全部级别</option>
             <option value="HIGH">高</option>
             <option value="MEDIUM">中</option>
+            <option value="WARNING">警告</option>
+            <option value="INFO">信息</option>
           </select>
         </div>
         <div class="admin-table-wrap">
@@ -883,10 +885,11 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>规则编号</th><th>描述</th><th>类型</th><th>版本</th><th>状态</th>
+              <th>作物</th><th>规则编号</th><th>描述</th><th>类型</th><th>版本</th><th>状态</th>
             </tr></thead>
             <tbody>
-              <tr v-for="rule in rulePageRecords" :key="rule.id">
+              <tr v-for="rule in rulePageRecords" :key="rule.cropCode + '@' + rule.id">
+                <td><span class="status-pill info">{{ rule.cropName || rule.cropCode }}</span></td>
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>

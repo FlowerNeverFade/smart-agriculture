@@ -328,6 +328,8 @@ class AgriStore {
             databaseReady = false;
         }
         if (properties.isSeedData()) seed();
+        // 服务重启系统告警（INFO）：每次启动记录一条，便于审计服务生命周期
+        createSystemAlert("SYSTEM", "INFO", "接口服务已启动", "AgriLoop 后端已完成启动并加载配置。", "");
     }
 
     boolean databaseReady() { return databaseReady; }
@@ -2250,6 +2252,64 @@ class AgriEngine {
         return result;
     }
 
+    // ---- 系统级自动告警（非规则触发：服务/设备/超时/延迟）----
+    private final Map<String, Long> systemAlertCooldown = new ConcurrentHashMap<>();
+
+    /**
+     * 创建系统级告警（设备心跳、命令超时、Redis 延迟、服务重启等）。
+     * 同一 source+plotId 10 分钟冷却，避免定时扫描刷屏。
+     */
+    private Map<String, Object> createSystemAlert(String source, String level, String title, String message, String plotId) {
+        Instant now = Instant.now();
+        String cooldownKey = source + ":" + (plotId == null ? "" : plotId);
+        Long last = systemAlertCooldown.get(cooldownKey);
+        if (last != null && now.toEpochMilli() - last < 10 * 60 * 1000L) return null;
+        systemAlertCooldown.put(cooldownKey, now.toEpochMilli());
+        Map<String, Object> alert = new LinkedHashMap<>();
+        alert.put("alertId", Jsons.id("alert"));
+        alert.put("farmId", "farm-demo");
+        alert.put("plotId", plotId == null ? "" : plotId);
+        alert.put("level", level);
+        alert.put("source", source);
+        alert.put("status", "ACTIVE");
+        alert.put("title", title);
+        alert.put("message", message);
+        alert.put("createdAt", now.toString());
+        alert.put("updatedAt", now.toString());
+        store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+        events.publish("alert.created", alert);
+        store.logEvent("alert.created", alert);
+        return alert;
+    }
+
+    /** 定时检查设备心跳超时（默认 90 秒），超时产生 MEDIUM 告警。 */
+    @Scheduled(fixedDelay = 30000)
+    void checkDeviceHeartbeatAlerts() {
+        Instant now = Instant.now();
+        long timeoutSeconds = properties.getDeviceTimeoutSeconds();
+        for (Map<String, Object> device : store.list("device")) {
+            if (!"ONLINE".equalsIgnoreCase(Jsons.text(device, "status", ""))) continue;
+            Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
+            if (lastSeen.getEpochSecond() <= 0) continue;
+            long seconds = Duration.between(lastSeen, now).getSeconds();
+            if (seconds > timeoutSeconds) {
+                createSystemAlert("DEVICE_HEARTBEAT", "MEDIUM", "设备心跳超时",
+                        "设备 " + Jsons.text(device, "deviceId", "未知") + " 已 " + seconds + " 秒未上报心跳（阈值 " + timeoutSeconds + " 秒）。",
+                        Jsons.text(device, "plotId", ""));
+            }
+        }
+    }
+
+    /** 定时检查 Redis 往返延迟，超过 5 秒产生 WARNING 告警。 */
+    @Scheduled(fixedDelay = 30000)
+    void checkRedisLatencyAlert() {
+        long latency = redisPingLatencyMs();
+        if (latency >= 5000) {
+            createSystemAlert("REDIS_LATENCY", "WARNING", "Redis 响应延迟过高",
+                    "Redis PING 往返延迟 " + latency + "ms，超过 5 秒阈值。", "");
+        }
+    }
+
     private Map<String, Object> upsertRuleAlert(String plotId, String source, String level, String title, String message,
                                                 Map<String, Object> event, Map<String, Object> rule, double threshold,
                                                 Map<String, Object> context, Instant now, String ruleState) {
@@ -2605,6 +2665,10 @@ class AgriEngine {
             if (Jsons.instant(command.get("requestedAt"), Instant.now()).isAfter(cutoff)) continue;
             Map<String, Object> ack = new LinkedHashMap<>(); ack.put("status", "TIMEOUT"); ack.put("reason", "设备在 15 秒内未返回控制回执");
             ack.put("receivedAt", Instant.now().toString()); handleDeviceControlAck(command, ack);
+            // 控制命令执行超时告警（HIGH）：设备未在窗口内返回回执
+            createSystemAlert("CONTROL_TIMEOUT", "HIGH", "控制命令执行超时",
+                    "命令 " + Jsons.text(command, "commandId", "未知") + "（" + Jsons.text(command, "type", "") + "）未在 15 秒内收到设备回执。",
+                    Jsons.text(command, "plotId", ""));
         }
     }
 
