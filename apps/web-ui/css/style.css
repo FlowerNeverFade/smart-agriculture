@@ -767,7 +767,9 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   .g-header-left { gap: 7px; }
   .g-brand-logo { width: 78px; }
   .g-header-center { position: static; flex: 1 1 auto; min-width: 0; max-width: none; transform: none; }
-  .g-header .g-header-farm-select { width: 100%; min-width: 0; padding-right: 28px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+  .g-header .g-header-farm-select,
+  .g-header .g-header-farm-select-btn { width: 100%; min-width: 0; max-width: 100%; padding-right: 28px; overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+  .g-header .g-header-farm-select-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .g-header-right > .g-badge { display: none; }
   .g-header-right { gap: 4px; }
   .g-user-identity small { display: none; }

@@ -8,7 +8,8 @@ import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260827-wor
 import { AdminDecisionView } from './modules/admin-decision.js';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260827-work-order-flow-v3';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-rules-strategies-v1';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-rules-strategies-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
@@ -148,6 +149,7 @@ const AppIcon = {
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
   { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
@@ -2857,6 +2859,7 @@ const app = createApp({
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'ai-assistant-view': AdminAiChatView,
+    'rules-strategies-view': AdminRulesStrategiesView,
     'work-orders-view': RoleAwareWorkOrdersView,
     'resource-coordination-view': AdminResourceCenterView,
     'farm-members-view': AdminMemberManagementView,
@@ -3189,7 +3192,7 @@ const app = createApp({
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
       if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
-      if (wants('cropPacks') || wants('overview')) {
+      if (wants('cropPacks') || wants('rulesStrategies') || wants('overview')) {
         jobs.adminRules = api.getRuleSets(farmId);
         jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
       }

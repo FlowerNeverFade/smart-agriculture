@@ -825,6 +825,58 @@
 .manager-lifecycle-status { padding: 4px 7px; border: 1px solid var(--g-border); border-radius: 999px; color: var(--g-text-secondary); font-size: 11px; font-weight: 700; }
 .manager-lifecycle-status.inactive { color: #7b4a10; border-color: #caa66e; background: #fffaf1; }
 
+/* Farm-admin governance page: the visual language intentionally mirrors the
+   system-admin rules/version tables while keeping every record farm-scoped. */
+.admin-governance-page { display: grid; gap: 18px; min-width: 0; }
+.admin-governance-page .admin-section-header { margin-bottom: 0; }
+.admin-governance-page .admin-eyebrow { display: block; margin-bottom: 4px; color: var(--g-text-secondary); font-size: 12px; font-weight: 650; }
+.admin-governance-farm-badge,
+.admin-governance-readonly { display: inline-flex; align-items: center; gap: 7px; width: max-content; padding: 7px 10px; border: 1px solid var(--g-border-subtle); border-radius: 999px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 12px; white-space: nowrap; }
+.admin-governance-farm-badge .material-symbols-outlined { color: var(--g-primary); font-size: 17px; }
+.admin-governance-tabs { margin: 0; }
+.admin-governance-tabs .admin-tab { display: inline-flex; align-items: center; gap: 7px; }
+.admin-governance-tabs small { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 10px; }
+.admin-governance-section { display: grid; gap: 15px; padding: 18px; border: 1px solid var(--g-border); border-radius: 14px; background: var(--g-bg-surface); box-shadow: var(--admin-card-shadow, 0 8px 20px rgb(24 49 36 / 6%)); }
+.admin-governance-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.admin-governance-section-head h2 { margin: 0; font-size: 18px; }
+.admin-governance-section-head p { margin: 5px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.55; }
+.admin-governance-table-wrap { overflow-x: auto; }
+.admin-governance-table-wrap .admin-table { min-width: 920px; }
+.admin-governance-table-wrap .admin-table td { vertical-align: middle; }
+.admin-governance-table-wrap .admin-table td > small { display: block; margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
+.admin-governance-code { display: block; color: var(--g-text-primary); font-family: var(--g-mono); font-size: 12px; }
+.admin-governance-description { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-governance-actions { min-width: 150px; white-space: nowrap; }
+.admin-governance-actions .g-btn + .g-btn { margin-left: 5px; }
+.admin-governance-muted { color: var(--g-text-disabled); font-size: 12px; }
+.admin-governance-error { display: flex; align-items: center; gap: 9px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--g-danger) 30%, var(--g-border)); border-radius: 10px; background: var(--g-danger-bg); color: var(--g-danger); font-size: 13px; }
+.admin-governance-error span { flex: 1; }
+.admin-governance-empty { display: grid; place-items: center; gap: 7px; min-height: 190px; border: 1px dashed var(--g-border); border-radius: 12px; color: var(--g-text-secondary); text-align: center; }
+.admin-governance-empty .material-symbols-outlined { color: var(--g-primary); font-size: 30px; }
+.admin-governance-empty strong { color: var(--g-text-primary); font-size: 14px; }
+.admin-governance-empty span { font-size: 12px; }
+
+/* Every Crop Pack tile, including the add tile, occupies the same visual box. */
+.admin-pack-card-grid { grid-auto-rows: 320px; }
+.admin-pack-summary-card { height: 100%; min-height: 320px; }
+.admin-pack-create-dialog { width: min(980px, calc(100vw - 32px)); }
+.admin-pack-wizard-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; padding: 12px 18px 0; }
+.admin-pack-wizard-steps button { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 8px 6px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font: inherit; font-size: 11px; cursor: pointer; }
+.admin-pack-wizard-steps button span { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--g-bg-base); font-size: 10px; font-weight: 700; }
+.admin-pack-wizard-steps button.active { border-color: var(--g-primary); background: var(--g-primary-bg); color: var(--g-primary); }
+.admin-pack-wizard-steps button.done span { background: var(--g-primary); color: white; }
+.admin-pack-wizard-body { min-height: 360px; }
+.admin-pack-wizard-panel { display: grid; gap: 14px; }
+.admin-pack-wizard-panel h4 { margin: 0; font-size: 16px; }
+.admin-pack-wizard-panel > p, .admin-pack-wizard-panel-head p { margin: 4px 0 0; color: var(--g-text-secondary); font-size: 12px; }
+.admin-pack-wizard-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-pack-repeat-list { display: grid; gap: 10px; max-height: 280px; overflow: auto; padding-right: 3px; }
+.admin-pack-repeat-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-subtle); }
+.admin-pack-repeat-head { display: flex; align-items: center; justify-content: space-between; color: var(--g-text-primary); font-size: 12px; }
+.admin-pack-repeat-card label { display: grid; gap: 5px; color: var(--g-text-secondary); font-size: 11px; }
+.admin-pack-preview { display: grid; gap: 3px; padding: 12px; border-radius: 10px; background: var(--g-primary-bg); color: var(--g-primary); }
+.admin-pack-preview span { color: var(--g-text-secondary); font-size: 12px; }
+
 @media (max-width: 1120px) {
   .admin-split-layout { grid-template-columns: 1fr; }
   .admin-device-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -840,6 +892,10 @@
   .admin-work-detail-heading { align-items: flex-start; flex-direction: column; }
   .admin-plan-card-grid,
   .admin-pack-card-grid { grid-template-columns: 1fr; }
+  .admin-governance-section { padding: 14px; }
+  .admin-governance-section-head { flex-direction: column; }
+  .admin-pack-wizard-steps { grid-template-columns: repeat(5, minmax(94px, 1fr)); overflow-x: auto; padding-inline: 14px; }
+  .admin-pack-wizard-steps button { justify-content: flex-start; white-space: nowrap; }
   .admin-form-grid,
   .admin-fact-grid { grid-template-columns: 1fr; }
   .admin-work-detail-facts { grid-template-columns: 1fr; }
