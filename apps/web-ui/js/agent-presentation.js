@@ -87,7 +87,7 @@ const ROLE_PRESENTATIONS = {
     inputPlaceholder: '查询平台状态、数据链路、规则版本或跨农场风险…',
     typingLabel: '正在核对平台状态与审计记录…',
     composerFootnote: '回答可跨农场读取平台事实，但不会直接修改农场业务数据；请到受控配置页面执行变更。',
-    historyTitle: '我的平台排查对话',
+    historyTitle: '历史对话',
     historyEmpty: '发送第一条消息后会保存到这里',
     historyItemFallback: '平台排查对话',
     factsTitle: '平台事实',

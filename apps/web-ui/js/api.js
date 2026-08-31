@@ -2236,8 +2236,17 @@ export class ApiService {
   _readDemoAgentSession() {
     const fallback = { conversations: [], messages: [], actions: [] };
     try {
-      if (typeof sessionStorage === 'undefined') return fallback;
-      const raw = sessionStorage.getItem(this._demoAgentStorageKey());
+      if (typeof localStorage === 'undefined') return fallback;
+      const key = this._demoAgentStorageKey();
+      let raw = localStorage.getItem(key);
+      // 迁移：旧版 demo 会话存在 sessionStorage（每标签独立），有则迁移到 localStorage 后删除
+      if (!raw && typeof sessionStorage !== 'undefined') {
+        raw = sessionStorage.getItem(key);
+        if (raw) {
+          try { localStorage.setItem(key, raw); } catch (error) { /* ignore */ }
+          try { sessionStorage.removeItem(key); } catch (error) { /* ignore */ }
+        }
+      }
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return {
@@ -2257,7 +2266,7 @@ export class ApiService {
       actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
     };
     try {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
+      if (typeof localStorage !== 'undefined') localStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
     } catch {
       // Browser storage can be disabled; the in-memory map still keeps the
       // current page usable for the rest of the demo session.
