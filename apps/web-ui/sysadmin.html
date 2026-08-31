@@ -1066,8 +1066,8 @@
                 <td><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
-                  <button class="g-btn text sm" :disabled="isCurrentUser(u.userId)" :title="isCurrentUser(u.userId) ? '当前登录账号不可停用' : ''" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
-                  <button class="g-btn text sm" style="color:var(--g-danger)" :disabled="isCurrentUser(u.userId)" :title="isCurrentUser(u.userId) ? '当前登录账号不可删除' : ''" @click="deleteUser(u.userId)">删除</button>
+                  <button class="g-btn text sm" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可停用' : '当前登录账号不可停用') : ''" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
+                  <button class="g-btn text sm" style="color:var(--g-danger)" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可删除' : '当前登录账号不可删除') : ''" @click="deleteUser(u.userId)">删除</button>
                 </td>
               </tr>
             </tbody>
