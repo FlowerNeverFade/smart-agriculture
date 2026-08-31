@@ -17,9 +17,7 @@ jobs:
         run: ./gradlew :apps:api-service:test --no-daemon
       - name: Build boot jar
         run: ./gradlew :apps:api-service:bootJar --no-daemon
-      - name: Validate simulator syntax
-        run: python3 -m py_compile simulator/runner.py
       - name: Validate Crop Packs
         run: |
-          python3 -m pip install -r simulator/requirements.txt
+          python3 -m pip install -r scripts/requirements-dev.txt
           python3 scripts/validate_crop_packs.py

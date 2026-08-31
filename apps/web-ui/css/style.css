@@ -157,12 +157,15 @@ body {
 .g-nav-item:hover { background-color: var(--g-bg-hover); }
 .g-nav-item.active { background-color: var(--g-primary-bg); color: var(--g-primary); }
 .g-nav-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--g-primary) 36%, transparent); outline-offset: -2px; }
-.g-sidebar-main { flex: 1; }
+.g-sidebar-main { flex: 1; min-height: 0; }
 .g-sidebar-footer {
+  display: grid;
+  gap: 4px;
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--g-border-subtle);
 }
+.g-sidebar-footer .g-nav-item { margin-bottom: 0; }
 .g-nav-return-farmer {
   width: 100%;
   background: transparent;
@@ -616,6 +619,12 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .plot-detail-facts strong { font-size: 14px; font-weight: 500; }
 .plot-detail-section { display: grid; gap: 12px; }
 .plot-detail-section > h3, .plot-detail-section-heading h3 { font-size: 16px; font-weight: 500; }
+.plot-operation-history { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.plot-operation-history article { display: grid; gap: 7px; padding: 12px 14px; border: 1px solid var(--g-border); border-radius: 10px; background: var(--g-bg-surface); }
+.plot-operation-history article > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.plot-operation-history article strong { color: var(--g-accent); font-size: 14px; }
+.plot-operation-history article span, .plot-operation-history article small { color: var(--g-text-secondary); font-size: 11px; }
+.plot-operation-history article p { margin: 0; color: var(--g-text-primary); font-size: 13px; line-height: 1.5; }
 .plot-detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .plot-detail-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .plot-detail-metric { min-width: 0; padding: 12px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-base); }
@@ -821,4 +830,408 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* User workspace preferences ------------------------------------------------
+ * The settings page writes these attributes on <html>.  Keeping the
+ * overrides here means the shared shell and the standalone farmer shell use
+ * the same controls without duplicating layout logic in each role module.
+ */
+html[data-accent="green"] :is(#app, #farmer_app) { --g-primary: #2f7d55 !important; --g-primary-hover: #22623f !important; --g-primary-bg: #e3f2e8 !important; }
+html[data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #2563a8 !important; --g-primary-hover: #1d4f87 !important; --g-primary-bg: #e5effb !important; }
+html[data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #a96716 !important; --g-primary-hover: #82500f !important; --g-primary-bg: #fff2d9 !important; }
+html[data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #7657c4 !important; --g-primary-hover: #5d439f !important; --g-primary-bg: #eee8fb !important; }
+[data-theme="dark"][data-accent="green"] :is(#app, #farmer_app) { --g-primary: #75d19b !important; --g-primary-hover: #9be8bb !important; --g-primary-bg: #254533 !important; }
+[data-theme="dark"][data-accent="blue"] :is(#app, #farmer_app) { --g-primary: #8ab4f8 !important; --g-primary-hover: #aecbfa !important; --g-primary-bg: #394457 !important; }
+[data-theme="dark"][data-accent="amber"] :is(#app, #farmer_app) { --g-primary: #f6c76b !important; --g-primary-hover: #ffda91 !important; --g-primary-bg: #51401f !important; }
+[data-theme="dark"][data-accent="purple"] :is(#app, #farmer_app) { --g-primary: #c5a8ff !important; --g-primary-hover: #d8c4ff !important; --g-primary-bg: #42356b !important; }
+
+html[data-density="compact"] {
+  --g-header-height: 56px;
+  --g-sidebar-width: 196px;
+}
+html[data-density="compact"] .g-main { padding: 16px; }
+html[data-density="compact"] .g-nav-item { height: 40px; gap: 12px; padding-inline: 12px; font-size: 13px; }
+html[data-density="compact"] .g-card { border-radius: 10px; }
+html[data-layout="wide"] .g-main { padding-inline: 16px; }
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .farmer-agent-audit-meta) { display: none !important; }
+
+/* Shared workspace settings page. */
+.settings-page { display: grid; gap: 22px; max-width: 1180px; margin: 0 auto; }
+.settings-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.settings-page-header h1 { display: flex; align-items: center; gap: 9px; margin-top: 5px; font-size: 27px; line-height: 1.2; font-weight: 600; letter-spacing: -.02em; }
+.settings-page-header h1 .ph { color: var(--g-primary); font-size: 25px; }
+.settings-page-header p { max-width: 680px; margin-top: 8px; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
+.settings-kicker, .settings-card-kicker { color: var(--g-primary); font-size: 11px; font-weight: 650; letter-spacing: .04em; }
+.settings-local-badge { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--g-border); border-radius: var(--g-radius-pill); color: var(--g-text-secondary); background: var(--g-bg-surface); font-size: 11px; white-space: nowrap; }
+.settings-local-badge .ph { color: var(--g-primary); font-size: 15px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.settings-card { display: grid; gap: 20px; min-width: 0; padding: 22px; }
+.settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.settings-card-head h2 { margin-top: 4px; font-size: 18px; font-weight: 600; }
+.settings-card-head p { margin-top: 5px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.settings-card-head > .ph { color: var(--g-primary); font-size: 22px; }
+.settings-field { display: grid; gap: 10px; }
+.settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.settings-theme-option { display: grid; gap: 5px; min-height: 84px; padding: 10px; border: 1px solid var(--g-border); border-radius: 10px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
+.settings-theme-option:hover { border-color: var(--g-primary); transform: translateY(-1px); }
+.settings-theme-option.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--g-primary) 25%, transparent); }
+.settings-theme-icon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: var(--g-bg-surface); color: var(--g-primary); }
+.settings-theme-option strong { font-size: 12px; font-weight: 600; }
+.settings-theme-option small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.3; }
+.settings-accent-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.settings-accent-option { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
+.settings-accent-option:hover, .settings-accent-option.active { border-color: var(--settings-swatch); color: var(--g-text-primary); }
+.settings-accent-option.active { background: color-mix(in srgb, var(--settings-swatch) 11%, var(--g-bg-base)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--settings-swatch) 28%, transparent); }
+.settings-accent-option i { flex: 0 0 auto; width: 13px; height: 13px; border-radius: 50%; background: var(--settings-swatch); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
+.settings-accent-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-accent-option .ph { margin-left: auto; color: var(--settings-swatch); font-size: 14px; }
+.settings-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-two-col label, .settings-select-field { display: grid; gap: 7px; color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.settings-two-col select, .settings-select-field select { width: 100%; min-height: 38px; padding: 7px 30px 7px 10px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); font: 13px var(--g-font-family); }
+.settings-two-col select:focus, .settings-select-field select:focus { outline: 2px solid color-mix(in srgb, var(--g-primary) 30%, transparent); outline-offset: 1px; border-color: var(--g-primary); }
+.settings-select-field select:disabled { opacity: .55; cursor: not-allowed; }
+.settings-switch { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; gap: 10px; cursor: pointer; }
+.settings-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.settings-switch-track { position: relative; width: 32px; height: 19px; margin-top: 1px; border-radius: 20px; background: var(--g-border); transition: background .18s; }
+.settings-switch-track::after { position: absolute; top: 3px; left: 3px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: var(--g-shadow-1); content: ''; transition: transform .18s; }
+.settings-switch input:checked + .settings-switch-track { background: var(--g-primary); }
+.settings-switch input:checked + .settings-switch-track::after { transform: translateX(13px); }
+.settings-switch input:focus-visible + .settings-switch-track { outline: 2px solid color-mix(in srgb, var(--g-primary) 45%, transparent); outline-offset: 2px; }
+.settings-switch strong { display: block; color: var(--g-text-primary); font-size: 13px; font-weight: 600; }
+.settings-switch small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.45; }
+.settings-info { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-primary) 23%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 65%, var(--g-bg-surface)); color: var(--g-text-secondary); font-size: 11px; line-height: 1.55; }
+.settings-info .ph { flex: 0 0 auto; margin-top: 1px; color: var(--g-primary); font-size: 16px; }
+.settings-info p { margin: 0; }
+.settings-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 2px 2px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font-size: 11px; }
+.settings-footer > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.settings-footer strong { color: var(--g-text-primary); font-size: 12px; }
+
+@media (max-width: 900px) {
+  .settings-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .settings-page-header { display: grid; gap: 12px; }
+  .settings-page-header h1 { font-size: 23px; }
+  .settings-theme-options { grid-template-columns: 1fr; }
+  .settings-theme-option { min-height: auto; grid-template-columns: 28px 1fr; align-items: center; }
+  .settings-theme-option small { grid-column: 2; }
+  .settings-accent-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-footer { align-items: flex-start; flex-direction: column; }
+}
+
+/* Appearance material presets -------------------------------------------------
+ * `classic` is the farm-manager baseline from main@4e9326a: a light canvas,
+ * translucent white cards, crisp edges and restrained inner highlights.
+ * `glass-soft` keeps a little transparency without the stronger reflections
+ * of the newer c9b6282/main liquid-glass treatment.
+ */
+html[data-surface-style="classic"] {
+  --agriloop-appearance-base: #f7f9f8;
+  --agriloop-appearance-surface: rgba(255, 255, 255, .64);
+  --agriloop-appearance-surface-strong: rgba(255, 255, 255, .78);
+  --agriloop-appearance-surface-soft: rgba(248, 251, 249, .52);
+  --agriloop-appearance-subtle: rgba(248, 251, 249, .52);
+  --agriloop-appearance-cell: rgba(255, 255, 255, .48);
+  --agriloop-appearance-border: rgba(67, 86, 76, .20);
+  --agriloop-appearance-border-subtle: rgba(68, 88, 78, .22);
+  --agriloop-appearance-edge: rgba(255, 255, 255, .96);
+  --agriloop-appearance-control: linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .46) 48%, rgba(236, 244, 239, .62));
+  --agriloop-appearance-control-hover: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .62) 48%, rgba(232, 243, 237, .78));
+  --agriloop-appearance-control-pressed: linear-gradient(145deg, rgba(235, 243, 238, .76), rgba(255, 255, 255, .52) 58%, rgba(229, 239, 233, .72));
+  --agriloop-appearance-sidebar: rgba(250, 252, 251, .76);
+  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(27, 59, 42, .04), inset -1px 0 0 rgba(255, 255, 255, .62);
+  --agriloop-appearance-control-shadow: 0 7px 18px rgba(24, 49, 36, .09), 0 1px 3px rgba(24, 49, 36, .06), inset 0 1px 0 rgba(255, 255, 255, .98), inset 1px 0 0 rgba(255, 255, 255, .72), inset -1px 0 0 rgba(218, 231, 223, .44), inset 0 -1px 0 rgba(38, 68, 51, .11);
+  --agriloop-appearance-control-shadow-hover: 0 11px 24px rgba(24, 49, 36, .13), 0 2px 5px rgba(24, 49, 36, .07), inset 0 1px 0 #fff, inset 1px 0 0 rgba(255, 255, 255, .82), inset -1px 0 0 rgba(218, 231, 223, .52), inset 0 -1px 0 rgba(38, 68, 51, .12);
+  --agriloop-appearance-control-text-shadow: 0 1px 0 rgba(255, 255, 255, .72);
+  --agriloop-appearance-hover: rgba(255, 255, 255, .82);
+  --agriloop-appearance-main-highlight: linear-gradient(180deg, rgba(255, 255, 255, .52), rgba(247, 249, 248, 0) 180px);
+  --agriloop-appearance-shadow-1: 0 10px 26px rgba(24, 49, 36, .10), 0 2px 7px rgba(27, 59, 42, .035), inset 0 1px 0 rgba(255, 255, 255, .96), inset 1px 0 0 rgba(255, 255, 255, .48), inset -1px 0 0 rgba(232, 240, 235, .38), inset 0 -1px 0 rgba(41, 72, 55, .08);
+  --agriloop-appearance-shadow-2: 0 15px 34px rgba(27, 59, 42, .10), 0 4px 10px rgba(27, 59, 42, .05), inset 0 1px 0 rgba(255, 255, 255, .96), inset 1px 0 0 rgba(255, 255, 255, .54), inset -1px 0 0 rgba(232, 240, 235, .42), inset 0 -1px 0 rgba(41, 72, 55, .09);
+  --agriloop-appearance-shadow-3: 0 28px 72px rgba(24, 42, 33, .20), 0 8px 24px rgba(24, 42, 33, .09), inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+html[data-theme="dark"][data-surface-style="classic"] {
+  --agriloop-appearance-base: #181c1a;
+  --agriloop-appearance-surface: rgba(40, 44, 42, .68);
+  --agriloop-appearance-surface-strong: rgba(46, 51, 48, .82);
+  --agriloop-appearance-surface-soft: rgba(46, 51, 48, .54);
+  --agriloop-appearance-subtle: rgba(46, 51, 48, .54);
+  --agriloop-appearance-cell: rgba(52, 58, 55, .50);
+  --agriloop-appearance-border: rgba(255, 255, 255, .14);
+  --agriloop-appearance-border-subtle: rgba(255, 255, 255, .17);
+  --agriloop-appearance-edge: rgba(255, 255, 255, .16);
+  --agriloop-appearance-control: linear-gradient(145deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .055) 50%, rgba(255, 255, 255, .085));
+  --agriloop-appearance-control-hover: linear-gradient(145deg, rgba(255, 255, 255, .19), rgba(255, 255, 255, .08) 50%, rgba(255, 255, 255, .12));
+  --agriloop-appearance-control-pressed: linear-gradient(145deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .12) 60%, rgba(255, 255, 255, .055));
+  --agriloop-appearance-sidebar: rgba(31, 37, 34, .86);
+  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(0, 0, 0, .26), inset -1px 0 0 rgba(255, 255, 255, .08);
+  --agriloop-appearance-control-shadow: 0 8px 20px rgba(0, 0, 0, .26), 0 1px 3px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .18), inset 1px 0 0 rgba(255, 255, 255, .08), inset -1px 0 0 rgba(255, 255, 255, .04), inset 0 -1px 0 rgba(0, 0, 0, .30);
+  --agriloop-appearance-control-shadow-hover: 0 12px 26px rgba(0, 0, 0, .34), 0 2px 5px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .23), inset 1px 0 0 rgba(255, 255, 255, .10), inset -1px 0 0 rgba(255, 255, 255, .05), inset 0 -1px 0 rgba(0, 0, 0, .34);
+  --agriloop-appearance-control-text-shadow: 0 1px 0 rgba(0, 0, 0, .32);
+  --agriloop-appearance-hover: rgba(55, 64, 59, .82);
+  --agriloop-appearance-main-highlight: linear-gradient(180deg, rgba(255, 255, 255, .08), rgba(24, 28, 26, 0) 180px);
+  --agriloop-appearance-shadow-1: 0 10px 26px rgba(0, 0, 0, .24), 0 2px 7px rgba(0, 0, 0, .18), inset 0 1px 0 rgba(255, 255, 255, .16), inset 1px 0 0 rgba(255, 255, 255, .05), inset -1px 0 0 rgba(255, 255, 255, .025), inset 0 -1px 0 rgba(0, 0, 0, .24);
+  --agriloop-appearance-shadow-2: 0 15px 34px rgba(0, 0, 0, .34), 0 4px 10px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .16), inset 1px 0 0 rgba(255, 255, 255, .06), inset -1px 0 0 rgba(255, 255, 255, .03), inset 0 -1px 0 rgba(0, 0, 0, .28);
+  --agriloop-appearance-shadow-3: 0 28px 72px rgba(0, 0, 0, .42), 0 8px 24px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+html[data-surface-style="classic"]:not(:has(#app.role-system-admin)) body {
+  background: var(--agriloop-appearance-base);
+}
+html[data-surface-style="classic"] :is(#app:not(.role-system-admin), #farmer_app) {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface);
+  --g-bg-subtle: var(--agriloop-appearance-subtle);
+  --g-bg-hover: var(--agriloop-appearance-subtle);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
+}
+/* Role sheets below own the content surfaces so semantic borders (warning,
+ * danger and per-entry accents) are not flattened by the global preset. */
+html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-card,
+html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-info {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="glass-soft"] :is(#app, #farmer_app) {
+  --agriloop-appearance-base: rgba(232, 242, 235, .72);
+}
+html[data-surface-style="glass-soft"] #app :is(.g-card, .admin-panel, .manager-plot-card, .simple-data-panel),
+html[data-surface-style="glass-soft"] #farmer_app :is(.g-card, .farmer-stat-card, .farmer-plot-overview-card, .farmer-task-column) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+  box-shadow: 0 8px 20px rgba(24, 62, 43, .10), inset 0 1px 0 rgba(255, 255, 255, .70) !important;
+}
+html[data-surface-style="glass-latest"] #app .g-card {
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+  backdrop-filter: blur(24px) saturate(135%);
+  box-shadow: 0 18px 42px rgba(24, 62, 43, .14), inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+
+/* Make the material choices themselves easy to compare at a glance. */
+.settings-surface-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-surface-option { min-height: 92px; }
+.settings-surface-option .settings-theme-icon { border: 1px solid var(--g-border-subtle); }
+.settings-surface-option[data-surface-style="classic"] .settings-theme-icon { background: var(--g-bg-surface); }
+@media (max-width: 600px) {
+  .settings-surface-options { grid-template-columns: 1fr; }
+}
+
+/* Unified role sidebar ------------------------------------------------------
+ * The three workspaces use the compact navigation geometry from the system
+ * admin workspace while retaining the first reference image's glass material.
+ * Role-specific sheets only provide accent colours; this block owns geometry.
+ */
+#app .g-sidebar {
+  width: var(--g-sidebar-width, 210px);
+  padding: 12px;
+  background: rgba(246, 251, 248, .72);
+  border-right: 1px solid rgba(55, 89, 69, .16);
+  box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
+  -webkit-backdrop-filter: blur(30px) saturate(128%);
+  backdrop-filter: blur(30px) saturate(128%);
+}
+#app .g-sidebar-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+#app .g-sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 0;
+}
+#app .g-nav-item {
+  --sidebar-accent: var(--g-primary);
+  position: relative;
+  min-height: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0 16px;
+  gap: 16px;
+  border: 1px solid rgba(71, 102, 85, .14);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
+  box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
+  color: var(--g-text-primary);
+  font: 500 14px/1 var(--g-font-family);
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+/* Keep the user-selectable compact density meaningful after the shared
+ * sidebar geometry takes precedence over the legacy role sheets. */
+html[data-density="compact"] #app .g-nav-item {
+  min-height: 40px;
+  height: 40px;
+  gap: 12px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+#app .g-nav-item .ph,
+#app .g-nav-item .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--sidebar-accent);
+  font-size: 21px;
+}
+#app .g-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+#app .g-nav-item:hover {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 28%, rgba(71, 102, 85, .16));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .98), color-mix(in srgb, var(--sidebar-accent) 8%, rgba(237, 246, 240, .72)));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--sidebar-accent) 12%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  transform: translateY(-1px);
+}
+#app .g-nav-item.active {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 48%, rgba(102, 75, 190, .22));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 13%, #fff), color-mix(in srgb, var(--sidebar-accent) 7%, #f5f1ff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--sidebar-accent) 15%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  color: var(--sidebar-accent);
+}
+#app .g-nav-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sidebar-accent) 34%, transparent);
+  outline-offset: 2px;
+}
+
+/* Per-entry colour cues match the reference sidebar while retaining role
+ * semantics.  Unknown entries fall back to the role's primary colour. */
+#app .g-nav-item[data-nav="dashboard"], #app .g-nav-item[data-nav="plots"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="work-orders"], #app .g-nav-item[data-nav="tasks"] { --sidebar-accent: #3f7fe5; }
+#app .g-nav-item[data-nav="decision-console"] { --sidebar-accent: #e58b23; }
+#app .g-nav-item[data-nav="resource-coordination"] { --sidebar-accent: #1994a4; }
+#app .g-nav-item[data-nav="farm-members"] { --sidebar-accent: #7657c4; }
+#app .g-nav-item[data-nav="crop-manual"], #app .g-nav-item[data-nav="tools"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="messages"] { --sidebar-accent: #5573c7; }
+#app .g-nav-item[data-nav="advice"] { --sidebar-accent: #198c68; }
+#app .g-nav-item[data-nav="admin-overview"] { --sidebar-accent: #2f8b5c; }
+#app .g-nav-item[data-nav="admin-ops"] { --sidebar-accent: #198fa1; }
+#app .g-nav-item[data-nav="admin-audit"] { --sidebar-accent: #7657c4; }
+#app .g-nav-item[data-nav="admin-simulator"] { --sidebar-accent: #c87816; }
+#app .g-nav-item[data-nav="admin-rules"] { --sidebar-accent: #178a53; }
+#app .g-nav-item[data-nav="admin-settings"], #app .g-nav-item[data-nav="settings"] { --sidebar-accent: #2f8b5c; }
+
+[data-theme="dark"] #app .g-sidebar {
+  background: rgba(26, 43, 35, .84);
+  border-right-color: rgba(221, 241, 229, .20);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .22), inset -1px 0 0 rgba(255, 255, 255, .08);
+}
+[data-theme="dark"] #app .g-nav-item {
+  border-color: rgba(226, 241, 232, .17);
+  background: linear-gradient(145deg, rgba(59, 83, 70, .78), rgba(35, 58, 46, .84));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .10);
+  color: var(--g-text-primary);
+}
+[data-theme="dark"] #app .g-nav-item.active {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 24%, #304639), color-mix(in srgb, var(--sidebar-accent) 12%, #20372b));
+}
+
+/* The default classic preset keeps the 4e9326a farm-manager glass shell. */
+html[data-surface-style="classic"] #app:not(.role-system-admin) .g-sidebar {
+  background: var(--agriloop-appearance-sidebar) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item {
+  background: var(--agriloop-appearance-control) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item.active {
+  background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--sidebar-accent) 34%, var(--agriloop-appearance-border)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
+  color: var(--sidebar-accent);
+}
+html[data-surface-style="glass-soft"] #app .g-sidebar {
+  background: rgba(241, 248, 244, .66);
+  box-shadow: 8px 0 24px rgba(31, 73, 51, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
+  -webkit-backdrop-filter: blur(16px) saturate(116%);
+  backdrop-filter: blur(16px) saturate(116%);
+}
+[data-theme="dark"][data-surface-style="glass-soft"] #app .g-sidebar {
+  background: rgba(35, 57, 46, .78);
+}
+
+@media (max-width: 760px) {
+  #app .g-sidebar { width: 230px; padding: 12px; }
+  #app .g-sidebar.collapsed { width: 230px; padding: 12px; }
+  #app .g-nav-item { min-height: 48px; height: 48px; padding-inline: 16px; }
+}
+#app .g-sidebar.collapsed {
+  width: 0;
+  padding: 0;
+  border-right: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+@media (max-width: 760px) {
+  #app .g-sidebar.collapsed {
+    width: 230px;
+    padding: 12px;
+    border-right: 1px solid var(--g-border);
+    opacity: 1;
+    transform: translateX(-105%);
+  }
+}
+
+/* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
+html[data-surface-style="classic"] #app.role-system-admin .g-sidebar {
+  background: var(--g-bg-surface) !important;
+  border-right: 1px solid var(--g-border) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--g-text-secondary) !important;
+}
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item:hover {
+  background: var(--g-bg-hover) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active {
+  background: var(--g-primary-bg) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--g-primary) !important;
+}
+
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+  border-radius: var(--g-radius-pill) !important;
+}
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item .material-symbols-outlined {
+  color: inherit !important;
+}
+html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active .material-symbols-outlined {
+  color: var(--g-primary) !important;
 }

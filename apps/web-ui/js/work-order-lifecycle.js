@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260828-v58';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js';
-import { roleCan } from './roles.js';
+import { api } from './api.js?v=20260831-ai-role-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260831-three-branch-v1';
+import { roleCan } from './roles.js?v=20260831-three-branch-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 
@@ -21,6 +21,37 @@ const INSPECTION_LABELS = Object.freeze({
   crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' },
   device: { NORMAL: '外观完好', LOOSE: '接头松动', LEAKING: '管线渗漏', OFFLINE: '离线或无显示' }
 });
+
+const WORK_ACTION_META = Object.freeze({
+  SOWING: { label: '播种', title: '完成播种作业', reason: '按种植计划完成整地、播种并记录实际执行情况。', targetStageCode: 'seedling', targetStageLabel: '苗期' },
+  TRANSPLANTING: { label: '移栽', title: '完成移栽作业', reason: '按定植要求完成移栽，检查缓苗和设施状态并记录结果。', targetStageCode: 'vegetative', targetStageLabel: '营养生长期' },
+  FERTILIZATION: { label: '施肥', title: '完成施肥作业', reason: '按当前作物阶段完成施肥，记录用量、方式和现场结果。' },
+  PEST_CONTROL: { label: '植保', title: '完成植保作业', reason: '按植保要求完成防治，记录药剂、范围和现场结果。' },
+  WEEDING: { label: '除草', title: '完成除草作业', reason: '完成地块除草并检查作物周边环境，记录处理结果。' },
+  PRUNING: { label: '整枝', title: '完成整枝作业', reason: '按作物阶段完成整枝、打杈或绑蔓，并记录处理结果。' },
+  IRRIGATION: { label: '灌溉', title: '完成灌溉作业', reason: '按本次灌溉要求执行并记录用水、设备和现场情况。' },
+  HARVEST: { label: '采收', title: '完成采收作业', reason: '按成熟度要求完成采收，记录采收结果和地块收尾情况。', targetStageCode: 'fruiting', targetStageLabel: '采收完成' },
+  INSPECTION: { label: '巡田核验', title: '完成巡田核验', reason: '巡查作物、土壤和设施，并提交现场观察与证据。' },
+  IRRIGATION_CHECK: { label: '灌溉巡检', title: '检查灌溉需要', reason: '检查土壤、作物需水和灌溉设施，提交是否需要灌溉的结论。' },
+  DEVICE_CHECK: { label: '设备检查', title: '完成设备检查', reason: '检查绑定设备、供电、通信和传感器状态，记录异常与处理结果。' },
+  FIELD_OPERATION: { label: '田间作业', title: '完成田间作业', reason: '按要求完成田间作业，并清楚记录实际处理结果。' },
+  IRRIGATION_REVIEW: { label: '灌溉方案审批', title: '核对灌溉方案', reason: '核对灌溉方案、现场条件与用水安排，并提交审批意见。' }
+});
+
+const WORK_ACTION_OPTIONS = Object.freeze([
+  'SOWING', 'TRANSPLANTING', 'FERTILIZATION', 'PEST_CONTROL', 'WEEDING', 'PRUNING',
+  'IRRIGATION', 'HARVEST', 'INSPECTION', 'IRRIGATION_CHECK', 'DEVICE_CHECK', 'FIELD_OPERATION', 'IRRIGATION_REVIEW'
+]);
+
+function workActionType(value) {
+  const action = String(value || 'FIELD_OPERATION').trim().toUpperCase().replaceAll('-', '_');
+  return ({ SEEDING: 'SOWING', PLANTING: 'SOWING', TRANSPLANT: 'TRANSPLANTING', HARVESTING: 'HARVEST', FIELD_INSPECTION: 'INSPECTION', MANUAL_IRRIGATION: 'IRRIGATION' })[action] || action;
+}
+
+function workActionMeta(value) {
+  const action = workActionType(value);
+  return { code: action, ...(WORK_ACTION_META[action] || { label: String(value || '农务作业'), title: '完成农务作业', reason: '按要求完成农务作业并记录处理结果。' }) };
+}
 
 export function workStatus(value) {
   const status = String(value || 'OPEN').trim().toUpperCase();
@@ -281,6 +312,7 @@ export const WorkOrderLifecycleView = {
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
     const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建' }[String(source || '').toUpperCase()] || '系统任务');
+    const taskTypeLabel = (type) => workActionMeta(type).label;
     const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
     const formatTime = (value) => {
       if (!value) return '—';
@@ -292,7 +324,7 @@ export const WorkOrderLifecycleView = {
       const index = props.state.workOrders.findIndex((order) => order.workOrderId === saved.workOrderId);
       if (index >= 0) props.state.workOrders.splice(index, 1, { ...props.state.workOrders[index], ...saved });
       else props.state.workOrders.unshift(saved);
-      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
+      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders', 'plots'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
     };
 
     const runAction = async (operation, successMessage) => {
@@ -316,6 +348,12 @@ export const WorkOrderLifecycleView = {
       showTaskModal.value = true;
     };
 
+    const applyTaskTypePreset = () => {
+      const meta = workActionMeta(taskForm.value.actionType);
+      taskForm.value.title = meta.title;
+      taskForm.value.reason = meta.reason;
+    };
+
     const createTask = async () => {
       const draft = taskForm.value;
       if (!draft.title.trim() || !draft.plotId || !draft.dueAt || !draft.reason.trim()) {
@@ -324,6 +362,11 @@ export const WorkOrderLifecycleView = {
       }
       const saved = await runAction(() => api.createWorkOrder({
         ...draft,
+        actionType: workActionType(draft.actionType),
+        ...(workActionMeta(draft.actionType).targetStageCode ? {
+          targetStageCode: workActionMeta(draft.actionType).targetStageCode,
+          targetStageLabel: workActionMeta(draft.actionType).targetStageLabel
+        } : {}),
         title: draft.title.trim(),
         reason: draft.reason.trim(),
         dueAt: new Date(draft.dueAt).toISOString(),
@@ -736,12 +779,12 @@ export const WorkOrderLifecycleView = {
       role, canManage, canInspect, isFarmer, isAuditor, isEmbeddedManager, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
-      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
+      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
-      activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm,
-      openCreate, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
+      activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
+      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
       clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect,
@@ -804,7 +847,7 @@ export const WorkOrderLifecycleView = {
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
@@ -822,6 +865,7 @@ export const WorkOrderLifecycleView = {
             <strong>{{ order.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
             <p>{{ order.rejectionReason || order.resultSummary }}</p>
           </div>
+          <div v-if="order.plotEffect?.summary" class="work-result"><strong>地块已同步</strong><p>{{ order.plotEffect.summary }}</p></div>
 
           <footer v-if="!canManage" class="work-order-footer">
             <details class="work-history">
@@ -834,7 +878,7 @@ export const WorkOrderLifecycleView = {
               <p v-else class="work-history-empty">旧任务暂无操作记录，下一次操作起将自动保存。</p>
             </details>
             <div class="work-card-actions">
-              <button v-if="String(activeOrder.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW'" type="button" class="g-btn primary compact" @click="openDetailAction('decision')">打开原处方审批</button>
+              <button v-if="String(order.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW'" type="button" class="g-btn primary compact" @click="openDetailAction('decision')">打开原处方审批</button>
               <button v-if="canManage && !TERMINAL_STATUSES.has(workStatus(order.status))" type="button" class="g-btn secondary compact" @click="openAssign(order)">{{ order.assigneeId ? '重新分配' : '分配农户' }}</button>
               <button v-if="canManage && workStatus(order.status) === 'SUBMITTED'" type="button" class="g-btn primary compact" @click="openReview(order)">验收结果</button>
               <button v-if="canManage && !TERMINAL_STATUSES.has(workStatus(order.status))" type="button" class="g-btn danger-text compact" @click="openCancel(order)">取消</button>
@@ -885,7 +929,7 @@ export const WorkOrderLifecycleView = {
           </div>
           <div class="g-modal-body work-detail-body">
             <div class="work-detail-status-row">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span v-if="isReworkOrder(activeOrder)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(activeOrder)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span class="work-source">{{ taskTypeLabel(activeOrder.actionType) }}</span><span v-if="isReworkOrder(activeOrder)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(activeOrder)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
             <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
@@ -899,6 +943,7 @@ export const WorkOrderLifecycleView = {
               <strong>{{ activeOrder.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
               <p>{{ activeOrder.rejectionReason || activeOrder.resultSummary }}</p>
             </div>
+            <div v-if="activeOrder.plotEffect?.summary" class="work-result"><strong>完成后的地块影响</strong><p>{{ activeOrder.plotEffect.summary }}</p><small>生长状态：{{ activeOrder.plotEffect.after?.cultivationStatusLabel || '保持不变' }} · 阶段：{{ activeOrder.plotEffect.after?.stageLabel || '保持不变' }}</small></div>
             <details class="work-history work-detail-history" open>
               <summary>操作记录 {{ activeOrder.history?.length || 0 }} 条</summary>
               <ol v-if="activeOrder.history?.length">
@@ -928,7 +973,7 @@ export const WorkOrderLifecycleView = {
             <label class="span-2"><span>任务标题</span><input class="g-input" v-model="taskForm.title" maxlength="80" required placeholder="例如：复测 A01 土壤湿度"></label>
             <label><span>地块</span><select class="g-select" v-model="taskForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
             <label><span>优先级</span><select class="g-select" v-model="taskForm.priority"><option value="HIGH">紧急</option><option value="MEDIUM">中</option><option value="LOW">普通</option></select></label>
-            <label><span>任务类型</span><select class="g-select" v-model="taskForm.actionType"><option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option></select></label>
+            <label><span>任务类型</span><select class="g-select" v-model="taskForm.actionType" @change="applyTaskTypePreset"><option v-for="type in WORK_ACTION_OPTIONS" :key="type" :value="type">{{ taskTypeLabel(type) }}</option></select></label>
             <label><span>截止时间</span><input type="datetime-local" class="g-input" v-model="taskForm.dueAt" required></label>
             <label class="span-2"><span>执行说明</span><textarea class="g-input" rows="4" v-model="taskForm.reason" required placeholder="用通俗的话说明要做什么，以及怎样算完成"></textarea></label>
           </div>

@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260828-v58';
-import { adminMetricLabel } from './admin-state.js';
-import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260827-boot-fix-1';
+import { api } from './api.js?v=20260831-ai-role-v1';
+import { adminMetricLabel } from './admin-state.js?v=20260831-three-branch-v1';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260831-ai-role-v1';
 
 const { ref, computed, inject, watch } = Vue;
 
@@ -202,7 +202,12 @@ export const AdminAlertCenter = {
       CLOSED: closedAlerts.value,
       ALL: activeAlerts.value
     })[filter.value]?.filter(alert => filter.value === 'CLOSED' || !dismissedAlertIds.value.includes(alertKey(alert))) || reviewAlerts.value);
-    const selectableAlerts = computed(() => visibleAlerts.value.filter(alert => !isClosed(alert)));
+    // Only the review queue is actionable.  Dispatched and closed tabs are
+    // deliberately read-only so their cards cannot accidentally enter a
+    // batch operation after the filter changes.
+    const selectableAlerts = computed(() => filter.value === 'REVIEW'
+      ? visibleAlerts.value.filter(alert => !isClosed(alert))
+      : []);
     const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert)));
     const allVisibleSelected = computed(() => selectableAlerts.value.length > 0
       && selectableAlerts.value.every(alert => selectedIds.value.includes(alertKey(alert))));
@@ -213,7 +218,12 @@ export const AdminAlertCenter = {
     const levelLabel = level => LEVEL_LABELS[normalized(level)] || '注意';
     const sourceLabel = source => localizedSourceLabel(source, adminMetricLabel(source, '系统规则'));
     const auditFor = alert => aiAudits.value[alertKey(alert)] || null;
+    const reviewActionsVisible = alert => filter.value === 'REVIEW'
+      && Boolean(alert) && !isClosed(alert) && !isDispatched(alert);
     const confidenceText = audit => audit ? `${Math.round(audit.score * 100)}%` : '未分析';
+    const strategyText = audit => audit?.strategyMatched
+      ? (audit.strategyDescription || audit.strategyId || '已启用学习策略')
+      : '';
     const nextStep = alert => {
       if (isClosed(alert)) return '告警已结束';
       if (isVerificationTask(existingTask(alert))) return '核查任务已下发，等待现场结果';
@@ -243,6 +253,7 @@ export const AdminAlertCenter = {
       aiAudits.value = {};
       aiSummary.value = null;
     });
+    watch(filter, () => { selectedIds.value = []; });
 
     const invalidate = (records, reason) => emit('data-invalidated', {
       type: 'data-invalidated',
@@ -264,11 +275,12 @@ export const AdminAlertCenter = {
       let task = existingTask(alert);
       if (task?.assigneeId) return task;
       if (!task) {
+        const strategyNote = audit?.strategyMatched ? `；参考已启用学习策略：${strategyText(audit)}` : '';
         const draft = {
           farmId: props.state.adminContext?.farmId || alert.farmId || '',
           plotId: alert.plotId,
           title: `处理：${alert.title || '地块告警'}`,
-          reason: alert.message || '根据告警分析安排现场检查与处理',
+          reason: `${alert.message || '根据告警分析安排现场检查与处理'}${strategyNote}`,
           sourceType: 'ALERT',
           sourceRef: alertKey(alert),
           actionType: actionTypeFor(alert, audit),
@@ -290,7 +302,7 @@ export const AdminAlertCenter = {
       replaceById(props.state.workOrders, 'workOrderId', task);
       const response = await api.assignWorkOrder(taskId, {
         assigneeId: assignment.member.userId,
-        note: `智能派单依据：${assignment.reason}`
+        note: `智能派单依据：${assignment.reason}${audit?.strategyMatched ? `；策略预览：${strategyText(audit)}` : ''}`
       });
       const assigned = finalizedAssignedTask(task, response, alert, assignment.member);
       replaceById(props.state.workOrders, 'workOrderId', assigned);
@@ -412,13 +424,26 @@ export const AdminAlertCenter = {
       let failed = 0;
       for (const alert of alerts) {
         try {
-          const diagnosis = await api.evaluateDiagnosis(alert.plotId, {
-            traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`,
-            ...(props.state.sessionMode === 'demo' && alert.diagnosisScenario
-              ? { scenarioId: alert.diagnosisScenario }
-              : {})
-          });
-          const audit = assessAlertCredibility(alert, diagnosis);
+          const [diagnosis, strategyPreview] = await Promise.all([
+            api.evaluateDiagnosis(alert.plotId, {
+              traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`,
+              ...(props.state.sessionMode === 'demo' && alert.diagnosisScenario
+                ? { scenarioId: alert.diagnosisScenario }
+                : {})
+            }),
+            api.getStrategyPreview(props.state.adminContext?.farmId || alert.farmId || '', alertKey(alert))
+              .catch(() => ({ matched: false, candidate: {} }))
+          ]);
+          const baseAudit = assessAlertCredibility(alert, diagnosis);
+          const candidate = strategyPreview?.candidate || {};
+          const audit = {
+            ...baseAudit,
+            strategyMatched: strategyPreview?.matched === true,
+            strategyId: candidate.candidateId || candidate.id || '',
+            strategyDescription: candidate.description || candidate.summary || candidate.recommendation || '',
+            strategyEvidenceCount: Number(candidate.evidenceCount || candidate.evidenceCaseIds?.length || 0),
+            strategyPreviewOnly: strategyPreview?.previewOnly !== false
+          };
           const assignment = audit.highConfidence ? selectFarmer(alert) : null;
           if (audit.highConfidence && assignment) {
             await ensureDispatched(alert, assignment, audit);
@@ -484,12 +509,15 @@ export const AdminAlertCenter = {
       closedCount: computed(() => closedAlerts.value.length),
       isClosed,
       existingTask,
+      isDispatched,
+      reviewActionsVisible,
       plotName,
       statusLabel,
       levelLabel,
       sourceLabel,
       auditFor,
       confidenceText,
+      strategyText,
       nextStep,
       readableTime,
       normalized,
@@ -505,12 +533,12 @@ export const AdminAlertCenter = {
     };
   },
   template: `
-    <section class="admin-alert-view" aria-label="AI告警分析与智能处理">
+    <section class="admin-alert-view" aria-label="告警智能处理">
       <div class="admin-alert-tabs" role="group" aria-label="告警筛选">
         <button type="button" :class="{ active: filter === 'REVIEW' }" @click="filter = 'REVIEW'">待审核 {{ reviewCount }}</button>
         <button type="button" :class="{ active: filter === 'DISPATCHED' }" @click="filter = 'DISPATCHED'">已下发 {{ dispatchedCount }}</button>
         <button type="button" :class="{ active: filter === 'CLOSED' }" @click="filter = 'CLOSED'">已关闭 {{ closedCount }}</button>
-        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部未关闭</button>
+        <button type="button" :class="{ active: filter === 'ALL' }" @click="filter = 'ALL'">全部进行中</button>
       </div>
 
       <div class="admin-alert-ai-summary" v-if="aiSummary" role="status">
@@ -521,7 +549,14 @@ export const AdminAlertCenter = {
         </div>
       </div>
 
-      <div class="admin-alert-batch-bar">
+      <div v-if="filter !== 'REVIEW'" class="admin-alert-readonly-hint" role="status">
+        <app-icon name="visibility"></app-icon>
+        <span v-if="filter === 'DISPATCHED'">已下发记录仅支持查看关联任务与处理进度。</span>
+        <span v-else-if="filter === 'CLOSED'">已关闭记录仅保留处理事实，当前为只读。</span>
+        <span v-else>全部进行中记录按当前状态汇总展示，操作请回到待审核队列。</span>
+      </div>
+
+      <div v-if="filter === 'REVIEW'" class="admin-alert-batch-bar">
         <div class="admin-alert-selection-group">
           <label class="admin-alert-select-all" :class="{ disabled: !selectableAlerts.length }">
             <input type="checkbox" :checked="allVisibleSelected" :disabled="!selectableAlerts.length || busyKey !== ''" @change="toggleSelectAll">
@@ -550,7 +585,7 @@ export const AdminAlertCenter = {
           @click="openDetail(alert)" @keydown="openDetailFromKeyboard($event, alert)">
           <div class="admin-alert-main">
             <div class="admin-alert-card-top">
-              <label class="admin-alert-card-select" v-if="!isClosed(alert)" @click.stop>
+              <label class="admin-alert-card-select" v-if="filter === 'REVIEW' && !isClosed(alert)" @click.stop>
                 <input type="checkbox" v-model="selectedIds" :value="alertKey(alert)" :disabled="busyKey !== ''" @click.stop>
                 <span>选择</span>
               </label>
@@ -569,12 +604,13 @@ export const AdminAlertCenter = {
             <div class="admin-alert-audit" v-if="auditFor(alert)" :class="auditFor(alert).highConfidence ? 'is-ready' : 'needs-review'">
               <strong>可信度 {{ confidenceText(auditFor(alert)) }} · {{ auditFor(alert).label }}</strong>
               <span>{{ auditFor(alert).farmerName ? '已下发给 ' + auditFor(alert).farmerName + '。' : '' }}{{ auditFor(alert).reason }}</span>
+              <span v-if="auditFor(alert).strategyMatched">策略参考：{{ strategyText(auditFor(alert)) }}{{ auditFor(alert).strategyEvidenceCount ? ' · ' + auditFor(alert).strategyEvidenceCount + ' 条合格案例' : '' }}（仅预览，仍需确认）</span>
             </div>
           </div>
           <footer class="admin-alert-card-footer">
             <span>来源：{{ sourceLabel(alert.source) }}</span>
             <div class="admin-alert-card-actions">
-              <button v-if="!isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
+              <button v-if="filter === 'REVIEW' && !isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
               <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
             </div>
           </footer>
@@ -605,23 +641,24 @@ export const AdminAlertCenter = {
             <div class="admin-alert-audit admin-alert-detail-audit" v-if="auditFor(activeAlert)" :class="auditFor(activeAlert).highConfidence ? 'is-ready' : 'needs-review'">
               <strong>AI 分析可信度 {{ confidenceText(auditFor(activeAlert)) }} · {{ auditFor(activeAlert).label }}</strong>
               <span>{{ auditFor(activeAlert).farmerName ? '已下发给 ' + auditFor(activeAlert).farmerName + '。' : '' }}{{ auditFor(activeAlert).reason }}</span>
+              <span v-if="auditFor(activeAlert).strategyMatched">命中已启用策略：{{ strategyText(auditFor(activeAlert)) }}{{ auditFor(activeAlert).strategyEvidenceCount ? ' · ' + auditFor(activeAlert).strategyEvidenceCount + ' 条合格案例' : '' }}。该结果只参与处置预览，不替代诊断与人工确认。</span>
             </div>
             <p class="admin-alert-detail-note" v-if="isClosed(activeAlert)">这条告警已经结束，处理记录继续保留为只读事实。</p>
           </div>
           <div class="g-modal-footer admin-alert-detail-footer">
             <button class="g-btn secondary" type="button" @click="closeDetail">返回</button>
-            <template v-if="!isClosed(activeAlert)">
+            <template v-if="reviewActionsVisible(activeAlert)">
               <button v-if="!existingTask(activeAlert)?.assigneeId && (!auditFor(activeAlert) || auditFor(activeAlert).highConfidence)" class="g-btn primary" type="button" :disabled="busyKey !== ''" @click="aiProcess([activeAlert])">
                 <app-icon name="auto_awesome"></app-icon><span>AI智能处理</span>
               </button>
               <button v-if="!existingTask(activeAlert)?.assigneeId" class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click="publishVerificationTasks([activeAlert])">
                 <app-icon name="fact_check"></app-icon><span>发布核查任务</span>
               </button>
-              <button v-if="existingTask(activeAlert)?.assigneeId" class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="openAssignedTask(activeAlert)">
-                <app-icon name="task_alt"></app-icon><span>查看已下发任务</span>
-              </button>
               <button class="g-btn secondary admin-alert-close-action" type="button" :disabled="busyKey !== ''" @click="closeAlerts([activeAlert])">关闭告警</button>
             </template>
+            <button v-if="isDispatched(activeAlert) && !isClosed(activeAlert)" class="g-btn secondary" type="button" :disabled="busyKey !== ''" @click="openAssignedTask(activeAlert)">
+              <app-icon name="task_alt"></app-icon><span>查看已下发任务</span>
+            </button>
           </div>
         </section>
       </div>

@@ -1,0 +1,38 @@
+cropCode: strawberry
+version: 1.0.0
+schemaVersion: '1.0'
+status: ACTIVE
+identity: {name: 草莓, variety: greenhouse-demo, region: 重庆, environment: greenhouse}
+ruleVersion: rule-1.0.0
+knowledgeVersion: kb-1.0.0
+stages:
+  - {code: seedling, sequence: 1, label: 缓苗期, target: {soilMoistureLow: 35, soilMoistureHigh: 55, airTemperatureLow: 15, airTemperatureHigh: 25, airHumidityLow: 60, airHumidityHigh: 80, lightLow: 10000, lightHigh: 24000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95}, riskFocus: [WATER_DEFICIT, COLD_STRESS], taskTemplates: [{actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}], knowledgeRef: knowledge/irrigation.md}
+  - {code: vegetative, sequence: 2, label: 营养生长期, target: {soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 15, airTemperatureHigh: 28, airHumidityLow: 55, airHumidityHigh: 75, lightLow: 12000, lightHigh: 28000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95}, riskFocus: [WATER_DEFICIT, HEAT_STRESS], taskTemplates: [{actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}], knowledgeRef: knowledge/irrigation.md}
+  - {code: flowering, sequence: 3, label: 开花期, target: {soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 50, airHumidityHigh: 70, lightLow: 14000, lightHigh: 30000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95}, riskFocus: [WATER_DEFICIT, HEAT_STRESS], taskTemplates: [{actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}], knowledgeRef: knowledge/irrigation.md}
+  - {code: fruiting, sequence: 4, label: 膨果/采收期, target: {soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 50, airHumidityHigh: 70, lightLow: 14000, lightHigh: 30000, phLow: 5.5, phHigh: 6.5, waterLevelLow: 30, waterLevelHigh: 95}, riskFocus: [WATER_DEFICIT, HEAT_STRESS], taskTemplates: [{actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}], knowledgeRef: knowledge/irrigation.md}
+metrics:
+  - {code: SOIL_MOISTURE, label: 土壤湿度, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: AIR_TEMPERATURE, label: 空气温度, unit: '°C', availability: SUPPORTED, range: {min: -40, max: 80}}
+  - {code: AIR_HUMIDITY, label: 空气湿度, unit: '%RH', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: LIGHT, label: 光照强度, unit: lux, availability: SIMULATION_ONLY, range: {min: 0, max: 100000}}
+  - {code: CO2, label: 二氧化碳, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
+  - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
+  - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+rules:
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
+  - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, threshold: 32, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
+  - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, threshold: 8, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
+healthProfile: {algorithm: crop-stage-health-v1, metricWeight: 0.70, deviceWeight: 0.14, riskWeight: 0.16, metricWeights: {SOIL_MOISTURE: 0.34, AIR_TEMPERATURE: 0.20, AIR_HUMIDITY: 0.18, LIGHT: 0.10, WATER_LEVEL: 0.10, PH: 0.08}}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
+coordinationProfile: {stageSensitivity: 0.85, starvationGuardMinutes: 120}
+knowledge:
+  documents: [knowledge/irrigation.md]
+  fallback: [plot, region, stage, crop, general]
+scenarios:
+  normal: {quality: GOOD, expected: stable}
+  drought: {quality: GOOD, expected: soil_moisture_decline}
+  heavy-rain: {quality: GOOD, expected: soil_moisture_rise}
+  sensor-drift: {quality: DEGRADED, expected: quality_gate}
+  device-offline: {quality: BAD, expected: device_gate}
+testCases: [normal, drought, heavy-rain, sensor-drift, device-offline]

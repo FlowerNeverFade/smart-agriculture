@@ -263,8 +263,7 @@ LLM/RAG 超时
 当前仓库已包含可运行的后端工作区：
 
 ```text
-apps/api-service/        Spring Boot 3 + Java 17 模块化单体
-simulator/               可重复 Python/MQTT 情景模拟器
+apps/api-service/        Spring Boot 3 + Java 17 模块化单体（含进程内 SimulationEngine）
 crop-packs/              tomato/cucumber 配置与 Schema
 infra/                   Docker Compose、Mosquitto、Supervisor、日志/备份
 scripts/                 standalone、smoke、远端部署和健康检查
@@ -282,8 +281,9 @@ docs/api/                OpenAPI 与 JSON Schema
 
 ```bash
 docker compose -f infra/docker-compose.yml up --build
-python simulator/runner.py --scenario drought --seed 42 --mqtt --mqtt-host 127.0.0.1 --speed 1 --interval 5
-# 默认 60 个采样点 × 3 个地块 × 7 个指标 = 1,260 条可重复事件；持续模式使用平滑温湿度和昼夜光照
+./gradlew :apps:api-service:bootRun
+# standalone/simulation 模式下 API 自动启动进程内 SimulationEngine；
+# 系统管理员可在「仿真模拟」页启停并调节采样间隔与时间流速。
 ```
 
 BearPi HM Nano E53_IA1 的本地实时适配器见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。它通过串口桥接温度、空气湿度和光照到 MQTT，并标记 `REAL/HARDWARE`；真实读数在后端优先于同指标模拟值。板卡烧录 E53_IA1 固件前不要把物理端到端状态写成已完成。
@@ -351,11 +351,8 @@ smart-agriculture/
 │  └─ defense/demo-script.md
 ├─ apps/
 │  ├─ web-console/
-│  ├─ api-service/
+│  ├─ api-service/          # 含 SimulationEngine 进程内模拟器
 │  └─ ai-tools/
-├─ simulator/
-│  ├─ scenarios/
-│  └─ runner/
 ├─ crop-packs/              # 作物档案、阶段、指标、规则、知识、情景和测试
 ├─ infra/docker-compose.yml
 └─ .github/workflows/ci.yml
@@ -369,10 +366,10 @@ smart-agriculture/
 docker compose -f infra/docker-compose.yml up -d
 ./gradlew :apps:api-service:test :apps:api-service:bootJar
 java -jar apps/api-service/build/libs/api-service-0.1.0.jar
-python simulator/runner.py --scenario drought --mqtt --speed 20
+# 启动后进程内 SimulationEngine 会自动写入模拟遥测（standalone/simulation 模式）
 ```
 
-Docker 镜像拉取失败、或暂时只有 standalone API 时，可跳过 MQTT，改用 HTTP 直推（设备在线状态同样会刷新）：
+Docker 镜像拉取失败、或暂时只有 standalone API 时，可只启动 API 与前端：
 
 ```bash
 # 终端 1：后端（需 Java 17）
@@ -381,12 +378,39 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 
 # 终端 2：前端（必须用 Vite，才能把 /api 代理到 8080）
 cd apps/web-ui && npx vite
-
-# 终端 3：模拟器 HTTP 直推（不要用 --mqtt，除非本机 1883 已有 Mosquitto）
-python simulator/runner.py --scenario normal --seed 42 --http --interval 5 --continuous
 ```
 
-然后打开 `http://127.0.0.1:3000/login.html`（账号 `farmer` / `demo123`）。
+然后打开 `http://127.0.0.1:3000/login.html`（账号 `farmer` / `demo123`）。模拟遥测由 API 内置引擎生成，无需单独启动 Python 进程。
+
+### Windows 本地虚拟浇水验证（推荐）
+
+首次运行先准备 Java 17 和 Node.js，并在仓库根目录执行：
+
+```powershell
+Set-Location apps/web-ui
+npm install
+Set-Location ../..
+```
+
+分别打开 2 个 PowerShell 窗口：
+
+```powershell
+# 窗口 1：standalone API（无需 PostgreSQL/Redis/MQTT；内置 SimulationEngine）
+.\gradlew.bat :apps:api-service:bootRun
+
+# 窗口 2：前端开发服务器（自动把 /api 代理到 8080）
+Set-Location apps/web-ui
+npx vite
+```
+
+浏览器打开 `http://127.0.0.1:3000/login.html`，点击“演示身份 → 种植农户”，进入“灌溉系统”，依次点击“查看建议并开始虚拟浇水” → “下一步：确认处方” → 勾选确认 → “确认并开始虚拟浇水”。结果卡应显示 `SUCCEEDED`、实际用水、土壤湿度上升和水库水位下降。两窗口均按 `Ctrl+C` 停止。
+
+只跑自动化验证时：
+
+```powershell
+Set-Location apps/web-ui; npm test; Set-Location ../..
+.\gradlew.bat :apps:api-service:test --no-daemon
+```
 
 关键配置：
 

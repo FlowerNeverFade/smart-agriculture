@@ -2163,6 +2163,263 @@
 .farmer-advice-chart-head { align-items: center; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-advice-moisture-chart .farmer-chart-svg { height: 112px; margin-top: 4px; }
 
+/* 更多工具：农户查看负责地块的管理员策略与未来风险预测 */
+.farmer-tools-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 5px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius-lg);
+  background: var(--g-bg-subtle);
+}
+.farmer-tools-tab {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--g-radius);
+  background: transparent;
+  color: var(--g-text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.farmer-tools-tab > span { color: var(--g-text-primary); font-size: 14px; font-weight: 700; }
+.farmer-tools-tab > small { margin-left: auto; font-size: 11px; }
+.farmer-tools-tab > .ph { color: var(--g-primary); font-size: 20px; }
+.farmer-tools-tab.active {
+  border-color: color-mix(in srgb, var(--g-primary) 32%, var(--g-border-subtle));
+  background: var(--g-bg-base);
+  box-shadow: var(--g-shadow-sm);
+}
+.farmer-tools-risk { display: grid; gap: 16px; }
+.farmer-risk-tool-card,
+.farmer-risk-tool-chart-card { min-width: 0; }
+.farmer-risk-tool-context {
+  display: grid;
+  grid-template-columns: minmax(220px, .72fr) minmax(240px, 1.28fr);
+  gap: 12px;
+  margin: 14px 0;
+}
+.farmer-risk-tool-context label,
+.farmer-risk-tool-field { display: grid; gap: 6px; }
+.farmer-risk-tool-context label > span,
+.farmer-risk-tool-field > span:first-child { color: var(--g-text-secondary); font-size: 12px; }
+.farmer-risk-tool-context select,
+.farmer-risk-tool-control input[type="number"] {
+  min-height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+  color: var(--g-text-primary);
+}
+.farmer-risk-tool-fact {
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  padding: 9px 12px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+.farmer-risk-tool-fact span,
+.farmer-risk-tool-fact small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-risk-tool-fact strong { color: var(--g-text-primary); font-size: 14px; }
+.farmer-risk-tool-scenarios {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 15px;
+}
+.farmer-risk-tool-scenario {
+  display: grid;
+  gap: 3px;
+  min-height: 70px;
+  padding: 9px 10px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.farmer-risk-tool-scenario > span { font-size: 18px; }
+.farmer-risk-tool-scenario strong { color: var(--g-text-primary); font-size: 12px; }
+.farmer-risk-tool-scenario small { font-size: 10px; line-height: 1.4; }
+.farmer-risk-tool-scenario.active {
+  border-color: color-mix(in srgb, var(--g-primary) 55%, var(--g-border));
+  background: color-mix(in srgb, var(--g-primary) 10%, var(--g-bg-base));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-primary) 18%, transparent);
+}
+.farmer-risk-tool-parameters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--g-border-subtle);
+}
+.farmer-risk-tool-field { min-width: 0; }
+.farmer-risk-tool-field > span:first-child { display: grid; gap: 2px; }
+.farmer-risk-tool-field b { color: var(--g-text-primary); font-size: 12px; }
+.farmer-risk-tool-field small { font-size: 10px; }
+.farmer-risk-tool-control {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 68px auto;
+  align-items: center;
+  gap: 7px;
+}
+.farmer-risk-tool-control input[type="range"] { width: 100%; accent-color: var(--g-primary); }
+.farmer-risk-tool-control input[type="number"] { width: 68px; min-width: 0; }
+.farmer-risk-tool-control em { min-width: 30px; color: var(--g-text-secondary); font-size: 10px; font-style: normal; }
+.farmer-risk-tool-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.farmer-risk-tool-chart-card .farmer-panel-header { margin-bottom: 4px; }
+.farmer-risk-tool-chart { padding: 8px 12px 4px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-subtle); }
+.farmer-risk-tool-chart .farmer-chart-svg { height: 300px; margin-top: 0; }
+.farmer-risk-tool-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 10px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+}
+
+/* 农户地块详情：管理员策略的只读镜像与策略预测曲线 */
+.farmer-plot-simulation-panel { margin-bottom: 20px; }
+.farmer-plot-simulation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  margin: -2px 0 12px;
+  color: var(--g-text-secondary);
+  font-size: 12px;
+}
+.farmer-plot-simulation-scenarios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.farmer-plot-simulation-scenario {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius-pill);
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  font-size: 12px;
+}
+.farmer-plot-simulation-scenario:is(button) {
+  font: inherit;
+  cursor: pointer;
+}
+.farmer-plot-simulation-scenario:is(button):hover {
+  border-color: color-mix(in srgb, var(--g-success) 45%, var(--g-border-subtle));
+}
+.farmer-plot-simulation-scenario.active {
+  border-color: color-mix(in srgb, var(--g-success) 55%, var(--g-border));
+  background: var(--g-success-bg);
+  color: var(--g-success);
+  font-weight: 700;
+}
+.farmer-plot-simulation-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, .42fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.farmer-plot-simulation-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.farmer-plot-simulation-params {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.farmer-plot-simulation-param {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+  color: var(--g-text-secondary);
+  font-size: 11px;
+}
+.farmer-plot-simulation-param strong { color: var(--g-text-primary); font-size: 14px; white-space: nowrap; }
+.farmer-plot-simulation-param small { margin-left: 3px; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; }
+.farmer-plot-simulation-chart {
+  min-width: 0;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+.farmer-plot-simulation-chart .farmer-chart-svg { height: 220px; margin-top: 0; }
+.farmer-plot-simulation-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--g-text-primary); font-size: 11px; font-weight: 600; }
+.farmer-plot-simulation-chart-title { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.farmer-plot-simulation-chart-title strong { font-size: 12px; font-weight: 650; white-space: nowrap; }
+.farmer-plot-simulation-chart-title small { color: var(--g-text-secondary); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.farmer-plot-simulation-metric-picker { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; }
+.farmer-plot-simulation-metric-picker select { min-height: 27px; padding: 3px 24px 3px 8px; border: 1px solid var(--g-border); border-radius: 6px; background: var(--g-bg-surface); color: var(--g-text-primary); font: 11px var(--g-font-sans, system-ui, sans-serif); }
+.farmer-plot-simulation-metric-picker select:focus-visible { outline: 2px solid color-mix(in srgb, var(--g-primary) 45%, transparent); outline-offset: 1px; }
+.farmer-plot-simulation-chart-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 220px;
+}
+.farmer-plot-simulation-chart-canvas { min-width: 0; }
+.farmer-plot-simulation-echarts { width: 100%; height: 220px; }
+.farmer-plot-simulation-chart-stage > .farmer-chart-loading.is-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  border-radius: var(--g-radius);
+  background: color-mix(in srgb, var(--g-bg-subtle) 62%, transparent);
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  pointer-events: none;
+}
+.farmer-plot-simulation-chart-stage > .farmer-chart-loading.is-soft {
+  background: color-mix(in srgb, var(--g-bg-subtle) 28%, transparent);
+}
+.farmer-plot-simulation-note { margin-top: 6px; font-size: 11px; }
+.farmer-plot-simulation-dual-toggle { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; color: var(--g-text-secondary); font-size: 10px; font-weight: 500; cursor: pointer; }
+.farmer-plot-simulation-dual-toggle input { accent-color: var(--g-primary); margin: 0; }
+.farmer-plot-simulation-dual-toggle small { color: var(--g-text-secondary); font-weight: 400; }
+.farmer-plot-simulation-dual-note { margin-top: 6px; font-size: 11px; }
+.farmer-plot-simulation-footer { align-items: center; margin-top: 12px; }
+
+@media (max-width: 760px) {
+  .farmer-tools-tabs { display: grid; }
+  .farmer-tools-tab > small { margin-left: auto; }
+  .farmer-risk-tool-context,
+  .farmer-risk-tool-parameters { grid-template-columns: 1fr; }
+  .farmer-risk-tool-scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-risk-tool-chart .farmer-chart-svg { height: 230px; }
+  .farmer-plot-simulation-grid { grid-template-columns: 1fr; }
+  .farmer-plot-simulation-chart .farmer-chart-svg { height: 190px; }
+  .farmer-plot-simulation-echarts { height: 190px; }
+  .farmer-plot-simulation-chart-stage { min-height: 190px; }
+  .farmer-plot-simulation-chart-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .farmer-plot-simulation-chart-title { flex-wrap: wrap; gap: 3px 8px; }
+  .farmer-plot-simulation-metric-picker { width: 100%; justify-content: space-between; }
+  .farmer-plot-simulation-metric-picker select { flex: 1; }
+}
+
 /* 灌溉页：建议反馈与案例学习独立卡片 */
 .farmer-learning-card .farmer-feedback-section .farmer-panel-header { margin-bottom: 6px; }
 .farmer-learning-card .farmer-feedback-section .farmer-advice-summary { margin: 0 0 10px; font-size: 13px; line-height: 1.6; }
@@ -2741,6 +2998,10 @@
 .farmer-danger-summary-head strong { color: var(--g-text-primary); font-size: 14px; }
 .farmer-danger-summary-head .material-symbols-outlined { font-size: 20px; }
 .farmer-danger-badge { margin-left: auto; padding: 3px 7px; border-radius: var(--g-radius-pill); background: var(--g-danger-bg); color: var(--g-danger); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.farmer-suggestion-emergency { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-warning) 38%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 72%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-suggestion-emergency > .material-symbols-outlined { flex: 0 0 auto; font-size: 20px; }
+.farmer-suggestion-emergency strong { display: block; color: var(--g-text-primary); font-size: 13px; }
+.farmer-suggestion-emergency p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-blocked { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border-radius: var(--g-radius); background: var(--g-warning-bg); color: var(--g-warning); }
 .farmer-suggestion-blocked > .material-symbols-outlined { font-size: 20px; }
 .farmer-suggestion-blocked strong { display: block; color: var(--g-text-primary); font-size: 13px; }
@@ -2797,6 +3058,138 @@
 .farmer-agent-audit article { display: grid; gap: 3px; padding: 7px; border-radius: 8px; background: var(--g-bg-subtle); }
 .farmer-agent-audit p { margin: 0; line-height: 1.45; }
 .farmer-agent-audit code { display: block; max-height: 74px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--g-text-secondary); font-size: 9px; }
+
+/* ============================================================
+   农智助手：农户专属单列对话与受控操作
+   ============================================================ */
+.farmer-agent-workspace { min-height: calc(100vh - var(--g-header-height, 64px) - 40px); display: flex; flex-direction: column; }
+.farmer-agent-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.farmer-agent-title-row { display: flex; align-items: center; gap: 12px; }
+.farmer-agent-title-row h2 { margin: 0; }
+.farmer-agent-title-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; background: var(--g-success-bg); color: var(--g-success); font-size: 23px; }
+.farmer-agent-toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.farmer-agent-service-status { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 999px; background: var(--g-success-bg); color: var(--g-success); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.farmer-agent-service-status.is-degraded { background: var(--g-warning-bg); color: var(--g-warning); }
+.farmer-agent-service-status.is-demo { background: var(--g-primary-bg); color: var(--g-primary); }
+.farmer-agent-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.farmer-agent-plot-picker { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-surface); color: var(--g-text-secondary); font-size: 12px; }
+.farmer-agent-plot-picker select { max-width: 150px; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; }
+.farmer-agent-toolbar-count { display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 10px; }
+.farmer-agent-shell { width: min(900px, 100%); flex: 1; margin: 0 auto; }
+.farmer-agent-chat-card { position: relative; display: flex; flex-direction: column; min-height: min(680px, calc(100vh - 205px)); max-height: calc(100vh - 170px); overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 18px; background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); }
+.farmer-agent-message-list { flex: 1; min-height: 360px; overflow-y: auto; padding: 28px clamp(16px, 5vw, 62px) 20px; scroll-behavior: smooth; }
+.farmer-agent-empty-state { display: grid; justify-items: center; gap: 9px; min-height: 430px; padding: 70px 10px 24px; text-align: center; }
+.farmer-agent-empty-icon { display: grid; width: 58px; height: 58px; place-items: center; border-radius: 20px; background: var(--g-success-bg); color: var(--g-success); font-size: 30px; }
+.farmer-agent-empty-state h3 { margin: 8px 0 0; font-size: 21px; font-weight: 600; }
+.farmer-agent-empty-state p { max-width: 460px; margin: 0; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
+.farmer-agent-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: min(610px, 100%); margin-top: 17px; }
+.farmer-agent-shortcuts button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: border-color .18s ease, transform .18s ease; }
+.farmer-agent-shortcuts button:hover { border-color: var(--g-success); transform: translateY(-1px); }
+.farmer-agent-shortcuts button > .material-symbols-outlined:first-child { color: var(--g-success); font-size: 18px; }
+.farmer-agent-shortcuts button > .material-symbols-outlined:last-child { color: var(--g-text-tertiary); font-size: 16px; }
+.farmer-agent-message { display: flex; margin: 0 0 22px; }
+.farmer-agent-message.is-user { justify-content: flex-end; }
+.farmer-agent-user-bubble { max-width: min(75%, 580px); padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-assistant-block { width: min(100%, 690px); }
+.farmer-agent-message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-avatar { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: var(--g-success-bg); color: var(--g-success); font-size: 14px; }
+.farmer-agent-message-meta strong { color: var(--g-text-primary); font-size: 12px; }
+.farmer-agent-message-meta .g-badge { font-size: 10px; }
+.farmer-agent-intent { padding: 2px 7px; border-radius: 999px; background: var(--g-bg-subtle); }
+.farmer-agent-answer { color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
+.farmer-agent-details-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.farmer-agent-details-button:hover { color: var(--g-success); }
+.farmer-agent-details-button .material-symbols-outlined { font-size: 17px; }
+.farmer-agent-action-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle)); border-radius: 14px; background: color-mix(in srgb, var(--g-primary-bg) 46%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-succeeded { border-color: color-mix(in srgb, var(--g-success) 36%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-success-bg) 45%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-failed,.farmer-agent-action-card.status-partial,.farmer-agent-action-card.status-timeout { border-color: color-mix(in srgb, var(--g-danger) 38%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-danger-bg) 30%, var(--g-bg-surface)); }
+.farmer-agent-action-card.status-canceled,.farmer-agent-action-card.status-expired { opacity: .78; }
+.farmer-agent-action-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.farmer-agent-action-heading { display: flex; align-items: center; gap: 9px; }
+.farmer-agent-action-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: var(--g-bg-surface); color: var(--g-primary); }
+.farmer-agent-action-heading strong,.farmer-agent-action-heading small { display: block; }
+.farmer-agent-action-heading strong { font-size: 13px; }
+.farmer-agent-action-heading small { margin-top: 2px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-risk-chip { padding: 3px 7px; border-radius: 999px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.farmer-agent-risk-chip.risk-low { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-agent-risk-chip.risk-high,.farmer-agent-risk-chip.risk-critical { background: var(--g-danger-bg); color: var(--g-danger); }
+.farmer-agent-action-summary { margin: 0; font-size: 13px; line-height: 1.55; }
+.farmer-agent-action-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.farmer-agent-action-facts > div { min-width: 0; padding: 8px 9px; border-radius: 9px; background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent); }
+.farmer-agent-action-facts dt { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-action-facts dd { margin: 3px 0 0; color: var(--g-text-primary); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.farmer-agent-action-hint { margin: 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.farmer-agent-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.farmer-agent-action-buttons .g-btn { min-height: 36px; }
+.farmer-agent-action-result { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12px; line-height: 1.5; }
+.farmer-agent-action-result.is-success { color: var(--g-success); }
+.farmer-agent-action-result.is-error { color: var(--g-danger); }
+.farmer-agent-action-result.is-muted { color: var(--g-text-secondary); }
+.farmer-agent-details { display: grid; gap: 11px; margin-top: 10px; padding: 12px; border: 1px dashed var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-subtle); }
+.farmer-agent-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.farmer-agent-detail-grid span { display: grid; gap: 3px; min-width: 0; }
+.farmer-agent-detail-grid small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-detail-grid strong,.farmer-agent-detail-grid code { color: var(--g-text-primary); font-size: 11px; overflow-wrap: anywhere; }
+.farmer-agent-evidence { display: grid; gap: 7px; }
+.farmer-agent-evidence > strong,.farmer-agent-audit > strong { font-size: 11px; }
+.farmer-agent-evidence ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.farmer-agent-evidence li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 7px; align-items: center; }
+.farmer-agent-evidence li > span { width: fit-content; padding: 2px 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 9px; }
+.farmer-agent-evidence li b { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-agent-evidence li small { grid-column: 2; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-audit { display: grid; gap: 6px; }
+.farmer-agent-audit article { display: grid; gap: 3px; padding: 7px; border-radius: 8px; background: var(--g-bg-surface); }
+.farmer-agent-audit article b { font-size: 10px; }
+.farmer-agent-audit article code,.farmer-agent-audit article small { color: var(--g-text-secondary); font-size: 9px; overflow-wrap: anywhere; }
+.farmer-agent-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin: 0 16px 15px; padding: 10px 11px 7px 15px; border: 1px solid var(--g-border); border-radius: 17px; background: var(--g-bg-base); }
+.farmer-agent-composer:focus-within { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 14%, transparent); }
+.farmer-agent-composer textarea { width: 100%; min-height: 25px; max-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; font-size: 14px; line-height: 1.55; }
+.farmer-agent-composer textarea::placeholder { color: var(--g-text-tertiary); }
+.farmer-agent-send-button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 12px; background: var(--g-primary); color: #fff; cursor: pointer; }
+.farmer-agent-send-button:disabled { opacity: .45; cursor: not-allowed; }
+.farmer-agent-send-button .material-symbols-outlined { font-size: 18px; }
+.farmer-agent-composer > small { grid-column: 1 / -1; color: var(--g-text-tertiary); font-size: 10px; }
+.farmer-agent-typing { display: flex; align-items: center; gap: 4px; margin: 0 0 14px 33px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--g-primary); animation: farmer-agent-bounce 1.2s infinite ease-in-out; }
+.farmer-agent-typing span:nth-child(2) { animation-delay: .15s; }.farmer-agent-typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes farmer-agent-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+.farmer-agent-typing small { margin-left: 5px; }
+.farmer-agent-inline-error { display: flex; align-items: center; gap: 7px; margin: 14px 16px 0; padding: 9px 11px; border-radius: 10px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 12px; }
+.farmer-agent-drawer-backdrop { position: fixed; z-index: 150; inset: var(--g-header-height, 64px) 0 0; background: rgba(15, 23, 42, .28); }
+.farmer-agent-history-drawer { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; width: min(380px, 90vw); height: 100%; border-left: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); box-shadow: -12px 0 32px rgba(15, 23, 42, .14); }
+.farmer-agent-history-drawer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 22px 18px 16px; border-bottom: 1px solid var(--g-border-subtle); }
+.farmer-agent-history-drawer > header strong,.farmer-agent-history-drawer > header small { display: block; }.farmer-agent-history-drawer > header strong { font-size: 18px; }.farmer-agent-history-drawer > header small { margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-agent-history-list { flex: 1; overflow-y: auto; padding: 10px; }
+.farmer-agent-history-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 12px 10px; border: 0; border-radius: 11px; background: transparent; color: var(--g-text-primary); font: inherit; text-align: left; cursor: pointer; }
+.farmer-agent-history-item:hover,.farmer-agent-history-item.active { background: var(--g-primary-bg); }.farmer-agent-history-item > span:last-child { display: grid; gap: 4px; min-width: 0; }.farmer-agent-history-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }.farmer-agent-history-item small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-agent-history-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--g-bg-subtle); color: var(--g-primary); }
+.farmer-agent-history-empty { display: grid; justify-items: center; align-content: center; flex: 1; gap: 8px; color: var(--g-text-secondary); text-align: center; }.farmer-agent-history-empty > .material-symbols-outlined { font-size: 32px; color: var(--g-text-tertiary); }.farmer-agent-history-empty p { margin: 0; color: var(--g-text-primary); font-size: 14px; }.farmer-agent-history-empty small { font-size: 11px; }
+.farmer-agent-history-drawer > footer { padding: 14px 16px 18px; border-top: 1px solid var(--g-border-subtle); }.farmer-agent-history-drawer > footer .g-btn { width: 100%; justify-content: center; }
+
+@media (max-width: 900px) {
+  .farmer-agent-page-header { flex-direction: column; }
+  .farmer-agent-toolbar { justify-content: flex-start; }
+  .farmer-agent-chat-card { min-height: calc(100vh - 255px); max-height: calc(100vh - 210px); }
+}
+@media (max-width: 560px) {
+  .farmer-agent-message-list { padding: 20px 13px 14px; }
+  .farmer-agent-empty-state { min-height: 390px; padding-top: 55px; }
+  .farmer-agent-shortcuts { grid-template-columns: 1fr; }
+  .farmer-agent-user-bubble { max-width: 88%; }
+  .farmer-agent-action-facts,.farmer-agent-detail-grid { grid-template-columns: 1fr 1fr; }
+  .farmer-agent-toolbar { width: 100%; }
+  .farmer-agent-plot-picker { flex: 1 1 180px; }.farmer-agent-plot-picker select { max-width: none; flex: 1; }
+  .farmer-agent-toolbar .g-btn { flex: 1 1 auto; justify-content: center; }
+}
+@media (max-width: 390px) {
+  .farmer-agent-page-header { gap: 12px; }.farmer-agent-title-icon { width: 36px; height: 36px; border-radius: 11px; font-size: 20px; }
+  .farmer-agent-title-row h2 { font-size: 21px; }.farmer-agent-title-row .role-summary { font-size: 11px; }
+  .farmer-agent-toolbar { gap: 6px; }.farmer-agent-service-status { order: 3; }.farmer-agent-plot-picker { flex-basis: 100%; }
+  .farmer-agent-chat-card { min-height: calc(100vh - 275px); max-height: calc(100vh - 230px); border-radius: 14px; }
+  .farmer-agent-composer { margin: 0 9px 10px; padding-left: 11px; border-radius: 14px; }
+  .farmer-agent-history-drawer { width: 100%; }.farmer-agent-action-facts,.farmer-agent-detail-grid { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 760px) {
   .farmer-evidence-grid,.farmer-irrigation-guard,.farmer-execution-evidence,.farmer-dual-track-summary { grid-template-columns: 1fr; }
@@ -3223,4 +3616,502 @@
   #farmer_app :is(.g-card, .farmer-stat-card, .farmer-plot-overview-card, .farmer-message-list, .farmer-message-detail, .farmer-task-column) {
     border: 1px solid CanvasText;
   }
+}
+
+/* Farmer workspace settings ------------------------------------------------ */
+.farmer-settings-page { display: grid; gap: 20px; }
+.farmer-settings-page .farmer-page-header { align-items: flex-start; }
+.farmer-settings-page .farmer-page-header > .g-badge { margin-top: 4px; }
+.farmer-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.farmer-settings-card { display: grid; gap: 18px; padding: 20px; }
+.farmer-settings-card > .farmer-panel-header > .ph { color: var(--g-primary); font-size: 21px; }
+.farmer-settings-field { display: grid; gap: 9px; }
+.farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
+.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
+.farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
+.farmer-settings-accent.active { background: color-mix(in srgb, var(--swatch) 12%, var(--farmer-glass-cell, var(--g-bg-base))); }
+.farmer-settings-accent i { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; background: var(--swatch); }
+.farmer-settings-accent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-settings-inline-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.farmer-settings-select { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 11px; font-weight: 600; }
+.farmer-settings-select select { min-height: 36px; padding: 6px 26px 6px 9px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-control, var(--g-bg-base)); color: var(--g-text-primary); font: 12px var(--g-font-family); }
+.farmer-settings-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 9px; cursor: pointer; }
+.farmer-settings-check input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--g-primary); }
+.farmer-settings-check strong { display: block; color: var(--g-text-primary); font-size: 12px; font-weight: 600; }
+.farmer-settings-check small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
+.farmer-settings-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--farmer-glass-outline, var(--g-border))); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 64%, var(--farmer-glass-cell, var(--g-bg-base))); color: var(--g-text-secondary); font-size: 10px; line-height: 1.5; }
+.farmer-settings-note .ph { flex: 0 0 auto; color: var(--g-primary); font-size: 15px; }
+.farmer-settings-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 3px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-settings-actions span { text-align: right; }
+@media (max-width: 900px) { .farmer-settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  .farmer-settings-choice-row { grid-template-columns: 1fr; }
+  .farmer-settings-accent-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-settings-inline-fields { grid-template-columns: 1fr; }
+  .farmer-settings-actions { align-items: flex-start; flex-direction: column; }
+  .farmer-settings-actions span { text-align: left; }
+}
+
+/* User-selectable surface material -----------------------------------------
+ * The default `classic` preset is the light farm-manager material from
+ * main@4e9326a.  Keep the farmer's green semantic accents while sharing the
+ * same translucent surfaces, edge highlights and compact shell.
+ */
+html[data-surface-style="classic"] #farmer_app {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface-strong);
+  --g-bg-subtle: var(--agriloop-appearance-surface-soft);
+  --g-bg-hover: var(--agriloop-appearance-hover);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
+  --farmer-glass-surface: var(--agriloop-appearance-surface);
+  --farmer-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --farmer-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --farmer-glass-cell: var(--agriloop-appearance-cell);
+  --farmer-glass-edge: var(--agriloop-appearance-edge);
+  --farmer-glass-outline: var(--agriloop-appearance-border);
+  --farmer-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --farmer-glass-shadow: var(--agriloop-appearance-shadow-1);
+  --farmer-glass-shadow-raised: var(--agriloop-appearance-shadow-2);
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-card, .farmer-stat-card, .farmer-plot-overview-card,
+  .farmer-message-list, .farmer-message-detail, .farmer-task-column,
+  .farmer-task-detail, .farmer-form-card, .farmer-ai-consult,
+  .farmer-profile-popover, .account-profile-popover, .farmer-risk-mini-card,
+  .farmer-metric-chart, .farmer-moisture-chart-card, .farmer-device-card,
+  .farmer-priority-panel, .farmer-cm-card
+) {
+  background: var(--farmer-glass-surface) !important;
+  box-shadow: var(--farmer-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .farmer-mini-item, .farmer-task-card, .farmer-metric-item,
+  .farmer-metric-chart, .farmer-shared-tools-entry, .farmer-shared-tool-card,
+  .farmer-case-item, .farmer-priority-item, .farmer-cm-summary,
+  .farmer-cm-metric, .farmer-suggestion-facts > div, .farmer-weather-controls,
+  .farmer-allocation-detail, .farmer-ai-consult-details, .farmer-ai-decision-card
+) {
+  background: var(--farmer-glass-cell) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-btn, .farmer-account-trigger, .farmer-message-filter-btn,
+  .farmer-chart-range-btn
+) {
+  background: var(--agriloop-appearance-control) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+
+/* Keep semantic actions readable after the classic material applies its
+ * neutral glass control to ordinary buttons.  Primary actions and selected
+ * filters must retain their role colour instead of becoming white-on-white. */
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):not(:disabled) {
+  border-color: color-mix(in srgb, var(--g-success) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .20), rgba(255, 255, 255, .02) 52%, rgba(0, 55, 29, .18)), var(--g-success) !important;
+  color: #fff !important;
+  box-shadow: 0 11px 26px color-mix(in srgb, var(--g-success) 27%, transparent), inset 0 1px 0 rgba(255, 255, 255, .42), inset 0 -1px 0 rgba(0, 54, 28, .30) !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .28) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):not(:disabled):hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .27), rgba(255, 255, 255, .03) 52%, rgba(0, 55, 29, .15)), var(--g-primary-hover) !important;
+  color: #fff !important;
+  box-shadow: 0 15px 32px color-mix(in srgb, var(--g-success) 34%, transparent), inset 0 1px 0 rgba(255, 255, 255, .50), inset 0 -1px 0 rgba(0, 54, 28, .27) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.g-btn.primary, .farmer-btn-analyze):disabled {
+  border-color: color-mix(in srgb, var(--g-success) 24%, var(--agriloop-appearance-border)) !important;
+  background: var(--g-success-bg) !important;
+  color: color-mix(in srgb, var(--g-success) 72%, var(--g-text-secondary)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .54) !important;
+  text-shadow: none !important;
+  opacity: .72;
+}
+
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-all.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-all.active:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-primary), color-mix(in srgb, var(--g-primary) 78%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-alert.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-alert.active:hover {
+  border-color: color-mix(in srgb, var(--g-danger) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-danger), color-mix(in srgb, var(--g-danger) 76%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(64, 5, 5, .22) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-task.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-task.active:hover {
+  border-color: color-mix(in srgb, var(--g-warning) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, #f3bd66, #d99a39) !important;
+  color: #3b290c !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .30) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-notice.active,
+html[data-surface-style="classic"] #farmer_app .farmer-message-filter-btn.filter-notice.active:hover {
+  border-color: color-mix(in srgb, var(--g-success) 72%, rgba(255, 255, 255, .72)) !important;
+  background: linear-gradient(135deg, var(--g-success), color-mix(in srgb, var(--g-success) 76%, #000)) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
+
+html[data-surface-style="classic"] #farmer_app .farmer-chart-range-btn.active,
+html[data-surface-style="classic"] #farmer_app .farmer-chart-range-btn.active:hover {
+  border-color: color-mix(in srgb, var(--g-success) 62%, rgba(255, 255, 255, .72)) !important;
+  background: var(--g-success) !important;
+  color: #fff !important;
+  text-shadow: 0 1px 1px rgba(0, 45, 24, .24) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-input, .g-select, .farmer-question-form input,
+  .farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
+  .farmer-form-card select, .farmer-form-card textarea,
+  .farmer-ai-consult-form textarea, .farmer-weather-controls input
+) {
+  background: var(--farmer-glass-cell) !important;
+  border-color: var(--farmer-glass-control-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+
+html[data-surface-style="glass-soft"] #farmer_app {
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(241, 229, 194, .28), transparent 38%),
+    linear-gradient(145deg, #c1d7c8 0%, #e1e9df 48%, #b9d3c2 100%) !important;
+}
+html[data-theme="dark"][data-surface-style="glass-soft"] #farmer_app {
+  background: linear-gradient(145deg, #263e33 0%, #33493e 52%, #253d33 100%) !important;
+}
+html[data-surface-style="glass-soft"] #farmer_app :is(
+  .farmer-header, .farmer-sidebar, .g-card, .farmer-stat-card,
+  .farmer-plot-overview-card, .farmer-task-column, .farmer-form-card
+) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+}
+
+/* The style cards remain readable on both themes and on narrow screens. */
+.farmer-settings-surface-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.farmer-settings-surface-choice { display: grid; gap: 3px; min-height: 58px; text-align: left; }
+.farmer-settings-surface-choice small { color: var(--g-text-secondary); font-size: 9px; line-height: 1.3; }
+.farmer-settings-surface-choice.active small { color: inherit; opacity: .78; }
+@media (max-width: 520px) {
+  .farmer-settings-surface-row { grid-template-columns: 1fr; }
+}
+
+/* Unified compact sidebar geometry for the standalone farmer workspace.  It
+ * mirrors /srv/system-admin while retaining the first reference image's
+ * glass material and the farmer's green cues. */
+#farmer_app .farmer-sidebar {
+  width: var(--g-sidebar-width, 210px);
+  padding: 12px;
+  background: rgba(246, 251, 248, .72);
+  border-right: 1px solid rgba(55, 89, 69, .16);
+  box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
+  -webkit-backdrop-filter: blur(30px) saturate(128%);
+  backdrop-filter: blur(30px) saturate(128%);
+}
+#farmer_app .farmer-nav-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+#farmer_app .farmer-nav-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 0;
+}
+#farmer_app .farmer-nav-item {
+  --sidebar-accent: #2f8b5c;
+  min-height: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0 16px;
+  gap: 16px;
+  border: 1px solid rgba(71, 102, 85, .14);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
+  box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
+  color: var(--g-text-primary);
+  font: 500 14px/1 var(--g-font-family);
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+html[data-density="compact"] #farmer_app .farmer-nav-item {
+  min-height: 40px;
+  height: 40px;
+  gap: 12px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+#farmer_app .farmer-nav-item .ph,
+#farmer_app .farmer-nav-item .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--sidebar-accent);
+  font-size: 21px;
+}
+#farmer_app .farmer-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#farmer_app .farmer-nav-item:hover {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 28%, rgba(71, 102, 85, .16));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .98), color-mix(in srgb, var(--sidebar-accent) 8%, rgba(237, 246, 240, .72)));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--sidebar-accent) 12%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  transform: translateY(-1px);
+}
+#farmer_app .farmer-nav-item.active {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 48%, rgba(102, 75, 190, .22));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 13%, #fff), color-mix(in srgb, var(--sidebar-accent) 7%, #f5f1ff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--sidebar-accent) 15%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  color: var(--sidebar-accent);
+}
+#farmer_app .farmer-nav-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sidebar-accent) 34%, transparent);
+  outline-offset: 2px;
+}
+#farmer_app .farmer-nav-item[data-nav="tasks"] { --sidebar-accent: #3f7fe5; }
+#farmer_app .farmer-nav-item[data-nav="inspections"] { --sidebar-accent: #7657c4; }
+#farmer_app .farmer-nav-item[data-nav="advice"] { --sidebar-accent: #198c68; }
+#farmer_app .farmer-nav-item[data-nav="messages"] { --sidebar-accent: #5573c7; }
+#farmer_app .farmer-nav-item[data-nav="tools"],
+#farmer_app .farmer-nav-item[data-nav="settings"] { --sidebar-accent: #2f8b5c; }
+[data-theme="dark"] #farmer_app .farmer-sidebar {
+  background: rgba(26, 43, 35, .84);
+  border-right-color: rgba(221, 241, 229, .20);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .22), inset -1px 0 0 rgba(255, 255, 255, .08);
+}
+[data-theme="dark"] #farmer_app .farmer-nav-item {
+  border-color: rgba(226, 241, 232, .17);
+  background: linear-gradient(145deg, rgba(59, 83, 70, .78), rgba(35, 58, 46, .84));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .10);
+}
+[data-theme="dark"] #farmer_app .farmer-nav-item.active {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 24%, #304639), color-mix(in srgb, var(--sidebar-accent) 12%, #20372b));
+}
+html[data-surface-style="classic"] #farmer_app .farmer-sidebar,
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
+  background: var(--agriloop-appearance-sidebar) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
+  background: var(--agriloop-appearance-control) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item.active {
+  background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--farmer-glass-control-outline)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
+  color: var(--sidebar-accent);
+}
+html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
+  background: rgba(241, 248, 244, .66);
+  box-shadow: 8px 0 24px rgba(31, 73, 51, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
+  -webkit-backdrop-filter: blur(16px) saturate(116%);
+  backdrop-filter: blur(16px) saturate(116%);
+}
+[data-theme="dark"][data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
+  background: rgba(35, 57, 46, .78);
+}
+@media (max-width: 760px) {
+  #farmer_app .farmer-sidebar { width: 230px; padding: 12px; }
+  #farmer_app .farmer-sidebar.collapsed { width: 230px; padding: 12px; }
+  #farmer_app .farmer-nav-item { min-height: 48px; height: 48px; padding-inline: 16px; }
+}
+
+/* ============================================================
+   农户首页信息层级：行动 → 风险 → 地块 → 辅助信息 → 动态
+   ============================================================ */
+.farmer-dashboard-workspace {
+  display: flex;
+  flex-direction: column;
+}
+.farmer-dashboard-workspace > .farmer-dashboard-hero-grid { order: 1; }
+.farmer-dashboard-workspace > .farmer-stats-grid { order: 2; }
+.farmer-dashboard-workspace > .farmer-plots-panel { order: 3; }
+.farmer-dashboard-workspace > .farmer-insight-grid { order: 4; }
+.farmer-dashboard-workspace > .farmer-activity-panel { order: 5; }
+.farmer-dashboard-workspace > .farmer-shared-tools-entry { order: 6; }
+
+.farmer-dashboard-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, .85fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.farmer-dashboard-hero-grid > * { min-width: 0; }
+.farmer-dashboard-hero-grid .farmer-priority-panel,
+.farmer-dashboard-hero-grid .farmer-risk-summary { margin-bottom: 0; }
+.farmer-dashboard-hero-grid .farmer-priority-panel { background: var(--g-bg-surface); }
+
+.farmer-risk-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px;
+  border-color: color-mix(in srgb, var(--g-danger) 25%, var(--g-border-subtle));
+  background: color-mix(in srgb, var(--g-danger-bg) 18%, var(--g-bg-surface));
+}
+.farmer-risk-summary .farmer-panel-header { margin-bottom: 12px; }
+.farmer-risk-summary-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 14px;
+}
+.farmer-risk-summary-total strong {
+  color: var(--g-text-primary);
+  font-size: 32px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.farmer-risk-summary-total span { color: var(--g-text-secondary); font-size: 12px; }
+.farmer-risk-summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.farmer-risk-summary-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, var(--g-border-subtle) 76%, transparent);
+}
+.farmer-risk-summary-list li > .material-symbols-outlined { color: var(--g-warning); font-size: 19px; }
+.farmer-risk-summary-list li:first-child > .material-symbols-outlined { color: var(--g-danger); }
+.farmer-risk-summary-list li:last-child > .material-symbols-outlined { color: var(--g-primary); }
+.farmer-risk-summary-list b { display: block; color: var(--g-text-primary); font-size: 12px; }
+.farmer-risk-summary-list small { display: block; margin-top: 2px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.4; }
+.farmer-risk-summary-action {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.farmer-dashboard-workspace > .farmer-stats-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-card {
+  gap: 9px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--g-shadow-1);
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-icon {
+  padding: 5px;
+  border-radius: 9px;
+  font-size: 21px;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-value { font-size: 20px; }
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-label { margin-top: 1px; font-size: 11px; }
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-arrow { font-size: 16px; }
+
+.farmer-dashboard-workspace > .farmer-plots-panel { margin-bottom: 20px; }
+.farmer-dashboard-workspace > .farmer-insight-grid { margin-bottom: 20px; }
+
+.farmer-activity-panel {
+  min-width: 0;
+  margin-bottom: 20px;
+}
+.farmer-activity-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.farmer-activity-actions .g-btn { min-height: 32px; padding: 0 10px; font-size: 11px; }
+.farmer-activity-list { display: grid; gap: 6px; }
+.farmer-activity-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.farmer-activity-item:hover,
+.farmer-activity-item:focus-visible { border-color: var(--g-primary); background: var(--g-primary-bg); transform: translateY(-1px); }
+.farmer-activity-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--g-primary-bg);
+  color: var(--g-primary);
+}
+.farmer-activity-item.kind-TASK .farmer-activity-icon { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-activity-content { display: grid; min-width: 0; gap: 2px; }
+.farmer-activity-content strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.farmer-activity-content small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-activity-arrow { color: var(--g-text-secondary); font-size: 17px; opacity: .75; }
+
+@media (max-width: 980px) {
+  .farmer-dashboard-hero-grid { grid-template-columns: minmax(0, 1.25fr) minmax(250px, .9fr); }
+}
+@media (max-width: 900px) {
+  .farmer-dashboard-hero-grid { grid-template-columns: 1fr; }
+  .farmer-risk-summary { min-height: 0; }
+}
+@media (max-width: 760px) {
+  .farmer-dashboard-workspace > .farmer-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-activity-item { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .farmer-activity-arrow { display: none; }
+}
+@media (max-width: 520px) {
+  .farmer-dashboard-hero-grid { gap: 12px; }
+  .farmer-risk-summary,
+  .farmer-dashboard-hero-grid .farmer-priority-panel { padding: 14px; }
+  .farmer-activity-panel .farmer-panel-header { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .farmer-activity-actions { width: 100%; }
+  .farmer-activity-actions .g-btn { flex: 1 1 auto; }
 }

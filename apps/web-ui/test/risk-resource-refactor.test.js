@@ -71,7 +71,7 @@ test('resource helpers rank risk, expose quota facts, merge shortages, and requi
   assert.equal(validateResourceAdjustment({ requestedLitres: 30, windowStart: '08:00', windowEnd: '09:00', reason: '高风险优先' }), '');
 });
 
-test('independent risk routes are retired while legacy links fall back safely', async () => {
+test('risk prediction is grouped under farmer tools while admin stays on shared routes', async () => {
   assert.ok(!roleViews('FARM_ADMIN').includes('risk-forecast'));
   assert.ok(!roleViews('FARMER').includes('risk-forecast'));
   assert.deepEqual(legacyAdminTabTarget('risk-forecast', '', 'farm-demo'), { view: 'dashboard', params: { farmId: 'farm-demo' } });
@@ -81,10 +81,13 @@ test('independent risk routes are retired while legacy links fall back safely', 
   const farmerHtml = await readFile(new URL('../farmer.html', import.meta.url), 'utf8');
   assert.doesNotMatch(app, /RiskForecastView|localPreviewCurve|risk-forecast-view/);
   assert.doesNotMatch(index, /tmpl-risk-forecast/);
-  assert.doesNotMatch(farmerHtml, /tools_tab === 'risk'|打开风险预警/);
-  assert.match(farmer, /tools\(\?:\\\/risk\|\\\?tab=risk\)/);
-  assert.match(farmer, /replaceState\(null, '', '#dashboard'\)/);
-  assert.match(farmer, /const apply_farmer_hash = \(\) => \{[\s\S]*?tools\(\?:\\\/risk\|\\\?tab=risk\)[\s\S]*?replaceState\(null, '', '#dashboard'\)/);
+  assert.match(farmerHtml, /tools_tab === 'risk'/);
+  assert.match(farmerHtml, /历史 \+ 策略预测/);
+  assert.match(farmerHtml, /打开地块详情/);
+  assert.match(farmer, /const match = raw\.match\(\/\^tools/);
+  assert.match(farmer, /return \['risk', 'manual'\]\.includes\(tab\) \? tab : 'manual'/);
+  assert.match(farmer, /const plot_simulation_forecast = ref\(null\)/);
+  assert.match(farmer, /api\.getRiskForecast/);
 });
 
 test('plot detail uses debounced backend preview and stale-response sequencing', async () => {

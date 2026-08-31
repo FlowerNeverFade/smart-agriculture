@@ -36,6 +36,21 @@
   background: var(--g-bg-subtle);
 }
 
+.admin-alert-readonly-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 10px;
+  color: var(--g-text-secondary);
+  background: var(--g-bg-subtle);
+  font-size: 12px;
+}
+
+.admin-alert-readonly-hint .material-symbols-outlined { font-size: 17px; color: var(--g-primary); }
+
 .admin-alert-ai-summary {
   display: flex;
   align-items: center;

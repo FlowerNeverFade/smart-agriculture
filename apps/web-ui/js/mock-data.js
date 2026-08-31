@@ -3,6 +3,8 @@
  * Matches backend contracts and domain schemas
  */
 
+import { EXTENDED_CROP_PACK_DETAILS } from './crop-guidance-extended.js';
+
 export const MOCK_DATA = {
   system: {
     mode: "standalone",
@@ -680,13 +682,20 @@ export const MOCK_DATA = {
   ],
 
   resourceProfile: {
+    resourceProfileId: "water-farm-demo",
     resourcePlanId: "resource-default",
+    farmId: "farm-demo",
     resourceType: "WATER (示范农场集中蓄水池)",
     capacityLitres: 900.0,
-    dailyLimitLitres: 5000.0,
-    usedTodayLitres: 1240.0,
-    remainingLitres: 3760.0,
+    dailyQuotaLitres: 900.0,
+    dailyLimitLitres: 900.0,
+    usedTodayLitres: 180.0,
+    actualUsedLitres: 180.0,
+    reservedLitres: 0.0,
+    remainingLitres: 720.0,
     flowRateLitresPerMinute: 18.0,
+    timezone: "Asia/Shanghai",
+    futureQuotas: [],
     activeConflicts: 0,
     status: "FEASIBLE"
   },
@@ -753,6 +762,26 @@ export const MOCK_DATA = {
       rulesCount: 2,
       knowledgeDocs: ["knowledge/irrigation.md"],
       description: "向日葵耐旱怕涝，现蕾至开花为需水临界期，土壤湿度 50%~65% 最佳，过湿易倒伏感病。"
+    },
+    {
+      cropCode: "lettuce",
+      name: "生菜 (Lettuce)",
+      version: "1.0.0",
+      ruleVersion: "rule-1.0.0",
+      stages: ["育苗期", "叶簇生长期", "结球/采收前期", "采收期"],
+      rulesCount: 3,
+      knowledgeDocs: ["知识/生菜设施栽培技术要领", "农业农村部·2025年夏季蔬菜生产技术指导意见"],
+      description: "生菜喜凉，根区保持湿润通气；高温期通风遮阳，低温阴雨期控水排湿，避免徒长和病害。"
+    },
+    {
+      cropCode: "eggplant",
+      name: "茄子 (Eggplant)",
+      version: "1.0.0",
+      ruleVersion: "rule-1.0.0",
+      stages: ["育苗期", "营养生长期", "开花坐果期", "结果采收期"],
+      rulesCount: 3,
+      knowledgeDocs: ["北京市农业技术推广站·春季大棚茄子生产前期技术要点", "农业农村部·2025年夏季蔬菜生产技术指导意见"],
+      description: "茄子缓苗后逐步通风，开花坐果期适度控水，结果期清晨或傍晚少量多次供水并及时排湿。"
     }
   ],
 
@@ -781,7 +810,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -860,7 +889,7 @@ export const MOCK_DATA = {
         { code: "WATER_LEVEL", label: "水箱水位", unit: "%", availability: "SUPPORTED", range: { min: 0, max: 100 } }
       ],
       rules: [
-        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+        { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
         { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
         { code: "COLD_STRESS", metric: "AIR_TEMPERATURE", operator: "LT", durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
       ],
@@ -1133,7 +1162,8 @@ export const MOCK_DATA = {
       ] },
       scenarios: { normal: { quality: "GOOD", expected: "stable" }, drought: { quality: "GOOD", expected: "soil_moisture_decline" }, "heavy-rain": { quality: "GOOD", expected: "soil_moisture_rise" }, "sensor-drift": { quality: "DEGRADED", expected: "quality_gate" }, "device-offline": { quality: "BAD", expected: "device_gate" } },
       testCases: ["normal", "drought", "heavy-rain", "sensor-drift", "device-offline"]
-    }
+    },
+    ...EXTENDED_CROP_PACK_DETAILS
   ],
 
   riskForecastConfig: {
@@ -1237,13 +1267,13 @@ export const MOCK_DATA = {
 
 
   adminGlobalPlots: [
-    { id: 'plot-a01', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
-    { id: 'plot-a02', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
-    { id: 'plot-b01', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
-    { id: 'plot-a03', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
-    { id: 'plot-b02', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
-    { id: 'plot-b03', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
-    { id: 'plot-c01', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
+    { id: 'plot-a01', name: '一区', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
+    { id: 'plot-a02', name: '二区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
+    { id: 'plot-b01', name: '三区', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
+    { id: 'plot-a03', name: 'A03 展厅', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
+    { id: 'plot-b02', name: 'B02 水培区', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
+    { id: 'plot-b03', name: 'B03 草莓新品区', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
+    { id: 'plot-c01', name: 'C01 区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
   ],
 
   adminOverview: {
@@ -1254,7 +1284,7 @@ export const MOCK_DATA = {
     alerts: { open: 3, acknowledged: 1, closedToday: 7 },
     devices: { total: 12, online: 10, offline: 2 },
     simulator: {
-      running: true, scenario: 'NORMAL', eventsEmitted: 1847, startTime: '2026-08-25 08:00',
+      running: true, scenario: 'NORMAL', eventsEmitted: 1847, sampleIntervalSeconds: 20, timeScale: 144, startTime: '2026-08-25 08:00',
       history: [
         { id: 'sim-802', scenarioId: 'DROUGHT', timestamp: '2026-08-24 15:30', eventsEmitted: 450, status: 'COMPLETED' },
         { id: 'sim-803', scenarioId: 'STORM', timestamp: '2026-08-24 17:10', eventsEmitted: 210, status: 'ABORTED' },
@@ -1267,7 +1297,7 @@ export const MOCK_DATA = {
       { name: 'MQTT Broker', status: 'UP', connections: 8, messagesPerSec: 45 },
       { name: 'SSE Gateway', status: 'UP', activeSessions: 3 },
       { name: 'API Service', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
-      { name: 'Qwen LLM', status: 'DEGRADED', mode: 'rules-only', lastCall: '2026-08-25 11:23' }
+      { name: '智能模型服务', status: 'UP', mode: 'full' }
     ],
     recentEvents: [
       { id: 'ev-01', category: 'alert', icon: 'warning', title: 'plot-a01 · 土壤湿度低于阈值（14%）', time: '11:45', traceId: 'trace-001' },
@@ -1656,7 +1686,7 @@ export const MOCK_DATA = {
       },
       stageRules: {
         fruiting: [
-          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 120 },
+          { code: "WATER_DEFICIT", metric: "SOIL_MOISTURE", operator: "LT", threshold: 20, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8 },
           { code: "HEAT_STRESS", metric: "AIR_TEMPERATURE", operator: "GT", threshold: 35, cooldownMinutes: 60 }
         ]
       },

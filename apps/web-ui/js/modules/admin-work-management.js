@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260828-v58';
-import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260827-work-order-flow-v3';
-import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260828-v58';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
+import { api } from '../api.js?v=20260831-ai-role-v1';
+import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260831-three-branch-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-three-branch-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260831-three-branch-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260831-ai-role-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -27,6 +27,10 @@ export const AdminWorkManagementView = {
     const showPlanCreate = ref(false);
     const showPlanDetail = ref(false);
     const showPackDetail = ref(false);
+    const showPackCreate = ref(false);
+    const packSection = ref('models');
+    const packCreateMode = ref('DRAFT');
+    const packForm = ref({ cropCode: '', version: '1.0.0', name: '', variety: '', region: '', stagesJson: '[{"code":"seedling","label":"苗期","sequence":1,"target":{}}]', rulesJson: '[]', tasksJson: '[]', knowledgeJson: '[]' });
     const form = ref({ plotId: '', cropCode: '', plantedAt: todayInput(), plannedCycleDays: 120 });
     const farmId = computed(() => props.state.adminContext?.farmId || '');
     const activePlots = computed(() => (props.state.allPlots || props.state.plots || []).filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'));
@@ -51,6 +55,7 @@ export const AdminWorkManagementView = {
     const closePlanCreate = () => { if (!busy.value) showPlanCreate.value = false; };
     const closePlanDetail = () => { if (!busy.value) showPlanDetail.value = false; };
     const closePackDetail = () => { showPackDetail.value = false; };
+    const closePackCreate = () => { if (!busy.value) showPackCreate.value = false; };
     const closePlanCreateOnBackdrop = event => {
       if (event.target === event.currentTarget) closePlanCreate();
     };
@@ -65,16 +70,51 @@ export const AdminWorkManagementView = {
       if (showPlanCreate.value) closePlanCreate();
       else if (showPlanDetail.value) closePlanDetail();
       else if (showPackDetail.value) closePackDetail();
+      else if (showPackCreate.value) closePackCreate();
     };
     const closeDialogs = () => {
       showPlanCreate.value = false;
       showPlanDetail.value = false;
       showPackDetail.value = false;
+      showPackCreate.value = false;
     };
     const openPlanCreate = () => { showPlanCreate.value = true; };
     const openPackDetail = (pack) => {
       selectedPackCode.value = pack.cropCode;
       showPackDetail.value = true;
+    };
+    const openPackCreate = () => { packForm.value = { cropCode: '', version: '1.0.0', name: '', variety: '', region: '', stagesJson: '[{"code":"seedling","label":"苗期","sequence":1,"target":{}}]', rulesJson: '[]', tasksJson: '[]', knowledgeJson: '[]' }; showPackCreate.value = true; };
+    const validateSelectedPack = async () => {
+      if (!selectedPack.value?.farmId || selectedPack.value.farmId !== farmId.value || busy.value) return;
+      busy.value = true;
+      try { const result = await api.validateFarmCropPack(farmId.value, selectedPack.value.cropCode, selectedPack.value.version); toast(result.valid ? '作物包校验通过，可以启用' : `校验未通过：${(result.errors || []).join('、')}`, result.valid ? 'success' : 'error'); }
+      catch (error) { toast(error.message || '作物包校验失败', 'error'); }
+      finally { busy.value = false; }
+    };
+    const activateSelectedPack = async () => {
+      if (!selectedPack.value?.farmId || selectedPack.value.farmId !== farmId.value || busy.value) return;
+      busy.value = true;
+      try { const result = await api.activateFarmCropPack(farmId.value, selectedPack.value.cropCode, selectedPack.value.version, { expectedRevision: selectedPack.value.revision }); emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview'], record: result }); toast('作物包已启用，地块、计划和告警规则将统一使用新版本'); showPackDetail.value = false; }
+      catch (error) { toast(error.message || '作物包启用失败', 'error'); }
+      finally { busy.value = false; }
+    };
+    const transitionCandidate = async (candidate, target) => {
+      const id = candidate?.candidateId || candidate?.id; if (!id || busy.value) return;
+      busy.value = true;
+      try { await api.transitionStrategyCandidate(id, target, { expectedRevision: candidate.revision, idempotencyKey: `strategy:${id}:${target}` }); emit('data-invalidated', { domains: ['alerts', 'overview'], record: candidate }); toast(target === 'ACTIVE' ? '学习策略已启用；相似告警将生成待确认决策预览' : `学习策略已${target === 'REJECTED' ? '拒绝' : '批准'}`); }
+      catch (error) { toast(error.message || '学习策略状态更新失败', 'error'); }
+      finally { busy.value = false; }
+    };
+    const submitPackCreate = async (event) => {
+      event?.preventDefault();
+      if (!farmId.value || !packForm.value.cropCode || !packForm.value.name || !packForm.value.variety) { toast('请填写作物编号、名称和品种', 'error'); return; }
+      const parse = (value, fallback) => { try { const parsed = JSON.parse(value); return parsed; } catch { toast('阶段、规则、任务或知识 JSON 格式不正确', 'error'); return fallback; } };
+      const stages = parse(packForm.value.stagesJson, null); const rules = parse(packForm.value.rulesJson, null); const taskTemplates = parse(packForm.value.tasksJson, null); const knowledge = parse(packForm.value.knowledgeJson, null); if (!stages || !rules || !taskTemplates || !knowledge) return;
+      busy.value = true;
+      try {
+        const created = await api.createFarmCropPack(farmId.value, { cropCode: packForm.value.cropCode, version: packForm.value.version || '1.0.0', identity: { name: packForm.value.name, variety: packForm.value.variety, region: packForm.value.region }, stages, rules, taskTemplates, knowledge });
+        showPackCreate.value = false; emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview'], record: created }); toast('作物包草稿已保存，可在校验通过后启用');
+      } catch (error) { toast(error.message || '作物包保存失败', 'error'); } finally { busy.value = false; }
     };
 
     watch(() => props.routeParams?.tab, tab => {
@@ -169,8 +209,9 @@ export const AdminWorkManagementView = {
 
     return {
       activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form,
-      showPlanCreate, showPlanDetail, showPackDetail, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan,
-      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, closePackDetail,
+      showPlanCreate, showPlanDetail, showPackDetail, showPackCreate, packSection, packForm, packCreateMode, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan,
+      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, closePackDetail, openPackCreate, closePackCreate, submitPackCreate,
+      validateSelectedPack, activateSelectedPack, transitionCandidate,
       closePlanCreateOnBackdrop, closePlanDetailOnBackdrop, closePackDetailOnBackdrop,
       submitPlanCreate,
       taskLabel, stageLabel, metricLabel, value, plotName, cropName, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
@@ -231,10 +272,15 @@ export const AdminWorkManagementView = {
 
       <section v-else class="admin-panel admin-work-collection" aria-labelledby="admin-pack-collection-title">
         <div class="admin-work-collection-header">
-          <div><span>后端事实</span><h2 id="admin-pack-collection-title">Crop Pack 版本</h2></div>
+          <div><span>农场级作物模型与告警治理</span><h2 id="admin-pack-collection-title">Crop Pack</h2></div>
           <em>{{ packs.length }} 个版本</em>
         </div>
-        <div v-if="packs.length" class="admin-pack-card-grid">
+        <nav class="admin-local-tabs admin-pack-tabs" aria-label="Crop Pack 内容">
+          <button type="button" :class="{active: packSection === 'models'}" @click="packSection = 'models'">作物模型</button>
+          <button type="button" :class="{active: packSection === 'rules'}" @click="packSection = 'rules'">告警规则</button>
+          <button type="button" :class="{active: packSection === 'candidates'}" @click="packSection = 'candidates'">学习候选</button>
+        </nav>
+        <div v-if="packSection === 'models'" class="admin-pack-card-grid">
           <button v-for="pack in packs" :key="pack.cropCode" type="button" class="admin-pack-summary-card"
             :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" @click="openPackDetail(pack)">
             <header>
@@ -253,8 +299,21 @@ export const AdminWorkManagementView = {
             </dl>
             <footer><span>{{ value(pack.identity?.variety) }}</span><strong>查看详情 <app-icon name="chevron_right"></app-icon></strong></footer>
           </button>
+          <button type="button" class="admin-pack-summary-card admin-add-work-card" @click="openPackCreate">
+            <span class="admin-add-work-icon"><app-icon name="add"></app-icon></span>
+            <strong>添加作物</strong>
+            <small>创建当前农场专属 Crop Pack 草稿</small>
+          </button>
         </div>
-        <p v-else class="admin-empty">后端没有返回 Crop Pack。</p>
+        <p v-if="packSection === 'models' && !packs.length" class="admin-empty">后端没有返回 Crop Pack，可使用“添加作物”创建农场草稿。</p>
+        <div v-else-if="packSection === 'rules'" class="admin-compact-table admin-governance-table">
+          <div v-for="rule in (state.adminRules || [])" :key="rule.ruleId || rule.id || rule.code"><strong>{{ rule.name || rule.code || '告警规则' }}</strong><span>{{ rule.cropCode || '全局' }}</span><span>{{ rule.ruleVersion || '—' }}</span></div>
+          <p v-if="!(state.adminRules || []).length" class="admin-empty">暂无可展示的告警规则。</p>
+        </div>
+        <div v-else class="admin-compact-table admin-governance-table">
+          <div v-for="candidate in (state.adminStrategyCandidates || [])" :key="candidate.candidateId || candidate.id"><strong>{{ candidate.summary || candidate.description || candidate.signature || candidate.candidateId || candidate.id }}</strong><span>{{ candidate.status || 'DRAFT' }}</span><span>{{ candidate.evidenceCount || 0 }} 条案例</span><button v-if="['OFFLINE_VALIDATED','APPROVED','VERIFIED'].includes(String(candidate.status || '').toUpperCase())" type="button" class="g-btn small primary" :disabled="busy" @click="transitionCandidate(candidate, 'ACTIVE')">批准并启用</button><button v-else-if="String(candidate.status || '').toUpperCase() === 'DRAFT'" type="button" class="g-btn small secondary" :disabled="busy" @click="transitionCandidate(candidate, 'REJECTED')">拒绝</button></div>
+          <p v-if="!(state.adminStrategyCandidates || []).length" class="admin-empty">尚未形成学习候选；完成同类告警闭环后自动生成。</p>
+        </div>
       </section>
 
       <div v-if="showPlanCreate" class="g-modal-overlay admin-work-dialog-overlay" @click="closePlanCreateOnBackdrop">
@@ -314,8 +373,16 @@ export const AdminWorkManagementView = {
             <div class="admin-work-detail-heading"><div><h4>指标与阈值</h4><p>已知指标优先显示中文，接口编码保持不变。</p></div><em>{{ selectedPack.metrics?.length || 0 }} 项</em></div>
             <div class="admin-compact-table"><div v-for="metric in selectedPack.metrics" :key="metric.code"><strong>{{ metricLabel(metric) }}</strong><span>{{ metricStatusLabel(metric.availability, '未知') }}</span><span>{{ metric.range ? metric.range.min + '–' + metric.range.max + ' ' + (metric.unit || '') : '—' }}</span></div></div>
           </div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="closePackDetail">关闭</button></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackDetail">关闭</button><template v-if="selectedPack.farmId === farmId && String(selectedPack.status || '').toUpperCase() !== 'ACTIVE'"><button type="button" class="g-btn secondary" :disabled="busy" @click="validateSelectedPack">校验草稿</button><button type="button" class="g-btn primary" :disabled="busy" @click="activateSelectedPack">启用作物包</button></template></div>
         </section>
+      </div>
+
+      <div v-if="showPackCreate" class="g-modal-overlay admin-work-dialog-overlay" @click.self="closePackCreate">
+        <form class="g-modal admin-work-data-dialog admin-pack-create-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pack-create-title" @submit="submitPackCreate">
+          <div class="g-modal-header"><div><small>当前农场 · 草稿</small><h3 id="admin-pack-create-title">添加作物</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePackCreate"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-body"><div class="admin-form-grid"><label><span>作物编号</span><input v-model.trim="packForm.cropCode" placeholder="例如 basil"></label><label><span>版本</span><input v-model.trim="packForm.version" placeholder="1.0.0"></label><label><span>名称</span><input v-model.trim="packForm.name" placeholder="作物名称"></label><label><span>品种</span><input v-model.trim="packForm.variety" placeholder="品种"></label><label><span>地区</span><input v-model.trim="packForm.region" placeholder="地区"></label></div><div class="admin-form-grid admin-form-grid-wide"><label><span>生长阶段 JSON</span><textarea v-model="packForm.stagesJson" rows="3"></textarea></label><label><span>告警规则 JSON</span><textarea v-model="packForm.rulesJson" rows="3"></textarea></label><label><span>任务模板 JSON</span><textarea v-model="packForm.tasksJson" rows="3"></textarea></label><label><span>知识文档 JSON</span><textarea v-model="packForm.knowledgeJson" rows="3"></textarea></label></div><p class="admin-hint">草稿可先保存；启用前后端会校验阶段顺序、阈值、规则与任务模板。</p></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackCreate">取消</button><button type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '保存中…' : '保存草稿' }}</button></div>
+        </form>
       </div>
     </section>
   `

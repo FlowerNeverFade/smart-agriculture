@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260828-v58';
+import { ApiError, api } from './api.js?v=20260831-ai-role-v1';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -271,8 +271,17 @@ function beginExit(user, mode) {
   leaving = true;
   document.body.classList.add('is-leaving');
   showToast(mode === 'demo' ? `已进入${user.roleLabel}演示模式` : `欢迎进入${user.roleLabel}工作台`);
-  const target = user.role === 'FARMER' ? 'farmer.html' : 'index.html';
+  const target = entryTargetFor(user);
   window.setTimeout(() => window.location.replace(target), 420);
+}
+
+// 三角色各自的工作台入口：农户 farmer.html、系统管理员 sysadmin.html、农场管理员 index.html
+function entryTargetFor(user) {
+  if (!user) return 'index.html';
+  const role = String(user.role || '').toUpperCase();
+  if (role === 'FARMER') return 'farmer.html';
+  if (role === 'SYSTEM_ADMIN') return 'sysadmin.html';
+  return 'index.html';
 }
 
 function validateUsername(value) {
@@ -551,15 +560,18 @@ const previewUser = isLocalPreviewHost && previewAccount ? demoUserFor(previewAc
 
 if (previewUser) {
   api.saveSession({ mode: 'demo', user: previewUser });
-  const target = previewUser.role === 'FARMER'
-    ? 'farmer.html'
-    : 'index.html#view=decision-console&farmId=farm-demo';
+  const previewBase = entryTargetFor(previewUser);
+  const target = previewBase === 'sysadmin.html'
+    ? 'sysadmin.html#view=admin-overview'
+    : previewBase === 'farmer.html'
+      ? 'farmer.html'
+      : 'index.html#view=decision-console&farmId=farm-demo';
   window.location.replace(target);
 } else {
   const storedSession = api.readSession();
   if (storedSession?.mode === 'live' && storedSession.token) {
     const storedUser = presentRoleUser(storedSession?.user);
-    const target = storedUser?.role === 'FARMER' ? 'farmer.html' : 'index.html';
+    const target = entryTargetFor(storedUser);
     window.location.replace(target);
   } else {
     if (storedSession?.mode === 'demo') api.clearSession();
