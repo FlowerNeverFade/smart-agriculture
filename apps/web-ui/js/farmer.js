@@ -3210,9 +3210,8 @@ const app = createApp({
       selected_message.value = msg;
       analysis_result.value = '';
       analysis_error.value = '';
-      if (!msg.read) {
-        msg.read = true;
-      }
+      // 不在打开时自动标记已读，保留“标记已读”按钮的可操作性；
+      // 未读状态由用户在详情页主动点击按钮后切换。
     };
 
     const open_message_from_dashboard = (msg) => {
