@@ -985,6 +985,54 @@ html[data-workspace-preset] #app.role-farm-admin .g-btn.primary { color: var(--w
 html[data-workspace-preset] #app.role-farm-admin :is(.g-input, .g-select, textarea, input, select):focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--workspace-focus) 22%, transparent); }
 html[data-workspace-preset] #app.role-farm-admin .settings-page { max-width: 1240px; }
 
+/* Surface styles are intentionally explicit and live after the shared shell
+   rules so selecting a card style cannot be flattened by the theme palette. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(.g-card, .admin-panel, .simple-data-panel, .simple-empty-state, .work-summary, .work-filters, .work-order-card, .inspection-history, .rp-summary article, .rp-card, .admin-alert-empty) {
+  background: var(--workspace-bg-surface) !important;
+  border-color: var(--workspace-border-subtle) !important;
+  box-shadow: var(--admin-card-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(.g-header, .g-sidebar) {
+  background: var(--workspace-sidebar) !important;
+  border-color: var(--workspace-border) !important;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--workspace-text) 5%, transparent) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(.g-card, .admin-panel, .simple-data-panel, .simple-empty-state, .work-summary, .work-filters, .work-order-card, .inspection-history, .rp-summary article, .rp-card, .admin-alert-empty) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 76%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 18%, var(--workspace-border)) !important;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--workspace-text) 9%, transparent), inset 0 1px 0 color-mix(in srgb, #ffffff 62%, transparent) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(118%) !important;
+  backdrop-filter: blur(16px) saturate(118%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(.g-header, .g-sidebar) {
+  background: color-mix(in srgb, var(--workspace-sidebar) 86%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 14%, var(--workspace-border)) !important;
+  box-shadow: 0 4px 18px color-mix(in srgb, var(--workspace-text) 7%, transparent) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(120%) !important;
+  backdrop-filter: blur(18px) saturate(120%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(.g-card, .admin-panel, .simple-data-panel, .simple-empty-state, .work-summary, .work-filters, .work-order-card, .inspection-history, .rp-summary article, .rp-card, .admin-alert-empty) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 54%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 30%, var(--workspace-border)) !important;
+  box-shadow: 0 20px 46px color-mix(in srgb, var(--workspace-primary) 14%, transparent), inset 0 1px 0 color-mix(in srgb, #ffffff 72%, transparent) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(142%) !important;
+  backdrop-filter: blur(26px) saturate(142%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(.g-header, .g-sidebar) {
+  background: color-mix(in srgb, var(--workspace-sidebar) 70%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 24%, var(--workspace-border)) !important;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--workspace-primary) 10%, transparent) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(145%) !important;
+  backdrop-filter: blur(28px) saturate(145%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin .g-main {
+  background-image: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--workspace-primary) 12%, transparent), transparent 36%), radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--workspace-primary) 8%, transparent), transparent 32%);
+}
+
 .settings-page { gap: 18px; }
 .settings-page-header { padding: 4px 2px 2px; }
 .settings-page-header h1 { font-size: clamp(26px, 2.4vw, 34px); letter-spacing: -.04em; }
