@@ -9,7 +9,7 @@ import { AdminDecisionView } from './modules/admin-decision.js';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-rules-ai-v2';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-rules-ai-v3';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-rules-ai-v4';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
