@@ -169,10 +169,11 @@ test('farmer plot cards hide soil EC charts and localize metric codes', async ()
 });
 
 test('farmer assistant is a primary route with drawer history and safe action affordances', async () => {
-  const [html, source, api] = await Promise.all([
+  const [html, source, api, css] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
-    readFile(new URL('../js/api.js', import.meta.url), 'utf8')
+    readFile(new URL('../js/api.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
   ]);
   assert.match(html, /current_view === 'assistant'/);
   assert.doesNotMatch(html, /farmer-ai-dock|farmer-ai-consult|show_ai_consult/);
@@ -190,4 +191,15 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(api, /getAgentConversations\(limit = 20\)/);
   assert.match(api, /getAgentHistory\(conversationId/);
   assert.match(api, /\/api\/v1\/agent\/actions\/\$\{encodeURIComponent\(actionId\)\}/);
+
+  const messageRule = css.match(/\.farmer-agent-message \{([^}]*)\}/)?.[1] || '';
+  const userBubbleRule = css.match(/\.farmer-agent-user-bubble \{([^}]*)\}/)?.[1] || '';
+  const answerRule = css.match(/\.farmer-agent-answer \{([^}]*)\}/)?.[1] || '';
+  assert.match(messageRule, /width:\s*100%/);
+  assert.match(messageRule, /min-width:\s*0/);
+  assert.match(userBubbleRule, /width:\s*fit-content/);
+  assert.match(userBubbleRule, /overflow-wrap:\s*break-word/);
+  assert.match(userBubbleRule, /word-break:\s*normal/);
+  assert.match(answerRule, /overflow-wrap:\s*break-word/);
+  assert.match(answerRule, /word-break:\s*normal/);
 });
