@@ -1883,6 +1883,33 @@ const app = createApp({
     const irrigation_plan_loading = ref(false);
     const irrigation_plan_error = ref('');
     let irrigation_plan_request_version = 0;
+    // 农户只读查看农场水库/蓄水池水量（今日配额、已用、余额）。
+    const water_resource_profile = ref(null);
+    const water_resource_loading = ref(false);
+    const water_resource_error = ref('');
+    const water_resource_summary = computed(() => {
+      const profile = water_resource_profile.value;
+      if (!profile) return null;
+      const quota = Number(profile.dailyQuotaLitres ?? 0);
+      const used = Number(profile.actualUsedLitres ?? profile.balance?.actualUsedLitres ?? 0);
+      const reserved = Number(profile.reservedLitres ?? profile.balance?.reservedLitres ?? 0);
+      const remaining = Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? Math.max(0, quota - used - reserved));
+      const percent = quota > 0 ? Math.round((remaining / quota) * 100) : 0;
+      return { quota, used, reserved, remaining, percent };
+    });
+    const load_water_resource_profile = async () => {
+      const farmId = farm.value?.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo';
+      water_resource_loading.value = true;
+      water_resource_error.value = '';
+      try {
+        water_resource_profile.value = null;
+        water_resource_profile.value = await api.getWaterResourceProfile(farmId);
+      } catch (error) {
+        water_resource_error.value = error?.message || '水库水量读取失败';
+      } finally {
+        water_resource_loading.value = false;
+      }
+    };
     const selected_crop_band = computed(() => {
       const plot = advice_selected_plot.value;
       if (!plot) return null;
@@ -4698,8 +4725,9 @@ const app = createApp({
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
       }
+      if (view === 'advice') void load_water_resource_profile();
       if (view === 'assistant') void load_assistant_conversations({ openRecent: true });
-    });
+    }, { immediate: true });
 
     onBeforeUnmount(() => {
       if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
@@ -4798,6 +4826,10 @@ const app = createApp({
       irrigation_readiness_detail,
       irrigation_plan_loading,
       irrigation_plan_error,
+      water_resource_profile,
+      water_resource_loading,
+      water_resource_error,
+      water_resource_summary,
       irrigation_target_label,
       advice_moisture_chart,
       selected_message,

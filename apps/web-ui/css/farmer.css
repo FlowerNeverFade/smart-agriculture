@@ -4129,3 +4129,15 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
   .farmer-activity-actions { width: 100%; }
   .farmer-activity-actions .g-btn { flex: 1 1 auto; }
 }
+
+.farmer-water-resource-readonly { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-surface); }
+.farmer-water-resource-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.farmer-water-resource-head h3 { margin: 2px 0 0; font-size: 15px; }
+.farmer-water-resource-body { display: grid; gap: 10px; }
+.farmer-water-resource-progress { height: 8px; border-radius: 4px; background: var(--g-bg-subtle); overflow: hidden; }
+.farmer-water-resource-bar { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--g-primary), var(--g-info)); transition: width .4s ease; }
+.farmer-water-resource-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.farmer-water-resource-stats div { display: grid; gap: 2px; }
+.farmer-water-resource-stats small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-water-resource-stats strong { color: var(--g-text-primary); font-size: 14px; }
+.farmer-water-resource-stats .is-warning strong { color: var(--g-warning); }
