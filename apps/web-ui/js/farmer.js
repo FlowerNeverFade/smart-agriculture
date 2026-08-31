@@ -2314,6 +2314,11 @@ const app = createApp({
     });
 
     const unread_count = computed(() => messages.value.filter((m) => !m.read).length);
+    const read_message_count = computed(() => messages.value.filter((m) => m.read).length);
+    const completed_task_count = computed(() =>
+      farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t))).length
+    );
+    const cleanup_busy = ref(false);
 
     const task_columns = computed(() => [
       { status: 'PENDING', label: '未开始', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'PENDING') },
@@ -3344,18 +3349,25 @@ const app = createApp({
     };
 
     const clear_read_messages = () => {
+      if (cleanup_busy.value) return;
       const readMessages = messages.value.filter((m) => m.read);
       if (!readMessages.length) {
         show_toast('没有已读消息可清除');
         return;
       }
-      readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
-      localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
-      messages.value = messages.value.filter((m) => !m.read);
-      if (selected_message.value && selected_message.value.read) {
-        selected_message.value = null;
+      if (!window.confirm(`确定清除 ${readMessages.length} 条已读消息？清除后列表中不再显示。`)) return;
+      cleanup_busy.value = true;
+      try {
+        readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
+        localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
+        messages.value = messages.value.filter((m) => !m.read);
+        if (selected_message.value && selected_message.value.read) {
+          selected_message.value = null;
+        }
+        show_toast(`已清除 ${readMessages.length} 条已读消息`);
+      } finally {
+        cleanup_busy.value = false;
       }
-      show_toast(`已清除 ${readMessages.length} 条已读消息`);
     };
 
     const generate_analysis = async (msg) => {
@@ -3646,6 +3658,7 @@ const app = createApp({
               suggestion_result.value = await wait_for_irrigation_completion(suggestion_result.value);
               await refresh_plot_telemetry();
               await load_live_workspace({ announce: false });
+              await load_water_resource_profile();
               if (suggestion_result.value?.commandId) {
                 const evaluation = await api.getCommandEvaluation(suggestion_result.value.commandId).catch(() => null);
                 if (evaluation) suggestion_result.value = { ...suggestion_result.value, evaluation };
@@ -3653,6 +3666,7 @@ const app = createApp({
             } else {
               await load_live_workspace({ announce: false });
               await load_irrigation_plan(active.plotId, { silent: true });
+              await load_water_resource_profile();
             }
           }
           suggestion_recovery_status.value = '灌溉命令已提交，等待设备 ACK 和效果评价。';
@@ -4575,7 +4589,11 @@ const app = createApp({
     };
 
     const delete_task = async (task) => {
+      if (cleanup_busy.value || !task) return;
       const workOrderId = task.workOrderId || task.id;
+      const title = String(task.title || '该任务').trim() || '该任务';
+      if (!window.confirm(`确定删除已完成任务「${title}」？`)) return;
+      cleanup_busy.value = true;
       try {
         await api.deleteWorkOrder(workOrderId);
         tasks.value = tasks.value.filter((t) => (t.workOrderId || t.id) !== workOrderId);
@@ -4585,15 +4603,20 @@ const app = createApp({
         show_toast('已删除完成任务');
       } catch (error) {
         show_toast(error.message || '删除失败', 'error');
+      } finally {
+        cleanup_busy.value = false;
       }
     };
 
     const delete_all_completed_tasks = async () => {
+      if (cleanup_busy.value) return;
       const completed = farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t)));
       if (!completed.length) {
         show_toast('没有可删除的已完成任务');
         return;
       }
+      if (!window.confirm(`确定清空 ${completed.length} 个已完成任务？此操作不可撤销。`)) return;
+      cleanup_busy.value = true;
       try {
         await Promise.all(completed.map((task) => api.deleteWorkOrder(task.workOrderId || task.id)));
         const ids = new Set(completed.map((task) => task.workOrderId || task.id));
@@ -4604,6 +4627,8 @@ const app = createApp({
         show_toast(`已删除 ${completed.length} 个已完成任务`);
       } catch (error) {
         show_toast(error.message || '删除失败', 'error');
+      } finally {
+        cleanup_busy.value = false;
       }
     };
 
@@ -5042,6 +5067,9 @@ const app = createApp({
       message_filter_options: MESSAGE_FILTER_OPTIONS,
       message_filter_counts,
       unread_count,
+      read_message_count,
+      completed_task_count,
+      cleanup_busy,
       task_columns,
       profile_stats,
       account_profile,

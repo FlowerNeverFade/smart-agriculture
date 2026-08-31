@@ -1216,6 +1216,12 @@
   padding: 14px 18px;
   border-bottom: 1px solid var(--g-border-subtle);
 }
+.farmer-task-column-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .farmer-task-status-chip {
   display: inline-flex;
   align-items: center;
@@ -1264,32 +1270,82 @@
 .farmer-task-column-body::-webkit-scrollbar-thumb:hover {
   background: var(--g-text-secondary);
 }
-.farmer-task-delete-all {
-  margin-left: auto;
-  padding: 2px 8px;
-  font-size: 12px;
+.farmer-btn-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--g-radius);
+  border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border));
+  background: color-mix(in srgb, var(--g-danger-bg) 55%, var(--g-bg-surface));
+  color: var(--g-danger);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
+.farmer-btn-clear:hover:not(:disabled) {
+  background: var(--g-danger-bg);
+  border-color: color-mix(in srgb, var(--g-danger) 55%, var(--g-border));
+}
+.farmer-btn-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.farmer-btn-clear .material-symbols-outlined,
+.farmer-btn-clear .app-icon {
+  font-size: 18px;
+}
+
 .farmer-task-delete-btn {
   position: absolute;
   top: 8px;
   right: 8px;
-  opacity: 0;
-  transition: opacity 0.2s;
+  width: 32px;
+  height: 32px;
+  opacity: 0.55;
+  color: var(--g-danger);
+  background: color-mix(in srgb, var(--g-bg-base) 88%, var(--g-danger-bg));
+  border: 1px solid color-mix(in srgb, var(--g-danger) 22%, var(--g-border-subtle));
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 .farmer-task-card {
   position: relative;
-}
-.farmer-task-card:hover .farmer-task-delete-btn {
-  opacity: 1;
-}
-
-.farmer-task-card {
   background: var(--g-bg-base);
   border: 1px solid var(--g-border-subtle);
   border-radius: var(--g-radius);
   padding: 12px 14px;
   cursor: pointer;
   transition: all 0.2s;
+}
+.farmer-task-card.is-done {
+  padding-right: 42px;
+}
+.farmer-task-card:hover .farmer-task-delete-btn,
+.farmer-task-card.active .farmer-task-delete-btn,
+.farmer-task-delete-btn:focus-visible {
+  opacity: 1;
+}
+.farmer-task-delete-btn:hover:not(:disabled) {
+  background: var(--g-danger-bg);
+  border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border));
+}
+.farmer-task-delete-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.farmer-task-detail-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (hover: none) {
+  .farmer-task-delete-btn {
+    opacity: 0.85;
+  }
 }
 .farmer-task-card:hover {
   border-color: var(--g-success);

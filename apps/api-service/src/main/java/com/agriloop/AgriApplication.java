@@ -3598,6 +3598,17 @@ class AgriEngine {
             waterEvent.put("quality", Map.of("status", "GOOD", "confidence", .98));
             ingest(waterEvent);
         }
+        if (Set.of("SUCCEEDED", "PARTIAL").contains(outcome) && actualWater > 0) {
+            String balanceFarmId = Jsons.text(plot, "farmId", "farm-demo");
+            LocalDate balanceDate = LocalDate.now();
+            Map<String, Object> balance = currentWaterBalance(balanceFarmId, balanceDate);
+            balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + actualWater));
+            balance.put("usedLitres", balance.get("actualUsedLitres"));
+            balance.put("revision", Jsons.whole(balance, "revision", 0) + 1);
+            balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0))));
+            store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + balanceFarmId + ":" + balanceDate), balance);
+            events.publish("water.balance.updated", balance);
+        }
     }
 
     private void completeAgentActionFromCommand(Map<String, Object> command, Map<String, Object> ack, Map<String, Object> evaluation) {
