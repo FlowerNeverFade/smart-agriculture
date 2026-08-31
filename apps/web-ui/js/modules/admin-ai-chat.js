@@ -342,7 +342,20 @@ export const AdminAiChatView = {
     const bulkSelected = ref(new Set());
     const persistPinned = () => { try { localStorage.setItem('agriloop-ai-pinned-conversations', JSON.stringify(pinnedIds.value)); } catch (error) { /* ignore */ } };
     const closeMenu = () => { menuFor.value = ''; };
-    const toggleMenu = (conversation) => { menuFor.value = menuFor.value === conversation.conversationId ? '' : conversation.conversationId; };
+    const menuPos = ref({ left: 0, top: 0 });
+    const toggleMenu = (conversation, event) => {
+      if (menuFor.value === conversation.conversationId) { menuFor.value = ''; return; }
+      // 菜单 teleport 到 body 后 fixed 定位，避免被会话列表 overflow 裁剪
+      const rect = event?.currentTarget?.getBoundingClientRect ? event.currentTarget.getBoundingClientRect() : null;
+      if (rect) {
+        const width = 148;
+        menuPos.value = {
+          left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width + 8)),
+          top: Math.min(window.innerHeight - 132, rect.bottom + 4)
+        };
+      }
+      menuFor.value = conversation.conversationId;
+    };
     const startRename = (conversation) => { renamingId.value = conversation.conversationId; renameText.value = conversation.title || ''; closeMenu(); };
     const commitRename = async () => {
       const id = renamingId.value; const text = renameText.value;
@@ -413,7 +426,7 @@ export const AdminAiChatView = {
     const enterBulkMode = () => { bulkMode.value = true; bulkSelected.value = new Set(); };
     const exitBulkMode = () => { bulkMode.value = false; bulkSelected.value = new Set(); closeMenu(); };
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestBulkDelete, menuFor, toggleMenu, closeMenu, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect };
   },
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="closeMenu">
@@ -427,12 +440,7 @@ export const AdminAiChatView = {
             <template v-if="renamingId === conversation.conversationId"><span class="admin-ai-conversation-rename"><input ref="renameInputEl" v-model="renameText" class="admin-ai-rename-input" maxlength="36" placeholder="对话标题" @click.stop @keydown.enter="commitRename" @keydown.esc="renamingId = ''" @blur="commitRename" @focus="$event.target.select()"></span></template>
             <template v-else><span class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId)" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversation.plotId || (rolePresentation.code === 'SYSTEM_ADMIN' ? '全平台' : rolePresentation.code === 'FARM_ADMIN' ? '全农场' : '本人地块') }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span></template>
             <template v-if="!bulkMode">
-              <button type="button" class="admin-ai-conversation-menu" :disabled="sending" :aria-label="'对话操作 ' + (conversation.title || '')" title="更多操作" @click.stop="toggleMenu(conversation)"><app-icon name="more_vert"></app-icon></button>
-              <div v-if="menuFor === conversation.conversationId" class="admin-ai-conversation-menu-pop" @click.stop>
-                <button type="button" @click="startRename(conversation)"><app-icon name="edit"></app-icon>重命名</button>
-                <button type="button" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon>{{ isPinned(conversation.conversationId) ? '取消置顶' : '置顶' }}</button>
-                <button type="button" class="danger" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon>删除</button>
-              </div>
+              <button type="button" class="admin-ai-conversation-menu" :disabled="sending" :aria-label="'对话操作 ' + (conversation.title || '')" title="更多操作" @click.stop="toggleMenu(conversation, $event)"><app-icon name="more_vert"></app-icon></button>
             </template>
           </div>
           <div v-if="bulkMode" class="admin-ai-bulk-bar">
@@ -465,6 +473,18 @@ export const AdminAiChatView = {
           </div>
         </div>
       </div>
+      <div v-if="menuFor" class="admin-ai-menu-backdrop" @click="closeMenu"></div>
+      <teleport to="body">
+        <div v-if="menuFor" class="admin-ai-conversation-menu-pop admin-ai-menu-fixed" :style="{ left: menuPos.left + 'px', top: menuPos.top + 'px' }" @click.stop>
+          <template v-for="conversation in orderedConversations" :key="conversation.conversationId">
+            <template v-if="conversation.conversationId === menuFor">
+              <button type="button" @click="startRename(conversation)"><app-icon name="edit"></app-icon>重命名</button>
+              <button type="button" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon>{{ isPinned(conversation.conversationId) ? '取消置顶' : '置顶' }}</button>
+              <button type="button" class="danger" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon>删除</button>
+            </template>
+          </template>
+        </div>
+      </teleport>
     </section>
   `
 };
