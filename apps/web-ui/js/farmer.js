@@ -1291,7 +1291,57 @@ const app = createApp({
           series: chart.series.map((item) => ({ ...item, color: is_risk ? risk_color : item.color }))
         };
       })
-      .filter(Boolean));
+      .filter(Boolean)
+      .flatMap((chart, _, arr) => {
+        // 把速效氮/磷/钾三张独立卡片聚合成一张三线图，统一坐标重算。
+        const NPK_CODES = ['NITROGEN', 'PHOSPHORUS', 'POTASSIUM'];
+        const npkReady = NPK_CODES.every((code) => arr.some((item) => item.code === code && !item.unavailable));
+        if (!npkReady) return [chart];
+        if (chart.code !== 'NITROGEN') return [];
+        const npkCharts = NPK_CODES.map((code) => arr.find((item) => item.code === code));
+        const npkSpec = { code: 'NPK', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 400, precision: 0, multi: true };
+        const labels = ['速效氮', '速效磷', '速效钾'];
+        const colors = ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'];
+        const series = npkCharts.map((c, index) => {
+          const samples = c.series[0]?.samples || [];
+          return {
+            label: labels[index],
+            color: colors[index],
+            values: samples.map((sample) => sample.value),
+            samples,
+            points: chart_points_in_window(samples, npkSpec.min, npkSpec.max)
+          };
+        });
+        const base = npkCharts[0];
+        return [{
+          ...npkSpec,
+          current_label: npkCharts.map((c) => c.current_label).join(' / '),
+          target: '—',
+          targetBand: null,
+          stageLabel: base.stageLabel,
+          quality: base.quality,
+          status: 'NORMAL',
+          is_risk: false,
+          risk_label: '',
+          range_title: base.range_title,
+          simHours: base.simHours,
+          timeScale: base.timeScale,
+          windowStart: base.windowStart,
+          windowEnd: base.windowEnd,
+          labels: base.labels,
+          sample_labels: base.sample_labels,
+          samples: series[0]?.samples || [],
+          grid: [
+            { y: 10, label: format_chart_axis_value(npkSpec.max, npkSpec.precision) },
+            { y: 62, label: format_chart_axis_value((npkSpec.max + npkSpec.min) / 2, npkSpec.precision) },
+            { y: 114, label: format_chart_axis_value(npkSpec.min, npkSpec.precision) }
+          ],
+          is_multi: true,
+          history_source: base.history_source,
+          history_available: base.history_available,
+          series
+        }];
+      }));
 
     // 农户只读查看管理员维护的地块模拟策略和风险预测。
     const plot_simulation_forecast = ref(null);
