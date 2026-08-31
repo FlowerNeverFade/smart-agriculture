@@ -642,6 +642,12 @@ export class ApiService {
       const type = plotFacilityType(item);
       return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
     }));
+    // Demo actions are intentionally browser-session scoped.  Keep the same
+    // scope for their operational consequences as well, otherwise a page
+    // reload would restore the action card but silently reset the plot's
+    // moisture and make a completed irrigation look like it never happened.
+    this._demoWorkspaceHydratedKey = '';
+    this._demoHydrateWorkspaceState();
     this.demoSimulator = {
       available: true,
       status: 'STOPPED',
@@ -691,6 +697,7 @@ export class ApiService {
     this._demoHydrateAgentActions();
     this.demoAutoWatering = new Map();
     this._demoHydrateAutoWatering();
+    this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
     this.demoValueLedgers = [];
     this.demoAiMode = this.loadDemoAiMode();
     this.demoWaterProfile = {
@@ -831,6 +838,8 @@ export class ApiService {
     if (mode === 'live' && !token) {
       throw new ApiError('实时会话缺少访问令牌', { code: 'SESSION_TOKEN_MISSING' });
     }
+    const previousMode = this.sessionMode;
+    const previousWorkspaceKey = this._demoWorkspaceStorageKey();
     this.sessionMode = mode;
     this.token = mode === 'live' ? token : '';
     // A demo session must never inherit the previous live health flag.  That
@@ -838,10 +847,20 @@ export class ApiService {
     // method may use the local demo store or must surface a backend error.
     if (mode !== 'live') this.isLive = false;
     this.user = normalizedUser;
+    if (mode === 'demo') this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
     localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
     localStorage.setItem('agriloop_session_mode', mode);
     if (this.token) localStorage.setItem('agriloop_token', this.token);
     else localStorage.removeItem('agriloop_token');
+    const nextWorkspaceKey = this._demoWorkspaceStorageKey();
+    if (mode === 'demo' && (previousMode !== 'demo' || previousWorkspaceKey !== nextWorkspaceKey)) {
+      // A single ApiService instance can be reused after logout/login.  Do
+      // not carry the previous farmer's in-memory plot effects into the new
+      // actor before hydrating that actor's own browser-session snapshot.
+      this._demoResetWorkspaceState();
+      this._demoWorkspaceHydratedKey = '';
+      this._demoHydrateWorkspaceState();
+    }
   }
 
   readSession() {
@@ -1024,6 +1043,7 @@ export class ApiService {
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的总览数据', { code: 'OVERVIEW_INVALID', payload: resp });
     }
+    this._demoHydrateWorkspaceState();
     return {
       farmId: filters?.farmId || "farm-demo",
       plots: Array.from(this.demoPlots.values()).filter(plot => !filters?.farmId || plot.farmId === filters.farmId),
@@ -1207,6 +1227,7 @@ export class ApiService {
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的地块数据', { code: 'PLOTS_INVALID', payload: resp });
     }
+    this._demoHydrateWorkspaceState();
     return Array.from(this.demoPlots.values())
       .filter(plot => !filters.farmId || plot.farmId === filters.farmId)
       .filter(plot => filters.includeInactive || String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
@@ -2339,15 +2360,119 @@ export class ApiService {
     return `agriloop-agent-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
+  _demoWorkspaceStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-workspace-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoResetWorkspaceState() {
+    this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
+      const type = plotFacilityType(item);
+      return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
+    }));
+    Object.values(this.decisionCache || {}).forEach((cache) => cache?.clear?.());
+  }
+
+  _demoSessionStorage() {
+    // sessionStorage is the normal browser-session boundary.  Some embedded
+    // previews and test runners do not expose it, so a namespaced local
+    // fallback keeps the demo usable without changing the live contract.
+    if (typeof sessionStorage !== 'undefined') return sessionStorage;
+    if (typeof localStorage !== 'undefined') return localStorage;
+    return null;
+  }
+
+  _demoHydrateWorkspaceState() {
+    const storageKey = this._demoWorkspaceStorageKey();
+    if (this._demoWorkspaceHydratedKey === storageKey) return;
+    try {
+      const storage = this._demoSessionStorage();
+      if (!storage) {
+        this._demoWorkspaceHydratedKey = storageKey;
+        return;
+      }
+      const raw = storage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const savedPlots = Array.isArray(parsed?.plots) ? parsed.plots : [];
+      savedPlots.forEach((saved) => {
+        if (!saved?.plotId) return;
+        const current = this.demoPlots.get(saved.plotId);
+        this.demoPlots.set(saved.plotId, current
+          ? { ...current, ...saved, metrics: { ...(current.metrics || {}), ...(saved.metrics || {}) } }
+          : saved);
+      });
+      const hydrateMap = (name) => {
+        const values = Array.isArray(parsed?.[name]) ? parsed[name] : [];
+        if (!this.decisionCache[name]) this.decisionCache[name] = new Map();
+        values.forEach((item) => {
+          const id = item?.[name === 'plans' ? 'planId' : name === 'commands' ? 'commandId' : name === 'evaluations' ? 'commandId' : 'diagnosisId'];
+          if (id) this.decisionCache[name].set(id, item);
+        });
+      };
+      ['diagnoses', 'plans', 'commands', 'evaluations'].forEach(hydrateMap);
+    } catch {
+      // A malformed or unavailable demo cache must not prevent the farmer
+      // workspace from opening; the in-memory simulation remains usable.
+    }
+    this._demoWorkspaceHydratedKey = storageKey;
+  }
+
+  _demoSaveWorkspaceState() {
+    this._demoHydrateWorkspaceState();
+    try {
+      const storage = this._demoSessionStorage();
+      if (!storage) return;
+      storage.setItem(this._demoWorkspaceStorageKey(), JSON.stringify({
+        plots: [...this.demoPlots.values()],
+        diagnoses: [...this.decisionCache.diagnoses.values()],
+        plans: [...this.decisionCache.plans.values()],
+        commands: [...this.decisionCache.commands.values()],
+        evaluations: [...this.decisionCache.evaluations.values()]
+      }));
+    } catch {
+      // Browser storage is optional in demo mode; keep the current page alive.
+    }
+  }
+
   _demoAutoWateringStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
     return `agriloop-auto-watering:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
+  _demoAutomaticWateringSettingStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-auto-watering-settings:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _loadDemoAutomaticWateringSettings() {
+    const settings = new Map();
+    try {
+      if (typeof sessionStorage === 'undefined') return settings;
+      const raw = sessionStorage.getItem(this._demoAutomaticWateringSettingStorageKey());
+      const parsed = raw ? JSON.parse(raw) : {};
+      Object.entries(parsed && typeof parsed === 'object' ? parsed : {}).forEach(([plotId, value]) => {
+        if (plotId && value && typeof value === 'object') settings.set(plotId, value);
+      });
+    } catch { /* demo storage is optional */ }
+    return settings;
+  }
+
+  _saveDemoAutomaticWateringSettings() {
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(
+          this._demoAutomaticWateringSettingStorageKey(),
+          JSON.stringify(Object.fromEntries(this.demoAutomaticWateringSettings.entries()))
+        );
+      }
+    } catch { /* demo storage is optional */ }
+  }
+
   _demoHydrateAutoWatering() {
     try {
-      if (typeof sessionStorage === 'undefined') return;
-      const raw = sessionStorage.getItem(this._demoAutoWateringStorageKey());
+      const storage = this._demoSessionStorage();
+      if (!storage) return;
+      const raw = storage.getItem(this._demoAutoWateringStorageKey());
       const parsed = raw ? JSON.parse(raw) : {};
       Object.entries(parsed && typeof parsed === 'object' ? parsed : {}).forEach(([key, value]) => {
         if (value?.status === 'TRIGGERED' && value.command?.commandId) this.demoAutoWatering.set(key, value);
@@ -2358,9 +2483,10 @@ export class ApiService {
   _saveDemoAutoWatering(key, result) {
     if (result?.status === 'TRIGGERED') this.demoAutoWatering.set(key, result);
     try {
-      if (typeof sessionStorage === 'undefined') return result;
+      const storage = this._demoSessionStorage();
+      if (!storage) return result;
       const entries = Object.fromEntries([...this.demoAutoWatering.entries()].slice(-50));
-      sessionStorage.setItem(this._demoAutoWateringStorageKey(), JSON.stringify(entries));
+      storage.setItem(this._demoAutoWateringStorageKey(), JSON.stringify(entries));
     } catch { /* demo storage is optional */ }
     return result;
   }
@@ -2368,8 +2494,17 @@ export class ApiService {
   _readDemoAgentSession() {
     const fallback = { conversations: [], messages: [], actions: [] };
     try {
-      if (typeof sessionStorage === 'undefined') return fallback;
-      const raw = sessionStorage.getItem(this._demoAgentStorageKey());
+      if (typeof localStorage === 'undefined') return fallback;
+      const key = this._demoAgentStorageKey();
+      let raw = localStorage.getItem(key);
+      // 迁移：旧版 demo 会话存在 sessionStorage（每标签独立），有则迁移到 localStorage 后删除
+      if (!raw && typeof sessionStorage !== 'undefined') {
+        raw = sessionStorage.getItem(key);
+        if (raw) {
+          try { localStorage.setItem(key, raw); } catch (error) { /* ignore */ }
+          try { sessionStorage.removeItem(key); } catch (error) { /* ignore */ }
+        }
+      }
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return {
@@ -2397,7 +2532,7 @@ export class ApiService {
       actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
     };
     try {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
+      if (typeof localStorage !== 'undefined') localStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
     } catch {
       // Browser storage can be disabled; the in-memory map still keeps the
       // current page usable for the rest of the demo session.
@@ -2413,6 +2548,17 @@ export class ApiService {
     if (!action?.actionId) return action;
     const session = this._readDemoAgentSession();
     session.actions = [...session.actions.filter((item) => item.actionId !== action.actionId), { ...action }];
+    // Conversation history stores a proposal snapshot for fast rendering.
+    // Update that snapshot together with the durable action row so a reload
+    // cannot resurrect an old AWAITING_CONFIRMATION card after it succeeded
+    // (or was canceled/expired).
+    const publicAction = { ...action };
+    delete publicAction.userId;
+    session.messages = session.messages.map((item) => (
+      item?.actionProposal?.actionId === action.actionId
+        ? { ...item, actionProposal: { ...item.actionProposal, ...publicAction } }
+        : item
+    ));
     this._writeDemoAgentSession(session);
     return action;
   }
@@ -2476,12 +2622,14 @@ export class ApiService {
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
   }
 
-  async getAgentConversations(limit = 20) {
+  async getAgentConversations(limit = 20, archived = false) {
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
-      return session.conversations.slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
+      return session.conversations
+        .filter((item) => Boolean(item.archived) === Boolean(archived))
+        .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
         title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
         agentRole: item.agentRole || role,
@@ -2490,13 +2638,28 @@ export class ApiService {
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
-    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}`);
+    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
     if (Array.isArray(resp?.data)) {
       return resp.data.map((item) => item && typeof item === 'object'
         ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
         : item);
     }
     throw new ApiError('后端返回了无效的对话列表', { code: 'AGENT_CONVERSATIONS_INVALID', payload: resp });
+  }
+
+  async archiveAgentConversation(conversationId, archived = true) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}/archive`, { method: 'POST', body: JSON.stringify({ archived }) });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((c) => c.conversationId === conversationId);
+    if (conversation) {
+      conversation.archived = archived;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, archived, sourceMode: 'SIMULATED' };
   }
 
   /** Persist an externally generated demo turn, deduplicating replies already saved by agentChat. */
@@ -2710,6 +2873,7 @@ export class ApiService {
       const guard = await this.getIrrigationGuard(plotId);
       const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'AUTOMATIC_SOIL_MOISTURE' }, automaticWatering: { enabled: true, threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold, currentMoisture, eligible: currentMoisture < IRRIGATION_DEFAULTS.automaticWateringThreshold, mode: 'AUTOMATIC_SOIL_MOISTURE', sourceMode: 'SIMULATION' }, emergencyEligible };
       this.decisionCache.plans.set(planId, plan);
+      this._demoSaveWorkspaceState();
       const actionId = `demo-agent-${Date.now().toString(36)}`;
       const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride: false }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
       this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
@@ -3033,6 +3197,7 @@ export class ApiService {
       return plan;
     }
 
+    this._demoHydrateWorkspaceState();
     const plotId = input.plotId;
     const plot = this.mockPlot(plotId);
     const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
@@ -3046,6 +3211,7 @@ export class ApiService {
     const target = 30;
     const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const area = Number(plot?.areaM2 || 80);
     const flow = 18;
     const rawWater = Math.max(0, (target - current) * area * .08);
@@ -3055,7 +3221,7 @@ export class ApiService {
     const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
-    const emergencyEligible = executable && current < emergencyThreshold;
+    const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -3084,13 +3250,13 @@ export class ApiService {
       },
       emergencyEligible,
       automaticWatering: {
-        enabled: true,
+        enabled: automaticSetting.enabled,
         threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
         currentMoisture: current,
         eligible: emergencyEligible,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         sourceMode: 'SIMULATION',
-        status: emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
+        status: !automaticSetting.enabled ? 'DISABLED' : emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
       },
       alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
@@ -3106,6 +3272,7 @@ export class ApiService {
       createdAt: new Date(now).toISOString()
     };
     this.decisionCache.plans.set(plan.planId, plan);
+    this._demoSaveWorkspaceState();
     return plan;
   }
 
@@ -3337,6 +3504,7 @@ export class ApiService {
     const emergencyThreshold = Number(rule.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
     const hysteresis = Number(rule.hysteresis ?? 2);
     const currentValue = Number(plot.metrics?.SOIL_MOISTURE?.value);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const commands = [...this.decisionCache.commands.values()]
       .filter(item => item?.plotId === plotId && item?.type === 'IRRIGATION_START' && ['SUCCEEDED', 'PARTIAL', 'CONFIRMED', 'APPROVED'].includes(String(item.status || '').toUpperCase()))
       .sort((a, b) => new Date(b.ack?.receivedAt || b.confirmedAt || 0).getTime() - new Date(a.ack?.receivedAt || a.confirmedAt || 0).getTime());
@@ -3353,18 +3521,18 @@ export class ApiService {
       emergency: {
         threshold: emergencyThreshold,
         currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
-        eligibleByMoisture: Number.isFinite(currentValue) && currentValue < emergencyThreshold,
+        eligibleByMoisture: automaticSetting.enabled && Number.isFinite(currentValue) && currentValue < emergencyThreshold,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         note: '低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验'
       },
       automaticWatering: {
-        enabled: true,
+        enabled: automaticSetting.enabled,
         threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
         currentMoisture: Number.isFinite(currentValue) ? currentValue : null,
-        eligible: Number.isFinite(currentValue) && currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold,
+        eligible: automaticSetting.enabled && Number.isFinite(currentValue) && currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold,
         mode: 'AUTOMATIC_SOIL_MOISTURE',
         sourceMode: 'SIMULATION',
-        status: Number.isFinite(currentValue) ? (currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold ? 'READY' : 'NOT_TRIGGERED') : 'UNAVAILABLE'
+        status: !automaticSetting.enabled ? 'DISABLED' : Number.isFinite(currentValue) ? (currentValue < IRRIGATION_DEFAULTS.automaticWateringThreshold ? 'READY' : 'NOT_TRIGGERED') : 'UNAVAILABLE'
       },
       hysteresis: {
         state: currentValue <= threshold ? 'TRIGGERED' : currentValue <= threshold + hysteresis ? 'HOLD' : 'RESET',
@@ -3376,6 +3544,51 @@ export class ApiService {
       evaluatedAt: new Date().toISOString(),
       provenance: 'SIMULATED'
     };
+  }
+
+  async getAutomaticWateringSetting(plotId) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/automatic-watering`);
+      return resp?.data || resp;
+    }
+    const saved = this.demoAutomaticWateringSettings.get(plotId);
+    return {
+      plotId,
+      enabled: saved?.enabled !== false,
+      threshold: Number(saved?.threshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold),
+      updatedAt: saved?.updatedAt || null,
+      updatedBy: saved?.updatedBy || null,
+      sourceMode: 'SIMULATION',
+      provenance: saved?.provenance || 'DERIVED'
+    };
+  }
+
+  async setAutomaticWateringSetting(plotId, enabled) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) {
+      throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    }
+    const nextEnabled = Boolean(enabled);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/automatic-watering`, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: nextEnabled })
+      });
+      return resp?.data || resp;
+    }
+    const setting = {
+      plotId,
+      enabled: nextEnabled,
+      threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
+      updatedAt: new Date().toISOString(),
+      updatedBy: this.user?.userId || this.user?.username || 'demo-farmer',
+      sourceMode: 'SIMULATION',
+      provenance: 'USER_PROVIDED'
+    };
+    this.demoAutomaticWateringSettings.set(plotId, setting);
+    this._saveDemoAutomaticWateringSettings();
+    return setting;
   }
 
   /** Start virtual watering when the latest soil reading is below 10%. */
@@ -3392,16 +3605,18 @@ export class ApiService {
       return resp?.data || resp;
     }
     const plot = this.mockPlot(plotId);
+    const automaticSetting = await this.getAutomaticWateringSetting(plotId);
     const moisture = Number(plot?.metrics?.SOIL_MOISTURE?.value);
     const base = {
       plotId,
-      enabled: true,
+      enabled: automaticSetting.enabled,
       threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold,
       currentMoisture: Number.isFinite(moisture) ? moisture : null,
       mode: 'AUTOMATIC_SOIL_MOISTURE',
       sourceMode: 'SIMULATION',
       virtualExecution: true
     };
+    if (!automaticSetting.enabled) return { ...base, status: 'DISABLED', reason: 'AUTOMATIC_WATERING_DISABLED' };
     if (!Number.isFinite(moisture)) return { ...base, status: 'BLOCKED', reason: 'SOIL_MOISTURE_UNAVAILABLE' };
     if (moisture >= IRRIGATION_DEFAULTS.automaticWateringThreshold) {
       return { ...base, status: 'NOT_TRIGGERED', reason: 'MOISTURE_ABOVE_THRESHOLD' };
@@ -3434,6 +3649,7 @@ export class ApiService {
       const resp = await this._fetch(`/api/v1/irrigation/plans/${encodeURIComponent(planId)}`);
       return resp?.data || resp;
     }
+    this._demoHydrateWorkspaceState();
     return this.decisionCache.plans.get(planId) || null;
   }
 
@@ -3477,6 +3693,7 @@ export class ApiService {
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
+    this._demoHydrateWorkspaceState();
     const plan = this.decisionCache.plans.get(planId);
     if (!plan || plan.plotId !== plotId) {
       throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
@@ -3584,6 +3801,7 @@ export class ApiService {
       }
       this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
     }
+    this._demoSaveWorkspaceState();
     return command;
   }
 
@@ -4023,6 +4241,7 @@ export class ApiService {
   }
 
   mockPlot(plotId) {
+    this._demoHydrateWorkspaceState();
     return this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   }
 

@@ -255,6 +255,30 @@ test('farmer demo Agent irrigation keeps execution source simulated and idempote
   assert.equal(first.result.provenance, 'SIMULATED');
 });
 
+test('confirmed demo irrigation survives a farmer page reload with completed action and moisture effect', async () => {
+  sessionStorage.clear();
+  const user = { userId: 'farmer-reload-irrigation', username: 'farmer-reload-irrigation', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user });
+  const before = (await service.getPlots()).find((plot) => plot.plotId === 'plot-a01').metrics.SOIL_MOISTURE.value;
+  const response = await service.agentChat('启动灌溉', 'plot-a01', 'conversation-reload-irrigation');
+  const action = await service.confirmAgentAction(response.actionProposal.actionId, { idempotencyKey: `agent-confirm:${response.actionProposal.actionId}` });
+  assert.equal(action.status, 'SUCCEEDED');
+  const after = (await service.getPlots()).find((plot) => plot.plotId === 'plot-a01').metrics.SOIL_MOISTURE.value;
+  assert.ok(after > before, `expected simulated irrigation to increase moisture (${before} -> ${after})`);
+
+  const reloaded = new ApiService();
+  reloaded.saveSession({ mode: 'demo', user });
+  const persistedPlot = (await reloaded.getPlots()).find((plot) => plot.plotId === 'plot-a01');
+  assert.equal(persistedPlot.metrics.SOIL_MOISTURE.value, after);
+  const history = await reloaded.getAgentHistory('conversation-reload-irrigation');
+  assert.equal(history.messages.at(-1).actionProposal.status, 'SUCCEEDED');
+  assert.equal((await reloaded.getAgentAction(response.actionProposal.actionId)).status, 'SUCCEEDED');
+  sessionStorage.clear();
+  localStorage.removeItem('agriloop_user');
+  localStorage.removeItem('agriloop_session_mode');
+});
+
 test('farmer demo irrigation has no cooldown and auto-waters below ten percent', async () => {
   sessionStorage.clear();
   const service = new ApiService();

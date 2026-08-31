@@ -830,7 +830,7 @@ class AgriApplicationTest {
 
         Map<String, Object> shortInput = engine.agentChat(Map.of("message", "1", "plotId", "plot-a01"), farmer);
         assertThat(shortInput.get("intent")).isEqualTo("CLARIFICATION");
-        assertThat(String.valueOf(shortInput.get("narrative"))).contains("补充");
+        assertThat(String.valueOf(shortInput.get("narrative"))).contains("编号");
     }
 
     @Test
@@ -897,8 +897,8 @@ class AgriApplicationTest {
         List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
         assertThat(farmerMessages).hasSize(2);
         assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
-        assertThat(engine.agentConversations(20, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
-        assertThat(engine.agentConversations(20, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, secondFarmer))
                 .isInstanceOf(ApiException.class);
@@ -1062,6 +1062,36 @@ class AgriApplicationTest {
                 "confirmed", true, "emergencyOverride", true)), farmer);
         assertThat(emergency).containsEntry("emergencyMode", "AUTOMATIC_SOIL_MOISTURE")
                 .containsEntry("riskLevel", "HIGH").containsEntry("cooldownMinutes", 0);
+    }
+
+    @Test
+    void farmerCanToggleAutomaticWateringAndDisabledStateBlocksOnlyAutomaticTrigger() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-auto-toggle-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-auto-toggle-" + suffix, "farmer-auto-toggle-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "自动浇水开关测试田", "cropCode", "tomato",
+                "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        try {
+            Map<String, Object> disabled = engine.updateAutomaticWateringSetting(plotId, Map.of("enabled", false), farmer);
+            assertThat(disabled).containsEntry("plotId", plotId).containsEntry("enabled", false)
+                    .containsEntry("sourceMode", "SIMULATION");
+            Map<String, Object> guard = engine.irrigationGuard(plotId, farmer);
+            assertThat(Jsons.map(new ObjectMapper(), guard.get("automaticWatering")))
+                    .containsEntry("enabled", false).containsEntry("eligible", false).containsEntry("status", "DISABLED");
+            assertThat(engine.automaticWatering(Map.of("plotId", plotId), farmer))
+                    .containsEntry("enabled", false).containsEntry("status", "DISABLED")
+                    .containsEntry("reason", "AUTOMATIC_WATERING_DISABLED");
+
+            Map<String, Object> enabled = engine.updateAutomaticWateringSetting(plotId, Map.of("enabled", true), farmer);
+            assertThat(enabled).containsEntry("enabled", true).containsKeys("updatedAt", "updatedBy");
+            assertThat(engine.automaticWatering(Map.of("plotId", plotId), farmer))
+                    .containsEntry("enabled", true).containsEntry("status", "BLOCKED")
+                    .containsEntry("reason", "SOIL_MOISTURE_UNAVAILABLE");
+        } finally {
+            store.delete("plot", plotId);
+        }
     }
 
     @Test

@@ -734,14 +734,16 @@
                 <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
                 <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
-                <div v-if="automatic_watering_status" class="farmer-auto-water-card" :class="{ 'is-ready': automatic_watering_status.eligible, 'is-blocked': automatic_watering_status.status === 'BLOCKED', 'is-triggered': automatic_watering_status.status === 'TRIGGERED' }">
+                <div v-if="automatic_watering_status" class="farmer-auto-water-card" :class="{ 'is-ready': automatic_watering_status.eligible, 'is-blocked': automatic_watering_status.status === 'BLOCKED', 'is-triggered': automatic_watering_status.status === 'TRIGGERED', 'is-disabled': !automatic_watering_status.enabled }">
                   <div class="farmer-auto-water-icon"><app-icon name="bolt"></app-icon></div>
                   <div class="farmer-auto-water-copy">
-                    <span class="farmer-section-kicker">自动浇水 · 虚拟执行</span>
+                    <span class="farmer-section-kicker">自动浇水</span>
                     <strong>{{ automatic_watering_status.label }}</strong>
-                    <p>土壤含水量低于 {{ automatic_watering_status.threshold }}% 时自动发起；当前 {{ automatic_watering_status.moisture === null ? '—' : automatic_watering_status.moisture.toFixed(1) }}%。仍会校验数据质量、设备健康和水量上限。</p>
+                    <p v-if="automatic_watering_status.enabled">土壤含水量低于 {{ automatic_watering_status.threshold }}% 时自动发起模拟浇水；当前 {{ automatic_watering_status.moisture === null ? '—' : automatic_watering_status.moisture.toFixed(1) }}%。仍会校验数据质量、设备健康和水量上限。</p>
+                    <p v-else>当前未开启自动浇水；低于 {{ automatic_watering_status.threshold }}% 也不会自动发起模拟浇水。开启后仍会校验数据质量、设备健康和水量上限。</p>
                   </div>
-                  <span class="g-badge" :class="automatic_watering_status.status === 'BLOCKED' ? 'warning' : automatic_watering_status.status === 'TRIGGERED' ? 'success' : 'primary'">{{ automatic_watering_status.statusLabel }}</span>
+                  <span class="g-badge" :class="automatic_watering_status.status === 'DISABLED' ? 'muted' : automatic_watering_status.status === 'BLOCKED' ? 'warning' : automatic_watering_status.status === 'TRIGGERED' ? 'success' : 'primary'">{{ automatic_watering_status.statusLabel }}</span>
+                  <button type="button" class="g-btn secondary farmer-btn-light farmer-auto-water-toggle" :class="{ 'is-active': automatic_watering_status.enabled }" :aria-pressed="automatic_watering_status.enabled ? 'true' : 'false'" :disabled="automatic_watering_setting_busy || !automatic_watering_status.plotId" @click="toggle_automatic_watering(automatic_watering_status.plotId)">{{ automatic_watering_setting_busy ? '保存中…' : automatic_watering_status.enabled ? '关闭自动浇水' : '开启自动浇水' }}</button>
                   <button v-if="automatic_watering_status.eligible && automatic_watering_status.status !== 'TRIGGERED'" type="button" class="g-btn secondary farmer-btn-light farmer-auto-water-check" :disabled="automatic_watering_busy" @click="check_automatic_watering(automatic_watering_status.plotId)">{{ automatic_watering_busy ? '检查中…' : '立即检查' }}</button>
                 </div>
 
@@ -1065,8 +1067,8 @@
                           <div><dt>有效期</dt><dd>{{ assistant_action_expiry_label(message.actionProposal) }}</dd></div>
                         </dl>
                         <p v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'" class="farmer-agent-action-hint">{{ assistant_action_hint(message.actionProposal) }}</p>
-                        <div v-if="['AWAITING_CONFIRMATION', 'EXECUTING'].includes(message.actionProposal.status)" class="farmer-agent-action-buttons">
-                          <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="assistant_action_busy === message.actionProposal.actionId || message.actionProposal.status === 'EXECUTING'" @click="confirm_assistant_action(message.actionProposal)"><span v-if="assistant_action_busy === message.actionProposal.actionId" class="material-symbols-outlined farmer-btn-spin">progress_activity</span><app-icon v-else name="check"></app-icon>{{ assistant_action_busy === message.actionProposal.actionId ? '执行中…' : assistant_action_button_label(message.actionProposal) }}</button>
+                        <div v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'" class="farmer-agent-action-buttons">
+                          <button type="button" class="g-btn primary farmer-btn-analyze" :disabled="assistant_action_busy === message.actionProposal.actionId" @click="confirm_assistant_action(message.actionProposal)"><span v-if="assistant_action_busy === message.actionProposal.actionId" class="material-symbols-outlined farmer-btn-spin">progress_activity</span><app-icon v-else name="check"></app-icon>{{ assistant_action_busy === message.actionProposal.actionId ? '执行中…' : assistant_action_button_label(message.actionProposal) }}</button>
                           <button type="button" class="g-btn secondary farmer-btn-light" :disabled="assistant_action_busy === message.actionProposal.actionId" @click="cancel_assistant_action(message.actionProposal)"><app-icon name="close"></app-icon>取消</button>
                         </div>
                         <p v-if="message.actionProposal.status === 'SUCCEEDED'" class="farmer-agent-action-result is-success"><app-icon name="check_circle"></app-icon>已完成：{{ assistant_action_result(message.actionProposal) }}</p>

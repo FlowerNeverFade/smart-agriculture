@@ -1301,7 +1301,7 @@ class AgriEngine {
         // The standalone/test profile has no long-running Python consumer and
         // must not create workspace files merely by starting Spring tests.
         if ("simulation".equalsIgnoreCase(properties.getMode())) syncSimulationConfiguration();
-        // 由引擎记录服务启动告警；此时事件总线和存储依赖已完成注入。
+        // 服务重启系统告警（INFO）：由引擎记录服务启动告警，此时事件总线和存储依赖已完成注入
         createSystemAlert("SYSTEM", "INFO", "接口服务已启动", "AgriLoop 后端已完成启动并加载配置。", "");
     }
 
@@ -3323,8 +3323,13 @@ class AgriEngine {
         String readinessStatus = Jsons.text(readinessResult, "status", "HUMAN_REVIEW");
         if (reviewOnly && "READY".equals(readinessStatus)) readinessStatus = "HUMAN_REVIEW";
         double currentMoisture = Jsons.number(soil, "value", 18);
-        boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
-        boolean emergencyEligible = !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
+        // A healthy reading at or above the deterministic irrigation target is
+        // a complete NO_ACTION decision.  A low-confidence root-cause label is
+        // not a reason to send the farmer through an evidence workflow when
+        // there is no moisture deficit to treat.
+        boolean noWaterNeeded = !hardDataBlock && duration <= 0 && currentMoisture >= target;
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
+        boolean emergencyEligible = automaticEnabled && !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
                 && duration > 0 && currentMoisture < emergencyThreshold;
         String why = hardDataBlock
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
@@ -3348,13 +3353,13 @@ class AgriEngine {
         plan.put("emergency", emergency);
         plan.put("emergencyEligible", emergencyEligible);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", currentMoisture);
         automatic.put("eligible", emergencyEligible);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
         automatic.put("note", emergencyEligible
                 ? "土壤含水量低于 10%，满足自动虚拟浇水触发条件"
                 : "土壤含水量达到 10% 或以上时不自动浇水");
@@ -3415,14 +3420,15 @@ class AgriEngine {
         emergency.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         emergency.put("note", "低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验");
         result.put("emergency", emergency);
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", Double.isNaN(moisture) ? null : moisture);
-        automatic.put("eligible", !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
+        automatic.put("eligible", automaticEnabled && !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
         result.put("automaticWatering", automatic);
         Map<String, Object> hysteresisView = new LinkedHashMap<>();
         hysteresisView.put("state", hysteresisState);
@@ -3435,6 +3441,43 @@ class AgriEngine {
         result.put("cropPackVersion", context.get("cropPackVersion"));
         result.put("evaluatedAt", Instant.now().toString());
         result.put("provenance", "DERIVED");
+        return result;
+    }
+
+    private boolean automaticWateringEnabled(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        return plot == null || Jsons.bool(plot, "automaticWateringEnabled", true);
+    }
+
+    Map<String, Object> automaticWateringSetting(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        result.put("threshold", AUTO_WATERING_THRESHOLD);
+        result.put("updatedAt", plot.get("automaticWateringUpdatedAt"));
+        result.put("updatedBy", plot.get("automaticWateringUpdatedBy"));
+        result.put("sourceMode", "SIMULATION");
+        result.put("provenance", plot.get("automaticWateringUpdatedBy") == null ? "DERIVED" : "USER_PROVIDED");
+        return result;
+    }
+
+    Map<String, Object> updateAutomaticWateringSetting(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        if (!principal.canRequestIrrigation()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色不能修改自动浇水设置");
+        }
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        boolean enabled = Jsons.bool(input, "enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        Instant now = Instant.now();
+        plot.put("automaticWateringEnabled", enabled);
+        plot.put("automaticWateringUpdatedAt", now.toString());
+        plot.put("automaticWateringUpdatedBy", principal.userId);
+        store.save("plot", plotId, plot);
+        Map<String, Object> result = automaticWateringSetting(plotId, principal);
+        events.publish("irrigation.automatic.updated", result);
+        store.logEvent("irrigation.automatic.updated", result);
         return result;
     }
 
@@ -3468,12 +3511,18 @@ class AgriEngine {
         double moisture = Jsons.number(soil, "value", Double.NaN);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("plotId", plotId);
-        result.put("enabled", true);
+        boolean enabled = automaticWateringEnabled(plotId);
+        result.put("enabled", enabled);
         result.put("threshold", AUTO_WATERING_THRESHOLD);
         result.put("currentMoisture", Double.isFinite(moisture) ? moisture : null);
         result.put("sourceMode", "SIMULATION");
         result.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         result.put("virtualExecution", true);
+        if (!enabled) {
+            result.put("status", "DISABLED");
+            result.put("reason", "AUTOMATIC_WATERING_DISABLED");
+            return result;
+        }
         if (!Double.isFinite(moisture)) {
             result.put("status", "BLOCKED");
             result.put("reason", "SOIL_MOISTURE_UNAVAILABLE");
@@ -6492,7 +6541,7 @@ class AgriEngine {
                 "查看", "查询", "查一下", "告诉我", "多少", "几", "哪块", "哪个", "哪里", "现在", "当前", "今天", "明天",
                 "未来", "怎么", "如何", "为什么", "是否", "能否", "吗", "怎么样", "如何", "异常", "需要", "应该", "可以吗",
                 "开", "关", "执行", "启动", "开始", "提交", "记录", "申请", "创建", "新增", "修改", "更新", "绑定", "解除",
-                "show", "view", "check", "what", "how", "why", "is", "can", "please", "analyze", "explain");
+                "复测", "清单", "巡田", "show", "view", "check", "what", "how", "why", "is", "can", "please", "analyze", "explain");
         boolean directMetric = containsAny(compact,
                 "湿度", "温度", "降雨", "下雨", "天气", "光照", "风险", "告警", "报警", "设备", "传感器", "任务", "农务", "待办",
                 "灌溉", "浇水", "补水", "预测", "规则", "策略", "系统", "平台", "服务", "数据", "状态", "指标", "诊断", "在线", "离线",
@@ -6930,7 +6979,7 @@ class AgriEngine {
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
             String title = persistedUserMessage.replaceAll("\\s+", " ").trim();
             conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
-            conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0);
+            conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0); conversation.put("archived", false);
         }
         conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
         conversation.put("agentRole", answer.get("role")); conversation.put("roleLabel", answer.get("roleLabel"));
@@ -6945,7 +6994,7 @@ class AgriEngine {
         if (conversation == null) {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
-            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0);
+            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false);
         } else {
             // Existing conversations may have a title generated from the old
             // image prompt. Project the readable question on history reads.
@@ -6957,9 +7006,10 @@ class AgriEngine {
         return result;
     }
 
-    List<Map<String, Object>> agentConversations(int limit, UserPrincipal principal) {
+    List<Map<String, Object>> agentConversations(int limit, boolean archived, UserPrincipal principal) {
         return store.list("agent-conversation").stream()
                 .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
+                .filter(item -> archived == Boolean.TRUE.equals(item.get("archived")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
                 .limit(Math.max(1, Math.min(limit, 50)))
                 .map(item -> {
@@ -6967,6 +7017,18 @@ class AgriEngine {
                     copy.put("title", cleanAgentHistoryUserMessage(Jsons.text(item, "title", "")));
                     return copy;
                 }).toList();
+    }
+
+    Map<String, Object> archiveAgentConversation(String conversationId, boolean archived, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
+        if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权归档该对话");
+        conversation.put("archived", archived);
+        conversation.put("updatedAt", Instant.now().toString());
+        store.save("agent-conversation", resolved, conversation);
+        return conversation;
     }
 
     void deleteAgentConversation(String conversationId, UserPrincipal principal) {
@@ -7827,6 +7889,18 @@ class AgriController {
         return ok(engine.irrigationGuard(plotId, principal(a)));
     }
 
+    @GetMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> automaticWateringSetting(@PathVariable String plotId, Authentication a) {
+        return ok(engine.automaticWateringSetting(plotId, principal(a)));
+    }
+
+    @PutMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> updateAutomaticWateringSetting(@PathVariable String plotId,
+                                                      @RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication a) {
+        return ok(engine.updateAutomaticWateringSetting(plotId, body == null ? Map.of() : body, principal(a)));
+    }
+
     @GetMapping("/plots/{plotId}/simulation")
     ResponseEntity<?> plotSimulation(@PathVariable String plotId, Authentication a) {
         return ok(engine.plotSimulation(plotId, principal(a)));
@@ -8026,8 +8100,8 @@ class AgriController {
     }
 
     @GetMapping("/agent/conversations")
-    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, Authentication a) {
-        return ok(engine.agentConversations(limit, principal(a)));
+    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, @RequestParam(defaultValue = "false") boolean archived, Authentication a) {
+        return ok(engine.agentConversations(limit, archived, principal(a)));
     }
 
     @DeleteMapping("/agent/conversations/{conversationId}")
@@ -8040,6 +8114,12 @@ class AgriController {
     ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
         String title = body == null ? "" : Jsons.text(body, "title", "");
         return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
+    }
+
+    @PostMapping("/agent/conversations/{conversationId}/archive")
+    ResponseEntity<?> archiveAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        boolean archived = body == null || !Boolean.FALSE.equals(body.get("archived"));
+        return ok(engine.archiveAgentConversation(conversationId, archived, principal(a)));
     }
 
     @GetMapping("/agent/tools")
