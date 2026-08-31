@@ -4683,7 +4683,7 @@ const app = createApp({
       }
       if (view === 'advice') void load_water_resource_profile();
       if (view === 'assistant') void load_assistant_conversations({ openRecent: true });
-    });
+    }, { immediate: true });
 
     onBeforeUnmount(() => {
       if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
