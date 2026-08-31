@@ -376,6 +376,25 @@ export function domainsForEventType(type = '') {
   return [...domains];
 }
 
+const ADMIN_CROP_ALIASES = Object.freeze([
+  ['tomato', ['tomato', '番茄']],
+  ['corn', ['corn', '玉米']],
+  ['cucumber', ['cucumber', '黄瓜']],
+  ['rice', ['rice', '水稻', '稻']],
+  ['sunflower', ['sunflower', '向日葵', '油葵']],
+  ['strawberry', ['strawberry', '草莓']],
+  ['pepper', ['pepper', '辣椒']]
+]);
+
+export function adminCropKey(plot = {}) {
+  const text = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''} ${plot.cropVariety || ''}`.trim().toLowerCase();
+  return ADMIN_CROP_ALIASES.find(([, names]) => names.some(name => text.includes(name)))?.[0] || '';
+}
+
+export function adminCropEmoji(plot = {}) {
+  return ({ tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓', pepper: '🌶️' }[adminCropKey(plot)] || '🌱');
+}
+
 export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {
   const cards = new Map((overviewCards || []).map(card => [String(card.plotId), card]));
   const plotDevices = new Map();
