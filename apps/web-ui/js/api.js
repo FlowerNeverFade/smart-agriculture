@@ -547,6 +547,12 @@ export class ApiService {
       const type = plotFacilityType(item);
       return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
     }));
+    // Demo actions are intentionally browser-session scoped.  Keep the same
+    // scope for their operational consequences as well, otherwise a page
+    // reload would restore the action card but silently reset the plot's
+    // moisture and make a completed irrigation look like it never happened.
+    this._demoWorkspaceHydratedKey = '';
+    this._demoHydrateWorkspaceState();
     this.demoSimulator = {
       available: true,
       status: 'STOPPED',
@@ -736,6 +742,8 @@ export class ApiService {
     if (mode === 'live' && !token) {
       throw new ApiError('实时会话缺少访问令牌', { code: 'SESSION_TOKEN_MISSING' });
     }
+    const previousMode = this.sessionMode;
+    const previousWorkspaceKey = this._demoWorkspaceStorageKey();
     this.sessionMode = mode;
     this.token = mode === 'live' ? token : '';
     // A demo session must never inherit the previous live health flag.  That
@@ -747,6 +755,15 @@ export class ApiService {
     localStorage.setItem('agriloop_session_mode', mode);
     if (this.token) localStorage.setItem('agriloop_token', this.token);
     else localStorage.removeItem('agriloop_token');
+    const nextWorkspaceKey = this._demoWorkspaceStorageKey();
+    if (mode === 'demo' && (previousMode !== 'demo' || previousWorkspaceKey !== nextWorkspaceKey)) {
+      // A single ApiService instance can be reused after logout/login.  Do
+      // not carry the previous farmer's in-memory plot effects into the new
+      // actor before hydrating that actor's own browser-session snapshot.
+      this._demoResetWorkspaceState();
+      this._demoWorkspaceHydratedKey = '';
+      this._demoHydrateWorkspaceState();
+    }
   }
 
   readSession() {
@@ -929,6 +946,7 @@ export class ApiService {
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的总览数据', { code: 'OVERVIEW_INVALID', payload: resp });
     }
+    this._demoHydrateWorkspaceState();
     return {
       farmId: filters?.farmId || "farm-demo",
       plots: Array.from(this.demoPlots.values()).filter(plot => !filters?.farmId || plot.farmId === filters.farmId),
@@ -1112,6 +1130,7 @@ export class ApiService {
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的地块数据', { code: 'PLOTS_INVALID', payload: resp });
     }
+    this._demoHydrateWorkspaceState();
     return Array.from(this.demoPlots.values())
       .filter(plot => !filters.farmId || plot.farmId === filters.farmId)
       .filter(plot => filters.includeInactive || String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
@@ -2235,6 +2254,80 @@ export class ApiService {
     return `agriloop-agent-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
+  _demoWorkspaceStorageKey() {
+    const userId = this.user?.userId || this.user?.username || 'demo';
+    return `agriloop-workspace-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoResetWorkspaceState() {
+    this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
+      const type = plotFacilityType(item);
+      return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
+    }));
+    Object.values(this.decisionCache || {}).forEach((cache) => cache?.clear?.());
+  }
+
+  _demoSessionStorage() {
+    // sessionStorage is the normal browser-session boundary.  Some embedded
+    // previews and test runners do not expose it, so a namespaced local
+    // fallback keeps the demo usable without changing the live contract.
+    if (typeof sessionStorage !== 'undefined') return sessionStorage;
+    if (typeof localStorage !== 'undefined') return localStorage;
+    return null;
+  }
+
+  _demoHydrateWorkspaceState() {
+    const storageKey = this._demoWorkspaceStorageKey();
+    if (this._demoWorkspaceHydratedKey === storageKey) return;
+    try {
+      const storage = this._demoSessionStorage();
+      if (!storage) {
+        this._demoWorkspaceHydratedKey = storageKey;
+        return;
+      }
+      const raw = storage.getItem(storageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const savedPlots = Array.isArray(parsed?.plots) ? parsed.plots : [];
+      savedPlots.forEach((saved) => {
+        if (!saved?.plotId) return;
+        const current = this.demoPlots.get(saved.plotId);
+        this.demoPlots.set(saved.plotId, current
+          ? { ...current, ...saved, metrics: { ...(current.metrics || {}), ...(saved.metrics || {}) } }
+          : saved);
+      });
+      const hydrateMap = (name) => {
+        const values = Array.isArray(parsed?.[name]) ? parsed[name] : [];
+        if (!this.decisionCache[name]) this.decisionCache[name] = new Map();
+        values.forEach((item) => {
+          const id = item?.[name === 'plans' ? 'planId' : name === 'commands' ? 'commandId' : name === 'evaluations' ? 'commandId' : 'diagnosisId'];
+          if (id) this.decisionCache[name].set(id, item);
+        });
+      };
+      ['diagnoses', 'plans', 'commands', 'evaluations'].forEach(hydrateMap);
+    } catch {
+      // A malformed or unavailable demo cache must not prevent the farmer
+      // workspace from opening; the in-memory simulation remains usable.
+    }
+    this._demoWorkspaceHydratedKey = storageKey;
+  }
+
+  _demoSaveWorkspaceState() {
+    this._demoHydrateWorkspaceState();
+    try {
+      const storage = this._demoSessionStorage();
+      if (!storage) return;
+      storage.setItem(this._demoWorkspaceStorageKey(), JSON.stringify({
+        plots: [...this.demoPlots.values()],
+        diagnoses: [...this.decisionCache.diagnoses.values()],
+        plans: [...this.decisionCache.plans.values()],
+        commands: [...this.decisionCache.commands.values()],
+        evaluations: [...this.decisionCache.evaluations.values()]
+      }));
+    } catch {
+      // Browser storage is optional in demo mode; keep the current page alive.
+    }
+  }
+
   _demoAutoWateringStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
     return `agriloop-auto-watering:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
@@ -2242,8 +2335,9 @@ export class ApiService {
 
   _demoHydrateAutoWatering() {
     try {
-      if (typeof sessionStorage === 'undefined') return;
-      const raw = sessionStorage.getItem(this._demoAutoWateringStorageKey());
+      const storage = this._demoSessionStorage();
+      if (!storage) return;
+      const raw = storage.getItem(this._demoAutoWateringStorageKey());
       const parsed = raw ? JSON.parse(raw) : {};
       Object.entries(parsed && typeof parsed === 'object' ? parsed : {}).forEach(([key, value]) => {
         if (value?.status === 'TRIGGERED' && value.command?.commandId) this.demoAutoWatering.set(key, value);
@@ -2254,9 +2348,10 @@ export class ApiService {
   _saveDemoAutoWatering(key, result) {
     if (result?.status === 'TRIGGERED') this.demoAutoWatering.set(key, result);
     try {
-      if (typeof sessionStorage === 'undefined') return result;
+      const storage = this._demoSessionStorage();
+      if (!storage) return result;
       const entries = Object.fromEntries([...this.demoAutoWatering.entries()].slice(-50));
-      sessionStorage.setItem(this._demoAutoWateringStorageKey(), JSON.stringify(entries));
+      storage.setItem(this._demoAutoWateringStorageKey(), JSON.stringify(entries));
     } catch { /* demo storage is optional */ }
     return result;
   }
@@ -2264,8 +2359,9 @@ export class ApiService {
   _readDemoAgentSession() {
     const fallback = { conversations: [], messages: [], actions: [] };
     try {
-      if (typeof sessionStorage === 'undefined') return fallback;
-      const raw = sessionStorage.getItem(this._demoAgentStorageKey());
+      const storage = this._demoSessionStorage();
+      if (!storage) return fallback;
+      const raw = storage.getItem(this._demoAgentStorageKey());
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
       return {
@@ -2285,7 +2381,8 @@ export class ApiService {
       actions: Array.isArray(session?.actions) ? session.actions.slice(-50) : [...this.demoAgentActions.values()].slice(-50)
     };
     try {
-      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
+      const storage = this._demoSessionStorage();
+      if (storage) storage.setItem(this._demoAgentStorageKey(), JSON.stringify(safe));
     } catch {
       // Browser storage can be disabled; the in-memory map still keeps the
       // current page usable for the rest of the demo session.
@@ -2301,6 +2398,17 @@ export class ApiService {
     if (!action?.actionId) return action;
     const session = this._readDemoAgentSession();
     session.actions = [...session.actions.filter((item) => item.actionId !== action.actionId), { ...action }];
+    // Conversation history stores a proposal snapshot for fast rendering.
+    // Update that snapshot together with the durable action row so a reload
+    // cannot resurrect an old AWAITING_CONFIRMATION card after it succeeded
+    // (or was canceled/expired).
+    const publicAction = { ...action };
+    delete publicAction.userId;
+    session.messages = session.messages.map((item) => (
+      item?.actionProposal?.actionId === action.actionId
+        ? { ...item, actionProposal: { ...item.actionProposal, ...publicAction } }
+        : item
+    ));
     this._writeDemoAgentSession(session);
     return action;
   }
@@ -2528,6 +2636,7 @@ export class ApiService {
       const guard = await this.getIrrigationGuard(plotId);
       const plan = { planId, plotId, waterLitre: 153, durationSeconds: 510, readinessStatus: 'READY', executable: true, confirmationRequired: true, provenance: 'SIMULATED', emergency: { eligible: emergencyEligible, threshold: emergencyThreshold, currentMoisture, mode: 'AUTOMATIC_SOIL_MOISTURE' }, automaticWatering: { enabled: true, threshold: IRRIGATION_DEFAULTS.automaticWateringThreshold, currentMoisture, eligible: currentMoisture < IRRIGATION_DEFAULTS.automaticWateringThreshold, mode: 'AUTOMATIC_SOIL_MOISTURE', sourceMode: 'SIMULATION' }, emergencyEligible };
       this.decisionCache.plans.set(planId, plan);
+      this._demoSaveWorkspaceState();
       const actionId = `demo-agent-${Date.now().toString(36)}`;
       const proposal = { actionId, toolName: 'execute_virtual_irrigation', summary: `对 ${plot.name} 执行虚拟灌溉约 153 L（8.5 分钟）`, argumentSummary: `${plot.name} · 153 L · 8.5 分钟`, arguments: { plotId, planId, waterLitre: 153, durationSeconds: 510, emergencyOverride: false }, status: 'AWAITING_CONFIRMATION', requiresConfirmation: true, actorRole: 'FARMER', riskLevel: 'HIGH', sourceMode: 'SIMULATED', executionMode: 'NORMAL', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), affectedDomains: ['irrigation', 'plots', 'messages'] };
       this._demoSaveAgentAction({ ...proposal, message, plotId, userId: this._demoActorId() });
@@ -2852,6 +2961,7 @@ export class ApiService {
       return plan;
     }
 
+    this._demoHydrateWorkspaceState();
     const plotId = input.plotId;
     const plot = this.mockPlot(plotId);
     const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
@@ -2925,6 +3035,7 @@ export class ApiService {
       createdAt: new Date(now).toISOString()
     };
     this.decisionCache.plans.set(plan.planId, plan);
+    this._demoSaveWorkspaceState();
     return plan;
   }
 
@@ -3253,6 +3364,7 @@ export class ApiService {
       const resp = await this._fetch(`/api/v1/irrigation/plans/${encodeURIComponent(planId)}`);
       return resp?.data || resp;
     }
+    this._demoHydrateWorkspaceState();
     return this.decisionCache.plans.get(planId) || null;
   }
 
@@ -3296,6 +3408,7 @@ export class ApiService {
       throw new ApiError('后端返回了无效的执行结果', { code: 'COMMAND_RESPONSE_INVALID', payload: resp });
     }
 
+    this._demoHydrateWorkspaceState();
     const plan = this.decisionCache.plans.get(planId);
     if (!plan || plan.plotId !== plotId) {
       throw new ApiError('未找到当前地块对应的可执行处方', { status: 409, code: 'IRRIGATION_PLAN_CONTEXT_MISMATCH' });
@@ -3403,6 +3516,7 @@ export class ApiService {
       }
       this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
     }
+    this._demoSaveWorkspaceState();
     return command;
   }
 
@@ -3842,6 +3956,7 @@ export class ApiService {
   }
 
   mockPlot(plotId) {
+    this._demoHydrateWorkspaceState();
     return this.demoPlots.get(plotId) || MOCK_DATA.plots.find(p => p.plotId === plotId) || MOCK_DATA.plots[0];
   }
 

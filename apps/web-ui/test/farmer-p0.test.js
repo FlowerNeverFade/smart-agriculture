@@ -193,6 +193,11 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(source, /assistant_keydown/);
   assert.match(source, /confirm_assistant_action/);
   assert.match(source, /cancel_assistant_action/);
+  assert.match(source, /refresh_assistant_action_states/);
+  assert.match(source, /currentExists/);
+  assert.match(source, /proposal\.status !== 'AWAITING_CONFIRMATION'/);
+  assert.match(html, /v-if="message\.actionProposal\.status === 'AWAITING_CONFIRMATION'"/);
+  assert.doesNotMatch(html, /\['AWAITING_CONFIRMATION', 'EXECUTING'\]\.includes\(message\.actionProposal\.status\)/);
   assert.match(api, /getAgentConversations\(limit = 20\)/);
   assert.match(api, /getAgentHistory\(conversationId/);
   assert.match(api, /\/api\/v1\/agent\/actions\/\$\{encodeURIComponent\(actionId\)\}/);
@@ -207,4 +212,6 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(userBubbleRule, /word-break:\s*normal/);
   assert.match(answerRule, /overflow-wrap:\s*break-word/);
   assert.match(answerRule, /word-break:\s*normal/);
+  assert.match(api, /agriloop-workspace-session/);
+  assert.match(api, /_demoSaveWorkspaceState/);
 });
