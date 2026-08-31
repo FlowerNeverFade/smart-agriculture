@@ -45,6 +45,42 @@ const DEMO_AGENT_ROLE_PROFILES = Object.freeze({
 const DEMO_AGENT_MUTATION_PATTERN = /(新增|新建|创建|修改|更新|编辑|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加)/;
 const DEMO_AGENT_CONTROL_PATTERN = /(执行|启动|开始)/;
 const DEMO_AGENT_FARM_MUTATION_PATTERN = /(地块|田|棚|设备|传感器|灌溉|浇水|任务|农务|告警|报警|农户|巡田|复测)/;
+const DEMO_AGENT_TOPIC_PATTERN = /(地块|田|棚|温室|大棚|裸地|土壤|湿度|温度|降雨|下雨|天气|光照|二氧化碳|\bco2\b|作物|番茄|西红柿|黄瓜|辣椒|草莓|农场|灌溉|浇水|补水|风险|告警|报警|设备|传感器|任务|农务|待办|播种|采收|病|虫|叶|苗|预测|规则|策略|系统|平台|服务|数据|巡田|复测|审计|在线|离线|状态|指标|分析|诊断|根因|建议|计划|阈值|配置|控制|水量|蓄水|配额|成员|用户|权限|模型|生长|长势|营养|施肥|\bph\b|氮|磷|钾|\bplot\b|\bsoil\b|\bmoisture\b|\btemperature\b|\bhumidity\b|\brain\b|\bweather\b|\blight\b|\bcrop\b|\bfarm\b|\bgreenhouse\b|\birrigation\b|\bwatering\b|\brisk\b|\balert\b|\bdevice\b|\bsensor\b|\btask\b|\bforecast\b|\bdiagnosis\b|\bstatus\b|\boffline\b|\bonline\b|\bdata\b|\brule\b|\bstrategy\b|\bplatform\b|\bservice\b|\baudit\b)/i;
+const DEMO_AGENT_DIRECT_INTENT_PATTERN = /(查看|查询|查一下|告诉我|多少|几|哪块|哪个|哪里|现在|当前|今天|明天|未来|怎么|如何|为什么|是否|能否|吗|怎么样|异常|需要|应该|可以吗|开|关|执行|启动|开始|提交|记录|申请|创建|新增|修改|更新|绑定|解除|show|view|check|what|how|why|is|can|please|analyze|explain)/i;
+const DEMO_AGENT_DIRECT_METRIC_PATTERN = /(湿度|温度|降雨|下雨|天气|光照|风险|告警|报警|设备|传感器|任务|农务|待办|灌溉|浇水|补水|预测|规则|策略|系统|平台|服务|数据|状态|指标|诊断|在线|离线|水量|蓄水|配额|审计|生长|长势|营养|施肥|病|虫|叶|苗|花|果|发黄|变黄|萎蔫|枯萎|开裂|积水|过湿|干旱|干燥|症状|表现|图片|照片|识别|\bsoil\b|\bmoisture\b|\btemperature\b|\bhumidity\b|\brain\b|\bweather\b|\blight\b|\birrigation\b|\bwatering\b|\brisk\b|\balert\b|\bdevice\b|\bsensor\b|\btask\b|\bforecast\b|\bdiagnosis\b|\bstatus\b|\boffline\b|\bonline\b|\bdata\b|\brule\b|\bstrategy\b|\bplatform\b|\bservice\b|\baudit\b)/i;
+const DEMO_AGENT_SOCIAL_PATTERN = /^(谢谢|感谢|多谢|好的|好吧|行|嗯|哦|哈哈|呵呵|收到|明白|知道了|辛苦了|再见|拜拜|你好吗|你还好吗|在吗|在么|hello|hi|hey)$/i;
+
+function demoAgentNumberOrIdentifier(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /^[0-9０-９一二三四五六七八九十]+$/.test(text)
+    || /^[0-9０-９]+(?:[-_/][0-9０-９]+)+$/.test(text)
+    || /^[a-zA-Z]{1,24}(?:[-_/][a-zA-Z0-9]{1,24})*[0-9]+$/.test(text)
+    || /^[0-9０-９]{4,}$/.test(text);
+}
+
+function isDemoLowInformationInput(message) {
+  const raw = String(message || '').trim();
+  if (!raw) return true;
+  const compact = raw.replace(/[\s，。！？,.!?、:：;；]+/g, '');
+  if (!compact || demoAgentNumberOrIdentifier(compact) || DEMO_AGENT_SOCIAL_PATTERN.test(compact)) return true;
+  if (!DEMO_AGENT_TOPIC_PATTERN.test(compact)) return true;
+  return !DEMO_AGENT_DIRECT_METRIC_PATTERN.test(compact)
+    && !DEMO_AGENT_DIRECT_INTENT_PATTERN.test(compact);
+}
+
+function demoAgentLowInformationNarrative(role, message) {
+  const compact = String(message || '').trim().replace(/[\s，。！？,.!?、:：;；]+/g, '');
+  if (demoAgentNumberOrIdentifier(compact)) return '看起来像一串编号。你想查哪块地、哪台设备，还是哪条记录？';
+  if (DEMO_AGENT_SOCIAL_PATTERN.test(compact)) {
+    if (role === 'SYSTEM_ADMIN') return '我在。想看平台服务、数据链路、规则版本，还是审计记录？';
+    if (role === 'FARM_ADMIN') return '我在。你想看农场告警、任务、设备，还是灌溉安排？';
+    return '我在。告诉我地块和想做的事，我可以帮你看状态、风险、待办或补水建议。';
+  }
+  if (role === 'SYSTEM_ADMIN') return '我还没听出具体要查什么。可以直接说平台服务、数据链路、规则版本或审计内容。';
+  if (role === 'FARM_ADMIN') return '我还没听出具体要查什么。可以直接说农场、地块、告警、任务、设备或灌溉安排。';
+  return '我还没听出具体要查什么。可以告诉我地块和想做的事，例如查看湿度、风险、待办或补水建议。';
+}
 
 function cleanPersistedAgentUserText(value, fallback = '已上传现场图片') {
   const raw = value === undefined || value === null
@@ -2609,14 +2645,24 @@ export class ApiService {
     if (asksMutation && role === 'FARMER') {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', roleReason: 'FORBIDDEN', summary: '当前身份不能执行管理员操作', narrative: '', tools: [], confidence: 1 });
     }
-    if (!asksMutation && /^(你好|您好|嗨|hello|hi|在吗|早上好|下午好|晚上好)[！!。．,.， ]*$/i.test(String(message || '').trim())) {
+    if (!asksMutation && /^(你好|您好|嗨|hello|hi|在吗|早上好|下午好|晚上好)(?:呀|啊|喽|there)?[！!。．,.， ]*$/i.test(String(message || '').trim())) {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'GREETING', summary: '已识别为问候', narrative: '', tools: [], confidence: 1 });
     }
     if (!asksMutation && /(你能做什么|你可以做什么|能力|功能|帮助|支持哪些|能帮我)/i.test(String(message || ''))) {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CAPABILITY_QUERY', summary: '已读取农智助手能力范围', narrative: '', tools: [], confidence: 1 });
     }
-    if (!asksMutation && String(message || '').trim().length <= 4 && !/(水|灌溉|浇水|田|地块|温度|湿度|风险|任务|告警|设备|规则|预测)/.test(String(message || ''))) {
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CLARIFICATION', summary: '输入信息不足', narrative: role === 'SYSTEM_ADMIN' ? '请补充要排查的平台服务、数据链路、规则版本或审计内容。' : role === 'FARM_ADMIN' ? '请补充要查看的农场告警、任务、设备或灌溉内容。' : '请补充地块、风险、待办或农事操作，例如“查看当前地块状态”。', tools: [], confidence: 1 });
+    if (!asksMutation && isDemoLowInformationInput(message)) {
+      return persistDemoResponse({
+        traceId,
+        plotId,
+        mode: 'rules-fast-path',
+        intent: 'CLARIFICATION',
+        summary: '输入信息不足',
+        narrative: demoAgentLowInformationNarrative(role, message),
+        knowledgeEvidence: [],
+        tools: [],
+        confidence: 1
+      });
     }
     if (role === 'FARMER' && /(记录|提交).*(巡田|复测)/.test(message || '')) {
       const notes = String(message || '').split(/[：:]/).slice(1).join('：').trim();

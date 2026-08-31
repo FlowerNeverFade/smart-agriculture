@@ -6011,11 +6011,11 @@ class AgriEngine {
         } else if (isAmbiguousShortInput(message)) {
             answer.put("intent", "CLARIFICATION");
             answer.put("summary", "输入信息不足");
-            answer.put("narrative", principal.isSystemAdmin()
-                    ? "请补充要排查的平台服务、数据链路、规则版本或审计内容。"
-                    : principal.isFarmAdmin()
-                    ? "请补充要查看的农场、地块、告警、任务、设备或灌溉内容。"
-                    : "请补充地块、风险、待办或农事操作，例如“查看当前地块状态”。");
+            answer.put("narrative", lowInformationNarrative(principal, message));
+            // There is no data question in this turn. Hiding retrieved plot
+            // evidence keeps the clarification card from looking like a status
+            // report and avoids implying that telemetry informed the reply.
+            answer.put("knowledgeEvidence", List.of());
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
@@ -6310,16 +6310,21 @@ class AgriEngine {
         String roleLabel = Jsons.text(deterministicContext, "roleLabel", "当前用户");
         String scopeLabel = Jsons.text(profile, "scopeLabel", "当前授权范围");
         String roleGuidance = Jsons.text(profile, "guidance", "严格遵守当前用户权限范围");
+        String styleHint = switch (Math.floorMod(prompt.hashCode(), 3)) {
+            case 0 -> "先用一句话回应，再补充一到两项最有用的事实。";
+            case 1 -> "像现场同事一样用短段回答，只有必要时才列出步骤。";
+            default -> "先回答用户问的点，再给一个贴近当前场景的下一步，不要写成日报。";
+        };
         // Qwen's chat template accepts only one system message at the beginning.
         // Keep the general behavior and role boundary in that single message;
         // sending a second system message makes vLLM return HTTP 400.
         String visionGuidance = hasImages
                 ? "本轮有原图：忽略文件名可能带来的暗示，直接观察图片像素后回答用户真正关心的内容。先说清画面中实际可见的对象、状态或症状，再按需要给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。严禁输出任何置信度、概率、百分比、模型评分、候选类别或识别过程，只给用户可读的识别结果和可见依据。用户只问‘这是什么’时，用一两句直接说对象名称和明显特征，不要主动追加地块遥测、灌溉或管理建议。不要默认说识别不确定；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制。不要把平台遥测冒充成图片内容。"
                 : "";
-        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位熟悉现场的同事或农技员自然交谈，而不是照模板填表。第一句直接回答问题，再按需要补充；简单问题一两句话即可，复杂问题可以用短段或清单。不要默认套用‘结论—分析依据—排查建议’等固定标题，不要机械复述身份、权限、数据边界或安全声明，也不要每次都用相同开场和收尾。追问时承接最近对话，只补充新信息。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。优先简洁，通常不超过 4 个短段或 8 条要点。使用普通文本和换行，不要使用 Markdown 星号加粗（**）、下划线加粗、标题标记或代码围栏。历史对话只用于理解指代，当前公开事实才是实时平台依据；不得编造未提供的观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，用一句自然的话说明即可，然后继续回答用户真正询问的内容。"
+        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位熟悉现场的同事或农技员自然交谈，而不是照模板填表。先判断用户真正想解决的事，再决定是否引用当前公开事实；如果用户只是寒暄、辱骂、随机字符、随机数字、编号或没有明确主题，不要把它解释成地块查询，也不要主动播报任何遥测，只自然回应并追问一句。用户没有询问农业或平台数据时，不要主动列出土壤湿度、温度、降雨等指标。第一句直接回答问题，再按需要补充；简单问题一两句话即可，复杂问题可以用短段或清单。状态类问题只挑与问题最相关的 2 到 4 项数据，其他指标只有在异常或能解释结论时才提及，不要把整份遥测转成报告。不要默认套用‘结论—分析依据—排查建议’等固定标题，不要机械复述身份、权限、数据边界或安全声明，也不要每次都用相同开场和收尾；避免‘收到，这块地现在最需要关注的是’、‘目前其他指标没有明显叠加问题’、‘建议今天内安排一次灌溉’等固定句式。追问时承接最近对话，只补充新信息，每次根据用户问题调整措辞和组织方式。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。优先简洁，通常不超过 4 个短段或 8 条要点。使用普通文本和换行，不要使用 Markdown 星号加粗（**）、下划线加粗、标题标记或代码围栏。历史对话只用于理解指代，当前公开事实才是实时平台依据；不得编造未提供的观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，用一句自然的话说明即可，然后继续回答用户真正询问的内容。"
                 + visionGuidance
                 + "\n\n当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。"
-                + roleGuidance + "。不要向用户展示超出该范围的事实或操作。";
+                + roleGuidance + "。不要向用户展示超出该范围的事实或操作。\n本轮表达偏好：" + styleHint;
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", systemPrompt));
         for (Map<String, Object> historical : recentHistory == null ? List.<Map<String, Object>>of() : recentHistory) {
@@ -6342,11 +6347,11 @@ class AgriEngine {
             messages.add(Map.of("role", "user", "content", userContent));
         }
         request.put("messages", messages);
-        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.84);
-        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.92);
+        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.90);
+        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.95);
         request.put("top_k", 20);
-        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.18);
-        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.12);
+        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.24);
+        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.16);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
         Map<String, Object> chatTemplate = new LinkedHashMap<>();
@@ -6421,13 +6426,79 @@ class AgriEngine {
     private boolean isGreeting(String message) {
         if (message == null) return false;
         String normalized = message.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s!！?？。．,，~～]+", "");
-        return Set.of("hi", "hello", "hey", "嗨", "你好", "您好", "早上好", "晚上好", "在吗", "在么").contains(normalized);
+        return Set.of("hi", "hello", "hey", "嗨", "你好", "您好", "早上好", "下午好", "晚上好", "在吗", "在么").contains(normalized)
+                || normalized.matches("(?:你好|您好|嗨|早上好|下午好|晚上好)(?:呀|啊|喽)+")
+                || normalized.matches("(?:hi|hello|hey)(?:there|呀|啊)+");
     }
 
     private boolean isAmbiguousShortInput(String message) {
         if (message == null) return true;
         String normalized = message.trim();
-        return normalized.length() <= 2 && normalized.matches("[0-9一二三四五六七八九十a-zA-Z]+[。.!！?？]?");
+        if (normalized.isBlank()) return true;
+        String compact = normalized.replaceAll("[\\s，。！？,.!?、:：;；]+", "");
+        if (compact.isBlank() || isNumberOrIdentifierInput(compact) || isSocialSmallTalk(compact)) return true;
+
+        // A topic word on its own is not enough to justify reading live telemetry.
+        // Require either a direct metric/operation or a question about the topic.
+        boolean hasTopic = containsAny(compact,
+                "地块", "田", "棚", "温室", "大棚", "裸地", "土壤", "湿度", "温度", "降雨", "下雨", "天气", "光照",
+                "二氧化碳", "co2", "作物", "番茄", "西红柿", "黄瓜", "辣椒", "草莓", "农场", "灌溉", "浇水", "补水",
+                "风险", "告警", "报警", "设备", "传感器", "任务", "农务", "待办", "播种", "采收", "病", "虫", "叶", "苗",
+                "预测", "规则", "策略", "系统", "平台", "服务", "数据", "巡田", "复测", "审计", "在线", "离线", "状态",
+                "指标", "分析", "诊断", "根因", "建议", "计划", "阈值", "配置", "控制", "水量", "蓄水", "配额", "成员",
+                "用户", "权限", "模型", "生长", "长势", "营养", "施肥", "ph", "氮", "磷", "钾", "plot", "soil", "moisture",
+                "temperature", "humidity", "rain", "weather", "light", "crop", "farm", "greenhouse", "irrigation", "watering",
+                "risk", "alert", "device", "sensor", "task", "forecast", "diagnosis", "status", "offline", "online", "data",
+                "rule", "strategy", "platform", "service", "audit");
+        if (!hasTopic) return true;
+        boolean hasDirectIntent = containsAny(compact,
+                "查看", "查询", "查一下", "告诉我", "多少", "几", "哪块", "哪个", "哪里", "现在", "当前", "今天", "明天",
+                "未来", "怎么", "如何", "为什么", "是否", "能否", "吗", "怎么样", "如何", "异常", "需要", "应该", "可以吗",
+                "开", "关", "执行", "启动", "开始", "提交", "记录", "申请", "创建", "新增", "修改", "更新", "绑定", "解除",
+                "show", "view", "check", "what", "how", "why", "is", "can", "please", "analyze", "explain");
+        boolean directMetric = containsAny(compact,
+                "湿度", "温度", "降雨", "下雨", "天气", "光照", "风险", "告警", "报警", "设备", "传感器", "任务", "农务", "待办",
+                "灌溉", "浇水", "补水", "预测", "规则", "策略", "系统", "平台", "服务", "数据", "状态", "指标", "诊断", "在线", "离线",
+                "水量", "蓄水", "配额", "审计", "生长", "长势", "营养", "施肥", "病", "虫", "叶", "苗", "花", "果",
+                "发黄", "变黄", "萎蔫", "枯萎", "开裂", "积水", "过湿", "干旱", "干燥", "症状", "表现", "图片", "照片", "识别",
+                "soil", "moisture", "temperature", "humidity", "rain", "weather", "light", "irrigation", "watering", "risk", "alert",
+                "device", "sensor", "task", "forecast", "diagnosis", "status", "offline", "online", "data", "rule", "strategy", "platform", "service", "audit");
+        return !directMetric && !hasDirectIntent;
+    }
+
+    private boolean isNumberOrIdentifierInput(String value) {
+        if (value == null || value.isBlank()) return false;
+        return value.matches("[0-9０-９一二三四五六七八九十]+")
+                || value.matches("[0-9０-９]+(?:[-_/][0-9０-９]+)+")
+                || value.matches("[a-zA-Z]{1,24}(?:[-_/][a-zA-Z0-9]{1,24})*[0-9]+")
+                || value.matches("[0-9０-９]{4,}");
+    }
+
+    private boolean isSocialSmallTalk(String value) {
+        if (value == null || value.isBlank()) return false;
+        String normalized = value.toLowerCase(Locale.ROOT);
+        return Set.of("谢谢", "感谢", "多谢", "好的", "好吧", "行", "嗯", "哦", "哈哈", "呵呵", "收到", "明白", "知道了",
+                        "辛苦了", "再见", "拜拜", "你好吗", "你还好吗", "在吗", "在么", "hello", "hi", "hey")
+                .contains(normalized);
+    }
+
+    private String lowInformationNarrative(UserPrincipal principal, String message) {
+        String compact = message == null ? "" : message.trim().replaceAll("[\\s，。！？,.!?、:：;；]+", "");
+        if (isNumberOrIdentifierInput(compact)) {
+            return "看起来像一串编号。你想查哪块地、哪台设备，还是哪条记录？";
+        }
+        if (isSocialSmallTalk(compact)) {
+            if (principal != null && principal.isSystemAdmin()) return "我在。想看平台服务、数据链路、规则版本，还是审计记录？";
+            if (principal != null && principal.isFarmAdmin()) return "我在。你想看农场告警、任务、设备，还是灌溉安排？";
+            return "我在。告诉我地块和想做的事，我可以帮你看状态、风险、待办或补水建议。";
+        }
+        if (principal != null && principal.isSystemAdmin()) {
+            return "我还没听出具体要查什么。可以直接说平台服务、数据链路、规则版本或审计内容。";
+        }
+        if (principal != null && principal.isFarmAdmin()) {
+            return "我还没听出具体要查什么。可以直接说农场、地块、告警、任务、设备或灌溉安排。";
+        }
+        return "我还没听出具体要查什么。可以告诉我地块和想做的事，例如查看湿度、风险、待办或补水建议。";
     }
 
     private boolean isCapabilityQuestion(String message) {
