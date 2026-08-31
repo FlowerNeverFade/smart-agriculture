@@ -55,7 +55,13 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
     restrictions: []
   };
   const rawContent = textValue(item.content || item.message || item.summary || agentResponseText(response, ''));
-  const content = role === 'assistant' ? cleanAssistantText(rawContent) : rawContent;
+  // History records may contain the model's original lightweight Markdown even
+  // when a fresh response has already passed through agentResponseText.  Run
+  // both paths through the same display normalizer so `**bold**`, headings and
+  // inline code never leak into the plain-text chat surface.
+  const content = role === 'assistant'
+    ? cleanAssistantText(agentResponseText({ narrative: rawContent }, rawContent))
+    : rawContent;
   const isError = Boolean(item.error);
   return {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,

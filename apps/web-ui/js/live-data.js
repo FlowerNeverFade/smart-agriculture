@@ -358,7 +358,9 @@ export function agentResponseText(response = {}, fallback = '') {
       const cleaned = candidate.trim()
         .replace(/^\s*#{1,6}\s+/gm, '')
         .replace(/\*\*(.*?)\*\*/g, '$1')
+        .replace(/\*\*/g, '')
         .replace(/__(.*?)__/g, '$1')
+        .replace(/__/g, '')
         .replace(/`([^`]+)`/g, '$1')
         .replace(/^\s*[-*]\s+/gm, '• ');
       return displayText(cleaned, fallback);
