@@ -4314,7 +4314,7 @@ const app = createApp({
       }
       if (is_formal_session) {
         try {
-          await api.createInspection({
+          const saved = await api.createInspection({
             farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
             plotId: plot.plotId,
             workOrderId: inspection_form.value.work_order_id || undefined,
@@ -4327,6 +4327,9 @@ const app = createApp({
           close_inspection_form();
           await load_live_workspace({ announce: false });
           show_toast('巡田记录已保存，管理员和诊断模块可读取');
+          if (saved?.sensorConflict) {
+            show_toast(saved.sensorConflict.message, 'error');
+          }
         } catch (error) {
           show_toast(error.message || '巡田记录保存失败', 'error');
         }
@@ -4346,6 +4349,9 @@ const app = createApp({
         inspection_records.value.unshift({ ...saved, plotName: plot.name });
       close_inspection_form();
       show_toast('演示巡田记录已保存');
+      if (saved?.sensorConflict) {
+        show_toast(saved.sensorConflict.message, 'error');
+      }
       } catch (error) {
         show_toast(error.message || '巡田记录保存失败', 'error');
       }

@@ -3900,6 +3900,45 @@ class AgriEngine {
         long completedFields = List.of(soilSurface, cropCondition, deviceStatus, notes).stream().filter(value -> !value.isBlank()).count();
         record.put("quality", Map.of("status", completedFields == 4 ? "GOOD" : "INCOMPLETE", "completeness", round(completedFields / 4.0)));
 
+        if (portableSoilMoisture != null) {
+            Object soilRaw = latestMetrics(plotId).get("SOIL_MOISTURE"); Map<String, Object> soilMetric = soilRaw instanceof Map<?, ?> m ? Jsons.map(mapper, m) : null;
+            if (soilMetric != null) {
+                double sensorMoisture = Jsons.number(soilMetric, "value", Double.NaN);
+                if (!Double.isNaN(sensorMoisture) && Math.abs(portableSoilMoisture - sensorMoisture) > 10) {
+                    double deviation = Math.round(Math.abs(portableSoilMoisture - sensorMoisture) * 10) / 10.0;
+                    Map<String, Object> conflict = new LinkedHashMap<>();
+                    conflict.put("type", "PORTABLE_VS_TELEMETRY");
+                    conflict.put("inspectionId", inspectionId);
+                    conflict.put("plotId", plotId);
+                    conflict.put("portableValue", portableSoilMoisture);
+                    conflict.put("telemetryValue", sensorMoisture);
+                    conflict.put("deviation", deviation);
+                    conflict.put("message", "便携仪实测 " + portableSoilMoisture + "% 与传感器读数 " + Math.round(sensorMoisture * 10) / 10.0 + "% 相差 " + deviation + " 个百分点，该地块传感器可能存在漂移或故障");
+                    record.put("sensorConflict", conflict);
+                    Map<String, Object> alert = new LinkedHashMap<>();
+                    String alertId = Jsons.id("alert");
+                    alert.put("alertId", alertId);
+                    alert.put("farmId", farmId);
+                    alert.put("plotId", plotId);
+                    alert.put("level", "WARNING");
+                    alert.put("source", "INSPECTION_CONFLICT");
+                    alert.put("status", "ACTIVE");
+                    alert.put("title", "传感器与人工巡田数据差异较大");
+                    alert.put("message", conflict.get("message"));
+                    alert.put("inspectionId", inspectionId);
+                    alert.put("portableValue", portableSoilMoisture);
+                    alert.put("telemetryValue", sensorMoisture);
+                    alert.put("deviation", deviation);
+                    alert.put("createdAt", now.toString());
+                    alert.put("raisedAt", now.toString());
+                    alert.put("updatedAt", now.toString());
+                    store.save("alert", alertId, alert);
+                    events.publish("alert.created", alert);
+                    store.logEvent("alert.created", alert);
+                }
+            }
+        }
+
         store.save("inspection", inspectionId, record);
         if (linkedWorkOrder != null) {
             List<String> evidenceRefs = new ArrayList<>(Jsons.strings(linkedWorkOrder.get("evidenceRefs")));
