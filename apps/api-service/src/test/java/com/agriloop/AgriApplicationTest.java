@@ -986,6 +986,27 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerAgentSkipsEvidenceWorkflowWhenMoistureAlreadyMeetsTarget() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-agent-no-action-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("user-farmer-no-action-" + suffix, "farmer-no-action-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "无需补水测试田", "cropCode", "tomato", "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId, "status", "ONLINE", "bindingState", "BOUND")));
+        engine.ingest(Map.of("eventId", "agent-no-action-good-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 35.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+
+        Map<String, Object> response = engine.agentChat(Map.of("message", "启动灌溉", "plotId", plotId,
+                "conversationId", "conversation-agent-no-action-" + suffix), farmer);
+
+        assertThat(response).doesNotContainKey("actionProposal").containsEntry("status", "NO_ACTION");
+        assertThat(String.valueOf(response.get("clarification"))).contains("无需灌溉", "不用补证");
+    }
+
+    @Test
     void farmerAgentIrrigationRechecksReadinessAndCompletesAfterVirtualAck() throws Exception {
         String suffix = String.valueOf(System.nanoTime());
         String plotId = "plot-agent-irrigation-" + suffix;

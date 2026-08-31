@@ -411,7 +411,7 @@ const EVIDENCE_LABELS = Object.freeze({
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
   MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
   GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
-  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据'
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）'
 });
 
 function evidence_view(item, index = 0) {
@@ -1986,6 +1986,7 @@ const app = createApp({
         conflicts: (diagnosis.evidenceConflicts || []).map(evidence_view)
       };
     });
+    const advice_is_no_action = computed(() => String(advice_plan.value?.status || irrigation_plan.value?.status || '').toUpperCase() === 'NO_ACTION');
     const advice_readiness_summary = computed(() => {
       const readiness = advice_readiness.value;
       if (!readiness) return null;
@@ -5037,6 +5038,7 @@ const app = createApp({
       advice_error,
       show_advice_diagnosis,
       advice_diagnosis_summary,
+      advice_is_no_action,
       advice_readiness_summary,
       advice_execution_summary,
       irrigation_guard,

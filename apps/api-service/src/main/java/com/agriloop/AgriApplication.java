@@ -3336,10 +3336,12 @@ class AgriEngine {
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
                 : activeHeavyRain
                     ? "当前地块处于暴雨模拟场景，先观察积水和排水状态"
+                : noWaterNeeded
+                    ? "当前湿度已达到阶段目标，暂时不需要灌溉"
                 : reviewOnly
                     ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
                 : emergencyEligible ? "当前土壤湿度已低于 10%，满足自动浇水触发条件"
-                : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+                : "土壤湿度低于当前阶段目标";
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
         Map<String, Object> emergency = new LinkedHashMap<>();
         emergency.put("eligible", emergencyEligible);
@@ -5657,6 +5659,16 @@ class AgriEngine {
         if (containsAny(text, "执行灌溉", "启动灌溉", "开始灌溉", "执行浇水", "启动浇水")) {
             if (resolvedPlotId.isBlank()) return clarification("请先指定要灌溉的地块。");
             Map<String, Object> plan = irrigationPlan(Map.of("plotId", resolvedPlotId, "traceId", traceId), principal);
+            if ("NO_ACTION".equals(Jsons.text(plan, "status", ""))) {
+                Map<String, Object> expected = Jsons.map(mapper, plan.get("expectedResult"));
+                double current = Math.round(Jsons.number(expected, "from", 0) * 10.0) / 10.0;
+                double target = Math.round(Jsons.number(expected, "to", 0) * 10.0) / 10.0;
+                return Map.of(
+                        "status", "NO_ACTION",
+                        "clarification", "当前土壤湿度 " + current + "% 已达到补水目标 " + target
+                                + "%，本次无需灌溉，也不用补证。若现场情况与读数不符，再记录一次巡田或便携仪复测。",
+                        "plan", plan);
+            }
             String readinessStatus = Jsons.text(plan, "readinessStatus", "HUMAN_REVIEW");
             if (!Jsons.bool(plan, "executable", false) || !"READY".equals(readinessStatus)) {
                 Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", ""), principal);
