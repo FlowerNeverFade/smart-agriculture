@@ -1902,7 +1902,7 @@ const app = createApp({
       water_resource_loading.value = true;
       water_resource_error.value = '';
       try {
-        water_resource_profile.value =Agr = null;
+        water_resource_profile.value = null;
         water_resource_profile.value = await api.getWaterResourceProfile(farmId);
       } catch (error) {
         water_resource_error.value = error?.message || '水库水量读取失败';
