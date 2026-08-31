@@ -4334,6 +4334,20 @@ class AgriEngine {
         return work;
     }
 
+    Map<String, Object> deleteWorkOrder(String workOrderId, UserPrincipal principal) {
+        Map<String, Object> work = scopedWorkOrder(workOrderId, principal);
+        String current = normalizeWorkStatus(work.get("status"));
+        if (!TERMINAL_WORK_ORDER_STATUSES.contains(current)) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_NOT_TERMINAL", "只有已完成的任务可以删除");
+        }
+        store.delete("work-order", workOrderId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("workOrderId", workOrderId); result.put("deleted", true); result.put("deletedBy", principal.userId);
+        events.publish("work-order.deleted", result);
+        store.logEvent("work-order.deleted", result);
+        return result;
+    }
+
     private boolean isAlertVerificationWork(Map<String, Object> work) {
         return "ALERT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
                 && "ALERT_VERIFICATION".equalsIgnoreCase(Jsons.text(work, "taskPurpose", ""));
@@ -7488,6 +7502,11 @@ class AgriController {
     @PostMapping("/work-orders/{workOrderId}/review")
     ResponseEntity<?> reviewWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.reviewWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @DeleteMapping("/work-orders/{workOrderId}")
+    ResponseEntity<?> deleteWorkOrder(@PathVariable String workOrderId, Authentication a) {
+        return ok(engine.deleteWorkOrder(workOrderId, principal(a)));
     }
 
     @GetMapping("/farm-members")

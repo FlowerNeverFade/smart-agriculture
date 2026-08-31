@@ -1244,10 +1244,29 @@
 .farmer-task-column-body {
   flex: 1;
   padding: 12px;
+  max-height: 340px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.farmer-task-delete-all {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.farmer-task-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.farmer-task-card {
+  position: relative;
+}
+.farmer-task-card:hover .farmer-task-delete-btn {
+  opacity: 1;
 }
 
 .farmer-task-card {

@@ -1112,6 +1112,7 @@
                 <div class="farmer-task-column-header">
                   <span class="farmer-task-status-chip" :class="'status-' + column.status">{{ column.label }}</span>
                   <span class="farmer-task-count">{{ column.items.length }}</span>
+                  <button v-if="column.status === 'DONE' && column.items.length" type="button" class="g-btn secondary farmer-btn-light farmer-task-delete-all" @click.stop="delete_all_completed_tasks"><app-icon name="delete_sweep"></app-icon>一键删除</button>
                 </div>
                 <div class="farmer-task-column-body">
                   <div v-for="task in column.items" :key="task.id"
@@ -1128,6 +1129,7 @@
                       <app-icon name="grass"></app-icon>
                       {{ task.plot_name }}
                     </div>
+                    <button v-if="column.status === 'DONE'" type="button" class="g-btn icon-only farmer-task-delete-btn" @click.stop="delete_task(task)" title="删除"><app-icon name="delete"></app-icon></button>
                   </div>
                   <div v-if="!column.items.length" class="farmer-empty">暂无{{ column.label }}任务</div>
                 </div>

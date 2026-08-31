@@ -4506,6 +4506,39 @@ const app = createApp({
       close_task();
     };
 
+    const delete_task = async (task) => {
+      const workOrderId = task.workOrderId || task.id;
+      try {
+        await api.deleteWorkOrder(workOrderId);
+        tasks.value = tasks.value.filter((t) => (t.workOrderId || t.id) !== workOrderId);
+        if (selected_task.value && (selected_task.value.workOrderId || selected_task.value.id) === workOrderId) {
+          selected_task.value = null;
+        }
+        show_toast('已删除完成任务');
+      } catch (error) {
+        show_toast(error.message || '删除失败', 'error');
+      }
+    };
+
+    const delete_all_completed_tasks = async () => {
+      const completed = farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t)));
+      if (!completed.length) {
+        show_toast('没有可删除的已完成任务');
+        return;
+      }
+      try {
+        await Promise.all(completed.map((task) => api.deleteWorkOrder(task.workOrderId || task.id)));
+        const ids = new Set(completed.map((task) => task.workOrderId || task.id));
+        tasks.value = tasks.value.filter((t) => !ids.has(t.workOrderId || t.id));
+        if (selected_task.value && ids.has(selected_task.value.workOrderId || selected_task.value.id)) {
+          selected_task.value = null;
+        }
+        show_toast(`已删除 ${completed.length} 个已完成任务`);
+      } catch (error) {
+        show_toast(error.message || '删除失败', 'error');
+      }
+    };
+
     const load_farmer_enhancements = async () => {
       if (farmer_enhancements_refresh_in_flight) return false;
       farmer_enhancements_refresh_in_flight = true;
@@ -4989,6 +5022,8 @@ const app = createApp({
       open_device_attention,
       open_priority_item,
       close_task,
+      delete_task,
+      delete_all_completed_tasks,
       open_plot,
       open_tools,
       load_irrigation_plan,

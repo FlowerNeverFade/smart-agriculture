@@ -1749,6 +1749,15 @@ export class ApiService {
     approved ? 'APPROVE' : 'REJECT', note || '验收通过');
   }
 
+  async deleteWorkOrder(workOrderId) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}`, { method: 'DELETE' });
+      return response?.data || response;
+    }
+    this.demoWorkOrders.delete(workOrderId);
+    return { workOrderId, deleted: true };
+  }
+
   async getFarmMembers({ farmId } = {}) {
     if (this.sessionMode === 'live') {
       if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
