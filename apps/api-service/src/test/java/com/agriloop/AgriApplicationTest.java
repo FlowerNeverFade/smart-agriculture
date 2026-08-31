@@ -830,7 +830,7 @@ class AgriApplicationTest {
 
         Map<String, Object> shortInput = engine.agentChat(Map.of("message", "1", "plotId", "plot-a01"), farmer);
         assertThat(shortInput.get("intent")).isEqualTo("CLARIFICATION");
-        assertThat(String.valueOf(shortInput.get("narrative"))).contains("补充");
+        assertThat(String.valueOf(shortInput.get("narrative"))).contains("编号");
     }
 
     @Test
