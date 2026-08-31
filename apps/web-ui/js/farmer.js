@@ -1297,7 +1297,8 @@ const app = createApp({
         const NPK_CODES = ['NITROGEN', 'PHOSPHORUS', 'POTASSIUM'];
         const npkReady = NPK_CODES.every((code) => arr.some((item) => item.code === code && !item.unavailable));
         if (!npkReady) return [chart];
-        if (chart.code !== 'NITROGEN') return [];
+        // 氮触发聚合，磷/钾被吞入聚合卡片，其余 6 个原样保留。
+        if (chart.code !== 'NITROGEN') return NPK_CODES.includes(chart.code) ? [] : [chart];
         const npkCharts = NPK_CODES.map((code) => arr.find((item) => item.code === code));
         const npkSpec = { code: 'NPK', label: '氮磷钾肥力', unit: 'mg/kg', min: 0, max: 400, precision: 0, multi: true };
         const labels = ['速效氮', '速效磷', '速效钾'];
