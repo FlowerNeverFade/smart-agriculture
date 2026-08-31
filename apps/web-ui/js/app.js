@@ -1,5 +1,5 @@
 import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-farm-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-farm-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-admin-metrics-main-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-farm-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PLOT_BACKGROUND_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-farm-main-merge-v1';
@@ -13,7 +13,7 @@ import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-farm-main-merge-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-farm-main-merge-v1';
 import { cropBackgroundFor } from './plot-background.js?v=20260831-farm-main-merge-v1';
-import { adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-farm-main-merge-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-admin-metrics-main-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -178,7 +178,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ORDER = ADMIN_PLOT_METRIC_CODES;
 const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_MOISTURE: 'water_drop',
   AIR_TEMPERATURE: 'thermometer',
@@ -186,8 +186,11 @@ const PLOT_METRIC_ICONS = Object.freeze({
   LIGHT: 'light_mode',
   CO2: 'eco',
   RAINFALL: 'rainy',
-  SOIL_EC: 'soil_ec',
-  NPK_RATIO: 'nutrition'
+  PH: 'soil_ec',
+  WATER_LEVEL: 'water_drop',
+  NITROGEN: 'eco',
+  PHOSPHORUS: 'science',
+  POTASSIUM: 'nutrition'
 });
 
 // The plot-detail simulator uses one axis at a time.  Keeping the unit and

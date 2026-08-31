@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ADMIN_PLOT_METRIC_CODES,
   adminDeviceMatchesFilters,
   adminDeviceSummary,
   adminDeviceTypeLabel,
+  adminCropEmoji,
+  adminCropKey,
   adminHealthTone,
   adminMetricLabel,
   adminSummary,
@@ -27,6 +30,18 @@ import {
   workOrderMatchesAttention,
   workOrderMatchesSummaryScope
 } from '../js/admin-state.js';
+import { MOCK_DATA } from '../js/mock-data.js';
+
+test('farm dashboard crop Emoji use stable aliases and a neutral fallback', () => {
+  assert.equal(adminCropKey({ cropCode: 'tomato', cropName: '设施番茄' }), 'tomato');
+  assert.equal(adminCropKey({ cropName: '鲜食玉米' }), 'corn');
+  assert.equal(adminCropKey({ cropName: '油葵花海' }), 'sunflower');
+  assert.equal(adminCropKey({ cropCode: 'pepper', cropName: '辣椒' }), 'pepper');
+  assert.equal(adminCropKey({ cropCode: 'dragon-fruit', cropName: '火龙果' }), 'unknown');
+  assert.equal(adminCropEmoji({ cropCode: 'tomato' }), '🍅');
+  assert.equal(adminCropEmoji({ cropName: '鲜食玉米' }), '🌽');
+  assert.equal(adminCropEmoji({ cropCode: 'dragon-fruit', cropName: '火龙果' }), '🌱');
+});
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -116,10 +131,40 @@ test('farm admin metrics prefer concise Chinese names for known backend codes', 
   assert.equal(adminMetricLabel('SOIL_MOISTURE', 'Soil Moisture'), '土壤湿度');
   assert.equal(adminMetricLabel('soilMoisture', ''), '土壤湿度');
   assert.equal(adminMetricLabel('CO2', 'CO2 Concentration'), '二氧化碳');
+  assert.equal(adminMetricLabel('PH', 'Soil PH'), '酸碱度');
+  assert.equal(adminMetricLabel('WATER_LEVEL', 'Water Level'), '水位');
+  assert.equal(adminMetricLabel('NITROGEN', 'Nitrogen'), '速效氮');
+  assert.equal(adminMetricLabel('PHOSPHORUS', 'Phosphorus'), '速效磷');
+  assert.equal(adminMetricLabel('POTASSIUM', 'Potassium'), '速效钾');
   assert.equal(adminMetricLabel('SOIL_EC', 'Soil EC'), '土壤电导率');
   assert.equal(adminMetricLabel('custom', 'Air Temperature'), '空气温度');
   assert.equal(adminMetricLabel('DEVICE_FRESHNESS', ''), '设备数据新鲜度');
   assert.equal(adminMetricLabel('CUSTOM_INDEX', '自定义指标'), '自定义指标');
+});
+
+test('farm admin metric cards follow all eleven server telemetry codes', () => {
+  const expectedCodes = [
+    'SOIL_MOISTURE',
+    'AIR_TEMPERATURE',
+    'AIR_HUMIDITY',
+    'LIGHT',
+    'CO2',
+    'RAINFALL',
+    'PH',
+    'WATER_LEVEL',
+    'NITROGEN',
+    'PHOSPHORUS',
+    'POTASSIUM'
+  ];
+
+  assert.deepEqual([...ADMIN_PLOT_METRIC_CODES], expectedCodes);
+  MOCK_DATA.plots.forEach(plot => {
+    assert.deepEqual(
+      expectedCodes.filter(code => plot.metrics?.[code] != null),
+      expectedCodes,
+      `${plot.plotId} should provide all eleven dashboard metrics`
+    );
+  });
 });
 
 test('farm admin device cards translate known types without guessing unknown values', () => {
