@@ -54,7 +54,40 @@ class FarmGovernanceService {
                 result.add(row);
             }
         }
+        for (Map<String, Object> rule : store.list("farm-rule-set").stream()
+                .filter(r -> farmId.equals(Jsons.text(r, "farmId", "")))
+                .map(r -> Jsons.copy(mapper, r)).toList()) {
+            rule.put("scope", "FARM");
+            rule.put("farmId", farmId);
+            result.add(rule);
+        }
         return result;
+    }
+
+    Map<String, Object> createRuleSet(Map<String, Object> input, UserPrincipal principal) {
+        String farmId = Jsons.text(input, "farmId", "");
+        requireFarmAdmin(principal, farmId);
+        String idempotencyKey = Jsons.text(input, "idempotencyKey", "");
+        if (!idempotencyKey.isBlank()) {
+            Map<String, Object> prior = store.find("governance-idempotency", idempotencyKey);
+            if (prior != null && farmId.equals(Jsons.text(prior, "farmId", ""))) return prior;
+        }
+        String code = Jsons.text(input, "code", Jsons.text(input, "ruleId", "")).trim().toLowerCase(Locale.ROOT);
+        if (!CROP_CODE.matcher(code).matches()) throw new ApiException(HttpStatus.BAD_REQUEST, "RULE_CODE_INVALID", "规则编号格式无效");
+        if (store.list("farm-rule-set").stream().anyMatch(r -> farmId.equals(Jsons.text(r, "farmId", "")) && code.equals(Jsons.text(r, "ruleId", "")))) {
+            throw conflict("RULE_EXISTS", "该农场已存在相同规则编号");
+        }
+        String name = Jsons.text(input, "name", Jsons.text(input, "description", "")).trim();
+        if (name.isBlank()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RULE_NAME_REQUIRED", "请填写规则名称");
+        Map<String, Object> rule = new LinkedHashMap<>(input);
+        rule.put("farmId", farmId); rule.put("ruleSetId", "farm:" + farmId + ":" + code); rule.put("ruleId", code); rule.put("code", code); rule.put("name", name); rule.put("description", name);
+        rule.put("scope", "FARM"); rule.put("status", "ACTIVE"); rule.put("revision", 1);
+        rule.put("ruleVersion", Jsons.text(input, "ruleVersion", "farm-rule-1.0.0"));
+        rule.put("createdBy", principal.userId); rule.put("createdAt", Instant.now().toString()); rule.put("updatedAt", Instant.now().toString());
+        store.save("farm-rule-set", farmId + ":" + code, rule);
+        events.publish("rule-set.created", rule); store.logEvent("rule-set.created", rule);
+        if (!idempotencyKey.isBlank()) store.save("governance-idempotency", idempotencyKey, rule);
+        return rule;
     }
 
     List<Map<String, Object>> learningCases(String farmId, String candidateId, UserPrincipal principal) {

@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260826-live-refresh';
+import { api } from '../api.js?v=20260831-rules-ai-v1';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260827-work-order-flow-v3';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
 import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
 

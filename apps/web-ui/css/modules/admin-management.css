@@ -855,6 +855,21 @@
 .admin-governance-empty .material-symbols-outlined { color: var(--g-primary); font-size: 30px; }
 .admin-governance-empty strong { color: var(--g-text-primary); font-size: 14px; }
 .admin-governance-empty span { font-size: 12px; }
+.admin-rule-dialog { width: min(720px, calc(100vw - 32px)); }
+.admin-rule-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.admin-rule-form-grid label { display: grid; gap: 6px; min-width: 0; }
+.admin-rule-form-grid label > span { color: var(--g-text-primary); font-size: 12px; font-weight: 700; }
+.admin-rule-form-grid label small { color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
+.admin-rule-form-grid .span-2 { grid-column: 1 / -1; }
+.admin-rule-condition { display: grid; grid-template-columns: 1fr 1fr .7fr; gap: 7px; }
+.admin-rule-form-note { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--g-primary) 22%, var(--g-border)); border-radius: 9px; background: var(--g-primary-bg); color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.admin-rule-form-note .material-symbols-outlined { flex: 0 0 auto; color: var(--g-primary); font-size: 17px; }
+@media (max-width: 620px) {
+  .admin-rule-form-grid { grid-template-columns: 1fr; }
+  .admin-rule-form-grid .span-2 { grid-column: auto; }
+  .admin-rule-condition { grid-template-columns: 1fr 1fr; }
+  .admin-rule-condition .g-input:last-child { grid-column: 1 / -1; }
+}
 
 /* Every Crop Pack tile, including the add tile, occupies the same visual box. */
 .admin-pack-card-grid { grid-auto-rows: 320px; }

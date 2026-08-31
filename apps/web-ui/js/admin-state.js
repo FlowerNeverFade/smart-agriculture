@@ -359,6 +359,9 @@ export function domainsForEventType(type = '') {
   if (value.includes('plot.')) { domains.add('plots'); domains.add('overview'); }
   if (value.includes('workorder') || value.includes('work-order') || value.includes('cropplan')) { domains.add('workOrders'); domains.add('overview'); }
   if (value.includes('alert')) { domains.add('alerts'); domains.add('overview'); }
+  if (value.includes('rule-set') || value.includes('ruleset') || value.includes('strategy.candidate') || value.includes('strategy-candidate')) {
+    domains.add('rulesStrategies'); domains.add('alerts'); domains.add('overview');
+  }
   if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
   if (value.includes('member')) domains.add('members');
   if (value.includes('inspection')) domains.add('inspections');

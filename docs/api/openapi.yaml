@@ -123,6 +123,7 @@ paths:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 全局与当前农场 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
   /api/v1/rule-sets:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 全局及当前农场启用的确定性告警规则集}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已保存当前农场告警规则}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 规则编号已存在}}}
   /api/v1/alert-learning-cases:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: candidateId, in: query, schema: {type: string}}], responses: {'200': {description: 农场级告警闭环学习案例}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/farms/{farmId}/crop-packs:

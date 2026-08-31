@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260830-ai-assistant-state-v4';
+import { api } from '../api.js?v=20260831-rules-ai-v1';
 import { agentResponseSource, agentResponseText } from '../live-data.js?v=20260830-agent-assistant-v1';
 import { analyzeImageFiles } from './image-vision.js?v=20260830-ai-vision-v1';
 

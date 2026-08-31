@@ -221,6 +221,16 @@ export class ApiService {
     this.demoWaterBalance = { dailyQuotaLitres: this.demoWaterProfile.dailyQuotaLitres, reservedLitres: 0, actualUsedLitres: Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0), remainingLitres: Math.max(0, this.demoWaterProfile.dailyQuotaLitres - Number(MOCK_DATA.resourceProfile?.actualUsedLitres ?? MOCK_DATA.resourceProfile?.usedTodayLitres ?? 0)), revision: 1 };
     this.demoResourcePlans = new Map();
     this.demoStrategyCandidates = new Map((MOCK_DATA.adminStrategyCandidates || []).map(item => [item.candidateId || item.id, { ...item, candidateId: item.candidateId || item.id, status: String(item.status || 'DRAFT').toUpperCase() }]));
+    this.demoFarmRules = new Map();
+    try {
+      const storedRules = JSON.parse(localStorage.getItem('agriloop_demo_farm_rules') || '[]');
+      (Array.isArray(storedRules) ? storedRules : []).forEach(rule => {
+        if (rule?.farmId && (rule?.ruleId || rule?.code)) {
+          const id = rule.ruleId || rule.code;
+          this.demoFarmRules.set(`${rule.farmId}:${id}`, rule);
+        }
+      });
+    } catch { /* a malformed demo cache must not block the app */ }
     this.demoFarmCropPacks = new Map();
     try {
       const storedPacks = JSON.parse(localStorage.getItem('agriloop_demo_farm_crop_packs') || '[]');
@@ -2711,7 +2721,56 @@ export class ApiService {
   async getRuleSets(farmId) {
     if (!farmId) return [];
     if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/rule-sets?farmId=${encodeURIComponent(farmId)}`); return resp?.data || []; }
-    return this.getRules();
+    const base = await this.getRules();
+    const custom = Array.from(this.demoFarmRules.values())
+      .filter(rule => rule.farmId === farmId)
+      .map(rule => JSON.parse(JSON.stringify(rule)));
+    return [...base.map(rule => ({ ...rule, scope: rule.scope || 'GLOBAL', farmId })), ...custom];
+  }
+
+  async createFarmRule(farmId, input = {}) {
+    if (!farmId) throw new ApiError('请先选择农场', { status: 400, code: 'FARM_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/rule-sets', { method: 'POST', body: JSON.stringify({ ...input, farmId }) });
+      return resp?.data || resp;
+    }
+    const code = String(input.code || input.ruleId || '').trim().toLowerCase();
+    const name = String(input.name || input.description || '').trim();
+    if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(code)) throw new ApiError('规则编号需使用 2-64 位小写字母、数字、下划线或短横线', { status: 422, code: 'RULE_CODE_INVALID' });
+    if (!name) throw new ApiError('请填写规则名称', { status: 422, code: 'RULE_NAME_REQUIRED' });
+    const key = `${farmId}:${code}`;
+    if (this.demoFarmRules.has(key)) throw new ApiError('该农场已存在相同规则编号', { status: 409, code: 'RULE_EXISTS' });
+    const threshold = Number(input.threshold);
+    if (!Number.isFinite(threshold)) throw new ApiError('请填写有效的阈值', { status: 422, code: 'RULE_THRESHOLD_INVALID' });
+    const now = new Date().toISOString();
+    const saved = {
+      ruleSetId: `farm:${farmId}:${code}`,
+      ruleId: code,
+      code,
+      name,
+      description: name,
+      farmId,
+      scope: 'FARM',
+      cropCode: String(input.cropCode || '').trim() || '全场作物',
+      stageCode: String(input.stageCode || '').trim() || '所有阶段',
+      metric: String(input.metric || 'soilMoisture'),
+      operator: String(input.operator || 'LT').toUpperCase(),
+      threshold,
+      unit: String(input.unit || '%'),
+      durationMinutes: Math.max(0, Number(input.durationMinutes || 0)),
+      cooldownMinutes: Math.max(0, Number(input.cooldownMinutes || 0)),
+      ruleVersion: String(input.ruleVersion || 'farm-rule-1.0.0'),
+      version: String(input.ruleVersion || 'farm-rule-1.0.0'),
+      status: 'ACTIVE',
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+      sourceMode: 'SIMULATED',
+      dataOrigin: 'USER_PROVIDED'
+    };
+    this.demoFarmRules.set(key, saved);
+    try { localStorage.setItem('agriloop_demo_farm_rules', JSON.stringify(Array.from(this.demoFarmRules.values()))); } catch { /* storage may be unavailable */ }
+    return JSON.parse(JSON.stringify(saved));
   }
 
   async getAlertLearningCases(farmId, candidateId = '') {

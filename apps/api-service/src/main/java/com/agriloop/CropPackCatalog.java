@@ -178,6 +178,25 @@ class CropPackCatalog {
                 || Jsons.text(stage, "code", "").equalsIgnoreCase(stageCode);
         Map<String, Object> target = Jsons.map(mapper, stage.get("target"));
         List<Map<String, Object>> effectiveRules = effectiveRules(pack, stage, target);
+        if (farmId != null && !farmId.isBlank()) {
+            String resolvedCrop = Jsons.text(pack, "cropCode", "");
+            String resolvedStage = Jsons.text(stage, "code", "");
+            for (Map<String, Object> custom : store.list("farm-rule-set").stream()
+                    .filter(rule -> farmId.equals(Jsons.text(rule, "farmId", "")))
+                    .filter(rule -> "ACTIVE".equalsIgnoreCase(Jsons.text(rule, "status", "ACTIVE")))
+                    .filter(rule -> {
+                        String crop = Jsons.text(rule, "cropCode", "");
+                        return crop.isBlank() || "全场作物".equals(crop) || crop.equalsIgnoreCase(resolvedCrop);
+                    })
+                    .filter(rule -> {
+                        String stageValue = Jsons.text(rule, "stageCode", "");
+                        return stageValue.isBlank() || "所有阶段".equals(stageValue) || stageValue.equalsIgnoreCase(resolvedStage);
+                    }).toList()) {
+                String code = Jsons.text(custom, "code", Jsons.text(custom, "ruleId", ""));
+                effectiveRules.removeIf(existing -> code.equalsIgnoreCase(Jsons.text(existing, "code", "")));
+                effectiveRules.add(Jsons.copy(mapper, custom));
+            }
+        }
         Map<String, Object> forecastProfile = Jsons.map(mapper, pack.get("forecastProfile"));
         Map<String, Object> healthProfile = Jsons.map(mapper, pack.get("healthProfile"));
         Map<String, Object> resolved = new LinkedHashMap<>();

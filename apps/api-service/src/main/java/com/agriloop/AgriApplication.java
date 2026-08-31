@@ -5738,6 +5738,11 @@ class AgriController {
     @GetMapping("/rule-sets")
     ResponseEntity<?> ruleSets(@RequestParam String farmId, Authentication a) { return ok(governance.ruleSets(farmId, principal(a))); }
 
+    @PostMapping("/rule-sets")
+    ResponseEntity<?> createRuleSet(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(governance.createRuleSet(body == null ? Map.of() : body, principal(a))));
+    }
+
     @GetMapping("/alert-learning-cases")
     ResponseEntity<?> alertLearningCases(@RequestParam String farmId,
                                          @RequestParam(required = false) String candidateId,

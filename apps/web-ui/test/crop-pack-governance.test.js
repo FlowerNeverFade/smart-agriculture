@@ -24,6 +24,8 @@ test('farm governance page is a separate rules and strategies entry', () => {
   assert.match(source, /规则集/);
   assert.match(source, /策略候选集/);
   assert.match(source, /批准并启用/);
+  assert.match(source, /新增规则/);
+  assert.match(source, /createRule/);
 });
 
 test('only farm administrators receive the rules and strategies route', () => {
@@ -35,8 +37,15 @@ test('only farm administrators receive the rules and strategies route', () => {
 
 test('API client exposes farm-scoped governance endpoints', () => {
   const source = readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
-  for (const method of ['getRuleSets', 'getAlertLearningCases', 'activateStrategyCandidate', 'createFarmCropPack', 'validateFarmCropPack', 'activateFarmCropPack']) {
+  for (const method of ['getRuleSets', 'createFarmRule', 'getAlertLearningCases', 'activateStrategyCandidate', 'createFarmCropPack', 'validateFarmCropPack', 'activateFarmCropPack']) {
     assert.match(source, new RegExp(`async ${method}\\b`));
   }
   assert.match(source, /includeDrafts/);
+});
+
+test('全局壳层不再显示农场标识和返回农户工作台按钮', () => {
+  const source = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /g-nav-return-farmer/);
+  assert.doesNotMatch(source, /返回农户工作台/);
+  assert.match(source, /v-if="state\.currentUser\.role !== 'FARM_ADMIN'" class="g-header-center"/);
 });
