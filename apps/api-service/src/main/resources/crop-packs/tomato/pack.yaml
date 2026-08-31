@@ -106,7 +106,7 @@ metrics:
   - {code: PHOSPHORUS, label: 速效磷, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 200}}
   - {code: POTASSIUM, label: 速效钾, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 400}}
 rules:
-  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8}
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10}
   - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
   - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
 healthProfile:
@@ -121,7 +121,7 @@ healthProfile:
     LIGHT: 0.12
     WATER_LEVEL: 0.12
     CO2: 0.10
-prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000}
 forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
 coordinationProfile: {stageSensitivity: 0.9, starvationGuardMinutes: 120}
 knowledge:

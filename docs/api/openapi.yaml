@@ -298,9 +298,11 @@ paths:
       parameters:
         - {$ref: '#/components/parameters/PlotId'}
       responses:
-        '200': {description: 当前阶段迟滞状态、持久化灌溉冷却窗口和最近有效命令；仅限授权地块}
+        '200': {description: 当前阶段迟滞状态、无时间冷却的灌溉可用状态、自动浇水阈值和最近有效命令；仅限授权地块}
   /api/v1/irrigation/estimate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+  /api/v1/irrigation/auto:
+    post: {tags: [decision], description: 土壤含水量低于 10% 且通过数据质量、设备、资源和权限校验时发起一次虚拟浇水；同一遥测事件使用幂等键避免重复命令, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 自动浇水触发、未触发或阻断结果}}}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -364,7 +366,7 @@ paths:
     post:
       tags: [execution]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualCommandRequest'}}}}
-      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等/冷却冲突}, '422': {description: 就绪度/安全拒绝}}
+      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等或自动浇水资格冲突}, '422': {description: 就绪度/安全拒绝}}
   /api/v1/commands/{commandId}:
     get: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], responses: {'200': {description: 命令与 ACK}}}
   /api/v1/commands/{commandId}/ack:

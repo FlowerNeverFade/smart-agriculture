@@ -509,12 +509,12 @@ class CropPackCatalog {
 
     private List<Map<String, Object>> defaultRules() {
         return List.of(
-                new LinkedHashMap<>(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 25, "durationMinutes", 5, "hysteresis", 2, "cooldownMinutes", 120)),
+                new LinkedHashMap<>(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 25, "durationMinutes", 5, "hysteresis", 2, "cooldownMinutes", 0, "alertCooldownMinutes", 120, "automaticWateringThreshold", 10)),
                 new LinkedHashMap<>(Map.of("code", "HEAT_STRESS", "metric", "AIR_TEMPERATURE", "operator", "GT", "threshold", 35, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
                 new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)));
     }
 
-    private Map<String, Object> defaultPrescriptionConstraints() { return new LinkedHashMap<>(Map.of("maxDurationSeconds", 900, "cooldownMinutes", 120, "maxDailyWaterLitres", 5000)); }
+    private Map<String, Object> defaultPrescriptionConstraints() { return new LinkedHashMap<>(Map.of("maxDurationSeconds", 900, "cooldownMinutes", 0, "automaticWateringThreshold", 10, "maxDailyWaterLitres", 5000)); }
     private Map<String, Object> defaultForecastProfile() { return new LinkedHashMap<>(Map.of("algorithm", "robust-trend-v1", "horizonsMinutes", List.of(60, 120, 240), "minValidSamples", 6, "maxStalenessSeconds", 120)); }
     private Map<String, Object> defaultScenarios() { return new LinkedHashMap<>(Map.of("normal", Map.of("quality", "GOOD", "expected", "stable"), "drought", Map.of("quality", "GOOD", "expected", "soil_moisture_decline"), "heavy-rain", Map.of("quality", "GOOD", "expected", "soil_moisture_rise"), "sensor-drift", Map.of("quality", "DEGRADED", "expected", "quality_gate"), "device-offline", Map.of("quality", "BAD", "expected", "device_gate"))); }
 

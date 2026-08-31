@@ -23,7 +23,9 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   const guard = await service.getIrrigationGuard('plot-a01');
   assert.equal(guard.provenance, 'SIMULATED');
   assert.ok(['TRIGGERED', 'HOLD', 'RESET'].includes(guard.hysteresis.state));
-  assert.equal(typeof guard.cooldownMinutes, 'number');
+  assert.equal(guard.cooldownMinutes, 0);
+  assert.equal(guard.automaticWatering.threshold, 10);
+  assert.equal(guard.automaticWatering.enabled, true);
 
   const compare = await service.compareScenario({ scenario: 'DROUGHT', seed: 42, plotId: 'plot-a01' });
   assert.equal(compare.seed, 42);
@@ -81,12 +83,14 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
 });
 
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
-  const [html, source] = await Promise.all([
+  const [html, source, presentation] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
-    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8')
+    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
   ]);
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '知识证据与工具审计', '查看建议并执行', '农户不能自行填写执行成功']) {
-    assert.match(html, new RegExp(marker));
+  const farmerSurface = `${html}\n${source}\n${presentation}`;
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '农户不能自行填写执行成功']) {
+    assert.match(farmerSurface, new RegExp(marker));
   }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
@@ -169,15 +173,16 @@ test('farmer plot cards hide soil EC charts and localize metric codes', async ()
 });
 
 test('farmer assistant is a primary route with drawer history and safe action affordances', async () => {
-  const [html, source, api, css] = await Promise.all([
+  const [html, source, api, css, presentation] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
     readFile(new URL('../js/api.js', import.meta.url), 'utf8'),
-    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8'),
+    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
   ]);
   assert.match(html, /current_view === 'assistant'/);
   assert.doesNotMatch(html, /farmer-ai-dock|farmer-ai-consult|show_ai_consult/);
-  const surface = `${html}\n${source}`;
+  const surface = `${html}\n${source}\n${presentation}`;
   for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', 'Enter 发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
     assert.match(surface, new RegExp(marker));
   }
