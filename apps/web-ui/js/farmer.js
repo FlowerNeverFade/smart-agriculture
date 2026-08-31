@@ -1175,7 +1175,11 @@ const app = createApp({
 
     const farm = ref(is_formal_session ? {} : MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
-    const assigned_plots = is_formal_session ? [] : MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
+    // The demo API hydrates browser-session effects before the app mounts.
+    // Read that snapshot here instead of rebuilding cards from MOCK_DATA, so
+    // a completed virtual irrigation remains visible after a full reload.
+    const demo_plot_source = is_formal_session ? [] : Array.from(api.demoPlots?.values?.() || MOCK_DATA.plots);
+    const assigned_plots = is_formal_session ? [] : demo_plot_source.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
       ...plot,
       healthScore: compute_plot_health_score(plot)
     }));
@@ -2149,6 +2153,8 @@ const app = createApp({
     const irrigation_guard = ref(null);
     const automatic_watering_result = ref(null);
     const automatic_watering_busy = ref(false);
+    const automatic_watering_setting = ref(null);
+    const automatic_watering_setting_busy = ref(false);
     const advice_passport = ref(null);
     const evidence_request_busy = ref(false);
     const advice_loading = ref(false);
@@ -2180,12 +2186,16 @@ const app = createApp({
         ?? irrigation_guard.value?.automaticWatering?.threshold
         ?? irrigation_plan.value?.automaticWatering?.threshold
         ?? 10);
+      const enabled = automatic_watering_setting.value?.enabled
+        ?? irrigation_guard.value?.automaticWatering?.enabled
+        ?? irrigation_plan.value?.automaticWatering?.enabled
+        ?? true;
       const resultStatus = String(automatic_watering_result.value?.status || '').toUpperCase();
       const eligible = Number.isFinite(moisture) && moisture < threshold;
-      const status = resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
-      const statusLabel = { TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
-      const label = status === 'TRIGGERED' ? '已根据最新读数发起虚拟浇水' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
-      return { enabled: true, threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
+      const status = !enabled ? 'DISABLED' : resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
+      const statusLabel = { DISABLED: '未开启', TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
+      const label = !enabled ? '自动浇水未开启' : status === 'TRIGGERED' ? '已根据最新读数发起' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
+      return { enabled: Boolean(enabled), threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible: Boolean(enabled) && eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
     });
 
     // Keep the old QA names as local aliases for the existing advice helpers;
@@ -3436,6 +3446,7 @@ const app = createApp({
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
       irrigation_guard.value = null;
+      automatic_watering_setting.value = null;
       if (automatic_watering_result.value?.plotId !== plotId) automatic_watering_result.value = null;
       try {
         const plan = await api.estimateIrrigation({
@@ -3460,11 +3471,25 @@ const app = createApp({
             // stay disabled until the guard can be read again.
             irrigation_guard.value = null;
           }
+          try {
+            automatic_watering_setting.value = await api.getAutomaticWateringSetting(plotId);
+          } catch {
+            // Keep the existing default-on behavior if an older server does
+            // not expose the optional setting endpoint yet.  The guard remains
+            // the source of truth for eligibility and safety checks.
+            automatic_watering_setting.value = {
+              plotId,
+              enabled: irrigation_guard.value?.automaticWatering?.enabled !== false,
+              threshold: irrigation_guard.value?.automaticWatering?.threshold || 10,
+              sourceMode: 'SIMULATION',
+              provenance: 'DERIVED'
+            };
+          }
           // The server also evaluates this on every telemetry event.  The
           // page-level check catches an already-low reading when a farmer
           // opens the irrigation view and is idempotent per reading in demo
           // mode.
-          if (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true) {
+          if (automatic_watering_status.value.enabled && (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true)) {
             void check_automatic_watering(plotId, { silent: true });
           }
         }
@@ -3481,8 +3506,37 @@ const app = createApp({
       }
     };
 
+    const toggle_automatic_watering = async (plotId = advice_plot.value?.plotId) => {
+      if (!plotId || automatic_watering_setting_busy.value) return null;
+      const currentEnabled = automatic_watering_setting.value?.enabled
+        ?? automatic_watering_status.value.enabled;
+      automatic_watering_setting_busy.value = true;
+      try {
+        const setting = await api.setAutomaticWateringSetting(plotId, !currentEnabled);
+        automatic_watering_setting.value = setting;
+        automatic_watering_result.value = null;
+        try {
+          irrigation_guard.value = await api.getIrrigationGuard(plotId);
+        } catch {
+          // The saved setting is still reflected immediately; a later refresh
+          // can fill the guard details when the service is available again.
+        }
+        show_toast(setting.enabled ? '已开启自动浇水' : '已关闭自动浇水');
+        return setting;
+      } catch (error) {
+        show_toast(error?.message || '自动浇水设置保存失败', 'error');
+        return null;
+      } finally {
+        automatic_watering_setting_busy.value = false;
+      }
+    };
+
     const check_automatic_watering = async (plotId = advice_plot.value?.plotId, { silent = false } = {}) => {
       if (!plotId || automatic_watering_busy.value) return null;
+      if (!automatic_watering_status.value.enabled) {
+        if (!silent) show_toast('请先开启自动浇水');
+        return { plotId, enabled: false, status: 'DISABLED', reason: 'AUTOMATIC_WATERING_DISABLED' };
+      }
       automatic_watering_busy.value = true;
       try {
         const result = await api.autoWaterIfNeeded(plotId);
@@ -4134,6 +4188,33 @@ const app = createApp({
       return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, facts: turn.facts || [], recommendations: turn.recommendations || [], turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
     };
 
+    const refresh_assistant_action_states = async (messageList = assistant_messages.value) => {
+      const proposals = [];
+      const seen = new Set();
+      (Array.isArray(messageList) ? messageList : []).forEach((message) => {
+        const proposal = message?.actionProposal;
+        if (!proposal?.actionId || seen.has(proposal.actionId)) return;
+        seen.add(proposal.actionId);
+        proposals.push({ message, proposal });
+      });
+      await Promise.all(proposals.map(async ({ message, proposal }) => {
+        try {
+          const latest = await api.getAgentAction(proposal.actionId);
+          Object.assign(proposal, latest);
+          // `normalizeAgentTurn` keeps its own proposal copy.  Keep both
+          // references aligned so the card and the expanded audit details
+          // cannot disagree after a conversation is re-opened.
+          if (message?.turn?.actionProposal && message.turn.actionProposal !== proposal) {
+            Object.assign(message.turn.actionProposal, latest);
+          }
+        } catch {
+          // A missing legacy action row should not erase the immutable
+          // proposal embedded in history; retain it as the best fallback.
+        }
+      }));
+      return messageList;
+    };
+
     const load_assistant_conversations = async ({ openRecent = true } = {}) => {
       try {
         assistant_service_status.value = is_formal_session ? 'CONNECTING' : 'DEMO';
@@ -4141,8 +4222,16 @@ const app = createApp({
         assistant_conversations.value = Array.isArray(list) ? list : [];
         assistant_error.value = '';
         assistant_service_status.value = is_formal_session ? 'READY' : 'DEMO';
-        if (openRecent && assistant_conversations.value.length && !assistant_messages.value.length) {
-          await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+        if (openRecent && assistant_conversations.value.length) {
+          const currentId = assistant_conversation_id.value;
+          const currentExists = currentId && assistant_conversations.value.some((item) => item.conversationId === currentId);
+          if (!assistant_messages.value.length || !currentExists) {
+            await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+          } else {
+            // Returning from another route must re-read durable action state;
+            // history messages intentionally contain only a render snapshot.
+            await refresh_assistant_action_states();
+          }
         }
         if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
       } catch (error) {
@@ -4171,15 +4260,7 @@ const app = createApp({
             next.push(assistant_history_message(item, latestQuestion, plot));
           }
         });
-        const proposals = next.map((item) => item.actionProposal).filter((proposal) => proposal?.actionId);
-        await Promise.all(proposals.map(async (proposal) => {
-          try {
-            Object.assign(proposal, await api.getAgentAction(proposal.actionId));
-          } catch {
-            // Older formal records may not have an action row anymore; keep
-            // the immutable proposal embedded in the conversation history.
-          }
-        }));
+        await refresh_assistant_action_states(next);
         assistant_messages.value = next;
         assistant_conversation_id.value = conversationId;
         if (payload?.conversation?.plotId) assistant_plot_id.value = payload.conversation.plotId;
@@ -4209,14 +4290,25 @@ const app = createApp({
         return;
       }
       try {
+        const assignedPlotIds = new Set(plots.value.map((plot) => String(plot.plotId)));
+        const rawPlots = await api.getPlots({ farmId: farm.value.farmId || 'farm-demo', includeInactive: true });
+        const normalizedPlots = (rawPlots || [])
+          .filter((plot) => !assignedPlotIds.size || assignedPlotIds.has(String(plot.plotId)))
+          .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+          .map((plot) => ({ ...plot, healthScore: compute_plot_health_score(plot) }));
+        const selectedPlotId = selected_plot.value?.plotId || advice_selected_plot.value?.plotId || assistant_plot_id.value;
+        replace_ref_array(plots, normalizedPlots);
+        selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selectedPlotId) || normalizedPlots[0] || null;
+        advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
+        if (!normalizedPlots.some((plot) => plot.plotId === assistant_plot_id.value)) assistant_plot_id.value = normalizedPlots[0]?.plotId || '';
         const rawTasks = await api.getWorkOrders({ farmId: farm.value.farmId || 'farm-demo' });
-        const plotMap = new Map(plots.value.map((plot) => [String(plot.plotId), plot]));
+        const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = rawTasks.map((work) => normalizeFarmerTask(work, plotMap));
         replace_ref_array(tasks, normalizedTasks);
         const records = [];
-        for (const plot of plots.value) records.push(...await api.getInspections(plot.plotId));
+        for (const plot of normalizedPlots) records.push(...await api.getInspections(plot.plotId));
         replace_ref_array(inspection_records, records);
-        apply_messages(buildFarmerMessages({ alerts: Array.from(api.demoAlerts?.values?.() || []), tasks: normalizedTasks, inspections: records, plots: plots.value }));
+        apply_messages(buildFarmerMessages({ alerts: Array.from(api.demoAlerts?.values?.() || []), tasks: normalizedTasks, inspections: records, plots: normalizedPlots }));
       } catch (error) {
         assistant_error.value = `数据刷新失败：${error.message || '请稍后重试'}`;
       }
@@ -4241,7 +4333,7 @@ const app = createApp({
     };
 
     const confirm_assistant_action = async (proposal) => {
-      if (!proposal?.actionId || assistant_action_busy.value) return;
+      if (!proposal?.actionId || proposal.status !== 'AWAITING_CONFIRMATION' || assistant_action_busy.value) return;
       assistant_action_busy.value = proposal.actionId;
       try {
         const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `agent-confirm:${proposal.actionId}` });
@@ -4258,7 +4350,7 @@ const app = createApp({
     };
 
     const cancel_assistant_action = async (proposal) => {
-      if (!proposal?.actionId || assistant_action_busy.value) return;
+      if (!proposal?.actionId || proposal.status !== 'AWAITING_CONFIRMATION' || assistant_action_busy.value) return;
       assistant_action_busy.value = proposal.actionId;
       try {
         const result = await api.cancelAgentAction(proposal.actionId);
@@ -4951,6 +5043,8 @@ const app = createApp({
       automatic_watering_status,
       automatic_watering_result,
       automatic_watering_busy,
+      automatic_watering_setting,
+      automatic_watering_setting_busy,
       advice_passport,
       evidence_request_busy,
       advice_plan,
@@ -5080,6 +5174,7 @@ const app = createApp({
       open_plot,
       open_tools,
       load_irrigation_plan,
+      toggle_automatic_watering,
       check_automatic_watering,
       toggle_irrigation,
       open_suggestion,

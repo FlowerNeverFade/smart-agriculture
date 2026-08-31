@@ -496,6 +496,42 @@ export const WorkOrderLifecycleView = {
     const autoReassignOverdue = () => processOverdueTasks('REASSIGN');
     const autoDisposeOverdue = () => processOverdueTasks('DISPOSE');
 
+    const autoAssignUnassigned = async () => {
+      if (!canManage.value || isBusy.value) return;
+      const targets = filteredOrders.value.filter((order) => workStatus(order.status) === 'OPEN' && !order.assigneeId);
+      if (!targets.length) {
+        toast('当前筛选下没有待分配任务', 'error');
+        return;
+      }
+      await refreshFarmMembers(false);
+      isBusy.value = true;
+      let assignedCount = 0;
+      const failures = [];
+      try {
+        for (const order of targets) {
+          const choice = chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
+          if (!choice?.member?.userId) {
+            failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
+            continue;
+          }
+          try {
+            const response = await api.assignWorkOrder(order.workOrderId, {
+              assigneeId: choice.member.userId,
+              note: `AI 智能分配：已按地块权限、在岗状态和当前任务负载排序（当前待办 ${choice.activeLoad} 项）`
+            });
+            publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member));
+            assignedCount += 1;
+          } catch (error) {
+            failures.push(`${order.title || order.workOrderId}：${error?.message || '分配失败'}`);
+          }
+        }
+        if (assignedCount) toast(`AI 已分配 ${assignedCount} 项任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
+        else toast(failures[0] || '没有可分配的任务', 'error');
+      } finally {
+        isBusy.value = false;
+      }
+    };
+
     const startTask = (order, restart = false) => runAction(
       () => api.transitionWorkOrder(order.workOrderId, { action: restart ? 'RESTART' : 'START', note: restart ? '按退回意见重新处理' : '开始执行任务' }),
       restart ? '任务已重新开始，请按退回意见处理' : '任务已开始'
@@ -784,7 +820,7 @@ export const WorkOrderLifecycleView = {
       isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
-      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
+      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
       clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect,
@@ -828,6 +864,11 @@ export const WorkOrderLifecycleView = {
         <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
         <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
       </div>
+
+      <section v-if="canManage && (scopeFilter === 'unassigned' || (statusFilter === 'OPEN' && !scopeFilter))" class="work-unassigned-disposition" aria-label="待分配任务智能分配">
+        <div><strong>待分配任务</strong><span>AI 将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
+        <button type="button" class="g-btn primary compact" :disabled="isBusy || !filteredOrders.some(order => workStatus(order.status) === 'OPEN' && !order.assigneeId)" @click="autoAssignUnassigned"><app-icon name="auto_awesome"></app-icon>{{ isBusy ? '分配中…' : 'AI一键分配任务' }}</button>
+      </section>
 
       <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
         <div><strong>逾期任务处置</strong><span>一键处置由原负责人继续处理；一键重新分配会更换合适农户。完成后均转入进行中。</span></div>

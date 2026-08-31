@@ -113,6 +113,12 @@ test('逾期页提供全选、一键重新分配、一键处置和单任务人�
   assert.match(WorkOrderLifecycleView.template, /选择人员处置/);
 });
 
+test('待分配任务提供 AI 一键分配入口', () => {
+  assert.match(WorkOrderLifecycleView.template, /待分配任务智能分配/);
+  assert.match(WorkOrderLifecycleView.template, /AI一键分配任务/);
+  assert.match(WorkOrderLifecycleView.template, /autoAssignUnassigned/);
+});
+
 test('告警核查任务验收时提供唯一核查结论并自动处理', () => {
   assert.equal(isAlertVerificationOrder({ taskPurpose: 'ALERT_VERIFICATION' }), true);
   assert.equal(isAlertVerificationOrder({ actionType: 'INSPECTION' }), false);
@@ -126,8 +132,8 @@ test('农务任务与主应用复用同一 API 数据实例并定时刷新逾期
   const lifecycleSource = readFileSync(new URL('../js/work-order-lifecycle.js', import.meta.url), 'utf8');
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   const managementSource = readFileSync(new URL('../js/modules/admin-work-management.js', import.meta.url), 'utf8');
-  assert.match(lifecycleSource, /from '\.\/api\.js\?v=20260831-three-branch-v1'/);
-  assert.match(appSource, /from '\.\/api\.js\?v=20260831-three-branch-v1'/);
-  assert.match(managementSource, /from '\.\.\/api\.js\?v=20260831-three-branch-v1'/);
+  assert.match(lifecycleSource, /from '\.\/api\.js\?v=20260831-farm-main-merge-v1'/);
+  assert.match(appSource, /from '\.\/api\.js\?v=20260831-farm-main-merge-v1'/);
+  assert.match(managementSource, /from '\.\.\/api\.js\?v=20260831-farm-main-merge-v1'/);
   assert.match(lifecycleSource, /setInterval\(\(\) => \{ lifecycleNow\.value = Date\.now\(\); \}, 30000\)/);
 });

@@ -56,10 +56,9 @@ if (guardUser && guardUser.role === 'SYSTEM_ADMIN') {
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
-// Apply saved preferences before Vue mounts so the shared shell and its
-// role-specific styles render with the same theme/density from the first
-// paint (and migrate the legacy theme-only preference when present).
-const initialUserSettings = readUserSettings();
+const bootSession = api.readSession();
+const initialSettingsAccount = bootSession?.user || MOCK_DATA.currentUser;
+const initialUserSettings = readUserSettings(undefined, initialSettingsAccount);
 applyUserSettings(initialUserSettings);
 
 const ICON_CLASS = Object.freeze({
@@ -162,6 +161,7 @@ const AppIcon = {
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
   { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
@@ -177,7 +177,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ORDER = ADMIN_PLOT_METRIC_CODES;
 const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_MOISTURE: 'water_drop',
   AIR_TEMPERATURE: 'thermometer',
@@ -185,8 +185,11 @@ const PLOT_METRIC_ICONS = Object.freeze({
   LIGHT: 'light_mode',
   CO2: 'eco',
   RAINFALL: 'rainy',
-  SOIL_EC: 'soil_ec',
-  NPK_RATIO: 'nutrition'
+  PH: 'soil_ec',
+  WATER_LEVEL: 'water_drop',
+  NITROGEN: 'eco',
+  PHOSPHORUS: 'science',
+  POTASSIUM: 'nutrition'
 });
 
 // The plot-detail simulator uses one axis at a time.  Keeping the unit and
@@ -654,6 +657,9 @@ const DashboardView = {
     const cardTone = (plot) => normalizedStatus(plot?.status, 'ACTIVE') === 'INACTIVE' ? 'inactive' : isAbnormalPlot(plot) ? 'attention' : 'normal';
     const metricVisualIcon = (metric) => PLOT_METRIC_ICONS[metric?.code] || 'monitoring';
     const metricStatusIcon = (metric) => metricTone(metric) === 'normal' ? 'check_circle' : metricTone(metric) === 'unavailable' ? 'remove_circle_outline' : 'warning_amber';
+    const cropKeyFor = (plot) => adminCropKey(plot);
+    const cropEmojiFor = (plot) => adminCropEmoji(plot);
+    const cropLabelFor = (plot) => plot?.cropName || CROP_OPTIONS.find((crop) => crop.code === cropKeyFor(plot))?.name || '其他作物';
     const openPlotDetail = (plot, event) => emit('open-plot-detail', {
       plotId: plot.plotId,
       trigger: event?.currentTarget || null
@@ -834,6 +840,9 @@ const DashboardView = {
       metricTone,
       metricVisualIcon,
       metricStatusIcon,
+      cropKeyFor,
+      cropEmojiFor,
+      cropLabelFor,
       cropBackgroundFor,
       openPlotDetail,
       plotMenuId,
@@ -1042,11 +1051,11 @@ const PlotDetailModal = {
       }, true);
     };
 
-    const queueSimulationPreview = () => {
+    const queueSimulationPreview = (delay = 300) => {
       if (hydratingSimulation || simulationBusy.value || !props.plot?.plotId) return;
       simulationPreviewDirty.value = true;
       simulationPreviewError.value = '';
-      const version = ++previewRequestSerial;
+      const requestId = ++previewRequestSerial;
       if (previewTimer) window.clearTimeout(previewTimer);
       previewTimer = window.setTimeout(async () => {
         previewTimer = null;
@@ -1058,21 +1067,23 @@ const PlotDetailModal = {
             metric: simulationMetric.value,
             scenario: simulationForm.value.scenario,
             parameters: { ...(simulationForm.value.parameters || {}) },
-            requestVersion: String(version)
+            requestVersion: String(requestId)
           });
-          if (version !== previewRequestSerial) return;
-          simulationForecast.value = result || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+          if (requestId !== previewRequestSerial) return;
+          simulationForecast.value = result
+            ? { ...result, persisted: false }
+            : { status: 'UNAVAILABLE', reason: '预测响应为空', persisted: false };
           await nextTick();
           await renderSimulationChart();
         } catch (error) {
-          if (version === previewRequestSerial) simulationPreviewError.value = error?.message || '预测服务暂不可用';
+          if (requestId === previewRequestSerial) simulationPreviewError.value = error?.message || '预测服务暂不可用';
         } finally {
-          if (version === previewRequestSerial) {
+          if (requestId === previewRequestSerial) {
             simulationPreviewLoading.value = false;
             await renderSimulationChart();
           }
         }
-      }, 300);
+      }, delay);
     };
 
     const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
@@ -2100,7 +2111,9 @@ const ValueLedgerView = {
 
     onMounted(renderChart);
     const observer = new MutationObserver(() => renderChart());
-    onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
+    const appearanceChanged = () => renderChart();
+    onMounted(() => { observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-workspace-preset', 'data-accent', 'data-surface-style'] }); document.documentElement.addEventListener('agriloop:appearance-changed', appearanceChanged); });
+    onBeforeUnmount(() => { observer.disconnect(); document.documentElement.removeEventListener('agriloop:appearance-changed', appearanceChanged); });
 
     return { provenanceLabel };
   }
@@ -2720,6 +2733,20 @@ const AdminRulesView = {
   }
 };
 
+const SETTINGS_COPY = Object.freeze({
+  'zh-CN': Object.freeze({
+    preference: '个人偏好', localOnly: '仅本机保存', title: '工作台设置', description: '自定义当前浏览器中的外观、信息密度和数据刷新方式。设置即时生效，不会修改服务器上的业务数据。',
+    appearance: '显示外观', themeColor: '主题与颜色', themeDescription: '保持农场管理员工作台清晰统一，也可以按个人习惯调整。', theme: '主题', workspaceTheme: '工作台主题',
+    cardStyle: '卡片风格', accent: '强调色', custom: '自定义', preview: '实时预览', previewCaption: '当前主题会同步到管理员工作台', density: '显示密度', comfortable: '舒适', compact: '紧凑',
+    contentWidth: '内容宽度', standard: '标准', wide: '宽屏', reducedMotion: '减少动效', reducedMotionHint: '减少过渡和动画，适合低性能设备或对动效敏感时使用。',
+    dataExperience: '数据体验', refreshTips: '刷新与提示', refreshDescription: '控制工作台如何更新信息，以及是否保留来源标识。', autoRefresh: '自动刷新工作台', autoRefreshHint: '保持页面打开时拉取最新任务、遥测和建议。',
+    refreshInterval: '刷新间隔', seconds: ' 秒', showOrigin: '显示数据来源', showOriginHint: '保留模拟、后端或人工记录标识，便于核对信息。', info: '外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。',
+    current: '当前设置', restore: '恢复默认设置', font: '界面字体', fontHint: '选择适合当前设备和阅读习惯的字体。',
+    themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗',
+    changed: { theme: '主题已更新', preset: '工作台主题已更新', accent: '强调色已更新', customAccent: '自定义主题色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', plotBackground: '地块背景已更新', fontFamily: '字体已更新' }
+  })
+});
+
 /**
  * Shared workspace preferences.  This page is available to all three roles;
  * it deliberately controls only the current browser's presentation and
@@ -2731,49 +2758,61 @@ const SettingsView = {
   emits: ['settings-changed'],
   setup(props, { emit }) {
     const toast = inject('toast');
-    const settings = ref(readUserSettings());
-    const accentOptions = ACCENT_OPTIONS;
-    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
-    const plotBackgroundOptions = PLOT_BACKGROUND_OPTIONS;
-    const themeOptions = [
-      { value: 'light', label: '白色', hint: '之前的清爽白色主题（默认）' },
-      { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
-      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
-    ];
+    const account = computed(() => props.state?.currentUser || null);
+    const settings = ref(readUserSettings(undefined, account.value));
+    const copy = computed(() => SETTINGS_COPY['zh-CN']);
+    const themeOptions = computed(() => [
+      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
+      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
+      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
+    ]);
+    const presetOptions = computed(() => PRESET_OPTIONS);
+    const accentOptions = computed(() => ACCENT_OPTIONS);
+    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
+    const plotBackgroundOptions = computed(() => PLOT_BACKGROUND_OPTIONS);
+    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
     const refreshOptions = [5, 15, 30, 60];
     const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '跟随系统');
-    const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-    const plotBackgroundLabel = computed(() => plotBackgroundOptions.find((item) => item.value === settings.value.plotBackground)?.label || '纯色背景');
+    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
+    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
+    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
+    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
+    const plotBackgroundLabel = computed(() => plotBackgroundOptions.value.find(item => item.value === settings.value.plotBackground)?.label || '纯色背景');
+    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
     const updateSetting = (key, value) => {
-      const next = saveUserSettings({ ...settings.value, [key]: value });
+      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
+      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (key === 'theme' || key === 'accent' || key === 'density' || key === 'layout' || key === 'surfaceStyle' || key === 'plotBackground') {
-        toast(`${key === 'theme' ? '主题' : key === 'accent' ? '强调色' : key === 'density' ? '显示密度' : key === 'layout' ? '内容宽度' : key === 'surfaceStyle' ? '卡片风格' : '地块背景'}已更新`);
-      }
+      // Card style is a visual preference and its live preview is already
+      // visible, so do not interrupt the user with a success toast.
+      if (key !== 'surfaceStyle' && copy.value.changed[key]) toast(copy.value.changed[key]);
     };
     const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast('工作台设置已恢复默认');
+      toast(SETTINGS_COPY['zh-CN'].restore);
     };
     return {
       settings,
+      copy,
+      presetOptions,
       accentOptions,
       surfaceStyleOptions,
       plotBackgroundOptions,
+      fontOptions,
       themeOptions,
       refreshOptions,
       roleLabel,
       themeLabel,
+      presetLabel,
       accentLabel,
       surfaceStyleLabel,
       plotBackgroundLabel,
+      fontLabel,
       updateSetting,
       resetSettings
     };
@@ -2946,6 +2985,7 @@ const app = createApp({
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'ai-assistant-view': AdminAiChatView,
+    'rules-strategies-view': AdminRulesStrategiesView,
     'work-orders-view': RoleAwareWorkOrdersView,
     'resource-coordination-view': AdminResourceCenterView,
     'farm-members-view': AdminMemberManagementView,
@@ -3047,7 +3087,7 @@ const app = createApp({
     const pendingFarmDomains = new Set();
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans', 'rulesStrategies'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3135,6 +3175,11 @@ const app = createApp({
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
     const isFarmer = computed(() => state.value.currentUser?.role === 'FARMER');
+    const shellCopy = Object.freeze({
+      toggleTheme: '切换主题', logout: '退出登录', openProfile: '打开个人中心', closeProfile: '关闭个人中心',
+      simulation: '仿真模式', online: '系统在线', offline: '后端离线', chooseFarm: '选择农场'
+    });
+    const sessionModeLabel = computed(() => state.value.sessionMode === 'demo' ? shellCopy.simulation : (isLive.value ? shellCopy.online : shellCopy.offline));
     const navItems = computed(() => {
       return state.value.allowedViews
         .map((viewId) => NAV_CATALOG.find((item) => item.id === viewId))
@@ -3160,15 +3205,14 @@ const app = createApp({
     }, { immediate: true });
 
     const applySettings = (patch = {}) => {
-      const next = saveUserSettings({ ...userSettings.value, ...patch });
+      const next = saveUserSettings({ ...userSettings.value, ...patch }, undefined, state.value.currentUser);
       userSettings.value = next;
       applyUserSettings(next);
       isDark.value = resolveTheme(next.theme) === 'dark';
       return next;
     };
-
     const handleSettingsChanged = (next) => {
-      userSettings.value = saveUserSettings(next);
+      userSettings.value = saveUserSettings(next, undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       // Rebuild the fallback polling timer immediately when the preference
@@ -3176,10 +3220,19 @@ const app = createApp({
       if (typeof startLiveRefresh === 'function') startLiveRefresh();
     };
 
-    const toggleTheme = () => {
-      const current = resolveTheme(userSettings.value.theme);
-      applySettings({ theme: current === 'dark' ? 'light' : 'dark' });
+    const toggleTheme = () => applySettings({ theme: resolveTheme(userSettings.value.theme) === 'dark' ? 'light' : 'dark' });
+    let systemThemeMedia = null;
+    const handleSystemThemeChange = () => {
+      if (userSettings.value.theme !== 'system') return;
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme('system') === 'dark';
     };
+    onMounted(() => {
+      try {
+        systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+        systemThemeMedia.addEventListener?.('change', handleSystemThemeChange);
+      } catch (error) { systemThemeMedia = null; }
+    });
 
     const toggleSidebar = () => {
       isSidebarOpen.value = !isSidebarOpen.value;
@@ -3290,7 +3343,7 @@ const app = createApp({
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
       if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
-      if (wants('cropPacks') || wants('overview')) {
+      if (wants('cropPacks') || wants('rulesStrategies') || wants('overview')) {
         jobs.adminRules = api.getRuleSets(farmId);
         jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
       }
@@ -3852,9 +3905,6 @@ const app = createApp({
         window.location.replace('login.html');
         return;
       }
-      userSettings.value = readUserSettings();
-      applyUserSettings(userSettings.value);
-      isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       isLive.value = await api.checkHealth();
       if (isLive.value && session.mode === 'live') {
         const restoredUser = await api.restoreSession();
@@ -3933,7 +3983,7 @@ const app = createApp({
       isLive.value = api.isLive;
       if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
-      userSettings.value = readUserSettings();
+      userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
@@ -3951,6 +4001,7 @@ const app = createApp({
       liveEventsStop = null;
       api.sseAbortController?.abort();
       window.removeEventListener('hashchange', applyHashRoute);
+      systemThemeMedia?.removeEventListener?.('change', handleSystemThemeChange);
     });
 
     // Provide toast globally
@@ -3968,6 +4019,8 @@ const app = createApp({
       passwordForm,
       passwordError,
       accountProfile,
+      shellCopy,
+      sessionModeLabel,
       roleClass,
       currentRole,
       isFarmer,

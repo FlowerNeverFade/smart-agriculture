@@ -23,7 +23,7 @@ export function buildResourceRows(plots = [], devices = [], previousRows = []) {
   }).sort((a, b) => b.riskScore - a.riskScore || b.aiSuggestedLitres - a.aiSuggestedLitres || a.name.localeCompare(b.name, 'zh-CN'));
 }
 export function resourceQuotaSummary(profile = {}, result = null, selectedRows = [], ledgers = []) {
-  const capacity = Number(profile.capacityLitres ?? profile.dailyQuotaLitres); const actual = Number(profile.usedTodayLitres ?? profile.actualUsedLitres);
+  const capacity = Number(result?.constraints?.waterCapacityLitres ?? profile.capacityLitres ?? profile.dailyQuotaLitres); const actual = Number(profile.usedTodayLitres ?? profile.actualUsedLitres);
   const reserved = (result?.allocations || []).reduce((sum, row) => sum + numberOr(row.allocatedLitres), 0);
   const requested = (selectedRows || []).reduce((sum, row) => sum + numberOr(row.requestedLitres), 0);
   const ledgerActual = (ledgers || []).reduce((sum, ledger) => sum + numberOr(ledger?.metrics?.actualWaterLitres), 0);

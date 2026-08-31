@@ -217,6 +217,14 @@
   border-bottom: 1px solid var(--g-border-subtle);
 }
 
+/* Keep user role and status labels readable at narrow widths. */
+.admin-table .admin-user-role,
+.admin-table .admin-user-status,
+.admin-table .admin-user-role .status-pill,
+.admin-table .admin-user-status .status-pill {
+  white-space: nowrap;
+}
+
 .admin-table tbody tr { transition: background 0.15s; }
 .admin-table tbody tr:hover { background: var(--g-bg-hover); }
 .admin-table tbody tr:last-child td { border-bottom: none; }
@@ -1692,9 +1700,26 @@
   --metric-tint: #fff7df;
 }
 
-.role-farm-admin .manager-metric[data-metric="SOIL_EC"] {
+.role-farm-admin .manager-metric[data-metric="SOIL_EC"],
+.role-farm-admin .manager-metric[data-metric="PH"],
+.role-farm-admin .manager-metric[data-metric="PHOSPHORUS"] {
   --metric-accent: var(--admin-purple);
   --metric-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="WATER_LEVEL"] {
+  --metric-accent: var(--admin-blue);
+  --metric-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="NITROGEN"] {
+  --metric-accent: var(--admin-mint);
+  --metric-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="POTASSIUM"] {
+  --metric-accent: var(--admin-orange);
+  --metric-tint: var(--admin-orange-bg);
 }
 
 .role-farm-admin .manager-metric-name {
@@ -2924,6 +2949,77 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   box-shadow: 0 0 0 2px rgba(255, 211, 122, .20), 0 0 8px rgba(255, 211, 122, .52);
 }
 
+/* Workspace surface modes --------------------------------------------------
+ * The admin skin has several older card rules in this file.  Keep the mode
+ * variables at the end of the cascade so every module inherits one coherent
+ * surface, instead of leaving overview/alert/device/Crop Pack cards behind.
+ * Plot cards keep their crop photograph; only their frame changes. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin {
+  --g-bg-surface: var(--workspace-bg-surface);
+  --g-bg-subtle: var(--workspace-bg-subtle);
+  --g-bg-hover: var(--workspace-bg-hover);
+  --admin-glass-surface: var(--workspace-bg-surface);
+  --admin-glass-surface-strong: var(--workspace-sidebar);
+  --admin-glass-surface-soft: var(--workspace-bg-subtle);
+  --admin-glass-cell: var(--workspace-bg-base);
+  --admin-glass-outline: var(--workspace-border);
+  --admin-glass-control-outline: var(--workspace-border);
+  --admin-glass-shadow: 0 1px 3px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+  --admin-glass-shadow-raised: 0 8px 18px color-mix(in srgb, var(--workspace-text) 14%, transparent);
+  --admin-surface-radius: 10px;
+  --admin-surface-inner-radius: 7px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 86%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 90%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 90%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 72%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 74%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 20%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 16%, var(--workspace-border));
+  --admin-glass-shadow: 0 12px 30px color-mix(in srgb, var(--workspace-text) 12%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+  --admin-glass-shadow-raised: 0 18px 38px color-mix(in srgb, var(--workspace-primary) 16%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 78%, transparent);
+  --admin-surface-radius: 16px;
+  --admin-surface-inner-radius: 11px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 62%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 66%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 76%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 60%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 74%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 58%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 56%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 34%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 26%, var(--workspace-border));
+  --admin-glass-shadow: 0 22px 52px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 76%, transparent);
+  --admin-glass-shadow-raised: 0 28px 64px color-mix(in srgb, var(--workspace-primary) 24%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 86%, transparent);
+  --admin-surface-radius: 22px;
+  --admin-surface-inner-radius: 14px;
+}
+
+/* All non-photo business surfaces share the selected treatment. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: var(--workspace-bg-surface) !important;
+  background-image: none !important;
+  border-color: var(--workspace-border-subtle) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 /* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
 html[data-surface-style="classic"] .role-system-admin.role-system-admin {
   --g-bg-base: #f8f9fa !important;
@@ -3180,8 +3276,199 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.adm
   background: var(--g-bg-surface) !important;
   border-color: var(--g-border) !important;
   box-shadow: none !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 78%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 28%, transparent), transparent 42%) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 22%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(118%) !important;
+  backdrop-filter: blur(16px) saturate(118%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 56%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 44%, transparent), transparent 34%, color-mix(in srgb, var(--workspace-primary) 12%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 36%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(142%) !important;
+  backdrop-filter: blur(26px) saturate(142%) !important;
+}
+
+/* Photograph-backed plot cards retain their image, but inherit the mode's
+   frame, depth and corner treatment so the overview changes too. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 32%, rgba(255,255,255,.38)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(112%) !important;
+  backdrop-filter: blur(4px) saturate(112%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 48%, rgba(255,255,255,.48)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(128%) !important;
+  backdrop-filter: blur(7px) saturate(128%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin .g-main {
+  background-image: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--workspace-primary) 14%, transparent), transparent 36%), radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--workspace-primary) 10%, transparent), transparent 32%) !important;
+}
+
+/* Make the three choices themselves communicate the difference before a
+   setting is saved. */
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] {
+  border-radius: 10px;
+  background: var(--workspace-bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--workspace-bg-surface) 74%, transparent);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--workspace-text) 11%, transparent), inset 0 1px 0 rgba(255,255,255,.72);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+  backdrop-filter: blur(8px) saturate(115%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] {
+  border-radius: 22px;
+  background: linear-gradient(135deg, color-mix(in srgb, #fff 32%, transparent), color-mix(in srgb, var(--workspace-primary) 12%, transparent));
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] .settings-theme-icon { border-radius: 5px; }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] .settings-theme-icon { border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255,255,255,.72); }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] .settings-theme-icon { border-radius: 11px; box-shadow: 0 4px 10px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86); }
+
+/* Farm overview keeps the original crop identity panel in the upper-left of
+   every plot card.  This is deliberately scoped to the dashboard cards so
+   the newer appearance controls do not replace the farm context layout. */
+.role-farm-admin article.manager-plot-card {
+  isolation: isolate;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--g-border) 84%, #9eb8aa) !important;
+  border-top-color: var(--admin-mint) !important;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--g-bg-surface) 96%, #eaf5ed), color-mix(in srgb, var(--g-bg-subtle) 92%, #f4faf6)) !important;
+  background-image: none !important;
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+.role-farm-admin article.manager-plot-card.is-attention { border-top-color: var(--admin-orange) !important; }
+.role-farm-admin article.manager-plot-card.is-inactive { border-top-color: var(--g-text-secondary) !important; }
+.role-farm-admin article.manager-plot-card .manager-plot-title h2 { color: var(--g-text-primary) !important; }
+.role-farm-admin article.manager-plot-card .manager-plot-title span,
+.role-farm-admin article.manager-plot-card .manager-health-score,
+.role-farm-admin article.manager-plot-card .manager-plot-meta { color: var(--g-text-secondary) !important; }
+.role-farm-admin article.manager-plot-card .manager-more-button {
+  border-color: color-mix(in srgb, var(--g-border) 86%, var(--g-primary));
+  background: color-mix(in srgb, var(--g-bg-surface) 88%, transparent);
+  color: var(--g-text-secondary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--g-text-primary) 10%, transparent), inset 0 1px 0 rgba(255,255,255,.9);
+  text-shadow: none;
+}
+.role-farm-admin article.manager-plot-card .manager-more-button:hover,
+.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--g-primary) 58%, var(--g-border));
+  background: color-mix(in srgb, var(--g-primary-bg) 62%, var(--g-bg-surface));
+  color: var(--g-primary);
+}
+.role-farm-admin .manager-plot-context {
+  display: grid;
+  grid-template-columns: minmax(180px, .9fr) minmax(0, 1.6fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.role-farm-admin .manager-crop-identity {
+  --crop-accent: #4b8f66;
+  --crop-soft: #eaf5ed;
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, var(--g-border));
+  border-radius: 14px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, var(--g-bg-surface)), color-mix(in srgb, var(--g-bg-surface) 80%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.92);
+}
+.role-farm-admin .manager-crop-identity[data-crop="tomato"] { --crop-accent: #c9554f; --crop-soft: #fff0ed; }
+.role-farm-admin .manager-crop-identity[data-crop="corn"] { --crop-accent: #b57918; --crop-soft: #fff6dc; }
+.role-farm-admin .manager-crop-identity[data-crop="cucumber"] { --crop-accent: #4d8e56; --crop-soft: #ecf6e9; }
+.role-farm-admin .manager-crop-identity[data-crop="rice"] { --crop-accent: #9b7a2f; --crop-soft: #fbf4df; }
+.role-farm-admin .manager-crop-identity[data-crop="sunflower"] { --crop-accent: #b97914; --crop-soft: #fff5d8; }
+.role-farm-admin .manager-crop-identity[data-crop="strawberry"] { --crop-accent: #c34e5a; --crop-soft: #fff0f2; }
+.role-farm-admin .manager-crop-identity[data-crop="pepper"] { --crop-accent: #bc4e43; --crop-soft: #fff0ec; }
+.role-farm-admin .manager-crop-art {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 20%, var(--g-bg-surface));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent);
+  color: var(--g-text-primary);
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 44px;
+  line-height: 1;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--crop-accent) 14%, transparent), inset 0 1px 0 rgba(255,255,255,.92);
+}
+.role-farm-admin .manager-crop-copy { display: grid; min-width: 0; gap: 3px; }
+.role-farm-admin .manager-crop-copy > span { color: var(--g-text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .04em; }
+.role-farm-admin .manager-crop-copy strong { overflow: hidden; color: var(--g-text-primary); font-size: 16px; line-height: 1.25; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.role-farm-admin .manager-crop-copy small { overflow: hidden; color: var(--crop-accent); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.role-farm-admin .manager-plot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 14px; background: var(--g-border-subtle); }
+.role-farm-admin .manager-plot-facts > div { display: grid; align-content: center; min-width: 0; padding: 12px; background: color-mix(in srgb, var(--g-bg-surface) 82%, transparent); }
+.role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right: 1px solid var(--g-border-subtle); }
+.role-farm-admin .manager-plot-facts dt { color: var(--g-text-secondary); font-size: 10px; font-weight: 600; }
+.role-farm-admin .manager-plot-facts dd { margin-top: 7px; overflow: hidden; color: var(--g-text-primary); font-size: 13px; line-height: 1.35; font-weight: 650; text-overflow: ellipsis; }
+.role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); border-color: var(--g-border-subtle); background: var(--g-border-subtle); box-shadow: inset 0 1px 0 rgba(255,255,255,.82); }
+.role-farm-admin article.manager-plot-card .manager-metric { grid-column: span 2; background: color-mix(in srgb, var(--g-bg-surface) 92%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: none; }
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
+.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: color-mix(in srgb, var(--g-bg-subtle) 88%, transparent); }
+.role-farm-admin article.manager-plot-card .manager-metric-label,
+.role-farm-admin article.manager-plot-card .manager-metric-target,
+.role-farm-admin article.manager-plot-card .manager-metric-value small { color: var(--g-text-secondary); }
+.role-farm-admin article.manager-plot-card .manager-metric-value { color: var(--g-text-primary); }
+@media (max-width: 700px) {
+  .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
+  .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
+  .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .role-farm-admin article.manager-plot-card .manager-metric,
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: 1 / -1; }
+}
+
+@media (max-width: 440px) {
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: 1fr; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: auto; }
 }
 
 /* User explicitly asked to remove shadow from the two large config cards */

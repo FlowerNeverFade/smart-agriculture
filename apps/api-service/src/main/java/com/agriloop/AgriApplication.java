@@ -110,10 +110,10 @@ class AgriProperties {
     /** Optional base multimodal model used when a chat turn contains images. */
     private String llmVisionModel = "Qwen3.8-27B";
     private String llmApiKey = "";
-    private long llmTimeoutMs = 60000;
-    private int llmMaxTokens = 512;
-    /** Qwen3.8 enables thinking by default; the UI uses concise answer mode. */
-    private boolean llmEnableThinking = false;
+    private long llmTimeoutMs = 30000;
+    private int llmMaxTokens = 768;
+    /** Short private reasoning is enabled by default; callers fall back on timeout. */
+    private boolean llmEnableThinking = true;
     private boolean llmPreserveThinking = false;
     private String llmReasoningEffort = "low";
     /** Maximum number of prior user/assistant messages supplied as dialogue context. */
@@ -1240,6 +1240,9 @@ class AgriEngine {
     private static final int AGENT_IMAGE_MAX_COUNT = 4;
     private static final int AGENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
     private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
+    /** Keep private reasoning responsive; a plain generation retry follows on timeout. */
+    private static final long AGENT_THINKING_TIMEOUT_MS = 12000L;
+    private static final long AGENT_PLAIN_TIMEOUT_MS = 30000L;
     private static final Pattern AGENT_IMAGE_DATA_URL = Pattern.compile(
             "^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern AGENT_VISION_HISTORY_MARKER = Pattern.compile(
@@ -2978,8 +2981,8 @@ class AgriEngine {
         if (openAiCompatible) {
             long started = System.nanoTime();
             try {
-                rawNarrative = callOpenAiCompatible(
-                        "请解释这次农业根因诊断。规则字段 primaryCause 和 confidence 是最终结论，不得改写；只使用给定的支持、反对和缺失证据。用‘结论—证据—下一步’的简洁结构回答，证据不足时明确说明需要复测。不要生成灌溉剂量、控制命令、SQL、MQTT topic 或 HTTP 请求。",
+                rawNarrative = callOpenAiCompatibleWithFallback(
+                        "请结合这次诊断的当前地块事实和用户上下文，像农技员一样自然解释结果。规则字段是事实来源，只使用给定的支持、反向和缺失证据；不要为了格式固定标题，也不要主动输出置信度。证据不足就说明还需要什么复测。不要生成灌溉剂量、控制命令、SQL、MQTT topic 或 HTTP 请求。",
                         facts, List.of(), List.of());
                 String modelText = sanitizeDiagnosisExplanation(rawNarrative);
                 if (modelText.isBlank()) throw new IOException("LLM_EMPTY_EXPLANATION");
@@ -3094,8 +3097,7 @@ class AgriEngine {
 
     private String diagnosisConclusionLine(Map<String, Object> diagnosis) {
         String cause = Jsons.text(diagnosis, "primaryCause", "INSUFFICIENT_EVIDENCE").toUpperCase(Locale.ROOT);
-        double confidence = Jsons.number(diagnosis, "confidence", 0);
-        return "结论：当前规则诊断更偏向 " + diagnosisCauseLabel(cause) + "（置信度约 " + Math.round(confidence * 100) + "%）。";
+        return "结论：当前规则诊断更偏向 " + diagnosisCauseLabel(cause) + "。";
     }
 
     private String summariseDiagnosisEvidence(List<Map<String, Object>> evidence) {
@@ -3322,8 +3324,13 @@ class AgriEngine {
         String readinessStatus = Jsons.text(readinessResult, "status", "HUMAN_REVIEW");
         if (reviewOnly && "READY".equals(readinessStatus)) readinessStatus = "HUMAN_REVIEW";
         double currentMoisture = Jsons.number(soil, "value", 18);
-        boolean noWaterNeeded = !hardDataBlock && !reviewOnly && duration <= 0 && currentMoisture >= target;
-        boolean emergencyEligible = !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
+        // A healthy reading at or above the deterministic irrigation target is
+        // a complete NO_ACTION decision.  A low-confidence root-cause label is
+        // not a reason to send the farmer through an evidence workflow when
+        // there is no moisture deficit to treat.
+        boolean noWaterNeeded = !hardDataBlock && duration <= 0 && currentMoisture >= target;
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
+        boolean emergencyEligible = automaticEnabled && !hardDataBlock && !reviewOnly && "READY".equals(readinessStatus)
                 && duration > 0 && currentMoisture < emergencyThreshold;
         String why = hardDataBlock
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
@@ -3347,13 +3354,13 @@ class AgriEngine {
         plan.put("emergency", emergency);
         plan.put("emergencyEligible", emergencyEligible);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", currentMoisture);
         automatic.put("eligible", emergencyEligible);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : emergencyEligible ? "READY" : hardDataBlock || reviewOnly ? "BLOCKED" : "NOT_TRIGGERED");
         automatic.put("note", emergencyEligible
                 ? "土壤含水量低于 10%，满足自动虚拟浇水触发条件"
                 : "土壤含水量达到 10% 或以上时不自动浇水");
@@ -3414,14 +3421,15 @@ class AgriEngine {
         emergency.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         emergency.put("note", "低于 10% 时可自动发起虚拟浇水；仍需通过最新数据、设备健康和资源上限校验");
         result.put("emergency", emergency);
+        boolean automaticEnabled = automaticWateringEnabled(plotId);
         Map<String, Object> automatic = new LinkedHashMap<>();
-        automatic.put("enabled", true);
+        automatic.put("enabled", automaticEnabled);
         automatic.put("threshold", AUTO_WATERING_THRESHOLD);
         automatic.put("currentMoisture", Double.isNaN(moisture) ? null : moisture);
-        automatic.put("eligible", !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
+        automatic.put("eligible", automaticEnabled && !Double.isNaN(moisture) && moisture < AUTO_WATERING_THRESHOLD);
         automatic.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         automatic.put("sourceMode", "SIMULATION");
-        automatic.put("status", Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
+        automatic.put("status", !automaticEnabled ? "DISABLED" : Double.isNaN(moisture) ? "UNAVAILABLE" : moisture < AUTO_WATERING_THRESHOLD ? "READY" : "NOT_TRIGGERED");
         result.put("automaticWatering", automatic);
         Map<String, Object> hysteresisView = new LinkedHashMap<>();
         hysteresisView.put("state", hysteresisState);
@@ -3434,6 +3442,43 @@ class AgriEngine {
         result.put("cropPackVersion", context.get("cropPackVersion"));
         result.put("evaluatedAt", Instant.now().toString());
         result.put("provenance", "DERIVED");
+        return result;
+    }
+
+    private boolean automaticWateringEnabled(String plotId) {
+        Map<String, Object> plot = store.find("plot", plotId);
+        return plot == null || Jsons.bool(plot, "automaticWateringEnabled", true);
+    }
+
+    Map<String, Object> automaticWateringSetting(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        result.put("threshold", AUTO_WATERING_THRESHOLD);
+        result.put("updatedAt", plot.get("automaticWateringUpdatedAt"));
+        result.put("updatedBy", plot.get("automaticWateringUpdatedBy"));
+        result.put("sourceMode", "SIMULATION");
+        result.put("provenance", plot.get("automaticWateringUpdatedBy") == null ? "DERIVED" : "USER_PROVIDED");
+        return result;
+    }
+
+    Map<String, Object> updateAutomaticWateringSetting(String plotId, Map<String, Object> input, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        if (!principal.canRequestIrrigation()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色不能修改自动浇水设置");
+        }
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        boolean enabled = Jsons.bool(input, "enabled", Jsons.bool(plot, "automaticWateringEnabled", true));
+        Instant now = Instant.now();
+        plot.put("automaticWateringEnabled", enabled);
+        plot.put("automaticWateringUpdatedAt", now.toString());
+        plot.put("automaticWateringUpdatedBy", principal.userId);
+        store.save("plot", plotId, plot);
+        Map<String, Object> result = automaticWateringSetting(plotId, principal);
+        events.publish("irrigation.automatic.updated", result);
+        store.logEvent("irrigation.automatic.updated", result);
         return result;
     }
 
@@ -3467,12 +3512,18 @@ class AgriEngine {
         double moisture = Jsons.number(soil, "value", Double.NaN);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("plotId", plotId);
-        result.put("enabled", true);
+        boolean enabled = automaticWateringEnabled(plotId);
+        result.put("enabled", enabled);
         result.put("threshold", AUTO_WATERING_THRESHOLD);
         result.put("currentMoisture", Double.isFinite(moisture) ? moisture : null);
         result.put("sourceMode", "SIMULATION");
         result.put("mode", "AUTOMATIC_SOIL_MOISTURE");
         result.put("virtualExecution", true);
+        if (!enabled) {
+            result.put("status", "DISABLED");
+            result.put("reason", "AUTOMATIC_WATERING_DISABLED");
+            return result;
+        }
         if (!Double.isFinite(moisture)) {
             result.put("status", "BLOCKED");
             result.put("reason", "SOIL_MOISTURE_UNAVAILABLE");
@@ -6009,6 +6060,16 @@ class AgriEngine {
             answer.put("narrativeProvenance", "DERIVED");
             answer.put("adapter", "rules-fast-path");
             fastPath = true;
+        } else if (isContextualFollowUp(message) && !recentHistory.isEmpty()) {
+            // Resolve short follow-ups from this conversation before the
+            // low-information guard, so "为什么/继续/怎么办" can refer to
+            // the immediately preceding answer without reading other chats.
+            Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
+            tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
+            answer.put("intent", "FOLLOW_UP");
+            answer.put("relatedIntent", priorIntent.isBlank() ? "PLOT_STATUS" : priorIntent);
+            answer.put("summary", "已结合上一轮对话继续说明");
+            answer.put("result", status);
         } else if (isAmbiguousShortInput(message)) {
             answer.put("intent", "CLARIFICATION");
             answer.put("summary", "输入信息不足");
@@ -6086,13 +6147,6 @@ class AgriEngine {
             answer.put("intent", "RETEST_CHECKLIST");
             answer.put("summary", "已按当前异常项整理复测清单");
             answer.put("result", status);
-        } else if (isContextualFollowUp(message) && !recentHistory.isEmpty()) {
-            Map<String, Object> status = Map.of("plotId", plotId, "latest", latestMetrics(plotId), "device", deviceForPlot(plotId));
-            tools.add(tool("get_plot_status", Map.of("plotId", plotId), status));
-            answer.put("intent", "FOLLOW_UP");
-            answer.put("relatedIntent", priorIntent.isBlank() ? "PLOT_STATUS" : priorIntent);
-            answer.put("summary", "已结合上一轮对话继续说明");
-            answer.put("result", status);
         } else if (containsAny(message, "蓄水池", "水量余额", "配额", "用水计划", "water resource")) {
             Map<String, Object> water = waterResourceProfile(farmIdForPlot(plotId), null, principal);
             tools.add(tool("get_water_resource_status", Map.of("farmId", farmIdForPlot(plotId)), water));
@@ -6152,7 +6206,7 @@ class AgriEngine {
         } else if (openAiCompatible) {
             long started = System.nanoTime();
             try {
-                rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId), recentHistory, agentImages);
+                rawNarrative = callOpenAiCompatibleWithFallback(message, narrativeContext(answer, plotId), recentHistory, agentImages);
                 String narrative = agentImages.isEmpty()
                         ? sanitizeNarrative(rawNarrative)
                         : sanitizeVisionNarrative(rawNarrative);
@@ -6276,13 +6330,46 @@ class AgriEngine {
     }
 
     /**
-     * Calls a local or remote OpenAI-compatible chat endpoint only for
-     * narrative generation.  Rules and tools above remain the source of
-     * truth for measurements, plans, permissions, and commands.
+     * Prefer a short private-reasoning pass when enabled, then retry without
+     * thinking if the model is slow or the compatible server rejects the
+     * thinking parameters. The user should never wait for a second long pass.
      */
+    private String callOpenAiCompatibleWithFallback(String userMessage, Map<String, Object> deterministicContext,
+                                                    List<Map<String, Object>> recentHistory,
+                                                    List<Map<String, Object>> imageInputs) throws IOException {
+        if (!properties.isLlmEnableThinking()) {
+            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
+                    false, Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
+        }
+        IOException thinkingFailure;
+        try {
+            long configuredTimeout = Math.max(1000L, properties.getLlmTimeoutMs());
+            long thinkingTimeout = Math.min(configuredTimeout, AGENT_THINKING_TIMEOUT_MS);
+            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
+                    true, thinkingTimeout);
+        } catch (IOException ex) {
+            thinkingFailure = ex;
+        }
+        try {
+            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
+                    false, Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
+        } catch (IOException plainFailure) {
+            plainFailure.addSuppressed(thinkingFailure);
+            throw plainFailure;
+        }
+    }
+
     private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
                                         List<Map<String, Object>> recentHistory,
                                         List<Map<String, Object>> imageInputs) throws IOException {
+        return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
+                properties.isLlmEnableThinking(), Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
+    }
+
+    private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
+                                        List<Map<String, Object>> recentHistory,
+                                        List<Map<String, Object>> imageInputs,
+                                        boolean enableThinking, long timeoutMs) throws IOException {
         String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
         if (baseUrl.isBlank()) throw new IOException("LLM_BASE_URL_NOT_CONFIGURED");
         while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
@@ -6311,18 +6398,14 @@ class AgriEngine {
         String roleLabel = Jsons.text(deterministicContext, "roleLabel", "当前用户");
         String scopeLabel = Jsons.text(profile, "scopeLabel", "当前授权范围");
         String roleGuidance = Jsons.text(profile, "guidance", "严格遵守当前用户权限范围");
-        String styleHint = switch (Math.floorMod(prompt.hashCode(), 3)) {
-            case 0 -> "先用一句话回应，再补充一到两项最有用的事实。";
-            case 1 -> "像现场同事一样用短段回答，只有必要时才列出步骤。";
-            default -> "先回答用户问的点，再给一个贴近当前场景的下一步，不要写成日报。";
-        };
+        String styleHint = "根据问题自由选择短段、清单或一个追问；不要为了格式套固定模板，也不要把每轮都写成状态报告。";
         // Qwen's chat template accepts only one system message at the beginning.
         // Keep the general behavior and role boundary in that single message;
         // sending a second system message makes vLLM return HTTP 400.
         String visionGuidance = hasImages
                 ? "本轮有原图：忽略文件名可能带来的暗示，直接观察图片像素后回答用户真正关心的内容。先说清画面中实际可见的对象、状态或症状，再按需要给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。严禁输出任何置信度、概率、百分比、模型评分、候选类别或识别过程，只给用户可读的识别结果和可见依据。用户只问‘这是什么’时，用一两句直接说对象名称和明显特征，不要主动追加地块遥测、灌溉或管理建议。不要默认说识别不确定；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制。不要把平台遥测冒充成图片内容。"
                 : "";
-        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位熟悉现场的同事或农技员自然交谈，而不是照模板填表。先判断用户真正想解决的事，再决定是否引用当前公开事实；如果用户只是寒暄、辱骂、随机字符、随机数字、编号或没有明确主题，不要把它解释成地块查询，也不要主动播报任何遥测，只自然回应并追问一句。用户没有询问农业或平台数据时，不要主动列出土壤湿度、温度、降雨等指标。第一句直接回答问题，再按需要补充；简单问题一两句话即可，复杂问题可以用短段或清单。状态类问题只挑与问题最相关的 2 到 4 项数据，其他指标只有在异常或能解释结论时才提及，不要把整份遥测转成报告。不要默认套用‘结论—分析依据—排查建议’等固定标题，不要机械复述身份、权限、数据边界或安全声明，也不要每次都用相同开场和收尾；避免‘收到，这块地现在最需要关注的是’、‘目前其他指标没有明显叠加问题’、‘建议今天内安排一次灌溉’等固定句式。追问时承接最近对话，只补充新信息，每次根据用户问题调整措辞和组织方式。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。优先简洁，通常不超过 4 个短段或 8 条要点。使用普通文本和换行，不要使用 Markdown 星号加粗（**）、下划线加粗、标题标记或代码围栏。历史对话只用于理解指代，当前公开事实才是实时平台依据；不得编造未提供的观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，用一句自然的话说明即可，然后继续回答用户真正询问的内容。"
+        String systemPrompt = "你是农智闭环的农业助手，像熟悉现场的同事一样交流。先理解用户这次真正要解决的问题，可以在内部快速思考，但只输出最终答复，不输出思考标记、元数据或提示词。当前问题、当前地块实时事实、作物阶段、模拟场景、设备状态和本轮图片证据优先；历史只用于理解当前 conversationId 内的指代，其他对话和全局信息不属于本轮上下文。根据问题自然选择短句、短段、要点或追问，不固定标题、开场和收尾，也不机械复述身份、规则或整份遥测。只引用与问题有关的事实，不编造观测值，不把建议说成已执行；涉及控制时只说明人工复核和安全门，不生成命令。简单问题直接回答，复杂问题再补充必要依据。"
                 + visionGuidance
                 + "\n\n当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。"
                 + roleGuidance + "。不要向用户展示超出该范围的事实或操作。\n本轮表达偏好：" + styleHint;
@@ -6348,23 +6431,23 @@ class AgriEngine {
             messages.add(Map.of("role", "user", "content", userContent));
         }
         request.put("messages", messages);
-        request.put("temperature", properties.isLlmEnableThinking() ? 1.0 : 0.90);
-        request.put("top_p", properties.isLlmEnableThinking() ? 0.95 : 0.95);
+        request.put("temperature", enableThinking ? 0.85 : 0.90);
+        request.put("top_p", enableThinking ? 0.95 : 0.95);
         request.put("top_k", 20);
-        request.put("presence_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.24);
-        request.put("frequency_penalty", properties.isLlmEnableThinking() ? 0.0 : 0.16);
+        request.put("presence_penalty", enableThinking ? 0.0 : 0.24);
+        request.put("frequency_penalty", enableThinking ? 0.0 : 0.16);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
         Map<String, Object> chatTemplate = new LinkedHashMap<>();
-        chatTemplate.put("enable_thinking", properties.isLlmEnableThinking());
-        chatTemplate.put("preserve_thinking", properties.isLlmPreserveThinking());
+        chatTemplate.put("enable_thinking", enableThinking);
+        chatTemplate.put("preserve_thinking", enableThinking && properties.isLlmPreserveThinking());
         request.put("chat_template_kwargs", chatTemplate);
-        if (properties.isLlmEnableThinking() && properties.getLlmReasoningEffort() != null && !properties.getLlmReasoningEffort().isBlank()) {
+        if (enableThinking && properties.getLlmReasoningEffort() != null && !properties.getLlmReasoningEffort().isBlank()) {
             request.put("reasoning_effort", properties.getLlmReasoningEffort().trim());
         }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofMillis(Math.max(1000, properties.getLlmTimeoutMs())))
+                .timeout(Duration.ofMillis(Math.max(1000L, timeoutMs)))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .POST(HttpRequest.BodyPublishers.ofString(Jsons.json(mapper, request), StandardCharsets.UTF_8));
@@ -6437,6 +6520,9 @@ class AgriEngine {
         String normalized = message.trim();
         if (normalized.isBlank()) return true;
         String compact = normalized.replaceAll("[\\s，。！？,.!?、:：;；]+", "");
+        // Natural status questions such as “目前情况怎么样” contain no metric
+        // keyword, but they are still a clear request for the selected plot.
+        if (isGeneralPlotStatusQuestion(compact)) return false;
         if (compact.isBlank() || isNumberOrIdentifierInput(compact) || isSocialSmallTalk(compact)) return true;
 
         // A topic word on its own is not enough to justify reading live telemetry.
@@ -6525,6 +6611,16 @@ class AgriEngine {
                 .contains(normalized)
                 || normalized.startsWith("那") && normalized.length() <= 8
                 || normalized.startsWith("再说") && normalized.length() <= 10;
+    }
+
+    private boolean isGeneralPlotStatusQuestion(String message) {
+        if (message == null || message.isBlank()) return false;
+        String normalized = message.toLowerCase(Locale.ROOT).replaceAll("[\\s，。！？,.!?、:：;；]+", "");
+        if (normalized.isBlank()) return false;
+        if (Set.of("目前情况", "现在情况", "当前情况", "目前怎么样", "现在怎么样", "当前怎么样", "情况怎么样", "状态怎么样", "现在状态", "当前状态").contains(normalized)) {
+            return true;
+        }
+        return normalized.matches(".*(?:目前|现在|当前|此刻|最近|这块地|该地块).*(?:情况|状态|怎么样|如何|正常|变化).*");
     }
 
     private boolean isIrrigationQuestion(String message) {
@@ -6676,14 +6772,13 @@ class AgriEngine {
         if ("DIAGNOSIS".equals(intent) || "RISK_DIAGNOSIS".equals(intent)) {
             Map<String, Object> diagnosis = Jsons.map(mapper, answer.get("diagnosis"));
             String cause = diagnosisCauseLabel(Jsons.text(diagnosis, "primaryCause", "EVIDENCE_INSUFFICIENT"));
-            double confidence = Jsons.number(diagnosis, "confidence", 0);
             if ("SYSTEM_ADMIN".equals(role)) {
-                return String.format(Locale.ROOT, "平台证据将该地块诊断偏向 %s（置信度约 %.0f%%）。请从遥测质量、设备心跳和规则版本核对证据，再判断是否需要转给农场处理。", cause, confidence * 100);
+                return "平台证据目前更支持该地块存在" + cause + "。请从遥测质量、设备心跳和规则版本核对证据，再判断是否需要转给农场处理。";
             }
             if ("FARM_ADMIN".equals(role)) {
-                return String.format(Locale.ROOT, "该农场地块目前更偏向 %s（置信度约 %.0f%%）。请查看支持/反对证据，并安排现场核查或设备检查后再分派处置任务。", cause, confidence * 100);
+                return "该农场地块目前更像是" + cause + "，请查看支持和反向证据，并安排现场核查或设备检查后再分派处置任务。";
             }
-            return String.format(Locale.ROOT, "你负责的地块目前更偏向 %s（置信度约 %.0f%%）。先看支持/反对证据，按复测清单核对现场，再决定是否处理。", cause, confidence * 100);
+            return "你负责的地块目前更像是" + cause + "，先看支持和反向证据，按复测清单核对现场，再决定是否处理。";
         }
         if ("TODAY_WORK".equals(intent)) {
             List<Map<String, Object>> work = Jsons.maps(mapper, answer.get("workItems"));
@@ -7001,8 +7096,29 @@ class AgriEngine {
         for (String key : List.of("result", "plan", "workItems")) {
             if (answer.containsKey(key)) context.put(key, publicProjection(answer.get(key)));
         }
+        Map<String, Object> plot = store.find("plot", plotId);
+        if (plot != null && !plot.isEmpty()) {
+            Map<String, Object> currentPlot = new LinkedHashMap<>();
+            for (String key : List.of("plotId", "name", "farmId", "cropCode", "cropName", "cropVariety",
+                    "stageCode", "stageLabel", "riskLevel", "cultivationStatus", "cultivationStatusLabel",
+                    "lastOperationType", "lastOperationLabel", "lastOperationAt", "operationRevision")) {
+                if (plot.containsKey(key) && plot.get(key) != null) currentPlot.put(key, publicProjection(plot.get(key)));
+            }
+            String facilityType = PlotFacility.forPlot(plot);
+            currentPlot.put("facilityType", facilityType);
+            currentPlot.put("facilityLabel", PlotFacility.label(facilityType));
+            Map<String, Object> simulation = simulationRecord(plotId);
+            if (!simulation.isEmpty()) {
+                currentPlot.put("simulationScenario", Jsons.text(simulation, "scenario", "NORMAL"));
+                currentPlot.put("simulationParameters", publicProjection(simulation.get("parameters")));
+            }
+            context.put("currentPlot", currentPlot);
+        }
+        context.put("liveTelemetry", publicProjection(latestMetrics(plotId)));
+        context.put("hardware", publicProjection(deviceForPlot(plotId)));
         String knowledge = knowledgeSnippet(plotId);
         if (!knowledge.isBlank()) context.put("retrievedKnowledge", knowledge);
+        context.put("contextBoundary", "仅当前地块和当前 conversationId；其他对话、账号和全局审计不属于本轮上下文");
         return context;
     }
 
@@ -7604,6 +7720,11 @@ class AgriController {
     @GetMapping("/rule-sets")
     ResponseEntity<?> ruleSets(@RequestParam String farmId, Authentication a) { return ok(governance.ruleSets(farmId, principal(a))); }
 
+    @PostMapping("/rule-sets")
+    ResponseEntity<?> createRuleSet(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(governance.createRuleSet(body == null ? Map.of() : body, principal(a))));
+    }
+
     @GetMapping("/alert-learning-cases")
     ResponseEntity<?> alertLearningCases(@RequestParam String farmId,
                                          @RequestParam(required = false) String candidateId,
@@ -7772,6 +7893,18 @@ class AgriController {
     @GetMapping("/plots/{plotId}/irrigation-guard")
     ResponseEntity<?> irrigationGuard(@PathVariable String plotId, Authentication a) {
         return ok(engine.irrigationGuard(plotId, principal(a)));
+    }
+
+    @GetMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> automaticWateringSetting(@PathVariable String plotId, Authentication a) {
+        return ok(engine.automaticWateringSetting(plotId, principal(a)));
+    }
+
+    @PutMapping("/plots/{plotId}/automatic-watering")
+    ResponseEntity<?> updateAutomaticWateringSetting(@PathVariable String plotId,
+                                                      @RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication a) {
+        return ok(engine.updateAutomaticWateringSetting(plotId, body == null ? Map.of() : body, principal(a)));
     }
 
     @GetMapping("/plots/{plotId}/simulation")

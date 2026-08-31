@@ -419,7 +419,9 @@ APP_MODE=simulation
 MQTT_URL=tcp://localhost:1883
 REDIS_URL=redis://localhost:6379
 AI_MODE=rules-only   # rules-only | mock | maxkb | openai-compatible（外部不可用自动降级）
-LLM_MAX_TOKENS=512  # 连续问答/清单留足完整输出空间
+LLM_ENABLE_THINKING=true  # 先短时内部推理，超时自动改用普通生成
+LLM_PRESERVE_THINKING=false  # 不把思考过程返回前端
+LLM_MAX_TOKENS=768  # 连续问答/清单留足完整输出空间
 COMMAND_MODE=virtual
 ```
 
