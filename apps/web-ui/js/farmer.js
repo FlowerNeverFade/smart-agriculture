@@ -1207,6 +1207,7 @@ const app = createApp({
     }));
 
     const messages = ref(is_formal_session ? [] : (MOCK_DATA.farmer_messages || []).map(normalize_demo_message));
+    const deleted_message_ids = ref(new Set(JSON.parse(localStorage.getItem('agriloop_deleted_messages') || '[]')));
     const tasks = ref(is_formal_session ? [] : MOCK_DATA.farmer_tasks.map((task) => ({ ...task })));
     const inspection_records = ref(is_formal_session ? [] : (MOCK_DATA.inspections || []).map((record) => ({
       ...record,
@@ -2994,7 +2995,7 @@ const app = createApp({
       .join('\n');
 
     const apply_messages = (nextMessages) => {
-      const incoming = Array.isArray(nextMessages) ? nextMessages : [];
+      const incoming = (Array.isArray(nextMessages) ? nextMessages : []).filter((message) => !deleted_message_ids.value.has(message.id));
       const readState = new Map(messages.value.map((message) => [message.id, Boolean(message.read)]));
       incoming.forEach((message) => {
         if (readState.has(message.id)) message.read = readState.get(message.id);
@@ -3340,6 +3341,21 @@ const app = createApp({
       if (msg.read) return;
       msg.read = true;
       show_toast('已标记为已读');
+    };
+
+    const clear_read_messages = () => {
+      const readMessages = messages.value.filter((m) => m.read);
+      if (!readMessages.length) {
+        show_toast('没有已读消息可清除');
+        return;
+      }
+      readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
+      localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
+      messages.value = messages.value.filter((m) => !m.read);
+      if (selected_message.value && selected_message.value.read) {
+        selected_message.value = null;
+      }
+      show_toast(`已清除 ${readMessages.length} 条已读消息`);
     };
 
     const generate_analysis = async (msg) => {
@@ -5068,6 +5084,7 @@ const app = createApp({
       find_plot_name,
       open_message,
       open_message_from_dashboard,
+      clear_read_messages,
       close_message,
       mark_read,
       generate_analysis,

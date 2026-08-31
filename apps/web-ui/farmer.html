@@ -849,7 +849,10 @@
                 <h2>消息中心</h2>
                 <p class="role-summary">统一查看告警、任务和通知；告警关闭与派单由农场管理员处理，你可从这里跳转去执行。</p>
               </div>
-              <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
+              <div class="farmer-page-actions">
+                <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
+                <button type="button" class="g-btn secondary farmer-btn-light" @click="clear_read_messages" :disabled="!messages.some(m => m.read)"><app-icon name="delete_sweep"></app-icon>一键清除已读</button>
+              </div>
             </div>
 
             <div class="farmer-message-filters" role="tablist" aria-label="消息分类">
