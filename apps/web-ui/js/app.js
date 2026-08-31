@@ -2,7 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260830-workspace-settings-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v2';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -47,7 +47,9 @@ import {
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
-const initialUserSettings = readUserSettings();
+const bootSession = api.readSession();
+const initialSettingsAccount = bootSession?.user || MOCK_DATA.currentUser;
+const initialUserSettings = readUserSettings(undefined, initialSettingsAccount);
 applyUserSettings(initialUserSettings);
 
 const ICON_CLASS = Object.freeze({
@@ -1676,8 +1678,9 @@ const RiskForecastView = {
     });
     
     const observer = new MutationObserver(() => renderChart());
-    onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
-    onBeforeUnmount(() => { observer.disconnect(); chart?.dispose(); chart = null; });
+    const appearanceChanged = () => renderChart();
+    onMounted(() => { observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-workspace-preset', 'data-accent', 'data-surface-style'] }); document.documentElement.addEventListener('agriloop:appearance-changed', appearanceChanged); });
+    onBeforeUnmount(() => { observer.disconnect(); document.documentElement.removeEventListener('agriloop:appearance-changed', appearanceChanged); chart?.dispose(); chart = null; });
     
     return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings, scenarioLabel, displayText };
   }
@@ -2155,7 +2158,9 @@ const ValueLedgerView = {
 
     onMounted(renderChart);
     const observer = new MutationObserver(() => renderChart());
-    onMounted(() => observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }));
+    const appearanceChanged = () => renderChart();
+    onMounted(() => { observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-workspace-preset', 'data-accent', 'data-surface-style'] }); document.documentElement.addEventListener('agriloop:appearance-changed', appearanceChanged); });
+    onBeforeUnmount(() => { observer.disconnect(); document.documentElement.removeEventListener('agriloop:appearance-changed', appearanceChanged); });
 
     return { provenanceLabel };
   }
@@ -2682,7 +2687,8 @@ const SettingsView = {
   emits: ['settings-changed'],
   setup(props, { emit }) {
     const toast = inject('toast');
-    const settings = ref(readUserSettings());
+    const account = computed(() => props.state?.currentUser || null);
+    const settings = ref(readUserSettings(undefined, account.value));
     const themeOptions = [
       { value: 'light', label: '白色', hint: '清爽明亮的工作台' },
       { value: 'dark', label: '黑色', hint: '低光环境更舒适' },
@@ -2691,10 +2697,12 @@ const SettingsView = {
     const refreshOptions = [5, 15, 30, 60];
     const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
     const themeLabel = computed(() => themeOptions.find(item => item.value === settings.value.theme)?.label || '白色');
+    const presetLabel = computed(() => PRESET_OPTIONS.find(item => item.value === settings.value.preset)?.label || 'Codex 中性');
     const accentLabel = computed(() => ACCENT_OPTIONS.find(item => item.value === settings.value.accent)?.label || '田野绿');
     const surfaceStyleLabel = computed(() => SURFACE_STYLE_OPTIONS.find(item => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
     const updateSetting = (key, value) => {
-      const next = saveUserSettings({ ...settings.value, [key]: value });
+      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
+      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
@@ -2702,13 +2710,13 @@ const SettingsView = {
       if (labels[key]) toast(`${labels[key]}已更新`);
     };
     const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
       toast('工作台设置已恢复默认');
     };
-    return { settings, themeOptions, refreshOptions, accentOptions: ACCENT_OPTIONS, surfaceStyleOptions: SURFACE_STYLE_OPTIONS, roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings };
+    return { settings, themeOptions, refreshOptions, presetOptions: PRESET_OPTIONS, accentOptions: ACCENT_OPTIONS, surfaceStyleOptions: SURFACE_STYLE_OPTIONS, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings };
   }
 };
 
@@ -3069,19 +3077,31 @@ const app = createApp({
     }, { immediate: true });
 
     const applySettings = patch => {
-      const next = saveUserSettings({ ...userSettings.value, ...patch });
+      const next = saveUserSettings({ ...userSettings.value, ...patch }, undefined, state.value.currentUser);
       userSettings.value = next;
       applyUserSettings(next);
       isDark.value = resolveTheme(next.theme) === 'dark';
       return next;
     };
     const handleSettingsChanged = next => {
-      userSettings.value = saveUserSettings(next);
+      userSettings.value = saveUserSettings(next, undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       startLiveRefresh();
     };
     const toggleTheme = () => applySettings({ theme: resolveTheme(userSettings.value.theme) === 'dark' ? 'light' : 'dark' });
+    let systemThemeMedia = null;
+    const handleSystemThemeChange = () => {
+      if (userSettings.value.theme !== 'system') return;
+      applyUserSettings(userSettings.value);
+      isDark.value = resolveTheme('system') === 'dark';
+    };
+    onMounted(() => {
+      try {
+        systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+        systemThemeMedia.addEventListener?.('change', handleSystemThemeChange);
+      } catch (error) { systemThemeMedia = null; }
+    });
 
     const toggleSidebar = () => {
       isSidebarOpen.value = !isSidebarOpen.value;
@@ -3754,12 +3774,6 @@ const app = createApp({
         window.location.replace('login.html');
         return;
       }
-      const savedTheme = localStorage.getItem('agriloop-theme');
-      if (savedTheme === 'dark') {
-        isDark.value = true;
-        document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.colorScheme = 'dark';
-      }
       isLive.value = await api.checkHealth();
       if (isLive.value && session.mode === 'live') {
         const restoredUser = await api.restoreSession();
@@ -3838,7 +3852,7 @@ const app = createApp({
       isLive.value = api.isLive;
       if (api.isLive && session.mode === 'live') await connectLiveEvents();
       await applyHashRoute();
-      userSettings.value = readUserSettings();
+      userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
@@ -3856,6 +3870,7 @@ const app = createApp({
       liveEventsStop = null;
       api.sseAbortController?.abort();
       window.removeEventListener('hashchange', applyHashRoute);
+      systemThemeMedia?.removeEventListener?.('change', handleSystemThemeChange);
     });
 
     // Provide toast globally
