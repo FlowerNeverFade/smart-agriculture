@@ -364,6 +364,8 @@ export const AdminAiChatView = {
       const id = renamingId.value; const text = renameText.value;
       renamingId.value = ''; renameText.value = '';
       if (!id || !text.trim()) return;
+      const original = conversations.value.find(c => c.conversationId === id)?.title;
+      if (original && text.trim() === original) return; // 未更改，仅退出编辑
       try {
         const saved = await api.renameAgentConversation(id, text.trim());
         const target = conversations.value.find(c => c.conversationId === id);
@@ -382,27 +384,32 @@ export const AdminAiChatView = {
       list.sort((a, b) => (Number(isPinned(b.conversationId)) - Number(isPinned(a.conversationId))) || 0);
       return list;
     });
+    const requestArchiveConversation = (conversation) => {
+      if (!conversation?.conversationId || sending.value) return;
+      closeMenu();
+      lightConfirm.value = { type: 'archive', conversation };
+    };
+    const requestUnarchiveConversation = (conversation) => {
+      if (!conversation?.conversationId || sending.value) return;
+      closeMenu();
+      lightConfirm.value = { type: 'unarchive', conversation };
+    };
+    const requestDeleteConversation = (conversation) => {
+      if (!conversation?.conversationId || sending.value) return;
+      closeMenu();
+      lightConfirm.value = { type: 'delete', conversation };
+    };
     const requestBulkArchive = () => {
       const ids = [...bulkSelected.value];
       if (!ids.length) return;
+      closeMenu();
       lightConfirm.value = { type: 'bulk-archive', ids };
     };
     const requestBulkDelete = () => {
       const ids = [...bulkSelected.value];
       if (!ids.length) return;
+      closeMenu();
       lightConfirm.value = { type: 'bulk-delete', ids };
-    };
-    const requestArchiveConversation = (conversation) => {
-      if (!conversation?.conversationId || sending.value) return;
-      lightConfirm.value = { type: 'archive', conversation };
-    };
-    const requestUnarchiveConversation = (conversation) => {
-      if (!conversation?.conversationId || sending.value) return;
-      lightConfirm.value = { type: 'unarchive', conversation };
-    };
-    const requestDeleteConversation = (conversation) => {
-      if (!conversation?.conversationId || sending.value) return;
-      lightConfirm.value = { type: 'delete', conversation };
     };
     const closeConfirm = () => { lightConfirm.value = null; };
     const confirmDeleteConversation = async () => {
@@ -436,6 +443,8 @@ export const AdminAiChatView = {
           const conversation = target.conversation;
           await api.archiveAgentConversation(conversation.conversationId, false);
           archivedConversations.value = archivedConversations.value.filter(c => c.conversationId !== conversation.conversationId);
+          conversation.archived = false;
+          conversations.value = [conversation, ...conversations.value.filter(c => c.conversationId !== conversation.conversationId)];
           toast('对话已取消归档');
         } else {
           const conversation = target.conversation;
@@ -497,11 +506,13 @@ export const AdminAiChatView = {
       if (!el || loadingOlder.value || visibleMessageCount.value >= messages.value.length) return;
       if (el.scrollTop <= 90) loadOlderMessages();
     };
+    // 点击侧栏任意处：关闭菜单；若仍处于重命名编辑态则提交并退出（blur 兜底）
+    const onSectionClick = () => { closeMenu(); if (renamingId.value) commitRename(); };
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
   },
   template: `
-    <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="closeMenu">
+    <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="onSectionClick">
       <aside class="admin-ai-conversation-sidebar" aria-label="历史对话">
         <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : rolePresentation.historyTitle }}</strong></div><div class="admin-ai-sidebar-heading-actions"><button v-if="!archivedView && !bulkMode" class="g-btn text sm admin-ai-bulk-toggle" type="button" title="批量管理历史对话" @click="enterBulkMode">批量</button><button v-if="!archivedView" class="g-btn text sm admin-ai-archived-toggle" type="button" title="查看已归档对话" @click="enterArchivedView">已归档</button><button v-if="archivedView" class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回</button><button class="g-btn icon-only compact admin-ai-sidebar-collapse" type="button" aria-label="隐藏历史对话" title="隐藏历史对话" @click="toggleSidebar"><app-icon name="chevron_left"></app-icon></button></div></div>
         <div class="admin-ai-conversation-list" :class="{ 'is-bulk-mode': bulkMode }" aria-live="polite">
@@ -562,6 +573,7 @@ export const AdminAiChatView = {
           <div class="admin-ai-confirm-actions">
             <button class="g-btn" type="button" @click="closeConfirm">取消</button>
             <button v-if="lightConfirm.type === 'delete' || lightConfirm.type === 'bulk-delete'" class="g-btn danger" type="button" :disabled="sending" @click="confirmDeleteConversation">删除</button>
+            <button v-else-if="lightConfirm.type === 'unarchive'" class="g-btn" type="button" :disabled="sending" @click="confirmDeleteConversation">取消归档</button>
             <button v-else class="g-btn" type="button" :disabled="sending" @click="confirmDeleteConversation">归档</button>
           </div>
         </div>
