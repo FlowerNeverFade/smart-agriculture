@@ -2,7 +2,7 @@ import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, LANGUAGE_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v3';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminDecisionView } from './modules/admin-decision.js';
@@ -149,22 +149,22 @@ const AppIcon = {
 };
 
 const NAV_CATALOG = Object.freeze([
-  { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
-  { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
-  { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
-  { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
-  { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
-  { id: 'farm-members', label: '农场成员', icon: 'group' },
-  { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
-  { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
-  { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
-  { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
-  { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
-  { id: 'admin-simulator', label: '仿真验证', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' } },
-  { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
-  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
-  { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
+  { id: 'dashboard', label: '农智总览', enLabel: 'Overview', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' }, enLabels: { FARMER: 'My farm', FARM_ADMIN: 'Farm overview', SYSTEM_ADMIN: 'Operations overview' } },
+  { id: 'decision-console', label: '智能决策', enLabel: 'Decisions', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' }, enLabels: { FARMER: 'Smart advice', FARM_ADMIN: 'Alert decisions', SYSTEM_ADMIN: 'Decision audit' } },
+  { id: 'rules-strategies', label: '规则与策略', enLabel: 'Rules & strategies', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' }, enLabels: { FARM_ADMIN: 'Rules & strategies' } },
+  { id: 'ai-assistant', label: 'AI助手', enLabel: 'AI assistant', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' }, enLabels: { FARM_ADMIN: 'AI assistant' } },
+  { id: 'work-orders', label: '农务工单', enLabel: 'Work orders', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' }, enLabels: { FARMER: 'Field records', FARM_ADMIN: 'Work orders', SYSTEM_ADMIN: 'Work-order audit' } },
+  { id: 'resource-coordination', label: '设备与设施', enLabel: 'Equipment', icon: 'sensors', enLabels: { FARM_ADMIN: 'Equipment' } },
+  { id: 'farm-members', label: '农场成员', enLabel: 'Farm members', icon: 'group', enLabels: { FARM_ADMIN: 'Farm members' } },
+  { id: 'crop-manual', label: '作物培养手册', enLabel: 'Crop guide', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' }, enLabels: { FARMER: 'Crop guide', FARM_ADMIN: 'Crop guide', SYSTEM_ADMIN: 'Crop guide' } },
+  { id: 'crop-packs', label: '作物模型', enLabel: 'Crop models', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' }, enLabels: { FARM_ADMIN: 'Crop models', SYSTEM_ADMIN: 'Rule configuration' } },
+  { id: 'admin-overview', label: '平台总览', enLabel: 'Platform', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' }, enLabels: { SYSTEM_ADMIN: 'Platform' } },
+  { id: 'admin-ops', label: '运行监控', enLabel: 'Monitoring', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' }, enLabels: { SYSTEM_ADMIN: 'Monitoring' } },
+  { id: 'admin-audit', label: '决策审计', enLabel: 'Decision audit', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' }, enLabels: { SYSTEM_ADMIN: 'Decision audit' } },
+  { id: 'admin-simulator', label: '仿真验证', enLabel: 'Simulation', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' }, enLabels: { SYSTEM_ADMIN: 'Simulation' } },
+  { id: 'admin-rules', label: '规则与版本', enLabel: 'Rules & versions', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' }, enLabels: { SYSTEM_ADMIN: 'Rules & versions' } },
+  { id: 'admin-settings', label: '系统管理', enLabel: 'System admin', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' }, enLabels: { SYSTEM_ADMIN: 'System admin' } },
+  { id: 'settings', label: '工作台设置', enLabel: 'Workspace settings', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' }, enLabels: { FARMER: 'Workspace settings', FARM_ADMIN: 'Workspace settings', SYSTEM_ADMIN: 'Workspace settings' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
@@ -2681,6 +2681,31 @@ const AdminRulesView = {
   }
 };
 
+const SETTINGS_COPY = Object.freeze({
+  'zh-CN': Object.freeze({
+    preference: '个人偏好', localOnly: '仅本机保存', title: '工作台设置', description: '自定义当前浏览器中的外观、信息密度和数据刷新方式。设置即时生效，不会修改服务器上的业务数据。',
+    appearance: '显示外观', themeColor: '主题与颜色', themeDescription: '保持农场管理员工作台清晰统一，也可以按个人习惯调整。', theme: '主题', workspaceTheme: '工作台主题',
+    cardStyle: '卡片风格', accent: '强调色', custom: '自定义', preview: '实时预览', previewCaption: '当前主题会同步到管理员工作台', density: '显示密度', comfortable: '舒适', compact: '紧凑',
+    contentWidth: '内容宽度', standard: '标准', wide: '宽屏', reducedMotion: '减少动效', reducedMotionHint: '减少过渡和动画，适合低性能设备或对动效敏感时使用。',
+    dataExperience: '数据体验', refreshTips: '刷新与提示', refreshDescription: '控制工作台如何更新信息，以及是否保留来源标识。', autoRefresh: '自动刷新工作台', autoRefreshHint: '保持页面打开时拉取最新任务、遥测和建议。',
+    refreshInterval: '刷新间隔', seconds: ' 秒', showOrigin: '显示数据来源', showOriginHint: '保留模拟、后端或人工记录标识，便于核对信息。', info: '外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。',
+    current: '当前设置', restore: '恢复默认设置', language: '界面语言', font: '界面字体', languageHint: '切换工作台导航和设置中心的显示语言。', fontHint: '选择适合当前设备和阅读习惯的字体。',
+    themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗',
+    changed: { theme: '主题已更新', accent: '强调色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', fontFamily: '字体已更新', language: '语言已更新' }
+  }),
+  'en-US': Object.freeze({
+    preference: 'Personal preferences', localOnly: 'Saved on this device', title: 'Workspace settings', description: 'Customize appearance, density and refresh behavior for this browser. Changes are immediate and never alter farm data.',
+    appearance: 'Appearance', themeColor: 'Theme and color', themeDescription: 'Keep the farm workspace focused while adapting it to your preferences.', theme: 'Color mode', workspaceTheme: 'Workspace theme',
+    cardStyle: 'Card surface', accent: 'Accent color', custom: 'Custom', preview: 'Live preview', previewCaption: 'The selected style applies across the admin workspace', density: 'Display density', comfortable: 'Comfortable', compact: 'Compact',
+    contentWidth: 'Content width', standard: 'Standard', wide: 'Wide', reducedMotion: 'Reduce motion', reducedMotionHint: 'Reduce transitions and animations for low-power devices or motion sensitivity.',
+    dataExperience: 'Data experience', refreshTips: 'Refresh and signals', refreshDescription: 'Control how the workspace updates and whether source labels remain visible.', autoRefresh: 'Auto-refresh workspace', autoRefreshHint: 'Pull the latest tasks, telemetry and advice while this page is open.',
+    refreshInterval: 'Refresh interval', seconds: ' sec', showOrigin: 'Show data sources', showOriginHint: 'Keep simulation, backend and human-record labels for traceability.', info: 'Appearance and workspace preferences are stored only in this browser. Farm, device and task facts are not changed.',
+    current: 'Current settings', restore: 'Restore defaults', language: 'Interface language', font: 'Interface font', languageHint: 'Switch the workspace navigation and settings language.', fontHint: 'Choose a typeface that suits this device and your reading preference.',
+    themeLight: 'Light', themeDark: 'Dark', themeSystem: 'System', themeLightHint: 'A clear, bright workspace', themeDarkHint: 'Comfortable in low light', themeSystemHint: 'Follow the device preference',
+    changed: { theme: 'Theme updated', accent: 'Accent updated', density: 'Density updated', layout: 'Content width updated', surfaceStyle: 'Card style updated', fontFamily: 'Font updated', language: 'Language updated' }
+  })
+});
+
 const SettingsView = {
   template: '#tmpl-settings',
   props: ['state'],
@@ -2689,34 +2714,43 @@ const SettingsView = {
     const toast = inject('toast');
     const account = computed(() => props.state?.currentUser || null);
     const settings = ref(readUserSettings(undefined, account.value));
-    const themeOptions = [
-      { value: 'light', label: '白色', hint: '清爽明亮的工作台' },
-      { value: 'dark', label: '黑色', hint: '低光环境更舒适' },
-      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
-    ];
+    const copy = computed(() => SETTINGS_COPY[settings.value.language] || SETTINGS_COPY['zh-CN']);
+    const themeOptions = computed(() => [
+      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
+      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
+      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
+    ]);
+    const presetOptions = computed(() => PRESET_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ codex: 'Codex neutral', field: 'Field green', sky: 'Clear sky', harvest: 'Harvest gold', orchard: 'Orchard purple' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ codex: 'Calm, clear and content-first', field: 'Keep the natural AgriLoop tone', sky: 'Light and easy to scan', harvest: 'Warm and focused', orchard: 'Soft, layered and professional' }[item.value] || item.hint) : item.hint })));
+    const accentOptions = computed(() => ACCENT_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ green: 'Field green', blue: 'Clear sky', amber: 'Harvest gold', purple: 'Orchard purple' }[item.value] || item.label) : item.label })));
+    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ classic: 'Classic', 'glass-soft': 'Soft glass', 'glass-latest': 'Liquid glass' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ classic: 'Solid surface with clear edges', 'glass-soft': 'Light transparency and a soft layer', 'glass-latest': 'Deep blur with a liquid gradient' }[item.value] || item.hint) : item.hint })));
+    const fontOptions = computed(() => FONT_FAMILY_OPTIONS.map(item => ({ ...item, label: settings.value.language === 'en-US' ? ({ system: 'System default', yahei: 'Microsoft YaHei', pingfang: 'PingFang / Noto Sans', sans: 'Modern sans-serif', serif: 'Humanist serif' }[item.value] || item.label) : item.label, hint: settings.value.language === 'en-US' ? ({ system: 'Follow the device UI font', yahei: 'Crisp Chinese text on Windows', pingfang: 'Light, modern Chinese glyphs', sans: 'Compact Latin and numbers', serif: 'Editorial reading texture' }[item.value] || item.hint) : item.hint })));
+    const languageOptions = computed(() => LANGUAGE_OPTIONS.map(item => ({ ...item, label: item.value === 'en-US' ? 'English' : '简体中文', hint: settings.value.language === 'en-US' ? (item.value === 'en-US' ? 'Use English for the workspace shell' : 'Use Chinese for the workspace shell') : item.hint })));
     const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.find(item => item.value === settings.value.theme)?.label || '白色');
-    const presetLabel = computed(() => PRESET_OPTIONS.find(item => item.value === settings.value.preset)?.label || 'Codex 中性');
-    const accentLabel = computed(() => ACCENT_OPTIONS.find(item => item.value === settings.value.accent)?.label || '田野绿');
-    const surfaceStyleLabel = computed(() => SURFACE_STYLE_OPTIONS.find(item => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
+    const roleLabel = computed(() => settings.value.language === 'en-US'
+      ? ({ FARM_ADMIN: 'Farm administrator', FARMER: 'Farmer', SYSTEM_ADMIN: 'System administrator' }[props.state?.currentUser?.role] || 'Current role')
+      : (props.state?.currentUser?.roleLabel || '当前身份'));
+    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
+    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
+    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
+    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
+    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
+    const languageLabel = computed(() => languageOptions.value.find(item => item.value === settings.value.language)?.label || '简体中文');
     const updateSetting = (key, value) => {
       const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
       const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格' };
-      if (labels[key]) toast(`${labels[key]}已更新`);
+      if (copy.value.changed[key]) toast(copy.value.changed[key]);
     };
     const resetSettings = () => {
       const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast('工作台设置已恢复默认');
+      toast(SETTINGS_COPY[next.language].restore);
     };
-    return { settings, themeOptions, refreshOptions, presetOptions: PRESET_OPTIONS, accentOptions: ACCENT_OPTIONS, surfaceStyleOptions: SURFACE_STYLE_OPTIONS, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings };
+    return { settings, copy, themeOptions, refreshOptions, presetOptions, accentOptions, surfaceStyleOptions, fontOptions, languageOptions, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, fontLabel, languageLabel, updateSetting, resetSettings };
   }
 };
 
@@ -3055,11 +3089,20 @@ const app = createApp({
 
     const currentRole = computed(() => roleDefinition(state.value.currentUser?.role));
     const isFarmer = computed(() => state.value.currentUser?.role === 'FARMER');
+    const shellCopy = computed(() => userSettings.value.language === 'en-US' ? {
+      toggleTheme: 'Toggle theme', logout: 'Sign out', openProfile: 'Open profile', closeProfile: 'Close profile',
+      simulation: 'Simulation mode', online: 'System online', offline: 'Backend offline', chooseFarm: 'Choose farm'
+    } : {
+      toggleTheme: '切换主题', logout: '退出登录', openProfile: '打开个人中心', closeProfile: '关闭个人中心',
+      simulation: '仿真模式', online: '系统在线', offline: '后端离线', chooseFarm: '选择农场'
+    });
+    const sessionModeLabel = computed(() => state.value.sessionMode === 'demo' ? shellCopy.value.simulation : (isLive.value ? shellCopy.value.online : shellCopy.value.offline));
     const navItems = computed(() => {
+      const english = userSettings.value.language === 'en-US';
       return state.value.allowedViews
         .map((viewId) => NAV_CATALOG.find((item) => item.id === viewId))
         .filter(Boolean)
-        .map((item) => ({ ...item, label: item.labels?.[currentRole.value?.code] || item.label }));
+        .map((item) => ({ ...item, label: english ? (item.enLabels?.[currentRole.value?.code] || item.enLabel || item.label) : (item.labels?.[currentRole.value?.code] || item.label) }));
     });
     const mainNavItems = computed(() => navItems.value.filter(item => !item.isFooter));
     const footerNavItems = computed(() => navItems.value.filter(item => item.isFooter));
@@ -3888,6 +3931,9 @@ const app = createApp({
       passwordForm,
       passwordError,
       accountProfile,
+      language: computed(() => userSettings.value.language),
+      shellCopy,
+      sessionModeLabel,
       roleClass,
       currentRole,
       isFarmer,
