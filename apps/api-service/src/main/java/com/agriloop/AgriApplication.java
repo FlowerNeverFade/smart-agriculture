@@ -328,8 +328,6 @@ class AgriStore {
             databaseReady = false;
         }
         if (properties.isSeedData()) seed();
-        // 服务重启系统告警（INFO）：每次启动记录一条，便于审计服务生命周期
-        createSystemAlert("SYSTEM", "INFO", "接口服务已启动", "AgriLoop 后端已完成启动并加载配置。", "");
     }
 
     boolean databaseReady() { return databaseReady; }
@@ -1273,6 +1271,8 @@ class AgriEngine {
         // The standalone/test profile has no long-running Python consumer and
         // must not create workspace files merely by starting Spring tests.
         if ("simulation".equalsIgnoreCase(properties.getMode())) syncSimulationConfiguration();
+        // 服务重启系统告警（INFO）：每次启动记录一条，便于审计服务生命周期
+        createSystemAlert("SYSTEM", "INFO", "接口服务已启动", "AgriLoop 后端已完成启动并加载配置。", "");
     }
 
     Map<String, Object> login(String username, String password) {
