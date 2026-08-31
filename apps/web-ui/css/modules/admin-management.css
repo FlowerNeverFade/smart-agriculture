@@ -189,6 +189,63 @@
   transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
+.admin-pack-summary-card { position: relative; }
+.admin-pack-menu-wrap { position: absolute; top: 8px; right: 10px; z-index: 5; }
+.admin-pack-menu-trigger {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--work-card-accent) 24%, var(--g-border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--g-bg-surface) 88%, transparent);
+  color: var(--work-card-accent);
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.admin-pack-menu-trigger:hover,
+.admin-pack-menu-trigger:focus-visible {
+  border-color: var(--work-card-accent);
+  background: var(--work-card-tint);
+  outline: none;
+  transform: scale(1.04);
+}
+.admin-pack-menu-trigger .material-symbols-outlined,
+.admin-pack-menu-trigger .ph { font-size: 18px; }
+.admin-pack-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 148px;
+  padding: 5px;
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  background: var(--g-bg-surface);
+  box-shadow: 0 14px 30px rgb(24 49 36 / 18%);
+}
+.admin-pack-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--g-text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.admin-pack-menu button:hover:not(:disabled),
+.admin-pack-menu button:focus-visible:not(:disabled) { background: var(--g-bg-subtle); color: var(--g-primary); outline: none; }
+.admin-pack-menu button:disabled { color: var(--g-text-disabled); cursor: not-allowed; }
+.admin-pack-menu small { display: block; padding: 5px 10px 4px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.35; white-space: normal; }
+
 .admin-plan-summary-card:hover,
 .admin-pack-summary-card:hover,
 .admin-plan-summary-card.selected {
@@ -208,7 +265,7 @@
 .admin-plan-summary-card > header,
 .admin-pack-summary-card > header { min-height: 37px; padding: 13px 15px 0; }
 .admin-plan-summary-card > header > span:last-child,
-.admin-pack-summary-card > header > span:last-child { color: var(--g-text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .035em; }
+.admin-pack-summary-card > header > span:nth-of-type(2) { color: var(--g-text-secondary); font-size: 10px; font-weight: 700; letter-spacing: .035em; }
 
 .admin-work-status-chip {
   display: inline-flex;

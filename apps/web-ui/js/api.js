@@ -2712,7 +2712,7 @@ export class ApiService {
     const base = (MOCK_DATA.cropPackDetails || []).map(pack => JSON.parse(JSON.stringify(pack)));
     if (!farmId) return base;
     const custom = Array.from(this.demoFarmCropPacks.values())
-      .filter(pack => pack.farmId === farmId && (includeDrafts || String(pack.status || '').toUpperCase() === 'ACTIVE'))
+      .filter(pack => pack.farmId === farmId && String(pack.status || '').toUpperCase() !== 'ARCHIVED' && (includeDrafts || String(pack.status || '').toUpperCase() === 'ACTIVE'))
       .map(pack => JSON.parse(JSON.stringify(pack)));
     const overrideCodes = new Set(custom.map(pack => String(pack.cropCode || '').toLowerCase()));
     return [...base.filter(pack => !overrideCodes.has(String(pack.cropCode || '').toLowerCase())), ...custom];

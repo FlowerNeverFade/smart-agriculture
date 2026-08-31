@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-rules-ai-v1';
+import { api } from '../api.js?v=20260831-crop-menu-v1';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
@@ -40,6 +40,7 @@ export const AdminWorkManagementView = {
     const showPlanDetail = ref(false);
     const showPackDetail = ref(false);
     const showPackCreate = ref(false);
+    const packMenuId = ref('');
     const packCreateMode = ref('DRAFT');
     const packWizardStep = ref(1);
     const packForm = ref(newPackForm());
@@ -68,6 +69,13 @@ export const AdminWorkManagementView = {
     const closePlanDetail = () => { if (!busy.value) showPlanDetail.value = false; };
     const closePackDetail = () => { showPackDetail.value = false; };
     const closePackCreate = () => { if (!busy.value) showPackCreate.value = false; };
+    const packKey = pack => `${pack?.farmId || 'global'}:${pack?.cropCode || ''}:${pack?.version || ''}`;
+    const canManagePack = pack => Boolean(pack?.farmId && pack.farmId === farmId.value);
+    const closePackMenu = () => { packMenuId.value = ''; };
+    const togglePackMenu = pack => {
+      const key = packKey(pack);
+      packMenuId.value = packMenuId.value === key ? '' : key;
+    };
     const closePlanCreateOnBackdrop = event => {
       if (event.target === event.currentTarget) closePlanCreate();
     };
@@ -89,14 +97,38 @@ export const AdminWorkManagementView = {
       showPlanDetail.value = false;
       showPackDetail.value = false;
       showPackCreate.value = false;
+      packMenuId.value = '';
     };
     const openPlanCreate = () => { showPlanCreate.value = true; };
     const openPackDetail = (pack) => {
+      closePackMenu();
       selectedPackCode.value = pack.cropCode;
       showPackDetail.value = true;
     };
     const openPackCreate = () => { packCreateMode.value = 'DRAFT'; packForm.value = newPackForm(); packWizardStep.value = 1; showPackCreate.value = true; };
     const openPackEdit = pack => { packCreateMode.value = 'EDIT'; packForm.value = newPackForm(pack); packWizardStep.value = 1; showPackDetail.value = false; showPackCreate.value = true; };
+    const openPackEditFromMenu = pack => {
+      closePackMenu();
+      if (!canManagePack(pack)) { toast('系统作物包为只读，不能修改', 'error'); return; }
+      if (String(pack.status || '').toUpperCase() === 'ACTIVE') { toast('已启用版本不能原地修改，请新建版本', 'error'); return; }
+      openPackEdit(pack);
+    };
+    const archivePackFromMenu = async pack => {
+      closePackMenu();
+      if (!canManagePack(pack)) { toast('系统作物包为只读，不能删除', 'error'); return; }
+      if (busy.value) return;
+      const name = pack.identity?.name || pack.cropCode || '该作物包';
+      if (!window.confirm(`确定删除“${name}”作物包吗？删除后将从当前农场列表中移除。`)) return;
+      busy.value = true;
+      try {
+        const archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, pack.version);
+        props.state.cropPacks = (props.state.cropPacks || []).filter(item => packKey(item) !== packKey(pack));
+        if (selectedPackCode.value === pack.cropCode) { selectedPackCode.value = ''; showPackDetail.value = false; }
+        emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview', 'rulesStrategies'], farmId: farmId.value, record: archived, reason: 'farm-crop-pack-archived' });
+        toast('作物包已删除，并已从当前农场列表移除');
+      } catch (error) { toast(error.message || '作物包删除失败', 'error'); }
+      finally { busy.value = false; }
+    };
     const nextPackStep = () => {
       if (packWizardStep.value === 1 && (!packForm.value.cropCode.trim() || !packForm.value.name.trim() || !packForm.value.variety.trim())) { toast('请先填写作物编号、名称和品种', 'error'); return; }
       if (packWizardStep.value === 2 && !packForm.value.stages.length) { toast('至少添加一个生长阶段', 'error'); return; }
@@ -152,8 +184,14 @@ export const AdminWorkManagementView = {
       syncDefaults();
     });
     watch([activePlots, packs, batches], syncDefaults, { immediate: true });
-    onMounted(() => document.addEventListener('keydown', closeActiveDialogOnEscape));
-    onBeforeUnmount(() => document.removeEventListener('keydown', closeActiveDialogOnEscape));
+    onMounted(() => {
+      document.addEventListener('keydown', closeActiveDialogOnEscape);
+      document.addEventListener('click', closePackMenu);
+    });
+    onBeforeUnmount(() => {
+      document.removeEventListener('keydown', closeActiveDialogOnEscape);
+      document.removeEventListener('click', closePackMenu);
+    });
 
     const setTab = (tab) => {
       closeDialogs();
@@ -231,7 +269,8 @@ export const AdminWorkManagementView = {
     return {
       activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form,
       showPlanCreate, showPlanDetail, showPackDetail, showPackCreate, packForm, packCreateMode, packWizardStep, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan,
-      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, openPackEdit, closePackDetail, openPackCreate, closePackCreate, submitPackCreate,
+      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, openPackEdit, openPackEditFromMenu, closePackDetail, openPackCreate, closePackCreate, submitPackCreate,
+      packMenuId, packKey, canManagePack, togglePackMenu, archivePackFromMenu,
       validateSelectedPack, activateSelectedPack, nextPackStep, previousPackStep, addStage, removeStage, addRule, removeRule, addTaskTemplate, removeTaskTemplate, addKnowledge, removeKnowledge,
       closePlanCreateOnBackdrop, closePlanDetailOnBackdrop, closePackDetailOnBackdrop,
       submitPlanCreate,
@@ -297,11 +336,21 @@ export const AdminWorkManagementView = {
           <em>{{ packs.length }} 个版本</em>
         </div>
         <div class="admin-pack-card-grid">
-          <button v-for="pack in packs" :key="pack.cropCode" type="button" class="admin-pack-summary-card"
-            :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" @click="openPackDetail(pack)">
+          <article v-for="pack in packs" :key="packKey(pack)" class="admin-pack-summary-card"
+            :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" role="button" tabindex="0"
+            @click="openPackDetail(pack)" @keydown.enter="openPackDetail(pack)" @keydown.space.prevent="openPackDetail(pack)">
             <header>
               <span class="admin-pack-glyph">{{ (pack.identity?.name || pack.cropCode || 'P').slice(0, 1) }}</span>
               <span>{{ pack.farmId ? (String(pack.status || 'DRAFT').toUpperCase() === 'ACTIVE' ? '已启用' : '农场草稿') : '全局' }} · v{{ pack.version || '—' }}</span>
+              <div class="admin-pack-menu-wrap" @click.stop>
+                <button type="button" class="admin-pack-menu-trigger" aria-label="打开作物包菜单" :aria-expanded="packMenuId === packKey(pack)" @click.stop="togglePackMenu(pack)"><app-icon name="more_vertical"></app-icon></button>
+                <div v-if="packMenuId === packKey(pack)" class="admin-pack-menu" role="menu" @click.stop>
+                  <button type="button" role="menuitem" :disabled="!canManagePack(pack) || String(pack.status || '').toUpperCase() === 'ACTIVE'" @click="openPackEditFromMenu(pack)">修改作物包</button>
+                  <button type="button" role="menuitem" :disabled="!canManagePack(pack)" @click="archivePackFromMenu(pack)">删除作物包</button>
+                  <small v-if="!canManagePack(pack)">系统作物包仅供查看</small>
+                  <small v-else-if="String(pack.status || '').toUpperCase() === 'ACTIVE'">已启用版本不可原地修改</small>
+                </div>
+              </div>
             </header>
             <div class="admin-work-card-identity">
               <h3>{{ pack.identity?.name || pack.cropCode }}</h3>
@@ -314,7 +363,7 @@ export const AdminWorkManagementView = {
               <div><dt>指标阈值</dt><dd>{{ pack.metrics?.length || 0 }} 项</dd></div>
             </dl>
             <footer><span>{{ value(pack.identity?.variety) }}</span><strong>查看详情 <app-icon name="chevron_right"></app-icon></strong></footer>
-          </button>
+          </article>
           <button type="button" class="admin-pack-summary-card admin-add-work-card" @click="openPackCreate">
             <span class="admin-add-work-icon"><app-icon name="add"></app-icon></span>
             <strong>添加作物</strong>

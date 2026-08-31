@@ -13,9 +13,15 @@ test('farm Crop Pack UI exposes equal-size add tile and visual wizard', () => {
   assert.match(source, /addRule/);
   assert.match(source, /addTaskTemplate/);
   assert.match(source, /addKnowledge/);
+  assert.match(source, /admin-pack-menu-trigger/);
+  assert.match(source, /openPackEditFromMenu/);
+  assert.match(source, /archivePackFromMenu/);
+  assert.match(source, /修改作物包/);
+  assert.match(source, /删除作物包/);
   assert.doesNotMatch(source, /stagesJson/);
   assert.match(styles, /\.admin-pack-card-grid \{ grid-auto-rows: 320px; \}/);
   assert.match(styles, /\.admin-pack-summary-card \{ height: 100%; min-height: 320px; \}/);
+  assert.match(styles, /\.admin-pack-menu \{/);
 });
 
 test('farm governance page is a separate rules and strategies entry', () => {
@@ -40,7 +46,7 @@ test('only farm administrators receive the rules and strategies route', () => {
 
 test('API client exposes farm-scoped governance endpoints', () => {
   const source = readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
-  for (const method of ['getRuleSets', 'createFarmRule', 'getAlertLearningCases', 'activateStrategyCandidate', 'createFarmCropPack', 'validateFarmCropPack', 'activateFarmCropPack']) {
+  for (const method of ['getRuleSets', 'createFarmRule', 'getAlertLearningCases', 'activateStrategyCandidate', 'createFarmCropPack', 'validateFarmCropPack', 'activateFarmCropPack', 'archiveFarmCropPack']) {
     assert.match(source, new RegExp(`async ${method}\\b`));
   }
   assert.match(source, /includeDrafts/);

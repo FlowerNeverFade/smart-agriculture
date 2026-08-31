@@ -1,4 +1,4 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-rules-ai-v1';
+import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-crop-menu-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
 import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
 import { buildAccountProfile } from './account-profile.js';
@@ -8,7 +8,7 @@ import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-
 import { AdminDecisionView } from './modules/admin-decision.js';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-rules-ai-v2';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-crop-menu-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-rules-ai-v4';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js';
 import { AdminMemberManagementView } from './modules/admin-member-management.js';
