@@ -24,6 +24,9 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   EC: '电导率',
   ELECTRICAL_CONDUCTIVITY: '电导率',
   NPK_RATIO: '氮磷钾',
+  NITROGEN: '速效氮',
+  PHOSPHORUS: '速效磷',
+  POTASSIUM: '速效钾',
   PH: '酸碱度',
   SOIL_PH: '土壤酸碱度',
   WATER_LEVEL: '水位',
@@ -35,6 +38,20 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_FRESHNESS: '设备数据新鲜度',
   DEVICE_HEALTH: '设备健康'
 });
+
+export const ADMIN_PLOT_METRIC_CODES = Object.freeze([
+  'SOIL_MOISTURE',
+  'AIR_TEMPERATURE',
+  'AIR_HUMIDITY',
+  'LIGHT',
+  'CO2',
+  'RAINFALL',
+  'PH',
+  'WATER_LEVEL',
+  'NITROGEN',
+  'PHOSPHORUS',
+  'POTASSIUM'
+]);
 
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',

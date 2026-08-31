@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-crop-emoji-v2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-admin-metrics-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -319,7 +319,7 @@
               <div><dt>生长周期</dt><dd>{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</dd></div>
             </dl>
           </div>
-          <div class="manager-metric-grid">
+          <div class="manager-metric-grid" aria-label="十一项环境与肥力指标">
             <div class="manager-metric" :class="`is-${metricTone(metric)}`" :data-metric="metric.code" v-for="metric in plotMetrics(plot)" :key="metric.code">
               <div class="manager-metric-label">
                 <span class="manager-metric-name">
@@ -1187,7 +1187,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260831-crop-emoji-v2"></script>
+  <script type="module" src="js/app.js?v=20260831-admin-metrics-v1"></script>
 
 
   <!-- Shared workspace settings -->

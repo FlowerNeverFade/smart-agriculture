@@ -1622,9 +1622,25 @@
   --metric-tint: #fff7df;
 }
 
-.role-farm-admin .manager-metric[data-metric="SOIL_EC"] {
+.role-farm-admin .manager-metric[data-metric="PH"],
+.role-farm-admin .manager-metric[data-metric="PHOSPHORUS"] {
   --metric-accent: var(--admin-purple);
   --metric-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="WATER_LEVEL"] {
+  --metric-accent: var(--admin-blue);
+  --metric-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="NITROGEN"] {
+  --metric-accent: var(--admin-mint);
+  --metric-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="POTASSIUM"] {
+  --metric-accent: var(--admin-orange);
+  --metric-tint: var(--admin-orange-bg);
 }
 
 .role-farm-admin .manager-metric-name {
@@ -2234,16 +2250,20 @@
 }
 
 .role-farm-admin article.manager-plot-card .manager-metric-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   border-color: var(--g-border-subtle);
   background: var(--g-border-subtle);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .82);
 }
 .role-farm-admin article.manager-plot-card .manager-metric {
+  grid-column: span 2;
   background: rgba(252, 254, 253, .92);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .78);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
 .role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: rgba(239, 244, 241, .88); }
 .role-farm-admin article.manager-plot-card .manager-metric-label,
 .role-farm-admin article.manager-plot-card .manager-metric-target,
@@ -2307,4 +2327,14 @@
   .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
   .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
   .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .role-farm-admin article.manager-plot-card .manager-metric,
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: 1 / -1; }
+}
+
+@media (max-width: 440px) {
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: 1fr; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: auto; }
 }
