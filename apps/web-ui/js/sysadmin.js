@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-agent-history-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-agent-history-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-agent-history-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-agent-history-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-agent-history-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-agent-history-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-agent-history-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-agent-history-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-agent-history-v1';
-import { cropBackgroundFor } from './plot-background.js?v=20260831-ai-presentation-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-sync-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
+import { cropBackgroundFor } from './plot-background.js?v=20260831-sync-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +46,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-agent-history-v1';
+} from './live-data.js?v=20260831-sync-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -63,102 +64,6 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 const initialUserSettings = readUserSettings();
 applyUserSettings(initialUserSettings);
 
-const ICON_CLASS = Object.freeze({
-  dashboard: 'ph-squares-four',
-  warning_amber: 'ph-warning',
-  warning: 'ph-warning',
-  cloud_off: 'ph-cloud-slash',
-  verified_user: 'ph-shield-check',
-  forum: 'ph-chats',
-  timeline: 'ph-chart-line-up',
-  task_alt: 'ph-clipboard-text',
-  task: 'ph-check-square',
-  water_drop: 'ph-drop',
-  group: 'ph-users',
-  menu_book: 'ph-book-open',
-  arrow_back: 'ph-arrow-left',
-  arrow_forward: 'ph-arrow-right',
-  monitoring: 'ph-monitor',
-  dns: 'ph-hard-drives',
-  gavel: 'ph-gavel',
-  science: 'ph-flask',
-  rule_folder: 'ph-folder-notch',
-  admin_panel_settings: 'ph-user-gear',
-  library_books: 'ph-books',
-  account_balance_wallet: 'ph-wallet',
-  menu: 'ph-list',
-  light_mode: 'ph-sun',
-  dark_mode: 'ph-moon',
-  logout: 'ph-sign-out',
-  error: 'ph-x-circle',
-  check_circle: 'ph-check-circle',
-  save: 'ph-floppy-disk',
-  add_task: 'ph-note-pencil',
-  calendar_today: 'ph-calendar-check',
-  schedule: 'ph-clock',
-  person_add: 'ph-user-plus',
-  thermometer: 'ph-thermometer-simple',
-  humidity: 'ph-drop-half-bottom',
-  eco: 'ph-leaf',
-  rainy: 'ph-cloud-rain',
-  soil_ec: 'ph-wave-sine',
-  nutrition: 'ph-plant',
-  remove_circle_outline: 'ph-minus-circle',
-  close: 'ph-x',
-  psychology: 'ph-brain',
-  receipt_long: 'ph-receipt',
-  bolt: 'ph-lightning',
-  policy: 'ph-shield-check',
-  smart_toy: 'ph-robot',
-  head_circuit: 'ph-head-circuit',
-  auto_awesome: 'ph-sparkle',
-  hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt',
-  analytics: 'ph-chart-line-up',
-  fact_check: 'ph-clipboard-text',
-  record_voice_over: 'ph-user-focus',
-  group_off: 'ph-user-minus',
-  refresh: 'ph-arrows-clockwise',
-  block: 'ph-prohibit',
-  psychiatry: 'ph-leaf',
-  info: 'ph-info',
-  more_vertical: 'ph-dots-three-vertical',
-  edit: 'ph-pencil-simple',
-  delete: 'ph-trash',
-  add: 'ph-plus',
-  expand_more: 'ph-caret-down',
-  expand_less: 'ph-caret-up',
-  lock_reset: 'ph-lock-key-open',
-  help: 'ph-question',
-  login: 'ph-sign-in',
-  update: 'ph-arrow-up',
-  settings: 'ph-gear',
-  sync: 'ph-arrows-clockwise',
-  notifications_active: 'ph-bell',
-  notifications: 'ph-bell',
-  sensors: 'ph-broadcast',
-  grid_view: 'ph-squares-four',
-  play_arrow: 'ph-play',
-  stop: 'ph-stop',
-  category: 'ph-tag',
-  compare_arrows: 'ph-arrows-left-right',
-  replay: 'ph-arrow-counter-clockwise',
-  speed: 'ph-gauge',
-  agriculture: 'ph-plant',
-  manage_accounts: 'ph-user-gear',
-  tune: 'ph-sliders',
-  history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right',
-  chevron_left: 'ph-caret-left',
-  arrow_upward: 'ph-arrow-up',
-  attach_file: 'ph-paperclip',
-  chat_bubble_outline: 'ph-chat-circle',
-  image_search: 'ph-image',
-  location_on: 'ph-map-pin',
-  more_vert: 'ph-dots-three-vertical',
-  push_pin: 'ph-push-pin',
-  inbox: 'ph-tray'
-});
 
 const AppIcon = {
   props: { name: { type: String, default: 'check_circle' } },

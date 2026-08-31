@@ -6,9 +6,9 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260831-three-branch-v1';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260831-sync-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);

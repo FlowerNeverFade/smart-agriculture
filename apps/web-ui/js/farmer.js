@@ -1,10 +1,11 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-agent-history-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-agent-history-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -27,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-agent-history-v1';
+} from './live-data.js?v=20260831-sync-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -38,33 +39,11 @@ applyUserSettings(initial_user_settings);
 // Keep farmer.html independent from the remote Google icon font.  The same
 // local Phosphor set is used by the shared admin shell, so icon geometry and
 // fallback behaviour stay consistent when the server has no internet access.
-const FARMER_ICON_CLASS = Object.freeze({
-  menu: 'ph-list', light_mode: 'ph-sun', dark_mode: 'ph-moon', logout: 'ph-sign-out',
-  expand_more: 'ph-caret-down', expand_less: 'ph-caret-up', close: 'ph-x',
-  agriculture: 'ph-plant', manage_accounts: 'ph-user-gear', admin_panel_settings: 'ph-user-gear',
-  today: 'ph-calendar-check', date_range: 'ph-calendar', lock_reset: 'ph-lock-key-open', help: 'ph-question',
-  dashboard: 'ph-squares-four', grass: 'ph-plant', task: 'ph-check-square', fact_check: 'ph-clipboard-text',
-  water_drop: 'ph-drop', forum: 'ph-chat-circle', apps: 'ph-squares-four', assignment: 'ph-clipboard-text',
-  error: 'ph-x-circle', warning: 'ph-warning', warning_amber: 'ph-warning', sync: 'ph-arrows-clockwise',
-  arrow_forward: 'ph-arrow-right', build_circle: 'ph-wrench', verified: 'ph-seal-check',
-  event_available: 'ph-calendar-check', psychology: 'ph-brain', timeline: 'ph-chart-line-up',
-  stop_circle: 'ph-stop-circle', water: 'ph-drop', check_circle: 'ph-check-circle', thumb_up: 'ph-thumbs-up',
-  edit_note: 'ph-note-pencil', schedule: 'ph-clock', history: 'ph-clock-counter-clockwise',
-  radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
-  smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
-  insights: 'ph-chart-line-up', menu_book: 'ph-book-open', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
-  science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash',
-  chevron_left: 'ph-caret-left', chevron_right: 'ph-caret-right', chat_bubble_outline: 'ph-chat-circle',
-  location_on: 'ph-map-pin', add: 'ph-plus', attach_file: 'ph-paperclip', image_search: 'ph-image-square',
-  bolt: 'ph-lightning', arrow_upward: 'ph-arrow-up',
-  more_vert: 'ph-dots-three-vertical', push_pin: 'ph-push-pin', edit: 'ph-pencil-simple', delete: 'ph-trash'
-});
 
 const FarmerAppIcon = {
   props: { name: { type: String, default: 'check_circle' } },
   setup(props) {
-    const iconClass = computed(() => FARMER_ICON_CLASS[props.name] || 'ph-circle');
+    const iconClass = computed(() => ICON_CLASS[props.name] || 'ph-circle');
     return { iconClass };
   },
   template: '<span class="material-symbols-outlined ph" :class="iconClass" aria-hidden="true"></span>'
