@@ -1,15 +1,29 @@
 cropCode: tomato
-version: 1.0.0
+version: 1.1.0
 schemaVersion: '1.0'
 status: ACTIVE
 identity: {name: 番茄, variety: demonstration, region: 重庆, environment: greenhouse}
 ruleVersion: rule-1.0.0
-knowledgeVersion: kb-1.0.0
+knowledgeVersion: kb-1.1.0
 stages:
   - code: seedling
     sequence: 1
     label: 苗期
-    target: {soilMoistureLow: 30, soilMoistureHigh: 50, airTemperatureLow: 18, airTemperatureHigh: 28, airHumidityLow: 60, airHumidityHigh: 80}
+    target:
+      soilMoistureLow: 30
+      soilMoistureHigh: 50
+      airTemperatureLow: 18
+      airTemperatureHigh: 28
+      airHumidityLow: 60
+      airHumidityHigh: 80
+      lightLow: 15000
+      lightHigh: 30000
+      co2Low: 400
+      co2High: 800
+      phLow: 5.8
+      phHigh: 6.8
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, COLD_STRESS]
     taskTemplates:
       - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
@@ -17,7 +31,21 @@ stages:
   - code: vegetative
     sequence: 2
     label: 营养生长期
-    target: {soilMoistureLow: 25, soilMoistureHigh: 45, airTemperatureLow: 18, airTemperatureHigh: 30, airHumidityLow: 55, airHumidityHigh: 80}
+    target:
+      soilMoistureLow: 25
+      soilMoistureHigh: 45
+      airTemperatureLow: 18
+      airTemperatureHigh: 30
+      airHumidityLow: 55
+      airHumidityHigh: 80
+      lightLow: 20000
+      lightHigh: 40000
+      co2Low: 500
+      co2High: 900
+      phLow: 5.8
+      phHigh: 6.8
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
@@ -25,7 +53,21 @@ stages:
   - code: flowering
     sequence: 3
     label: 开花坐果期
-    target: {soilMoistureLow: 23, soilMoistureHigh: 43, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75}
+    target:
+      soilMoistureLow: 23
+      soilMoistureHigh: 43
+      airTemperatureLow: 18
+      airTemperatureHigh: 32
+      airHumidityLow: 50
+      airHumidityHigh: 75
+      lightLow: 25000
+      lightHigh: 45000
+      co2Low: 600
+      co2High: 1000
+      phLow: 5.8
+      phHigh: 6.5
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: INSPECTION, intervalDays: 2, priority: MEDIUM}
@@ -33,7 +75,21 @@ stages:
   - code: fruiting
     sequence: 4
     label: 果实成熟期
-    target: {soilMoistureLow: 20, soilMoistureHigh: 40, airTemperatureLow: 18, airTemperatureHigh: 32, airHumidityLow: 50, airHumidityHigh: 75}
+    target:
+      soilMoistureLow: 20
+      soilMoistureHigh: 40
+      airTemperatureLow: 18
+      airTemperatureHigh: 32
+      airHumidityLow: 50
+      airHumidityHigh: 75
+      lightLow: 25000
+      lightHigh: 50000
+      co2Low: 600
+      co2High: 1000
+      phLow: 5.8
+      phHigh: 6.5
+      waterLevelLow: 30
+      waterLevelHigh: 95
     riskFocus: [WATER_DEFICIT, HEAT_STRESS]
     taskTemplates:
       - {actionType: IRRIGATION_CHECK, intervalDays: 1, priority: HIGH}
@@ -46,8 +102,11 @@ metrics:
   - {code: CO2, label: CO2, unit: ppm, availability: SIMULATION_ONLY, range: {min: 0, max: 10000}}
   - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
   - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
+  - {code: NITROGEN, label: 速效氮, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 300}}
+  - {code: PHOSPHORUS, label: 速效磷, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 200}}
+  - {code: POTASSIUM, label: 速效钾, unit: 'mg/kg', availability: SIMULATION_ONLY, range: {min: 0, max: 400}}
 rules:
-  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120}
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10}
   - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
   - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
 healthProfile:
@@ -62,7 +121,7 @@ healthProfile:
     LIGHT: 0.12
     WATER_LEVEL: 0.12
     CO2: 0.10
-prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000}
 forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
 coordinationProfile: {stageSensitivity: 0.9, starvationGuardMinutes: 120}
 knowledge:

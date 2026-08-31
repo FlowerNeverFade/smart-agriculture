@@ -1,4 +1,7 @@
-/** Browser-scoped workspace presentation preferences. */
+/**
+ * Browser-scoped AgriLoop workspace presentation preferences.
+ * These settings affect presentation and refresh behaviour only.
+ */
 export const USER_SETTINGS_KEY = 'agriloop-user-settings-v2';
 export const LEGACY_USER_SETTINGS_KEY = 'agriloop-user-settings-v1';
 export const SETTINGS_MIGRATION_KEY = 'agriloop-user-settings-v2-migrated';
@@ -6,7 +9,8 @@ export const SETTINGS_MIGRATION_KEY = 'agriloop-user-settings-v2-migrated';
 export const DEFAULT_USER_SETTINGS = Object.freeze({
   theme: 'light', preset: 'codex', accent: 'green', customAccent: '',
   surfaceStyle: 'classic', surfaceStyleVersion: 6, fontFamily: 'system', density: 'comfortable', layout: 'standard',
-  reducedMotion: false, autoRefresh: true, refreshInterval: 15, showDataOrigin: true
+  reducedMotion: false, autoRefresh: true, refreshInterval: 15, showDataOrigin: true,
+  plotBackground: 'none'
 });
 
 export const PRESET_OPTIONS = Object.freeze([
@@ -24,6 +28,10 @@ export const ACCENT_OPTIONS = Object.freeze([
   Object.freeze({ value: 'purple', label: '果实紫', color: '#7657c4', hover: '#5d439f', background: '#eee8fb' })
 ]);
 
+// Surface material is independent from the colour theme.  This lets a user
+// keep a black (or white) canvas while choosing the 4e9326a farm-manager
+// material, a restrained transitional glass treatment, or the newer main
+// liquid-glass treatment.
 export const SURFACE_STYLE_OPTIONS = Object.freeze([
   Object.freeze({ value: 'classic', label: '经典卡片', hint: '清爽白色卡片，边界明确' }),
   Object.freeze({ value: 'glass-soft', label: '柔和玻璃', hint: '轻透明、低反光，层次更柔和' }),
@@ -43,6 +51,12 @@ const PRESET_VALUES = new Set(PRESET_OPTIONS.map(item => item.value));
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map(item => item.value));
 const SURFACE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map(item => item.value));
 const FONT_VALUES = new Set(FONT_FAMILY_OPTIONS.map(item => item.value));
+export const PLOT_BACKGROUND_OPTIONS = Object.freeze([
+  Object.freeze({ value: 'none', label: '纯色背景', hint: '默认关闭图片，信息更清晰' }),
+  Object.freeze({ value: 'crop', label: '作物背景', hint: '按作物显示地块照片' })
+]);
+
+const PLOT_BACKGROUND_VALUES = new Set(PLOT_BACKGROUND_OPTIONS.map((item) => item.value));
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
 const REFRESH_INTERVALS = new Set([5, 15, 30, 60]);
@@ -58,7 +72,15 @@ const PRESET_PALETTES = Object.freeze({
 
 function browserStorage(storage) {
   if (storage) return storage;
-  try { return typeof window !== 'undefined' ? window.localStorage : null; } catch (error) { return null; }
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function booleanValue(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 function accountKey(account) {
@@ -95,10 +117,11 @@ export function normalizeUserSettings(input = {}) {
     fontFamily: FONT_VALUES.has(source.fontFamily) ? source.fontFamily : DEFAULT_USER_SETTINGS.fontFamily,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
-    reducedMotion: typeof source.reducedMotion === 'boolean' ? source.reducedMotion : DEFAULT_USER_SETTINGS.reducedMotion,
-    autoRefresh: typeof source.autoRefresh === 'boolean' ? source.autoRefresh : DEFAULT_USER_SETTINGS.autoRefresh,
+    reducedMotion: booleanValue(source.reducedMotion, DEFAULT_USER_SETTINGS.reducedMotion),
+    autoRefresh: booleanValue(source.autoRefresh, DEFAULT_USER_SETTINGS.autoRefresh),
     refreshInterval: REFRESH_INTERVALS.has(interval) ? interval : DEFAULT_USER_SETTINGS.refreshInterval,
-    showDataOrigin: typeof source.showDataOrigin === 'boolean' ? source.showDataOrigin : DEFAULT_USER_SETTINGS.showDataOrigin
+    showDataOrigin: booleanValue(source.showDataOrigin, DEFAULT_USER_SETTINGS.showDataOrigin),
+    plotBackground: PLOT_BACKGROUND_VALUES.has(source.plotBackground) ? source.plotBackground : DEFAULT_USER_SETTINGS.plotBackground
   };
 }
 
@@ -136,7 +159,11 @@ export function saveUserSettings(settings, storage, account) {
 export function resolveTheme(theme, windowRef) {
   if (theme !== 'system') return theme === 'dark' ? 'dark' : 'light';
   const win = windowRef || (typeof window !== 'undefined' ? window : null);
-  try { return win?.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (error) { return 'light'; }
+  try {
+    return win?.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch (_error) {
+    return 'light';
+  }
 }
 
 export function getFontFamily(fontFamily) {
@@ -159,7 +186,7 @@ export function applyUserSettings(settings, documentRef, windowRef) {
   if (!doc?.documentElement) return normalized;
   const root = doc.documentElement; const appearance = getAppearancePalette(normalized, windowRef); const theme = appearance.theme;
   root.dataset.theme = theme; root.dataset.userTheme = normalized.theme; root.dataset.accent = appearance.accent.value; root.dataset.workspacePreset = normalized.preset;
-  root.dataset.surfaceStyle = normalized.surfaceStyle; root.dataset.fontFamily = normalized.fontFamily; root.dataset.density = normalized.density; root.dataset.layout = normalized.layout; root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false'; root.dataset.showDataOrigin = normalized.showDataOrigin ? 'true' : 'false'; root.lang = 'zh-CN'; root.style.colorScheme = theme;
+  root.dataset.surfaceStyle = normalized.surfaceStyle; root.dataset.fontFamily = normalized.fontFamily; root.dataset.density = normalized.density; root.dataset.layout = normalized.layout; root.dataset.reducedMotion = normalized.reducedMotion ? 'true' : 'false'; root.dataset.showDataOrigin = normalized.showDataOrigin ? 'true' : 'false'; root.dataset.plotBackground = normalized.plotBackground; root.lang = 'zh-CN'; root.style.colorScheme = theme;
   const variables = {
     '--workspace-bg-base': appearance.base, '--workspace-bg-surface': appearance.surface, '--workspace-bg-subtle': appearance.subtle, '--workspace-bg-hover': appearance.hover,
     '--workspace-border': appearance.border, '--workspace-border-subtle': appearance.borderSubtle, '--workspace-text': appearance.text, '--workspace-text-secondary': appearance.secondary,
@@ -169,4 +196,10 @@ export function applyUserSettings(settings, documentRef, windowRef) {
   Object.entries(variables).forEach(([name, value]) => root.style.setProperty(name, value));
   if (typeof root.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') root.dispatchEvent(new CustomEvent('agriloop:appearance-changed', { detail: normalized }));
   return normalized;
+}
+
+export function initUserSettings(documentRef, windowRef, storage) {
+  const settings = readUserSettings(storage);
+  applyUserSettings(settings, documentRef, windowRef);
+  return settings;
 }

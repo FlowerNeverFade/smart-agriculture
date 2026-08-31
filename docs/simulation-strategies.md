@@ -2,7 +2,7 @@
 
 ## 目的
 
-模拟器以“地块”为隔离边界。每个地块保存一条独立策略和一组参数，API 将配置原子写入 `data/plot-simulation.json`，运行中的 `simulator/runner.py` 按文件修改时间热加载；修改一个地块不会重置其他地块。
+模拟器以“地块”为隔离边界。每个地块保存一条独立策略和一组参数。默认启动路径下，API 进程内的 `SimulationEngine` 直接读取这些记录并调用 `AgriEngine.ingest`，**不再经 MQTT 发布模拟遥测**，也不再依赖独立 Python 进程。
 
 内置场景：
 
@@ -36,7 +36,9 @@ POST /api/v1/plots/{plotId}/simulation/reset
 }
 ```
 
-服务端会限制参数范围，并拒绝“干旱阈值大于或等于积水阈值”的配置。地块详情页的滑块/数值框先生成本地即时预览，保存后才写入服务器并热加载；风险预测页和灌溉建议复用同一策略记录。
+服务端会限制参数范围，并拒绝“干旱阈值大于或等于积水阈值”的配置。地块详情页的滑块/数值框先生成本地即时预览，保存后才写入服务器；运行中的进程内引擎在下一拍读取新策略。风险预测页和灌溉建议复用同一策略记录。系统管理员「仿真模拟」页的全局采样间隔与时间流速保存后立即作用于引擎，不必重启 API；场景矩阵只改场景，不覆盖已保存的全局流速。
+
+模拟时间倍率默认是 `144x`（墙上时钟 10 分钟 ≈ 1 个模拟日），允许范围为 `1x`～`288x`。旧配置中的实时 `1x` 会在未显式保存时升级为 `144x`；高于 `288x` 的值会在 API 和引擎中收敛到上限。土壤湿度、温度、降雨按**每模拟小时**的自然速率演化：正常日蒸发约 `3%/日`，干旱约 `11%/日`，暴雨日增湿约 `12%～20%/日`。虚拟灌溉后的土壤湿度增量按处方水量反算：`Δ湿度 = waterLitre / (areaM2 × 0.08)`，水位按 `900L` 水箱容量下降，并同步写入进程内引擎状态，避免下一拍把湿度冲回。灌溉建议的默认执行窗口为生成后 `2`～`12` 分钟，过期后应重新获取建议。
 
 重置目标可以是 `HISTORY`、`FORECAST` 或 `ALL`。重置只删除模拟遥测和预测快照，`sourceMode=REAL` 的硬件数据不会删除。硬件绑定状态按地块独立展示：有新鲜 `REAL/HARDWARE` 心跳时显示“硬件在线，可使用”，超时或断连显示“硬件离线”；硬件状态优先于模拟设备状态参与安全门。
 
@@ -52,10 +54,20 @@ POST /api/v1/plots/{plotId}/simulation/reset
 
 ## 服务启动
 
-Supervisor 配置默认自动启动 `agriloop-simulator`。手工运行时：
+`standalone` 与 `simulation` 模式下，API 启动后自动运行进程内模拟器。系统管理员可在「仿真模拟」页启停，并调节：
 
-```bash
-APP_ROOT=/srv/agriloop /srv/agriloop/app/scripts/run-simulator.sh
+- 采样间隔：5–60 秒，默认 20 秒，控制墙上时钟多久产生一批遥测
+- 时间流速：1–288 倍，默认 144（10 分钟 ≈ 1 个模拟日）
+
+对应接口：
+
+```http
+GET  /api/v1/simulator/status
+POST /api/v1/simulator/start
+POST /api/v1/simulator/stop
+PUT  /api/v1/simulator/settings
 ```
 
-也可以通过 `SIMULATION_CONFIG_PATH` 指定策略文件路径。API 和模拟器都应在同一应用目录下运行，以保证相对路径一致。
+`scripts/run-simulator.sh` 为兼容旧部署的空操作脚本，不会启动任何外部进程。物理回归由 `SimulationEngineTest` 与 Gradle API 测试覆盖。
+
+真实硬件（BearPi）仍通过 MQTT 接入；模拟遥测不走 MQTT。

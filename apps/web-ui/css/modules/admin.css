@@ -217,6 +217,14 @@
   border-bottom: 1px solid var(--g-border-subtle);
 }
 
+/* Keep user role and status labels readable at narrow widths. */
+.admin-table .admin-user-role,
+.admin-table .admin-user-status,
+.admin-table .admin-user-role .status-pill,
+.admin-table .admin-user-status .status-pill {
+  white-space: nowrap;
+}
+
 .admin-table tbody tr { transition: background 0.15s; }
 .admin-table tbody tr:hover { background: var(--g-bg-hover); }
 .admin-table tbody tr:last-child td { border-bottom: none; }
@@ -305,6 +313,32 @@
 .sim-info { flex: 1; }
 .sim-info-label { font-size: 12px; color: var(--g-text-secondary); }
 .sim-info-value { font-size: 16px; font-weight: 500; color: var(--g-text-primary); }
+
+.sim-settings-panel {
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--g-bg-surface);
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+}
+.sim-settings-help {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--g-text-secondary);
+  line-height: 1.5;
+}
+.sim-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.sim-slider:last-child { margin-bottom: 0; }
+.sim-slider-label { font-size: 13px; font-weight: 500; color: var(--g-text-primary); }
+.sim-slider-hint { font-size: 12px; color: var(--g-text-secondary); }
+.sim-slider input[type="range"] { width: 100%; }
+.sim-slider-label { display: flex; align-items: center; gap: 6px; }
+.sim-slider-label input[type="number"] { vertical-align: middle; }
 
 /* ---- Pack Cards ---- */
 .pack-grid { align-items: start;
@@ -406,6 +440,40 @@
   outline: none;
   border-color: var(--g-primary);
   box-shadow: 0 0 0 2px var(--g-primary-bg);
+}
+
+/* ---- Pagination ---- */
+.admin-pagination-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--g-text-secondary);
+}
+.admin-pagination-bar select,
+.admin-pagination-bar input[type="number"] {
+  padding: 6px 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-surface);
+  color: var(--g-text-primary);
+  font-size: 13px;
+  font-family: var(--g-font-family);
+}
+.admin-pagination-bar select:focus,
+.admin-pagination-bar input[type="number"]:focus {
+  outline: none;
+  border-color: var(--g-primary);
+  box-shadow: 0 0 0 2px var(--g-primary-bg);
+}
+.admin-pagination-current {
+  white-space: nowrap;
+}
+.admin-page-jump-input {
+  width: 56px;
+  text-align: center;
 }
 
 /* ---- Modal ---- */
@@ -532,7 +600,7 @@
 .admin-plot-summary .critical { color: var(--g-danger); }
 .admin-plot-summary .offline { color: var(--g-text-disabled); }
 .admin-plot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.admin-plot-card { position: relative; isolation: isolate; overflow: hidden; min-height: 226px; padding: 16px; background-color: var(--g-bg-surface); background-image: linear-gradient(180deg, rgba(9, 29, 22, 0.42) 0%, rgba(9, 29, 22, 0.66) 58%, rgba(9, 29, 22, 0.9) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png')); background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.2); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); color: #f6fbf7; transition: transform 0.2s, box-shadow 0.2s; }
+.admin-plot-card { position: relative; isolation: isolate; overflow: hidden; min-height: 226px; padding: 16px; background-color: var(--g-bg-surface); background-image: var(--plot-background, none); background-size: cover; background-position: center; border: 1px solid var(--g-border-subtle); border-left: 3px solid var(--g-success); border-radius: var(--g-radius); color: var(--g-text-primary); transition: transform 0.2s, box-shadow 0.2s; }
 .admin-plot-card > * { position: relative; z-index: 1; }
 .admin-plot-card:hover { transform: translateY(-2px); box-shadow: var(--g-shadow-2); }
 .admin-plot-card { cursor: pointer; }
@@ -574,9 +642,19 @@
 .admin-pack-availability.enabled { color: var(--g-success); }
 .admin-pack-availability .material-symbols-outlined { font-size: 15px; }
 .admin-pack-detail-grid { display: grid; gap: 8px; font-size: 12px; color: var(--g-text-secondary); }
-.admin-pack-detail-grid div { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
+.admin-pack-detail-grid > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; align-items: start; }
 .admin-pack-detail-grid strong { color: var(--g-text-primary); }
 .admin-pack-detail-grid span { line-height: 1.5; }
+.admin-knowledge-docs { display: grid; min-width: 0; gap: 7px; }
+.admin-knowledge-doc { min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: color-mix(in srgb, var(--g-bg-base) 82%, transparent); }
+.admin-knowledge-doc-toggle { display: flex; width: 100%; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 0; background: transparent; color: var(--g-text-primary); text-align: left; cursor: pointer; }
+.admin-knowledge-doc-toggle:hover { background: var(--g-primary-bg); }
+.admin-knowledge-doc-toggle > span { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.admin-knowledge-doc-toggle b { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.admin-knowledge-doc-toggle small { flex: 0 0 auto; padding: 2px 6px; border-radius: var(--g-radius-pill); background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 10px; }
+.admin-knowledge-doc-toggle .material-symbols-outlined { flex: 0 0 auto; color: var(--g-primary); font-size: 17px; }
+.admin-knowledge-doc > p { max-height: 260px; margin: 0; overflow: auto; padding: 10px 12px 12px; border-top: 1px solid var(--g-border-subtle); color: var(--g-text-secondary); font-size: 12px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere; }
+.admin-knowledge-empty { display: block; padding: 8px 10px; border: 1px dashed var(--g-border); border-radius: 9px; color: var(--g-text-disabled); text-align: center; }
 .admin-knowledge-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .admin-knowledge-chip { display: inline-flex; align-items: center; gap: 2px; padding: 4px 7px; border: 1px solid var(--g-border); border-radius: var(--g-radius-pill); background: var(--g-bg-base); color: var(--g-primary); cursor: pointer; font-size: 11px; }
 .admin-knowledge-chip .material-symbols-outlined { font-size: 14px; }
@@ -2051,6 +2129,683 @@
   }
 }
 
+/* ---- SYSTEM_ADMIN Liquid Glass synchronization ----
+   Keep the platform console's blue identity while sharing the manager
+   workspace's sage environment, readable glass surfaces and clear depth. */
+.role-system-admin {
+  isolation: isolate;
+  --g-bg-base: rgba(232, 242, 235, .54);
+  --g-bg-surface: rgba(250, 253, 251, .78);
+  --g-bg-subtle: rgba(226, 238, 230, .72);
+  --g-bg-hover: rgba(255, 255, 255, .82);
+  --g-border: rgba(38, 76, 56, .48);
+  --g-border-subtle: rgba(49, 88, 67, .28);
+  --g-text-primary: #17231d;
+  --g-text-secondary: #405348;
+  --g-text-disabled: #607168;
+  --g-primary: #2868b8;
+  --g-primary-hover: #1f5598;
+  --g-primary-bg: rgba(224, 238, 255, .82);
+  --g-success: #157b49;
+  --g-success-bg: rgba(226, 245, 234, .84);
+  --g-warning: #a9630d;
+  --g-warning-bg: rgba(255, 242, 220, .86);
+  --g-danger: #c4433c;
+  --g-danger-bg: rgba(255, 235, 233, .86);
+  --g-purple: #7150b9;
+  --g-purple-bg: rgba(242, 235, 255, .86);
+  --g-shadow-1: 0 8px 22px rgba(24, 62, 43, .13), 0 2px 6px rgba(24, 62, 43, .07);
+  --g-shadow-2: 0 16px 36px rgba(24, 62, 43, .17), 0 4px 10px rgba(24, 62, 43, .09);
+  --g-shadow-3: 0 30px 72px rgba(16, 51, 33, .25), 0 9px 24px rgba(16, 51, 33, .12);
+  --system-glass-surface: rgba(248, 252, 249, .74);
+  --system-glass-surface-strong: rgba(252, 254, 253, .88);
+  --system-glass-surface-soft: rgba(235, 245, 238, .62);
+  --system-glass-cell: rgba(255, 255, 255, .67);
+  --system-glass-edge: rgba(255, 255, 255, .88);
+  --system-glass-outline: rgba(31, 70, 49, .42);
+  --system-glass-control-outline: rgba(30, 69, 48, .56);
+  --system-glass-shadow:
+    0 18px 42px rgba(22, 64, 43, .17),
+    0 4px 10px rgba(22, 64, 43, .08),
+    inset 0 1px 0 var(--system-glass-edge),
+    inset 1px 0 0 rgba(255, 255, 255, .34),
+    inset 0 -1px 0 rgba(30, 76, 52, .10);
+  --system-glass-shadow-raised:
+    0 24px 54px rgba(22, 64, 43, .22),
+    0 7px 16px rgba(22, 64, 43, .11),
+    inset 0 1px 0 rgba(255, 255, 255, .94),
+    inset 1px 0 0 rgba(255, 255, 255, .40),
+    inset 0 -1px 0 rgba(30, 76, 52, .12);
+  --system-liquid-control:
+    linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .48) 54%, rgba(222, 239, 228, .58));
+  --system-liquid-control-hover:
+    linear-gradient(145deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .62) 52%, rgba(226, 243, 232, .70));
+  background:
+    radial-gradient(ellipse at 12% 7%, rgba(241, 229, 194, .62) 0%, rgba(241, 229, 194, 0) 35%),
+    radial-gradient(ellipse at 84% 3%, rgba(181, 220, 204, .72) 0%, rgba(181, 220, 204, 0) 42%),
+    radial-gradient(ellipse at 18% 96%, rgba(89, 155, 123, .42) 0%, rgba(89, 155, 123, 0) 48%),
+    radial-gradient(ellipse at 95% 82%, rgba(114, 166, 151, .38) 0%, rgba(114, 166, 151, 0) 43%),
+    linear-gradient(145deg, #a5c3ae 0%, #d2dccb 31%, #a8cdb8 62%, #8bb6a1 100%);
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] .role-system-admin {
+  --g-bg-base: rgba(17, 35, 28, .62);
+  --g-bg-surface: rgba(28, 49, 40, .80);
+  --g-bg-subtle: rgba(43, 67, 55, .72);
+  --g-bg-hover: rgba(55, 82, 68, .82);
+  --g-border: rgba(220, 239, 228, .36);
+  --g-border-subtle: rgba(210, 231, 219, .20);
+  --g-text-primary: #f1f6f3;
+  --g-text-secondary: #c0cec6;
+  --g-text-disabled: #94a59b;
+  --g-primary: #8cbcff;
+  --g-primary-hover: #b2d2ff;
+  --g-primary-bg: rgba(40, 67, 101, .74);
+  --g-success: #7bd9a5;
+  --g-success-bg: rgba(36, 72, 52, .80);
+  --g-warning: #efbd70;
+  --g-warning-bg: rgba(77, 60, 35, .82);
+  --g-danger: #ff9a92;
+  --g-danger-bg: rgba(84, 49, 46, .82);
+  --g-purple: #c4a7ff;
+  --g-purple-bg: rgba(63, 51, 91, .82);
+  --g-shadow-1: 0 8px 22px rgba(0, 0, 0, .31), 0 2px 6px rgba(0, 0, 0, .22);
+  --g-shadow-2: 0 17px 38px rgba(0, 0, 0, .40), 0 5px 12px rgba(0, 0, 0, .25);
+  --g-shadow-3: 0 32px 76px rgba(0, 0, 0, .58), 0 10px 26px rgba(0, 0, 0, .32);
+  --system-glass-surface: rgba(21, 40, 32, .72);
+  --system-glass-surface-strong: rgba(28, 49, 40, .88);
+  --system-glass-surface-soft: rgba(39, 64, 52, .64);
+  --system-glass-cell: rgba(55, 82, 68, .66);
+  --system-glass-edge: rgba(255, 255, 255, .22);
+  --system-glass-outline: rgba(226, 241, 232, .28);
+  --system-glass-control-outline: rgba(235, 247, 240, .43);
+  --system-glass-shadow:
+    0 18px 44px rgba(0, 0, 0, .40),
+    0 4px 11px rgba(0, 0, 0, .24),
+    inset 0 1px 0 var(--system-glass-edge),
+    inset 1px 0 0 rgba(255, 255, 255, .07),
+    inset 0 -1px 0 rgba(0, 0, 0, .28);
+  --system-glass-shadow-raised:
+    0 25px 58px rgba(0, 0, 0, .50),
+    0 8px 18px rgba(0, 0, 0, .30),
+    inset 0 1px 0 rgba(255, 255, 255, .27),
+    inset 1px 0 0 rgba(255, 255, 255, .09),
+    inset 0 -1px 0 rgba(0, 0, 0, .32);
+  --system-liquid-control:
+    linear-gradient(145deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .055) 54%, rgba(255, 255, 255, .09));
+  --system-liquid-control-hover:
+    linear-gradient(145deg, rgba(255, 255, 255, .20), rgba(255, 255, 255, .085) 52%, rgba(255, 255, 255, .13));
+  background:
+    radial-gradient(ellipse at 14% 6%, rgba(177, 141, 82, .25) 0%, rgba(177, 141, 82, 0) 35%),
+    radial-gradient(ellipse at 84% 4%, rgba(61, 137, 106, .48) 0%, rgba(61, 137, 106, 0) 43%),
+    radial-gradient(ellipse at 20% 94%, rgba(36, 97, 71, .58) 0%, rgba(36, 97, 71, 0) 49%),
+    linear-gradient(145deg, #183a2f 0%, #30493e 32%, #1b5541 63%, #24473a 100%);
+}
+
+.role-system-admin .g-main {
+  background: linear-gradient(180deg, rgba(250, 253, 249, .16), rgba(222, 239, 228, .05) 190px, rgba(193, 226, 206, .08));
+}
+
+[data-theme="dark"] .role-system-admin .g-main {
+  background: linear-gradient(180deg, rgba(41, 74, 60, .13), rgba(13, 39, 28, .08));
+}
+
+.role-system-admin :is(.g-header, .g-sidebar) {
+  border-color: var(--system-glass-outline);
+  background: rgba(239, 249, 242, .39);
+  -webkit-backdrop-filter: blur(36px) saturate(132%);
+  backdrop-filter: blur(36px) saturate(132%);
+}
+
+.role-system-admin .g-header {
+  box-shadow: 0 9px 30px rgba(24, 67, 45, .14), inset 0 1px 0 rgba(255, 255, 255, .76), inset 0 -1px 0 rgba(34, 84, 59, .10);
+}
+
+.role-system-admin .g-sidebar {
+  box-shadow: 10px 0 36px rgba(24, 67, 45, .12), inset -1px 0 0 rgba(255, 255, 255, .36);
+}
+
+[data-theme="dark"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: rgba(17, 35, 28, .48);
+}
+
+[data-theme="dark"] .role-system-admin .g-brand-logo {
+  filter: brightness(0) invert(1) opacity(.88);
+}
+
+.role-system-admin .g-nav-item {
+  --system-nav-accent: var(--g-primary);
+  position: relative;
+  margin-bottom: 6px;
+  border: 1px solid var(--system-glass-outline);
+  border-radius: 14px;
+  background: rgba(247, 252, 248, .18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .30);
+  color: var(--g-text-primary);
+}
+
+.role-system-admin .g-nav-item[data-nav="admin-ops"] { --system-nav-accent: #16899a; }
+.role-system-admin .g-nav-item[data-nav="admin-audit"] { --system-nav-accent: #7657c4; }
+.role-system-admin .g-nav-item[data-nav="admin-simulator"] { --system-nav-accent: #c87816; }
+.role-system-admin .g-nav-item[data-nav="admin-rules"] { --system-nav-accent: #178a53; }
+.role-system-admin .g-nav-item[data-nav="admin-settings"] { --system-nav-accent: #b8534d; }
+.role-system-admin .g-nav-item .material-symbols-outlined { color: var(--system-nav-accent); }
+
+.role-system-admin .g-nav-item:hover,
+.role-system-admin .g-nav-item.active {
+  border-color: color-mix(in srgb, var(--system-nav-accent) 42%, var(--system-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, .32)),
+    color-mix(in srgb, var(--system-nav-accent) 9%, transparent);
+  color: var(--system-nav-accent);
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--system-nav-accent) 13%, transparent), inset 0 1px 0 rgba(255, 255, 255, .90);
+}
+
+[data-theme="dark"] .role-system-admin .g-nav-item:hover,
+[data-theme="dark"] .role-system-admin .g-nav-item.active {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .045)),
+    color-mix(in srgb, var(--system-nav-accent) 13%, transparent);
+}
+
+.role-system-admin :is(
+  .g-btn,
+  .account-profile-trigger,
+  .admin-tab,
+  .admin-knowledge-chip,
+  .admin-icon-picker button
+) {
+  border: 1px solid var(--system-glass-control-outline);
+  background: var(--system-liquid-control);
+  box-shadow: var(--g-shadow-1), inset 0 1px 0 rgba(255, 255, 255, .86), inset 0 -1px 0 rgba(30, 75, 52, .09);
+  color: var(--g-text-primary);
+  text-shadow: none;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, color .16s ease;
+}
+
+.role-system-admin :is(.g-btn, .account-profile-trigger, .admin-tab, .admin-knowledge-chip, .admin-icon-picker button):not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 32%, var(--system-glass-control-outline));
+  background: var(--system-liquid-control-hover);
+  box-shadow: var(--g-shadow-2), inset 0 1px 0 rgba(255, 255, 255, .94);
+  transform: translateY(-1px);
+}
+
+.role-system-admin :is(.g-btn, .account-profile-trigger, .admin-tab, .admin-knowledge-chip, .admin-icon-picker button):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.role-system-admin .g-btn.primary {
+  border-color: rgba(255, 255, 255, .58);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .02) 52%, rgba(9, 45, 92, .16)), var(--g-primary);
+  color: #fff;
+  box-shadow: 0 11px 26px color-mix(in srgb, var(--g-primary) 29%, transparent), inset 0 1px 0 rgba(255, 255, 255, .43), inset 0 -1px 0 rgba(8, 43, 86, .30);
+}
+
+.role-system-admin .g-btn.primary:not(:disabled):hover {
+  border-color: rgba(255, 255, 255, .68);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, .03) 52%, rgba(9, 45, 92, .13)), var(--g-primary-hover);
+  color: #fff;
+  box-shadow: 0 15px 32px color-mix(in srgb, var(--g-primary) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, .50), inset 0 -1px 0 rgba(8, 43, 86, .27);
+}
+
+.role-system-admin .g-btn.text { color: var(--g-primary); }
+
+.role-system-admin :is(
+  .g-card,
+  .admin-metric-card,
+  .service-card,
+  .sim-control-bar,
+  .sim-settings-panel,
+  .pack-card,
+  .admin-plot-card,
+  .passport-panel,
+  .admin-table-wrap
+) {
+  border-color: var(--system-glass-outline);
+  background: var(--system-glass-surface-strong);
+  box-shadow: var(--system-glass-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(132%);
+  backdrop-filter: blur(30px) saturate(132%);
+}
+
+.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 25%, var(--system-glass-control-outline));
+  box-shadow: var(--system-glass-shadow-raised);
+}
+
+.role-system-admin .admin-metric-card { border-radius: 16px; }
+.role-system-admin .service-card,
+.role-system-admin .sim-control-bar,
+.role-system-admin .sim-settings-panel,
+.role-system-admin .pack-card,
+.role-system-admin .admin-plot-card { border-radius: 14px; }
+
+.role-system-admin .admin-tabs {
+  width: fit-content;
+  padding: 5px;
+  border: 1px solid var(--system-glass-outline);
+  border-radius: 14px;
+  background: var(--system-glass-surface-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64);
+  -webkit-backdrop-filter: blur(24px) saturate(128%);
+  backdrop-filter: blur(24px) saturate(128%);
+}
+
+.role-system-admin .admin-tab {
+  margin: 0;
+  border-radius: 10px;
+}
+
+.role-system-admin .admin-tab.active {
+  border-color: color-mix(in srgb, var(--g-primary) 38%, var(--system-glass-control-outline));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .42)), var(--g-primary-bg);
+  color: var(--g-primary);
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--g-primary) 14%, transparent), inset 0 1px 0 rgba(255, 255, 255, .95);
+}
+
+.role-system-admin .admin-tab.active:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 45%, var(--system-glass-control-outline));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .48)), var(--g-primary-bg);
+  color: var(--g-primary);
+}
+
+[data-theme="dark"] .role-system-admin .admin-tab.active {
+  background: linear-gradient(145deg, rgba(255, 255, 255, .17), rgba(255, 255, 255, .05)), var(--g-primary-bg);
+}
+
+.role-system-admin .admin-plot-card.warning { border-left-color: var(--g-warning); }
+.role-system-admin .admin-plot-card.critical { border-left-color: var(--g-danger); }
+.role-system-admin .admin-plot-card.offline { border-left-color: var(--g-text-disabled); }
+
+.role-system-admin .admin-table-wrap { overflow: auto; }
+.role-system-admin :is(.admin-table, .perm-matrix) { background: transparent; }
+.role-system-admin :is(.admin-table th, .perm-matrix th) {
+  background: var(--system-glass-surface-soft);
+  border-bottom-color: var(--system-glass-outline);
+}
+.role-system-admin :is(.admin-table td, .perm-matrix td) { border-bottom-color: var(--g-border-subtle); }
+.role-system-admin :is(.admin-table tbody tr, .perm-matrix tbody tr):hover { background: var(--system-glass-cell); }
+
+.role-system-admin :is(
+  .admin-filter-bar select,
+  .admin-filter-bar input,
+  .admin-landscape-actions select,
+  .admin-modal-body input,
+  .admin-modal-body select,
+  .admin-modal-body textarea,
+  .admin-doc-editor,
+  .admin-doc-editor textarea,
+  .admin-pack-form textarea,
+  .admin-metric-picker label,
+  .g-input,
+  .g-select
+) {
+  border-color: var(--system-glass-control-outline);
+  background: var(--system-glass-cell);
+  color: var(--g-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08);
+  -webkit-backdrop-filter: blur(20px) saturate(126%);
+  backdrop-filter: blur(20px) saturate(126%);
+}
+
+.role-system-admin ::placeholder {
+  color: var(--g-text-disabled);
+  font-weight: 500;
+  opacity: 1;
+}
+
+.role-system-admin .admin-modal-overlay,
+.role-system-admin .g-modal-overlay { -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px); }
+
+.role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+  border: 1px solid var(--system-glass-control-outline);
+  border-radius: 20px;
+  background: var(--system-glass-surface-strong);
+  box-shadow: var(--g-shadow-3), inset 0 1px 0 rgba(255, 255, 255, .92), inset 0 -1px 0 rgba(31, 76, 52, .10);
+  -webkit-backdrop-filter: blur(42px) saturate(138%);
+  backdrop-filter: blur(42px) saturate(138%);
+}
+
+.role-system-admin .admin-modal-footer,
+.role-system-admin .g-modal-footer { background: transparent; }
+
+@media (max-width: 720px) {
+  .role-system-admin {
+    --system-glass-shadow: 0 12px 28px rgba(22, 64, 43, .15), 0 3px 8px rgba(22, 64, 43, .08), inset 0 1px 0 var(--system-glass-edge);
+    --system-glass-shadow-raised: 0 17px 36px rgba(22, 64, 43, .19), 0 5px 11px rgba(22, 64, 43, .10), inset 0 1px 0 var(--system-glass-edge);
+  }
+
+  [data-theme="dark"] .role-system-admin {
+    --system-glass-shadow: 0 13px 30px rgba(0, 0, 0, .36), 0 4px 9px rgba(0, 0, 0, .22), inset 0 1px 0 var(--system-glass-edge);
+    --system-glass-shadow-raised: 0 18px 40px rgba(0, 0, 0, .44), 0 6px 13px rgba(0, 0, 0, .27), inset 0 1px 0 var(--system-glass-edge);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .g-btn, .g-nav-item) {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .sim-control-bar, .sim-settings-panel, .pack-card, .admin-plot-card, .admin-table-wrap) {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* User-selectable surface material -----------------------------------------
+ * These rules intentionally live after the role skins above.  The default
+ * `classic` preset is the farm-manager treatment from main@4e9326a; semantic
+ * colours (summary cards, warning borders and role accents) remain intact.
+ */
+html[data-surface-style="classic"] .role-farm-admin,
+html[data-surface-style="classic"] .role-system-admin {
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+
+html[data-surface-style="classic"] .role-farm-admin {
+  --admin-glass-surface: var(--agriloop-appearance-surface);
+  --admin-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --admin-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --admin-glass-cell: var(--agriloop-appearance-cell);
+  --admin-glass-edge: var(--agriloop-appearance-edge);
+  --admin-glass-outline: var(--agriloop-appearance-border);
+  --admin-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --admin-liquid-control: var(--agriloop-appearance-control);
+  --admin-liquid-control-hover: var(--agriloop-appearance-control-hover);
+  --admin-liquid-control-pressed: var(--agriloop-appearance-control-pressed);
+  --admin-glass-shadow: var(--agriloop-appearance-shadow-1);
+  --admin-glass-shadow-raised: var(--agriloop-appearance-shadow-2);
+}
+
+html[data-surface-style="classic"] .role-farm-admin .g-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] .role-farm-admin :is(.g-header, .g-sidebar) {
+  background: var(--admin-glass-surface-strong) !important;
+  border-color: var(--admin-glass-outline) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-farm-admin :is(
+  .g-card, .manager-plot-card, .simple-summary-row, .simple-data-panel,
+  .simple-empty-state, .admin-panel, .admin-alert-card, .admin-alert-empty,
+  .work-summary, .work-filters, .work-order-card, .inspection-history,
+  .rp-hero, .rp-summary article, .rp-card, .g-modal, .admin-modal,
+  .manager-plot-menu, .account-profile-popover
+) {
+  background: var(--admin-glass-surface) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+
+html[data-surface-style="classic"] .role-system-admin {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface-strong);
+  --g-bg-subtle: var(--agriloop-appearance-surface-soft);
+  --g-bg-hover: var(--agriloop-appearance-hover);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
+  --system-glass-surface: var(--agriloop-appearance-surface);
+  --system-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --system-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --system-glass-cell: var(--agriloop-appearance-cell);
+  --system-glass-edge: var(--agriloop-appearance-edge);
+  --system-glass-outline: var(--agriloop-appearance-border);
+  --system-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --system-liquid-control: var(--agriloop-appearance-control);
+  --system-liquid-control-hover: var(--agriloop-appearance-control-hover);
+}
+html[data-surface-style="classic"] .role-system-admin .g-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: var(--system-glass-surface-strong) !important;
+  border-color: var(--system-glass-outline) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
+  background: var(--system-liquid-control) !important;
+  border-color: var(--system-glass-control-outline) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
+  background: var(--system-liquid-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--system-glass-control-outline)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
+  color: var(--g-primary) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-card, .admin-metric-card, .service-card, .sim-control-bar, .sim-settings-panel, .pack-card,
+  .admin-plot-card, .passport-panel, .admin-table-wrap, .admin-modal,
+  .g-modal, .account-profile-popover, .g-header-farm-menu
+) {
+  background: var(--system-glass-surface) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .g-btn, .account-profile-trigger, .admin-tab, .admin-knowledge-chip,
+  .admin-icon-picker button
+) {
+  background: var(--system-liquid-control) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] .role-system-admin .admin-tabs {
+  background: var(--system-glass-surface-soft) !important;
+  border-color: var(--system-glass-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(128%) !important;
+  backdrop-filter: blur(24px) saturate(128%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(
+  .admin-filter-bar select, .admin-filter-bar input,
+  .admin-landscape-actions select, .admin-modal-body input,
+  .admin-modal-body select, .admin-modal-body textarea,
+  .admin-doc-editor, .admin-doc-editor textarea, .admin-pack-form textarea,
+  .admin-metric-picker label, .g-input, .g-select
+) {
+  background: var(--system-glass-cell) !important;
+  border-color: var(--system-glass-control-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+html[data-surface-style="classic"] .role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+  background: var(--system-glass-surface-strong) !important;
+  box-shadow: var(--agriloop-appearance-shadow-3) !important;
+  -webkit-backdrop-filter: blur(42px) saturate(138%) !important;
+  backdrop-filter: blur(42px) saturate(138%) !important;
+}
+
+html[data-surface-style="glass-soft"] .role-farm-admin,
+html[data-surface-style="glass-soft"] .role-system-admin {
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(241, 229, 194, .28), transparent 38%),
+    linear-gradient(145deg, #c1d7c8 0%, #e1e9df 48%, #b9d3c2 100%) !important;
+}
+html[data-theme="dark"][data-surface-style="glass-soft"] .role-farm-admin,
+html[data-theme="dark"][data-surface-style="glass-soft"] .role-system-admin {
+  background: linear-gradient(145deg, #263e33 0%, #33493e 52%, #253d33 100%) !important;
+}
+html[data-surface-style="glass-soft"] .role-farm-admin :is(.g-card, .manager-plot-card, .admin-panel, .g-header, .g-sidebar),
+html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-metric-card, .service-card, .admin-plot-card, .g-header, .g-sidebar) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+}
+
+/* Appearance management ----------------------------------------------------
+ * Keep the 4e9326a farm-admin treatment as the baseline while making the
+ * newer c9b6282 glass materials discoverable in one deliberate management
+ * area. This panel is browser-scoped, like the shared workspace settings.
+ */
+.admin-appearance-management {
+  display: grid;
+  gap: 14px;
+  max-width: 920px;
+}
+.admin-appearance-intro {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 14px;
+  background: var(--g-bg-surface);
+  box-shadow: var(--g-shadow-1);
+}
+.admin-appearance-intro-icon,
+.admin-appearance-option-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+}
+.admin-appearance-intro-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 21px;
+}
+.admin-appearance-intro .admin-section-kicker {
+  color: var(--g-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.admin-appearance-intro h3 {
+  margin: 4px 0 5px;
+  color: var(--g-text-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+.admin-appearance-intro p {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.admin-appearance-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-pill);
+  color: var(--g-primary);
+  background: var(--g-primary-bg);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.admin-appearance-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--g-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.admin-appearance-section-title small {
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+.admin-appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.admin-appearance-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 66px;
+  padding: 11px 13px;
+  border: 1px solid var(--g-border);
+  border-radius: 12px;
+  background: var(--g-bg-surface);
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.admin-appearance-option:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 42%, var(--g-border));
+  background: color-mix(in srgb, var(--g-primary-bg) 44%, var(--g-bg-surface));
+  box-shadow: var(--g-shadow-1);
+  transform: translateY(-1px);
+}
+.admin-appearance-option.active {
+  border-color: var(--g-primary);
+  background: var(--g-primary-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-primary) 32%, transparent), var(--g-shadow-1);
+}
+.admin-appearance-option-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 18px;
+}
+.admin-appearance-option strong {
+  display: block;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+.admin-appearance-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.admin-appearance-option.active small { color: inherit; opacity: .78; }
+.admin-appearance-check {
+  color: var(--g-primary);
+  font-size: 19px;
+}
+.admin-appearance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+.admin-appearance-footer p {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.admin-appearance-footer p .ph { flex: 0 0 auto; color: var(--g-primary); }
+@media (max-width: 720px) {
+  .admin-appearance-intro { grid-template-columns: auto minmax(0, 1fr); }
+  .admin-appearance-current { grid-column: 2; justify-self: start; }
+  .admin-appearance-grid { grid-template-columns: 1fr; }
+  .admin-appearance-footer { align-items: flex-start; flex-direction: column; }
+}
+
 /* The farm-admin dashboard is the primary farm overview route.  Its cards
    have a later glass-surface rule, so keep the crop photography and the
    readability overlay at the role-specific layer as well. */
@@ -2061,7 +2816,7 @@
   min-height: 286px;
   border-color: rgba(255,255,255,.22);
   background-color: var(--g-bg-surface);
-  background-image: linear-gradient(180deg, rgba(9,29,22,.18) 0%, rgba(9,29,22,.36) 54%, rgba(9,29,22,.64) 100%), var(--plot-background, url('../../assets/backgrounds/farm-day.png'));
+  background-image: var(--plot-background, none);
   background-position: center;
   background-size: cover;
   color: #f6fbf7;
@@ -2248,6 +3003,264 @@ html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :
   backdrop-filter: none !important;
 }
 
+/* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin {
+  --g-bg-base: #f8f9fa !important;
+  --g-bg-surface: #ffffff !important;
+  --g-bg-subtle: #f1f3f4 !important;
+  --g-bg-hover: #f8f9fa !important;
+  --g-border: #dadce0 !important;
+  --g-border-subtle: #e8eaed !important;
+  --g-shadow-1: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15) !important;
+  --g-shadow-2: 0 1px 2px 0 rgba(60,64,67,0.3), 0 2px 6px 2px rgba(60,64,67,0.15) !important;
+  --g-shadow-3: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15) !important;
+}
+html[data-theme="dark"][data-surface-style="classic"] .role-system-admin.role-system-admin {
+  --g-bg-base: #202124 !important;
+  --g-bg-surface: #292a2d !important;
+  --g-bg-subtle: #35363a !important;
+  --g-bg-hover: #3c4043 !important;
+  --g-border: #5f6368 !important;
+  --g-border-subtle: #3c4043 !important;
+  --g-text-primary: #e8eaed !important;
+  --g-text-secondary: #9aa0a6 !important;
+  --g-primary: #8ab4f8 !important;
+  --g-primary-bg: #394457 !important;
+  --g-success: #81c995 !important;
+  --g-success-bg: #334e3d !important;
+  --g-warning: #fdd663 !important;
+  --g-warning-bg: #5c4f24 !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-main {
+  background: var(--g-bg-base) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-header,
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-sidebar {
+  background: var(--g-bg-surface) !important;
+  border-color: var(--g-border) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-sidebar {
+  border-right: 1px solid var(--g-border) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--g-text-secondary) !important;
+  border-radius: var(--g-radius-pill) !important;
+  text-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item:hover {
+  background: var(--g-bg-hover) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item.active {
+  background: var(--g-primary-bg) !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--g-primary) !important;
+}
+/* Fix nav item icon size - Phosphor icons optically look smaller, 24px matches the old 21px Material */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item .material-symbols-outlined {
+  font-size: 24px !important;
+}
+/* Group A: g-card (Shadow 1) */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-card {
+  background: var(--g-bg-surface) !important;
+  box-shadow: var(--g-shadow-1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: 1px solid var(--g-border) !important;
+  border-radius: var(--g-radius) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-card:hover {
+  box-shadow: var(--g-shadow-2) !important;
+}
+/* Exclude Recent System Events g-card from having a default shadow */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-overview-events > .g-card {
+  box-shadow: none !important;
+}
+/* Group B: Modals and Popovers (Shadow 3) */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+  background: var(--g-bg-surface) !important;
+  box-shadow: var(--g-shadow-3) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border: 1px solid var(--g-border) !important;
+  border-radius: var(--g-radius-lg) !important;
+}
+/* Group C: Panels with No Shadow normally */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap, .sim-control-bar, .sim-settings-panel, .passport-panel) {
+  background: var(--g-bg-surface) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-radius: var(--g-radius) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap) {
+  border: 1px solid var(--g-border-subtle) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.sim-control-bar, .sim-settings-panel, .passport-panel) {
+  border: 1px solid var(--g-border) !important;
+}
+/* Hover states for Group C */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-metric-card:hover {
+  box-shadow: var(--g-shadow-2) !important;
+  transform: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .pack-card:hover {
+  box-shadow: var(--g-shadow-2) !important;
+  border-color: var(--g-primary) !important;
+  transform: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-plot-card {
+  border-left: 3px solid var(--g-success) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-plot-card:hover {
+  box-shadow: var(--g-shadow-2) !important;
+  transform: translateY(-2px) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .service-card:hover {
+  box-shadow: var(--g-shadow-1) !important;
+  transform: none !important;
+}
+/* Tabs exactly matching 02d935e - COMPLETELY NUKING BROWSER DEFAULTS AND GLASS */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tabs {
+  display: flex !important;
+  gap: 4px !important;
+  margin-bottom: 20px !important;
+  width: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid var(--g-border-subtle) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  padding: 10px 20px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: var(--g-radius) var(--g-radius) 0 0 !important;
+  margin: 0 !important;
+  margin-bottom: -2px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  outline: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  color: var(--g-text-secondary) !important;
+  transition: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab:hover {
+  background: var(--g-primary-bg) !important;
+  color: var(--g-primary) !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+  transform: none !important;
+  outline: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab.active {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid var(--g-primary) !important;
+  color: var(--g-primary) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab.active:hover {
+  background: transparent !important;
+  border-bottom: 2px solid var(--g-primary) !important;
+  color: var(--g-primary) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  outline: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab:focus-visible {
+  outline: none !important;
+}
+/* FIX FOR BUTTONS: Recreating exact 02d935e base button styles and overriding team leader's glass */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  color: var(--g-text-secondary) !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.primary {
+  background: var(--g-primary) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.secondary {
+  background: transparent !important;
+  border: 1px solid var(--g-border) !important;
+  color: var(--g-primary) !important;
+  box-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.danger {
+  background: var(--g-danger) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.text {
+  background: transparent !important;
+  border: none !important;
+  color: var(--g-primary) !important;
+  box-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.icon-only {
+  background: transparent !important;
+  border: none !important;
+  border-radius: 50% !important;
+  box-shadow: none !important;
+  color: var(--g-text-secondary) !important;
+}
+/* Account profile trigger exactly like 02d935e */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .account-profile-trigger {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--g-radius-pill) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+/* Admin knowledge chip */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-knowledge-chip {
+  background: var(--g-bg-base) !important;
+  border: 1px solid var(--g-border) !important;
+  border-radius: var(--g-radius-pill) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+/* Admin icon picker */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-icon-picker button {
+  background: var(--g-bg-base) !important;
+  border: 1px solid var(--g-border) !important;
+  border-radius: var(--g-radius) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-filter-bar select, .admin-filter-bar input, .admin-landscape-actions select, .admin-modal-body input, .admin-modal-body select, .admin-modal-body textarea, .admin-doc-editor, .admin-doc-editor textarea, .admin-pack-form textarea, .admin-metric-picker label, .g-input, .g-select) {
+  background: var(--g-bg-surface) !important;
+  border-color: var(--g-border) !important;
+  box-shadow: none !important;
+}
+
 html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(
   .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
   .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
@@ -2429,4 +3442,939 @@ html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-s
   .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
   .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
   .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+}
+
+/* User explicitly asked to remove shadow from the two large config cards */
+html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-grid .g-card {
+  box-shadow: none !important;
+}
+
+
+/* --- Admin Agent --- */
+
+@media (max-width: 900px) {
+}
+@media (max-width: 560px) {
+}
+@media (max-width: 390px) {
+}
+
+@media (max-width: 760px) {
+  .farmer-evidence-grid,.farmer-irrigation-guard,.farmer-execution-evidence,.farmer-dual-track-summary { grid-template-columns: 1fr; }
+}
+.farmer-operation-status.is-error { color: var(--g-danger); }
+.farmer-operation-status.is-warning { color: var(--g-warning); }
+
+@media (max-width: 620px) {
+  .farmer-priority-item { grid-template-columns: auto minmax(0, 1fr); }
+  .farmer-priority-action { grid-column: 2; justify-self: start; }
+  .farmer-plot-overview-summary { align-items: flex-start; flex-direction: column; }
+  .farmer-suggestion-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-suggestion-flow strong { font-size: 10px; }
+}
+@media (max-width: 420px) {
+  .farmer-suggestion-flow { gap: 2px; }
+  .farmer-suggestion-flow-node { width: 25px; height: 25px; }
+  .farmer-suggestion-facts { grid-template-columns: 1fr; }
+  .farmer-danger-badge { display: none; }
+}
+
+/* ============================================================
+   FARMER Liquid Glass synchronization
+   Share the farm manager's sage environment and readable glass material,
+   while preserving the farmer workflow, green identity and semantic states.
+   ============================================================ */
+#farmer_app {
+  isolation: isolate;
+  --g-bg-base: rgba(232, 242, 235, .54);
+  --g-bg-surface: rgba(250, 253, 251, .78);
+  --g-bg-subtle: rgba(226, 238, 230, .72);
+  --g-bg-hover: rgba(255, 255, 255, .82);
+  --g-border: rgba(38, 76, 56, .48);
+  --g-border-subtle: rgba(49, 88, 67, .28);
+  --g-text-primary: #17231d;
+  --g-text-secondary: #405348;
+  --g-text-disabled: #607168;
+  --g-primary: #137a49;
+  --g-primary-hover: #0d633a;
+  --g-primary-bg: rgba(226, 245, 234, .82);
+  --g-success: #157b49;
+  --g-success-bg: rgba(226, 245, 234, .84);
+  --g-warning: #a9630d;
+  --g-warning-bg: rgba(255, 242, 220, .86);
+  --g-danger: #c4433c;
+  --g-danger-bg: rgba(255, 235, 233, .86);
+  --g-purple: #7150b9;
+  --g-purple-bg: rgba(242, 235, 255, .86);
+  --g-shadow-1: 0 8px 22px rgba(24, 62, 43, .13), 0 2px 6px rgba(24, 62, 43, .07);
+  --g-shadow-2: 0 16px 36px rgba(24, 62, 43, .17), 0 4px 10px rgba(24, 62, 43, .09);
+  --g-shadow-3: 0 30px 72px rgba(16, 51, 33, .25), 0 9px 24px rgba(16, 51, 33, .12);
+  --farmer-glass-surface: rgba(248, 252, 249, .74);
+  --farmer-glass-surface-strong: rgba(252, 254, 253, .88);
+  --farmer-glass-surface-soft: rgba(235, 245, 238, .62);
+  --farmer-glass-cell: rgba(255, 255, 255, .67);
+  --farmer-glass-edge: rgba(255, 255, 255, .88);
+  --farmer-glass-outline: rgba(31, 70, 49, .42);
+  --farmer-glass-control-outline: rgba(30, 69, 48, .56);
+  --farmer-glass-shadow:
+    0 18px 42px rgba(22, 64, 43, .17),
+    0 4px 10px rgba(22, 64, 43, .08),
+    inset 0 1px 0 var(--farmer-glass-edge),
+    inset 1px 0 0 rgba(255, 255, 255, .34),
+    inset 0 -1px 0 rgba(30, 76, 52, .10);
+  --farmer-glass-shadow-raised:
+    0 24px 54px rgba(22, 64, 43, .22),
+    0 7px 16px rgba(22, 64, 43, .11),
+    inset 0 1px 0 rgba(255, 255, 255, .94),
+    inset 1px 0 0 rgba(255, 255, 255, .40),
+    inset 0 -1px 0 rgba(30, 76, 52, .12);
+  --farmer-liquid-control:
+    linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .48) 54%, rgba(222, 239, 228, .58));
+  --farmer-liquid-control-hover:
+    linear-gradient(145deg, rgba(255, 255, 255, .94), rgba(255, 255, 255, .62) 52%, rgba(226, 243, 232, .70));
+  background:
+    radial-gradient(ellipse at 12% 7%, rgba(241, 229, 194, .62) 0%, rgba(241, 229, 194, 0) 35%),
+    radial-gradient(ellipse at 84% 3%, rgba(181, 220, 198, .72) 0%, rgba(181, 220, 198, 0) 42%),
+    radial-gradient(ellipse at 18% 96%, rgba(89, 155, 121, .42) 0%, rgba(89, 155, 121, 0) 48%),
+    radial-gradient(ellipse at 95% 82%, rgba(114, 166, 148, .38) 0%, rgba(114, 166, 148, 0) 43%),
+    linear-gradient(145deg, #a5c3ab 0%, #d2dcc8 31%, #a8cdb5 62%, #8bb69e 100%);
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] #farmer_app {
+  --g-bg-base: rgba(17, 35, 28, .62);
+  --g-bg-surface: rgba(28, 49, 40, .80);
+  --g-bg-subtle: rgba(43, 67, 55, .72);
+  --g-bg-hover: rgba(55, 82, 68, .82);
+  --g-border: rgba(220, 239, 228, .36);
+  --g-border-subtle: rgba(210, 231, 219, .20);
+  --g-text-primary: #f1f6f3;
+  --g-text-secondary: #c0cec6;
+  --g-text-disabled: #94a59b;
+  --g-primary: #7ad9a4;
+  --g-primary-hover: #9be8bb;
+  --g-primary-bg: rgba(36, 75, 53, .78);
+  --g-success: #78d9a3;
+  --g-success-bg: rgba(36, 72, 52, .80);
+  --g-warning: #efbd70;
+  --g-warning-bg: rgba(77, 60, 35, .82);
+  --g-danger: #ff9a92;
+  --g-danger-bg: rgba(84, 49, 46, .82);
+  --g-purple: #c4a7ff;
+  --g-purple-bg: rgba(63, 51, 91, .82);
+  --g-shadow-1: 0 8px 22px rgba(0, 0, 0, .31), 0 2px 6px rgba(0, 0, 0, .22);
+  --g-shadow-2: 0 17px 38px rgba(0, 0, 0, .40), 0 5px 12px rgba(0, 0, 0, .25);
+  --g-shadow-3: 0 32px 76px rgba(0, 0, 0, .58), 0 10px 26px rgba(0, 0, 0, .32);
+  --farmer-glass-surface: rgba(21, 40, 32, .72);
+  --farmer-glass-surface-strong: rgba(28, 49, 40, .88);
+  --farmer-glass-surface-soft: rgba(39, 64, 52, .64);
+  --farmer-glass-cell: rgba(55, 82, 68, .66);
+  --farmer-glass-edge: rgba(255, 255, 255, .22);
+  --farmer-glass-outline: rgba(226, 241, 232, .28);
+  --farmer-glass-control-outline: rgba(235, 247, 240, .43);
+  --farmer-glass-shadow:
+    0 18px 44px rgba(0, 0, 0, .40),
+    0 4px 11px rgba(0, 0, 0, .24),
+    inset 0 1px 0 var(--farmer-glass-edge),
+    inset 1px 0 0 rgba(255, 255, 255, .07),
+    inset 0 -1px 0 rgba(0, 0, 0, .28);
+  --farmer-glass-shadow-raised:
+    0 25px 58px rgba(0, 0, 0, .50),
+    0 8px 18px rgba(0, 0, 0, .30),
+    inset 0 1px 0 rgba(255, 255, 255, .27),
+    inset 1px 0 0 rgba(255, 255, 255, .09),
+    inset 0 -1px 0 rgba(0, 0, 0, .32);
+  --farmer-liquid-control:
+    linear-gradient(145deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .055) 54%, rgba(255, 255, 255, .09));
+  --farmer-liquid-control-hover:
+    linear-gradient(145deg, rgba(255, 255, 255, .20), rgba(255, 255, 255, .085) 52%, rgba(255, 255, 255, .13));
+  background:
+    radial-gradient(ellipse at 14% 6%, rgba(177, 141, 82, .25) 0%, rgba(177, 141, 82, 0) 35%),
+    radial-gradient(ellipse at 84% 4%, rgba(61, 137, 103, .48) 0%, rgba(61, 137, 103, 0) 43%),
+    radial-gradient(ellipse at 20% 94%, rgba(36, 97, 69, .58) 0%, rgba(36, 97, 69, 0) 49%),
+    linear-gradient(145deg, #183a2e 0%, #30493d 32%, #1b553f 63%, #244739 100%);
+}
+
+#farmer_app .farmer-main {
+  background: linear-gradient(180deg, rgba(250, 253, 249, .16), rgba(222, 239, 228, .05) 190px, rgba(193, 226, 206, .08));
+}
+
+[data-theme="dark"] #farmer_app .farmer-main {
+  background: linear-gradient(180deg, rgba(41, 74, 60, .13), rgba(13, 39, 28, .08));
+}
+
+#farmer_app :is(.farmer-header, .farmer-sidebar) {
+  border-color: var(--farmer-glass-outline);
+  background: rgba(239, 249, 242, .39);
+  -webkit-backdrop-filter: blur(36px) saturate(132%);
+  backdrop-filter: blur(36px) saturate(132%);
+}
+
+#farmer_app .farmer-header {
+  box-shadow: 0 9px 30px rgba(24, 67, 45, .14), inset 0 1px 0 rgba(255, 255, 255, .76), inset 0 -1px 0 rgba(34, 84, 59, .10);
+}
+
+#farmer_app .farmer-sidebar {
+  box-shadow: 10px 0 36px rgba(24, 67, 45, .12), inset -1px 0 0 rgba(255, 255, 255, .36);
+}
+
+[data-theme="dark"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
+  background: rgba(17, 35, 28, .48);
+}
+
+[data-theme="dark"] #farmer_app .g-brand-logo {
+  filter: brightness(0) invert(1) opacity(.88);
+}
+
+#farmer_app .farmer-nav-item {
+  margin-bottom: 6px;
+  border: 1px solid var(--farmer-glass-outline);
+  border-radius: 14px;
+  background: rgba(247, 252, 248, .18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .30);
+  color: var(--g-text-primary);
+}
+
+#farmer_app .farmer-nav-item:hover,
+#farmer_app .farmer-nav-item.active {
+  border-color: color-mix(in srgb, var(--g-success) 42%, var(--farmer-glass-control-outline));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .72), rgba(255, 255, 255, .32)),
+    color-mix(in srgb, var(--g-success) 9%, transparent);
+  color: var(--g-success);
+  box-shadow: 0 9px 22px color-mix(in srgb, var(--g-success) 13%, transparent), inset 0 1px 0 rgba(255, 255, 255, .90);
+}
+
+[data-theme="dark"] #farmer_app .farmer-nav-item:hover,
+[data-theme="dark"] #farmer_app .farmer-nav-item.active {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .045)),
+    color-mix(in srgb, var(--g-success) 13%, transparent);
+}
+
+#farmer_app :is(
+  .g-btn,
+  .farmer-account-trigger,
+  .farmer-message-filter-btn,
+  .farmer-chart-range-btn
+) {
+  border: 1px solid var(--farmer-glass-control-outline);
+  background: var(--farmer-liquid-control);
+  box-shadow: var(--g-shadow-1), inset 0 1px 0 rgba(255, 255, 255, .86), inset 0 -1px 0 rgba(30, 75, 52, .09);
+  color: var(--g-text-primary);
+  text-shadow: none;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, color .16s ease;
+}
+
+#farmer_app :is(.g-btn, .farmer-account-trigger, .farmer-message-filter-btn, .farmer-chart-range-btn):not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--g-success) 34%, var(--farmer-glass-control-outline));
+  background: var(--farmer-liquid-control-hover);
+  box-shadow: var(--g-shadow-2), inset 0 1px 0 rgba(255, 255, 255, .94);
+  transform: translateY(-1px);
+}
+
+#farmer_app :is(.g-btn, .farmer-account-trigger, .farmer-message-filter-btn, .farmer-chart-range-btn):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-success) 32%, transparent);
+  outline-offset: 2px;
+}
+
+#farmer_app :is(.g-btn.primary, .farmer-btn-analyze) {
+  border-color: rgba(255, 255, 255, .58);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .02) 52%, rgba(0, 55, 29, .16)), var(--g-success);
+  color: #fff;
+  box-shadow: 0 11px 26px color-mix(in srgb, var(--g-success) 29%, transparent), inset 0 1px 0 rgba(255, 255, 255, .43), inset 0 -1px 0 rgba(0, 54, 28, .30);
+}
+
+#farmer_app :is(.g-btn.primary, .farmer-btn-analyze):not(:disabled):hover {
+  border-color: rgba(255, 255, 255, .68);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, .03) 52%, rgba(0, 55, 29, .13)), var(--g-primary-hover);
+  color: #fff;
+  box-shadow: 0 15px 32px color-mix(in srgb, var(--g-success) 35%, transparent), inset 0 1px 0 rgba(255, 255, 255, .50), inset 0 -1px 0 rgba(0, 54, 28, .27);
+}
+
+#farmer_app :is(.farmer-btn-light, .g-btn.secondary) { color: var(--g-success); }
+
+#farmer_app :is(
+  .g-card,
+  .farmer-stat-card,
+  .farmer-plot-overview-card,
+  .farmer-message-list,
+  .farmer-message-detail,
+  .farmer-task-column,
+  .farmer-task-detail,
+  .farmer-form-card,
+  .farmer-ai-consult,
+  .farmer-profile-popover,
+  .account-profile-popover,
+  .farmer-risk-mini-card
+) {
+  border: 1px solid var(--farmer-glass-outline);
+  background: var(--farmer-glass-surface-strong);
+  box-shadow: var(--farmer-glass-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(132%);
+  backdrop-filter: blur(30px) saturate(132%);
+}
+
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card):hover {
+  border-color: color-mix(in srgb, var(--g-success) 28%, var(--farmer-glass-control-outline));
+  box-shadow: var(--farmer-glass-shadow-raised);
+}
+
+#farmer_app .farmer-stat-card { border-radius: 16px; }
+#farmer_app :is(.farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-task-column) { border-radius: 14px; }
+
+#farmer_app :is(
+  .farmer-mini-item,
+  .farmer-task-card,
+  .farmer-metric-item,
+  .farmer-metric-chart,
+  .farmer-shared-tools-entry,
+  .farmer-shared-tool-card,
+  .farmer-case-item,
+  .farmer-report-entry-grid button,
+  .farmer-report-summary-grid > div,
+  .farmer-priority-item,
+  .farmer-cm-card,
+  .farmer-cm-summary,
+  .farmer-cm-metric,
+  .farmer-suggestion-facts > div,
+  .farmer-suggestion-result-summary,
+  .farmer-message-alert-meta,
+  .farmer-weather-controls,
+  .farmer-allocation-detail,
+  .farmer-ai-consult-details,
+  .farmer-ai-decision-card
+) {
+  border-color: var(--farmer-glass-outline);
+  background: var(--farmer-glass-cell);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64), inset 0 -1px 0 rgba(31, 76, 52, .08);
+  -webkit-backdrop-filter: blur(20px) saturate(126%);
+  backdrop-filter: blur(20px) saturate(126%);
+}
+
+#farmer_app :is(.farmer-task-card, .farmer-priority-item, .farmer-case-item, .farmer-shared-tool-card):hover {
+  border-color: color-mix(in srgb, var(--g-success) 38%, var(--farmer-glass-control-outline));
+  box-shadow: var(--g-shadow-1), inset 0 1px 0 rgba(255, 255, 255, .78);
+}
+
+#farmer_app :is(
+  .g-input,
+  .g-select,
+  .farmer-question-form input,
+  .farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
+  .farmer-form-card select,
+  .farmer-form-card textarea,
+  .farmer-ai-consult-form textarea,
+  .farmer-weather-controls input
+) {
+  border-color: var(--farmer-glass-control-outline);
+  background: var(--farmer-glass-cell);
+  color: var(--g-text-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08);
+  -webkit-backdrop-filter: blur(20px) saturate(126%);
+  backdrop-filter: blur(20px) saturate(126%);
+}
+
+#farmer_app ::placeholder {
+  color: var(--g-text-disabled);
+  font-weight: 500;
+  opacity: 1;
+}
+
+#farmer_app :is(.farmer-task-detail-overlay, .farmer-form-overlay, .g-modal-overlay) {
+  -webkit-backdrop-filter: blur(9px);
+  backdrop-filter: blur(9px);
+}
+
+#farmer_app .farmer-task-detail,
+#farmer_app .farmer-form-card,
+#farmer_app .farmer-ai-consult,
+#farmer_app :is(.farmer-profile-popover, .account-profile-popover) {
+  border-radius: 20px;
+  background: var(--farmer-glass-surface-strong);
+  box-shadow: var(--g-shadow-3), inset 0 1px 0 rgba(255, 255, 255, .92), inset 0 -1px 0 rgba(31, 76, 52, .10);
+  -webkit-backdrop-filter: blur(42px) saturate(138%);
+  backdrop-filter: blur(42px) saturate(138%);
+}
+
+#farmer_app .farmer-priority-panel {
+  background: var(--farmer-glass-surface-strong);
+  border-color: color-mix(in srgb, var(--g-primary) 30%, var(--farmer-glass-outline));
+}
+
+#farmer_app .farmer-message-filter-btn.filter-all.active,
+#farmer_app .farmer-message-filter-btn.filter-all.active:hover { background: linear-gradient(135deg, var(--g-primary), color-mix(in srgb, var(--g-primary) 78%, #000)); color: #fff; }
+#farmer_app .farmer-message-filter-btn.filter-alert.active,
+#farmer_app .farmer-message-filter-btn.filter-alert.active:hover { background: linear-gradient(135deg, var(--g-danger), color-mix(in srgb, var(--g-danger) 76%, #000)); color: #fff; }
+#farmer_app .farmer-message-filter-btn.filter-task.active,
+#farmer_app .farmer-message-filter-btn.filter-task.active:hover { background: linear-gradient(135deg, #f3bd66, #d99a39); color: #3b290c; }
+#farmer_app .farmer-message-filter-btn.filter-notice.active,
+#farmer_app .farmer-message-filter-btn.filter-notice.active:hover { background: linear-gradient(135deg, var(--g-success), color-mix(in srgb, var(--g-success) 76%, #000)); color: #fff; }
+
+#farmer_app .farmer-message-filter-btn.filter-task.active :is(.farmer-message-filter-icon, .farmer-message-filter-count) {
+  background: rgba(255, 255, 255, .40);
+  color: #3b290c;
+}
+
+#farmer_app .farmer-chart-range-btn.active,
+#farmer_app .farmer-chart-range-btn.active:hover {
+  border-color: color-mix(in srgb, var(--g-success) 44%, var(--farmer-glass-control-outline));
+  background: var(--g-success);
+  color: #fff;
+}
+
+#farmer_app :is(.farmer-task-card, .farmer-cm-card).active {
+  border-color: var(--g-success);
+  background: color-mix(in srgb, var(--g-success-bg) 74%, var(--farmer-glass-cell));
+  color: var(--g-success);
+}
+
+#farmer_app .farmer-plot-overview-card.is-warn,
+#farmer_app .farmer-risk-mini-card.is-warn,
+#farmer_app .farmer-metric-chart.is-warn,
+#farmer_app .farmer-moisture-chart-card.is-warn,
+#farmer_app .farmer-device-card.needs-action {
+  border-color: color-mix(in srgb, var(--g-warning) 58%, var(--farmer-glass-outline));
+}
+
+#farmer_app .farmer-plot-overview-card.is-alert,
+#farmer_app .farmer-risk-mini-card.is-alert,
+#farmer_app .farmer-metric-chart.is-alert,
+#farmer_app .farmer-moisture-chart-card.is-alert {
+  border-color: color-mix(in srgb, var(--g-danger) 58%, var(--farmer-glass-outline));
+}
+
+#farmer_app .farmer-risk-mini-card { border-left: 4px solid var(--g-success); }
+#farmer_app .farmer-risk-mini-card.is-warn { border-left-color: var(--g-warning); }
+#farmer_app .farmer-risk-mini-card.is-alert { border-left-color: var(--g-danger); }
+#farmer_app .farmer-priority-item.tone-danger { border-left: 4px solid var(--g-danger); }
+#farmer_app .farmer-priority-item.tone-warning { border-left: 4px solid var(--g-warning); }
+#farmer_app .farmer-priority-item.tone-primary { border-left: 4px solid var(--g-primary); }
+
+#farmer_app .farmer-health-ring::after,
+#farmer_app .farmer-batch-timeline li > div { background: var(--farmer-glass-surface-strong); }
+
+@media (max-width: 720px) {
+  #farmer_app {
+    --farmer-glass-shadow: 0 12px 28px rgba(22, 64, 43, .15), 0 3px 8px rgba(22, 64, 43, .08), inset 0 1px 0 var(--farmer-glass-edge);
+    --farmer-glass-shadow-raised: 0 17px 36px rgba(22, 64, 43, .19), 0 5px 11px rgba(22, 64, 43, .10), inset 0 1px 0 var(--farmer-glass-edge);
+  }
+
+  #farmer_app .farmer-sidebar:not(.collapsed) + .farmer-main {
+    padding-left: 88px;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    padding-left: 16px;
+  }
+
+  [data-theme="dark"] #farmer_app {
+    --farmer-glass-shadow: 0 13px 30px rgba(0, 0, 0, .36), 0 4px 9px rgba(0, 0, 0, .22), inset 0 1px 0 var(--farmer-glass-edge);
+    --farmer-glass-shadow-raised: 0 18px 40px rgba(0, 0, 0, .44), 0 6px 13px rgba(0, 0, 0, .27), inset 0 1px 0 var(--farmer-glass-edge);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-task-card, .g-btn, .farmer-nav-item) {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  #farmer_app :is(.g-card, .farmer-stat-card, .farmer-plot-overview-card, .farmer-message-list, .farmer-message-detail, .farmer-task-column) {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* Farmer workspace settings ------------------------------------------------ */
+.farmer-settings-page { display: grid; gap: 20px; }
+.farmer-settings-page .farmer-page-header { align-items: flex-start; }
+.farmer-settings-page .farmer-page-header > .g-badge { margin-top: 4px; }
+.farmer-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.farmer-settings-card { display: grid; gap: 18px; padding: 20px; }
+.farmer-settings-card > .farmer-panel-header > .ph { color: var(--g-primary); font-size: 21px; }
+.farmer-settings-field { display: grid; gap: 9px; }
+.farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
+.farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
+.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
+.farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
+.farmer-settings-accent.active { background: color-mix(in srgb, var(--swatch) 12%, var(--farmer-glass-cell, var(--g-bg-base))); }
+.farmer-settings-accent i { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; background: var(--swatch); }
+.farmer-settings-accent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-settings-inline-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.farmer-settings-select { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 11px; font-weight: 600; }
+.farmer-settings-select select { min-height: 36px; padding: 6px 26px 6px 9px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-control, var(--g-bg-base)); color: var(--g-text-primary); font: 12px var(--g-font-family); }
+.farmer-settings-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 9px; cursor: pointer; }
+.farmer-settings-check input { width: 16px; height: 16px; margin-top: 1px; accent-color: var(--g-primary); }
+.farmer-settings-check strong { display: block; color: var(--g-text-primary); font-size: 12px; font-weight: 600; }
+.farmer-settings-check small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
+.farmer-settings-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--farmer-glass-outline, var(--g-border))); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 64%, var(--farmer-glass-cell, var(--g-bg-base))); color: var(--g-text-secondary); font-size: 10px; line-height: 1.5; }
+.farmer-settings-note .ph { flex: 0 0 auto; color: var(--g-primary); font-size: 15px; }
+.farmer-settings-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 3px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-settings-actions span { text-align: right; }
+@media (max-width: 900px) { .farmer-settings-grid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) {
+  .farmer-settings-choice-row { grid-template-columns: 1fr; }
+  .farmer-settings-accent-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-settings-inline-fields { grid-template-columns: 1fr; }
+  .farmer-settings-actions { align-items: flex-start; flex-direction: column; }
+  .farmer-settings-actions span { text-align: left; }
+}
+
+/* User-selectable surface material -----------------------------------------
+ * The default `classic` preset is the light farm-manager material from
+ * main@4e9326a.  Keep the farmer's green semantic accents while sharing the
+ * same translucent surfaces, edge highlights and compact shell.
+ */
+html[data-surface-style="classic"] #farmer_app {
+  --g-bg-base: var(--agriloop-appearance-base);
+  --g-bg-surface: var(--agriloop-appearance-surface-strong);
+  --g-bg-subtle: var(--agriloop-appearance-surface-soft);
+  --g-bg-hover: var(--agriloop-appearance-hover);
+  --g-border: var(--agriloop-appearance-border);
+  --g-border-subtle: var(--agriloop-appearance-border-subtle);
+  --g-shadow-1: var(--agriloop-appearance-shadow-1);
+  --g-shadow-2: var(--agriloop-appearance-shadow-2);
+  --g-shadow-3: var(--agriloop-appearance-shadow-3);
+  --farmer-glass-surface: var(--agriloop-appearance-surface);
+  --farmer-glass-surface-strong: var(--agriloop-appearance-surface-strong);
+  --farmer-glass-surface-soft: var(--agriloop-appearance-surface-soft);
+  --farmer-glass-cell: var(--agriloop-appearance-cell);
+  --farmer-glass-edge: var(--agriloop-appearance-edge);
+  --farmer-glass-outline: var(--agriloop-appearance-border);
+  --farmer-glass-control-outline: var(--agriloop-appearance-border-subtle);
+  --farmer-glass-shadow: var(--agriloop-appearance-shadow-1);
+  --farmer-glass-shadow-raised: var(--agriloop-appearance-shadow-2);
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-card, .farmer-stat-card, .farmer-plot-overview-card,
+  .farmer-message-list, .farmer-message-detail, .farmer-task-column,
+  .farmer-task-detail, .farmer-form-card, .farmer-ai-consult,
+  .farmer-profile-popover, .account-profile-popover, .farmer-risk-mini-card,
+  .farmer-metric-chart, .farmer-moisture-chart-card, .farmer-device-card,
+  .farmer-priority-panel, .farmer-cm-card
+) {
+  background: var(--farmer-glass-surface) !important;
+  box-shadow: var(--farmer-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .farmer-mini-item, .farmer-task-card, .farmer-metric-item,
+  .farmer-metric-chart, .farmer-shared-tools-entry, .farmer-shared-tool-card,
+  .farmer-case-item, .farmer-priority-item, .farmer-cm-summary,
+  .farmer-cm-metric, .farmer-suggestion-facts > div, .farmer-weather-controls,
+  .farmer-allocation-detail, .farmer-ai-consult-details, .farmer-ai-decision-card
+) {
+  background: var(--farmer-glass-cell) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-btn, .farmer-account-trigger, .farmer-message-filter-btn,
+  .farmer-chart-range-btn
+) {
+  background: var(--agriloop-appearance-control) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
+}
+html[data-surface-style="classic"] #farmer_app :is(
+  .g-input, .g-select, .farmer-question-form input,
+  .farmer-form-card input:not([type="checkbox"]):not([type="radio"]),
+  .farmer-form-card select, .farmer-form-card textarea,
+  .farmer-ai-consult-form textarea, .farmer-weather-controls input
+) {
+  background: var(--farmer-glass-cell) !important;
+  border-color: var(--farmer-glass-control-outline) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .66), inset 0 -1px 0 rgba(31, 76, 52, .08) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
+  backdrop-filter: blur(20px) saturate(126%) !important;
+}
+
+html[data-surface-style="glass-soft"] #farmer_app {
+  background:
+    radial-gradient(ellipse at 15% 5%, rgba(241, 229, 194, .28), transparent 38%),
+    linear-gradient(145deg, #c1d7c8 0%, #e1e9df 48%, #b9d3c2 100%) !important;
+}
+html[data-theme="dark"][data-surface-style="glass-soft"] #farmer_app {
+  background: linear-gradient(145deg, #263e33 0%, #33493e 52%, #253d33 100%) !important;
+}
+html[data-surface-style="glass-soft"] #farmer_app :is(
+  .farmer-header, .farmer-sidebar, .g-card, .farmer-stat-card,
+  .farmer-plot-overview-card, .farmer-task-column, .farmer-form-card
+) {
+  -webkit-backdrop-filter: blur(14px) saturate(112%);
+  backdrop-filter: blur(14px) saturate(112%);
+}
+
+/* The style cards remain readable on both themes and on narrow screens. */
+.farmer-settings-surface-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.farmer-settings-surface-choice { display: grid; gap: 3px; min-height: 58px; text-align: left; }
+.farmer-settings-surface-choice small { color: var(--g-text-secondary); font-size: 9px; line-height: 1.3; }
+.farmer-settings-surface-choice.active small { color: inherit; opacity: .78; }
+@media (max-width: 520px) {
+  .farmer-settings-surface-row { grid-template-columns: 1fr; }
+}
+
+/* Unified compact sidebar geometry for the standalone farmer workspace.  It
+ * mirrors /srv/system-admin while retaining the first reference image's
+ * glass material and the farmer's green cues. */
+#farmer_app .farmer-sidebar {
+  width: var(--g-sidebar-width, 210px);
+  padding: 12px;
+  background: rgba(246, 251, 248, .72);
+  border-right: 1px solid rgba(55, 89, 69, .16);
+  box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
+  -webkit-backdrop-filter: blur(30px) saturate(128%);
+  backdrop-filter: blur(30px) saturate(128%);
+}
+#farmer_app .farmer-nav-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+#farmer_app .farmer-nav-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 0;
+}
+#farmer_app .farmer-nav-item {
+  --sidebar-accent: #2f8b5c;
+  min-height: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0 16px;
+  gap: 16px;
+  border: 1px solid rgba(71, 102, 85, .14);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, .91), rgba(237, 246, 240, .58));
+  box-shadow: 0 5px 14px rgba(37, 78, 55, .08), inset 0 1px 0 rgba(255, 255, 255, .84);
+  color: var(--g-text-primary);
+  font: 500 14px/1 var(--g-font-family);
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease, color .18s ease;
+}
+html[data-density="compact"] #farmer_app .farmer-nav-item {
+  min-height: 40px;
+  height: 40px;
+  gap: 12px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+#farmer_app .farmer-nav-item .ph,
+#farmer_app .farmer-nav-item .material-symbols-outlined {
+  flex: 0 0 auto;
+  color: var(--sidebar-accent);
+  font-size: 21px;
+}
+#farmer_app .farmer-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#farmer_app .farmer-nav-item:hover {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 28%, rgba(71, 102, 85, .16));
+  background: linear-gradient(145deg, rgba(255, 255, 255, .98), color-mix(in srgb, var(--sidebar-accent) 8%, rgba(237, 246, 240, .72)));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--sidebar-accent) 12%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  transform: translateY(-1px);
+}
+#farmer_app .farmer-nav-item.active {
+  border-color: color-mix(in srgb, var(--sidebar-accent) 48%, rgba(102, 75, 190, .22));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 13%, #fff), color-mix(in srgb, var(--sidebar-accent) 7%, #f5f1ff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--sidebar-accent) 15%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  color: var(--sidebar-accent);
+}
+#farmer_app .farmer-nav-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--sidebar-accent) 34%, transparent);
+  outline-offset: 2px;
+}
+#farmer_app .farmer-nav-item[data-nav="tasks"] { --sidebar-accent: #3f7fe5; }
+#farmer_app .farmer-nav-item[data-nav="inspections"] { --sidebar-accent: #7657c4; }
+#farmer_app .farmer-nav-item[data-nav="advice"] { --sidebar-accent: #198c68; }
+#farmer_app .farmer-nav-item[data-nav="messages"] { --sidebar-accent: #5573c7; }
+#farmer_app .farmer-nav-item[data-nav="tools"],
+#farmer_app .farmer-nav-item[data-nav="settings"] { --sidebar-accent: #2f8b5c; }
+[data-theme="dark"] #farmer_app .farmer-sidebar {
+  background: rgba(26, 43, 35, .84);
+  border-right-color: rgba(221, 241, 229, .20);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, .22), inset -1px 0 0 rgba(255, 255, 255, .08);
+}
+[data-theme="dark"] #farmer_app .farmer-nav-item {
+  border-color: rgba(226, 241, 232, .17);
+  background: linear-gradient(145deg, rgba(59, 83, 70, .78), rgba(35, 58, 46, .84));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .10);
+}
+[data-theme="dark"] #farmer_app .farmer-nav-item.active {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sidebar-accent) 24%, #304639), color-mix(in srgb, var(--sidebar-accent) 12%, #20372b));
+}
+html[data-surface-style="classic"] #farmer_app .farmer-sidebar,
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
+  background: var(--agriloop-appearance-sidebar) !important;
+  border-color: var(--agriloop-appearance-border-subtle) !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item {
+  background: var(--agriloop-appearance-control) !important;
+}
+html[data-surface-style="classic"] #farmer_app .farmer-nav-item.active {
+  background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--farmer-glass-control-outline)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
+  color: var(--sidebar-accent);
+}
+html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
+  background: rgba(241, 248, 244, .66);
+  box-shadow: 8px 0 24px rgba(31, 73, 51, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
+  -webkit-backdrop-filter: blur(16px) saturate(116%);
+  backdrop-filter: blur(16px) saturate(116%);
+}
+[data-theme="dark"][data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
+  background: rgba(35, 57, 46, .78);
+}
+@media (max-width: 760px) {
+  #farmer_app .farmer-sidebar { width: 230px; padding: 12px; }
+  #farmer_app .farmer-sidebar.collapsed { width: 230px; padding: 12px; }
+  #farmer_app .farmer-nav-item { min-height: 48px; height: 48px; padding-inline: 16px; }
+}
+
+/* ============================================================
+   农户首页信息层级：行动 → 风险 → 地块 → 辅助信息 → 动态
+   ============================================================ */
+.farmer-dashboard-workspace {
+  display: flex;
+  flex-direction: column;
+}
+.farmer-dashboard-workspace > .farmer-dashboard-hero-grid { order: 1; }
+.farmer-dashboard-workspace > .farmer-stats-grid { order: 2; }
+.farmer-dashboard-workspace > .farmer-plots-panel { order: 3; }
+.farmer-dashboard-workspace > .farmer-insight-grid { order: 4; }
+.farmer-dashboard-workspace > .farmer-activity-panel { order: 5; }
+.farmer-dashboard-workspace > .farmer-shared-tools-entry { order: 6; }
+
+.farmer-dashboard-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, .85fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.farmer-dashboard-hero-grid > * { min-width: 0; }
+.farmer-dashboard-hero-grid .farmer-priority-panel,
+.farmer-dashboard-hero-grid .farmer-risk-summary { margin-bottom: 0; }
+.farmer-dashboard-hero-grid .farmer-priority-panel { background: var(--g-bg-surface); }
+
+.farmer-risk-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px;
+  border-color: color-mix(in srgb, var(--g-danger) 25%, var(--g-border-subtle));
+  background: color-mix(in srgb, var(--g-danger-bg) 18%, var(--g-bg-surface));
+}
+.farmer-risk-summary .farmer-panel-header { margin-bottom: 12px; }
+.farmer-risk-summary-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 14px;
+}
+.farmer-risk-summary-total strong {
+  color: var(--g-text-primary);
+  font-size: 32px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.farmer-risk-summary-total span { color: var(--g-text-secondary); font-size: 12px; }
+.farmer-risk-summary-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.farmer-risk-summary-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-top: 1px solid color-mix(in srgb, var(--g-border-subtle) 76%, transparent);
+}
+.farmer-risk-summary-list li > .material-symbols-outlined { color: var(--g-warning); font-size: 19px; }
+.farmer-risk-summary-list li:first-child > .material-symbols-outlined { color: var(--g-danger); }
+.farmer-risk-summary-list li:last-child > .material-symbols-outlined { color: var(--g-primary); }
+.farmer-risk-summary-list b { display: block; color: var(--g-text-primary); font-size: 12px; }
+.farmer-risk-summary-list small { display: block; margin-top: 2px; color: var(--g-text-secondary); font-size: 11px; line-height: 1.4; }
+.farmer-risk-summary-action {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.farmer-dashboard-workspace > .farmer-stats-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-card {
+  gap: 9px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--g-shadow-1);
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-icon {
+  padding: 5px;
+  border-radius: 9px;
+  font-size: 21px;
+}
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-value { font-size: 20px; }
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-label { margin-top: 1px; font-size: 11px; }
+.farmer-dashboard-workspace > .farmer-stats-grid .farmer-stat-arrow { font-size: 16px; }
+
+.farmer-dashboard-workspace > .farmer-plots-panel { margin-bottom: 20px; }
+.farmer-dashboard-workspace > .farmer-insight-grid { margin-bottom: 20px; }
+
+.farmer-activity-panel {
+  min-width: 0;
+  margin-bottom: 20px;
+}
+.farmer-activity-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.farmer-activity-actions .g-btn { min-height: 32px; padding: 0 10px; font-size: 11px; }
+.farmer-activity-list { display: grid; gap: 6px; }
+.farmer-activity-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-base);
+  color: var(--g-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.farmer-activity-item:hover,
+.farmer-activity-item:focus-visible { border-color: var(--g-primary); background: var(--g-primary-bg); transform: translateY(-1px); }
+.farmer-activity-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--g-primary-bg);
+  color: var(--g-primary);
+}
+.farmer-activity-item.kind-TASK .farmer-activity-icon { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-activity-content { display: grid; min-width: 0; gap: 2px; }
+.farmer-activity-content strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.farmer-activity-content small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-activity-arrow { color: var(--g-text-secondary); font-size: 17px; opacity: .75; }
+
+@media (max-width: 980px) {
+  .farmer-dashboard-hero-grid { grid-template-columns: minmax(0, 1.25fr) minmax(250px, .9fr); }
+}
+@media (max-width: 900px) {
+  .farmer-dashboard-hero-grid { grid-template-columns: 1fr; }
+  .farmer-risk-summary { min-height: 0; }
+}
+@media (max-width: 760px) {
+  .farmer-dashboard-workspace > .farmer-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .farmer-activity-item { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .farmer-activity-arrow { display: none; }
+}
+@media (max-width: 520px) {
+  .farmer-dashboard-hero-grid { gap: 12px; }
+  .farmer-risk-summary,
+  .farmer-dashboard-hero-grid .farmer-priority-panel { padding: 14px; }
+  .farmer-activity-panel .farmer-panel-header { align-items: flex-start; flex-direction: column; gap: 9px; }
+  .farmer-activity-actions { width: 100%; }
+  .farmer-activity-actions .g-btn { flex: 1 1 auto; }
+}
+
+/* --- Admin Agent: missing pieces --- */
+
+/* Crop photography is an explicit presentation preference.  The default
+   neutral surface must remove both the image and its dark readability mask;
+   otherwise the card looks like a photo card even when the setting is off. */
+html[data-plot-background="none"] :is(.admin-plot-card, .role-farm-admin article.manager-plot-card) {
+  background-image: none !important;
+  background-color: var(--g-bg-surface) !important;
+  border-color: var(--g-border-subtle) !important;
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card :is(.admin-plot-id, .admin-plot-updated, .admin-plot-farm, .admin-plot-health, .admin-plot-metrics) {
+  color: var(--g-text-secondary) !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card :is(.admin-plot-crop, .admin-plot-health strong, .admin-plot-metrics strong) {
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card .admin-plot-metrics {
+  border-top-color: var(--g-border-subtle) !important;
+}
+
+html[data-plot-background="none"] .admin-plot-card .admin-plot-health b {
+  background: var(--g-bg-subtle) !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card :is(.manager-plot-title h2, .manager-plot-title span, .manager-health-score, .manager-health-score strong, .manager-plot-meta) {
+  color: var(--g-text-primary) !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card :is(.manager-plot-meta, .manager-metric-target) {
+  text-shadow: none !important;
+}
+
+html[data-plot-background="none"] .role-farm-admin article.manager-plot-card .manager-more-button {
+  border-color: var(--g-border) !important;
+  background: var(--g-bg-subtle) !important;
+  color: var(--g-text-secondary) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+html[data-plot-background="crop"] .admin-plot-card {
+  background-image: linear-gradient(180deg, rgba(9, 29, 22, .42) 0%, rgba(9, 29, 22, .66) 58%, rgba(9, 29, 22, .9) 100%), var(--plot-background, none);
+  border-color: rgba(255, 255, 255, .2);
+  color: #f6fbf7;
+}
+
+html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
+  background-image: linear-gradient(180deg, rgba(9, 29, 22, .18) 0%, rgba(9, 29, 22, .36) 54%, rgba(9, 29, 22, .64) 100%), var(--plot-background, none);
 }

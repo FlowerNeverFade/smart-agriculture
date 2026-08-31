@@ -18,6 +18,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         dashboard: fileURLToPath(new URL('./index.html', import.meta.url)),
+        sysadmin: fileURLToPath(new URL('./sysadmin.html', import.meta.url)),
         farmer: fileURLToPath(new URL('./farmer.html', import.meta.url)),
         login: fileURLToPath(new URL('./login.html', import.meta.url)),
         horizon: fileURLToPath(new URL('./login-concepts.html', import.meta.url))

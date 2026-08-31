@@ -1,5 +1,5 @@
-import { api } from '../api.js';
-import { sourceLabel } from '../live-data.js?v=20260827-boot-fix-1';
+import { api } from '../api.js?v=20260831-agent-history-v1';
+import { sourceLabel } from '../live-data.js?v=20260831-agent-history-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 

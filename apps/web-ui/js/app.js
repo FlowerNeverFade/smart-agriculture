@@ -1,18 +1,19 @@
-import { api, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-crop-menu-v3';
-import { MOCK_DATA } from './mock-data.js?v=20260827-device-control-v1';
-import { presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-farm-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-farm-main-merge-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-farm-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-workspace-appearance-v5';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260827-alert-workflow-v3';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-ai-assign-v1';
-import { AdminDecisionView } from './modules/admin-decision.js';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260830-ai-vision-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-crop-menu-v3';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-rules-ai-v4';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js';
-import { AdminMemberManagementView } from './modules/admin-member-management.js';
-import { adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PLOT_BACKGROUND_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-farm-main-merge-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-farm-main-merge-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-farm-main-merge-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-farm-main-merge-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-farm-main-merge-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-farm-main-merge-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-farm-main-merge-v1';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-farm-main-merge-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-farm-main-merge-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-farm-main-merge-v1';
+import { cropBackgroundFor } from './plot-background.js?v=20260831-farm-main-merge-v1';
+import { adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-farm-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -43,7 +44,16 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260827-boot-fix-1';
+} from './live-data.js?v=20260831-agent-history-v1';
+
+// index.html serves the farm manager and farmer workspaces. Keep the system
+// administrator on the dedicated entry so its platform-level navigation and
+// account controls are isolated from farm-scoped views.
+const guardSession = api.readSession();
+const guardUser = presentRoleUser(guardSession?.user) || presentRoleUser(MOCK_DATA.currentUser);
+if (guardUser && guardUser.role === 'SYSTEM_ADMIN') {
+  window.location.replace('sysadmin.html');
+}
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, inject } = Vue;
 
@@ -78,6 +88,7 @@ const ICON_CLASS = Object.freeze({
   logout: 'ph-sign-out',
   error: 'ph-x-circle',
   check_circle: 'ph-check-circle',
+  save: 'ph-floppy-disk',
   add_task: 'ph-note-pencil',
   calendar_today: 'ph-calendar-check',
   schedule: 'ph-clock',
@@ -149,22 +160,22 @@ const AppIcon = {
 };
 
 const NAV_CATALOG = Object.freeze([
-  { id: 'dashboard', label: '农智总览', enLabel: 'Overview', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' }, enLabels: { FARMER: 'My farm', FARM_ADMIN: 'Farm overview', SYSTEM_ADMIN: 'Operations overview' } },
-  { id: 'decision-console', label: '智能决策', enLabel: 'Decisions', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' }, enLabels: { FARMER: 'Smart advice', FARM_ADMIN: 'Alert decisions', SYSTEM_ADMIN: 'Decision audit' } },
-  { id: 'rules-strategies', label: '规则与策略', enLabel: 'Rules & strategies', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' }, enLabels: { FARM_ADMIN: 'Rules & strategies' } },
-  { id: 'ai-assistant', label: 'AI助手', enLabel: 'AI assistant', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' }, enLabels: { FARM_ADMIN: 'AI assistant' } },
-  { id: 'work-orders', label: '农务工单', enLabel: 'Work orders', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' }, enLabels: { FARMER: 'Field records', FARM_ADMIN: 'Work orders', SYSTEM_ADMIN: 'Work-order audit' } },
-  { id: 'resource-coordination', label: '设备与设施', enLabel: 'Equipment', icon: 'sensors', enLabels: { FARM_ADMIN: 'Equipment' } },
-  { id: 'farm-members', label: '农场成员', enLabel: 'Farm members', icon: 'group', enLabels: { FARM_ADMIN: 'Farm members' } },
-  { id: 'crop-manual', label: '作物培养手册', enLabel: 'Crop guide', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' }, enLabels: { FARMER: 'Crop guide', FARM_ADMIN: 'Crop guide', SYSTEM_ADMIN: 'Crop guide' } },
-  { id: 'crop-packs', label: '作物模型', enLabel: 'Crop models', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' }, enLabels: { FARM_ADMIN: 'Crop models', SYSTEM_ADMIN: 'Rule configuration' } },
-  { id: 'admin-overview', label: '平台总览', enLabel: 'Platform', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' }, enLabels: { SYSTEM_ADMIN: 'Platform' } },
-  { id: 'admin-ops', label: '运行监控', enLabel: 'Monitoring', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' }, enLabels: { SYSTEM_ADMIN: 'Monitoring' } },
-  { id: 'admin-audit', label: '决策审计', enLabel: 'Decision audit', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' }, enLabels: { SYSTEM_ADMIN: 'Decision audit' } },
-  { id: 'admin-simulator', label: '仿真验证', enLabel: 'Simulation', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' }, enLabels: { SYSTEM_ADMIN: 'Simulation' } },
-  { id: 'admin-rules', label: '规则与版本', enLabel: 'Rules & versions', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' }, enLabels: { SYSTEM_ADMIN: 'Rules & versions' } },
-  { id: 'admin-settings', label: '系统管理', enLabel: 'System admin', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' }, enLabels: { SYSTEM_ADMIN: 'System admin' } },
-  { id: 'settings', label: '工作台设置', enLabel: 'Workspace settings', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' }, enLabels: { FARMER: 'Workspace settings', FARM_ADMIN: 'Workspace settings', SYSTEM_ADMIN: 'Workspace settings' } }
+  { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
+  { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
+  { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
+  { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
+  { id: 'farm-members', label: '农场成员', icon: 'group' },
+  { id: 'crop-manual', label: '作物培养手册', icon: 'menu_book', labels: { FARMER: '作物培养手册', FARM_ADMIN: '作物培养手册', SYSTEM_ADMIN: '作物培养手册' } },
+  { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
+  { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
+  { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
+  { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
+  { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
+  { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
+  { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
+  { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { FARMER: '工作台设置', FARM_ADMIN: '工作台设置', SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
@@ -210,6 +221,12 @@ const STAGE_OPTIONS = Object.freeze([
   { code: 'flowering', label: '开花期' },
   { code: 'fruiting', label: '结果期' },
   { code: 'harvest', label: '采收期' }
+]);
+const PLOT_FACILITY_OPTIONS = Object.freeze([
+  { code: 'OPEN_FIELD', label: '露地（裸地）', description: '直接受降雨、风和温湿度变化影响' },
+  { code: 'GREENHOUSE', label: '大棚', description: '隔绝大部分降雨，温湿度变化更缓和' },
+  { code: 'SHADE_HOUSE', label: '遮阳棚', description: '部分遮雨遮光，环境响应介于大棚与露地之间' },
+  { code: 'ORCHARD', label: '果园', description: '冠层有缓冲，但仍会明显响应降雨' }
 ]);
 
 function normalizedStatus(value, fallback = 'UNKNOWN') {
@@ -472,6 +489,8 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
       running: simStatus === 'RUNNING',
       scenario,
       eventsEmitted: Number(simulator.eventsEmitted || simulator.eventCount || overview.eventCount || 0),
+      sampleIntervalSeconds: Number(simulator.sampleIntervalSeconds || 20),
+      timeScale: Number(simulator.timeScale || 144),
       startTime: simulator.startedAt || null,
       history: simulator.history || []
     },
@@ -498,11 +517,20 @@ function mapSystemMembers(members, farms) {
 // intentionally not user notifications.  The simulator emits a batch of
 // these events every second, so surfacing each one as a toast makes the admin
 // workbench unusable while adding no actionable information.
+// alert.updated is also silent: open alerts keep receiving occurrence bumps
+// from rules, and toasting “土壤持续偏干” on every bump is noise.
 const SILENT_SYSTEM_EVENT_TYPES = new Set([
   'telemetry.received',
   'device.heartbeat',
-  'scenario.telemetry'
+  'scenario.telemetry',
+  'alert.updated'
 ]);
+
+// Only announce a new alert toast once per plot+source within the cooldown.
+// Duplicate ACTIVE alerts (or reconnect storms) must not keep interrupting
+// the farm admin with the same drought warning.
+const ALERT_TOAST_COOLDOWN_MS = 5 * 60 * 1000;
+const recentAlertToastKeys = new Map();
 
 function systemEventType(event) {
   return String(event?.data?.eventType || event?.type || 'system').trim().toLowerCase();
@@ -513,6 +541,27 @@ function isSilentSystemEventType(type) {
   return SILENT_SYSTEM_EVENT_TYPES.has(normalized)
     || normalized.includes('telemetry')
     || normalized.includes('heartbeat');
+}
+
+function shouldAnnounceSystemToast(systemEvent, payload = {}) {
+  if (systemEvent?.silent) return false;
+  const type = String(systemEvent?.type || '').toLowerCase();
+  if (!type.startsWith('alert.')) return true;
+  // Updates are already silent; created/escalated still need plot-level cooldown.
+  const key = [
+    String(payload.plotId || payload.plot_id || '').trim(),
+    String(payload.source || '').trim().toUpperCase(),
+    String(payload.title || systemEvent.title || '').trim()
+  ].join('|');
+  const now = Date.now();
+  const last = recentAlertToastKeys.get(key) || 0;
+  if (now - last < ALERT_TOAST_COOLDOWN_MS) return false;
+  recentAlertToastKeys.set(key, now);
+  if (recentAlertToastKeys.size > 128) {
+    const oldest = recentAlertToastKeys.keys().next().value;
+    if (oldest) recentAlertToastKeys.delete(oldest);
+  }
+  return true;
 }
 
 function presentSystemEvent(event) {
@@ -537,7 +586,7 @@ function presentSystemEvent(event) {
 // 1. Define Components
 const DashboardView = {
   template: '#tmpl-dashboard',
-  props: ['state', 'routeParams'],
+  props: ['state', 'userSettings', 'routeParams'],
   emits: ['navigate', 'open-plot-detail', 'plot-change', 'data-invalidated', 'context-changed'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -570,6 +619,7 @@ const DashboardView = {
       cropCode: 'tomato',
       cropVariety: '',
       stageCode: 'vegetative',
+      facilityType: 'OPEN_FIELD',
       growthCycleDays: 120,
       areaM2: 100,
       deviceIds: []
@@ -582,7 +632,7 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待审批', value: summary.approval, hint: '查看等待管理员审批的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
       ];
     });
 
@@ -629,6 +679,7 @@ const DashboardView = {
         cropCode: plot.cropCode || 'tomato',
         cropVariety: plot.cropVariety || '',
         stageCode: plot.stageCode || 'vegetative',
+        facilityType: plot.facilityType || 'OPEN_FIELD',
         growthCycleDays: Number(plot.growthCycleDays || 120),
         areaM2: Number(plot.areaM2 || 100),
         deviceIds: devices.value.filter(device => device.plotId === plot.plotId).map(device => device.deviceId)
@@ -668,6 +719,7 @@ const DashboardView = {
         cropVariety: draft.cropVariety.trim(),
         stageCode: stage.code,
         stageLabel: stage.label,
+        facilityType: draft.facilityType || 'OPEN_FIELD',
         growthCycleDays: Math.max(1, Math.round(Number(draft.growthCycleDays) || 1)),
         areaM2: Math.max(1, Number(draft.areaM2) || 1),
         lastSeen: plotEditor.value.mode === 'edit' ? '刚刚更新' : '等待设备接入',
@@ -752,16 +804,19 @@ const DashboardView = {
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
-      if (action.action === 'execute-irrigation') return roleCan(props.state.currentUser, 'irrigation:approve');
+      if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
+      if (action.action === 'open-subview' && action.view === 'plot-detail') return Boolean(action.plotId);
       if (action.action === 'open-subview') return props.state.allowedViews.includes(action.view);
       return true;
     });
     const handleAction = (action) => {
-      if (action.action === 'open-subview') {
+      if (action.action === 'open-subview' && action.view === 'plot-detail') {
+        emit('open-plot-detail', { plotId: action.plotId, trigger: null });
+      } else if (action.action === 'open-subview') {
         // [INTERCONNECTIVITY] Navigate with context payload
         emit('navigate', action.view, { highlight: 'diagnosis' });
-      } else if (action.action === 'execute-irrigation' && !roleCan(props.state.currentUser, 'irrigation:approve')) {
-        toast('当前身份只能提交建议，灌溉执行需由农场管理员审批', 'error');
+      } else if (action.action === 'execute-irrigation' && !canExecuteIrrigationRole(props.state.currentUser)) {
+        toast('当前身份没有灌溉执行权限', 'error');
       } else {
         toast('执行成功: ' + action.label);
       }
@@ -795,6 +850,7 @@ const DashboardView = {
       deleteConfirm,
       cropOptions: CROP_OPTIONS,
       stageOptions: STAGE_OPTIONS,
+      facilityOptions: PLOT_FACILITY_OPTIONS,
       togglePlotMenu,
       openCreatePlot,
       openEditPlot,
@@ -834,8 +890,12 @@ const PlotDetailModal = {
     const simulationChartEl = ref(null);
     const simulationChart = ref(null);
     const simulationPreviewDirty = ref(false);
+    const simulationEvaluating = ref(false);
     let metricRequestSerial = 0;
     let previewRequestSerial = 0;
+    // One debounced queue is shared by slider changes and scenario changes;
+    // the request serial prevents an older response from replacing a newer
+    // preview.
     let previewTimer = null;
     let hydratingSimulation = false;
     const simulationScenarioOptions = computed(() => {
@@ -849,11 +909,11 @@ const PlotDetailModal = {
     const selectedSimulationScenario = computed(() => simulationScenarioOptions.value.find((item) => item.code === simulationForm.value.scenario) || PLOT_SIMULATION_SCENARIOS[0]);
     const parameterMeta = Object.freeze({
       volatility: { label: '波动强度', unit: '倍', min: .2, max: 3, step: .05, help: '控制随机扰动幅度' },
-      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 180, step: 1, help: '每个采样点代表的加速时间' },
+      timeScale: { label: '模拟时间倍率', unit: '倍', min: 1, max: 288, step: 1, help: '默认 144 倍：墙上时钟 10 分钟 ≈ 1 个模拟日' },
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '正数增湿，负数失水' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
       driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
@@ -888,9 +948,9 @@ const PlotDetailModal = {
     const simulationPreviewMessage = computed(() => {
       const scenario = selectedSimulationScenario.value;
       if (simulationForm.value.scenario === 'DEVICE_OFFLINE') return `${scenario.label}：设备断连时保留最后一条实测值，不生成可执行预测。`;
-      if (simulationPreviewLoading.value) return '正在调用后端模型重新推演，上一条曲线暂保留并已降低强调度…';
+      if (simulationPreviewLoading.value || simulationEvaluating.value) return '正在调用后端模型重新推演，上一条曲线暂保留并已降低强调度…';
       if (simulationPreviewError.value) return `实时推演失败：${simulationPreviewError.value}`;
-      if (simulationPreviewDirty.value) return '参数尚未保存，曲线为即时预览；点击“保存到此地块”后服务器模拟器会热加载。';
+      if (simulationPreviewDirty.value) return '参数尚未保存，曲线来自只读后端试算；点击“保存到此地块”后服务器模拟器会热加载。';
       if (simulationForecast.value && String(simulationForecast.value.status || '').toUpperCase() !== 'AVAILABLE') {
         const reason = simulationForecast.value.reason || '当前样本或设备状态未满足预测条件';
         return `${scenario.label}：预测暂不可用（${reason}），历史实测仍可查看。`;
@@ -915,7 +975,10 @@ const PlotDetailModal = {
       if (!simulationChart.value) simulationChart.value = echarts.init(simulationChartEl.value);
       const definition = selectedSimulationMetric.value;
       const historicalPoints = normalizedTelemetryPoints(simulationHistory.value);
-      const historical = historicalPoints.map((item) => [telemetryTimestamp(item), item.value]);
+      const timeScale = Math.max(1, Number(simulation.value?.parameters?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
+      const now = Date.now();
+      const toSimulated = (wall) => now - (now - wall) * timeScale;
+      const historicalAll = historicalPoints.map((item) => [toSimulated(telemetryTimestamp(item)), item.value]);
       const fallback = plotMetricFallback(definition.code);
       const anchorPoint = historicalPoints.at(-1);
       const anchorValue = anchorPoint?.value ?? fallback;
@@ -928,12 +991,30 @@ const PlotDetailModal = {
       // fabricates what-if points because those would look like measured data.
       const forecastSource = forecastAvailable ? simulationForecast.value.curve : [];
       const forecastPoints = alignForecastToHistory(forecastSource, anchorValue, definition);
-      const forecastStart = Number.isFinite(anchorTimestamp) ? anchorTimestamp : Date.now();
+      const forecastStart = Number.isFinite(anchorTimestamp) ? toSimulated(anchorTimestamp) : now;
       const predicted = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.expected]);
       const lower = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.lower]);
       const upper = forecastPoints.map((item) => [forecastStart + item.minute * 60000, item.upper]);
+      // Keep the default viewport balanced when a sparse device history spans
+      // weeks or months.  The complete history remains in the series and can
+      // be inspected with the time slider; the initial window gives the
+      // forecast enough horizontal space to read its slope and band.
+      const configuredForecastHours = Number(simulationForecast.value?.simulation?.parameters?.forecastHours
+        || simulation.value?.parameters?.forecastHours || 4);
+      const forecastMinutes = Math.max(60, forecastPoints.length
+        ? Math.max(...forecastPoints.map((point) => point.minute), configuredForecastHours * 60)
+        : configuredForecastHours * 60);
+      const forecastSpanMs = forecastMinutes * 60000;
+      const historyWindowMs = Math.max(3 * 3600000, forecastSpanMs * 1.35);
+      const focusStart = forecastStart - historyWindowMs;
+      const historyInFocus = historicalAll.filter((item) => item[0] >= focusStart && item[0] <= forecastStart + 1000);
+      const historical = historyInFocus.length >= 2
+        ? historyInFocus
+        : historicalAll.slice(-Math.min(24, historicalAll.length));
+      const xMin = Math.min(focusStart, historical[0]?.[0] ?? forecastStart);
+      const xMax = Math.max(forecastStart + forecastSpanMs, historical.at(-1)?.[0] ?? forecastStart);
       const axis = chartAxisRange(definition, [
-        ...historical.map((item) => item[1]),
+        ...historicalAll.map((item) => item[1]),
         ...forecastPoints.flatMap((item) => [item.expected, item.lower, item.upper])
       ]);
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -943,30 +1024,36 @@ const PlotDetailModal = {
         tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
           const list = Array.isArray(items) ? items : [items];
           const axisValue = finiteNumber(list[0]?.axisValue);
-          const time = Number.isFinite(axisValue) ? new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—';
+          const time = Number.isFinite(axisValue) ? `模拟 ${new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}` : '—';
           return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${formatCurveValue(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
         legend: { data: ['历史实测', '策略预测', '预测下界', '预测上界'], textStyle: { color: textColor, fontSize: 11 } },
-        grid: { left: 42, right: 18, top: 32, bottom: 30 },
-        xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
+        grid: { left: 42, right: 18, top: 32, bottom: 48 },
+        dataZoom: [
+          { type: 'inside', xAxisIndex: 0, filterMode: 'none', startValue: xMin, endValue: xMax },
+          { type: 'slider', xAxisIndex: 0, filterMode: 'none', height: 14, bottom: 8, startValue: xMin, endValue: xMax,
+            borderColor: dark ? '#4b5563' : '#d1d5db', fillerColor: dark ? 'rgba(96,165,250,.18)' : 'rgba(37,99,235,.12)', handleSize: 10,
+            textStyle: { color: textColor, fontSize: 9 } }
+        ],
+        xAxis: { type: 'time', min: xMin, max: xMax, axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
         yAxis: {
           type: 'value', min: axis.min, max: axis.max, name: definition.unit,
           nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => formatCurveValue(value, definition) }
         },
         series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: simulationPreviewLoading.value ? .35 : 1 } },
-          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationPreviewLoading.value ? .25 : .85 } },
-          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: simulationPreviewLoading.value ? .25 : .85 } }
+          { name: '历史实测', type: 'line', data: historicalAll, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .35 : 1 } },
+          { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } },
+          { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: (simulationPreviewLoading.value || simulationEvaluating.value) ? .25 : .85 } }
         ]
       }, true);
     };
 
-    const queueSimulationPreview = () => {
+    const queueSimulationPreview = (delay = 300) => {
       if (hydratingSimulation || simulationBusy.value || !props.plot?.plotId) return;
       simulationPreviewDirty.value = true;
       simulationPreviewError.value = '';
-      const version = ++previewRequestSerial;
+      const requestId = ++previewRequestSerial;
       if (previewTimer) window.clearTimeout(previewTimer);
       previewTimer = window.setTimeout(async () => {
         previewTimer = null;
@@ -978,21 +1065,23 @@ const PlotDetailModal = {
             metric: simulationMetric.value,
             scenario: simulationForm.value.scenario,
             parameters: { ...(simulationForm.value.parameters || {}) },
-            requestVersion: String(version)
+            requestVersion: String(requestId)
           });
-          if (version !== previewRequestSerial) return;
-          simulationForecast.value = result || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+          if (requestId !== previewRequestSerial) return;
+          simulationForecast.value = result
+            ? { ...result, persisted: false }
+            : { status: 'UNAVAILABLE', reason: '预测响应为空', persisted: false };
           await nextTick();
           await renderSimulationChart();
         } catch (error) {
-          if (version === previewRequestSerial) simulationPreviewError.value = error?.message || '预测服务暂不可用';
+          if (requestId === previewRequestSerial) simulationPreviewError.value = error?.message || '预测服务暂不可用';
         } finally {
-          if (version === previewRequestSerial) {
+          if (requestId === previewRequestSerial) {
             simulationPreviewLoading.value = false;
             await renderSimulationChart();
           }
         }
-      }, 300);
+      }, delay);
     };
 
     const loadMetricSeries = async (metric = simulationMetric.value, { resetPreview = false, preserveOnError = false } = {}) => {
@@ -1016,6 +1105,36 @@ const PlotDetailModal = {
       } finally {
         if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
       }
+    };
+
+    const loadMetricHistory = async (metric = simulationMetric.value, { preserveOnError = true } = {}) => {
+      const normalized = simulationMetricDefinition(metric).code;
+      const requestId = ++metricRequestSerial;
+      simulationMetricLoading.value = true;
+      try {
+        const history = await api.getTelemetry(props.plot?.plotId, normalized, 120);
+        if (requestId !== metricRequestSerial) return;
+        simulationHistory.value = history || [];
+        await nextTick();
+        renderSimulationChart();
+      } catch (error) {
+        if (requestId === metricRequestSerial && !preserveOnError) simulationHistory.value = [];
+      } finally {
+        if (requestId === metricRequestSerial) simulationMetricLoading.value = false;
+      }
+    };
+
+    // Kept as a small compatibility wrapper for callers that used the older
+    // scheduler name.  All previews now use the single queue above so loading,
+    // error handling and stale-response protection stay consistent.
+    const scheduleSimulationPreview = () => queueSimulationPreview();
+
+    const cancelSimulationPreview = () => {
+      if (previewTimer) window.clearTimeout(previewTimer);
+      previewTimer = null;
+      previewRequestSerial += 1;
+      simulationEvaluating.value = false;
+      simulationPreviewLoading.value = false;
     };
 
     const loadSimulation = async () => {
@@ -1060,7 +1179,8 @@ const PlotDetailModal = {
       }
       liveSeriesInFlight = true;
       try {
-        await loadMetricSeries(simulationMetric.value, { preserveOnError: true });
+        if (simulationPreviewDirty.value) await loadMetricHistory(simulationMetric.value, { preserveOnError: true });
+        else await loadMetricSeries(simulationMetric.value, { preserveOnError: true });
         // The simulator/device state is a separate resource from the curve;
         // refresh it periodically without overwriting unsaved what-if inputs.
         if (!simulationPreviewDirty.value && Date.now() - liveConfigRefreshedAt >= 10000) {
@@ -1068,8 +1188,11 @@ const PlotDetailModal = {
           try {
             const latest = await api.getPlotSimulation(props.plot?.plotId);
             if (latest && !simulationBusy.value) {
+              hydratingSimulation = true;
               simulation.value = latest;
               simulationForm.value = cloneForm(latest);
+              await nextTick();
+              hydratingSimulation = false;
             }
           } catch (error) { /* keep the last known simulator state */ }
         }
@@ -1109,7 +1232,9 @@ const PlotDetailModal = {
       const normalized = simulationMetricDefinition(requested).code;
       if (normalized === simulationMetric.value && !simulationMetricLoading.value) return;
       simulationMetric.value = normalized;
-      loadMetricSeries(normalized);
+      loadMetricHistory(normalized, { preserveOnError: false });
+      simulationPreviewDirty.value = true;
+      scheduleSimulationPreview(normalized);
     };
 
     const selectSimulationScenario = (code) => {
@@ -1120,11 +1245,13 @@ const PlotDetailModal = {
       queueSimulationPreview();
     };
     const saveSimulation = async () => {
+      cancelSimulationPreview();
       simulationBusy.value = true;
       try {
         const saved = await api.updatePlotSimulation(props.plot.plotId, simulationForm.value);
         hydratingSimulation = true;
         simulation.value = saved; simulationForm.value = cloneForm(saved); simulationPreviewDirty.value = false;
+        await nextTick();
         hydratingSimulation = false;
         await loadSimulation();
         toast?.('该地块模拟策略已保存，服务器将从下一采样点应用', 'success');
@@ -1133,6 +1260,7 @@ const PlotDetailModal = {
       finally { simulationBusy.value = false; }
     };
     const resetSimulation = async (target) => {
+      cancelSimulationPreview();
       simulationBusy.value = true;
       const metric = simulationMetric.value;
       try {
@@ -1141,6 +1269,7 @@ const PlotDetailModal = {
         simulation.value = resetResult;
         simulationForm.value = cloneForm(resetResult);
         simulationPreviewDirty.value = false;
+        await nextTick();
         hydratingSimulation = false;
         const refreshes = [];
         if (target === 'HISTORY' || target === 'ALL') {
@@ -1169,6 +1298,7 @@ const PlotDetailModal = {
     };
     watch(simulationForm, () => {
       if (hydratingSimulation || simulationBusy.value) return;
+      simulationPreviewDirty.value = true;
       queueSimulationPreview();
     }, { deep: true });
     onMounted(async () => {
@@ -1177,9 +1307,7 @@ const PlotDetailModal = {
     });
     onBeforeUnmount(() => {
       stopLiveSeriesRefresh();
-      if (previewTimer) window.clearTimeout(previewTimer);
-      previewTimer = null;
-      previewRequestSerial += 1;
+      cancelSimulationPreview();
       simulationChart.value?.dispose();
       simulationChart.value = null;
     });
@@ -1250,6 +1378,7 @@ const PlotDetailModal = {
       simulationMetricOptions,
       simulationMetricLabel,
       simulationMetricLoading,
+      simulationEvaluating,
       simulationPreviewLoading,
       simulationPreviewError,
       simulationChartEl,
@@ -1358,16 +1487,16 @@ const DecisionConsoleView = {
     // Modals
     const showPassportModal = ref(false);
     const showDualTrackModal = ref(false);
-    const canApproveIrrigation = computed(() => roleCan(props.state.currentUser, 'irrigation:approve'));
+    const canExecuteIrrigation = computed(() => canExecuteIrrigationRole(props.state.currentUser));
+    const executionBusy = ref(false);
     let dualChart = null;
 
     const openExecution = () => {
-      if (canApproveIrrigation.value) {
+      if (canExecuteIrrigation.value) {
         showDualTrackModal.value = true;
         return;
       }
-      toast('灌溉建议已提交给农场管理员审批');
-      emit('navigate', 'work-orders', { highlight: 'approval-request' });
+      toast('当前身份没有灌溉执行权限', 'error');
     };
 
     watch(showDualTrackModal, async (newVal) => {
@@ -1408,45 +1537,48 @@ const DecisionConsoleView = {
     });
 
     const confirmExecution = async () => {
-      if (!canApproveIrrigation.value) {
+      if (!canExecuteIrrigation.value) {
         showDualTrackModal.value = false;
         toast('当前身份没有灌溉执行权限', 'error');
         return;
       }
       showDualTrackModal.value = false;
       const plotId = props.routeParams?.plotId || props.state.plots[0]?.plotId;
-      if (props.state.sessionMode === 'live') {
-        try {
-          const saved = await api.createWorkOrder({
-            farmId: props.state.adminContext?.farmId || props.state.farms[0]?.farmId,
-            plotId,
-            title: '执行灌溉处方',
-            reason: '已通过当前决策护照的人工确认，等待执行工单流转',
-            actionType: 'IRRIGATION_REVIEW',
-            sourceType: 'AGENT',
-            priority: 'HIGH',
-            provenance: 'DERIVED'
-          });
-          props.state.workOrders.unshift(saved);
-          emit('data-invalidated', { domains: ['workOrders', 'overview'], farmId: saved.farmId, plotId: saved.plotId, record: saved });
-          toast('灌溉执行申请已写入后端工单，农场管理员可继续审批');
-        } catch (error) {
-          toast(error.message || '灌溉执行申请失败', 'error');
-        }
-      } else {
-        props.state.workOrders.unshift({
-          workOrderId: 'wo-' + Date.now(), plotId: plotId || 'plot-a01', title: '执行 153 升灌溉处方',
-          reason: '演示决策下发', status: 'OPEN', priority: 'HIGH', sourceMode: 'SIMULATED'
+      if (!plotId || executionBusy.value) return;
+      executionBusy.value = true;
+      try {
+        const traceId = props.routeParams?.traceId || `legacy-irrigation-${plotId}`;
+        const diagnosisResult = props.state.sessionMode === 'live'
+          ? await api.evaluateDiagnosis(plotId, { traceId })
+          : null;
+        const plan = await api.estimateIrrigation({
+          plotId,
+          traceId,
+          ...(diagnosisResult?.diagnosisId ? { diagnosisId: diagnosisResult.diagnosisId } : {})
         });
-        toast('演示工单已创建');
+        if (plan?.executable !== true || plan?.readinessStatus !== 'READY') {
+          throw new Error('当前处方未通过安全门，暂不能执行灌溉');
+        }
+        await api.executeIrrigation(plan.planId, plotId, {
+          confirmed: true,
+          approved: true,
+          idempotencyKey: `legacy-irrigation-${plan.planId}`,
+          source: 'legacy-decision-console',
+          ...(props.state.sessionMode === 'demo' ? { outcome: 'SUCCEEDED' } : {})
+        });
+        emit('data-invalidated', { domains: ['commands', 'overview'], plotId, record: plan });
+        toast(props.state.sessionMode === 'demo' ? '演示灌溉已执行，不会控制真实水泵' : '灌溉命令已提交，等待设备回执');
+      } catch (error) {
+        toast(error.message || '灌溉执行失败', 'error');
+      } finally {
+        executionBusy.value = false;
       }
-      emit('navigate', 'work-orders', { highlight: 'new-order' });
     };
 
     return { 
       diagnosis, prescription, highlightDiagnosis,
       chatInput, chatHistory, isTyping, chatBox, sendMessage, 
-      showPassportModal, showDualTrackModal, canApproveIrrigation, openExecution, confirmExecution,
+      showPassportModal, showDualTrackModal, canExecuteIrrigation, executionBusy, openExecution, confirmExecution,
       displayText
     };
   }
@@ -1476,220 +1608,6 @@ const RoleAwareDecisionConsoleView = {
                                @data-invalidated="payload => $emit('data-invalidated', payload)"></legacy-decision-console>
     </div>
   `
-};
-
-const RiskForecastView = {
-  template: '#tmpl-risk-forecast',
-  props: ['state', 'routeParams'],
-  emits: ['navigate'],
-  setup(props, { emit }) {
-    let chart = null;
-    const currentScenario = ref('NORMAL');
-    const selectedPlotId = ref(props.state.plots[0]?.plotId || '');
-    const highlightChart = ref(false);
-    const forecast = ref(null);
-    const simulation = ref(null);
-    const loading = ref(false);
-    const error = ref('');
-    const DEFAULT_SCENARIOS = PLOT_SIMULATION_SCENARIOS.map((item) => ({ ...item, desc: item.description }));
-    const scenarioOptions = computed(() => {
-      // Older demo payloads used HEAT_WAVE/STORM/OFFLINE.  Render the same
-      // five plot-level scenarios in every session so a click never silently
-      // falls back to NORMAL just because a legacy catalog is present.
-      const configured = Array.isArray(props.state.riskForecastConfig?.scenarioCatalog)
-        ? props.state.riskForecastConfig.scenarioCatalog : [];
-      const aliases = { STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', HEAT_WAVE: 'DROUGHT', OFFLINE: 'DEVICE_OFFLINE' };
-      const byCode = new Map(configured.map((item) => {
-        const raw = String(item?.code || '').toUpperCase().replaceAll('-', '_');
-        return [aliases[raw] || raw, item];
-      }));
-      return DEFAULT_SCENARIOS.map((base) => {
-        const legacy = byCode.get(base.code) || {};
-        return { ...base, ...legacy, code: base.code, description: legacy.description || legacy.desc || base.description, desc: legacy.description || legacy.desc || base.description };
-      });
-    });
-    const canConfigureSimulation = computed(() => roleCan(props.state.currentUser, 'strategy:manage') || roleCan(props.state.currentUser, 'simulator:control'));
-
-    watch(() => props.routeParams, (newParams) => {
-      if (newParams && newParams.targetPlot) {
-        selectedPlotId.value = newParams.targetPlot;
-        highlightChart.value = true;
-        setTimeout(() => { highlightChart.value = false; }, 4000);
-      }
-    }, { immediate: true });
-
-    const currentPlotBaseMoisture = computed(() => {
-      const plot = props.state.plots.find(p => p.plotId === selectedPlotId.value);
-      if (plot && plot.metrics && plot.metrics.SOIL_MOISTURE) {
-        return parseFloat(plot.metrics.SOIL_MOISTURE.value);
-      }
-      return '—';
-    });
-
-    const loadForecast = async () => {
-      if (!selectedPlotId.value) { forecast.value = null; return; }
-      loading.value = true;
-      error.value = '';
-      try {
-        const [configResult, forecastResult] = await Promise.allSettled([
-          api.getPlotSimulation(selectedPlotId.value),
-          api.getRiskForecast(selectedPlotId.value, 'SOIL_MOISTURE')
-        ]);
-        if (configResult.status === 'fulfilled') {
-          simulation.value = configResult.value;
-          if (!currentScenario.value || currentScenario.value === 'NORMAL') currentScenario.value = String(configResult.value.scenario || 'NORMAL').toUpperCase();
-        }
-        if (forecastResult.status === 'fulfilled') forecast.value = forecastResult.value;
-        else throw forecastResult.reason;
-      } catch (caught) {
-        forecast.value = null;
-        error.value = caught?.message || '风险预测读取失败';
-      } finally {
-        loading.value = false;
-        renderChart();
-      }
-    };
-
-    const loadScenario = async (scenario) => {
-      currentScenario.value = scenario.code === 'STORM' ? 'HEAVY_RAIN' : scenario.code;
-      if (currentScenario.value === 'NORMAL') {
-        await loadForecast();
-        return;
-      }
-      loading.value = true;
-      error.value = '';
-      try {
-        const run = await api.runScenario({ scenario: currentScenario.value, plotId: selectedPlotId.value });
-        forecast.value = {
-          ...run,
-          status: run?.status || run?.runStatus || 'RECORDED',
-          curve: Array.isArray(run?.curve) ? run.curve : [],
-          horizons: Array.isArray(run?.horizons) ? run.horizons : [],
-          dataOrigin: 'BACKEND'
-        };
-        if (!forecast.value.curve.length && !forecast.value.horizons.length) {
-          error.value = '该情景暂未返回可绘制的曲线数据';
-        }
-      } catch (caught) {
-        forecast.value = null;
-        error.value = caught?.message || '情景记录读取失败';
-      } finally {
-        loading.value = false;
-        renderChart();
-      }
-    };
-
-    const renderChart = async () => {
-      await nextTick();
-      const dom = document.getElementById('riskChart');
-      if (!dom) return;
-      if (!chart) {
-        chart = echarts.init(dom);
-        window.addEventListener('resize', () => chart.resize());
-      }
-      
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const textColor = isDark ? '#e8eaed' : '#202124';
-      
-      const scenario = scenarioOptions.value.find(s => s.code === currentScenario.value) || {};
-      const points = (forecast.value?.curve?.length ? forecast.value.curve : forecast.value?.horizons || [])
-        .map((point) => ({
-          minute: Number(point.minute ?? point.minutes ?? 0),
-          expected: Number(point.expected ?? point.value),
-          lower: Number(point.lower ?? point.expected ?? point.value),
-          upper: Number(point.upper ?? point.expected ?? point.value)
-        }))
-        .filter((point) => Number.isFinite(point.minute) && Number.isFinite(point.expected));
-      const times = points.map((point) => point.minute === 0 ? '现在' : `${point.minute} 分钟`);
-      const values = points.map((point) => point.expected);
-      const baseMoisture = Number(currentPlotBaseMoisture.value);
-      const finiteValues = values.filter(Number.isFinite);
-      const minValue = finiteValues.length ? Math.min(...finiteValues) : 0;
-      const maxValue = finiteValues.length ? Math.max(...finiteValues) : 40;
-      const boundary = Number(forecast.value?.stressBoundary ?? forecast.value?.riskBoundary?.value);
-      
-      chart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', confine: true, formatter: (items) => {
-          const list = Array.isArray(items) ? items : [items];
-          const axisValue = list[0]?.axisValue;
-          const minute = Number(axisValue);
-          const header = Number.isFinite(minute) ? (minute === 0 ? '现在' : `未来 ${minute} 分钟`) : String(axisValue || '当前');
-          return `<strong>${header}</strong><br>${list.filter((item) => item.value != null).map((item) => `${item.marker}${item.seriesName}：${Number(item.value).toFixed(2)}%`).join('<br>')}`;
-        }},
-        xAxis: { type: 'category', data: times, axisLabel: { color: textColor } },
-        yAxis: { 
-          type: 'value', 
-          name: '推演含水率 (%)', 
-          min: Math.max(0, Math.floor(Math.min(minValue, Number.isFinite(baseMoisture) ? baseMoisture : minValue) - 5)),
-          max: Math.ceil(Math.max(35, maxValue + 5, Number.isFinite(baseMoisture) ? baseMoisture + 5 : 0)),
-          axisLabel: { color: textColor },
-          nameTextStyle: { color: textColor }
-        },
-        series: [{
-          data: values,
-          type: 'line',
-          smooth: true,
-          itemStyle: { color: scenario.color || '#1a73e8' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: scenario.color || '#1a73e8' },
-              { offset: 1, color: 'rgba(0,0,0,0.0)' }
-            ]),
-            opacity: 0.2
-          },
-          markLine: Number.isFinite(boundary) ? {
-            data: [{ yAxis: boundary, name: `胁迫阈值 ${boundary}%` }],
-            lineStyle: { color: '#d93025', type: 'dashed' },
-            label: { position: 'insideStartTop', color: textColor, formatter: '{b}' }
-          } : undefined
-        }]
-      });
-    };
-
-    const changeScenario = (scenario) => loadScenario(scenario);
-
-    const changePlot = () => {
-      currentScenario.value = 'NORMAL';
-      loadForecast();
-    };
-
-    const resetForecast = async (target = 'FORECAST') => {
-      loading.value = true;
-      try {
-        const resetResult = await api.resetPlotSimulation(selectedPlotId.value, target);
-        // Keep the reset visible instead of immediately writing a new
-        // forecast record back to the server.  The user can explicitly
-        // regenerate it after changing the strategy/parameters.
-        forecast.value = {
-          ...(resetResult || {}),
-          status: 'RESET',
-          reason: '预测曲线已重置，可重新生成',
-          curve: [],
-          horizons: []
-        };
-        error.value = '预测曲线已重置；选择场景或点击“重新生成预测”后再计算。';
-      } catch (caught) { error.value = caught?.message || '预测曲线重置失败'; }
-      finally { loading.value = false; renderChart(); }
-    };
-    const openPlotSettings = () => {
-      const query = new URLSearchParams({ view: 'plot-detail', plotId: selectedPlotId.value });
-      if (props.state.adminContext?.farmId) query.set('farmId', props.state.adminContext.farmId);
-      window.location.hash = query.toString();
-    };
-
-    onMounted(() => {
-        currentScenario.value = 'NORMAL';
-        loadForecast();
-    });
-    
-    const observer = new MutationObserver(() => renderChart());
-    const appearanceChanged = () => renderChart();
-    onMounted(() => { observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-workspace-preset', 'data-accent', 'data-surface-style'] }); document.documentElement.addEventListener('agriloop:appearance-changed', appearanceChanged); });
-    onBeforeUnmount(() => { observer.disconnect(); document.documentElement.removeEventListener('agriloop:appearance-changed', appearanceChanged); chart?.dispose(); chart = null; });
-    
-    return { currentScenario, selectedPlotId, currentPlotBaseMoisture, highlightChart, scenarioOptions, forecast, simulation, canConfigureSimulation, loading, error, changeScenario, changePlot, loadForecast, resetForecast, openPlotSettings, scenarioLabel, displayText };
-  }
 };
 
 const WorkOrdersView = {
@@ -1756,8 +1674,14 @@ const WorkOrdersView = {
         return;
       }
       try {
+        const lifecycleTarget = ({
+          SOWING: { targetStageCode: 'seedling', targetStageLabel: '苗期' },
+          TRANSPLANTING: { targetStageCode: 'vegetative', targetStageLabel: '营养生长期' },
+          HARVEST: { targetStageCode: 'fruiting', targetStageLabel: '采收完成' }
+        })[String(draft.actionType || '').toUpperCase()] || {};
         const payload = {
           ...draft,
+          ...lifecycleTarget,
           title: draft.title.trim(),
           reason: draft.reason.trim(),
           dueAt: new Date(draft.dueAt).toISOString(),
@@ -1961,11 +1885,12 @@ function manualEnvMetrics(pack, stage) {
     SOIL_MOISTURE: '土壤湿度',
     AIR_TEMPERATURE: '空气温度',
     AIR_HUMIDITY: '空气湿度',
-    WATER_LEVEL: '水位',
-    LIGHT: '光照',
-    CO2: '二氧化碳',
+    WATER_LEVEL: '水箱水位',
+    LIGHT: '光照强度',
+    CO2: 'CO2',
+    PH: '土壤酸碱度',
     SOIL_EC: '土壤电导率',
-    NPK_RATIO: '氮磷钾'
+    NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾'
   };
   const items = [
     { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
@@ -1981,8 +1906,25 @@ function manualEnvMetrics(pack, stage) {
       note: '阶段环境湿度目标'
     });
   }
+  const stageTargets = [
+    { code: 'LIGHT', low: target.lightLow, high: target.lightHigh, unit: 'lux', note: '阶段模型参考区间' },
+    { code: 'CO2', low: target.co2Low, high: target.co2High, unit: 'ppm', note: '阶段模型参考区间' },
+    { code: 'PH', low: target.phLow, high: target.phHigh, unit: 'pH', note: '阶段模型参考区间' },
+    { code: 'WATER_LEVEL', low: target.waterLevelLow, high: target.waterLevelHigh, unit: '%', note: '可监测指标' }
+  ];
+  stageTargets.forEach((item) => {
+    if (item.low == null && item.high == null) return;
+    const profile = (pack.metrics || []).find((metric) => metric.code === item.code) || {};
+    items.push({
+      code: item.code,
+      label: adminMetricLabel(item.code, profile.label || metricLabels[item.code]),
+      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      unit: profile.unit || item.unit,
+      availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
+      note: item.note
+    });
+  });
   const covered = new Set(items.map((item) => item.code));
-  covered.add('WATER_LEVEL');
   (pack.metrics || []).forEach((metric) => {
     if (covered.has(metric.code)) return;
     const fallbackRange = metric.range ? `${metric.range.min}~${metric.range.max}` : '—';
@@ -2006,6 +1948,9 @@ function buildStageGuide(pack, stage) {
   ];
   if (target.airHumidityLow != null || target.airHumidityHigh != null) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
+  }
+  if (target.lightLow != null || target.lightHigh != null) {
+    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => RISK_FOCUS_LABELS[code] || code).join('、')}。`);
@@ -2172,37 +2117,11 @@ const ValueLedgerView = {
   }
 };
 
-// Crop-specific photography used by the overview cards.  Keep this list
-// aligned with the crop selector: unknown/legacy values use a neutral farm
-// scene instead of borrowing a visually misleading crop image.
-const PLOT_CROP_BACKGROUNDS = Object.freeze({
-  tomato: new URL('../assets/crop-backgrounds/tomato.png', import.meta.url).href,
-  corn: new URL('../assets/crop-backgrounds/corn.png', import.meta.url).href,
-  cucumber: new URL('../assets/crop-backgrounds/cucumber.png', import.meta.url).href,
-  rice: new URL('../assets/crop-backgrounds/rice.png', import.meta.url).href,
-  sunflower: new URL('../assets/crop-backgrounds/sunflower.png', import.meta.url).href,
-  strawberry: new URL('../assets/crop-backgrounds/strawberry.png', import.meta.url).href
-});
-
-const cropBackgroundFor = (plot = {}) => {
-  const cropText = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''}`.trim().toLowerCase();
-  const aliases = [
-    ['tomato', ['tomato', '番茄']],
-    ['corn', ['corn', '玉米']],
-    ['cucumber', ['cucumber', '黄瓜']],
-    ['rice', ['rice', '水稻', '稻']],
-    ['sunflower', ['sunflower', '向日葵', '油葵']],
-    ['strawberry', ['strawberry', '草莓']]
-  ];
-  const match = aliases.find(([, names]) => names.some(name => cropText.includes(name)));
-  return PLOT_CROP_BACKGROUNDS[match?.[0]] || new URL('../assets/backgrounds/farm-day.png', import.meta.url).href;
-};
-
 // ---- SYSTEM ADMIN COMPONENTS ----
 
 const AdminOverviewView = {
   template: '#tmpl-admin-overview',
-  props: ['state', 'routeParams'],
+  props: ['state', 'userSettings', 'routeParams'],
   emits: ['navigate'],
   setup(props, { emit }) {
     const toast = inject('toast');
@@ -2403,6 +2322,8 @@ const AdminSimulatorView = {
     const toast = inject('toast');
     const simRunning = ref(props.state.adminOverview?.simulator?.running || false);
     const simBusy = ref(false);
+    const sampleInterval = ref(Number(props.state.adminOverview?.simulator?.sampleIntervalSeconds || 20));
+    const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
 
@@ -2414,7 +2335,8 @@ const AdminSimulatorView = {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase()
+          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
     }, { immediate: true });
@@ -2439,13 +2361,19 @@ const AdminSimulatorView = {
 
     const syncSimulator = (status = {}) => {
       props.state.simulatorStatus = status;
+      const interval = Number(status.sampleIntervalSeconds || props.state.adminOverview.simulator?.sampleIntervalSeconds || 20);
+      const scale = Number(status.timeScale || props.state.adminOverview.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE);
       props.state.adminOverview.simulator = {
         ...(props.state.adminOverview.simulator || {}),
         running: String(status.status || '').toUpperCase() === 'RUNNING',
         scenario: status.scenario || status.scenarioId || '',
-        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0)
+        eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0),
+        sampleIntervalSeconds: interval,
+        timeScale: scale
       };
       simRunning.value = props.state.adminOverview.simulator.running;
+      if (Number.isFinite(interval) && interval > 0) sampleInterval.value = interval;
+      if (Number.isFinite(scale) && scale > 0) timeScale.value = scale;
     };
     const toggleSimulator = async () => {
       if (simBusy.value) return;
@@ -2453,9 +2381,63 @@ const AdminSimulatorView = {
       try {
         const status = simRunning.value ? await api.stopSimulator() : await api.startSimulator();
         syncSimulator(status);
-        toast(simRunning.value ? '模拟器已启动，状态来自模拟器控制服务' : '模拟器已停止，状态来自模拟器控制服务');
+        toast(simRunning.value ? '模拟器已启动' : '模拟器已停止');
       } catch (error) {
         toast(error.message || '模拟器控制失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const saveSimulatorSettings = async () => {
+      if (simBusy.value) return;
+      simBusy.value = true;
+      try {
+        const status = await api.updateSimulatorSettings({
+          sampleIntervalSeconds: sampleInterval.value,
+          timeScale: timeScale.value
+        });
+        syncSimulator(status);
+        toast('采样间隔与时间流速已保存，下一拍开始生效');
+      } catch (error) {
+        toast(error.message || '模拟器设置保存失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const applyPlotScenarios = async () => {
+      if (simBusy.value) return;
+      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      simBusy.value = true;
+      let updated = 0;
+      const failures = [];
+      try {
+        for (const plot of targets) {
+          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+          try {
+            await api.updatePlotSimulation(plot.plotId, { scenario });
+            updated += 1;
+          } catch (error) {
+            failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
+          }
+        }
+        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
+      } catch (error) {
+        toast(error.message || '场景配置保存失败', 'error');
+      } finally { simBusy.value = false; }
+    };
+    const togglePlotSimulation = async (plot) => {
+      if (!plot || !plot.plotId || simBusy.value) return;
+      if (props.state.sessionMode !== 'live') {
+        toast('演示会话不能控制后端模拟器', 'error');
+        return;
+      }
+      const target = plot;
+      simBusy.value = true;
+      try {
+        const nextEnabled = !target.enabled;
+        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        target.enabled = nextEnabled;
+        toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
+      } catch (error) {
+        toast(error.message || '地块模拟启停失败', 'error');
       } finally { simBusy.value = false; }
     };
     const openReplay = async (run) => {
@@ -2555,10 +2537,14 @@ const AdminSimulatorView = {
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
 
+    watch(() => props.state.simulatorStatus, (status) => {
+      if (status && typeof status === 'object') syncSimulator(status);
+    }, { immediate: true });
+
     return {
-      simRunning, simBusy, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
-      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator,
+      adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel
     };
   }
@@ -2569,18 +2555,20 @@ const AdminRulesView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const toast = inject('toast');
-    const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref('packs');
     const expandedPacks = ref({});
     const showPackModal = ref(false);
     const editingPackId = ref(null);
-    const packForm = ref({ id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true });
+    const savingPack = ref(false);
+    const emptyPackForm = () => ({ id: '', cropCode: '', version: '1.0.0', icon: '🌱', name: '', status: 'draft', stages: ['苗期'], knowledgeDocs: [{ title: '栽培要点', content: '' }], availableForPlanting: true });
+    const packForm = ref(emptyPackForm());
     const cropIcons = ['🌱', '🍅', '🥒', '🍓', '🍇', '🌶️', '🥬', '🥕', '🌽', '🍆', '🍉', '🍎'];
+    const packKey = (pack = {}) => `${pack.cropCode || pack.id || ''}@${pack.version || '1.0.0'}`;
     const togglePack = (id) => {
       expandedPacks.value[id] = !expandedPacks.value[id];
     };
     const resetPackForm = () => {
-      packForm.value = { id: '', icon: '🌱', name: '', status: 'draft', stages: [''], knowledgeDocs: [{ title: '', content: '' }], availableForPlanting: true };
+      packForm.value = emptyPackForm();
       editingPackId.value = null;
     };
     const openCreatePack = () => {
@@ -2588,57 +2576,113 @@ const AdminRulesView = {
       showPackModal.value = true;
     };
     const openEditPack = (pack) => {
-      packForm.value = { ...pack, stages: [...pack.stages], knowledgeDocs: pack.knowledgeDocs.map(doc => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc }) };
-      editingPackId.value = pack.id;
+      const cropCode = pack.cropCode || pack.id;
+      packForm.value = {
+        ...emptyPackForm(),
+        ...pack,
+        id: cropCode,
+        cropCode,
+        version: pack.version || '1.0.0',
+        stages: Array.isArray(pack.stages) && pack.stages.length ? [...pack.stages] : ['苗期'],
+        knowledgeDocs: Array.isArray(pack.knowledgeDocs) && pack.knowledgeDocs.length
+          ? pack.knowledgeDocs.map((doc) => typeof doc === 'string' ? { title: doc, content: '' } : { ...doc })
+          : [{ title: '栽培要点', content: '' }]
+      };
+      editingPackId.value = packKey(pack);
       showPackModal.value = true;
     };
-    const savePack = () => {
-      if (isLiveSession.value) {
-        toast('正式作物模型包由后端版本目录维护，当前页面只提供读取，未修改本地演示数据。', 'error');
-        return;
-      }
-      const form = packForm.value;
-      if (!form.name.trim() || !form.id.trim()) return;
-      const normalized = {
-        ...form,
-        id: form.id.trim(),
-        name: form.name.trim(),
-        stages: form.stages.map(item => item.trim()).filter(Boolean),
-        knowledgeDocs: form.knowledgeDocs.map(doc => ({ title: doc.title.trim(), content: doc.content.trim() })).filter(doc => doc.title)
-      };
-      const packs = props.state.adminCropPacks;
-      if (editingPackId.value) {
-        const index = packs.findIndex(pack => pack.id === editingPackId.value);
-        if (index >= 0) packs.splice(index, 1, normalized);
-      } else if (!packs.some(pack => pack.id === normalized.id)) {
-        packs.push(normalized);
-      }
-      showPackModal.value = false;
-      resetPackForm();
+    const replacePackInState = (saved, previousKey = '') => {
+      const mapped = mapCropPack(saved);
+      const targetKey = packKey(mapped);
+      const adminPacks = props.state.adminCropPacks || (props.state.adminCropPacks = []);
+      const adminIndex = adminPacks.findIndex((item) => packKey(item) === (previousKey || targetKey));
+      if (adminIndex >= 0) adminPacks.splice(adminIndex, 1, mapped);
+      else adminPacks.push(mapped);
+      const rawPacks = props.state.cropPacks || (props.state.cropPacks = []);
+      const rawIndex = rawPacks.findIndex((item) => packKey(item) === (previousKey || targetKey));
+      if (rawIndex >= 0) rawPacks.splice(rawIndex, 1, saved);
+      else rawPacks.push(saved);
+      props.state.cropPackDetails = [...rawPacks];
+      return mapped;
     };
-    const deletePack = (pack) => {
-      if (isLiveSession.value) {
-        toast('正式作物模型包暂无删除接口，未修改后端数据。', 'error');
-        return;
+    const removePackFromState = (key) => {
+      props.state.adminCropPacks = (props.state.adminCropPacks || []).filter((item) => packKey(item) !== key);
+      props.state.cropPacks = (props.state.cropPacks || []).filter((item) => packKey(item) !== key);
+      props.state.cropPackDetails = [...props.state.cropPacks];
+      delete expandedPacks.value[key];
+    };
+    const savePack = async () => {
+      if (savingPack.value) return;
+      const form = packForm.value;
+      const cropCode = String(form.cropCode || form.id || '').trim().toLowerCase();
+      const version = String(form.version || '1.0.0').trim();
+      const name = String(form.name || '').trim();
+      const stages = (form.stages || []).map((item) => String(item || '').trim()).filter(Boolean);
+      if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(cropCode)) return toast('作物包编号需为 2~64 位字母、数字、下划线或短横线', 'error');
+      if (!/^\d+\.\d+\.\d+$/.test(version)) return toast('版本号需使用类似 1.0.0 的格式', 'error');
+      if (!name) return toast('请填写作物名称', 'error');
+      if (!stages.length) return toast('至少填写一个生长阶段', 'error');
+      const payload = {
+        cropCode,
+        version,
+        id: cropCode,
+        name,
+        icon: form.icon || '🌱',
+        status: form.status === 'published' ? 'ACTIVE' : 'DRAFT',
+        stages,
+        knowledgeDocs: (form.knowledgeDocs || []).map((doc, index) => ({
+          id: doc.id || `${cropCode}-doc-${index + 1}`,
+          title: String(doc.title || '').trim(),
+          content: String(doc.content || '').trim(),
+          stageCode: doc.stageCode || ''
+        })).filter((doc) => doc.title),
+        availableForPlanting: form.availableForPlanting !== false
+      };
+      savingPack.value = true;
+      try {
+        const previousKey = editingPackId.value || '';
+        const saved = previousKey
+          ? await api.updateCropPack(cropCode, version, payload)
+          : await api.createCropPack(payload);
+        const mapped = replacePackInState(saved, previousKey);
+        expandedPacks.value[packKey(mapped)] = true;
+        showPackModal.value = false;
+        resetPackForm();
+        toast(previousKey ? '作物包已保存，三种角色会读取同一后端版本' : '作物包已新增，三种角色会读取同一后端版本');
+      } catch (error) {
+        toast(error.message || '作物包保存失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
-      if (confirm(`确定删除作物包“${pack.name}”吗？`)) {
-        const index = props.state.adminCropPacks.findIndex(item => item.id === pack.id);
-        if (index >= 0) props.state.adminCropPacks.splice(index, 1);
+    };
+    const canDeletePack = (pack) => !pack?.builtIn && String(pack?.sourceMode || '').toUpperCase() === 'USER_MANAGED';
+    const deletePack = async (pack) => {
+      if (savingPack.value || !confirm(`确定删除作物包“${pack.name}”吗？内置版本不会被物理删除。`)) return;
+      savingPack.value = true;
+      try {
+        const key = packKey(pack);
+        await api.deleteCropPack(pack.cropCode || pack.id, pack.version || '1.0.0');
+        removePackFromState(key);
+        toast('作物包已删除，三种角色的数据目录已同步');
+      } catch (error) {
+        toast(error.message || '作物包删除失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
     };
     const togglePackStatus = async (pack) => {
+      if (savingPack.value) return;
       const nextStatus = pack.status === 'published' ? 'draft' : 'published';
-      if (isLiveSession.value) {
-        try {
-          await api.updateCropPackStatus(pack.cropCode, pack.version, nextStatus);
-          pack.status = nextStatus;
-          toast(`作物模型包状态已更新为“${localizedStatusLabel(nextStatus)}”`);
-        } catch (error) {
-          toast(error.message || 'Crop Pack 状态更新失败', 'error');
-        }
-        return;
+      savingPack.value = true;
+      try {
+        const saved = await api.updateCropPackStatus(pack.cropCode || pack.id, pack.version || '1.0.0', nextStatus);
+        replacePackInState(saved, packKey(pack));
+        toast(`作物包状态已更新为“${nextStatus === 'published' ? '已发布' : '草稿'}”`);
+      } catch (error) {
+        toast(error.message || '作物包状态更新失败', 'error');
+      } finally {
+        savingPack.value = false;
       }
-      pack.status = nextStatus;
     };
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
@@ -2669,7 +2713,7 @@ const AdminRulesView = {
     });
     const masonryColumns = computed(() => {
       const cols = Array.from({ length: masonryCols.value }, () => []);
-      props.state.adminCropPacks.forEach((pack, i) => {
+      (props.state.adminCropPacks || []).forEach((pack, i) => {
         cols[i % masonryCols.value].push(pack);
       });
       return cols;
@@ -2679,7 +2723,7 @@ const AdminRulesView = {
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
     return {
-      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons,
+      activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
       toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
@@ -2697,10 +2741,15 @@ const SETTINGS_COPY = Object.freeze({
     refreshInterval: '刷新间隔', seconds: ' 秒', showOrigin: '显示数据来源', showOriginHint: '保留模拟、后端或人工记录标识，便于核对信息。', info: '外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。',
     current: '当前设置', restore: '恢复默认设置', font: '界面字体', fontHint: '选择适合当前设备和阅读习惯的字体。',
     themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗',
-    changed: { theme: '主题已更新', accent: '强调色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', fontFamily: '字体已更新' }
+    changed: { theme: '主题已更新', preset: '工作台主题已更新', accent: '强调色已更新', customAccent: '自定义主题色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', plotBackground: '地块背景已更新', fontFamily: '字体已更新' }
   })
 });
 
+/**
+ * Shared workspace preferences.  This page is available to all three roles;
+ * it deliberately controls only the current browser's presentation and
+ * refresh preferences, leaving platform/account settings to System Admin.
+ */
 const SettingsView = {
   template: '#tmpl-settings',
   props: ['state'],
@@ -2718,6 +2767,7 @@ const SettingsView = {
     const presetOptions = computed(() => PRESET_OPTIONS);
     const accentOptions = computed(() => ACCENT_OPTIONS);
     const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
+    const plotBackgroundOptions = computed(() => PLOT_BACKGROUND_OPTIONS);
     const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
     const refreshOptions = [5, 15, 30, 60];
     const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
@@ -2725,6 +2775,7 @@ const SettingsView = {
     const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
     const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
+    const plotBackgroundLabel = computed(() => plotBackgroundOptions.value.find(item => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
     const updateSetting = (key, value) => {
       const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
@@ -2743,14 +2794,34 @@ const SettingsView = {
       emit('settings-changed', next);
       toast(SETTINGS_COPY['zh-CN'].restore);
     };
-    return { settings, copy, themeOptions, refreshOptions, presetOptions, accentOptions, surfaceStyleOptions, fontOptions, roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, fontLabel, updateSetting, resetSettings };
+    return {
+      settings,
+      copy,
+      presetOptions,
+      accentOptions,
+      surfaceStyleOptions,
+      plotBackgroundOptions,
+      fontOptions,
+      themeOptions,
+      refreshOptions,
+      roleLabel,
+      themeLabel,
+      presetLabel,
+      accentLabel,
+      surfaceStyleLabel,
+      plotBackgroundLabel,
+      fontLabel,
+      updateSetting,
+      resetSettings
+    };
   }
 };
 
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
   props: ['state', 'routeParams'],
-  setup(props) {
+  emits: ['settings-changed'],
+  setup(props, { emit }) {
     const toast = inject('toast');
     const isLiveSession = computed(() => props.state.sessionMode === 'live');
     const activeTab = ref(props.routeParams?.tab || 'users');
@@ -2758,10 +2829,26 @@ const AdminSettingsView = {
     const logFilter = ref('all');
     const showCreateUser = ref(false);
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
+    const appearanceStyleOptions = surfaceStyleOptions.filter((item) => item.value !== DEFAULT_USER_SETTINGS.surfaceStyle);
+    const appearanceSettings = ref(readUserSettings());
+    const appearanceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === appearanceSettings.value.surfaceStyle)?.label || '经典卡片');
 
     watch(() => props.routeParams, (params) => {
       if (params?.tab) activeTab.value = params.tab;
     });
+
+    const selectAppearanceStyle = (value) => {
+      const option = surfaceStyleOptions.find((item) => item.value === value);
+      if (!option) return;
+      const next = saveUserSettings({ ...appearanceSettings.value, surfaceStyle: option.value });
+      appearanceSettings.value = next;
+      applyUserSettings(next);
+      emit('settings-changed', next);
+      toast(`界面风格已切换为${option.label}`);
+    };
+
+    const resetAppearanceStyle = () => selectAppearanceStyle(DEFAULT_USER_SETTINGS.surfaceStyle);
 
     const filteredUsers = computed(() => {
       const users = props.state.adminUsers || [];
@@ -2779,8 +2866,8 @@ const AdminSettingsView = {
       { module: '地块监测', farmer: '👁 只读 (分配地块)', farmAdmin: '✅ 全部地块', sysAdmin: '👁 只读 (排查)' },
       { module: '农务工单', farmer: '✅ 接受/完成', farmAdmin: '✅ 创建/分派/验收', sysAdmin: '👁 审计记录' },
       { module: '告警处理', farmer: '👁 自己地块', farmAdmin: '✅ 确认/关闭/升级', sysAdmin: '✅ 系统级告警' },
-      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断/审批', sysAdmin: '❌ 不提供入口' },
-      { module: '灌溉控制', farmer: '✅ 执行低风险', farmAdmin: '✅ 审批高风险', sysAdmin: '❌ 默认不控制' },
+      { module: '智能诊断', farmer: '👁 查看结论', farmAdmin: '✅ 跨地块诊断', sysAdmin: '❌ 不提供入口' },
+      { module: '灌溉控制', farmer: '✅ 确认并执行', farmAdmin: '✅ 确认并执行', sysAdmin: '✅ 受控执行' },
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
       { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
@@ -2882,7 +2969,9 @@ const AdminSettingsView = {
       };
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
+      surfaceStyleOptions, appearanceStyleOptions, appearanceSettings, appearanceStyleLabel,
+      selectAppearanceStyle, resetAppearanceStyle
     };
   }
 };
@@ -2952,7 +3041,9 @@ const app = createApp({
       cropBatches: [],
       cropPacks: isDemoSession ? (MOCK_DATA.cropPackDetails || []) : [],
       valueLedgers: [],
-      simulatorStatus: isDemoSession ? { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' } : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
+      simulatorStatus: isDemoSession
+        ? { available: true, status: 'RUNNING', pid: 'demo', program: 'in-process', sampleIntervalSeconds: 20, timeScale: 144, eventsEmitted: 1847 }
+        : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       resourcePlans: isDemoSession ? [] : [],
@@ -3093,8 +3184,11 @@ const app = createApp({
         .filter(Boolean)
         .map((item) => ({ ...item, label: item.labels?.[currentRole.value?.code] || item.label }));
     });
-    const mainNavItems = computed(() => navItems.value.filter(item => !item.isFooter));
-    const footerNavItems = computed(() => navItems.value.filter(item => item.isFooter));
+    // Keep preference controls out of the operational navigation.  The
+    // footer is pinned by the sidebar layout, so “工作台设置” is always easy
+    // to find in the lower-left corner for every shared role.
+    const mainNavItems = computed(() => navItems.value.filter((item) => !item.isFooter));
+    const footerNavItems = computed(() => navItems.value.filter((item) => item.isFooter));
     const initialRoute = parseHashRoute();
     const initialView = initialRoute.view === 'plot-detail' ? currentRole.value.defaultView : initialRoute.view;
     const currentView = ref(state.value.allowedViews.includes(initialView) ? initialView : currentRole.value.defaultView);
@@ -3108,19 +3202,22 @@ const app = createApp({
       document.getElementById('app')?.setAttribute('class', className);
     }, { immediate: true });
 
-    const applySettings = patch => {
+    const applySettings = (patch = {}) => {
       const next = saveUserSettings({ ...userSettings.value, ...patch }, undefined, state.value.currentUser);
       userSettings.value = next;
       applyUserSettings(next);
       isDark.value = resolveTheme(next.theme) === 'dark';
       return next;
     };
-    const handleSettingsChanged = next => {
+    const handleSettingsChanged = (next) => {
       userSettings.value = saveUserSettings(next, undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
-      startLiveRefresh();
+      // Rebuild the fallback polling timer immediately when the preference
+      // changes; SSE remains active for low-latency events.
+      if (typeof startLiveRefresh === 'function') startLiveRefresh();
     };
+
     const toggleTheme = () => applySettings({ theme: resolveTheme(userSettings.value.theme) === 'dark' ? 'light' : 'dark' });
     let systemThemeMedia = null;
     const handleSystemThemeChange = () => {
@@ -3936,8 +4033,8 @@ const app = createApp({
       toasts,
       showToast,
       userSettings,
-      handleSettingsChanged,
       toggleTheme,
+      handleSettingsChanged,
       toggleSidebar,
       toggleProfileMenu,
       closeProfileMenu,
@@ -3971,6 +4068,7 @@ if (indexUser?.role === 'FARMER') {
     'crop-manual': 'tools/manual',
     'work-orders': 'tools',
     'decision-console': 'advice',
+    settings: 'settings',
     dashboard: 'dashboard'
   }[view] || 'tools';
   window.location.replace(`farmer.html#${farmerHash}`);

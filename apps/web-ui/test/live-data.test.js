@@ -8,6 +8,7 @@ import {
   displayText,
   mapStrategyCandidate,
   mapTimelineRecord,
+  mergeFarmerWorkOrders,
   mergePlotTelemetryWindow,
   normalizeAgentDecisionCard,
   normalizeAgentEvidence,
@@ -87,6 +88,21 @@ test('formal work-order records keep backend status and plot context', () => {
   assert.equal(task.status, 'ASSIGNED');
   assert.equal(task.plot_name, '温室1');
   assert.equal(task.dataOrigin, 'BACKEND');
+});
+
+test('farmer work-order refresh keeps completed orders from today-work read model', () => {
+  const merged = mergeFarmerWorkOrders(
+    [
+      { workOrderId: 'wo-active', status: 'ASSIGNED' },
+      { workOrderId: 'wo-completed', status: 'SUBMITTED', title: '待验收任务' }
+    ],
+    [
+      { workOrderId: 'wo-completed', status: 'DONE', title: '已完成任务' },
+      { workItemId: 'alert-1', sourceType: 'ALERT', status: 'OPEN' }
+    ]
+  );
+  assert.deepEqual(merged.map((item) => item.workOrderId), ['wo-active', 'wo-completed']);
+  assert.equal(normalizeFarmerTask(merged[1]).status, 'DONE');
 });
 
 test('farmer messages are rebuilt from backend alerts, tasks and inspections', () => {
@@ -171,6 +187,6 @@ test('agent turn normalizer exposes evidence, traceId and irrigation decision ca
   const turn = normalizeAgentTurn(response, '温室1 需要浇多少水？', { plot: { plotId: 'plot-a01', name: '温室1' }, sessionMode: 'demo' });
   assert.equal(turn.traceId, 'run-demo-001');
   assert.equal(turn.evidence.length, 3);
-  assert.equal(turn.decisionCard.actionLabel, '查看处方并提交审批');
+  assert.equal(turn.decisionCard.actionLabel, '在对话中准备执行');
   assert.match(turn.answer, /153/);
 });

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="light">
+<html lang="zh-CN" data-theme="light" data-surface-style="classic">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,21 +9,21 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260831-codex-appearance-v4">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260830-alert-readonly">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260830-ai-vision-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-ai-assign-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260826-admin-v56-9019096">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-crop-menu-v3">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-appearance-v5">
+  <link rel="stylesheet" href="css/style.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-farm-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-farm-main-merge-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
   <script src="vendor/echarts.min.js"></script>
-  <script src="vendor/ort/ort.all.min.js?v=1.17.3"></script>
 
   <style>
     .feed-actions { display: flex; gap: 8px; margin-top: 12px; }
@@ -183,11 +183,11 @@
       <main class="g-main" :class="{ 'farmer-main': isFarmer }">
         <transition name="fade" mode="out-in">
           <keep-alive include="AdminAiChatView">
-            <component :is="currentViewComponent" :state="state" :route-params="routeParams"
+            <component :is="currentViewComponent" :state="state" :user-settings="userSettings" :route-params="routeParams"
                        @navigate="navigate" @open-plot-detail="openPlotDetail"
                        @plot-change="applyPlotChange" @data-invalidated="handleDataInvalidated"
                        @context-changed="handleContextChanged"
-                       @settings-changed="handleSettingsChanged"></component>
+                        @settings-changed="handleSettingsChanged"></component>
           </keep-alive>
         </transition>
 
@@ -310,8 +310,11 @@
               </span>
             </section>
             <dl class="manager-plot-facts" aria-label="地块生长信息">
+              <div><dt>设施类型</dt><dd>{{ plot.facilityLabel || facilityOptions.find(item => item.code === plot.facilityType)?.label || '露地（裸地）' }}</dd></div>
               <div><dt>地块面积</dt><dd>{{ plot.areaM2 ?? '—' }}㎡</dd></div>
               <div><dt>生长阶段</dt><dd>{{ plot.stageLabel || '—' }}</dd></div>
+              <div><dt>种植状态</dt><dd>{{ plot.cultivationStatusLabel || '正常种植' }}</dd></div>
+              <div><dt>最近作业</dt><dd>{{ plot.lastOperationLabel || '暂无记录' }}</dd></div>
               <div><dt>生长周期</dt><dd>{{ plot.growthCycleDays ? `${plot.growthCycleDays}天` : '—' }}</dd></div>
             </dl>
           </div>
@@ -372,6 +375,13 @@
               <select class="g-select" v-model="plotDraft.stageCode" required>
                 <option v-for="stage in stageOptions" :key="stage.code" :value="stage.code">{{ stage.label }}</option>
               </select>
+            </label>
+            <label class="g-form-group">
+              <span class="g-form-label">地块类型 *</span>
+              <select class="g-select" v-model="plotDraft.facilityType" required>
+                <option v-for="facility in facilityOptions" :key="facility.code" :value="facility.code">{{ facility.label }}</option>
+              </select>
+              <small>{{ facilityOptions.find(item => item.code === plotDraft.facilityType)?.description }}</small>
             </label>
             <label class="g-form-group">
               <span class="g-form-label">完整生长周期（天）*</span>
@@ -486,10 +496,25 @@
           <div class="g-modal-body plot-detail-body">
             <div class="plot-detail-facts">
               <div><span>品种</span><strong>{{ displayText(plot.cropVariety || '—') }}</strong></div>
+              <div><span>地块类型</span><strong>{{ plot.facilityLabel || '露地（裸地）' }}</strong></div>
               <div><span>面积</span><strong>{{ plot.areaM2 ?? '—' }}㎡</strong></div>
               <div><span>生长阶段</span><strong>{{ plot.stageLabel || '—' }}</strong></div>
+              <div><span>种植状态</span><strong>{{ plot.cultivationStatusLabel || '正常种植' }}</strong></div>
+              <div><span>最近作业</span><strong>{{ plot.lastOperationLabel || '暂无' }}</strong></div>
+              <div><span>作业结果</span><strong>{{ plot.lastOperationSummary || '暂无已验收作业' }}</strong></div>
               <div><span>综合健康</span><strong>{{ healthScore(plot.healthScore) }}</strong></div>
             </div>
+
+            <section v-if="plot.operationHistory?.length" class="plot-detail-section" aria-labelledby="plot-operation-history-title">
+              <h3 id="plot-operation-history-title">最近作业履历</h3>
+              <div class="plot-operation-history">
+                <article v-for="record in [...plot.operationHistory].reverse().slice(0, 5)" :key="record.workOrderId + record.completedAt">
+                  <div><strong>{{ record.actionLabel || '农务作业' }}</strong><span>{{ record.completedByName || record.completedBy || '种植农户' }}</span></div>
+                  <p>{{ record.resultSummary || '已完成并通过验收' }}</p>
+                  <small>{{ record.completedAt ? new Date(record.completedAt).toLocaleString('zh-CN') : '—' }} · 工单 {{ record.workOrderId }}</small>
+                </article>
+              </div>
+            </section>
 
             <section class="plot-detail-section" aria-labelledby="plot-detail-metrics-title">
               <h3 id="plot-detail-metrics-title">关键数据</h3>
@@ -654,7 +679,7 @@
 
             <div class="flex gap-2">
               <button class="g-btn primary" style="flex:1" @click="openExecution">
-                <app-icon name="bolt"></app-icon> 虚拟执行
+                <app-icon name="bolt"></app-icon> 查看建议并执行
               </button>
               <button class="g-btn secondary" @click="showPassportModal = true">
                 <app-icon name="policy"></app-icon> 决策护照
@@ -705,12 +730,12 @@
               <button class="g-btn icon-only" @click="showDualTrackModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button>
             </div>
             <div class="g-modal-body">
-              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“下发处方 (执行)”与“不下发处方 (不执行)”的演化结果。</p>
+              <p class="text-muted mb-4">基于当前环境快照和随机种子，平行对比“执行处方”与“不执行处方”的演化结果；确认后由当前操作人直接创建虚拟命令。</p>
               <div id="dualTrackChart" style="width: 100%; height: 350px;"></div>
             </div>
             <div class="g-modal-footer">
               <button class="g-btn secondary" @click="showDualTrackModal = false">取消</button>
-              <button class="g-btn primary" @click="confirmExecution">正式下发指令</button>
+              <button class="g-btn primary" :disabled="executionBusy" @click="confirmExecution">{{ executionBusy ? '执行中…' : '确认并执行' }}</button>
             </div>
           </div>
         </div>
@@ -756,7 +781,7 @@
     </div>
   </template>
 
-  <!-- Work Orders Template -->
+  <!-- Risk Forecast and Work Orders templates -->
   <template id="tmpl-work-orders">
     <div>
       <div class="flex justify-between items-center mb-4">
@@ -870,7 +895,7 @@
               <div class="g-form-group">
                 <label class="g-form-label" for="task-type">任务类型</label>
                 <select id="task-type" class="g-select" v-model="workOrderForm.actionType">
-                  <option value="INSPECTION">巡田核验</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option>
+                  <option value="SOWING">播种</option><option value="TRANSPLANTING">移栽</option><option value="FERTILIZATION">施肥</option><option value="PEST_CONTROL">植保</option><option value="WEEDING">除草</option><option value="PRUNING">整枝</option><option value="IRRIGATION">灌溉</option><option value="HARVEST">采收</option><option value="INSPECTION">巡田核验</option><option value="IRRIGATION_CHECK">灌溉巡检</option><option value="FIELD_OPERATION">田间作业</option><option value="DEVICE_CHECK">设备检查</option><option value="IRRIGATION_REVIEW">灌溉方案审批</option>
                 </select>
               </div>
               <div class="g-form-group">
@@ -1183,44 +1208,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260831-codex-appearance-v8"></script>
-
-
-  <!-- Shared workspace settings -->
-  <template id="tmpl-settings">
-    <section class="settings-page" aria-labelledby="settings-page-title">
-      <header class="settings-page-header">
-        <div>
-          <span class="settings-kicker">{{ roleLabel }} · {{ copy.preference }}</span>
-          <h1 id="settings-page-title"><app-icon name="settings"></app-icon> {{ copy.title }}</h1>
-          <p>{{ copy.description }}</p>
-        </div>
-        <span class="settings-local-badge"><app-icon name="lock_reset"></app-icon> {{ copy.localOnly }}</span>
-      </header>
-
-      <div class="settings-grid">
-        <article class="g-card settings-card">
-          <div class="settings-card-head"><div><span class="settings-card-kicker">{{ copy.appearance }}</span><h2>{{ copy.themeColor }}</h2><p>{{ copy.themeDescription }}</p></div><app-icon name="tune"></app-icon></div>
-          <div class="settings-field"><span class="settings-label">{{ copy.theme }}</span><div class="settings-theme-options" role="group" :aria-label="copy.theme"><button v-for="theme in themeOptions" :key="theme.value" type="button" class="settings-theme-option" :class="{active: settings.theme === theme.value}" @click="updateSetting('theme', theme.value)"><span class="settings-theme-icon"><app-icon :name="theme.value === 'dark' ? 'dark_mode' : theme.value === 'light' ? 'light_mode' : 'settings'"></app-icon></span><strong>{{ theme.label }}</strong><small>{{ theme.hint }}</small></button></div></div>
-           <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field"><span class="settings-label">{{ copy.workspaceTheme }}</span><div class="settings-preset-grid" role="group" :aria-label="copy.workspaceTheme"><button v-for="preset in presetOptions" :key="preset.value" type="button" class="settings-preset-option" :class="['preset-' + preset.value, {active: settings.preset === preset.value}]" @click="updateSetting('preset', preset.value)"><span class="settings-preset-preview"><i></i><b></b><em></em></span><span class="settings-preset-copy"><strong>{{ preset.label }}</strong><small>{{ preset.hint }}</small></span><app-icon v-if="settings.preset === preset.value" name="check_circle"></app-icon></button></div></div>
-           <div class="settings-field"><span class="settings-label">{{ copy.cardStyle }}</span><div class="settings-theme-options settings-surface-options" role="group" :aria-label="copy.cardStyle"><button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :data-style="surface.value" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button></div></div>
-           <div class="settings-field"><span class="settings-label">{{ copy.accent }}</span><div class="settings-accent-options" role="group" :aria-label="copy.accent"><button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value && !settings.customAccent}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value && !settings.customAccent" name="check_circle"></app-icon></button><label v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-custom-accent" :class="{active: !!settings.customAccent}" :title="copy.custom"><input type="color" :value="settings.customAccent || '#2f7d55'" @input="updateSetting('customAccent', $event.target.value)"><span>{{ copy.custom }}</span><app-icon v-if="settings.customAccent" name="check_circle"></app-icon></label></div></div>
-           <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field settings-preview-field"><span class="settings-label">{{ copy.preview }}</span><div class="settings-live-preview"><div class="settings-preview-rail"><span></span><span></span><span></span></div><div class="settings-preview-body"><div class="settings-preview-toolbar"><i></i><i></i><b></b></div><div class="settings-preview-cards"><div></div><div></div><div></div></div><div class="settings-preview-line"></div></div><div class="settings-preview-caption"><strong>{{ presetLabel }}</strong><span>{{ copy.previewCaption }}</span></div></div></div>
-          <div class="settings-two-col"><label>{{ copy.density }}<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">{{ copy.comfortable }}</option><option value="compact">{{ copy.compact }}</option></select></label><label>{{ copy.contentWidth }}<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">{{ copy.standard }}</option><option value="wide">{{ copy.wide }}</option></select></label></div>
-          <div class="settings-field"><label>{{ copy.font }}<select :value="settings.fontFamily" @change="updateSetting('fontFamily', $event.target.value)"><option v-for="item in fontOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select><small class="settings-field-hint">{{ copy.fontHint }}</small></label></div>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>{{ copy.reducedMotion }}</strong><small>{{ copy.reducedMotionHint }}</small></span></label>
-        </article>
-        <article class="g-card settings-card">
-          <div class="settings-card-head"><div><span class="settings-card-kicker">{{ copy.dataExperience }}</span><h2>{{ copy.refreshTips }}</h2><p>{{ copy.refreshDescription }}</p></div><app-icon name="sync"></app-icon></div>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.autoRefresh" @change="updateSetting('autoRefresh', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>{{ copy.autoRefresh }}</strong><small>{{ copy.autoRefreshHint }}</small></span></label>
-          <label class="settings-select-field">{{ copy.refreshInterval }}<select :value="settings.refreshInterval" :disabled="!settings.autoRefresh" @change="updateSetting('refreshInterval', Number($event.target.value))"><option v-for="seconds in refreshOptions" :key="seconds" :value="seconds">{{ seconds }}{{ copy.seconds }}</option></select></label>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.showDataOrigin" @change="updateSetting('showDataOrigin', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>{{ copy.showOrigin }}</strong><small>{{ copy.showOriginHint }}</small></span></label>
-          <div class="settings-info"><app-icon name="info"></app-icon><p>{{ copy.info }}</p></div>
-        </article>
-      </div>
-      <footer class="settings-footer"><div><strong>{{ copy.current }}</strong><span>{{ presetLabel }} · {{ themeLabel }} · {{ copy.cardStyle }}: {{ surfaceStyleLabel }} · {{ copy.accent }}: {{ settings.customAccent || accentLabel }} · {{ fontLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>{{ copy.restore }}</button></footer>
-    </section>
-  </template>
+  <script type="module" src="js/app.js?v=20260831-farm-main-merge-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1355,7 +1343,7 @@
           <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': 'url(' + cropBackgroundFor(plot) + ')' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': userSettings.plotBackground === 'crop' ? 'url(' + cropBackgroundFor(plot) + ')' : 'none' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
@@ -1569,7 +1557,7 @@
   <!-- ADMIN: Simulator -->
   <template id="tmpl-admin-simulator">
     <div>
-      <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真验证</h2>
+      <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真模拟</h2>
 
       <!-- Control Bar -->
       <div class="sim-control-bar">
@@ -1586,6 +1574,14 @@
           <div class="sim-info-label">已发送事件</div>
           <div class="sim-info-value">{{ state.adminOverview.simulator.eventsEmitted }}</div>
         </div>
+        <div class="sim-info">
+          <div class="sim-info-label">采样间隔</div>
+          <div class="sim-info-value">{{ sampleInterval }} 秒</div>
+        </div>
+        <div class="sim-info">
+          <div class="sim-info-label">时间流速</div>
+          <div class="sim-info-value">{{ timeScale }}×</div>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="g-btn primary" v-if="!simRunning" :disabled="simBusy" @click="toggleSimulator">
             <app-icon name="play_arrow"></app-icon> 启动
@@ -1594,6 +1590,21 @@
             <app-icon name="stop"></app-icon> 停止
           </button>
         </div>
+      </div>
+
+      <div class="sim-settings-panel">
+        <div class="admin-section-title" style="margin-bottom:12px"><app-icon name="tune"></app-icon> 全局采样与时间流速</div>
+        <p class="sim-settings-help">保存即生效，不必重启 API。采样间隔控制墙上时钟多久产生一批遥测；时间流速控制物理日夜与土壤变化快慢。地块详情仍可单独覆盖流速。</p>
+        <label class="sim-slider">
+          <span class="sim-slider-label">采样间隔 {{ sampleInterval }} 秒</span>
+          <input type="range" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="saveSimulatorSettings">
+          <span class="sim-slider-hint">每隔多少墙上秒产生一批遥测（5–60 秒，默认 20）</span>
+        </label>
+        <label class="sim-slider">
+          <span class="sim-slider-label">时间流速 {{ timeScale }}×</span>
+          <input type="range" min="1" max="288" step="1" v-model.number="timeScale" :disabled="simBusy" @change="saveSimulatorSettings">
+          <span class="sim-slider-hint">默认 144：10 分钟 ≈ 1 个模拟日（1–288 倍）</span>
+        </label>
       </div>
 
       <!-- Scenario Selection -->
@@ -1610,7 +1621,11 @@
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
           <thead><tr>
-            <th>地块 ID</th><th>地块名称</th><th>当前种植</th><th>异常场景注入</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块 ID</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块名称</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">当前种植</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">异常场景注入</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
             <tr v-for="plot in plotScenarios" :key="plot.plotId">
@@ -1622,12 +1637,28 @@
                   <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
                 </select>
               </td>
+              <td>
+                <button v-if="plot.enabled !== false" class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="stop" style="font-size:16px"></app-icon> 停止
+                </button>
+                <button v-else class="g-btn text sm" style="font-size:12px" :disabled="simBusy" @click="togglePlotSimulation(plot)">
+                  <app-icon name="play_arrow" style="font-size:16px"></app-icon> 启动
+                </button>
+              </td>
             </tr>
             <tr v-if="!plotScenarios || plotScenarios.length === 0">
-              <td colspan="4" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
+              <td colspan="5" style="text-align:center;color:var(--g-text-secondary);padding:24px">无可用地块数据</td>
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Scenario matrix actions -->
+      <div class="admin-section-actions" style="display:flex; align-items:center; gap:12px; margin-bottom:24px">
+        <button class="g-btn primary" :disabled="simBusy" @click="applyPlotScenarios">
+          <app-icon name="save"></app-icon> 保存场景配置
+        </button>
+        <span style="font-size:12px;color:var(--g-text-secondary)">保存后后端模拟器将按各地块所选场景生成遥测数据，刷新后保留。</span>
       </div>
 
       <!-- History -->
@@ -1702,17 +1733,17 @@
       <!-- Tab: Crop Packs -->
       <div v-if="activeTab === 'packs'">
         <div class="admin-pack-toolbar">
-          <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中</div>
-          <button class="g-btn primary" @click="openCreatePack"><app-icon name="add"></app-icon> 新增作物包</button>
+          <div class="admin-pack-hint">已发布且允许种植的作物包会出现在新地块创建表单中，保存后农场管理员与农户会自动读取同一版本</div>
+          <button class="g-btn primary" :disabled="savingPack" @click="openCreatePack"><app-icon name="add"></app-icon> 新增作物包</button>
         </div>
         <div class="pack-grid" :style="{ gridTemplateColumns: `repeat(${masonryCols}, 1fr)` }">
           <div class="pack-grid-column" v-for="(colPacks, colIdx) in masonryColumns" :key="colIdx">
-            <div class="pack-card" v-for="pack in colPacks" :key="pack.id" @click="togglePack(pack.id)">
+            <div class="pack-card" v-for="pack in colPacks" :key="packKey(pack)" @click="togglePack(packKey(pack))">
             <div class="pack-card-head">
               <span class="pack-card-icon">{{ pack.icon }}</span>
               <div>
                 <div class="pack-card-title">{{ pack.name }}</div>
-                <div class="pack-card-ver">{{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
+                <div class="pack-card-ver">v{{ pack.version || '1.0.0' }} · {{ pack.status === 'published' ? '已发布' : '草稿' }}</div>
               </div>
               <span class="status-pill" :class="pack.status" style="margin-left:auto">{{ pack.status === 'published' ? '已发布' : '草稿' }}</span>
             </div>
@@ -1726,16 +1757,16 @@
               {{ pack.availableForPlanting && pack.status === 'published' ? '可供新地块选择' : '暂不可用于新地块' }}
             </div>
 
-            <div v-if="expandedPacks[pack.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
+            <div v-if="expandedPacks[packKey(pack)]" style="margin-top: 16px; padding-top: 16px; border-top: 1px dashed var(--g-border-subtle); font-size: 12px; color: var(--g-text-secondary); cursor: default;" @click.stop>
               <div class="admin-pack-detail-grid">
                 <div><strong>生长阶段</strong><span>{{ pack.stages.join('、') }}</span></div>
                 <div><strong>指标</strong><span>统一八项后端遥测指标，由地块配置监测类型</span></div>
-                <div><strong>知识文档</strong><span class="admin-knowledge-list"><template v-for="(doc, index) in pack.knowledgeDocs" :key="index"><button class="admin-knowledge-chip" @click="toggleKnowledge(pack.id, index)">{{ displayText(doc.title) }} <app-icon :name="expandedKnowledge === `${pack.id}:${index}` ? 'expand_less' : 'expand_more'"></app-icon></button><em v-if="expandedKnowledge === `${pack.id}:${index}`">{{ displayText(doc.content || '暂无正文') }}</em></template></span></div>
+                <div><strong>知识文档</strong><div class="admin-knowledge-docs"><article v-for="(doc, index) in pack.knowledgeDocs" :key="doc.id || index" class="admin-knowledge-doc"><button class="admin-knowledge-doc-toggle" @click="toggleKnowledge(packKey(pack), index)"><span><b>{{ displayText(doc.title || `知识文档 ${index + 1}`) }}</b><small v-if="doc.stageCode">{{ displayText(doc.stageCode) }}</small></span><app-icon :name="expandedKnowledge === `${packKey(pack)}:${index}` ? 'expand_less' : 'expand_more'"></app-icon></button><p v-if="expandedKnowledge === `${packKey(pack)}:${index}`">{{ displayText(doc.content || '暂无正文') }}</p></article><span v-if="!pack.knowledgeDocs.length" class="admin-knowledge-empty">暂无知识文档</span></div></div>
               </div>
               <div style="margin-top: 12px; display: flex; gap: 8px;">
-                <button class="g-btn text sm" style="padding: 4px 8px" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
-                <button class="g-btn text sm" style="padding: 4px 8px" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
-                <button class="g-btn text sm danger-text" style="padding: 4px 8px" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
+                <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
+                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
               </div>
             </div>
           </div>
@@ -1746,10 +1777,11 @@
           <div class="admin-modal">
             <div class="admin-modal-header">
               <h3>{{ editingPackId ? '编辑作物包' : '新增作物包' }}</h3>
-              <button class="g-btn icon-only" @click="showPackModal = false"><app-icon name="close"></app-icon></button>
+              <button class="g-btn icon-only" :disabled="savingPack" @click="showPackModal = false"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body admin-pack-form">
-              <label>作物包编号</label><input v-model="packForm.id" :disabled="!!editingPackId" placeholder="例如 cp-lettuce">
+              <label>作物包编号</label><input v-model="packForm.id" :disabled="!!editingPackId || savingPack" placeholder="例如 cp-lettuce">
+              <label>版本号</label><input v-model="packForm.version" :disabled="!!editingPackId || savingPack" placeholder="例如 1.0.0">
               <label>作物名称</label><input v-model="packForm.name" placeholder="例如 生菜">
               <label>作物图标</label>
               <div class="admin-icon-picker"><button v-for="icon in cropIcons" :key="icon" type="button" :class="{selected: packForm.icon === icon}" @click="packForm.icon = icon">{{ icon }}</button></div>
@@ -1764,7 +1796,7 @@
             </div>
             <div class="admin-modal-footer">
               <button class="g-btn" @click="showPackModal = false">取消</button>
-              <button class="g-btn primary" :disabled="!packForm.id || !packForm.name" @click="savePack">保存</button>
+              <button class="g-btn primary" :disabled="savingPack || !packForm.id || !packForm.name" @click="savePack">{{ savingPack ? '保存中…' : '保存' }}</button>
             </div>
           </div>
         </div>
@@ -1816,6 +1848,77 @@
     </div>
   </template>
 
+  <!-- Shared: Workspace Settings -->
+  <template id="tmpl-settings">
+    <section class="settings-page" aria-labelledby="settings-page-title">
+      <header class="settings-page-header">
+        <div>
+          <span class="settings-kicker">{{ roleLabel }} · 个人偏好</span>
+          <h1 id="settings-page-title"><app-icon name="settings"></app-icon> 工作台设置</h1>
+          <p>自定义当前浏览器中的外观、信息密度和数据刷新方式。设置即时生效，不会修改服务器上的业务数据。</p>
+        </div>
+        <span class="settings-local-badge"><app-icon name="lock_reset"></app-icon> 仅本机保存</span>
+      </header>
+
+      <div class="settings-grid">
+        <article class="g-card settings-card">
+          <div class="settings-card-head"><div><span class="settings-card-kicker">显示外观</span><h2>主题与颜色</h2><p>让三种角色的工作台保持清晰统一，也可以按个人习惯调整。</p></div><app-icon name="tune"></app-icon></div>
+          <div class="settings-field">
+            <span class="settings-label">主题</span>
+            <div class="settings-theme-options" role="group" aria-label="选择主题">
+              <button v-for="theme in themeOptions" :key="theme.value" type="button" class="settings-theme-option" :class="{active: settings.theme === theme.value}" @click="updateSetting('theme', theme.value)"><span class="settings-theme-icon"><app-icon :name="theme.value === 'dark' ? 'dark_mode' : theme.value === 'light' ? 'light_mode' : 'settings'"></app-icon></span><strong>{{ theme.label }}</strong><small>{{ theme.hint }}</small></button>
+            </div>
+          </div>
+          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field">
+            <span class="settings-label">工作台主题</span>
+            <div class="settings-preset-grid" role="group" aria-label="选择工作台主题">
+              <button v-for="preset in presetOptions" :key="preset.value" type="button" class="settings-preset-option" :class="['preset-' + preset.value, {active: settings.preset === preset.value}]" @click="updateSetting('preset', preset.value)"><span class="settings-preset-preview"><i></i><b></b><em></em></span><span class="settings-preset-copy"><strong>{{ preset.label }}</strong><small>{{ preset.hint }}</small></span><app-icon v-if="settings.preset === preset.value" name="check_circle"></app-icon></button>
+            </div>
+          </div>
+          <div class="settings-field">
+            <span class="settings-label">卡片风格</span>
+            <div class="settings-theme-options settings-surface-options" role="group" aria-label="选择卡片风格">
+              <button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :data-style="surface.value" :data-surface-style="surface.value" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button>
+            </div>
+          </div>
+          <div class="settings-field">
+            <span class="settings-label">地块背景</span>
+            <div class="settings-theme-options settings-plot-background-options" role="group" aria-label="选择地块背景">
+              <button v-for="background in plotBackgroundOptions" :key="background.value" type="button" class="settings-theme-option settings-plot-background-option" :class="{active: settings.plotBackground === background.value}" @click="updateSetting('plotBackground', background.value)"><span class="settings-theme-icon"><app-icon :name="background.value === 'crop' ? 'image_search' : 'grid_view'"></app-icon></span><strong>{{ background.label }}</strong><small>{{ background.hint }}</small></button>
+            </div>
+          </div>
+          <div class="settings-field">
+            <span class="settings-label">强调色</span>
+            <div class="settings-accent-options" role="group" aria-label="选择强调色">
+              <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value && !settings.customAccent}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value && !settings.customAccent" name="check_circle"></app-icon></button>
+              <label v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-custom-accent" :class="{active: !!settings.customAccent}" title="自定义主题色"><input type="color" :value="settings.customAccent || '#2f7d55'" @input="updateSetting('customAccent', $event.target.value)"><span>自定义</span><app-icon v-if="settings.customAccent" name="check_circle"></app-icon></label>
+            </div>
+          </div>
+          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field settings-preview-field">
+            <span class="settings-label">实时预览</span>
+            <div class="settings-live-preview"><div class="settings-preview-rail"><span></span><span></span><span></span></div><div class="settings-preview-body"><div class="settings-preview-toolbar"><i></i><i></i><b></b></div><div class="settings-preview-cards"><div></div><div></div><div></div></div><div class="settings-preview-line"></div></div><div class="settings-preview-caption"><strong>{{ presetLabel }}</strong><span>当前主题会同步到农场管理员工作台</span></div></div>
+          </div>
+          <div class="settings-two-col">
+            <label>显示密度<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
+            <label>内容宽度<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
+          </div>
+          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field"><label>界面字体<select :value="settings.fontFamily" @change="updateSetting('fontFamily', $event.target.value)"><option v-for="item in fontOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select><small class="settings-field-hint">选择适合当前设备和阅读习惯的字体。</small></label></div>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>减少动效</strong><small>减少过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
+        </article>
+
+        <article class="g-card settings-card">
+          <div class="settings-card-head"><div><span class="settings-card-kicker">数据体验</span><h2>刷新与提示</h2><p>控制工作台如何更新信息，以及是否保留来源标识。</p></div><app-icon name="sync"></app-icon></div>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.autoRefresh" @change="updateSetting('autoRefresh', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>自动刷新工作台</strong><small>保持页面打开时拉取最新任务、遥测和建议。</small></span></label>
+          <label class="settings-select-field">刷新间隔<select :value="settings.refreshInterval" :disabled="!settings.autoRefresh" @change="updateSetting('refreshInterval', Number($event.target.value))"><option v-for="seconds in refreshOptions" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select></label>
+          <label class="settings-switch"><input type="checkbox" :checked="settings.showDataOrigin" @change="updateSetting('showDataOrigin', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>显示数据来源</strong><small>保留模拟、后端或人工记录标识，便于核对信息。</small></span></label>
+          <div class="settings-info"><app-icon name="info"></app-icon><p>外观和工作台偏好只写入当前浏览器的本地存储。系统管理员的账号、规则、模拟策略等平台配置仍在“系统管理”中维护。</p></div>
+        </article>
+      </div>
+
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>{{ presetLabel }} · 主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 地块背景：{{ plotBackgroundLabel }} · 强调色：{{ settings.customAccent || accentLabel }} · {{ fontLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+    </section>
+  </template>
+
   <!-- ADMIN: System Settings -->
   <template id="tmpl-admin-settings">
     <div>
@@ -1825,7 +1928,42 @@
         <button class="admin-tab" :class="{active: activeTab === 'users'}" @click="activeTab = 'users'">账号管理</button>
         <button class="admin-tab" :class="{active: activeTab === 'permissions'}" @click="activeTab = 'permissions'">权限矩阵</button>
         <button class="admin-tab" :class="{active: activeTab === 'config'}" @click="activeTab = 'config'">系统配置</button>
+        <button class="admin-tab" :class="{active: activeTab === 'appearance'}" @click="activeTab = 'appearance'">界面风格</button>
         <button class="admin-tab" :class="{active: activeTab === 'logs'}" @click="activeTab = 'logs'">操作审计日志</button>
+      </div>
+
+      <!-- Tab: Appearance Management -->
+      <div v-if="activeTab === 'appearance'" class="admin-appearance-management">
+        <section class="admin-appearance-intro">
+          <span class="admin-appearance-intro-icon"><app-icon name="tune"></app-icon></span>
+          <div>
+            <span class="admin-section-kicker">默认基线 · main@4e9326a</span>
+            <h3>农场管理员经典界面</h3>
+            <p>默认使用 main@4e9326a 农场管理员的白色玻璃卡片和紧凑导航。main@c9b6282 之后新增的玻璃材质集中在这里管理，切换后立即作用于当前浏览器。</p>
+          </div>
+          <span class="admin-appearance-current"><app-icon name="check_circle"></app-icon>{{ appearanceStyleLabel }}</span>
+        </section>
+
+        <div class="admin-appearance-section-title"><span>默认风格</span><small>新用户和“恢复默认设置”会使用此风格</small></div>
+        <button type="button" class="admin-appearance-option is-default" :class="{active: appearanceSettings.surfaceStyle === 'classic'}" data-surface-style="classic" @click="selectAppearanceStyle('classic')">
+          <span class="admin-appearance-option-icon"><app-icon name="grid_view"></app-icon></span>
+          <span><strong>经典卡片</strong><small>4e9326a 农场管理员基线 · 白色玻璃、清晰边框、紧凑信息层级</small></span>
+          <app-icon v-if="appearanceSettings.surfaceStyle === 'classic'" name="check_circle" class="admin-appearance-check"></app-icon>
+        </button>
+
+        <div class="admin-appearance-section-title"><span>新版风格（管理）</span><small>来自 c9b6282 及后续版本，可随时切换</small></div>
+        <div class="admin-appearance-grid">
+          <button v-for="surface in appearanceStyleOptions" :key="surface.value" type="button" class="admin-appearance-option" :class="{active: appearanceSettings.surfaceStyle === surface.value}" :data-surface-style="surface.value" @click="selectAppearanceStyle(surface.value)">
+            <span class="admin-appearance-option-icon"><app-icon :name="surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span>
+            <span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></span>
+            <app-icon v-if="appearanceSettings.surfaceStyle === surface.value" name="check_circle" class="admin-appearance-check"></app-icon>
+          </button>
+        </div>
+
+        <div class="admin-appearance-footer">
+          <p><app-icon name="info"></app-icon>外观偏好保存在当前浏览器，不会修改农场数据、账号权限或模拟策略。</p>
+          <button type="button" class="g-btn secondary" @click="resetAppearanceStyle"><app-icon name="replay"></app-icon>恢复经典默认</button>
+        </div>
       </div>
 
       <!-- Tab: Users -->
@@ -1846,16 +1984,16 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>用户编号</th><th>用户名</th><th>角色</th><th>所属农场</th><th>关联地块</th><th>状态</th><th>创建时间</th><th>操作</th>
+              <th>用户编号</th><th>用户名</th><th class="admin-user-role">角色</th><th>所属农场</th><th>关联地块</th><th class="admin-user-status">状态</th><th>创建时间</th><th>操作</th>
             </tr></thead>
             <tbody>
               <tr v-for="u in filteredUsers" :key="u.userId">
                 <td style="font-family:var(--g-mono);font-size:11px">{{ u.userId }}</td>
                 <td style="font-weight:500">{{ u.username }}</td>
-                <td><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
+                <td class="admin-user-role"><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
                 <td>{{ u.farmName }}</td>
                 <td>{{ u.plotIds.join(', ') }}</td>
-                <td><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
+                <td class="admin-user-status"><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
                   <button class="g-btn text sm" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
@@ -1969,6 +2107,5 @@
       </div>
     </div>
   </template>
-
 </body>
 </html>
