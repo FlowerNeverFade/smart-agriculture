@@ -2705,8 +2705,9 @@ export class ApiService {
       const query = new URLSearchParams(); if (farmId) query.set('farmId', farmId); if (includeDrafts) query.set('includeDrafts', 'true');
       const resp = await this._fetch(`/api/v1/crop-packs${query.toString() ? `?${query}` : ''}`);
       const raw = resp?.data || resp;
-      if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack));
-      if (raw?.cropCode) return [this.normalizeCropPack(raw)];
+      if (Array.isArray(raw)) return raw.map(pack => this.normalizeCropPack(pack)).filter(pack => String(pack.status || '').toUpperCase() !== 'ARCHIVED');
+      if (raw?.cropCode && String(raw.status || '').toUpperCase() !== 'ARCHIVED') return [this.normalizeCropPack(raw)];
+      if (raw?.cropCode) return [];
       throw new ApiError('后端返回了无效的作物包数据', { code: 'CROP_PACKS_INVALID', payload: resp });
     }
     const base = (MOCK_DATA.cropPackDetails || []).map(pack => JSON.parse(JSON.stringify(pack)));

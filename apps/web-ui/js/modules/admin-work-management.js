@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-crop-menu-v1';
+import { api } from '../api.js?v=20260831-crop-menu-v2';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
@@ -107,15 +107,38 @@ export const AdminWorkManagementView = {
     };
     const openPackCreate = () => { packCreateMode.value = 'DRAFT'; packForm.value = newPackForm(); packWizardStep.value = 1; showPackCreate.value = true; };
     const openPackEdit = pack => { packCreateMode.value = 'EDIT'; packForm.value = newPackForm(pack); packWizardStep.value = 1; showPackDetail.value = false; showPackCreate.value = true; };
-    const openPackEditFromMenu = pack => {
+    const openPackEditFromMenu = async pack => {
       closePackMenu();
-      if (!canManagePack(pack)) { toast('系统作物包为只读，不能修改', 'error'); return; }
-      if (String(pack.status || '').toUpperCase() === 'ACTIVE') { toast('已启用版本不能原地修改，请新建版本', 'error'); return; }
-      openPackEdit(pack);
+      if (!farmId.value) { toast('请先选择当前农场', 'error'); return; }
+      if (canManagePack(pack) && String(pack.status || '').toUpperCase() === 'ACTIVE') { toast('已启用版本不能原地修改，请新建版本', 'error'); return; }
+      if (busy.value) return;
+      busy.value = true;
+      try {
+        let editablePack = pack;
+        if (!canManagePack(pack)) {
+          editablePack = await api.createFarmCropPack(farmId.value, {
+            cropCode: pack.cropCode,
+            version: pack.version || '1.0.0',
+            identity: pack.identity,
+            stages: pack.stages,
+            rules: pack.rules,
+            taskTemplates: pack.taskTemplates,
+            knowledge: pack.knowledge,
+            metrics: pack.metrics,
+            ruleVersion: pack.ruleVersion,
+            knowledgeVersion: pack.knowledgeVersion
+          });
+          props.state.cropPacks = [...(props.state.cropPacks || []).filter(item => item.cropCode !== pack.cropCode), editablePack];
+          emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview'], farmId: farmId.value, record: editablePack, reason: 'farm-crop-pack-cloned' });
+          toast('已复制为当前农场草稿，现在可以修改');
+        }
+        openPackEdit(editablePack);
+      } catch (error) { toast(error.message || '作物包复制失败', 'error'); }
+      finally { busy.value = false; }
     };
     const archivePackFromMenu = async pack => {
       closePackMenu();
-      if (!canManagePack(pack)) { toast('系统作物包为只读，不能删除', 'error'); return; }
+      if (!canManagePack(pack)) { toast('全局作物包属于平台共享数据，不能直接删除；请先复制为当前农场版本', 'error'); return; }
       if (busy.value) return;
       const name = pack.identity?.name || pack.cropCode || '该作物包';
       if (!window.confirm(`确定删除“${name}”作物包吗？删除后将从当前农场列表中移除。`)) return;
@@ -345,9 +368,9 @@ export const AdminWorkManagementView = {
               <div class="admin-pack-menu-wrap" @click.stop>
                 <button type="button" class="admin-pack-menu-trigger" aria-label="打开作物包菜单" :aria-expanded="packMenuId === packKey(pack)" @click.stop="togglePackMenu(pack)"><app-icon name="more_vertical"></app-icon></button>
                 <div v-if="packMenuId === packKey(pack)" class="admin-pack-menu" role="menu" @click.stop>
-                  <button type="button" role="menuitem" :disabled="!canManagePack(pack) || String(pack.status || '').toUpperCase() === 'ACTIVE'" @click="openPackEditFromMenu(pack)">修改作物包</button>
-                  <button type="button" role="menuitem" :disabled="!canManagePack(pack)" @click="archivePackFromMenu(pack)">删除作物包</button>
-                  <small v-if="!canManagePack(pack)">系统作物包仅供查看</small>
+                  <button type="button" role="menuitem" @click="openPackEditFromMenu(pack)">修改作物包</button>
+                  <button type="button" role="menuitem" @click="archivePackFromMenu(pack)">删除作物包</button>
+                  <small v-if="!canManagePack(pack)">修改会先复制为当前农场草稿；全局包不能直接删除</small>
                   <small v-else-if="String(pack.status || '').toUpperCase() === 'ACTIVE'">已启用版本不可原地修改</small>
                 </div>
               </div>
