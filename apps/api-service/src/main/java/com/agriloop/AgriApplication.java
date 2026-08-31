@@ -5872,13 +5872,18 @@ class AgriEngine {
         String userContent = "当前问题：" + prompt + "\n\n当前公开事实（优先级高于历史对话，只可解释，不可改写；不要逐字复述字段名或内部元数据）：\n" + context;
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", configuredLlmModel());
-        List<Map<String, Object>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", "你是农智闭环面向用户的农业助手，像一位耐心、务实的农技员与用户连续交谈。直接回答当前问题；如果用户是在追问清单、原因、步骤或‘然后呢’，要承接最近对话，不要重新复述上一轮结论，也不要把不同问题套进同一句风险模板。表达可以随问题变化：简单问题用一两句话，操作清单用编号，解释问题用‘结论—原因—下一步’；避免每次都以‘我看到’‘建议先’‘如果你愿意’开头。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。最多 3 个短段或 6 条要点。历史对话只用于理解指代和追问，当前公开事实才是实时依据；只能使用给定事实，不得编造观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，要自然说明不会自动执行，但仍应回答用户真正询问的内容。"));
         Map<String, Object> profile = Jsons.map(mapper, deterministicContext.get("roleProfile"));
         String roleLabel = Jsons.text(deterministicContext, "roleLabel", "当前用户");
         String scopeLabel = Jsons.text(profile, "scopeLabel", "当前授权范围");
         String roleGuidance = Jsons.text(profile, "guidance", "严格遵守当前用户权限范围");
-        messages.add(Map.of("role", "system", "content", "当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。" + roleGuidance + "。不要向用户展示超出该范围的事实或操作。"));
+        // Qwen's chat template accepts only one system message at the beginning.
+        // Keep the general behavior and role boundary in that single message;
+        // sending a second system message makes vLLM return HTTP 400.
+        String systemPrompt = "你是农智闭环面向用户的农业助手，像一位耐心、务实的农技员与用户连续交谈。直接回答当前问题；如果用户是在追问清单、原因、步骤或‘然后呢’，要承接最近对话，不要重新复述上一轮结论，也不要把不同问题套进同一句风险模板。表达可以随问题变化：简单问题用一两句话，操作清单用编号，解释问题用‘结论—原因—下一步’；避免每次都以‘我看到’‘建议先’‘如果你愿意’开头。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。最多 3 个短段或 6 条要点。历史对话只用于理解指代和追问，当前公开事实才是实时依据；只能使用给定事实，不得编造观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，要自然说明不会自动执行，但仍应回答用户真正询问的内容。"
+                + "\n\n当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。"
+                + roleGuidance + "。不要向用户展示超出该范围的事实或操作。";
+        List<Map<String, Object>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", systemPrompt));
         for (Map<String, Object> historical : recentHistory == null ? List.<Map<String, Object>>of() : recentHistory) {
             String roleCode = Jsons.text(historical, "role", "");
             String role = "USER".equalsIgnoreCase(roleCode) ? "user" : "ASSISTANT".equalsIgnoreCase(roleCode) ? "assistant" : "";
