@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-rules-ai-v1';
+import { api } from '../api.js?v=20260831-sync-v1';
 import { adminMetricLabel } from '../admin-state.js';
 
 const { ref, computed, inject, onMounted, watch } = Vue;
