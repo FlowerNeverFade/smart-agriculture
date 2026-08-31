@@ -1246,9 +1246,23 @@
   padding: 12px;
   max-height: 340px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.farmer-task-column-body::-webkit-scrollbar {
+  width: 6px;
+}
+.farmer-task-column-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb {
+  background: var(--g-border);
+  border-radius: 3px;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb:hover {
+  background: var(--g-text-secondary);
 }
 .farmer-task-delete-all {
   margin-left: auto;
