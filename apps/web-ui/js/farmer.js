@@ -615,8 +615,13 @@ function clamp_chart_value(value, min, max) {
 }
 
 function parse_npk(value) {
-  const numbers = String(value || '').split(':').map((item) => Number(item));
-  return numbers.length === 3 && numbers.every((item) => Number.isFinite(item)) ? numbers : [0, 0, 0];
+  const raw = String(value || '').trim();
+  const parts = raw.split(':').map((item) => Number(item));
+  if (parts.length === 3 && parts.every((item) => Number.isFinite(item))) return parts;
+  // 后端 NPK_RATIO 遥测存的是综合肥力单值（mg/kg），按常见比例派生氮/磷/钾基线。
+  const single = Number(raw);
+  if (Number.isFinite(single) && single > 0) return [single, single * 0.4, single * 0.6];
+  return [0, 0, 0];
 }
 
 function format_chart_axis_value(value, precision = 0) {
@@ -775,8 +780,10 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const risk_color = metric.status === 'ALERT' ? 'var(--g-danger)' : 'var(--g-warning)';
   const series = spec.multi
     ? parse_npk(metric.value).map((base, index) => {
-      const values = hasObservedHistory ? observedValues : (allowDerived ? build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index) : []);
-      const plotted = hasObservedHistory ? samples : derivedSamples(values);
+      // NPK_RATIO 为 SIMULATION_ONLY 综合肥力，三元素按基线派生合成展示；
+      // 不依赖单值历史（单值无法还原氮/磷/钾三条独立曲线）。
+      const values = build_values(base, spec.amplitude * (index === 1 ? 0.65 : 1), index);
+      const plotted = derivedSamples(values);
       return {
         label: ['氮', '磷', '钾'][index],
         color: is_risk ? risk_color : ['var(--g-success)', 'var(--g-primary)', 'var(--g-warning)'][index],

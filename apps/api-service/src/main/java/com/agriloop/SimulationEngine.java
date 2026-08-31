@@ -57,7 +57,8 @@ class SimulationEngine {
             new MetricSpec("CO2", "ppm", 0, 10000),
             new MetricSpec("PH", "pH", 0, 14),
             new MetricSpec("WATER_LEVEL", "%", 0, 100),
-            new MetricSpec("RAINFALL", "mm/h", 0, 250)
+            new MetricSpec("RAINFALL", "mm/h", 0, 250),
+            new MetricSpec("NPK_RATIO", "mg/kg", 0, 300)
     );
     private static final Map<String, String> SCENARIO_ALIASES = Map.ofEntries(
             Map.entry("normal", "normal"),
@@ -399,6 +400,7 @@ class SimulationEngine {
                 }
             }
             case "WATER_LEVEL" -> value = state.water;
+            case "NPK_RATIO" -> value = 150.0 + Math.sin(index / 6.0) * 14.0 + Math.cos(simulatedHours / 12.0) * 8.0;
             default -> {
                 double rainfall = params.get("rainfallRate");
                 if ("heavy-rain".equals(normalized)) {
@@ -417,6 +419,7 @@ class SimulationEngine {
             case "SOIL_MOISTURE" -> 0.12;
             case "CO2" -> 5.0;
             case "WATER_LEVEL" -> 0.16;
+            case "NPK_RATIO" -> 3.0;
             case "RAINFALL" -> 0.7;
             default -> 0.08;
         } * volatility;
