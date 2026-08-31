@@ -1881,7 +1881,7 @@ function manualEnvMetrics(pack, stage) {
     CO2: 'CO2',
     PH: '土壤酸碱度',
     SOIL_EC: '土壤电导率',
-    NPK_RATIO: '氮磷钾'
+    NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾'
   };
   const items = [
     { code: 'SOIL_MOISTURE', label: metricLabels.SOIL_MOISTURE, range: `${target.soilMoistureLow ?? '—'}~${target.soilMoistureHigh ?? '—'}`, unit: '%', availability: 'SUPPORTED', note: '阶段核心管控指标' },
