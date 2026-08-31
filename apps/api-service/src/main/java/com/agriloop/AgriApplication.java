@@ -6497,6 +6497,20 @@ class AgriEngine {
                 .forEach(item -> store.delete("agent-message", Jsons.text(item, "messageId", "")));
     }
 
+    Map<String, Object> renameAgentConversation(String conversationId, String title, UserPrincipal principal) {
+        String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
+        Map<String, Object> conversation = store.find("agent-conversation", resolved);
+        if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
+        if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权重命名该对话");
+        String clean = title == null ? "" : title.replaceAll("\\s+", " ").trim();
+        if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
+        conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+        conversation.put("updatedAt", Instant.now().toString());
+        store.save("agent-conversation", resolved, conversation);
+        return conversation;
+    }
+
     List<Map<String, Object>> agentTools(UserPrincipal principal) {
         List<Map<String, Object>> tools = new ArrayList<>();
         List.of("get_risk_forecast", "generate_irrigation_plan", "evaluate_diagnosis", "get_today_work_items", "get_plot_status", "get_water_resource_status")
@@ -7495,6 +7509,12 @@ class AgriController {
     ResponseEntity<?> deleteAgentConversation(@PathVariable String conversationId, Authentication a) {
         engine.deleteAgentConversation(conversationId, principal(a));
         return ok(Map.of("success", true, "conversationId", conversationId));
+    }
+
+    @PutMapping("/agent/conversations/{conversationId}")
+    ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        String title = body == null ? "" : Jsons.text(body, "title", "");
+        return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
     }
 
     @GetMapping("/agent/tools")

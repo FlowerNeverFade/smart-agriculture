@@ -154,7 +154,9 @@ const ICON_CLASS = Object.freeze({
   attach_file: 'ph-paperclip',
   chat_bubble_outline: 'ph-chat-circle',
   image_search: 'ph-image',
-  location_on: 'ph-map-pin'
+  location_on: 'ph-map-pin',
+  more_vert: 'ph-dots-three-vertical',
+  push_pin: 'ph-push-pin'
 });
 
 const AppIcon = {
