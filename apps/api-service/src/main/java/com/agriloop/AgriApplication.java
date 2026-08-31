@@ -2034,12 +2034,69 @@ class AgriEngine {
         status.put("mqtt", mqttConnected ? "UP" : "DEGRADED");
         status.put("mqttCommandTransport", mqttCommands.available() ? "UP" : "FALLBACK_OR_IDLE");
         status.put("persistence", store.persistenceKind());
-        status.put("ai", properties.getAiMode());
+        // ai 字段为真实连通性探测结果（UP/DEGRADED/DOWN/规则模式），aiMode 保留配置模式
+        status.put("ai", checkLlmHealth());
+        status.put("aiMode", properties.getAiMode());
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
         status.put("mqttLatencyMs", mqttConnected ? mqttCommands.latencyMs() : -1);
         return status;
+    }
+
+    // ---- 外部 AI 服务真实连通性探测（结果缓存 15 秒）----
+    private volatile String llmHealthStatus = null;
+    private volatile long llmHealthCheckedAt = 0L;
+    private final Object llmHealthLock = new Object();
+
+    /**
+     * 探测配置的外部 AI 服务是否真实在线。
+     * - openai / openai-compatible：GET {baseUrl}/models，3 秒超时，2xx=UP，否则 DOWN
+     * - maxkb / mock：未接入真实适配器，保守返回 DEGRADED（不宣称外部 AI 在线）
+     * - rules-only 等规则模式：不依赖外部 AI，返回配置模式（由前端展示为规则模式）
+     */
+    String checkLlmHealth() {
+        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        boolean needsExternal = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        if (!needsExternal) {
+            // 规则/演示/未接通适配：不探测，返回保守语义
+            return aiMode.equals("mock") || aiMode.equals("maxkb") ? "DEGRADED" : aiMode;
+        }
+        long now = System.currentTimeMillis();
+        if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+        synchronized (llmHealthLock) {
+            now = System.currentTimeMillis();
+            if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+            llmHealthStatus = probeLlmModels(aiMode);
+            llmHealthCheckedAt = System.currentTimeMillis();
+            return llmHealthStatus;
+        }
+    }
+
+    /** OpenAI-compatible 端点探测：GET {baseUrl}/models，2xx 视为在线。 */
+    private String probeLlmModels(String aiMode) {
+        String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
+        if (baseUrl.isBlank()) return "DOWN";
+        while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        String endpoint;
+        if (baseUrl.endsWith("/chat/completions")) {
+            endpoint = baseUrl.substring(0, baseUrl.length() - "/chat/completions".length()) + "/models";
+        } else {
+            endpoint = baseUrl + "/models";
+        }
+        try {
+            URI uri = URI.create(endpoint);
+            if (!Set.of("http", "https").contains(uri.getScheme())) return "DOWN";
+            HttpRequest.Builder builder = HttpRequest.newBuilder(uri).GET().timeout(Duration.ofSeconds(3));
+            if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
+                builder.header("Authorization", "Bearer " + properties.getLlmApiKey());
+            }
+            HttpResponse<String> response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            int code = response.statusCode();
+            return code >= 200 && code < 300 ? "UP" : "DOWN";
+        } catch (Exception ex) {
+            return "DOWN";
+        }
     }
 
     /** 真实测量 Redis PING 往返延迟（毫秒），失败返回 -1。 */

@@ -437,6 +437,11 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 function aiServiceStatus(mode) {
   const m = String(mode || '').trim().toLowerCase();
   if (!m) return 'UNKNOWN';
+  // 后端 AI 连通性探测结果：UP / DEGRADED / DOWN
+  if (m === 'up') return 'UP';
+  if (['down', 'error', 'unavailable', 'offline'].includes(m)) return 'DOWN';
+  if (['degraded'].includes(m)) return 'DEGRADED';
+  // 兼容旧语义（配置模式）：openai 系视为 UP，其余（rules-only/mock/maxkb）视为降级
   if (['openai', 'openai-compatible', 'full'].includes(m)) return 'UP';
   return 'DEGRADED';
 }
@@ -469,7 +474,7 @@ function adminServiceCards(systemStatus = {}) {
     { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
     { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
-    { name: '智能模型服务', status: aiServiceStatus(systemStatus.ai), isAi: true, mode: systemStatus.ai === 'openai-compatible' ? 'full' : systemStatus.ai }
+    { name: '智能模型服务', status: aiServiceStatus(systemStatus.ai), isAi: true, mode: systemStatus.aiMode || (systemStatus.ai === 'openai-compatible' ? 'full' : systemStatus.ai) }
   ];
   return entries.map(({ name, status, isAi = false, latencyMs, mode }) => ({
     name,
