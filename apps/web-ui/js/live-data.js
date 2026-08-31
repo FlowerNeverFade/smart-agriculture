@@ -957,6 +957,29 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   };
 }
 
+/**
+ * The farmer workspace reads both the work-order collection and the
+ * today-work read model.  They can briefly disagree while a completed order
+ * is being indexed, so retain every real work-order record from either
+ * response and ignore aggregate-only alert/diagnosis items.
+ */
+export function mergeFarmerWorkOrders(primary = [], supplemental = []) {
+  const records = new Map();
+  const add = (record) => {
+    if (!record || typeof record !== 'object') return;
+    const workOrderId = text(record.workOrderId, '');
+    // `/work-items/today` also contains synthetic alert/diagnosis entries
+    // identified only by workItemId; those are not executable task cards.
+    if (!workOrderId) return;
+    const recordId = workOrderId;
+    const previous = records.get(recordId);
+    records.set(recordId, previous ? { ...previous, ...record } : record);
+  };
+  asArray(primary).forEach(add);
+  asArray(supplemental).forEach(add);
+  return [...records.values()];
+}
+
 function messageBase({
   id,
   category,

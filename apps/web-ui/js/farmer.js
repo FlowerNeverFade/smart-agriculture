@@ -13,6 +13,7 @@ import {
   dueLabel,
   displayText,
   mergePlotTelemetryWindow,
+  mergeFarmerWorkOrders,
   metricLabel,
   metricStatusLabel,
   normalizeAgentTurn,
@@ -3031,23 +3032,30 @@ const app = createApp({
           api.getPlots({ includeInactive: true }),
           api.getOverview(),
           api.getWorkOrders(),
+          api.getTodayWorkItems(),
           api.getAlerts(),
           api.getCropPacks(),
           api.getCropBatches(),
           api.getWaterResourceProfile(),
           api.listResourcePlans({})
         ]);
-        const coreFailure = results.slice(0, 5).find((result) => result.status === 'rejected');
+        const coreFailure = [0, 1, 2, 3, 5]
+          .map((index) => results[index])
+          .find((result) => result.status === 'rejected');
         if (coreFailure) throw coreFailure.reason;
-        const [farmsResult, plotsResult, overviewResult, workOrdersResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult] = results;
+        const [farmsResult, plotsResult, overviewResult, workOrdersResult, todayWorkResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult] = results;
         const farms = farmsResult.value || [];
         const rawPlots = plotsResult.value || [];
         const overview = overviewResult.value || {};
-        const rawWorkOrders = workOrdersResult.value || [];
+        const rawWorkOrders = mergeFarmerWorkOrders(
+          workOrdersResult.value || [],
+          todayWorkResult.status === 'fulfilled' ? todayWorkResult.value || [] : []
+        );
         const rawAlerts = alertsResult.value || [];
         const packs = packsResult.status === 'fulfilled' ? packsResult.value || [] : [];
         const batches = batchesResult.status === 'fulfilled' ? batchesResult.value || [] : [];
-        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult].filter((result) => result.status === 'rejected');
+        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult]
+          .filter((result) => result.status === 'rejected');
         if (optionalFailures.length) load_error.value = '作物包或种植批次暂不可用，已显示其余正式数据';
         if (resourceProfileResult.status === 'fulfilled' || resourcePlansResult.status === 'fulfilled') {
           const waterProfile = resourceProfileResult.status === 'fulfilled' ? resourceProfileResult.value : null;
