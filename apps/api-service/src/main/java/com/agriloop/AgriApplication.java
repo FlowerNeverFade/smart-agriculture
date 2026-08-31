@@ -807,6 +807,20 @@ class AgriStore {
         resource.put("resourceType", "WATER"); resource.put("capacityLitres", 900.0); resource.put("flowRateLitresPerMinute", 18.0);
         resource.put("unitCost", 0.004); resource.put("availableFrom", Instant.now().minus(1, ChronoUnit.HOURS).toString());
         resource.put("availableTo", Instant.now().plus(1, ChronoUnit.DAYS).toString()); save("resource-profile", "resource-default", resource);
+        String[][] seedCases = {
+                {"case-seed-001", "trace-seed-001", "plan-seed-001", "eval-seed-001", "plot-a01", "tomato", "WATER_DEFICIT", "0.85"},
+                {"case-seed-002", "trace-seed-002", "plan-seed-002", "eval-seed-002", "plot-b01", "cucumber", "WATER_DEFICIT", "0.78"},
+                {"case-seed-003", "trace-seed-003", "plan-seed-003", "eval-seed-003", "plot-a02", "tomato", "SENSOR_DRIFT", "0.72"}
+        };
+        for (String[] c : seedCases) {
+            Map<String, Object> caseRecord = new LinkedHashMap<>();
+            caseRecord.put("caseId", c[0]); caseRecord.put("traceId", c[1]); caseRecord.put("planId", c[2]);
+            caseRecord.put("evaluationId", c[3]); caseRecord.put("plotId", c[4]); caseRecord.put("cropCode", c[5]);
+            caseRecord.put("primaryCause", c[6]); caseRecord.put("effectivenessScore", Double.parseDouble(c[7]));
+            caseRecord.put("quality", "GOOD"); caseRecord.put("ruleVersion", "rules-v1"); caseRecord.put("cropPackVersion", "1.0.0");
+            caseRecord.put("fingerprint", Integer.toHexString(Objects.hash(c[5], c[6], c[2], c[3])));
+            caseRecord.put("createdAt", Instant.now().toString()); save("decision-case", c[0], caseRecord);
+        }
         seedUser("user-farmer", "farmer", "demo123", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
         seedUser("user-admin", "admin", "demo123", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02", "plot-b01"));
         seedUser("user-system", "sysadmin", "demo123", "SYSTEM_ADMIN", List.of("farm-demo"), List.of("*"));
