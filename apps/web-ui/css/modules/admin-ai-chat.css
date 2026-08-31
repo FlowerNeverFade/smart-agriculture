@@ -87,11 +87,15 @@
 .admin-ai-sidebar-resizer:hover span,
 .admin-ai-chat.is-sidebar-resizing .admin-ai-sidebar-resizer span { height: 58px; background: var(--admin-orange, var(--g-primary)); }
 .admin-ai-conversation-list { min-height: 0; padding: 8px; overflow-y: auto; }
-.admin-ai-conversation-item { display: block; width: 100%; margin-bottom: 4px; padding: 10px 9px; border: 1px solid transparent; border-radius: 10px; color: var(--g-text-primary); background: transparent; text-align: left; cursor: pointer; }
+.admin-ai-conversation-item { position: relative; display: block; width: 100%; margin-bottom: 4px; padding: 10px 30px 10px 9px; border: 1px solid transparent; border-radius: 10px; color: var(--g-text-primary); background: transparent; text-align: left; cursor: pointer; }
 .admin-ai-conversation-item:hover { background: color-mix(in srgb, var(--g-primary-bg) 42%, transparent); }
 .admin-ai-conversation-item.active { border-color: color-mix(in srgb, var(--admin-orange, var(--g-primary)) 36%, var(--g-border)); background: color-mix(in srgb, var(--admin-orange-bg, var(--g-primary-bg)) 58%, var(--g-bg-surface)); }
 .admin-ai-conversation-title { display: block; overflow: hidden; font-size: 13px; font-weight: 650; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .admin-ai-conversation-meta { display: flex; justify-content: space-between; gap: 6px; margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; }
+.admin-ai-conversation-delete { position: absolute; top: 7px; right: 7px; display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--g-text-tertiary); opacity: 0; cursor: pointer; transition: opacity .18s ease, background .18s ease, color .18s ease; }
+.admin-ai-conversation-item:hover .admin-ai-conversation-delete { opacity: 1; }
+.admin-ai-conversation-delete:hover { background: var(--g-danger-bg); color: var(--g-danger); }
+.admin-ai-conversation-delete:disabled { opacity: .4; cursor: default; }
 .admin-ai-sidebar-state { display: grid; justify-items: center; gap: 8px; padding: 32px 13px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; text-align: center; }
 .admin-ai-sidebar-state .material-symbols-outlined { color: var(--admin-orange, var(--g-primary)); font-size: 21px; }
 

@@ -331,7 +331,30 @@ export const AdminAiChatView = {
       messages.value.flatMap(message => message.attachments || []).forEach(revokeAttachment);
     });
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto };
+    // 历史对话删除（项目风格确认弹窗）
+    const pendingDeleteConversation = ref(null);
+    const requestDeleteConversation = (conversation) => {
+      if (!conversation?.conversationId || sending.value) return;
+      pendingDeleteConversation.value = { conversationId: conversation.conversationId, title: conversation.title || '该历史对话' };
+    };
+    const confirmDeleteConversation = async () => {
+      const target = pendingDeleteConversation.value;
+      if (!target) return;
+      pendingDeleteConversation.value = null;
+      sending.value = true;
+      try {
+        await api.deleteAgentConversation(target.conversationId);
+        conversations.value = conversations.value.filter(c => c.conversationId !== target.conversationId);
+        if (selectedConversationId.value === target.conversationId || conversationId.value === target.conversationId) {
+          selectedConversationId.value = '';
+          startNewConversation({ updateHash: true });
+        }
+        toast('历史对话已删除');
+      } catch (error) { toast(error.message || '删除对话失败', 'error'); }
+      finally { sending.value = false; }
+    };
+
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, pendingDeleteConversation, requestDeleteConversation, confirmDeleteConversation };
   },
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手">
@@ -340,7 +363,7 @@ export const AdminAiChatView = {
         <div class="admin-ai-conversation-list" aria-live="polite">
           <div v-if="loadingConversations" class="admin-ai-sidebar-state"><app-icon name="hourglass_empty"></app-icon><span>正在读取…</span></div>
           <div v-else-if="!conversations.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>{{ rolePresentation.historyEmpty }}</span></div>
-          <button v-for="conversation in conversations" :key="conversation.conversationId" type="button" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId }" @click="selectConversation(conversation.conversationId)"><span class="admin-ai-conversation-title">{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversation.plotId || (rolePresentation.code === 'SYSTEM_ADMIN' ? '全平台' : rolePresentation.code === 'FARM_ADMIN' ? '全农场' : '本人地块') }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span></button>
+          <div v-for="conversation in conversations" :key="conversation.conversationId" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId }" @click="selectConversation(conversation.conversationId)"><span class="admin-ai-conversation-title">{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversation.plotId || (rolePresentation.code === 'SYSTEM_ADMIN' ? '全平台' : rolePresentation.code === 'FARM_ADMIN' ? '全农场' : '本人地块') }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span><button type="button" class="admin-ai-conversation-delete" :disabled="sending" :aria-label="'删除对话 ' + (conversation.title || '')" title="删除对话" @click.stop="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon></button></div>
         </div>
       </aside>
       <button v-if="!sidebarCollapsed" class="admin-ai-sidebar-resizer" type="button" aria-label="调整历史对话栏宽度" title="拖动调整历史对话栏宽度" @pointerdown="startSidebarResize"><span></span></button>
@@ -354,7 +377,22 @@ export const AdminAiChatView = {
               <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message ai-chat-message assistant" v-if="sending"><div class="admin-ai-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>{{ rolePresentation.typingLabel }}</span></div></article></template>
         </div>
-        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div><p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
+        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
+      </div>
+      <div v-if="pendingDeleteConversation" class="admin-modal-overlay" @click.self="pendingDeleteConversation = null">
+        <div class="admin-modal">
+          <div class="admin-modal-header">
+            <h3>删除历史对话</h3>
+            <button type="button" class="g-btn icon-only" @click="pendingDeleteConversation = null"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="admin-modal-body">
+            <p style="margin:0 0 8px;line-height:1.7">确定要<strong style="color:var(--g-danger)">删除</strong>「{{ pendingDeleteConversation.title }}」吗？<br>删除后该对话及其中所有消息将无法恢复。</p>
+          </div>
+          <div class="admin-modal-footer">
+            <button class="g-btn" @click="pendingDeleteConversation = null">取消</button>
+            <button class="g-btn danger" :disabled="sending" @click="confirmDeleteConversation">确认删除</button>
+          </div>
+        </div>
       </div>
     </section>
   `
