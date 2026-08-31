@@ -48,6 +48,7 @@ function translateKnownText(value = '') {
     .replace(/SENSOR_DRIFT(?:_RULE)?/gi, '传感器漂移')
     .replace(/DEVICE_FAULT(?:_RULE)?/gi, '设备故障')
     .replace(/\b(?:LEARNING|LEARNED)\b/gi, '案例学习')
+    .replace(/\bCASE[-_]?/gi, '案例')
     .replace(/\bMANUAL\b/gi, '人工经验')
     .replace(/\b(?:GLOBAL|SYSTEM)\b/gi, '系统规则')
     .replace(/\bFARM\b/gi, '当前农场');
