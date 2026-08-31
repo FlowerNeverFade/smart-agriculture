@@ -26,6 +26,9 @@ test('farm governance page is a separate rules and strategies entry', () => {
   assert.match(source, /批准并启用/);
   assert.match(source, /新增规则/);
   assert.match(source, /createRule/);
+  assert.match(source, /水分不足/);
+  assert.match(source, /候选方案/);
+  assert.doesNotMatch(source, /FARM RULE/);
 });
 
 test('only farm administrators receive the rules and strategies route', () => {
