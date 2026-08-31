@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-crop-menu-v2';
+import { api } from '../api.js?v=20260831-crop-menu-v3';
 import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260831-ai-assign-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js';
@@ -138,17 +138,36 @@ export const AdminWorkManagementView = {
     };
     const archivePackFromMenu = async pack => {
       closePackMenu();
-      if (!canManagePack(pack)) { toast('全局作物包属于平台共享数据，不能直接删除；请先复制为当前农场版本', 'error'); return; }
       if (busy.value) return;
       const name = pack.identity?.name || pack.cropCode || '该作物包';
       if (!window.confirm(`确定删除“${name}”作物包吗？删除后将从当前农场列表中移除。`)) return;
       busy.value = true;
       try {
-        const archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, pack.version);
+        let archived;
+        if (canManagePack(pack)) {
+          archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, pack.version);
+        } else {
+          // Global packs remain platform facts. Create a farm-scoped archived
+          // override so this farm can remove it without deleting the global pack.
+          const hiddenVersion = `${pack.version || '1.0.0'}-farm-hidden-${Date.now()}`;
+          await api.createFarmCropPack(farmId.value, {
+            cropCode: pack.cropCode,
+            version: hiddenVersion,
+            identity: pack.identity,
+            stages: pack.stages,
+            rules: pack.rules,
+            taskTemplates: pack.taskTemplates,
+            knowledge: pack.knowledge,
+            metrics: pack.metrics,
+            ruleVersion: pack.ruleVersion,
+            knowledgeVersion: pack.knowledgeVersion
+          });
+          archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, hiddenVersion);
+        }
         props.state.cropPacks = (props.state.cropPacks || []).filter(item => packKey(item) !== packKey(pack));
         if (selectedPackCode.value === pack.cropCode) { selectedPackCode.value = ''; showPackDetail.value = false; }
         emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview', 'rulesStrategies'], farmId: farmId.value, record: archived, reason: 'farm-crop-pack-archived' });
-        toast('作物包已删除，并已从当前农场列表移除');
+        toast(canManagePack(pack) ? '作物包已删除，并已从当前农场列表移除' : '作物包已从当前农场移除，全局作物包仍保留');
       } catch (error) { toast(error.message || '作物包删除失败', 'error'); }
       finally { busy.value = false; }
     };
@@ -370,7 +389,7 @@ export const AdminWorkManagementView = {
                 <div v-if="packMenuId === packKey(pack)" class="admin-pack-menu" role="menu" @click.stop>
                   <button type="button" role="menuitem" @click="openPackEditFromMenu(pack)">修改作物包</button>
                   <button type="button" role="menuitem" @click="archivePackFromMenu(pack)">删除作物包</button>
-                  <small v-if="!canManagePack(pack)">修改会先复制为当前农场草稿；全局包不能直接删除</small>
+                  <small v-if="!canManagePack(pack)">修改会先复制为当前农场草稿；删除只对当前农场生效</small>
                   <small v-else-if="String(pack.status || '').toUpperCase() === 'ACTIVE'">已启用版本不可原地修改</small>
                 </div>
               </div>

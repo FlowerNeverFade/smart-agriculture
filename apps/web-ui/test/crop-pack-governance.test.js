@@ -17,7 +17,7 @@ test('farm Crop Pack UI exposes equal-size add tile and visual wizard', () => {
   assert.match(source, /openPackEditFromMenu/);
   assert.match(source, /archivePackFromMenu/);
   assert.match(source, /已复制为当前农场草稿/);
-  assert.match(source, /全局作物包属于平台共享数据/);
+  assert.match(source, /全局作物包仍保留/);
   assert.match(source, /修改作物包/);
   assert.match(source, /删除作物包/);
   assert.doesNotMatch(source, /stagesJson/);
