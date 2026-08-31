@@ -19,7 +19,7 @@ const COMMON_FIELDS = {
   schemaVersion: '1.0',
   status: 'ACTIVE',
   ruleVersion: 'rule-1.0.0',
-  prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000 },
+  prescriptionConstraints: { maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000 },
   forecastProfile: { algorithm: 'robust-trend-v1', horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120 },
   coordinationProfile: { stageSensitivity: 0.85, starvationGuardMinutes: 120 },
   scenarios: SCENARIOS,
@@ -66,7 +66,7 @@ export const EXTENDED_CROP_PACK_DETAILS = Object.freeze([
       { code: 'fruiting', sequence: 4, label: '采收期', target: { soilMoistureLow: 35, soilMoistureHigh: 55, airTemperatureLow: 15, airTemperatureHigh: 24, airHumidityLow: 50, airHumidityHigh: 70, lightLow: 10000, lightHigh: 26000, phLow: 6.0, phHigh: 7.0, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ['WATER_DEFICIT', 'HEAT_STRESS'], taskTemplates: [{ actionType: 'IRRIGATION_CHECK', intervalDays: 1, priority: 'HIGH' }], knowledgeRef: 'knowledge/fruiting.md' }
     ],
     rules: [
-      { code: 'WATER_DEFICIT', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 32, durationMinutes: 10, hysteresis: 2, cooldownMinutes: 120 },
+      { code: 'WATER_DEFICIT', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 32, durationMinutes: 10, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
       { code: 'HEAT_STRESS', metric: 'AIR_TEMPERATURE', operator: 'GT', threshold: 28, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
       { code: 'COLD_STRESS', metric: 'AIR_TEMPERATURE', operator: 'LT', threshold: 8, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
     ],
@@ -95,7 +95,7 @@ export const EXTENDED_CROP_PACK_DETAILS = Object.freeze([
       { code: 'fruiting', sequence: 4, label: '结果采收期', target: { soilMoistureLow: 28, soilMoistureHigh: 48, airTemperatureLow: 25, airTemperatureHigh: 30, airHumidityLow: 55, airHumidityHigh: 75, lightLow: 20000, lightHigh: 42000, phLow: 6.0, phHigh: 6.8, waterLevelLow: 30, waterLevelHigh: 95 }, riskFocus: ['WATER_DEFICIT', 'HEAT_STRESS'], taskTemplates: [{ actionType: 'IRRIGATION_CHECK', intervalDays: 1, priority: 'HIGH' }], knowledgeRef: 'knowledge/fruiting.md' }
     ],
     rules: [
-      { code: 'WATER_DEFICIT', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120 },
+      { code: 'WATER_DEFICIT', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 22, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, automaticWateringThreshold: 10 },
       { code: 'HEAT_STRESS', metric: 'AIR_TEMPERATURE', operator: 'GT', threshold: 35, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 },
       { code: 'COLD_STRESS', metric: 'AIR_TEMPERATURE', operator: 'LT', threshold: 15, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60 }
     ],

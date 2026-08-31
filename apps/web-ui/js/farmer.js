@@ -2164,6 +2164,8 @@ const app = createApp({
     const advice_diagnosis = ref(null);
     const advice_readiness = ref(null);
     const irrigation_guard = ref(null);
+    const automatic_watering_result = ref(null);
+    const automatic_watering_busy = ref(false);
     const advice_passport = ref(null);
     const evidence_request_busy = ref(false);
     const advice_loading = ref(false);
@@ -2184,6 +2186,24 @@ const app = createApp({
     const assistant_plot_id = ref(plots.value[0]?.plotId || '');
     const assistant_message_list = ref(null);
     const assistant_shortcuts = computed(() => role_presentation.value.shortcutQuestions);
+
+    const automatic_watering_status = computed(() => {
+      const plot = advice_plot.value || plots.value[0];
+      const moisture = Number(automatic_watering_result.value?.currentMoisture
+        ?? irrigation_guard.value?.automaticWatering?.currentMoisture
+        ?? irrigation_plan.value?.automaticWatering?.currentMoisture
+        ?? plot?.metrics?.SOIL_MOISTURE?.value);
+      const threshold = Number(automatic_watering_result.value?.threshold
+        ?? irrigation_guard.value?.automaticWatering?.threshold
+        ?? irrigation_plan.value?.automaticWatering?.threshold
+        ?? 10);
+      const resultStatus = String(automatic_watering_result.value?.status || '').toUpperCase();
+      const eligible = Number.isFinite(moisture) && moisture < threshold;
+      const status = resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
+      const statusLabel = { TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
+      const label = status === 'TRIGGERED' ? '已根据最新读数发起虚拟浇水' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
+      return { enabled: true, threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
+    });
 
     // Keep the old QA names as local aliases for the existing advice helpers;
     // the farmer-facing surface now lives at #assistant instead of a popup.
@@ -2654,9 +2674,6 @@ const app = createApp({
       if (status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
       const guard = irrigation_guard.value;
       if (!guard) return '暂不能执行：安全门状态暂不可用，请稍后重试。';
-      const remainingSeconds = Number(guard?.remainingSeconds || 0);
-      const emergencyEligible = plan?.emergency?.eligible === true && guard?.emergency?.eligibleByMoisture === true;
-      if (remainingSeconds > 0 && !emergencyEligible) return `该地块刚完成灌溉，防重复保护还剩约 ${Math.max(1, Math.ceil(remainingSeconds / 60))} 分钟；当前湿度未达到应急补水阈值。`;
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
       const duration = Number(plan.durationSeconds ?? plan.howMuch?.durationSeconds);
       const start = plan.when?.start || plan.recommendedWindow?.start;
@@ -2669,21 +2686,18 @@ const app = createApp({
     const suggestion_emergency_notice = computed(() => {
       if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
       const plan = irrigation_plan.value;
-      const guard = irrigation_guard.value;
       if (plan?.emergency?.eligible !== true) return '';
       const moisture = Number(plan.emergency.currentMoisture);
       const threshold = Number(plan.emergency.threshold);
       const moistureText = Number.isFinite(moisture) ? `${moisture.toFixed(1)}%` : '当前值';
-      const thresholdText = Number.isFinite(threshold) ? `${threshold.toFixed(1)}%` : '应急阈值';
-      return Number(guard?.remainingSeconds || 0) > 0
-        ? `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；确认后将以受限应急补水方式执行，仍会重新检查设备、数据和水量上限。`
-        : `当前湿度 ${moistureText} 已低于应急阈值 ${thresholdText}；必要时可发起受限应急补水。`;
+      const thresholdText = Number.isFinite(threshold) ? `${threshold.toFixed(1)}%` : '自动浇水阈值';
+      return `当前湿度 ${moistureText} 已低于自动浇水阈值 ${thresholdText}；系统会在数据质量、设备和水量校验通过后发起虚拟浇水。`;
     });
     const suggestion_emergency_mode = computed(() => {
-      const plan = irrigation_plan.value;
-      return active_suggestion.value?.kind === 'IRRIGATION'
-        && plan?.emergency?.eligible === true
-        && Number(irrigation_guard.value?.remainingSeconds || 0) > 0;
+      // Legacy suggestion cards still bind this value; irrigation no longer
+      // has a special cooldown-bypass mode, so manual execution stays a
+      // normal confirmed virtual command.
+      return false;
     });
     const suggestion_confirm_enabled = computed(() => {
       if (!active_suggestion.value || suggestion_busy.value || suggestion_flow_stage.value !== 'CONFIRM') return false;
@@ -3417,6 +3431,7 @@ const app = createApp({
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
       irrigation_guard.value = null;
+      if (automatic_watering_result.value?.plotId !== plotId) automatic_watering_result.value = null;
       try {
         const plan = await api.estimateIrrigation({
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo',
@@ -3440,6 +3455,13 @@ const app = createApp({
             // stay disabled until the guard can be read again.
             irrigation_guard.value = null;
           }
+          // The server also evaluates this on every telemetry event.  The
+          // page-level check catches an already-low reading when a farmer
+          // opens the irrigation view and is idempotent per reading in demo
+          // mode.
+          if (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true) {
+            void check_automatic_watering(plotId, { silent: true });
+          }
         }
         return plan;
       } catch (error) {
@@ -3451,6 +3473,28 @@ const app = createApp({
         return null;
       } finally {
         if (version === irrigation_plan_request_version) irrigation_plan_loading.value = false;
+      }
+    };
+
+    const check_automatic_watering = async (plotId = advice_plot.value?.plotId, { silent = false } = {}) => {
+      if (!plotId || automatic_watering_busy.value) return null;
+      automatic_watering_busy.value = true;
+      try {
+        const result = await api.autoWaterIfNeeded(plotId);
+        automatic_watering_result.value = result;
+        if (result?.status === 'TRIGGERED' && !result?.reused) {
+          show_toast('土壤含水量低于 10%，已自动发起虚拟浇水');
+          if (is_live.value) {
+            await load_live_workspace({ announce: false });
+            await load_irrigation_plan(plotId, { silent: true });
+          }
+        }
+        return result;
+      } catch (error) {
+        if (!silent) show_toast(error?.message || '自动浇水检查失败', 'error');
+        return null;
+      } finally {
+        automatic_watering_busy.value = false;
       }
     };
 
@@ -3966,9 +4010,9 @@ const app = createApp({
     const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
     const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
     const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
-    const assistant_action_button_label = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS' ? '确认应急补水' : '确认执行';
-    const assistant_action_hint = (proposal) => proposal?.executionMode === 'EMERGENCY_COOLDOWN_BYPASS'
-      ? '这是受限应急补水：仅在严重干旱时使用，确认时会再次检查最新数据、设备健康和水量上限。'
+    const assistant_action_button_label = (proposal) => proposal?.executionMode === 'AUTOMATIC_THRESHOLD' ? '自动浇水' : '确认执行';
+    const assistant_action_hint = (proposal) => proposal?.executionMode === 'AUTOMATIC_THRESHOLD'
+      ? '土壤含水量低于 10% 时触发虚拟浇水；系统会再次检查最新数据、设备健康和水量上限。'
       : '写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。';
     const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
     const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
@@ -4860,6 +4904,9 @@ const app = createApp({
       advice_readiness_summary,
       advice_execution_summary,
       irrigation_guard,
+      automatic_watering_status,
+      automatic_watering_result,
+      automatic_watering_busy,
       advice_passport,
       evidence_request_busy,
       advice_plan,
@@ -4986,6 +5033,7 @@ const app = createApp({
       open_plot,
       open_tools,
       load_irrigation_plan,
+      check_automatic_watering,
       toggle_irrigation,
       open_suggestion,
       close_suggestion_flow,
