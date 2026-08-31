@@ -2071,16 +2071,19 @@
    live facts.  Each crop now owns a compact Emoji identity surface shared
    with the farmer and system-admin crop model views. */
 .role-farm-admin article.manager-plot-card {
+  --manager-data-surface: #f8fbf9;
+  --manager-data-divider: #cbd6d0;
+  --manager-section-border: #aebdb5;
   position: relative;
   isolation: isolate;
   overflow: hidden;
   min-height: 286px;
-  border: 2px solid color-mix(in srgb, #71877b 58%, var(--g-border));
-  border-top: 5px solid var(--admin-mint);
+  border: 1px solid color-mix(in srgb, #71877b 52%, var(--g-border));
+  border-top: 4px solid var(--admin-mint);
   background: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(244, 250, 246, .91));
   color: var(--g-text-primary);
   text-shadow: none;
-  box-shadow: 0 0 0 1px rgba(92, 116, 103, .08), 0 16px 36px rgba(24, 59, 39, .12);
+  box-shadow: 0 12px 30px rgba(24, 59, 39, .10);
 }
 
 .role-farm-admin article.manager-plot-card.is-attention {
@@ -2106,9 +2109,9 @@
   right: 0;
   bottom: -7px;
   left: 0;
-  height: 2px;
+  height: 1px;
   border-radius: 999px;
-  background: color-mix(in srgb, #70847a 32%, var(--g-border));
+  background: var(--manager-data-divider);
 }
 
 .role-farm-admin article.manager-plot-card .manager-more-button {
@@ -2180,10 +2183,10 @@
   min-height: 96px;
   padding: 10px;
   overflow: hidden;
-  border: 2px solid color-mix(in srgb, var(--crop-accent) 44%, #a7b4ad);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 36%, #a7b4ad);
   border-radius: 14px;
   background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, white), rgba(255, 255, 255, .8));
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--crop-accent) 9%, transparent), inset 0 1px 0 rgba(255, 255, 255, .92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
 }
 
 .role-farm-admin .manager-crop-identity[data-crop="tomato"] { --crop-accent: #c9554f; --crop-soft: #fff0ed; }
@@ -2199,7 +2202,7 @@
   height: 74px;
   display: grid;
   place-items: center;
-  border: 2px solid color-mix(in srgb, var(--crop-accent) 30%, white);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, white);
   border-radius: 13px;
   background: rgba(255, 255, 255, .72);
   color: var(--g-text-primary);
@@ -2246,10 +2249,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   min-width: 0;
   overflow: hidden;
-  border: 2px solid color-mix(in srgb, #6f8479 44%, var(--g-border));
+  border: 1px solid var(--manager-section-border);
   border-radius: 14px;
-  background: color-mix(in srgb, #778b81 42%, var(--g-border-subtle));
-  box-shadow: 0 4px 12px rgba(43, 67, 54, .06), inset 0 1px 0 rgba(255, 255, 255, .78);
+  background: var(--manager-data-divider);
+  box-shadow: none;
 }
 
 .role-farm-admin .manager-plot-facts > div {
@@ -2257,11 +2260,11 @@
   align-content: center;
   min-width: 0;
   padding: 12px;
-  background: rgba(250, 253, 251, .82);
+  background: var(--manager-data-surface);
 }
 
 .role-farm-admin .manager-plot-facts > div:not(:last-child) {
-  border-right: 2px solid color-mix(in srgb, #6f8479 38%, var(--g-border));
+  border-right: 1px solid var(--manager-data-divider);
 }
 .role-farm-admin .manager-plot-facts dt { color: var(--g-text-secondary); font-size: 10px; font-weight: 600; }
 .role-farm-admin .manager-plot-facts dd {
@@ -2276,21 +2279,25 @@
 
 .role-farm-admin article.manager-plot-card .manager-metric-grid {
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 2px;
-  border: 2px solid color-mix(in srgb, #687d72 48%, var(--g-border));
-  background: color-mix(in srgb, #71867b 45%, var(--g-border-subtle));
-  box-shadow: 0 5px 14px rgba(37, 65, 49, .07), inset 0 1px 0 rgba(255, 255, 255, .82);
+  gap: 1px;
+  border: 1px solid var(--manager-section-border);
+  background: var(--manager-data-divider);
+  box-shadow: none;
 }
 .role-farm-admin article.manager-plot-card .manager-metric {
   grid-column: span 2;
-  background: rgba(252, 254, 253, .92);
-  box-shadow: inset 0 0 0 1px rgba(82, 104, 93, .10), inset 0 1px 0 rgba(255, 255, 255, .78);
+  background: var(--manager-data-surface);
+  box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+.role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+.role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable {
+  background: var(--manager-data-surface);
+}
 .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
 .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
-.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: rgba(239, 244, 241, .88); }
 .role-farm-admin article.manager-plot-card .manager-metric-label,
 .role-farm-admin article.manager-plot-card .manager-metric-target,
 .role-farm-admin article.manager-plot-card .manager-metric-value small { color: var(--g-text-secondary); }
@@ -2337,10 +2344,21 @@
 }
 
 [data-theme="dark"] .role-farm-admin article.manager-plot-card {
-  border-color: #5d7166;
+  --manager-data-surface: #1e2f26;
+  --manager-data-divider: #42564b;
+  --manager-section-border: #53685c;
+  border-color: #53685c;
   border-top-color: var(--admin-mint);
   background: linear-gradient(145deg, rgba(27, 43, 34, .96), rgba(20, 35, 27, .94));
-  box-shadow: 0 0 0 1px rgba(151, 177, 163, .08), 0 18px 38px rgba(0, 0, 0, .34);
+  box-shadow: 0 15px 34px rgba(0, 0, 0, .30);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-attention {
+  border-color: color-mix(in srgb, var(--admin-orange) 46%, #53685c);
+  border-top-color: var(--admin-orange);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-inactive {
+  border-color: color-mix(in srgb, var(--g-text-secondary) 46%, #53685c);
+  border-top-color: var(--g-text-secondary);
 }
 [data-theme="dark"] .role-farm-admin .manager-crop-identity {
   border-color: color-mix(in srgb, var(--crop-accent) 58%, #66756d);
@@ -2348,17 +2366,19 @@
 }
 [data-theme="dark"] .role-farm-admin .manager-crop-art { background: rgba(244, 250, 246, .88); }
 [data-theme="dark"] .role-farm-admin .manager-plot-facts {
-  border-color: #5d7166;
-  background: #53645b;
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
 }
-[data-theme="dark"] .role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right-color: #5d7166; }
+[data-theme="dark"] .role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right-color: var(--manager-data-divider); }
 [data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric-grid {
-  border-color: #5d7166;
-  background: #53645b;
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
 }
 [data-theme="dark"] .role-farm-admin .manager-plot-facts > div,
-[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric { background: rgba(30, 47, 38, .94); }
-[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: rgba(24, 39, 31, .96); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: var(--manager-data-surface); }
 [data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-more-button { background: rgba(33, 51, 41, .94); }
 [data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-plot-menu { background: rgba(25, 39, 32, .98); }
 
