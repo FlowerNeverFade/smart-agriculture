@@ -148,7 +148,13 @@ const ICON_CLASS = Object.freeze({
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right'
+  chevron_right: 'ph-caret-right',
+  chevron_left: 'ph-caret-left',
+  arrow_upward: 'ph-arrow-up',
+  attach_file: 'ph-paperclip',
+  chat_bubble_outline: 'ph-chat-circle',
+  image_search: 'ph-image',
+  location_on: 'ph-map-pin'
 });
 
 const AppIcon = {
