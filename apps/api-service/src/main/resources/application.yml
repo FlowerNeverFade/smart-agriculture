@@ -21,8 +21,8 @@ spring:
       maximum-pool-size: ${DATABASE_POOL_SIZE:8}
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 8MB
+      max-file-size: 8MB
+      max-request-size: 32MB
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true

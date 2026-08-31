@@ -47,11 +47,13 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(source, /上传图片/);
   assert.match(source, /分析照片/);
   assert.match(source, /analyzeImageFiles/);
-  assert.match(source, /图片会随本次请求直接送入视觉模型/);
+  assert.match(source, /原文件字节直接送入视觉模型/);
   assert.match(source, /images:\s*visionPayloads/);
   assert.doesNotMatch(source, /绿色像素/);
-  assert.match(visionSource, /MAX_IMAGE_EDGE/);
-  assert.match(visionSource, /canvas\.toBlob/);
+  assert.match(visionSource, /readAsDataURL\(file\)/);
+  assert.match(visionSource, /original:\s*true/);
+  assert.doesNotMatch(visionSource, /canvas\.toBlob/);
+  assert.doesNotMatch(visionSource, /MAX_IMAGE_EDGE/);
   assert.match(visionSource, /dataUrl/);
   assert.match(visionSource, /inspectImageQuality/);
   assert.doesNotMatch(index, /vendor\/ort\/ort\.all\.min\.js/);

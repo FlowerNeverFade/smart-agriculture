@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-vision-v1';
+import { api } from '../api.js?v=20260831-vision-v2-original';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -7,7 +7,7 @@ import {
   deviceRelatedWorkOrders,
   formatHealthScore
 } from '../admin-state.js?v=20260831-three-branch-v1';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260831-vision-v1';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260831-vision-v2-original';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

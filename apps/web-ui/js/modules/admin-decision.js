@@ -1,7 +1,7 @@
-import { api } from '../api.js?v=20260831-vision-v1';
+import { api } from '../api.js?v=20260831-vision-v2-original';
 import { adminMetricLabel } from '../admin-state.js?v=20260831-three-branch-v1';
 import { canExecuteIrrigation } from '../roles.js?v=20260831-three-branch-v1';
-import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260831-vision-v1';
+import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260831-vision-v2-original';
 
 const { ref, computed, watch, onMounted } = Vue;
 

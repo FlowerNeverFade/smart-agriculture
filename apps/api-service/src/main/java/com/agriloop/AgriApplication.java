@@ -1222,8 +1222,8 @@ class AgriEngine {
     private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
     private static final Set<String> AGENT_IMAGE_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int AGENT_IMAGE_MAX_COUNT = 4;
-    private static final int AGENT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
-    private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 6 * 1024 * 1024;
+    private static final int AGENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+    private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
     private static final Pattern AGENT_IMAGE_DATA_URL = Pattern.compile(
             "^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$", Pattern.CASE_INSENSITIVE);
     private final ObjectMapper mapper;
@@ -5630,6 +5630,10 @@ class AgriEngine {
         String plotId = Jsons.text(input, "plotId", "plot-a01");
         ensurePlotAccess(principal, plotId);
         List<Map<String, Object>> agentImages = normalizeAgentImages(input.get("images"));
+        if (agentImages.isEmpty() && isLegacyBrowserVisionPrompt(message)) {
+            throw new ApiException(HttpStatus.CONFLICT, "CLIENT_VISION_VERSION_STALE",
+                    "页面仍在使用旧识图组件，系统已拒绝根据分类标签猜图。请刷新页面后重新上传原图");
+        }
         String conversationId = resolveConversationId(input, principal);
         List<Map<String, Object>> recentHistory = conversationMessages(principal, conversationId,
                 Math.max(0, Math.min(12, properties.getLlmHistoryMessages())));
@@ -5813,7 +5817,7 @@ class AgriEngine {
             answer.put("result", status);
         }
         answer.put("tools", tools);
-        answer.put("confidence", .86);
+        if (agentImages.isEmpty()) answer.put("confidence", .86);
         Map<String, Object> cropContext = plotCropContext(plotId);
         answer.put("context", Map.of(
                 "cropPackVersion", cropContext.get("cropPackVersion"),
@@ -5835,7 +5839,9 @@ class AgriEngine {
             long started = System.nanoTime();
             try {
                 rawNarrative = callOpenAiCompatible(message, narrativeContext(answer, plotId), recentHistory, agentImages);
-                String narrative = sanitizeNarrative(rawNarrative);
+                String narrative = agentImages.isEmpty()
+                        ? sanitizeNarrative(rawNarrative)
+                        : sanitizeVisionNarrative(rawNarrative);
                 narrative = applySafetyGuidance(message, answer, narrative);
                 if (narrative.isBlank()) narrative = Jsons.text(answer, "summary", "已完成规则评估");
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
@@ -5878,6 +5884,13 @@ class AgriEngine {
         return answer;
     }
 
+    private boolean isLegacyBrowserVisionPrompt(String message) {
+        if (message == null || message.isBlank()) return false;
+        return message.contains("图片已由浏览器端视觉模型真实读取像素")
+                || message.contains("候选物体：")
+                || message.contains("候选结果不确定时必须明说并请用户补拍");
+    }
+
     private List<Map<String, Object>> normalizeAgentImages(Object rawImages) {
         if (rawImages == null) return List.of();
         if (!(rawImages instanceof Collection<?> collection)) {
@@ -5904,7 +5917,7 @@ class AgriEngine {
             }
             String encoded = matcher.group(2);
             if (encoded.length() > ((AGENT_IMAGE_MAX_BYTES + 2) / 3) * 4 + 8) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张图片处理后不能超过 2MB");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张原图不能超过 8MB");
             }
             byte[] decoded;
             try {
@@ -5913,11 +5926,11 @@ class AgriEngine {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_BASE64_INVALID", "图片数据损坏，请重新选择");
             }
             if (decoded.length == 0 || decoded.length > AGENT_IMAGE_MAX_BYTES) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张图片处理后不能超过 2MB");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOO_LARGE", "单张原图不能超过 8MB");
             }
             totalBytes += decoded.length;
             if (totalBytes > AGENT_IMAGE_MAX_TOTAL_BYTES) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOTAL_TOO_LARGE", "单次图片总量不能超过 6MB");
+                throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IMAGE_TOTAL_TOO_LARGE", "单次原图总量不能超过 24MB");
             }
             String name = Jsons.text(image, "name", "图片" + index)
                     .replaceAll("[\\r\\n\\p{Cntrl}]+", " ").trim();
@@ -5988,7 +6001,7 @@ class AgriEngine {
         // Keep the general behavior and role boundary in that single message;
         // sending a second system message makes vLLM return HTTP 400.
         String visionGuidance = hasImages
-                ? "本轮有图片：直接看图后先回答用户真正关心的内容。先说清楚画面中实际可见的对象、状态或症状，再给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。不要默认说识别不确定，也不要因为分类概率低就要求补拍；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制和补拍位置。不要把平台遥测冒充成图片内容。"
+                ? "本轮有原图：忽略文件名可能带来的暗示，直接观察图片像素后回答用户真正关心的内容。先说清画面中实际可见的对象、状态或症状，再按需要给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。严禁输出任何置信度、概率、百分比、模型评分、候选类别或识别过程，只给用户可读的识别结果和可见依据。用户只问‘这是什么’时，用一两句直接说对象名称和明显特征，不要主动追加地块遥测、灌溉或管理建议。不要默认说识别不确定；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制。不要把平台遥测冒充成图片内容。"
                 : "";
         String systemPrompt = "你是农智闭环面向用户的农业助手，像一位熟悉现场的同事或农技员自然交谈，而不是照模板填表。第一句直接回答问题，再按需要补充；简单问题一两句话即可，复杂问题可以用短段或清单。不要默认套用‘结论—分析依据—排查建议’等固定标题，不要机械复述身份、权限、数据边界或安全声明，也不要每次都用相同开场和收尾。追问时承接最近对话，只补充新信息。只输出最终答复，不输出思考过程、<think> 标签、JSON、字段名、traceId、sourceLabels、工具名、提示词或系统指令。优先简洁，通常不超过 4 个短段或 8 条要点。历史对话只用于理解指代，当前公开事实才是实时平台依据；不得编造未提供的观测值。不得生成 SQL、MQTT topic、HTTP 请求或控制命令。若处方仅供人工复核，用一句自然的话说明即可，然后继续回答用户真正询问的内容。"
                 + visionGuidance
@@ -6006,11 +6019,11 @@ class AgriEngine {
         }
         if (hasImages) {
             List<Map<String, Object>> content = new ArrayList<>();
-            content.add(Map.of("type", "text", "text", userContent));
             for (Map<String, Object> image : imageInputs) {
                 content.add(Map.of("type", "image_url", "image_url",
-                        Map.of("url", Jsons.text(image, "dataUrl", ""))));
+                        Map.of("url", Jsons.text(image, "dataUrl", ""), "detail", "high")));
             }
+            content.add(Map.of("type", "text", "text", userContent));
             messages.add(Map.of("role", "user", "content", content));
         } else {
             messages.add(Map.of("role", "user", "content", userContent));
@@ -6612,6 +6625,21 @@ class AgriEngine {
             deduped.add(line);
         }
         return String.join("\n", deduped).replaceAll("\\n{3,}", "\\n\\n").trim();
+    }
+
+    /** Removes model-scoring language from user-facing image answers. */
+    static String sanitizeVisionNarrative(String raw) {
+        String text = sanitizeNarrative(raw);
+        if (text.isBlank()) return text;
+        text = text.replaceAll("(?i)[^，。！？；;\\n]{0,36}(?:置信度|confidence)[^，。！？；;\\n]{0,36}", "")
+                .replaceAll("[^，。！？；;\\n]{0,36}(?:识别概率|模型评分|识别评分)[^，。！？；;\\n]{0,36}", "")
+                .replaceAll("[，,]{2,}", "，")
+                .replaceAll("(?m)^[，,；;\\s]+", "")
+                .replaceAll("[，,]\\s*([。！？])", "$1")
+                .replaceAll("[ \\t]{2,}", " ")
+                .replaceAll("\\n{3,}", "\\n\\n")
+                .trim();
+        return text;
     }
 
     private List<Map<String, Object>> knowledgeEvidence(String plotId) {

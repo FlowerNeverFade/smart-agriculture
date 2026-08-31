@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260831-vision-v1';
-import { sourceLabel } from '../live-data.js?v=20260831-vision-v1';
+import { api } from '../api.js?v=20260831-vision-v2-original';
+import { sourceLabel } from '../live-data.js?v=20260831-vision-v2-original';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 

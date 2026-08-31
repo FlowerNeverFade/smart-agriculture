@@ -2380,7 +2380,7 @@ export class ApiService {
       const resp = await this._fetch('/api/v1/agent/chat', {
         method: 'POST',
         body: JSON.stringify(body),
-        timeoutMs: body.images?.length ? 90000 : 65000
+        timeoutMs: body.images?.length ? 150000 : 65000
       });
       if (resp && resp.data) return resp.data;
       throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });

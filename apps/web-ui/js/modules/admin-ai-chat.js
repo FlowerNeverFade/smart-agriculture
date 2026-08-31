@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260831-vision-v1';
-import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-vision-v1';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-vision-v1';
+import { api } from '../api.js?v=20260831-vision-v2-original';
+import { agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-vision-v2-original';
+import { analyzeImageFiles } from './image-vision.js?v=20260831-vision-v2-original';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260831-ai-presentation-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
@@ -33,7 +33,11 @@ function textValue(value) { return value === undefined || value === null ? '' : 
 
 function cleanAssistantText(value) {
   return textValue(value)
-    .replace(/(?:[，,；;]\s*)?(?:置信度|confidence)\s*(?:约|为|是|:|：)?\s*\d+(?:\.\d+)?\s*%?\s*[，,；;]?/gi, '')
+    .replace(/[^，。！？；;\n]{0,36}(?:置信度|confidence)[^，。！？；;\n]{0,36}/gi, '')
+    .replace(/[^，。！？；;\n]{0,36}(?:识别概率|模型评分|识别评分)[^，。！？；;\n]{0,36}/gi, '')
+    .replace(/[，,]{2,}/g, '，')
+    .replace(/^[，,；;\s]+/gm, '')
+    .replace(/[，,]\s*([。！？])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
 }
@@ -162,8 +166,15 @@ export const AdminAiChatView = {
     const onImageSelected = event => {
       const files = Array.from(event.target?.files || []);
       const available = Math.max(0, 4 - attachments.value.length);
-      const accepted = files.slice(0, available).filter(file => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.size <= 8 * 1024 * 1024);
-      if (files.length > accepted.length) toast('仅支持 JPG、PNG、WebP 图片，单张不超过 8MB，最多 4 张', 'error');
+      const accepted = [];
+      let totalBytes = attachments.value.reduce((sum, item) => sum + Number(item.size || 0), 0);
+      files.slice(0, available).forEach(file => {
+        const supported = ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
+        if (!supported || file.size > 8 * 1024 * 1024 || totalBytes + file.size > 24 * 1024 * 1024) return;
+        accepted.push(file);
+        totalBytes += file.size;
+      });
+      if (files.length > accepted.length) toast('仅支持 JPG、PNG、WebP 原图，单张不超过 8MB、单次总计不超过 24MB，最多 4 张', 'error');
       attachments.value = [...attachments.value, ...accepted.map(file => ({ id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: file.name, size: file.size, type: file.type, url: URL.createObjectURL(file), file }))];
       if (event.target) event.target.value = '';
     };
@@ -175,17 +186,17 @@ export const AdminAiChatView = {
       CLEAR: '画面质量正常', LOW_LIGHT: '画面偏暗', OVEREXPOSED: '画面偏亮', BLURRY: '画面细节较少', UNKNOWN: '画面质量未检查'
     })[String(value || '').toUpperCase()] || '画面质量正常';
     const visionSummary = (items, sourceAttachments) => items.map((item, index) =>
-      `${sourceAttachments[index]?.name || `图片${index + 1}`}（原图 ${item.width}×${item.height}px，送入模型 ${item.processedWidth}×${item.processedHeight}px，${qualityLabel(item.quality)}）`
+      `${sourceAttachments[index]?.name || `图片${index + 1}`}（${item.width}×${item.height}px，${formatAttachmentSize(item.byteSize)}，原文件未压缩，${qualityLabel(item.quality)}）`
     ).join('；');
     const visionPayloads = (items, sourceAttachments) => items.map((item, index) => ({
       name: sourceAttachments[index]?.name || `图片${index + 1}`,
       mimeType: item.mimeType,
       dataUrl: item.dataUrl,
-      width: item.processedWidth,
-      height: item.processedHeight,
+      width: item.width,
+      height: item.height,
       quality: item.quality
     }));
-    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片会随本次请求直接送入视觉模型。预处理信息：${summary}。请基于图片实际可见内容回答；先说看到了什么，再回答我的问题。只有关键部位确实看不清时才说明具体限制，不要把“不确定”作为默认结论，也不要用地块遥测代替图片内容。`;
+    const buildVisionRequest = (question, summary) => `${question || '请分析我上传的现场图片。'}\n\n图片会以原文件字节直接送入视觉模型，不缩放、不转码、不压缩。原图信息：${summary}。请只基于图片实际可见内容回答，不要输出置信度、概率、百分比、模型评分或识别过程。我只问“这是什么”时，直接说对象名称和一两个可见特征，不要自动追加无关的地块遥测或灌溉建议。只有关键部位确实看不清时才简短说明具体限制。`;
     const analyzePhoto = async () => {
       if (!attachments.value.length || sending.value) return;
       if (!selectedPlotId.value) return toast('请先选择一块地', 'error');
