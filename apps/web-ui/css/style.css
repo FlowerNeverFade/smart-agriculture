@@ -151,7 +151,7 @@ body {
   transition: all 0.2s;
   border: 0;
   background: transparent;
-  font: 500 14px/1 var(--g-font-family);
+  font: 500 14px/1.4 var(--g-font-family);
   text-align: left;
 }
 .g-nav-item:hover { background-color: var(--g-bg-hover); }
