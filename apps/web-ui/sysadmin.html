@@ -445,7 +445,7 @@
               <th>设备编号</th><th>所属地块</th><th>类型</th><th>最后心跳</th><th>状态</th>
             </tr></thead>
             <tbody>
-              <tr v-for="d in filteredDevices" :key="d.deviceId">
+              <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
                 <td>{{ d.plotId }}</td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
@@ -454,6 +454,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ deviceTotalRecords }} 条</span>
+          <select v-model.number="devicePageSize" @change="deviceChangeSize()">
+            <option v-for="s in devicePageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="deviceCurrentPage <= 1" @click="devicePrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ deviceCurrentPage }} / {{ deviceTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="deviceCurrentPage >= deviceTotalPages" @click="deviceNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="deviceJumpInput" min="1" :max="deviceTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="deviceJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
 
@@ -479,7 +491,7 @@
               <th>时间</th><th>级别</th><th>来源</th><th>摘要</th><th>状态</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="a in filteredAlerts" :key="a.id">
+              <tr v-for="a in alertPageRecords" :key="a.id">
                 <td style="white-space:nowrap">{{ a.time }}</td>
                 <td><span class="status-pill" :class="a.level === 'CRITICAL' ? 'down' : a.level === 'WARNING' ? 'warning' : 'info'">{{ a.levelLabel || levelLabel(a.level) }}</span></td>
                 <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
@@ -492,6 +504,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ alertTotalRecords }} 条</span>
+          <select v-model.number="alertPageSize" @change="alertChangeSize()">
+            <option v-for="s in alertPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="alertCurrentPage <= 1" @click="alertPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ alertCurrentPage }} / {{ alertTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="alertCurrentPage >= alertTotalPages" @click="alertNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="alertJumpInput" min="1" :max="alertTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="alertJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>
@@ -863,7 +887,7 @@
               <th>规则编号</th><th>描述</th><th>类型</th><th>版本</th><th>状态</th>
             </tr></thead>
             <tbody>
-              <tr v-for="rule in state.adminRules" :key="rule.id">
+              <tr v-for="rule in rulePageRecords" :key="rule.id">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>
@@ -872,6 +896,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ ruleTotalRecords }} 条</span>
+          <select v-model.number="rulePageSize" @change="ruleChangeSize()">
+            <option v-for="s in rulePageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="ruleCurrentPage <= 1" @click="rulePrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ ruleCurrentPage }} / {{ ruleTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="ruleCurrentPage >= ruleTotalPages" @click="ruleNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="ruleJumpInput" min="1" :max="ruleTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="ruleJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
 
@@ -883,7 +919,7 @@
               <th>候选编号</th><th>来源</th><th>描述</th><th>离线验证</th><th>状态</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="cand in state.adminStrategyCandidates" :key="cand.id">
+              <tr v-for="cand in candPageRecords" :key="cand.id">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}</td>
                 <td><span class="status-pill" :class="cand.source === 'learning' ? 'agent' : 'info'">{{ cand.sourceLabel || (cand.source === 'learning' ? '案例学习' : '人工录入') }}</span></td>
                 <td>{{ displayText(cand.description) }}</td>
@@ -896,6 +932,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ candTotalRecords }} 条</span>
+          <select v-model.number="candPageSize" @change="candChangeSize()">
+            <option v-for="s in candPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="candCurrentPage <= 1" @click="candPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ candCurrentPage }} / {{ candTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="candCurrentPage >= candTotalPages" @click="candNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="candJumpInput" min="1" :max="candTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="candJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>
@@ -1139,7 +1187,7 @@
               <th>用户编号</th><th>用户名</th><th>角色</th><th>所属农场</th><th>关联地块</th><th>状态</th><th>创建时间</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="u in filteredUsers" :key="u.userId">
+              <tr v-for="u in userPageRecords" :key="u.userId">
                 <td style="font-family:var(--g-mono);font-size:11px">{{ u.userId }}</td>
                 <td style="font-weight:500">{{ u.username }}</td>
                 <td><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
@@ -1154,6 +1202,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ userTotalRecords }} 条</span>
+          <select v-model.number="userPageSize" @change="userChangeSize()">
+            <option v-for="s in userPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="userCurrentPage <= 1" @click="userPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ userCurrentPage }} / {{ userTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="userCurrentPage >= userTotalPages" @click="userNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="userJumpInput" min="1" :max="userTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="userJumpTo()">跳转</button>
+          </span>
         </div>
 
         <!-- Create User Modal -->
@@ -1268,7 +1328,7 @@
               <th>时间</th><th>操作人</th><th>操作类型</th><th>详情</th><th>IP 地址</th>
             </tr></thead>
             <tbody>
-              <tr v-for="log in filteredLogs" :key="log.id">
+              <tr v-for="log in logPageRecords" :key="log.id">
                 <td style="white-space:nowrap">{{ log.time }}</td>
                 <td style="font-weight:500">{{ log.operator }}</td>
                 <td><span class="status-pill" :class="log.action === 'LOGIN' ? 'info' : log.action === 'CONFIG_CHANGE' ? 'warning' : 'audit'">{{ log.actionLabel }}</span></td>
@@ -1277,6 +1337,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ logTotalRecords }} 条</span>
+          <select v-model.number="logPageSize" @change="logChangeSize()">
+            <option v-for="s in logPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="logCurrentPage <= 1" @click="logPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ logCurrentPage }} / {{ logTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="logCurrentPage >= logTotalPages" @click="logNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="logJumpInput" min="1" :max="logTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="logJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>

@@ -772,7 +772,13 @@ const AdminOpsView = {
       }
     };
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText };
+    // 设备心跳与告警列表分页
+    const devicePage = usePagination(filteredDevices);
+    const alertPage = usePagination(filteredAlerts);
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText,
+      devicePageSize: devicePage.pageSize, devicePageSizeOptions: devicePage.pageSizeOptions, deviceCurrentPage: devicePage.currentPage, deviceJumpInput: devicePage.jumpInput, deviceTotalRecords: devicePage.totalRecords, deviceTotalPages: devicePage.totalPages, devicePageRecords: devicePage.pageRecords, devicePrevPage: devicePage.prevPage, deviceNextPage: devicePage.nextPage, deviceChangeSize: devicePage.changeSize, deviceJumpTo: devicePage.jumpTo,
+      alertPageSize: alertPage.pageSize, alertPageSizeOptions: alertPage.pageSizeOptions, alertCurrentPage: alertPage.currentPage, alertJumpInput: alertPage.jumpInput, alertTotalRecords: alertPage.totalRecords, alertTotalPages: alertPage.totalPages, alertPageRecords: alertPage.pageRecords, alertPrevPage: alertPage.prevPage, alertNextPage: alertPage.nextPage, alertChangeSize: alertPage.changeSize, alertJumpTo: alertPage.jumpTo };
   }
 };
 
@@ -1287,11 +1293,18 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
+    // 规则集与策略候选列表分页
+    const rulesList = computed(() => props.state.adminRules || []);
+    const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
+    const rulePage = usePagination(rulesList);
+    const candidatePage = usePagination(candidatesList);
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
-      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText,
+      rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
+      candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };
   }
 };
@@ -1851,9 +1864,14 @@ const AdminSettingsView = {
           .replace('❌', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-danger)">cancel</span>')
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
+    // 账号列表与操作审计日志分页
+    const userPage = usePagination(filteredUsers);
+    const logPage = usePagination(filteredLogs);
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
+      logPageSize: logPage.pageSize, logPageSizeOptions: logPage.pageSizeOptions, logCurrentPage: logPage.currentPage, logJumpInput: logPage.jumpInput, logTotalRecords: logPage.totalRecords, logTotalPages: logPage.totalPages, logPageRecords: logPage.pageRecords, logPrevPage: logPage.prevPage, logNextPage: logPage.nextPage, logChangeSize: logPage.changeSize, logJumpTo: logPage.jumpTo
     };
   }
 };
