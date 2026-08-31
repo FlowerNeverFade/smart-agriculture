@@ -57,7 +57,8 @@ const FARMER_ICON_CLASS = Object.freeze({
   send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash',
   chevron_left: 'ph-caret-left', chevron_right: 'ph-caret-right', chat_bubble_outline: 'ph-chat-circle',
   location_on: 'ph-map-pin', add: 'ph-plus', attach_file: 'ph-paperclip', image_search: 'ph-image-square',
-  bolt: 'ph-lightning', arrow_upward: 'ph-arrow-up'
+  bolt: 'ph-lightning', arrow_upward: 'ph-arrow-up',
+  more_vert: 'ph-dots-three-vertical', push_pin: 'ph-push-pin', edit: 'ph-pencil-simple', delete: 'ph-trash'
 });
 
 const FarmerAppIcon = {
