@@ -853,22 +853,37 @@ const AdminSimulatorView = {
     const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
+    // 场景名规范化：与后端 canonicalSimulationScenario 一致（STORM/HEAVYRAIN → HEAVY_RAIN）
+    const canonicalScenario = (scenario) => {
+      const s = String(scenario || 'NORMAL').toUpperCase().replace('-', '_');
+      return s === 'STORM' || s === 'HEAVYRAIN' ? 'HEAVY_RAIN' : s;
+    };
 
     watch(plots, (newPlots) => {
       const demoScenarios = props.state.sessionMode !== 'live' ? api.getDemoSimulationScenarioMap() : {};
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
         const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
-        const configuredScenario = persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const configuredScenario = canonicalScenario(persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          scenario: existing ? existing.scenario : configuredScenario,
+          // 初始场景值：保存时只提交有变更的地块
+          originalScenario: existing ? existing.originalScenario : configuredScenario,
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
     }, { immediate: true });
+
+    // 按模拟场景筛选（场景配置表格）
+    const scenarioFilter = ref('all');
+    const filteredPlotScenarios = computed(() => {
+      const list = plotScenarios.value || [];
+      if (scenarioFilter.value === 'all') return list;
+      return list.filter(plot => plot.scenario === scenarioFilter.value);
+    });
 
     const globalScenario = computed({
       get: () => {
@@ -945,22 +960,26 @@ const AdminSimulatorView = {
     };
     const applyPlotScenarios = async () => {
       if (simBusy.value) return;
-      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
-      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      // 批量应用只针对当前筛选显示的地块，且只提交场景有变更的
+      const targets = (filteredPlotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      const changed = targets.filter((plot) => canonicalScenario(plot.scenario) !== canonicalScenario(plot.originalScenario));
+      if (targets.length === 0) { toast('当前筛选下没有可保存的地块场景配置', 'error'); return; }
+      if (changed.length === 0) { toast('当前筛选下的地块场景均无变更', 'info'); return; }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
-        for (const plot of targets) {
-          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+        for (const plot of changed) {
+          const scenario = canonicalScenario(plot.scenario);
           try {
             await api.updatePlotSimulation(plot.plotId, { scenario });
+            plot.originalScenario = scenario;
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
           }
         }
-        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (updated > 0) toast(`已保存 ${updated}/${changed.length} 个有变更地块的场景配置，模拟器将按新策略生成数据`);
         if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
       } catch (error) {
         toast(error.message || '场景配置保存失败', 'error');
@@ -1075,7 +1094,7 @@ const AdminSimulatorView = {
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
-      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'HEAVY_RAIN', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
@@ -1111,7 +1130,7 @@ const AdminSimulatorView = {
     };
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioFilter, filteredPlotScenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,

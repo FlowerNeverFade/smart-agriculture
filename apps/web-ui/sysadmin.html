@@ -715,9 +715,14 @@
 
       <!-- Scenario Selection -->
       <div class="admin-section-head">
-        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置矩阵</div>
+        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置</div>
         <div style="display:flex; gap: 8px; align-items: center">
-          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
+          <span style="font-size: 13px; color: var(--g-text-secondary)">按场景筛选：</span>
+          <select v-model="scenarioFilter" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+            <option value="all">全部场景</option>
+            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+          </select>
+          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用（当前筛选 {{ filteredPlotScenarios.length }} 地块）：</span>
           <select v-model="globalScenario" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
             <option value="">-- 选择场景 --</option>
             <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
@@ -734,7 +739,7 @@
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
-            <tr v-for="plot in plotScenarios" :key="plot.plotId">
+            <tr v-for="plot in filteredPlotScenarios" :key="plot.plotId">
               <td style="font-family:var(--g-mono);font-size:11px">{{ plot.plotId }}</td>
               <td style="font-weight:500">{{ plot.name }}</td>
               <td><span class="status-pill info">{{ plot.cropName }}</span></td>
