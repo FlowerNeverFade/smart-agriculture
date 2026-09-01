@@ -3440,6 +3440,22 @@ const app = createApp({
       return matches.length ? matches : source.slice(0, 1);
     };
 
+    const CORE_REQUEST_BUDGET_MS = 2200;
+    const settleCoreRequest = (promise, timeoutMs = CORE_REQUEST_BUDGET_MS) => {
+      const operation = Promise.resolve(promise).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason })
+      );
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+      let timer = null;
+      const timeout = new Promise(resolve => {
+        timer = window.setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+      });
+      return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+
     const refresh_plot_telemetry = async () => {
       if (!is_formal_session || !plots.value.length) return false;
       const snapshot = plots.value.slice();
@@ -3461,6 +3477,107 @@ const app = createApp({
         qa_plot_id.value = nextPlots[0]?.plotId || '';
       }
       data_updated_label.value = '刚刚';
+      return true;
+    };
+
+    // The farmer page needs only the current farm, plot cards, tasks and
+    // alerts to become useful.  Keep this pass independent from crop manuals,
+    // resource plans and inspection history; those endpoints are reconciled by
+    // the existing full loader after the first paint.
+    const load_live_workspace_core = async ({ announce = false, trackProgress = false } = {}) => {
+      if (!is_formal_session) return false;
+      const version = ++workspace_request_version;
+      const showProgress = Boolean(trackProgress || announce || bootstrap_loading.value);
+      if (showProgress) begin_workspace_progress('正在读取农场与地块…');
+      const jobs = [
+        api.getFarms(),
+        api.getPlots({ includeInactive: true }),
+        api.getOverview(),
+        api.getWorkOrders(),
+        api.getTodayWorkItems(),
+        api.getAlerts()
+      ];
+      const results = await Promise.all(jobs.map((promise) => settleCoreRequest(promise)));
+      if (version !== workspace_request_version) return false;
+      const authFailure = results.find((result) => result.status === 'rejected'
+        && (result.reason?.status === 401 || result.reason?.code === 'AUTH_REQUIRED' || result.reason?.code === 'AUTH_INVALID'));
+      if (authFailure) {
+        const error = authFailure.reason;
+        if (error?.status === 401 || error?.code === 'AUTH_REQUIRED' || error?.code === 'AUTH_INVALID') {
+          api.clearSession();
+          window.location.replace('login.html?reason=session_expired');
+          return false;
+        }
+      }
+      const coreIndexes = [0, 1, 2, 3, 5];
+      const hasCoreData = coreIndexes.some((index) => results[index]?.status === 'fulfilled');
+      if (!hasCoreData) {
+        const error = results.find((result) => result.status === 'rejected')?.reason;
+        load_error.value = error?.message || '正式数据读取失败';
+        if (announce) show_toast(`正式农户数据读取失败：${load_error.value}`, 'error');
+        return false;
+      }
+      const farms = results[0].status === 'fulfilled' ? results[0].value || [] : [];
+      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || plots.value || [] : plots.value || [];
+      const overview = results[2].status === 'fulfilled' ? results[2].value || {} : {};
+      const rawWorkOrders = mergeFarmerWorkOrders(
+        results[3].status === 'fulfilled' ? results[3].value || [] : tasks.value || [],
+        results[4].status === 'fulfilled' ? results[4].value || [] : []
+      );
+      const rawAlerts = results[5].status === 'fulfilled' ? results[5].value || [] : [];
+      const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
+      const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
+      const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
+      let normalizedPlots = rawPlots
+        .map((plot) => {
+          const normalized = normalizePlot(plot, cards.get(String(plot.plotId)) || {});
+          return { ...normalized, healthScore: compute_plot_health_score(normalized) };
+        })
+        .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      normalizedPlots = replace_plots_in_order(normalizedPlots, { commitOrder: !plot_drag_state.value.active });
+      const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
+      const normalizedTasks = rawWorkOrders.map((work) => normalizeFarmerTask(work, plotMap));
+      const records = (inspection_records.value || []).map((record) => ({
+        ...record,
+        plotName: plotMap.get(String(record.plotId))?.name || record.plotId
+      }));
+      const nextMessages = buildFarmerMessages({ alerts: rawAlerts, tasks: normalizedTasks, inspections: records, plots: normalizedPlots });
+      const profile = buildFarmerProfile({ user: user.value, farm: selectedFarm, plots: normalizedPlots, tasks: normalizedTasks, inspections: records, messages: nextMessages });
+      farm.value = selectedFarm;
+      replace_ref_array(plots, normalizedPlots);
+      replace_ref_array(tasks, normalizedTasks);
+      sync_task_references(normalizedTasks);
+      apply_messages(nextMessages);
+      replace_ref_array(inspection_records, records);
+      evidence_requests.value = normalizedTasks
+        .filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS')
+        .map((task) => ({
+          id: task.workOrderId || task.id,
+          plotId: task.plot_id,
+          type: task.evidenceType || 'FIELD_INSPECTION',
+          reason: task.reason,
+          status: task.status,
+          createdAt: task.created_iso,
+          requesterId: task.requesterId || task.createdBy,
+          requesterName: task.requesterName || task.createdBy,
+          dataOrigin: 'BACKEND'
+        }));
+      user.value = {
+        ...user.value,
+        displayName: profile.displayName,
+        role_label: user.value.roleLabel || profile.role_label,
+        plot_names: profile.plot_names,
+        total_done: profile.total_done,
+        month_done: profile.month_done,
+        completion_rate: profile.completion_rate
+      };
+      selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || normalizedPlots[0] || null;
+      advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
+      if (!qa_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) qa_plot_id.value = normalizedPlots[0]?.plotId || '';
+      if (!inspection_form.value.plot_id || !plotMap.has(inspection_form.value.plot_id)) inspection_form.value.plot_id = normalizedPlots[0]?.plotId || '';
+      if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
+      data_updated_label.value = '刚刚';
+      if (showProgress) set_workspace_progress(86, '正在完成首屏…');
       return true;
     };
 
@@ -5475,6 +5592,15 @@ const app = createApp({
         if (timer !== null) window.clearTimeout(timer);
       });
     };
+    const defer_workspace_refresh = (task) => {
+      const run = () => {
+        Promise.resolve().then(task).catch((error) => {
+          console.warn('[AgriLoop] deferred farmer refresh failed:', error);
+        });
+      };
+      if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 1400 });
+      else window.setTimeout(run, 900);
+    };
 
     onMounted(async () => {
       bootstrap_loading.value = true;
@@ -5495,15 +5621,29 @@ const app = createApp({
           // A separate public health round trip added several seconds through
           // the remote tunnel before useful data loading could even begin.
           set_workspace_progress(12, '正在读取正式数据…');
-          await load_plot_order_preference();
-          await load_live_workspace({ announce: true, trackProgress: true });
+          // Preference ordering is cosmetic; resolve it alongside the core
+          // requests instead of making it another serial gate.
+          void load_plot_order_preference({ announce: false });
+          const corePromise = load_live_workspace_core({ announce: true, trackProgress: true });
+          // Never keep the full-screen bootstrap overlay behind a slow proxy;
+          // the core pass continues in the background and applies its result
+          // when it eventually arrives.
+          await with_bootstrap_timeout(() => corePromise, 2600);
+          void corePromise.then(() => {
+            defer_workspace_refresh(() => load_live_workspace({ announce: false, trackProgress: false }));
+          }).then(() => {
+            // A successful core request is also the first reliable transport
+            // signal. Update the badge and start SSE without blocking paint.
+            is_live.value = api.isLive;
+            if (api.isLive) void connect_live_events({ announce: false });
+          }).catch(() => {});
           is_live.value = api.isLive;
           // SSE is an enhancement backed by polling. Never keep the full-page
           // bootstrap overlay visible while a proxy holds the stream open.
           void connect_live_events({ announce: false });
         } else {
           set_workspace_progress(12, '正在检查服务状态…');
-          await load_plot_order_preference();
+          void load_plot_order_preference({ announce: false });
           is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
           await load_demo_operation_records();

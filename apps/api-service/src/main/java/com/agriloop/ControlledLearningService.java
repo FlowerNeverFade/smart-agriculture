@@ -464,21 +464,30 @@ class ControlledLearningService {
         if (!"DRAFT".equals(upper(candidate.get("status")))) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", "只有 DRAFT 候选可以进行离线验证");
         long seed = Jsons.whole(input == null ? Map.of() : input, "seed", 42);
         String scenario = firstNonBlank(text(input == null ? null : input.get("scenarioId")), "normal");
+        boolean manualBaseline = isManualBaselineCandidate(candidate);
         List<String> evidenceIds = strings(candidate.get("evidenceCaseIds"));
         List<Map<String, Object>> evidence = evidenceIds.stream().map(this::findCaseOrNull).filter(Objects::nonNull).map(ref -> normalize(ref.type, ref.record)).toList();
         List<String> failures = new ArrayList<>();
-        if (evidence.size() < MIN_CANDIDATE_CASES) failures.add("EVIDENCE_INSUFFICIENT");
-        if (evidence.stream().anyMatch(row -> !QUALIFIED.equals(upper(row.get("qualityStatus"))))) failures.add("EVIDENCE_NOT_QUALIFIED");
+        // Legacy/manual candidates are validated against a deterministic
+        // baseline contract.  They are intentionally not learning evidence:
+        // they remain tagged NONE and can never be exported to positive
+        // retrieval or offline training.  Case-generated candidates continue
+        // to require the full evidence gate below.
+        if (!manualBaseline && evidence.size() < MIN_CANDIDATE_CASES) failures.add("EVIDENCE_INSUFFICIENT");
+        if (!manualBaseline && evidence.stream().anyMatch(row -> !QUALIFIED.equals(upper(row.get("qualityStatus"))))) failures.add("EVIDENCE_NOT_QUALIFIED");
         double successRate = evidence.isEmpty() ? 0 : evidence.stream().filter(this::successfulCase).count() / (double) evidence.size();
-        if (successRate < MIN_CANDIDATE_SUCCESS_RATE) failures.add("SUCCESS_RATE_BELOW_THRESHOLD");
-        if (evidence.stream().anyMatch(row -> !strings(row.get("excludedReason")).isEmpty())) failures.add("QUALITY_GATE_REGRESSION");
-        boolean safetyPassed = evidence.stream().noneMatch(row -> hasGateFailure(row, "safety"));
-        boolean resourcePassed = evidence.stream().noneMatch(row -> hasGateFailure(row, "resource"));
+        if (!manualBaseline && successRate < MIN_CANDIDATE_SUCCESS_RATE) failures.add("SUCCESS_RATE_BELOW_THRESHOLD");
+        if (!manualBaseline && evidence.stream().anyMatch(row -> !strings(row.get("excludedReason")).isEmpty())) failures.add("QUALITY_GATE_REGRESSION");
+        boolean safetyPassed = manualBaseline || evidence.stream().noneMatch(row -> hasGateFailure(row, "safety"));
+        boolean resourcePassed = manualBaseline || evidence.stream().noneMatch(row -> hasGateFailure(row, "resource"));
         if (!safetyPassed) failures.add("SAFETY_GATE_FAILED");
         if (!resourcePassed) failures.add("RESOURCE_LIMIT_FAILED");
         String status = failures.isEmpty() ? "PASSED" : "FAILED";
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("status", status);
+        report.put("validationMode", manualBaseline ? "MANUAL_BASELINE" : "QUALIFIED_CASE_REPLAY");
+        report.put("learningEligible", !manualBaseline);
+        report.put("evidenceRequired", !manualBaseline);
         report.put("scenarioId", scenario);
         report.put("seed", seed);
         report.put("evidenceCaseIds", evidenceIds);
@@ -899,6 +908,18 @@ class ControlledLearningService {
         if (candidateId.equals(text(row.get("candidateId")))) return true;
         Map<String, Object> candidate = store.find("strategy-candidate", candidateId);
         return candidate != null && strings(candidate.get("evidenceCaseIds")).contains(text(row.get("caseId")));
+    }
+
+    /**
+     * Candidates created through the legacy strategy endpoint are authored
+     * baselines, rather than learning output.  They still have to pass the
+     * deterministic offline replay and human approval flow, but they do not
+     * need (and must never acquire) positive learning evidence.
+     */
+    private boolean isManualBaselineCandidate(Map<String, Object> candidate) {
+        return "MANUAL_AUTHORED".equals(upper(candidate == null ? null : candidate.get("provenance")))
+                && !Jsons.bool(candidate == null ? Map.of() : candidate, "learningEligible", true)
+                && strings(candidate == null ? null : candidate.get("evidenceCaseIds")).isEmpty();
     }
 
     private boolean successfulCase(Map<String, Object> row) {

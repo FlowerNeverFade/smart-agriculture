@@ -160,7 +160,7 @@ class FarmGovernanceService {
         if (!"APPROVED".equals(Jsons.text(candidate, "status", ""))) throw conflict("STRATEGY_TRANSITION_INVALID", "只有已批准的候选可以启用，请先完成人工批准");
         Map<String, Object> validation = Jsons.map(mapper, candidate.get("offlineValidation"));
         if (!"PASSED".equalsIgnoreCase(Jsons.text(validation, "status", ""))) throw conflict("STRATEGY_OFFLINE_VALIDATION_REQUIRED", "策略候选必须先通过离线验证");
-        if (!evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
+        if (!isManualBaselineCandidate(candidate) && !evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
         String signature = Jsons.text(candidate, "signature", "");
         for (Map<String, Object> old : store.list("strategy-candidate")) {
             if (id.equals(Jsons.text(old, "candidateId", ""))) continue;
@@ -193,7 +193,7 @@ class FarmGovernanceService {
         if ("APPROVED".equals(target)) {
             Map<String, Object> validation = Jsons.map(mapper, candidate.get("offlineValidation"));
             if (!"PASSED".equalsIgnoreCase(Jsons.text(validation, "status", ""))) throw conflict("STRATEGY_OFFLINE_VALIDATION_REQUIRED", "只有离线验证通过的候选可以批准");
-            if (!evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
+            if (!isManualBaselineCandidate(candidate) && !evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
             candidate.put("approvedBy", principal.userId);
             candidate.put("approvedAt", Instant.now().toString());
         }
@@ -216,6 +216,12 @@ class FarmGovernanceService {
                     || !Jsons.strings(row.get("excludedReason")).isEmpty()) return false;
         }
         return true;
+    }
+
+    private boolean isManualBaselineCandidate(Map<String, Object> candidate) {
+        return "MANUAL_AUTHORED".equalsIgnoreCase(Jsons.text(candidate, "provenance", ""))
+                && !Jsons.bool(candidate, "learningEligible", true)
+                && Jsons.strings(candidate.get("evidenceCaseIds")).isEmpty();
     }
 
     Map<String, Object> recordAlertOutcome(Map<String, Object> alert, Map<String, Object> outcome, UserPrincipal principal) {

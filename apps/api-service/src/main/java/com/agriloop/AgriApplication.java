@@ -7126,7 +7126,28 @@ class AgriEngine {
             return controlledLearning.generateStrategyCandidate(input, principal);
         }
         if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以管理策略候选");
-        Map<String, Object> candidate = new LinkedHashMap<>(input); candidate.put("candidateId", Jsons.text(input, "candidateId", Jsons.id("strategy"))); candidate.put("status", "DRAFT"); candidate.put("reviewer", principal.userId); candidate.put("candidateVersion", "candidate-1"); candidate.put("createdAt", Instant.now().toString());
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> candidate = new LinkedHashMap<>(request);
+        candidate.put("candidateId", Jsons.text(request, "candidateId", Jsons.id("strategy")));
+        candidate.put("status", "DRAFT");
+        candidate.put("reviewer", principal.userId);
+        candidate.put("candidateVersion", "candidate-1");
+        candidate.put("createdAt", Instant.now().toString());
+        // This endpoint predates controlled learning and is still used by
+        // existing integrations to author a strategy from the current rules.
+        // Mark it explicitly as a manual baseline candidate so it can follow
+        // the offline-validation/approval workflow without being mistaken for
+        // a positive learning case.  The controlled-learning generator never
+        // accepts this marker from client input.
+        candidate.put("provenance", "MANUAL_AUTHORED");
+        candidate.put("learningEligible", false);
+        candidate.put("learningUses", List.of(ControlledLearningService.NONE));
+        candidate.put("evidenceCaseIds", List.of());
+        candidate.put("evidenceCount", 0);
+        candidate.put("baselineStrategy", request.containsKey("baselineStrategy")
+                ? request.get("baselineStrategy") : Map.of("source", "manual-input"));
+        candidate.put("proposedStrategy", request.containsKey("proposedStrategy")
+                ? request.get("proposedStrategy") : Map.of("source", "manual-input"));
         store.save("strategy-candidate", Jsons.text(candidate, "candidateId", ""), candidate); return candidate;
     }
 
