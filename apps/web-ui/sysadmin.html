@@ -447,7 +447,7 @@
             <tbody>
               <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
-                <td>{{ plotNameOf(d.plotId) }}</td>
+                <td>{{ d.plotId }}<template v-if="plotNameOf(d.plotId) !== d.plotId"> · {{ plotNameOf(d.plotId) }}</template></td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
                 <td>{{ d.lastHeartbeat }}</td>
                 <td><span class="status-pill" :class="d.status.toLowerCase()">{{ d.statusLabel || serviceStatusLabel(d.status) }}</span></td>
@@ -605,7 +605,7 @@
                 <td>{{ plotNameOf(record.plotId) }}</td>
                 <td>{{ record.typeLabel }}</td>
                 <td>{{ displayText(record.summary) }}</td>
-                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '待审' }}</span></td>
+                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '未决' }}</span></td>
                 <td><app-icon name="expand_more" style="font-size:18px;transition:transform 0.2s" :style="{transform: expandedPassport===record.traceId?'rotate(180deg)':''}"></app-icon></td>
               </tr>
               <!-- Decision Passport Expansion -->
