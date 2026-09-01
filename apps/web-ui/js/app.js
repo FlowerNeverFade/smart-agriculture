@@ -12,7 +12,7 @@ import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
 import { cropBackgroundFor } from './plot-background.js?v=20260831-sync-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
