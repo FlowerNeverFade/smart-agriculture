@@ -6,7 +6,7 @@ import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTI
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-admin-ops-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-admin-ops-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-ai-icons-v3';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-admin-ops-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
@@ -141,6 +141,21 @@ const ICON_CLASS = Object.freeze({
   replay: 'ph-arrow-counter-clockwise',
   speed: 'ph-gauge',
   agriculture: 'ph-plant',
+  // AI assistant uses the same shared app-icon component as the main shell.
+  // Keep these aliases here as well as in the standalone role shells; an
+  // unknown alias falls back to ph-circle, which made valid actions look like
+  // empty radio buttons in the assistant.
+  plot_open_field: 'ph-rows',
+  plot_greenhouse: 'ph-barn',
+  plot_shade_house: 'ph-umbrella-simple',
+  plot_orchard: 'ph-tree',
+  location_on: 'ph-map-pin',
+  chat_bubble_outline: 'ph-chat-circle',
+  inbox: 'ph-tray',
+  push_pin: 'ph-push-pin',
+  more_vert: 'ph-dots-three-vertical',
+  more_vertical: 'ph-dots-three-vertical',
+  arrow_upward: 'ph-arrow-up',
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',

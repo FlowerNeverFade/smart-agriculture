@@ -12,6 +12,7 @@ globalThis.Vue = { ref: value => ({ value }), computed: getter => ({ get value()
 
 const { api } = await import('../js/api.js?assistant-history-test');
 const { AdminAiChatView, plotFacilityIcon } = await import('../js/modules/admin-ai-chat.js?assistant-history-test');
+const { ICON_CLASS } = await import('../js/modules/icon-map.js?assistant-icons-test');
 const { ruleCodeValue } = await import('../js/modules/admin-rules-strategies.js?assistant-rule-display-test');
 const { legacyAdminTabTarget } = await import('../js/admin-state.js?assistant-history-test');
 
@@ -40,6 +41,7 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   const visionSource = readFileSync(new URL('../js/modules/image-vision.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const shell = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   assert.match(source, /getAgentConversations/);
   assert.match(source, /persistDemoAgentTurn/);
   assert.match(source, /历史对话/);
@@ -74,6 +76,10 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-sidebar-resizer\s*\{\s*display:\s*none/);
   assert.match(css, /\.admin-ai-control-label\s*\{[^}]*white-space:\s*nowrap/);
   assert.match(index, /keep-alive include="AdminAiChatView"/);
+  assert.match(shell, /plot_greenhouse:\s*'ph-barn'/);
+  assert.match(shell, /plot_open_field:\s*'ph-rows'/);
+  assert.match(shell, /arrow_upward:\s*'ph-arrow-up'/);
+  assert.match(shell, /inbox:\s*'ph-tray'/);
 });
 
 test('首条消息保留乐观历史摘要，并按设施类型选择地块图标', () => {
@@ -83,6 +89,11 @@ test('首条消息保留乐观历史摘要，并按设施类型选择地块图�
   assert.equal(plotFacilityIcon({ facilityType: 'SHADE_HOUSE' }), 'plot_shade_house');
   assert.equal(plotFacilityIcon({ facilityType: 'ORCHARD' }), 'plot_orchard');
   assert.equal(plotFacilityIcon({ facilityType: 'UNKNOWN' }), 'location_on');
+  assert.equal(ICON_CLASS.plot_open_field, 'ph-rows');
+  assert.equal(ICON_CLASS.plot_greenhouse, 'ph-barn');
+  assert.equal(ICON_CLASS.plot_shade_house, 'ph-umbrella-simple');
+  assert.equal(ICON_CLASS.plot_orchard, 'ph-tree');
+  assert.equal(ICON_CLASS.arrow_upward, 'ph-arrow-up');
 });
 
 test('规则展示编号稳定区分同一底层规则，且不改写底层 code', () => {

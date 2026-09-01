@@ -93,6 +93,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a01",
       name: "温室1",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "番茄",
       cropVariety: "示范番茄",
@@ -123,6 +124,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a02",
       name: "温室2",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "番茄",
       cropVariety: "示范番茄",
@@ -153,6 +155,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b01",
       name: "温室3",
+      facilityType: "GREENHOUSE",
       cropCode: "cucumber",
       cropName: "黄瓜",
       cropVariety: "示范黄瓜",
@@ -183,6 +186,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a03",
       name: "A03 扩展玉米田",
+      facilityType: "OPEN_FIELD",
       cropCode: "corn",
       cropName: "鲜食玉米",
       cropVariety: "甜糯双色 8 号",
@@ -213,6 +217,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b02",
       name: "B02 向日葵花海",
+      facilityType: "OPEN_FIELD",
       cropCode: "sunflower",
       cropName: "油葵花海",
       cropVariety: "金色阳光 3 号",
@@ -243,6 +248,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b03",
       name: "B03 草莓精品区",
+      facilityType: "SHADE_HOUSE",
       cropCode: "strawberry",
       cropName: "红颊草莓",
       cropVariety: "红颜高架草莓",
@@ -273,6 +279,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-c01",
       name: "C01 智能连栋温室",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "设施番茄",
       cropVariety: "荷兰瑞克斯水果番茄",
