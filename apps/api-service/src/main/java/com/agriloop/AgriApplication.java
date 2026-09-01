@@ -593,6 +593,41 @@ class AgriStore {
         return result;
     }
 
+    /** timeline 专用：按地块取最近 limit 条，避免对全量历史做深拷贝（200 万级事件场景）。 */
+    List<Map<String, Object>> timelineForPlot(String type, String plotId, int limit) {
+        java.util.Comparator<Map<String, Object>> newest = java.util.Comparator.comparing(
+                (Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder());
+        List<Map<String, Object>> result = records.getOrDefault(type, Map.of()).values().stream()
+                .filter(v -> plotId.equals(Jsons.text(v, "plotId", "")))
+                .sorted(newest)
+                .limit(limit)
+                .map(v -> Jsons.copy(mapper, v))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (databaseReady && result.size() < limit) {
+            try {
+                int need = limit - result.size();
+                String sql = "SELECT entity_id,payload FROM entity_record WHERE entity_type=? AND payload->>'plotId'=? ORDER BY updated_at DESC LIMIT " + Math.max(1, need);
+                List<Map<String, Object>> persisted = jdbc.query(sql,
+                        (rs, rowNum) -> {
+                            try { return mapper.readValue(rs.getString("payload"), Map.class); }
+                            catch (Exception e) { return Map.<String, Object>of(); }
+                        }, type, plotId);
+                for (Map<String, Object> v : persisted) {
+                    if (v.isEmpty()) continue;
+                    String key = Jsons.text(v, "createdAt", "");
+                    boolean duplicate = false;
+                    for (Map<String, Object> existing : result) {
+                        if (Jsons.text(existing, "createdAt", "").equals(key)) { duplicate = true; break; }
+                    }
+                    if (!duplicate) result.add(v);
+                }
+                result.sort(newest);
+                if (result.size() > limit) result = new ArrayList<>(result.subList(0, limit));
+            } catch (DataAccessException ignored) { /* 内存结果可用 */ }
+        }
+        return result;
+    }
+
     boolean saveTelemetry(Map<String, Object> event) {
         String eventId = Jsons.text(event, "eventId", Jsons.id("evt"));
         Map<String, Object> copy = Jsons.copy(mapper, event);
@@ -9550,11 +9585,9 @@ class AgriController {
         int cap = Math.max(1, Math.min(limit, 200));
         List<Map<String, Object>> timeline = new ArrayList<>();
         for (String type : List.of("alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            store.list(type).stream()
-                    .filter(x -> plotId.equals(Jsons.text(x, "plotId", "")))
-                    .sorted(Comparator.comparing((Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder()))
-                    .limit(cap)
-                    .forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
+            for (Map<String, Object> x : store.timelineForPlot(type, plotId, cap)) {
+                timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x));
+            }
         }
         timeline.sort(Comparator.comparing(x -> Jsons.text(x, "at", ""))); return ok(timeline);
     }

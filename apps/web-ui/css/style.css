@@ -878,10 +878,11 @@ html[data-layout="wide"] .g-main { padding-inline: 16px; }
 html[data-reduced-motion="true"] *,
 html[data-reduced-motion="true"] *::before,
 html[data-reduced-motion="true"] *::after {
-  animation-duration: 0.01ms !important;
-  animation-iteration-count: 1 !important;
+  /* 直接禁用动画/过渡：0.01ms 极短时长可能不触发 transitionend，
+     导致 Vue <transition> 停在 enter-from 帧（界面偏移/留白） */
+  animation: none !important;
+  transition: none !important;
   scroll-behavior: auto !important;
-  transition-duration: 0.01ms !important;
 }
 html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .farmer-agent-audit-meta) { display: none !important; }
 

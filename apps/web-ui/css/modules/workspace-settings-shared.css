@@ -271,10 +271,9 @@ html[data-workspace-preset][data-surface-style="glass-latest"] :is(#app, #farmer
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::before,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::after {
-  animation-duration: .001ms !important;
-  animation-iteration-count: 1 !important;
+  animation: none !important;
+  transition: none !important;
   scroll-behavior: auto !important;
-  transition-duration: .001ms !important;
 }
 
 @media (max-width: 760px) {
