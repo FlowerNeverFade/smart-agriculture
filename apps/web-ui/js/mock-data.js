@@ -1431,11 +1431,11 @@ export const MOCK_DATA = {
   ],
 
   adminSimHistory: [
-    { scenarioId: 'sim-20260825-001', type: '正常运行', startTime: '08:00', endTime: null, events: 1847, status: 'RUNNING' },
-    { scenarioId: 'sim-20260824-003', type: '干旱场景', startTime: '前日 14:00', endTime: '前日 16:30', events: 892, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260824-002', type: '暴雨场景', startTime: '前日 10:00', endTime: '前日 12:15', events: 1203, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260824-001', type: '传感器漂移', startTime: '前日 07:00', endTime: '前日 08:30', events: 456, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260823-001', type: '设备离线恢复', startTime: '前2日 15:00', endTime: '前2日 16:00', events: 312, status: 'COMPLETED' }
+    { scenarioId: 'sim-20260825-001', type: '正常运行', plotId: 'plot-a01', startTime: '08:00', endTime: null, events: 1847, status: 'RUNNING' },
+    { scenarioId: 'sim-20260824-003', type: '干旱场景', plotId: 'plot-a02', startTime: '前日 14:00', endTime: '前日 16:30', events: 892, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-002', type: '暴雨场景', plotId: 'plot-b01', startTime: '前日 10:00', endTime: '前日 12:15', events: 1203, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-001', type: '传感器漂移', plotId: 'plot-a01', startTime: '前日 07:00', endTime: '前日 08:30', events: 456, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260823-001', type: '设备离线恢复', plotId: 'plot-b02', startTime: '前2日 15:00', endTime: '前2日 16:00', events: 312, status: 'COMPLETED' }
   ],
 
   adminCropPacks: [

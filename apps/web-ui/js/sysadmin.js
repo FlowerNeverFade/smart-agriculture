@@ -1036,13 +1036,34 @@ const AdminSimulatorView = {
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
 
+    // ISO 时间戳 → 本地短格式（MM-DD HH:mm:ss）；运行中/未结束返回 '—'
+    const formatSimTime = (t) => {
+      if (!t || t === '—') return '—';
+      const d = new Date(t);
+      if (isNaN(d.getTime())) return String(t);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+    // 场景编号：demo 的 sim-xxx 有意义编号完整保留；live 随机 runId 只显示尾部 8 位（title 可看完整）
+    const shortId = (id) => {
+      const s = String(id || '');
+      if (!s || s.startsWith('sim-')) return s;
+      return s.split('-').pop().slice(0, 8) || s;
+    };
+    // 地块编号 → 地块名
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plot = (props.state.plots || []).find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
     return {
       simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
-      scenarioLabel, localizedStatusLabel
+      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf
     };
   }
 };
@@ -2118,20 +2139,24 @@ const app = createApp({
       state.value.adminDevices = adminDevices;
       state.value.adminAlerts = adminAlerts;
       state.value.adminAuditRecords = auditRecords;
-      state.value.adminSimHistory = (results.scenarios?.status === 'fulfilled' ? results.scenarios.value : []).map((run) => ({
-        runId: run.runId,
-        scenarioId: run.scenarioId || run.runId,
-        type: run.scenario || run.scenarioId || '—',
-        typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
-        seed: run.seed,
-        plotId: run.plotId,
-        startTime: run.startedAt || run.createdAt || '—',
-        endTime: run.completedAt || run.endedAt || null,
-        events: Number(run.events || run.mainEvents || run.replayEvents || 0),
-        status: liveStatusValue(run.status, 'UNKNOWN'),
-        statusLabel: localizedStatusLabel(run.status, '未知'),
-        dataOrigin: 'BACKEND'
-      }));
+      state.value.adminSimHistory = (results.scenarios?.status === 'fulfilled' ? results.scenarios.value : []).map((run) => {
+        // RUNNING 运行中：结束时间未知显示'-'（切换完成后旧场景变 COMPLETED 才有具体结束时间）
+        const running = liveStatusValue(run.status, 'UNKNOWN') === 'RUNNING';
+        return {
+          runId: run.runId,
+          scenarioId: run.scenarioId || run.runId,
+          type: run.scenario || run.scenarioId || '—',
+          typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
+          seed: run.seed,
+          plotId: run.plotId,
+          startTime: formatSimTime(run.startedAt || run.createdAt),
+          endTime: running ? null : formatSimTime(run.completedAt || run.endedAt),
+          events: Number(run.events || run.mainEvents || run.replayEvents || 0),
+          status: liveStatusValue(run.status, 'UNKNOWN'),
+          statusLabel: localizedStatusLabel(run.status, '未知'),
+          dataOrigin: 'BACKEND'
+        };
+      });
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;
