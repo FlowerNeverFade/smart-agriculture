@@ -32,12 +32,15 @@ export const AdminResourceCenterView = {
     const controlBusyId = ref('');
     const showDeviceRegistration = ref(false);
     const activeDeviceId = ref('');
+    const deviceMenuId = ref('');
+    const deviceDeleteTarget = ref(null);
+    const deviceDeleteConfirm = ref('');
     const bindSelections = ref({});
     const statusFilter = ref('ALL');
     const typeFilter = ref('ALL');
     const bindingFilter = ref('ALL');
     const keyword = ref('');
-    const deviceForm = ref({ deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' });
+    const deviceForm = ref({ mode: 'create', deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' });
     const farmId = computed(() => props.state.adminContext?.farmId || '');
     const plots = computed(() => (props.state.allPlots || props.state.plots || []).filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'));
     const devices = computed(() => props.state.devices || []);
@@ -74,6 +77,9 @@ export const AdminResourceCenterView = {
     const resetDeviceDialogs = () => {
       showDeviceRegistration.value = false;
       activeDeviceId.value = '';
+      deviceMenuId.value = '';
+      deviceDeleteTarget.value = null;
+      deviceDeleteConfirm.value = '';
       bindSelections.value = {};
     };
     const resetFilters = () => {
@@ -84,13 +90,14 @@ export const AdminResourceCenterView = {
     };
     const openDeviceRegistration = () => {
       activeDeviceId.value = '';
-      deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
+      deviceForm.value = { mode: 'create', deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
       showDeviceRegistration.value = true;
     };
     const closeDeviceRegistration = () => {
       if (!busy.value) showDeviceRegistration.value = false;
     };
     const openDeviceDetail = device => {
+      deviceMenuId.value = '';
       showDeviceRegistration.value = false;
       activeDeviceId.value = device?.deviceId || '';
       if (device?.deviceId) bindSelections.value[device.deviceId] = device.plotId || '';
@@ -98,9 +105,48 @@ export const AdminResourceCenterView = {
     const closeDeviceDetail = () => {
       if (!busy.value) activeDeviceId.value = '';
     };
+    const toggleDeviceMenu = deviceId => { deviceMenuId.value = deviceMenuId.value === deviceId ? '' : deviceId; };
+    const closeDeviceMenu = () => { deviceMenuId.value = ''; };
+    const openDeviceEdit = device => {
+      closeDeviceMenu();
+      activeDeviceId.value = '';
+      deviceForm.value = { mode: 'edit', deviceId: device?.deviceId || '', name: device?.name || device?.deviceId || '', type: device?.type || 'ENVIRONMENTAL_SENSOR', sourceMode: device?.sourceMode || device?.dataOrigin || 'SIMULATION' };
+      showDeviceRegistration.value = true;
+    };
+    const deleteDeviceBlockers = device => {
+      if (!device) return ['设备不存在'];
+      const blockers = [];
+      if (String(device.status || '').toUpperCase() !== 'OFFLINE') blockers.push('请先关闭设备');
+      if (device.plotId || String(device.bindingState || '').toUpperCase() === 'BOUND') blockers.push('请先解除绑定');
+      if (controlPending(device)) blockers.push('请等待控制回执完成');
+      return blockers;
+    };
+    const canDeleteDevice = device => deleteDeviceBlockers(device).length === 0;
+    const requestDeleteDevice = device => {
+      closeDeviceMenu();
+      deviceDeleteTarget.value = device || null;
+      deviceDeleteConfirm.value = '';
+    };
+    const closeDeleteDevice = (force = false) => { if (force || !busy.value) { deviceDeleteTarget.value = null; deviceDeleteConfirm.value = ''; } };
+    const confirmDeleteDevice = async () => {
+      const target = deviceDeleteTarget.value;
+      if (!target || !canDeleteDevice(target) || deviceDeleteConfirm.value.trim() !== String(target.name || target.deviceId).trim()) return;
+      busy.value = true;
+      try {
+        await api.deleteDevice(target.deviceId, deviceDeleteConfirm.value);
+        props.state.devices.splice(props.state.devices.findIndex(item => item.deviceId === target.deviceId), 1);
+        activeDeviceId.value = '';
+        closeDeleteDevice(true);
+        emit('data-invalidated', { domains: ['devices', 'plots', 'overview'], record: { deviceId: target.deviceId, deleted: true } });
+        toast('设备已删除');
+      } catch (error) { toast(error.message || '设备删除失败', 'error'); }
+      finally { busy.value = false; }
+    };
     const closeActiveDialogOnEscape = event => {
       if (event.key !== 'Escape') return;
-      if (showDeviceRegistration.value) closeDeviceRegistration();
+      if (deviceMenuId.value) closeDeviceMenu();
+      else if (deviceDeleteTarget.value) closeDeleteDevice();
+      else if (showDeviceRegistration.value) closeDeviceRegistration();
       else if (activeDevice.value) closeDeviceDetail();
     };
     const openDeviceFromKeyboard = (event, device) => {
@@ -132,12 +178,15 @@ export const AdminResourceCenterView = {
       if (!deviceForm.value.deviceId.trim() || !deviceForm.value.name.trim()) return toast('请填写设备编号和名称', 'error');
       busy.value = true;
       try {
-        const device = await api.registerDevice({ ...deviceForm.value, farmId: farmId.value });
+        const editing = deviceForm.value.mode === 'edit';
+        const device = editing
+          ? await api.updateDevice(deviceForm.value.deviceId, { name: deviceForm.value.name, type: deviceForm.value.type })
+          : await api.registerDevice({ ...deviceForm.value, farmId: farmId.value });
         upsertDevice(device);
-        deviceForm.value = { deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
+        deviceForm.value = { mode: 'create', deviceId: '', name: '', type: 'ENVIRONMENTAL_SENSOR', sourceMode: 'SIMULATION' };
         showDeviceRegistration.value = false;
-        emit('data-invalidated', { domains: ['devices'], record: device });
-        toast('设备已注册并显示在列表中，请继续选择地块完成绑定');
+        emit('data-invalidated', { domains: ['devices', 'plots', 'overview'], record: device });
+        toast(editing ? '设备信息已更新' : '设备已注册并显示在列表中，请继续选择地块完成绑定');
       } catch (error) { toast(error.message || '设备注册失败', 'error'); }
       finally { busy.value = false; }
     };
@@ -238,11 +287,12 @@ export const AdminResourceCenterView = {
 
     return {
       busy, controlBusyId, farmId, plots, devices, visibleDevices, summary, typeOptions, activeDevice, activeDeviceAlerts, activeDeviceTasks,
-      statusFilter, typeFilter, bindingFilter, keyword, bindSelections, deviceForm, showDeviceRegistration,
+      statusFilter, typeFilter, bindingFilter, keyword, bindSelections, deviceForm, showDeviceRegistration, deviceMenuId, deviceDeleteTarget, deviceDeleteConfirm,
       registerDevice, bind, unbind, setSummaryFilter, summaryFilterActive, resetFilters,
       bindingLabel, deviceStatusLabel, deviceLastSeen, readableTime, healthLabel, sourceLabel, deviceTypeLabel: deviceTypeLabel || adminDeviceTypeLabel, display,
       alertStatusLabel, alertLevelLabel, taskStatusLabel, plotName, openAlertCenter, openRelatedTask, createDeviceTask,
       openDeviceRegistration, closeDeviceRegistration, openDeviceDetail, closeDeviceDetail, openDeviceFromKeyboard,
+      openDeviceEdit, toggleDeviceMenu, closeDeviceMenu, requestDeleteDevice, closeDeleteDevice, confirmDeleteDevice, deleteDeviceBlockers, canDeleteDevice,
       controlKind, controlAvailable, controlPending, controlButtonLabel, controlUnavailableReason, controlDevice
     };
   },
@@ -268,11 +318,22 @@ export const AdminResourceCenterView = {
       <section class="admin-panel admin-device-panel">
         <div class="admin-panel-title"><div><span>当前农场</span><h2>设备台账</h2></div><em>{{ visibleDevices.length }} / {{ devices.length }} 台</em></div>
         <div class="admin-device-card-grid">
-           <article v-for="device in visibleDevices" :key="device.deviceId" class="admin-device-card" role="button" tabindex="0"
+           <article v-for="device in visibleDevices" :key="device.deviceId" class="admin-device-card" :class="{ 'has-open-menu': deviceMenuId === device.deviceId }" role="button" tabindex="0"
             :aria-label="'查看设备详情：' + (device.name || device.deviceId)" @click="openDeviceDetail(device)" @keydown="openDeviceFromKeyboard($event, device)">
             <header class="admin-device-card-header">
-              <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ deviceStatusLabel(device.status) }}</span></div>
-              <span class="admin-binding-state" :class="device.plotId ? 'bound' : 'unbound'">{{ bindingLabel(device) }}</span>
+              <div class="admin-device-card-header-main">
+                <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ deviceStatusLabel(device.status) }}</span></div>
+                <span class="admin-binding-state" :class="device.plotId ? 'bound' : 'unbound'">{{ bindingLabel(device) }}</span>
+              </div>
+              <div class="admin-device-card-tools" @click.stop>
+                <div class="manager-plot-actions">
+                  <button type="button" class="manager-more-button" :aria-expanded="deviceMenuId === device.deviceId ? 'true' : 'false'" :aria-label="'设备操作：' + (device.name || device.deviceId)" title="更多操作" @click.stop="toggleDeviceMenu(device.deviceId)"><app-icon name="more_vertical"></app-icon></button>
+                  <div v-if="deviceMenuId === device.deviceId" class="manager-plot-menu" role="menu" @click.stop>
+                    <button type="button" role="menuitem" @click="openDeviceEdit(device)"><app-icon name="edit"></app-icon>修改设备</button>
+                    <button type="button" role="menuitem" class="is-danger" @click="requestDeleteDevice(device)"><app-icon name="delete"></app-icon>删除设备</button>
+                  </div>
+                </div>
+              </div>
             </header>
             <div class="admin-device-identity"><h3>{{ device.name || device.deviceId }}</h3><small>{{ device.deviceId }}</small></div>
             <dl class="admin-device-card-facts">
@@ -303,18 +364,30 @@ export const AdminResourceCenterView = {
 
       <div v-if="showDeviceRegistration" class="g-modal-overlay admin-device-dialog-overlay" @click.self="closeDeviceRegistration">
         <form class="g-modal admin-device-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-device-register-title" @submit.prevent="registerDevice">
-          <div class="g-modal-header"><div><small>登记设备事实</small><h3 id="admin-device-register-title">添加设备</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" :disabled="busy" @click="closeDeviceRegistration"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>登记设备事实</small><h3 id="admin-device-register-title">{{ deviceForm.mode === 'edit' ? '修改设备' : '添加设备' }}</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" :disabled="busy" @click="closeDeviceRegistration"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body">
             <div class="admin-form-grid one-column">
-              <label><span>设备编号</span><input v-model.trim="deviceForm.deviceId" required placeholder="例如 SENSOR-A04"></label>
+              <label><span>设备编号</span><input v-model.trim="deviceForm.deviceId" required placeholder="例如 SENSOR-A04" :readonly="deviceForm.mode === 'edit'"></label>
               <label><span>设备名称</span><input v-model.trim="deviceForm.name" required placeholder="例如 A04 环境采集器"></label>
               <label><span>设备类型</span><select v-model="deviceForm.type"><option value="ENVIRONMENTAL_SENSOR">环境传感器</option><option value="IRRIGATION_CONTROLLER">灌溉控制器</option><option value="FLOW_METER">流量计</option></select></label>
-              <label><span>接入方式</span><select v-model="deviceForm.sourceMode"><option value="SIMULATION">模拟设备</option><option value="REAL">真实设备（MQTT）</option></select></label>
+              <label><span>接入方式</span><select v-model="deviceForm.sourceMode" :disabled="deviceForm.mode === 'edit'"><option value="SIMULATION">模拟设备</option><option value="REAL">真实设备（MQTT）</option></select></label>
             </div>
             <p class="admin-hint">登记和绑定不会把设备标记为在线；只有后端收到心跳或遥测后才显示在线。</p>
           </div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closeDeviceRegistration">取消</button><button type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '正在注册…' : '注册设备' }}</button></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closeDeviceRegistration">取消</button><button type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '正在保存…' : (deviceForm.mode === 'edit' ? '保存修改' : '注册设备') }}</button></div>
         </form>
+      </div>
+
+      <div v-if="deviceDeleteTarget" class="g-modal-overlay admin-device-dialog-overlay" @click.self="closeDeleteDevice">
+        <section class="g-modal admin-device-dialog admin-device-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-device-delete-title">
+          <div class="g-modal-header"><div><small>永久删除设备</small><h3 id="admin-device-delete-title">确认删除 {{ deviceDeleteTarget.name || deviceDeleteTarget.deviceId }}</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" :disabled="busy" @click="closeDeleteDevice"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-body">
+            <p class="admin-danger-copy">删除只移除设备主记录，遥测、命令和审计历史会保留。该操作不可撤销。</p>
+            <div v-if="deleteDeviceBlockers(deviceDeleteTarget).length" class="admin-device-delete-blockers"><strong>当前不能删除：</strong><ul><li v-for="blocker in deleteDeviceBlockers(deviceDeleteTarget)" :key="blocker">{{ blocker }}</li></ul><button type="button" class="g-btn text compact" @click="openDeviceDetail(deviceDeleteTarget); closeDeleteDevice()">打开设备详情处理</button></div>
+            <label v-else><span>请输入完整设备名称确认</span><input v-model.trim="deviceDeleteConfirm" :placeholder="deviceDeleteTarget.name || deviceDeleteTarget.deviceId" autocomplete="off"></label>
+          </div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closeDeleteDevice">取消</button><button type="button" class="g-btn danger" :disabled="busy || !canDeleteDevice(deviceDeleteTarget) || deviceDeleteConfirm.trim() !== String(deviceDeleteTarget.name || deviceDeleteTarget.deviceId).trim()" @click="confirmDeleteDevice">永久删除</button></div>
+        </section>
       </div>
 
       <div v-if="activeDevice" class="g-modal-overlay admin-device-dialog-overlay" @click.self="closeDeviceDetail">

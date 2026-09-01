@@ -481,12 +481,23 @@ interface MarketPriceProvider {
 class MoaPfscMarketPriceProvider implements MarketPriceProvider {
     private final ObjectMapper mapper;
     private final AgriProperties properties;
-    private final HttpClient client;
+    private volatile HttpClient client;
+    private final Object clientLock = new Object();
 
     MoaPfscMarketPriceProvider(ObjectMapper mapper, AgriProperties properties) {
         this.mapper = mapper;
         this.properties = properties;
-        this.client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+    }
+
+    private HttpClient client() {
+        HttpClient existing = client;
+        if (existing != null) return existing;
+        synchronized (clientLock) {
+            if (client == null) {
+                client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build();
+            }
+            return client;
+        }
     }
 
     @Override
@@ -500,7 +511,7 @@ class MoaPfscMarketPriceProvider implements MarketPriceProvider {
                 .header("Accept", "application/json")
                 .header("User-Agent", "AgriLoop/5.9.8 market-price-reader")
                 .POST(HttpRequest.BodyPublishers.noBody()).build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> response = client().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() < 200 || response.statusCode() >= 300) return Optional.empty();
         JsonNode envelope = mapper.readTree(response.body());
         int code = envelope.path("code").asInt(-1);

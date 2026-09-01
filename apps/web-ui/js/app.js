@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v2';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v2';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v2';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v2';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v593-market-v3';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v2';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v2';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v593-market-v3';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -101,6 +102,8 @@ const ICON_CLASS = Object.freeze({
   nutrition: 'ph-plant',
   remove_circle_outline: 'ph-minus-circle',
   close: 'ph-x',
+    search: 'ph-magnifying-glass',
+    checklist: 'ph-list-checks',
   psychology: 'ph-brain',
   receipt_long: 'ph-receipt',
   bolt: 'ph-lightning',
@@ -122,6 +125,7 @@ const ICON_CLASS = Object.freeze({
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
   add: 'ph-plus',
+  add_location_alt: 'ph-map-pin-plus',
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
   lock_reset: 'ph-lock-key-open',
@@ -141,6 +145,21 @@ const ICON_CLASS = Object.freeze({
   replay: 'ph-arrow-counter-clockwise',
   speed: 'ph-gauge',
   agriculture: 'ph-plant',
+  // AI assistant uses the same shared app-icon component as the main shell.
+  // Keep these aliases here as well as in the standalone role shells; an
+  // unknown alias falls back to ph-circle, which made valid actions look like
+  // empty radio buttons in the assistant.
+  plot_open_field: 'ph-rows',
+  plot_greenhouse: 'ph-barn',
+  plot_shade_house: 'ph-umbrella-simple',
+  plot_orchard: 'ph-tree',
+  location_on: 'ph-map-pin',
+  chat_bubble_outline: 'ph-chat-circle',
+  inbox: 'ph-tray',
+  push_pin: 'ph-push-pin',
+  more_vert: 'ph-dots-three-vertical',
+  more_vertical: 'ph-dots-three-vertical',
+  arrow_upward: 'ph-arrow-up',
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
@@ -601,6 +620,7 @@ const DashboardView = {
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
+    const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
     const visiblePlots = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
@@ -638,7 +658,8 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' },
+        { id: 'farmer-reports', icon: 'report_problem', label: '农户问题', value: summary.farmerReports, hint: '查看农户上报的具体问题' }
       ];
     });
 
@@ -830,6 +851,7 @@ const DashboardView = {
     return {
       isFarmAdmin,
       selectedFarmId,
+      managedFarm,
       visiblePlots,
       devices,
       deviceOptions,
@@ -2785,63 +2807,7 @@ const SETTINGS_COPY = Object.freeze({
  * it deliberately controls only the current browser's presentation and
  * refresh preferences, leaving platform/account settings to System Admin.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    const account = computed(() => props.state?.currentUser || null);
-    const settings = ref(readUserSettings(undefined, account.value));
-    const copy = computed(() => SETTINGS_COPY['zh-CN']);
-    const themeOptions = computed(() => [
-      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
-      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
-      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
-    ]);
-    const presetOptions = computed(() => PRESET_OPTIONS);
-    const accentOptions = computed(() => ACCENT_OPTIONS);
-    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
-    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
-    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
-    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
-    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
-    const updateSetting = (key, value) => {
-      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
-      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings,
-      copy,
-      presetOptions,
-      accentOptions,
-      surfaceStyleOptions,
-      fontOptions,
-      themeOptions,
-      refreshOptions,
-      roleLabel,
-      themeLabel,
-      presetLabel,
-      accentLabel,
-      surfaceStyleLabel,
-      fontLabel,
-      updateSetting,
-      resetSettings
-    };
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
@@ -3091,6 +3057,10 @@ const app = createApp({
       adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
       adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
       adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      // Controlled-learning cases are kept separate from strategy candidates so
+      // the governance views can show their quality gate and learning scope.
+      // Demo data is optional; live data is hydrated by the scoped API calls
+      // below and never falls back to another farm/session.
       adminLearningCases: isDemoSession ? (MOCK_DATA.adminLearningCases || []) : [],
       adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
       adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
@@ -3116,7 +3086,7 @@ const app = createApp({
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
       'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator',
-      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies'
+      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies', 'inspections'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3333,6 +3303,12 @@ const app = createApp({
         : `演示找回密码指引：${accountProfile.value.contact}`);
     };
 
+    const openArchivedConversations = () => {
+      closeProfileMenu();
+      if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      navigate('ai-assistant', { archived: '1', farmId: state.value.adminContext.farmId });
+    };
+
     const logout = () => {
       api.clearSession();
       window.location.replace('login.html');
@@ -3380,11 +3356,7 @@ const app = createApp({
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
-        jobs.inspections = api.getPlots({ farmId, includeInactive: false })
-          .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
-          .then((results) => results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => result.value || []));
+        jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
       const settled = await Promise.all(entries.map(async ([key, promise]) => {
@@ -3698,6 +3670,12 @@ const app = createApp({
           if (oldest) seenSystemEventIds.delete(oldest);
         }
       }
+      const payload = event?.data?.payload || event?.data || {};
+      const isFarmerIssueReport = systemEvent.type === 'workorder.farmer-report'
+        || String(payload.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && isFarmerIssueReport && shouldAnnounceSystemToast(systemEvent, payload)) {
+        showToast(`收到农户问题上报：${payload.title || '请查看农务任务'}`, 'warning');
+      }
       // Some proxies normalize the SSE event name to `message`; the payload
       // still carries the authoritative eventType.
       const domains = domainsForEventType(systemEvent.type || event.type);
@@ -4003,9 +3981,12 @@ const app = createApp({
           }
           if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
           if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
-          const plotMap = new Map(state.value.plots.map((plot) => [String(plot.plotId), plot]));
-          const inspectionResults = await Promise.allSettled(state.value.plots.map((plot) => api.getInspections(plot.plotId)));
-          state.value.inspections = inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+          const farmerFarmId = state.value.currentUser?.farmIds?.find((farmId) => farmId !== '*') || '';
+          try {
+            state.value.inspections = await api.getInspections(farmerFarmId ? { farmId: farmerFarmId } : {});
+          } catch (error) {
+            showToast('读取巡田记录失败，已保留已有记录：' + (error?.message || '后端返回异常'), 'error');
+          }
           state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.plots });
           if (state.value.currentUser?.role === 'FARM_ADMIN') {
             state.value.farmMembers = [];
@@ -4091,6 +4072,7 @@ const app = createApp({
       closeAccountModal,
       changePassword,
       forgotPassword,
+      openArchivedConversations,
       logout,
       navigate,
       applyPlotChange,
