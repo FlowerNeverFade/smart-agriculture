@@ -1814,9 +1814,7 @@ class AgriEngine {
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
         List<Map<String, Object>> hardware = store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
-                .filter(device -> "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                        || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
-                        || !Jsons.text(device, "deviceId", "mock-").toLowerCase(Locale.ROOT).startsWith("mock-"))
+                .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
         if (hardware.isEmpty()) return Map.of("bindingState", "UNBOUND", "status", "NOT_BOUND", "usability", "NOT_BOUND", "label", "未绑定硬件");
@@ -1834,8 +1832,9 @@ class AgriEngine {
     private Map<String, Object> simulatorDeviceForPlot(String plotId) {
         Map<String, Object> device = store.list("device").stream()
                 .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
-                .filter(item -> Jsons.text(item, "deviceId", "").toLowerCase(Locale.ROOT).startsWith("mock-")
-                        || "SIMULATOR".equalsIgnoreCase(Jsons.text(item, "dataOrigin", "")))
+                .filter(this::deviceIsSimulated)
+                .filter(item -> !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "bindingState", ""))
+                        && !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "status", "")))
                 .sorted(Comparator
                         .comparing((Map<String, Object> item) -> "ONLINE".equalsIgnoreCase(Jsons.text(item, "status", "")))
                                 .reversed()
@@ -2738,9 +2737,12 @@ class AgriEngine {
     }
 
     private boolean isHardwareDevice(Map<String, Object> device) {
-        String id = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+        if (deviceIsSimulated(device)) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .trim().toUpperCase(Locale.ROOT);
+        String id = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        return "REAL".equals(source)
+                || "HARDWARE".equals(source)
                 || ("BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "")) && !id.startsWith("mock-"));
     }
 
@@ -2870,8 +2872,10 @@ class AgriEngine {
     }
 
     private boolean deviceIsSimulated(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
         String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
-        String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        if ("REAL".equals(source) || "HARDWARE".equals(source)) return false;
         return Set.of("SIMULATION", "SIMULATED", "SIMULATOR").contains(source) || deviceId.startsWith("mock-");
     }
 

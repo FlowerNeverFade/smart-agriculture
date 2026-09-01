@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -1463,7 +1464,9 @@ class AgriApplicationTest {
     void simulatedDeviceOnlineControlWinsOverOfflineScenarioAcrossTicks() {
         String suffix = String.valueOf(System.nanoTime());
         String plotId = "plot-device-recovery-" + suffix;
-        String deviceId = "mock-" + plotId;
+        // Registered simulator ids are not required to use the historical
+        // mock-<plotId> convention. The engine must follow the bound record.
+        String deviceId = "002-" + suffix;
         UserPrincipal admin = new UserPrincipal("user-admin-recovery-" + suffix, "admin-recovery-" + suffix,
                 "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
         boolean simulatorWasRunning = "RUNNING".equals(String.valueOf(simulationEngine.status().get("status")));
@@ -1486,7 +1489,9 @@ class AgriApplicationTest {
             simulationEngine.tickOnce();
             Map<String, Object> recovered = store.find("device", deviceId);
             assertThat(recovered).containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
-            assertThat(store.telemetryCount(plotId)).isGreaterThan(0);
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, Instant.EPOCH, Instant.now().plus(1, ChronoUnit.DAYS), 1000);
+            assertThat(samples).isNotEmpty();
+            assertThat(samples).allSatisfy(sample -> assertThat(sample).containsEntry("deviceId", deviceId));
 
             engine.markStaleDevicesOffline();
             assertThat(store.find("device", deviceId)).containsEntry("status", "ONLINE");
