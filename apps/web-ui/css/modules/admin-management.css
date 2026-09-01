@@ -644,6 +644,7 @@
   cursor: pointer;
   transition: border-color .18s ease, box-shadow .18s ease;
 }
+.admin-device-card.has-open-menu { position: relative; z-index: 30; overflow: visible; }
 .admin-device-card:hover { border-color: color-mix(in srgb, var(--g-primary) 48%, var(--g-border)); box-shadow: var(--g-shadow-1); }
 .admin-device-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--g-primary) 30%, transparent); outline-offset: 3px; }
 .admin-device-card-header,
@@ -653,7 +654,15 @@
   justify-content: space-between;
   gap: 12px;
 }
-.admin-device-card-header { padding: 15px 15px 0; }
+.admin-device-card-header { padding: 15px 15px 0; min-width: 0; }
+.admin-device-card-header-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.admin-device-card-header-main .admin-device-status { min-width: 0; flex: 1 1 auto; }
+.admin-device-card-header-main .admin-device-status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-device-card-header-main .admin-binding-state { flex: 0 0 auto; white-space: nowrap; }
+.admin-device-card-tools { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 36px; flex: 0 0 auto; }
+.admin-device-card-tools .manager-plot-actions { flex: 0 0 auto; }
+.admin-device-card-tools .manager-more-button { width: 34px; height: 34px; border-radius: 50%; }
+.admin-device-card.has-open-menu .manager-plot-menu { z-index: 80; }
 .admin-device-status { display: flex !important; grid-template-columns: auto 1fr; align-items: center; gap: 6px !important; }
 .admin-device-status i,
 .admin-simulator-state > i { width: 9px; height: 9px; border-radius: 50%; background: #8b949e; }
@@ -743,6 +752,11 @@
 .admin-device-dialog .g-modal-header small { display: block; margin-bottom: 3px; color: var(--g-text-secondary); font-size: 11px; font-weight: 600; }
 .admin-device-dialog .g-modal-header h3 { margin: 0; font-size: 19px; font-weight: 600; }
 .admin-device-dialog .g-modal-body { min-height: 0; overflow-y: auto; }
+.admin-device-delete-dialog { max-width: 560px; }
+.admin-danger-copy { margin: 0 0 16px; color: var(--g-danger); line-height: 1.6; }
+.admin-device-delete-blockers { padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border)); border-radius: 10px; background: var(--g-danger-bg); color: var(--g-text-primary); }
+.admin-device-delete-blockers strong { font-size: 13px; }
+.admin-device-delete-blockers ul { margin: 7px 0 5px 18px; padding: 0; color: var(--g-danger); font-size: 13px; line-height: 1.7; }
 .admin-device-detail-body { display: grid; gap: 16px; }
 .admin-device-detail-facts { margin: 0; }
 .admin-device-control-pending { margin-left: auto; color: #9a6700; font-size: 11px; font-weight: 700; }

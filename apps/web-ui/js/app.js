@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v2';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v2';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v2';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v2';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v1';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v2';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v2';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v5910-main-merge-v1';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -142,6 +143,21 @@ const ICON_CLASS = Object.freeze({
   replay: 'ph-arrow-counter-clockwise',
   speed: 'ph-gauge',
   agriculture: 'ph-plant',
+  // AI assistant uses the same shared app-icon component as the main shell.
+  // Keep these aliases here as well as in the standalone role shells; an
+  // unknown alias falls back to ph-circle, which made valid actions look like
+  // empty radio buttons in the assistant.
+  plot_open_field: 'ph-rows',
+  plot_greenhouse: 'ph-barn',
+  plot_shade_house: 'ph-umbrella-simple',
+  plot_orchard: 'ph-tree',
+  location_on: 'ph-map-pin',
+  chat_bubble_outline: 'ph-chat-circle',
+  inbox: 'ph-tray',
+  push_pin: 'ph-push-pin',
+  more_vert: 'ph-dots-three-vertical',
+  more_vertical: 'ph-dots-three-vertical',
+  arrow_upward: 'ph-arrow-up',
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
@@ -2789,63 +2805,7 @@ const SETTINGS_COPY = Object.freeze({
  * it deliberately controls only the current browser's presentation and
  * refresh preferences, leaving platform/account settings to System Admin.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    const account = computed(() => props.state?.currentUser || null);
-    const settings = ref(readUserSettings(undefined, account.value));
-    const copy = computed(() => SETTINGS_COPY['zh-CN']);
-    const themeOptions = computed(() => [
-      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
-      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
-      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
-    ]);
-    const presetOptions = computed(() => PRESET_OPTIONS);
-    const accentOptions = computed(() => ACCENT_OPTIONS);
-    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
-    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
-    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
-    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
-    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
-    const updateSetting = (key, value) => {
-      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
-      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings,
-      copy,
-      presetOptions,
-      accentOptions,
-      surfaceStyleOptions,
-      fontOptions,
-      themeOptions,
-      refreshOptions,
-      roleLabel,
-      themeLabel,
-      presetLabel,
-      accentLabel,
-      surfaceStyleLabel,
-      fontLabel,
-      updateSetting,
-      resetSettings
-    };
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
@@ -3334,6 +3294,12 @@ const app = createApp({
       showToast(state.value.sessionMode === 'live'
         ? '请退出后在登录页使用恢复码重设密码'
         : `演示找回密码指引：${accountProfile.value.contact}`);
+    };
+
+    const openArchivedConversations = () => {
+      closeProfileMenu();
+      if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      navigate('ai-assistant', { archived: '1', farmId: state.value.adminContext.farmId });
     };
 
     const logout = () => {
@@ -4094,6 +4060,7 @@ const app = createApp({
       closeAccountModal,
       changePassword,
       forgotPassword,
+      openArchivedConversations,
       logout,
       navigate,
       applyPlotChange,

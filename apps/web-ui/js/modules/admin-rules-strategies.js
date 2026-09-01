@@ -77,6 +77,10 @@ function ruleDisplayName(rule = {}, index = 0) {
   return `告警规则 ${index + 1}`;
 }
 
+export function ruleCodeValue(rule = {}) {
+  return upper(rule.code || rule.ruleId || rule.id, 'RULE');
+}
+
 function ruleDescription(rule = {}) {
   const description = translateKnownText(rule.description || rule.name || '').trim();
   return description && !/^[A-Z0-9_-]+$/.test(description) ? description : '确定性告警判断';
@@ -109,7 +113,41 @@ export const AdminRulesStrategiesView = {
     const farmId = computed(() => props.state.adminContext?.farmId || props.routeParams?.farmId || '');
     const rules = computed(() => props.state.adminRules || []);
     const candidates = computed(() => props.state.adminStrategyCandidates || []);
-    const filteredRules = computed(() => rules.value);
+    const cropPacks = computed(() => props.state.cropPacks || []);
+    const cropDisplayName = rule => {
+      const direct = String(rule?.cropName || rule?.crop?.name || '').trim();
+      if (direct && !/^[A-Za-z0-9_-]+$/.test(direct)) return direct;
+      const code = String(rule?.cropCode || '').trim().toLowerCase();
+      const pack = cropPacks.value.find(item => String(item?.cropCode || '').trim().toLowerCase() === code);
+      const fallback = cropLabel(rule?.cropCode);
+      // Preserve custom crop identifiers when no pack name is available;
+      // never collapse an administrator-created crop into “其他作物”.
+      return String(pack?.identity?.name || pack?.cropName || direct || '').trim()
+        || (fallback === '其他作物' ? String(rule?.cropCode || '').trim() || '全场作物' : fallback);
+    };
+    const displayRules = computed(() => {
+      const rows = rules.value.map((rule, index) => ({ ...rule, __sourceIndex: index }));
+      const sorted = [...rows].sort((a, b) => String(a.cropCode || '').localeCompare(String(b.cropCode || ''))
+        || String(a.stageCode || a.stage || '').localeCompare(String(b.stageCode || b.stage || ''))
+        || String(a.scope || '').localeCompare(String(b.scope || ''))
+        || String(a.version || a.ruleVersion || '').localeCompare(String(b.version || b.ruleVersion || ''))
+        || ruleCodeValue(a).localeCompare(ruleCodeValue(b))
+        || a.__sourceIndex - b.__sourceIndex);
+      const counters = new Map();
+      const displayByIndex = new Map();
+      sorted.forEach(rule => {
+        const code = ruleCodeValue(rule);
+        const next = (counters.get(code) || 0) + 1;
+        counters.set(code, next);
+        displayByIndex.set(rule.__sourceIndex, `${code}-${String(next).padStart(2, '0')}`);
+      });
+      return rows.map(rule => ({
+        ...rule,
+        displayCode: displayByIndex.get(rule.__sourceIndex) || `${ruleCodeValue(rule)}-01`,
+        displayKey: [rule.scope || '', rule.cropCode || '', rule.version || rule.ruleVersion || '', ruleCodeValue(rule), rule.stageCode || rule.stage || '', rule.__sourceIndex].join(':')
+      }));
+    });
+    const filteredRules = computed(() => displayRules.value);
     const filteredCandidates = computed(() => candidates.value);
 
     const refresh = async () => {
@@ -195,7 +233,7 @@ export const AdminRulesStrategiesView = {
     return {
       activeTab, busy, loadError, farmId, filteredRules, filteredCandidates, showRuleModal, ruleForm,
       statusLabel, statusTone, formatCondition, candidateId, candidateDescription, cropLabel, stageLabel,
-      ruleDisplayName, ruleDescription, versionLabel, sourceLabel,
+      ruleDisplayName, ruleCodeValue, ruleDescription, versionLabel, sourceLabel, cropDisplayName,
       evidenceCount, consistency, canActivate, canReject, canRollback, transition, refresh, openRuleCreate, createRule
     };
   },
@@ -212,7 +250,7 @@ export const AdminRulesStrategiesView = {
       <section v-if="activeTab === 'rules'" class="admin-governance-section" aria-label="农场告警规则集">
         <div class="admin-governance-section-head"><div><h2>告警规则集</h2><p>规则阈值来自系统规则和当前农场已启用作物模型包；新增规则会写入当前农场，并供告警、预测和智能助手读取。</p></div><button type="button" class="g-btn primary compact" :disabled="busy || !farmId" @click="openRuleCreate"><app-icon name="add"></app-icon>新增规则</button></div>
         <div v-if="!filteredRules.length" class="admin-governance-empty"><app-icon name="rule_folder"></app-icon><strong>暂无可展示的规则集</strong><span>启用作物模型包后，相关规则会出现在这里。</span></div>
-        <div v-else class="admin-table-wrap admin-governance-table-wrap"><table class="admin-table"><thead><tr><th>规则名称</th><th>适用作物 / 阶段</th><th>判断条件</th><th>持续时间</th><th>冷却时间</th><th>版本与范围</th></tr></thead><tbody><tr v-for="(rule, index) in filteredRules" :key="rule.ruleSetId || rule.ruleId || rule.id || index"><td><strong class="admin-governance-code">{{ ruleDisplayName(rule, index) }}</strong><small>{{ ruleDescription(rule) }}</small></td><td>{{ cropLabel(rule.cropCode) }}<small>{{ stageLabel(rule.stageCode || rule.stage) }}</small></td><td>{{ formatCondition(rule) }}</td><td>{{ rule.durationMinutes ?? rule.duration ?? '—' }}<span v-if="rule.durationMinutes || rule.duration"> 分钟</span></td><td>{{ rule.cooldownMinutes ?? rule.cooldown ?? '—' }}<span v-if="rule.cooldownMinutes || rule.cooldown"> 分钟</span></td><td><span class="status-pill info">{{ versionLabel(rule.ruleVersion || rule.version) }}</span><small>{{ rule.scope === 'FARM' ? '当前农场' : '系统规则' }}</small></td></tr></tbody></table></div>
+        <div v-else class="admin-table-wrap admin-governance-table-wrap"><table class="admin-table"><thead><tr><th>规则名称</th><th>规则编号</th><th>适用作物 / 阶段</th><th>判断条件</th><th>持续时间</th><th>冷却时间</th><th>版本与范围</th></tr></thead><tbody><tr v-for="(rule, index) in filteredRules" :key="rule.displayKey"><td><strong class="admin-governance-code">{{ ruleDisplayName(rule, index) }}</strong><small>{{ ruleDescription(rule) }}</small></td><td><strong class="admin-governance-code">{{ rule.displayCode }}</strong><small>底层编号：{{ ruleCodeValue(rule) }}</small></td><td>{{ cropDisplayName(rule) }}<small>{{ stageLabel(rule.stageCode || rule.stage) }}</small></td><td>{{ formatCondition(rule) }}</td><td>{{ rule.durationMinutes ?? rule.duration ?? '—' }}<span v-if="rule.durationMinutes || rule.duration"> 分钟</span></td><td>{{ rule.cooldownMinutes ?? rule.cooldown ?? '—' }}<span v-if="rule.cooldownMinutes || rule.cooldown"> 分钟</span></td><td><span class="status-pill info">{{ versionLabel(rule.ruleVersion || rule.version) }}</span><small>{{ rule.scope === 'FARM' ? '当前农场' : '系统规则' }}</small></td></tr></tbody></table></div>
       </section>
       <div v-if="showRuleModal" class="g-modal-overlay" @click.self="showRuleModal = false" @keydown.esc="showRuleModal = false">
         <form class="g-modal admin-rule-dialog" @submit.prevent="createRule">

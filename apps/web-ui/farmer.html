@@ -9,11 +9,12 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260901-v5910-main-merge-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260901-v5910-main-merge-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v5910-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v5910-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v5910-main-merge-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/farmer.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-v5910-main-merge-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -1568,60 +1569,12 @@
             </div>
           </section>
 
-          <section v-else-if="current_view === 'settings'" class="farmer-workspace farmer-settings-page" key="settings">
-            <div class="farmer-page-header">
-              <div>
-                <span class="farmer-section-kicker">个人偏好</span>
-                <h2>工作台设置</h2>
-                <p class="role-summary">为当前浏览器调整外观、信息密度和数据刷新方式，不会修改地块、设备或灌溉数据。</p>
-              </div>
-              <span class="g-badge primary">仅本机保存</span>
-            </div>
-
-            <div class="farmer-settings-grid">
-              <article class="g-card farmer-settings-card">
-                <div class="farmer-panel-header">
-                  <div><span class="farmer-section-kicker">显示外观</span><h3>主题与颜色</h3></div>
-                  <app-icon name="settings"></app-icon>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">主题</span>
-                  <div class="farmer-settings-choice-row">
-                    <button v-for="theme in [{value:'light',label:'白色'},{value:'dark',label:'黑色'},{value:'system',label:'跟随系统'}]" :key="theme.value" type="button" class="farmer-settings-choice" :class="{active: user_settings.theme === theme.value}" @click="update_user_setting('theme', theme.value)">{{ theme.label }}</button>
-                  </div>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">卡片风格</span>
-                  <div class="farmer-settings-choice-row farmer-settings-surface-row">
-                    <button v-for="surface in surface_style_options" :key="surface.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :data-surface-style="surface.value" :class="{active: user_settings.surfaceStyle === surface.value}" @click="update_user_setting('surfaceStyle', surface.value)" :title="surface.hint"><span>{{ surface.label }}</span><small>{{ surface.hint }}</small></button>
-                  </div>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">强调色</span>
-                  <div class="farmer-settings-accent-row">
-                    <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
-                  </div>
-                </div>
-                <div class="farmer-settings-inline-fields">
-                  <label class="farmer-settings-select">显示密度<select :value="user_settings.density" @change="update_user_setting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
-                  <label class="farmer-settings-select">内容宽度<select :value="user_settings.layout" @change="update_user_setting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
-                </div>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.reducedMotion" @change="update_user_setting('reducedMotion', $event.target.checked)"><span><strong>减少动效</strong><small>降低过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
-              </article>
-
-              <article class="g-card farmer-settings-card">
-                <div class="farmer-panel-header">
-                  <div><span class="farmer-section-kicker">数据体验</span><h3>刷新与提示</h3></div>
-                  <app-icon name="sync"></app-icon>
-                </div>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.autoRefresh" @change="update_user_setting('autoRefresh', $event.target.checked)"><span><strong>自动刷新工作台</strong><small>页面保持打开时按间隔拉取最新任务、遥测和建议。</small></span></label>
-                <label class="farmer-settings-select">刷新间隔<select :value="user_settings.refreshInterval" :disabled="!user_settings.autoRefresh" @change="update_user_setting('refreshInterval', Number($event.target.value))"><option v-for="seconds in [5,15,30,60]" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select></label>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.showDataOrigin" @change="update_user_setting('showDataOrigin', $event.target.checked)"><span><strong>显示数据来源</strong><small>在卡片和详情中保留模拟、后端或人工记录标识，便于核对。</small></span></label>
-                <div class="farmer-settings-note"><app-icon name="info"></app-icon><span>这些偏好保存在当前浏览器。清除站点数据后会恢复默认值；服务器上的三角色数据仍由后端统一管理。</span></div>
-              </article>
-            </div>
-            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ current_accent_label }}</span></div>
-          </section>
+          <workspace-settings-view
+            v-else-if="current_view === 'settings'"
+            :state="workspace_settings_state"
+            :user-settings="user_settings"
+            @settings-changed="handle_workspace_settings_changed"
+          ></workspace-settings-view>
 
         </transition>
 
@@ -1843,6 +1796,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v5910-main-merge-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-v5910-main-merge-v2"></script>
 </body>
 </html>

@@ -4,11 +4,12 @@ import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
@@ -60,7 +61,7 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 // Apply browser-scoped presentation preferences before the standalone system
 // administrator shell mounts, so its sidebar and cards use the same material,
 // theme and density as the other role workspaces from the first paint.
-const initialUserSettings = readUserSettings();
+const initialUserSettings = readUserSettings(undefined, guardUser);
 applyUserSettings(initialUserSettings);
 
 
@@ -1375,42 +1376,7 @@ const AdminRulesView = {
  * dedicated system-admin entry as well as the shared role shell so the
  * lower-left settings affordance never disappears after a role redirect.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    const settings = ref(readUserSettings());
-    const accentOptions = ACCENT_OPTIONS;
-    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
-    const themeOptions = [
-      { value: 'light', label: '白色', hint: '清爽明亮，适合日常工作（默认）' },
-      { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
-      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
-    ];
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '白色');
-    const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-    const updateSetting = (key, value) => {
-      const next = saveUserSettings({ ...settings.value, [key]: value });
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings, accentOptions, surfaceStyleOptions, themeOptions, refreshOptions,
-      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings
-    };
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 
 const AdminSettingsView = {
@@ -2581,7 +2547,7 @@ const app = createApp({
       }
       // Preferences were applied before mount; re-read once in case another
       // role tab changed them while this page was loading.
-      userSettings.value = readUserSettings();
+      userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       isLive.value = await api.checkHealth();

@@ -1,12 +1,13 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v5910-main-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v5910-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v1';
-import { presentRoleUser } from './roles.js?v=20260901-v5910-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v5910-main-merge-v2';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { presentRoleUser } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v5910-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -29,12 +30,12 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v5910-main-merge-v1';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
 // Keep the standalone farmer shell in lock-step with the shared role pages.
-const initial_user_settings = readUserSettings();
+const initial_user_settings = readUserSettings(undefined, api.readSession()?.user);
 applyUserSettings(initial_user_settings);
 
 // Keep farmer.html independent from the remote Google icon font.  The same
@@ -1117,10 +1118,12 @@ function compute_plot_health_score(plot) {
 const app = createApp({
   setup() {
     const is_live = ref(false);
-    const user_settings = ref(readUserSettings());
+    const user_settings = ref(readUserSettings(undefined, api.readSession()?.user));
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
+    const current_preset_label = computed(() => PRESET_OPTIONS.find((item) => item.value === user_settings.value.preset)?.label || 'Codex 中性');
+    const current_font_label = computed(() => FONT_FAMILY_OPTIONS.find((item) => item.value === user_settings.value.fontFamily)?.label || '系统默认');
     const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -1179,6 +1182,17 @@ const app = createApp({
       contact: fallback_user.contact,
       plot_names: fallback_user.plot_names
     });
+    const workspace_settings_state = computed(() => ({
+      currentUser: {
+        ...user.value,
+        roleLabel: user.value?.roleLabel || user.value?.role_label || '种植农户'
+      }
+    }));
+    const handle_workspace_settings_changed = (next) => {
+      user_settings.value = next;
+      is_dark.value = resolveTheme(next.theme) === 'dark';
+      if (typeof start_live_polling === 'function') start_live_polling();
+    };
     const current_role = computed(() => user.value?.role || 'FARMER');
     const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
@@ -2977,7 +2991,8 @@ const app = createApp({
     };
 
     const update_user_setting = (key, value) => {
-      const next = saveUserSettings({ ...user_settings.value, [key]: value });
+      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
+      const next = saveUserSettings({ ...user_settings.value, ...patch }, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -2987,7 +3002,7 @@ const app = createApp({
     };
 
     const reset_user_settings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -5465,7 +5480,7 @@ const app = createApp({
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
       try {
-        user_settings.value = readUserSettings();
+        user_settings.value = readUserSettings(undefined, user.value);
         applyUserSettings(user_settings.value);
         is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
         // Keep the current farmer page across refresh / back-forward.
@@ -5605,9 +5620,13 @@ const app = createApp({
       is_dark,
       user_settings,
       accent_options: ACCENT_OPTIONS,
+      preset_options: PRESET_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
+      font_options: FONT_FAMILY_OPTIONS,
       current_accent_label,
       current_surface_style_label,
+      current_preset_label,
+      current_font_label,
       update_user_setting,
       reset_user_settings,
       is_sidebar_open,
@@ -5820,6 +5839,8 @@ const app = createApp({
       assistant_view_state,
       current_role,
       role_presentation,
+      workspace_settings_state,
+      handle_workspace_settings_changed,
       assistant_plot_id,
       assistant_message_list,
       assistant_shortcuts,
@@ -5978,6 +5999,7 @@ const _session = api.readSession();
 const _session_user = presentRoleUser(_session?.user);
 app.component('app-icon', FarmerAppIcon);
 app.component('admin-ai-chat-view', AdminAiChatView);
+app.component('workspace-settings-view', createWorkspaceSettingsView({ ref, computed, watch }));
 if (!_session || !_session_user) {
   window.location.replace('login.html');
 } else if (_session_user.role !== 'FARMER') {

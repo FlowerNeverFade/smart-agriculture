@@ -3123,7 +3123,7 @@ export class ApiService {
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
     const existing = current.conversations.find((item) => item.conversationId === conversationId);
     const conversation = {
-      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, pinned: existing?.pinned === true, archived: existing?.archived === true, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
     };
     current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
     this._writeDemoAgentSession(current);
@@ -3156,13 +3156,17 @@ export class ApiService {
   }
 
   async getAgentConversations(limit = 20) {
-    const archived = Boolean(arguments[1]);
+    const options = arguments[1];
+    const normalized = typeof options === 'boolean' ? { archived: options } : (options || {});
+    const archived = Boolean(normalized.archived);
+    const plotId = String(normalized.plotId || '').trim();
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
       return session.conversations
         .filter((item) => Boolean(item.archived) === Boolean(archived))
+        .filter((item) => !plotId || String(item.plotId || '') === plotId)
         .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
         title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
@@ -3172,7 +3176,9 @@ export class ApiService {
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
-    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
+    const query = new URLSearchParams({ limit: String(bounded), archived: archived ? 'true' : 'false' });
+    if (plotId) query.set('plotId', plotId);
+    const resp = await this._fetch(`/api/v1/agent/conversations?${query}`);
     if (Array.isArray(resp?.data)) {
       return resp.data.map((item) => item && typeof item === 'object'
         ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
@@ -3234,6 +3240,25 @@ export class ApiService {
       this._writeDemoAgentSession(session);
     }
     return { conversationId, title: clean, sourceMode: 'SIMULATED' };
+  }
+
+  async setAgentConversationPinned(conversationId, pinned = true) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    const desired = Boolean(pinned);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ pinned: desired })
+      });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((item) => item.conversationId === conversationId);
+    if (conversation) {
+      conversation.pinned = desired;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, pinned: desired, sourceMode: 'SIMULATED' };
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
@@ -5004,6 +5029,42 @@ export class ApiService {
     const device = { ...input, farmId: input.farmId || 'farm-demo', deviceId, plotId: null, status: 'OFFLINE', desiredStatus: 'OFFLINE', controlStatus: 'SUCCEEDED', bindingState: 'UNBOUND', lastSeen: null, healthScore: null, registeredAt: new Date().toISOString(), sourceMode, dataOrigin: sourceMode === 'REAL' ? 'HARDWARE' : 'SIMULATOR' };
     this.demoDevices.set(deviceId, device);
     return { ...device };
+  }
+
+  async updateDevice(deviceId, input = {}) {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    const payload = { name: String(input.name || '').trim(), type: String(input.type || '').trim() };
+    if (!payload.name || !payload.type) throw new ApiError('请填写设备名称并选择设备类型', { status: 400, code: 'DEVICE_FIELDS_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      if (resp?.data?.deviceId === id) return resp.data;
+      throw new ApiError('后端返回了无效的设备更新结果', { code: 'DEVICE_UPDATE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    const saved = { ...device, ...payload, updatedAt: new Date().toISOString(), sourceMode: device.sourceMode || 'SIMULATION' };
+    this.demoDevices.set(id, saved);
+    return { ...saved };
+  }
+
+  async deleteDevice(deviceId, confirmName = '') {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ confirmName: String(confirmName || '') });
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}?${query}`, { method: 'DELETE' });
+      if (resp?.data?.deviceId === id && resp?.data?.deleted) return resp.data;
+      throw new ApiError('后端返回了无效的设备删除结果', { code: 'DEVICE_DELETE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    if (String(device.status || '').toUpperCase() !== 'OFFLINE') throw new ApiError('请先关闭设备，再执行永久删除', { status: 409, code: 'DEVICE_MUST_BE_OFFLINE' });
+    if (device.plotId || String(device.bindingState || '').toUpperCase() === 'BOUND') throw new ApiError('请先解除设备与地块的绑定', { status: 409, code: 'DEVICE_MUST_BE_UNBOUND' });
+    if (String(device.controlStatus || '').toUpperCase() === 'PENDING') throw new ApiError('请等待设备控制回执完成后再删除', { status: 409, code: 'DEVICE_CONTROL_PENDING' });
+    if (String(confirmName).trim() !== String(device.name || id).trim()) throw new ApiError('请输入完整设备名称进行确认', { status: 400, code: 'DEVICE_CONFIRMATION_MISMATCH' });
+    this.demoDevices.delete(id);
+    return { deviceId: id, name: device.name || id, deleted: true, deletedAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
   }
 
   async bindDevice(deviceId, plotId) {

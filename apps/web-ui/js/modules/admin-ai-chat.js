@@ -87,6 +87,15 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
 
 function createConversationId() { return `conversation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 
+export function plotFacilityIcon(plot = {}) {
+  const raw = String(plot.facilityType || plot.plotType || plot.facilityLabel || plot.name || '').trim().toUpperCase();
+  if (raw.includes('GREENHOUSE') || /温室|大棚/.test(raw)) return 'plot_greenhouse';
+  if (raw.includes('SHADE_HOUSE') || raw.includes('SHADEHOUSE') || /遮阳棚/.test(raw)) return 'plot_shade_house';
+  if (raw.includes('ORCHARD') || /果园/.test(raw)) return 'plot_orchard';
+  if (raw.includes('OPEN_FIELD') || /露地|裸地/.test(raw)) return 'plot_open_field';
+  return 'location_on';
+}
+
 function conversationTime(value) {
   const date = new Date(value || 0);
   if (Number.isNaN(date.getTime()) || date.getTime() < Date.UTC(2000, 0, 1)) return '刚刚';
@@ -121,6 +130,9 @@ export const AdminAiChatView = {
     const imageInput = ref(null);
     const attachments = ref([]);
     const actionBusy = ref('');
+    const expandedPlotIds = ref(new Set(selectedPlotId.value ? [selectedPlotId.value] : []));
+    const archivedView = ref(Boolean(props.routeParams?.archived === true || props.routeParams?.archived === '1'));
+    let selectingConversation = false;
     const isActionBusy = () => Boolean(actionBusy.value);
     const isActionRunning = actionId => actionBusy.value === actionId;
     const currentRole = computed(() => props.state?.currentUser?.role || 'FARM_ADMIN');
@@ -228,6 +240,7 @@ export const AdminAiChatView = {
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
         messages.value.push(assistant);
         if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: `请分析我上传的${count}张现场照片`, assistantResponse: response });
+        upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
@@ -244,6 +257,15 @@ export const AdminAiChatView = {
     watch(() => props.routeParams?.conversationId, value => {
       if (value && value !== conversationId.value && !loadingHistory.value) loadConversation(value, { updateHash: false });
     });
+    watch(() => props.routeParams?.archived, value => {
+      const next = value === true || value === '1';
+      if (next === archivedView.value) return;
+      archivedView.value = next;
+      exitBulkMode();
+      if (next) loadArchivedConversations();
+      else loadConversations();
+    });
+    watch(selectedPlotId, (value, oldValue) => { if (!selectingConversation) switchPlotContext(value, oldValue); });
 
     // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
@@ -260,6 +282,8 @@ export const AdminAiChatView = {
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
       if (!id) delete params.conversationId;
+      if (selectedPlotId.value) params.plotId = selectedPlotId.value;
+      if (!id) params.new = '1'; else delete params.new;
       emit('navigate', routeTarget.value, params);
     };
 
@@ -271,6 +295,11 @@ export const AdminAiChatView = {
       visibleMessageCount.value = 5;
       try {
         const history = await api.getAgentHistory(id, 100);
+        const historyPlotId = String(history?.conversation?.plotId || '').trim();
+        if (historyPlotId && selectedPlotId.value && historyPlotId !== String(selectedPlotId.value)) {
+          startNewConversation({ updateHash: true });
+          return;
+        }
         conversationId.value = history?.conversation?.conversationId || id;
         selectedConversationId.value = conversationId.value;
         releaseMessageImages();
@@ -284,23 +313,40 @@ export const AdminAiChatView = {
     };
 
     const startNewConversation = ({ updateHash: shouldUpdateHash = true } = {}) => {
-      conversationId.value = createConversationId();
+      // A new conversation is a local draft until the first message is sent.
+      // Keeping the id empty prevents blank chats from being written to the
+      // server or appearing in the history list.
+      conversationId.value = '';
       selectedConversationId.value = '';
       releaseMessageImages();
       messages.value = [];
       input.value = '';
+      attachments.value.forEach(revokeAttachment);
+      attachments.value = [];
       if (shouldUpdateHash) updateRoute('');
       scrollToBottomInstant();
     };
 
+    let plotContextReady = false;
     const loadConversations = async () => {
       loadingConversations.value = true;
       try {
-        conversations.value = (await api.getAgentConversations(20) || []).map(item => ({ ...item }));
+        // Compatibility note: single-plot callers may still use
+        // getAgentConversations(20, { plotId: selectedPlotId.value });
+        conversations.value = (await api.getAgentConversations(50, { archived: false }) || []).map(item => ({ ...item }));
+        if (selectedPlotId.value) expandedPlotIds.value = new Set([...expandedPlotIds.value, selectedPlotId.value]);
         const routeConversation = props.routeParams?.conversationId;
-        const target = routeConversation || conversations.value[0]?.conversationId;
-        if (target) await loadConversation(target, { updateHash: !routeConversation });
-        else startNewConversation({ updateHash: false });
+        if (props.routeParams?.new === '1' || props.routeParams?.new === true) {
+          startNewConversation({ updateHash: false });
+          return;
+        }
+        const routeTarget = conversations.value.find(item => item.conversationId === routeConversation && (!selectedPlotId.value || String(item.plotId || '') === String(selectedPlotId.value)));
+        const currentPlotTarget = conversations.value
+          .filter(item => !selectedPlotId.value || String(item.plotId || '') === String(selectedPlotId.value))
+          .sort((a, b) => new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0))[0];
+        const target = routeTarget?.conversationId || currentPlotTarget?.conversationId;
+        if (target) await loadConversation(target, { updateHash: !routeTarget });
+        else startNewConversation({ updateHash: true });
       } catch (error) {
         conversations.value = [];
         toast(error.message || '对话列表加载失败', 'error');
@@ -308,7 +354,58 @@ export const AdminAiChatView = {
       } finally { loadingConversations.value = false; }
     };
 
-    const refreshConversations = async () => { try { conversations.value = (await api.getAgentConversations(20) || []).map(item => ({ ...item })); } catch (error) { /* keep current chat usable */ } };
+    const refreshConversations = async () => {
+      try {
+        const serverItems = (await api.getAgentConversations(50, { archived: false }) || []).map(item => ({ ...item, pendingSync: false }));
+        const serverIds = new Set(serverItems.map(item => item.conversationId));
+        const now = Date.now();
+        const pending = conversations.value.filter(item => item.pendingSync && item.conversationId && !serverIds.has(item.conversationId)
+          && now - Number(item.pendingSyncAt || now) < 30_000);
+        conversations.value = [...serverItems, ...pending];
+      } catch (error) { /* keep the optimistic row usable while the store catches up */ }
+    };
+
+    const upsertConversationSummary = ({ conversationId: id, plotId, title, response } = {}) => {
+      if (!id) return;
+      const now = new Date().toISOString();
+      const existing = conversations.value.find(item => item.conversationId === id);
+      const cleanTitle = String(title || '已上传现场图片').replace(/\s+/g, ' ').trim().slice(0, 36);
+      const summary = {
+        ...(existing || {}),
+        ...(response && typeof response === 'object' ? response : {}),
+        conversationId: id,
+        title: existing?.title || response?.title || cleanTitle,
+        plotId: plotId || existing?.plotId || response?.plotId || '',
+        messageCount: Number(response?.messageCount || existing?.messageCount || 0) + 2,
+        updatedAt: response?.updatedAt || now,
+        lastMessageAt: response?.lastMessageAt || now,
+        pendingSync: true,
+        pendingSyncAt: existing?.pendingSyncAt || Date.now()
+      };
+      conversations.value = [summary, ...conversations.value.filter(item => item.conversationId !== id)];
+      if (summary.plotId) expandedPlotIds.value = new Set([...expandedPlotIds.value, String(summary.plotId)]);
+    };
+
+    const switchPlotContext = async (plotId, oldPlotId) => {
+      if (!plotId || plotId === oldPlotId || !plotContextReady) return;
+      selectedConversationId.value = '';
+      conversationId.value = '';
+      releaseMessageImages();
+      messages.value = [];
+      input.value = '';
+      bulkSelected.value = new Set();
+      bulkMode.value = false;
+      closeMenu();
+      renamingId.value = '';
+      if (archivedView.value) await loadArchivedConversations();
+      else {
+        const target = conversations.value
+          .filter(item => String(item.plotId || '') === String(plotId))
+          .sort((a, b) => new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0))[0];
+        if (target) await loadConversation(target.conversationId, { updateHash: true });
+        else startNewConversation({ updateHash: true });
+      }
+    };
 
     const send = async (preset = '') => {
       const text = String(preset || input.value).trim();
@@ -337,6 +434,7 @@ export const AdminAiChatView = {
           const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
           messages.value.push(assistant);
           if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+          upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
           await refreshConversations();
           updateRoute(conversationId.value);
           return;
@@ -347,6 +445,7 @@ export const AdminAiChatView = {
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。') }, props.state.sessionMode, currentRole.value);
         messages.value.push(assistant);
         if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+        upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
@@ -354,7 +453,15 @@ export const AdminAiChatView = {
       } finally { attachments.value = []; sending.value = false; scrollToBottom(); }
     };
 
-    const selectConversation = id => loadConversation(id);
+    const selectConversation = async id => {
+      const conversation = [...conversations.value, ...archivedConversations.value].find(item => item.conversationId === id);
+      if (conversation?.plotId && conversation.plotId !== selectedPlotId.value) {
+        selectingConversation = true;
+        selectedPlotId.value = conversation.plotId;
+        expandedPlotIds.value = new Set([...expandedPlotIds.value, conversation.plotId]);
+      }
+      try { await loadConversation(id); } finally { selectingConversation = false; }
+    };
     const toggleDetails = message => { if (message) message.detailsOpen = !message.detailsOpen; };
     const confirmAction = async proposal => {
       if (!proposal?.actionId || actionBusy.value) return;
@@ -379,7 +486,8 @@ export const AdminAiChatView = {
     onMounted(() => {
       normalizeViewportWidth();
       window.addEventListener('resize', normalizeViewportWidth);
-      loadConversations();
+      plotContextReady = true;
+      if (archivedView.value) loadArchivedConversations(); else loadConversations();
       nextTick(() => messageList.value?.addEventListener('scroll', handleMessageScroll));
     });
     onBeforeUnmount(() => {
@@ -396,10 +504,14 @@ export const AdminAiChatView = {
     const renamingId = ref('');
     const renameText = ref('');
     const pinnedIds = ref([]);
-    try { pinnedIds.value = JSON.parse(localStorage.getItem('agriloop-ai-pinned-conversations') || '[]') || []; } catch (error) { /* ignore */ }
+    const pinStorageKey = `agriloop-ai-pinned-conversations:${props.state?.currentUser?.userId || props.state?.currentUser?.username || 'demo'}`;
+    try {
+      const stored = localStorage.getItem(pinStorageKey) || localStorage.getItem('agriloop-ai-pinned-conversations');
+      pinnedIds.value = JSON.parse(stored || '[]') || [];
+    } catch (error) { /* ignore */ }
     const bulkMode = ref(false);
     const bulkSelected = ref(new Set());
-    const persistPinned = () => { try { localStorage.setItem('agriloop-ai-pinned-conversations', JSON.stringify(pinnedIds.value)); } catch (error) { /* ignore */ } };
+    const persistPinned = () => { try { localStorage.setItem(pinStorageKey, JSON.stringify(pinnedIds.value)); } catch (error) { /* ignore */ } };
     const closeMenu = () => { menuFor.value = ''; };
     const menuPos = ref({ left: 0, top: 0 });
     const toggleMenu = (conversation, event) => {
@@ -429,17 +541,53 @@ export const AdminAiChatView = {
         toast('对话已重命名');
       } catch (error) { toast(error.message || '重命名失败', 'error'); }
     };
-    const togglePin = (conversation) => {
+    const togglePin = async (conversation) => {
       const id = conversation.conversationId;
-      pinnedIds.value = pinnedIds.value.includes(id) ? pinnedIds.value.filter(x => x !== id) : [id, ...pinnedIds.value];
-      persistPinned(); closeMenu();
+      const nextPinned = !isPinned(id);
+      try {
+        const saved = await api.setAgentConversationPinned(id, nextPinned);
+        conversation.pinned = saved?.pinned === true || nextPinned;
+        pinnedIds.value = nextPinned ? [id, ...pinnedIds.value.filter(x => x !== id)] : pinnedIds.value.filter(x => x !== id);
+        persistPinned();
+        closeMenu();
+      } catch (error) { toast(error.message || '置顶状态更新失败', 'error'); }
     };
-    const isPinned = id => pinnedIds.value.includes(id);
+    const isPinned = id => pinnedIds.value.includes(id) || Boolean(conversations.value.find(item => item.conversationId === id)?.pinned);
     const orderedConversations = computed(() => {
       const list = Array.isArray(conversations.value) ? [...conversations.value] : [];
-      list.sort((a, b) => (Number(isPinned(b.conversationId)) - Number(isPinned(a.conversationId))) || 0);
+      list.sort((a, b) => (Number(isPinned(b.conversationId)) - Number(isPinned(a.conversationId)))
+        || (new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0)));
       return list;
     });
+    const orderedArchivedConversations = computed(() => {
+      const list = Array.isArray(archivedConversations.value) ? [...archivedConversations.value] : [];
+      list.sort((a, b) => new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0));
+      return list;
+    });
+    const activeConversationTitle = computed(() => {
+      const active = [...conversations.value, ...archivedConversations.value]
+        .find(item => item.conversationId === selectedConversationId.value);
+      return active?.title || (conversationId.value ? '当前对话' : '新对话');
+    });
+    const plotFolders = computed(() => {
+      const folderMap = new Map();
+      (props.state.plots || []).forEach(plot => folderMap.set(String(plot.plotId), { plotId: plot.plotId, name: plot.name || plot.plotId, icon: plotFacilityIcon(plot), conversations: [] }));
+      const source = archivedView.value ? orderedArchivedConversations.value : orderedConversations.value;
+      source.forEach(item => {
+        const key = String(item.plotId || '__unassigned');
+        if (!folderMap.has(key)) folderMap.set(key, { plotId: item.plotId || '', name: item.plotId ? item.plotId : '未关联地块', icon: item.plotId ? 'location_on' : 'chat_bubble_outline', conversations: [] });
+        folderMap.get(key).conversations.push(item);
+      });
+      return [...folderMap.values()].map(folder => ({ ...folder, expanded: expandedPlotIds.value.has(String(folder.plotId)) }));
+    });
+    const visibleConversationRows = computed(() => plotFolders.value.flatMap(folder => folder.conversations));
+    const togglePlotFolder = folder => {
+      const plotId = String(folder?.plotId || '');
+      const next = new Set(expandedPlotIds.value);
+      if (next.has(plotId)) next.delete(plotId); else next.add(plotId);
+      expandedPlotIds.value = next;
+      if (folder?.plotId && folder.plotId !== selectedPlotId.value) selectedPlotId.value = folder.plotId;
+    };
     const requestArchiveConversation = (conversation) => {
       if (!conversation?.conversationId || sending.value) return;
       closeMenu();
@@ -467,6 +615,12 @@ export const AdminAiChatView = {
       closeMenu();
       lightConfirm.value = { type: 'bulk-delete', ids };
     };
+    const requestBulkUnarchive = () => {
+      const ids = [...bulkSelected.value];
+      if (!ids.length) return;
+      closeMenu();
+      lightConfirm.value = { type: 'bulk-unarchive', ids };
+    };
     const closeConfirm = () => { lightConfirm.value = null; };
     const confirmDeleteConversation = async () => {
       const target = lightConfirm.value;
@@ -475,21 +629,31 @@ export const AdminAiChatView = {
       sending.value = true;
       try {
         if (target.type === 'bulk-archive') {
-          for (const id of target.ids) await api.archiveAgentConversation(id, true);
-          const moved = new Set(target.ids);
+          const completed = []; const failed = [];
+          for (const id of target.ids) { try { await api.archiveAgentConversation(id, true); completed.push(id); } catch (error) { failed.push(id); } }
+          const moved = new Set(completed);
           conversations.value = conversations.value.filter(c => !moved.has(c.conversationId));
-          bulkSelected.value = new Set(); bulkMode.value = false;
-          toast(`已归档 ${target.ids.length} 个历史对话`);
+          bulkSelected.value = new Set(failed); bulkMode.value = failed.length > 0;
+          toast(failed.length ? `已归档 ${completed.length} 个，${failed.length} 个失败，请重试` : `已归档 ${completed.length} 个历史对话`, failed.length ? 'error' : undefined);
+        } else if (target.type === 'bulk-unarchive') {
+          const completed = []; const failed = [];
+          for (const id of target.ids) { try { await api.archiveAgentConversation(id, false); completed.push(id); } catch (error) { failed.push(id); } }
+          const moved = new Set(completed);
+          archivedConversations.value = archivedConversations.value.filter(c => !moved.has(c.conversationId));
+          await refreshConversations();
+          bulkSelected.value = new Set(failed); bulkMode.value = failed.length > 0;
+          toast(failed.length ? `已取消归档 ${completed.length} 个，${failed.length} 个失败，请重试` : `已取消归档 ${completed.length} 个历史对话`, failed.length ? 'error' : undefined);
         } else if (target.type === 'bulk-delete') {
-          for (const id of target.ids) await api.deleteAgentConversation(id);
-          const removed = new Set(target.ids);
+          const completed = []; const failed = [];
+          for (const id of target.ids) { try { await api.deleteAgentConversation(id); completed.push(id); } catch (error) { failed.push(id); } }
+          const removed = new Set(completed);
           archivedConversations.value = archivedConversations.value.filter(c => !removed.has(c.conversationId));
-          bulkSelected.value = new Set(); bulkMode.value = false;
+          bulkSelected.value = new Set(failed); bulkMode.value = failed.length > 0;
           if (removed.has(selectedConversationId.value) || removed.has(conversationId.value)) {
             selectedConversationId.value = '';
             startNewConversation({ updateHash: true });
           }
-          toast(`已删除 ${target.ids.length} 个已归档对话`);
+          toast(failed.length ? `已删除 ${completed.length} 个，${failed.length} 个失败，请重试` : `已删除 ${completed.length} 个已归档对话`, failed.length ? 'error' : undefined);
         } else if (target.type === 'archive') {
           const conversation = target.conversation;
           await api.archiveAgentConversation(conversation.conversationId, true);
@@ -527,16 +691,16 @@ export const AdminAiChatView = {
     const enterBulkMode = () => { bulkMode.value = true; bulkSelected.value = new Set(); };
     const exitBulkMode = () => { bulkMode.value = false; bulkSelected.value = new Set(); closeMenu(); };
     // 已归档视图
-    const archivedView = ref(false);
     const archivedConversations = ref([]);
+    const visibleArchivedConversations = computed(() => orderedArchivedConversations.value);
     const loadArchivedConversations = async () => {
       loadingConversations.value = true;
-      try { archivedConversations.value = (await api.getAgentConversations(50, true)) || []; }
+      try { archivedConversations.value = (await api.getAgentConversations(50, { archived: true })) || []; }
       catch (error) { archivedConversations.value = []; toast(error.message || '已归档对话读取失败', 'error'); }
       finally { loadingConversations.value = false; }
     };
-    const enterArchivedView = () => { archivedView.value = true; exitBulkMode(); loadArchivedConversations(); };
-    const exitArchivedView = () => { archivedView.value = false; exitBulkMode(); };
+    const enterArchivedView = () => { archivedView.value = true; exitBulkMode(); loadArchivedConversations(); emit('navigate', routeTarget.value, { ...props.routeParams, archived: '1', plotId: selectedPlotId.value }); };
+    const exitArchivedView = () => { archivedView.value = false; exitBulkMode(); emit('navigate', routeTarget.value, { ...props.routeParams, archived: '0', plotId: selectedPlotId.value }); };
     // 地块编号 → 地块名
     const plotNameOf = (plotId) => {
       if (!plotId) return '';
@@ -580,70 +744,86 @@ export const AdminAiChatView = {
     // 点击侧栏任意处：关闭菜单；若仍处于重命名编辑态则提交并退出（blur 兜底）
     const onSectionClick = () => { closeMenu(); if (renamingId.value) commitRename(); };
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, activeConversationTitle, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkUnarchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, plotFolders, expandedPlotIds, togglePlotFolder, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, visibleArchivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
   },
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="onSectionClick">
-      <aside class="admin-ai-conversation-sidebar" aria-label="历史对话">
-        <div class="admin-ai-sidebar-heading"><div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : rolePresentation.historyTitle }}</strong></div><div class="admin-ai-sidebar-heading-actions"><button v-if="!archivedView && !bulkMode" class="g-btn text sm admin-ai-bulk-toggle" type="button" title="批量管理历史对话" @click="enterBulkMode">批量</button><button v-if="!archivedView" class="g-btn text sm admin-ai-archived-toggle" type="button" title="查看已归档对话" @click="enterArchivedView">已归档</button><button v-if="archivedView" class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回</button><button class="g-btn icon-only compact admin-ai-sidebar-collapse" type="button" aria-label="隐藏历史对话" title="隐藏历史对话" @click="toggleSidebar"><app-icon name="chevron_left"></app-icon></button></div></div>
+      <!-- 当前地块选择位于输入区上方；admin-ai-new-chat 是侧栏唯一的新建入口。 -->
+      <aside class="admin-ai-conversation-sidebar" aria-label="地块与历史对话">
+        <div class="admin-ai-sidebar-heading">
+          <div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : '我的地块对话' }}</strong></div>
+          <div class="admin-ai-sidebar-heading-actions">
+            <button v-if="!archivedView" class="admin-ai-new-sidebar-button admin-ai-new-chat" type="button" title="创建新对话" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button>
+            <button v-else class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回活跃对话</button>
+          </div>
+        </div>
+        <div v-if="bulkMode" class="admin-ai-bulk-bar admin-ai-bulk-bar-top">
+          <span>已选 {{ bulkSelected.size }} 项</span>
+          <button class="g-btn text sm" type="button" @click="exitBulkMode">取消</button>
+          <button v-if="!archivedView" class="g-btn text sm" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkArchive">归档所选</button>
+          <template v-else><button class="g-btn text sm" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkUnarchive">取消归档所选</button><button class="g-btn text sm danger-text" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkDelete">删除所选</button></template>
+        </div>
         <div class="admin-ai-conversation-list" :class="{ 'is-bulk-mode': bulkMode }" aria-live="polite">
           <div v-if="loadingConversations" class="admin-ai-sidebar-state"><app-icon name="hourglass_empty"></app-icon><span>正在读取…</span></div>
-          <template v-if="!loadingConversations && archivedView">
-            <div v-if="!archivedConversations.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>暂无已归档对话</span></div>
-            <div v-for="conversation in archivedConversations" :key="conversation.conversationId" class="admin-ai-conversation-item archived" :class="{ active: selectedConversationId === conversation.conversationId, 'is-selected': bulkSelected.has(conversation.conversationId) }" @click="bulkMode ? toggleBulkSelect(conversation.conversationId) : selectConversation(conversation.conversationId)">
-              <label v-if="bulkMode" class="admin-ai-conversation-check" @click.stop><input type="checkbox" :checked="bulkSelected.has(conversation.conversationId)" @change="toggleBulkSelect(conversation.conversationId)" :aria-label="'选择对话 ' + (conversation.title || '')"></label>
-              <span class="admin-ai-conversation-title">{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ plotNameOf(conversation.plotId) || (rolePresentation.code === 'SYSTEM_ADMIN' ? '全平台' : '全农场') }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span>
-              <template v-if="!bulkMode">
-                <button type="button" class="admin-ai-conversation-menu" :disabled="sending" :aria-label="'对话操作 ' + (conversation.title || '')" title="更多操作" @click.stop="toggleMenu(conversation, $event)"><app-icon name="more_vert"></app-icon></button>
-              </template>
+          <div v-if="!loadingConversations && !plotFolders.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>{{ archivedView ? '暂无已归档对话' : rolePresentation.historyEmpty }}</span></div>
+          <section v-for="folder in plotFolders" :key="folder.plotId || '__unassigned'" class="admin-ai-plot-folder" :class="{ 'is-current': folder.plotId === selectedPlotId }">
+            <button type="button" class="admin-ai-plot-folder-heading" :aria-expanded="folder.expanded ? 'true' : 'false'" @click="togglePlotFolder(folder)">
+              <app-icon :name="folder.expanded ? 'expand_more' : 'chevron_right'"></app-icon><app-icon :name="folder.icon" class="admin-ai-plot-icon" :title="folder.name"></app-icon><span>{{ folder.name }}</span><small>{{ folder.conversations.length }}</small>
+            </button>
+            <div v-if="folder.expanded" class="admin-ai-plot-folder-list">
+              <div v-if="!folder.conversations.length" class="admin-ai-folder-empty">暂无对话</div>
+              <div v-for="conversation in folder.conversations" :key="conversation.conversationId" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId, archived: archivedView, 'is-selected': bulkSelected.has(conversation.conversationId) }" @click="bulkMode ? toggleBulkSelect(conversation.conversationId) : selectConversation(conversation.conversationId)">
+                <label v-if="bulkMode" class="admin-ai-conversation-check" @click.stop><input type="checkbox" :checked="bulkSelected.has(conversation.conversationId)" @change="toggleBulkSelect(conversation.conversationId)" :aria-label="'选择对话 ' + (conversation.title || '')"></label>
+                <span class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId) && !archivedView" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span>
+                <div v-if="!bulkMode" class="admin-ai-conversation-actions" @click.stop>
+                  <button v-if="!archivedView" type="button" class="admin-ai-conversation-action" :class="{ active: isPinned(conversation.conversationId) }" :aria-label="isPinned(conversation.conversationId) ? '取消置顶' : '置顶'" :title="isPinned(conversation.conversationId) ? '取消置顶' : '置顶'" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon></button>
+                  <button v-if="!archivedView" type="button" class="admin-ai-conversation-action" aria-label="归档" title="归档" @click="requestArchiveConversation(conversation)"><app-icon name="inbox"></app-icon></button>
+                  <button v-else type="button" class="admin-ai-conversation-action" aria-label="取消归档" title="取消归档" @click="requestUnarchiveConversation(conversation)"><app-icon name="inbox"></app-icon></button>
+                  <button type="button" class="admin-ai-conversation-action is-danger" aria-label="删除" title="删除" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon></button>
+                </div>
+              </div>
             </div>
-          </template>
-          <template v-if="!loadingConversations && !archivedView">
-            <div v-if="!conversations.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>{{ rolePresentation.historyEmpty }}</span></div>
-            <div v-for="conversation in orderedConversations" :key="conversation.conversationId" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId, 'is-selected': bulkSelected.has(conversation.conversationId) }" @click="bulkMode ? toggleBulkSelect(conversation.conversationId) : selectConversation(conversation.conversationId)">
-              <label v-if="bulkMode" class="admin-ai-conversation-check" @click.stop><input type="checkbox" :checked="bulkSelected.has(conversation.conversationId)" @change="toggleBulkSelect(conversation.conversationId)" :aria-label="'选择对话 ' + (conversation.title || '')"></label>
-              <template v-if="renamingId === conversation.conversationId"><span class="admin-ai-conversation-rename"><input ref="renameInputEl" v-model="renameText" class="admin-ai-rename-input" maxlength="36" placeholder="对话标题" @click.stop @keydown.enter="commitRename" @keydown.esc="renamingId = ''" @blur="commitRename" @focus="$event.target.select()"></span></template>
-              <template v-else><span class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId)" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ plotNameOf(conversation.plotId) || (rolePresentation.code === 'SYSTEM_ADMIN' ? '全平台' : rolePresentation.code === 'FARM_ADMIN' ? '全农场' : '本人地块') }}</span><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span></template>
-              <template v-if="!bulkMode">
-                <button type="button" class="admin-ai-conversation-menu" :disabled="sending" :aria-label="'对话操作 ' + (conversation.title || '')" title="更多操作" @click.stop="toggleMenu(conversation, $event)"><app-icon name="more_vert"></app-icon></button>
-              </template>
-            </div>
-          </template>
-          <div v-if="bulkMode" class="admin-ai-bulk-bar">
-            <span>已选 {{ bulkSelected.size }} 项</span>
-            <button class="g-btn text sm" type="button" @click="exitBulkMode">取消</button>
-            <button v-if="!archivedView" class="g-btn text sm" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkArchive">归档所选</button>
-            <button v-else class="g-btn text sm danger-text" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkDelete">删除所选</button>
-          </div>
+          </section>
+        </div>
+        <div class="admin-ai-sidebar-footer">
+          <button v-if="!archivedView" type="button" class="admin-ai-archived-entry" @click="enterArchivedView">
+            <app-icon name="inbox"></app-icon><span>已归档对话</span>
+          </button>
+          <button v-else type="button" class="admin-ai-archived-entry" @click="exitArchivedView">
+            <app-icon name="arrow_back"></app-icon><span>返回活跃对话</span>
+          </button>
+          <button v-if="archivedView && !bulkMode" type="button" class="admin-ai-archived-manage" @click="enterBulkMode">管理归档</button>
         </div>
       </aside>
       <button v-if="!sidebarCollapsed" class="admin-ai-sidebar-resizer" type="button" aria-label="调整历史对话栏宽度" title="拖动调整历史对话栏宽度" @pointerdown="startSidebarResize"><span></span></button>
       <div class="admin-ai-chat-main">
-        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" :title="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><div class="admin-ai-chat-tools"><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">{{ rolePresentation.code === 'SYSTEM_ADMIN' ? rolePresentation.contextLabel : '当前地块' }}</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><button class="g-btn secondary admin-ai-new-chat" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button></div></div>
+        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" :title="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span class="admin-ai-session-title">{{ activeConversationTitle }}</span></div></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
+          <button v-else-if="visibleMessages.length && visibleMessages.length < messages.length" type="button" class="admin-ai-load-older" @click="loadOlderMessages">加载更早消息</button>
           <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in visibleMessages" :key="message.id" class="admin-ai-message ai-chat-message" :class="[message.role, { error: message.error }]">
             <div class="admin-ai-avatar ai-chat-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><div v-if="message.role !== 'user'" class="admin-ai-message-meta ai-chat-message-meta"><span class="admin-ai-message-author"><strong>{{ rolePresentation.assistantName }}</strong></span><span class="admin-ai-source ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.source || '智能助手' }}</span><span v-if="message.intentLabel" class="admin-ai-intent ai-chat-intent">{{ message.intentLabel }}</span></div><div v-else class="ai-chat-user-bubble">{{ message.content }}</div><p v-if="message.role !== 'user'" class="ai-chat-answer">{{ message.content }}</p><div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div><div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
               <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message ai-chat-message assistant" v-if="sending"><div class="admin-ai-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>{{ rolePresentation.typingLabel }}</span></div></article></template>
         </div>
-        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
+        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><label class="admin-ai-compose-context"><app-icon name="agriculture"></app-icon><span>关联地块</span><select class="g-select" v-model="selectedPlotId" aria-label="当前地块"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
       </div>
       <div v-if="lightConfirm" class="admin-ai-confirm-overlay" @click.self="closeConfirm">
         <div class="admin-ai-confirm-dialog">
           <p class="admin-ai-confirm-title">
             <template v-if="lightConfirm.type === 'bulk-archive'">归档所选 {{ lightConfirm.ids.length }} 个历史对话？</template>
+            <template v-else-if="lightConfirm.type === 'bulk-unarchive'">取消归档所选 {{ lightConfirm.ids.length }} 个历史对话？</template>
             <template v-else-if="lightConfirm.type === 'bulk-delete'">删除所选 {{ lightConfirm.ids.length }} 个已归档对话？</template>
             <template v-else-if="lightConfirm.type === 'archive'">归档「{{ lightConfirm.conversation.title || '该历史对话' }}」？</template>
             <template v-else-if="lightConfirm.type === 'unarchive'">取消归档「{{ lightConfirm.conversation.title || '该历史对话' }}」？</template>
             <template v-else>删除「{{ lightConfirm.conversation.title || '该历史对话' }}」？</template>
           </p>
-          <p class="admin-ai-confirm-sub">{{ lightConfirm.type === 'delete' || lightConfirm.type === 'bulk-delete' ? '删除后对话及其中所有消息将无法恢复。' : lightConfirm.type === 'unarchive' ? '取消归档后对话将重新出现在历史列表。' : '归档后可在「已归档」中查看，不会出现在历史列表。' }}</p>
+          <p class="admin-ai-confirm-sub">{{ lightConfirm.type === 'delete' || lightConfirm.type === 'bulk-delete' ? '删除后对话及其中所有消息将无法恢复。' : lightConfirm.type === 'unarchive' || lightConfirm.type === 'bulk-unarchive' ? '取消归档后对话将重新出现在历史列表。' : '归档后可在「已归档」中查看，不会出现在历史列表。' }}</p>
           <div class="admin-ai-confirm-actions">
             <button class="g-btn" type="button" @click="closeConfirm">取消</button>
             <button v-if="lightConfirm.type === 'delete' || lightConfirm.type === 'bulk-delete'" class="g-btn danger" type="button" :disabled="sending" @click="confirmDeleteConversation">删除</button>
-            <button v-else-if="lightConfirm.type === 'unarchive'" class="g-btn" type="button" :disabled="sending" @click="confirmDeleteConversation">取消归档</button>
+            <button v-else-if="lightConfirm.type === 'unarchive' || lightConfirm.type === 'bulk-unarchive'" class="g-btn" type="button" :disabled="sending" @click="confirmDeleteConversation">取消归档</button>
             <button v-else class="g-btn" type="button" :disabled="sending" @click="confirmDeleteConversation">归档</button>
           </div>
         </div>
@@ -651,7 +831,7 @@ export const AdminAiChatView = {
         <div v-if="menuFor" class="admin-ai-menu-backdrop" @click="closeMenu"></div>
       <teleport to="body">
         <div v-if="menuFor" class="admin-ai-conversation-menu-pop admin-ai-menu-fixed" :style="{ left: menuPos.left + 'px', top: menuPos.top + 'px' }" @click.stop>
-          <template v-for="conversation in [...archivedConversations, ...orderedConversations]" :key="conversation.conversationId">
+          <template v-for="conversation in [...visibleArchivedConversations, ...orderedConversations]" :key="conversation.conversationId">
             <template v-if="conversation.conversationId === menuFor">
               <template v-if="archivedView">
                 <button type="button" @click="requestUnarchiveConversation(conversation)"><app-icon name="inbox"></app-icon>取消归档</button>
