@@ -694,7 +694,15 @@ const AdminOpsView = {
     const devicePage = usePagination(filteredDevices);
     const alertPage = usePagination(filteredAlerts);
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText,
+    // 地块编号 → 地块名（设备心跳 / 决策审计列显示可读名称）
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plots = props.state.plots || props.state.adminGlobalPlots || [];
+      const plot = plots.find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText, plotNameOf,
       devicePageSize: devicePage.pageSize, devicePageSizeOptions: devicePage.pageSizeOptions, deviceCurrentPage: devicePage.currentPage, deviceJumpInput: devicePage.jumpInput, deviceTotalRecords: devicePage.totalRecords, deviceTotalPages: devicePage.totalPages, devicePageRecords: devicePage.pageRecords, devicePrevPage: devicePage.prevPage, deviceNextPage: devicePage.nextPage, deviceChangeSize: devicePage.changeSize, deviceJumpTo: devicePage.jumpTo,
       alertPageSize: alertPage.pageSize, alertPageSizeOptions: alertPage.pageSizeOptions, alertCurrentPage: alertPage.currentPage, alertJumpInput: alertPage.jumpInput, alertTotalRecords: alertPage.totalRecords, alertTotalPages: alertPage.totalPages, alertPageRecords: alertPage.pageRecords, alertPrevPage: alertPage.prevPage, alertNextPage: alertPage.nextPage, alertChangeSize: alertPage.changeSize, alertJumpTo: alertPage.jumpTo };
   }
@@ -1319,6 +1327,36 @@ const AdminSettingsView = {
       return users.filter(u => u.role === roleFilter.value);
     });
 
+    // 操作审计日志：live 版从后端 event_log 拉取（demo 用 MOCK 数据）
+    const AUDIT_ACTION_LABELS = {
+      LOGIN: '登录', ACCOUNT_REGISTERED: '注册账号', ACCOUNT_CREATED: '创建用户', ACCOUNT_DELETED: '删除账号',
+      ACCOUNT_PASSWORD_CHANGED: '修改密码', ACCOUNT_PASSWORD_RESET: '重置密码',
+      CONFIG_CHANGE: '修改配置', RULE_PUBLISH: '发布规则', AI_MODE_CHANGED: '切换模式',
+      'plot.simulation.updated': '模拟启动', 'plot.simulation.reset': '模拟重置', 'plot.simulation.stopped': '模拟停止',
+      ALERT_ACK: '确认告警', ALERT_CLOSE: '关闭告警', FARM_MEMBER_ENABLED: '启用成员', FARM_MEMBER_DISABLED: '停用成员'
+    };
+    const auditActionLabel = (action) => AUDIT_ACTION_LABELS[action] || String(action || '系统事件').replace(/[._]/g, ' ');
+    const logFilterOptions = computed(() => {
+      const seen = new Set();
+      const options = [];
+      (props.state.adminAuditLogs || []).forEach(log => {
+        const label = auditActionLabel(log.action);
+        if (!seen.has(label)) { seen.add(label); options.push({ value: log.action, label }); }
+      });
+      return options;
+    });
+    const loadAdminAuditLogs = async () => {
+      if (props.state?.sessionMode !== 'live') return;
+      try {
+        const logs = await api.getAuditLogs(50);
+        props.state.adminAuditLogs = (logs || []).map(item => ({
+          id: item.id, time: item.time, operator: item.operator || 'system',
+          action: item.action, actionLabel: auditActionLabel(item.action), detail: item.detail || '', ip: '—'
+        }));
+      } catch { /* 审计拉取失败不打断界面 */ }
+    };
+    if (props.state?.sessionMode === 'live') loadAdminAuditLogs();
+
     const filteredLogs = computed(() => {
       const logs = props.state.adminAuditLogs || [];
       if (logFilter.value === 'all') return logs;
@@ -1514,6 +1552,7 @@ const AdminSettingsView = {
     const logPage = usePagination(filteredLogs);
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      logFilterOptions, auditActionLabel,
       permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,

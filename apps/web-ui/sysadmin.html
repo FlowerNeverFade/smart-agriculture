@@ -446,7 +446,7 @@
             <tbody>
               <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
-                <td>{{ d.plotId }}</td>
+                <td>{{ plotNameOf(d.plotId) }}</td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
                 <td>{{ d.lastHeartbeat }}</td>
                 <td><span class="status-pill" :class="d.status.toLowerCase()">{{ d.statusLabel || serviceStatusLabel(d.status) }}</span></td>
@@ -561,7 +561,7 @@
                 <td style="white-space:nowrap">{{ record.time }}</td>
                 <td style="font-family:var(--g-mono);font-size:11px;color:var(--g-primary)">{{ record.traceId }}</td>
                 <td><span class="status-pill agent">{{ record.operator }}</span></td>
-                <td>{{ record.plotId }}</td>
+                <td>{{ plotNameOf(record.plotId) }}</td>
                 <td>{{ record.typeLabel }}</td>
                 <td>{{ displayText(record.summary) }}</td>
                 <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '待审' }}</span></td>
@@ -1187,10 +1187,7 @@
         <div class="admin-filter-bar">
           <select v-model="logFilter">
             <option value="all">全部操作</option>
-            <option value="LOGIN">登录</option>
-            <option value="USER_CREATE">创建用户</option>
-            <option value="CONFIG_CHANGE">修改配置</option>
-            <option value="RULE_PUBLISH">发布规则</option>
+            <option v-for="opt in logFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </div>
         <div class="admin-table-wrap">

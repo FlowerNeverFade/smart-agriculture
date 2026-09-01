@@ -1091,6 +1091,16 @@ export class ApiService {
     return { aiMode: this.demoAiMode, changed: true, sourceMode: 'SIMULATED' };
   }
 
+  // 操作审计日志（系统管理员，live 版从后端 event_log 拉取）
+  async getAuditLogs(limit = 50) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/system/audit-logs?limit=${limit}`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的审计日志', { code: 'AUDIT_LOGS_INVALID', payload: resp });
+    }
+    return [];
+  }
+
   async getPlotTimeline(plotId) {
     if (!plotId) return [];
     if (this.sessionMode === 'live') {
