@@ -195,8 +195,14 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(html, /farmer-manual-irrigation-modal/);
   assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);
   assert.match(html, /操作系统/);
+  assert.match(html, /farmer-operation-subsystem-tabs/);
+  assert.match(farmerSurface, /灌溉系统/);
+  assert.match(farmerSurface, /光照系统/);
+  assert.match(source, /operation_subsystem/);
+  assert.match(source, /select_operation_subsystem/);
+  assert.match(html + source, /advice_light_chart/);
   assert.match(farmerSurface, /光照不足|光照过强/);
-  assert.match(html, /虚拟补光（离线演示）/);
+  assert.match(farmerSurface, /虚拟补光（离线演示）|light_operation_label/);
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /resolve_light_band_status/);
 });

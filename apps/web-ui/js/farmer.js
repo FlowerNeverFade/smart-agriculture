@@ -1870,7 +1870,34 @@ const app = createApp({
         load_irrigation_plan(plot.plotId, { silent: true });
       }
     };
+    const operation_subsystem = ref('irrigation');
+    const operation_subsystem_options = Object.freeze([
+      { id: 'irrigation', label: '灌溉系统', icon: 'water_drop', description: '土壤湿度、灌水预警与补水执行' },
+      { id: 'lighting', label: '光照系统', icon: 'light_mode', description: '光照强度、光照预警与补光执行' }
+    ]);
+    const select_operation_subsystem = (id) => {
+      const next = operation_subsystem_options.find((item) => item.id === id);
+      if (next) operation_subsystem.value = next.id;
+    };
     const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '1d'));
+    const lighting_range = ref('1d');
+    const lighting_range_options = CHART_RANGE_OPTIONS;
+    const advice_light_chart = computed(() => {
+      const plot = advice_plot.value;
+      const chart = metric_chart(plot, 'LIGHT', lighting_range.value);
+      if (!chart || !plot) return null;
+      const band = selected_crop_band.value;
+      return {
+        ...chart,
+        plotName: plot.name || plot.plotId,
+        cropLabel: band?.cropLabel || plot.cropName,
+        stageLabel: band?.stageLabel || chart.stageLabel,
+        currentLight: plot.metrics?.LIGHT?.value,
+        currentTarget: Number.isFinite(Number(band?.lightLow)) && Number.isFinite(Number(band?.lightHigh))
+          ? `${Math.round(band.lightLow).toLocaleString()}~${Math.round(band.lightHigh).toLocaleString()} lux`
+          : (plot.metrics?.LIGHT?.target || '—')
+      };
+    });
 
     // 操作系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
     const risk_plot_cards = computed(() => plots.value.map((plot) => {
@@ -1991,7 +2018,8 @@ const app = createApp({
         needsAttention: status !== 'NORMAL'
       };
     });
-    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && advice_light_status.value.deviceOffline && Boolean(advice_plot.value?.plotId));
+    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && Boolean(advice_plot.value?.plotId));
+    const light_operation_label = computed(() => advice_light_status.value.deviceOffline ? '虚拟补光（离线演示）' : '执行补光');
     const show_virtual_lighting = ref(false);
     const virtual_lighting_stage = ref('FORM');
     const virtual_lighting_confirmed = ref(false);
@@ -3829,7 +3857,7 @@ const app = createApp({
 
     const open_virtual_lighting = () => {
       if (!light_operation_available.value) {
-        show_toast('只有光照不足且设备离线时，才可使用离线演示补光', 'error');
+        show_toast('只有光照不足时才可执行补光，请先确认当前光照状态', 'error');
         return;
       }
       virtual_lighting_stage.value = 'FORM';
@@ -5306,7 +5334,13 @@ const app = createApp({
       advice_plot,
       advice_selected_plot,
       select_advice_plot,
+      operation_subsystem,
+      operation_subsystem_options,
+      select_operation_subsystem,
       advice_soil_chart,
+      lighting_range,
+      lighting_range_options,
+      advice_light_chart,
       risk_plot_cards,
       moisture_range,
       moisture_range_options,
@@ -5422,6 +5456,7 @@ const app = createApp({
       advice_execution_summary,
       advice_light_status,
       light_operation_available,
+      light_operation_label,
       virtual_lighting_stage,
       virtual_lighting_confirmed,
       virtual_lighting_result,
