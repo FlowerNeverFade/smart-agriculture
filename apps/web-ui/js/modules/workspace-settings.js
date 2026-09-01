@@ -2,7 +2,7 @@
  * Role shells provide their own template, but all of them use this same
  * state/normalisation path so appearance controls cannot drift by role.
  */
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260901-workspace-settings-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260901-workspace-settings-v3';
 
 export function createWorkspaceSettingsController({ props, emit, ref, computed }) {
   const account = computed(() => props.state?.currentUser || null);

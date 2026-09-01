@@ -58,6 +58,18 @@ test('三个工作台隐藏地块背景选项且外观切换静默生效', () =>
   }
 });
 
+test('三种角色入口都加载统一工作台主题桥接', () => {
+  const sharedCss = readFileSync(new URL('../css/modules/workspace-settings-shared.css', import.meta.url), 'utf8');
+  assert.match(sharedCss, /html\[data-workspace-preset\] :is\(#app, #farmer_app\)/);
+  assert.match(sharedCss, /--g-bg-base:\s*var\(--workspace-bg-base\)/);
+  assert.match(sharedCss, /--g-primary:\s*var\(--workspace-primary\)/);
+  assert.match(sharedCss, /data-surface-style="glass-latest"/);
+  for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
+    const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+    assert.match(html, /workspace-settings-shared\.css\?v=20260901-workspace-settings-v3/);
+  }
+});
+
 test('工作台设置按账号隔离，并支持主题预设与安全自选色', () => {
   const data = new Map();
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };

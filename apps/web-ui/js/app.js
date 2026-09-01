@@ -2,7 +2,7 @@ import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMU
 import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v3';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-admin-ops-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-admin-ops-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
@@ -11,7 +11,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-admin-ops-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
-import { createWorkspaceSettingsController } from './modules/workspace-settings.js?v=20260901-workspace-settings-v1';
+import { createWorkspaceSettingsController } from './modules/workspace-settings.js?v=20260901-workspace-settings-v2';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-sync-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
