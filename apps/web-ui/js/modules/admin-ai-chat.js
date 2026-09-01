@@ -785,11 +785,8 @@ export const AdminAiChatView = {
                 <label v-if="bulkMode" class="admin-ai-conversation-check" @click.stop><input type="checkbox" :checked="bulkSelected.has(conversation.conversationId)" @change="toggleBulkSelect(conversation.conversationId)" :aria-label="'选择对话 ' + (conversation.title || '')"></label>
                 <span class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId) && !archivedView" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span>
                 <div v-if="!bulkMode" class="admin-ai-conversation-actions" @click.stop>
-                  <button v-if="!archivedView" type="button" class="admin-ai-conversation-action" :class="{ active: isPinned(conversation.conversationId) }" :aria-label="isPinned(conversation.conversationId) ? '取消置顶' : '置顶'" :title="isPinned(conversation.conversationId) ? '取消置顶' : '置顶'" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon></button>
-                  <button v-if="!archivedView" type="button" class="admin-ai-conversation-action" aria-label="归档" title="归档" @click="requestArchiveConversation(conversation)"><app-icon name="inbox"></app-icon></button>
-                  <button v-else type="button" class="admin-ai-conversation-action" aria-label="取消归档" title="取消归档" @click="requestUnarchiveConversation(conversation)"><app-icon name="inbox"></app-icon></button>
-                  <button type="button" class="admin-ai-conversation-action is-danger" aria-label="删除" title="删除" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon></button>
-                </div>
+                    <button type="button" class="admin-ai-conversation-action" aria-label="选项" title="选项" @click="toggleMenu(conversation, $event)"><app-icon name="more_vert"></app-icon></button>
+                  </div>
               </div>
             </div>
           </section>
@@ -847,10 +844,11 @@ export const AdminAiChatView = {
                 <button type="button" class="danger" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon>删除</button>
               </template>
               <template v-else>
-                <button type="button" @click="startRename(conversation)"><app-icon name="edit"></app-icon>重命名</button>
-                <button type="button" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon>{{ isPinned(conversation.conversationId) ? '取消置顶' : '置顶' }}</button>
-                <button type="button" @click="requestArchiveConversation(conversation)"><app-icon name="inbox"></app-icon>归档</button>
-              </template>
+                  <button type="button" @click="startRename(conversation)"><app-icon name="edit"></app-icon>重命名</button>
+                  <button type="button" @click="togglePin(conversation)"><app-icon name="push_pin"></app-icon>{{ isPinned(conversation.conversationId) ? '取消置顶' : '置顶' }}</button>
+                  <button type="button" @click="requestArchiveConversation(conversation)"><app-icon name="inbox"></app-icon>归档</button>
+                  <button type="button" class="danger" @click="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon>删除</button>
+                </template>
             </template>
           </template>
         </div>
