@@ -14,6 +14,9 @@ test('farm Crop Pack UI exposes equal-size add tile and visual wizard', () => {
   assert.match(source, /addTaskTemplate/);
   assert.match(source, /addKnowledge/);
   assert.match(source, /admin-pack-menu-trigger/);
+  assert.match(source, /adminCropEmoji/);
+  assert.match(source, /cropEmoji\(pack\)/);
+  assert.doesNotMatch(source, /pack\.identity\?\.name \|\| pack\.cropCode \|\| 'P'\)\.slice\(0, 1\)/);
   assert.match(source, /openPackEditFromMenu/);
   assert.match(source, /archivePackFromMenu/);
   assert.match(source, /已复制为当前农场草稿/);
@@ -24,6 +27,7 @@ test('farm Crop Pack UI exposes equal-size add tile and visual wizard', () => {
   assert.match(styles, /\.admin-pack-card-grid \{ grid-auto-rows: 320px; \}/);
   assert.match(styles, /\.admin-pack-summary-card \{ height: 100%; min-height: 320px; \}/);
   assert.match(styles, /\.admin-pack-menu \{/);
+  assert.match(styles, /"Segoe UI Emoji"/);
 });
 
 test('farm governance page is a separate rules and strategies entry', () => {

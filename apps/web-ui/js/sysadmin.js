@@ -10,11 +10,11 @@ import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v59
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v59-resource-sync-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-resource-sync-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v591-irrigation-dispatch-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v591-irrigation-dispatch-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v592-crop-pack-emoji-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v59-resource-sync-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v59-resource-sync-v1';
 import { cropBackgroundFor } from './plot-background.js?v=20260901-v59-resource-sync-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v59-resource-sync-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v592-crop-pack-emoji-v1';
 import {
   agentResponseSource,
   agentResponseText,
