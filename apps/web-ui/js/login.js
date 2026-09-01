@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260901-v593-market-v3';
+import { ApiError, api } from './api.js?v=20260901-v599-accounts-v2';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v593-market-v3';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v599-accounts-v2';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -13,6 +13,9 @@ const loginError = document.getElementById('loginError');
 const registerForm = document.getElementById('registerForm');
 const registerUsername = document.getElementById('registerUsername');
 const registerRole = document.getElementById('registerRole');
+const registerRoleNote = document.getElementById('registerRoleNote');
+const systemAdminAuthorizationField = document.getElementById('systemAdminAuthorizationField');
+const registerAuthorizationCode = document.getElementById('registerAuthorizationCode');
 const registerPassword = document.getElementById('registerPassword');
 const registerConfirm = document.getElementById('registerConfirm');
 const registerButton = document.getElementById('registerButton');
@@ -47,6 +50,21 @@ let leaving = false;
 let backgroundController = null;
 let pendingRegistration = null;
 let recoveryCodeContext = 'register';
+
+const REGISTRATION_ROLE_NOTES = Object.freeze({
+  FARMER: '种植农户将加入示范农场并获得默认地块；注册成功后会生成一次性账户恢复码。',
+  FARM_ADMIN: '农场管理员无需额外授权，将立即加入示范农场并获得完整农场管理范围。',
+  SYSTEM_ADMIN: '系统管理员拥有全平台范围，必须使用服务端配置的授权码；该账号创建后受永久保护。'
+});
+
+function syncRegistrationRole() {
+  const role = registerRole.value || 'FARMER';
+  const needsAuthorization = role === 'SYSTEM_ADMIN';
+  systemAdminAuthorizationField.hidden = !needsAuthorization;
+  registerAuthorizationCode.required = needsAuthorization;
+  if (!needsAuthorization) registerAuthorizationCode.value = '';
+  registerRoleNote.textContent = REGISTRATION_ROLE_NOTES[role] || REGISTRATION_ROLE_NOTES.FARMER;
+}
 
 function syncTaskMode() {
   const tasking = document.activeElement?.matches('.auth input, .auth select, .auth [role="combobox"]') ?? false;
@@ -353,6 +371,7 @@ async function submitRegistration(event) {
   const account = registerUsername.value.trim().toLowerCase();
   const selectedRole = registerRole.value;
   const secret = registerPassword.value;
+  const authorizationCode = registerAuthorizationCode.value.trim();
 
   if (!validateUsername(account)) {
     setFormError(registerForm, registerError, '账号需为 4–32 位字母、数字、点、下划线或短横线');
@@ -374,14 +393,20 @@ async function submitRegistration(event) {
     registerConfirm.focus();
     return;
   }
+  if (selectedRole === 'SYSTEM_ADMIN' && !authorizationCode) {
+    setFormError(registerForm, registerError, '创建系统管理员必须填写服务端授权码');
+    registerAuthorizationCode.focus();
+    return;
+  }
 
   setFormError(registerForm, registerError, '');
   setLoading(registerButton, true);
   try {
-    const result = await api.register({ username: account, password: secret, role: selectedRole });
+    const result = await api.register({ username: account, password: secret, role: selectedRole, authorizationCode });
     pendingRegistration = { token: result.accessToken, user: presentUser(result.user) };
     showRecoveryCode(result.recoveryCode, 'register');
     registerForm.reset();
+    syncRegistrationRole();
   } catch (error) {
     const message = error instanceof ApiError && error.isNetworkError
       ? '注册需要连接账户服务，请检查后端后重试'
@@ -528,6 +553,9 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
   const controller = enhanceRoleSelect(select);
   if (controller) customSelectControllers.set(select, controller);
 });
+
+registerRole.addEventListener('change', syncRegistrationRole);
+syncRegistrationRole();
 
 document.addEventListener('pointerdown', (event) => {
   customSelectControllers.forEach((controller, select) => {

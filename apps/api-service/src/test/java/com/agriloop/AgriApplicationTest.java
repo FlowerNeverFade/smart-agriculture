@@ -25,9 +25,11 @@ class AgriApplicationTest {
     @Autowired AgriEventBus eventBus;
     @Autowired SimulationEngine simulationEngine;
     @Autowired SimulatorControl simulatorControl;
+    @Autowired AgriProperties properties;
 
     @AfterEach
     void stopInProcessSimulator() {
+        properties.setSystemAdminAuthorizationCode("");
         if (simulationEngine == null) return;
         simulationEngine.stop();
         simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
@@ -123,7 +125,7 @@ class AgriApplicationTest {
     }
 
     @Test
-    void accountRoleSelectionIsVerifiedAndAdminSelfRegistrationIsBlocked() {
+    void accountRoleSelectionAndControlledThreeRoleRegistrationAreEnforced() {
         assertThat(RolePolicy.canonical("FIELD_OPERATOR")).isEqualTo("FARMER");
         assertThat(RolePolicy.canonical("operator")).isEqualTo("FARMER");
         Map<String, Object> farmerLogin = engine.login("farmer", "demo123", "FARMER");
@@ -146,12 +148,110 @@ class AgriApplicationTest {
         assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FARMER");
         assertThat(engine.login(username, "FieldPass2026", "FARMER")).containsKey("accessToken");
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("farmadmin" + System.nanoTime(), "AdminPass2026", "FARM_ADMIN"))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("admin" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
+        String farmAdminUsername = "manager" + System.nanoTime();
+        Map<String, Object> farmAdminRegistration = engine.register(farmAdminUsername, "AdminPass2026", "FARM_ADMIN");
+        Map<?, ?> registeredFarmAdmin = (Map<?, ?>) farmAdminRegistration.get("user");
+        assertThat(registeredFarmAdmin.get("role")).isEqualTo("FARM_ADMIN");
+        assertThat(Jsons.strings(registeredFarmAdmin.get("farmIds"))).containsExactly("farm-demo");
+        assertThat(Jsons.strings(registeredFarmAdmin.get("plotIds"))).contains("plot-a01", "plot-a02", "plot-b01");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("platform" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_CREATION_DISABLED"));
+        properties.setSystemAdminAuthorizationCode("server-only-auth-code");
+        String systemUsername = "platform" + System.nanoTime();
+        Map<String, Object> systemRegistration = engine.register(systemUsername, "AdminPass2026", "SYSTEM_ADMIN", "server-only-auth-code");
+        Map<?, ?> registeredSystemAdmin = (Map<?, ?>) systemRegistration.get("user");
+        assertThat(registeredSystemAdmin.get("role")).isEqualTo("SYSTEM_ADMIN");
+        assertThat(Jsons.strings(registeredSystemAdmin.get("farmIds"))).containsExactly("*");
+        assertThat(Jsons.strings(registeredSystemAdmin.get("plotIds"))).containsExactly("*");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("other" + System.nanoTime(), "OtherPass2026", "UNKNOWN"))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_INVALID"));
+    }
+
+    @Test
+    void systemAdminAuthorizationIsDisabledValidatedAndRateLimited() {
+        String disabledUser = "disabled" + System.nanoTime();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(disabledUser, "StrongPass2026", "SYSTEM_ADMIN", "anything"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_CREATION_DISABLED"));
+
+        properties.setSystemAdminAuthorizationCode("correct-server-code");
+        String limitedUser = "limitedadmin" + System.nanoTime();
+        for (int attempt = 0; attempt < 4; attempt++) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "wrong-code"))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_INVALID"));
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "wrong-code"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "correct-server-code"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED"));
+    }
+
+    @Test
+    void globalAccountManagementScopesUsersAndProtectsEverySystemAdmin() {
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        UserPrincipal farmAdmin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+        properties.setSystemAdminAuthorizationCode("account-management-code");
+        String suffix = String.valueOf(System.nanoTime());
+
+        Map<String, Object> farmer = engine.createUserAccount(Map.of(
+                "username", "managedfarmer" + suffix, "password", "StrongPass2026", "role", "FARMER",
+                "farmId", "farm-demo", "plotIds", List.of("plot-a01")), systemAdmin);
+        Map<String, Object> manager = engine.createUserAccount(Map.of(
+                "username", "managedadmin" + suffix, "password", "StrongPass2026", "role", "FARM_ADMIN",
+                "farmId", "farm-demo"), systemAdmin);
+        Map<String, Object> protectedAdmin = engine.createUserAccount(Map.of(
+                "username", "managedsystem" + suffix, "password", "StrongPass2026", "role", "SYSTEM_ADMIN",
+                "authorizationCode", "account-management-code"), systemAdmin);
+
+        assertThat(Jsons.strings(farmer.get("plotIds"))).containsExactly("plot-a01");
+        assertThat(Jsons.strings(manager.get("plotIds"))).contains("plot-a01", "plot-a02", "plot-b01");
+        assertThat(Jsons.strings(protectedAdmin.get("farmIds"))).containsExactly("*");
+        assertThat(engine.userAccounts(systemAdmin)).filteredOn(account -> farmer.get("userId").equals(account.get("userId")))
+                .singleElement().satisfies(account -> assertThat(account).doesNotContainKeys("passwordHash", "recoveryCodeHash", "recoveryCode"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.userAccounts(farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_MANAGEMENT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createUserAccount(Map.of(
+                        "username", "forbidden" + suffix, "password", "StrongPass2026", "role", "FARM_ADMIN", "farmId", "farm-demo"), farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_MANAGEMENT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.createFarmMember(new java.util.LinkedHashMap<>(Map.of(
+                        "farmId", "farm-demo", "username", "elevated" + suffix, "password", "StrongPass2026", "role", "SYSTEM_ADMIN")), farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("MEMBER_ROLE_FORBIDDEN"));
+
+        String farmerId = Jsons.text(farmer, "userId", "");
+        assertThat(engine.updateUserAccountStatus(farmerId, Map.of("enabled", false), systemAdmin)).containsEntry("enabled", false);
+        assertThat(engine.updateUserAccountStatus(farmerId, Map.of("enabled", true), systemAdmin)).containsEntry("enabled", true);
+        String protectedId = Jsons.text(protectedAdmin, "userId", "");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.updateUserAccountStatus(protectedId, Map.of("enabled", false), systemAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_SYSTEM_ADMIN_PROTECTED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.deleteAccount(protectedId, systemAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_SYSTEM_ADMIN_PROTECTED"));
+
+        assertThat(engine.deleteAccount(farmerId, systemAdmin)).containsEntry("removed", true);
+        assertThat(engine.deleteAccount(Jsons.text(manager, "userId", ""), systemAdmin)).containsEntry("removed", true);
+    }
+
+    @Test
+    void accountWritesFailClosedWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> account = engine.createUserAccount(Map.of(
+                "username", "durable" + suffix, "password", "StrongPass2026", "role", "FARMER",
+                "farmId", "farm-demo", "plotIds", List.of()), systemAdmin);
+        java.lang.reflect.Field ready = AgriStore.class.getDeclaredField("databaseReady");
+        ready.setAccessible(true);
+        ready.setBoolean(store, false);
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("offline" + suffix, "StrongPass2026", "FARMER"))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.updateUserAccountStatus(Jsons.text(account, "userId", ""), Map.of("enabled", false), systemAdmin))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.deleteAccount(Jsons.text(account, "userId", ""), systemAdmin))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+        } finally {
+            ready.setBoolean(store, true);
+        }
+        assertThat(engine.deleteAccount(Jsons.text(account, "userId", ""), systemAdmin)).containsEntry("removed", true);
     }
 
     @Test
@@ -868,8 +968,7 @@ class AgriApplicationTest {
 
         List<Map<String, Object>> members = engine.farmMembers("farm-demo", admin);
         assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-farmer").containsEntry("role", "FARMER"));
-        assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-admin").containsEntry("role", "FARM_ADMIN"));
-        assertThat(members).noneSatisfy(member -> assertThat(member.get("role")).isEqualTo("SYSTEM_ADMIN"));
+        assertThat(members).allSatisfy(member -> assertThat(member.get("role")).isEqualTo("FARMER"));
         assertThat(members).allSatisfy(member -> {
             assertThat(member).containsOnlyKeys("userId", "username", "displayName", "role", "roleLabel", "farmIds", "plotIds", "status");
             assertThat(member.get("farmIds")).isEqualTo(List.of("farm-demo"));

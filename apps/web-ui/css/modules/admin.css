@@ -663,6 +663,34 @@
 .admin-doc-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font: 13px/1.5 var(--g-font-family); }
 .danger-text { color: var(--g-danger) !important; }
 .admin-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+/* V5.9.9 controlled account creation */
+.admin-account-create-modal .admin-modal-body { max-height: min(68vh, 680px); overflow-y: auto; }
+.admin-account-scope,
+.admin-account-system-fields { display: grid; gap: 10px; margin-top: 14px; }
+.admin-account-scope { padding: 13px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-subtle); }
+.admin-account-scope > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-account-scope > header div,
+.admin-account-plot-grid label span { display: grid; gap: 2px; }
+.admin-account-scope > header strong,
+.admin-account-plot-grid strong { color: var(--g-text-primary); font-size: 12px; }
+.admin-account-scope > header small,
+.admin-account-plot-grid small,
+.admin-account-scope > p { color: var(--g-text-secondary); font-size: 11px; }
+.admin-account-scope > header > span { flex: 0 0 auto; color: var(--g-primary); font-size: 11px; font-weight: 700; }
+.admin-account-scope > p { margin: 0; }
+.admin-account-plot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.admin-account-plot-grid label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 9px 10px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-surface); cursor: pointer; }
+.admin-account-plot-grid input { width: 16px; height: 16px; margin: 0; }
+.admin-account-role-note { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px 13px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-subtle); }
+.admin-account-role-note > .material-symbols-outlined { flex: 0 0 auto; color: var(--g-primary); font-size: 20px; }
+.admin-account-role-note strong { color: var(--g-text-primary); font-size: 12px; }
+.admin-account-role-note p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.55; }
+.admin-account-role-note.warning { border-color: color-mix(in srgb, var(--g-warning) 36%, var(--g-border)); background: color-mix(in srgb, var(--g-warning) 8%, var(--g-bg-surface)); }
+.admin-account-role-note.warning > .material-symbols-outlined { color: var(--g-warning); }
+.admin-account-system-fields > label { display: grid; gap: 6px; }
+.admin-account-system-fields > label > span { color: var(--g-text-secondary); font-size: 13px; font-weight: 600; }
+.admin-account-recovery-modal { width: min(520px, calc(100vw - 28px)); }
+.admin-account-recovery-code { display: block; margin: 16px 0 12px; padding: 17px; border: 1px solid color-mix(in srgb, var(--g-primary) 38%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 72%, var(--g-bg-surface)); color: var(--g-text-primary); font-family: var(--g-mono); font-size: clamp(18px, 4vw, 25px); font-weight: 700; letter-spacing: .08em; text-align: center; overflow-wrap: anywhere; user-select: all; }
 .admin-checkbox { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
 .admin-checkbox input { width: auto; }
 .admin-pack-form textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font: 13px/1.5 var(--g-font-family); }
@@ -708,6 +736,10 @@
   .admin-plot-summary { gap: 10px; flex-wrap: wrap; }
   .admin-pack-toolbar { align-items: flex-start; flex-direction: column; }
   .admin-metric-picker { grid-template-columns: 1fr; }
+  .admin-account-create-modal .admin-form-grid,
+  .admin-account-plot-grid { grid-template-columns: 1fr; }
+  .admin-account-create-modal .admin-modal-body { max-height: 64vh; }
+  .admin-account-recovery-code { letter-spacing: .04em; }
 }
 
 /* Compact admin overview */

@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v599-accounts-v2';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
@@ -13,7 +13,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v599-accounts-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -460,11 +460,13 @@ function mapSystemMembers(members, farms) {
   const farmMap = new Map((farms || []).map((farm) => [farm.farmId, farm]));
   return (Array.isArray(members) ? members : []).map((member) => ({
     ...member,
-    farmName: (member.farmIds || []).map((id) => farmMap.get(id)?.name).filter(Boolean).join('、') || '—',
+    farmName: (member.farmIds || []).includes('*')
+      ? '全平台'
+      : (member.farmIds || []).map((id) => farmMap.get(id)?.name || id).filter(Boolean).join('、') || '—',
     plotIds: Array.isArray(member.plotIds) ? member.plotIds : [],
-    enabled: liveStatusValue(member.status, 'ACTIVE') !== 'INACTIVE',
-    createdAt: member.createdAt || '—',
-    dataOrigin: 'BACKEND'
+    enabled: typeof member.enabled === 'boolean' ? member.enabled : liveStatusValue(member.status, 'ACTIVE') !== 'INACTIVE',
+    createdAt: member.createdAt ? String(member.createdAt).slice(0, 10) : '—',
+    dataOrigin: member.sourceMode === 'SIMULATED' ? 'SIMULATED' : 'BACKEND'
   }));
 }
 
@@ -1369,8 +1371,37 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
-    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo', plotIds: [], authorizationCode: '' });
+    const createdRecovery = ref(null);
+    const userActionBusy = ref(false);
     const pendingUserAction = ref(null);
+    const accountFarms = computed(() => (props.state.farms || []).length
+      ? props.state.farms
+      : [{ farmId: 'farm-demo', name: '农智示范农场' }]);
+    const availableAccountPlots = computed(() => (props.state.allPlots || [])
+      .filter((plot) => plot.farmId === newUser.value.farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+      .map((plot) => ({ plotId: plot.plotId, name: plot.name || plot.plotId })));
+
+    const resetUserDraft = () => {
+      newUser.value = {
+        username: '', password: '', role: 'FARMER',
+        farmId: accountFarms.value[0]?.farmId || 'farm-demo', plotIds: [], authorizationCode: ''
+      };
+    };
+    const openCreateUser = () => {
+      resetUserDraft();
+      showCreateUser.value = true;
+    };
+    const closeCreateUser = () => {
+      if (userActionBusy.value) return;
+      showCreateUser.value = false;
+      resetUserDraft();
+    };
+    watch(() => newUser.value.role, (role) => {
+      newUser.value.plotIds = [];
+      if (role !== 'SYSTEM_ADMIN') newUser.value.authorizationCode = '';
+    });
+    watch(() => newUser.value.farmId, () => { newUser.value.plotIds = []; });
     // 智能模型模式选择是"草稿"：下拉只改本地草稿，点击保存才写回总览/服务健康并（live 下）提交后端
     // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
     const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
@@ -1460,107 +1491,88 @@ const AdminSettingsView = {
     // 受保护账号 = 系统管理员角色（唯一的 SYSTEM_ADMIN 不可停用/删除）∪ 当前登录者
     const isProtectedAccount = (user) => !!user && (user.role === 'SYSTEM_ADMIN' || isCurrentUser(user.userId));
 
+    const refreshUserAccounts = async () => {
+      const accounts = await api.getUserAccounts();
+      props.state.adminUsers = mapSystemMembers(accounts, props.state.farms || []);
+      return props.state.adminUsers;
+    };
+
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
       if (!action) return;
       const { type, user } = action;
       const username = user.username || user.userId;
+      userActionBusy.value = true;
       try {
         if (type === 'delete') {
-          if (isLiveSession.value) {
-            await api.deleteUserAccount(user.userId);
-          }
-          const idx = props.state.adminUsers.findIndex(u => u.userId === user.userId);
-          if (idx > -1) {
-            props.state.adminUsers.splice(idx, 1);
-            props.state.adminAuditLogs.unshift({
-              id: 'log-' + Date.now(),
-              time: new Date().toLocaleTimeString().substring(0, 5),
-              operator: 'sysadmin',
-              action: 'CONFIG_CHANGE',
-              actionLabel: '删除用户',
-              detail: '删除用户 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
-              ip: '127.0.0.1'
-            });
-          }
+          await api.deleteUserAccount(user.userId);
+          await refreshUserAccounts();
           toast(`账号 ${username} 已删除`);
         } else {
           const enabled = type === 'enable';
-          if (isLiveSession.value) {
-            const farmId = (user.farmIds && user.farmIds[0]) || 'farm-demo';
-            await api.updateFarmMemberStatus(user.userId, { farmId, enabled });
-          }
-          user.enabled = enabled;
-          if (user.status) user.status = enabled ? 'ACTIVE' : 'INACTIVE';
-          props.state.adminAuditLogs.unshift({
-            id: 'log-' + Date.now(),
-            time: new Date().toLocaleTimeString().substring(0, 5),
-            operator: 'sysadmin',
-            action: 'CONFIG_CHANGE',
-            actionLabel: enabled ? '启用用户' : '停用用户',
-            detail: (enabled ? '启用' : '停用') + '账号 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
-            ip: '127.0.0.1'
-          });
+          await api.updateUserAccountStatus(user.userId, { enabled });
+          await refreshUserAccounts();
           toast(enabled ? `账号 ${username} 已启用` : `账号 ${username} 已停用`);
         }
       } catch (error) {
         toast(error.message || '操作失败', 'error');
       } finally {
+        userActionBusy.value = false;
         pendingUserAction.value = null;
       }
     };
 
     const createUser = async () => {
-      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
-      if (isLiveSession.value) {
-        try {
-          const user = await api.createFarmMember({
-            farmId: newUser.value.farmId || 'farm-demo',
-            username: newUser.value.username,
-            password: newUser.value.password,
-            role: newUser.value.role,
-            plotIds: []
-          });
-          props.state.adminUsers.push({
-            userId: user.userId || 'user-' + Date.now(),
-            username: user.username || newUser.value.username,
-            role: user.role || newUser.value.role,
-            roleLabel: roleLabels[user.role || newUser.value.role],
-            farmName: '远程农场',
-            plotIds: user.plotIds || [],
-            enabled: user.enabled !== false,
-            createdAt: new Date().toISOString().split('T')[0]
-          });
-          toast(`账号 ${newUser.value.username} 创建成功`);
-          showCreateUser.value = false;
-          newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
-        } catch (error) {
-          toast(error.message || '账号创建失败', 'error');
-        }
+      const draft = newUser.value;
+      if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(String(draft.username || '').trim())) {
+        toast('账号需为 4～32 位字母、数字、点、下划线或短横线', 'error');
         return;
       }
-      props.state.adminUsers.push({
-        userId: 'user-' + Date.now(),
-        username: newUser.value.username,
-        role: newUser.value.role,
-        roleLabel: roleLabels[newUser.value.role],
-        farmName: '农智示范农场',
-        plotIds: ['plot-a01'],
-        enabled: true,
-        createdAt: new Date().toISOString().split('T')[0]
-      });
-      props.state.adminAuditLogs.unshift({
-        id: 'log-' + Date.now(),
-        time: new Date().toLocaleTimeString().substring(0, 5),
-        operator: 'sysadmin',
-        action: 'USER_CREATE',
-        actionLabel: '创建用户',
-        detail: '创建用户 ' + newUser.value.username + ' (' + roleLabels[newUser.value.role] + ')',
-        ip: '127.0.0.1'
-      });
-      showCreateUser.value = false;
-      newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
-      toast('用户创建成功');
+      if (String(draft.password || '').length < 8 || !/[A-Za-z]/.test(draft.password) || !/\d/.test(draft.password)) {
+        toast('初始密码需为 8～64 位并同时包含字母和数字', 'error');
+        return;
+      }
+      if (draft.role !== 'SYSTEM_ADMIN' && !draft.farmId) {
+        toast('请选择账号所属农场', 'error');
+        return;
+      }
+      if (draft.role === 'SYSTEM_ADMIN' && !String(draft.authorizationCode || '').trim()) {
+        toast('创建系统管理员必须再次填写服务端授权码', 'error');
+        return;
+      }
+      userActionBusy.value = true;
+      try {
+        const user = await api.createUserAccount({
+          username: String(draft.username || '').trim().toLowerCase(),
+          password: draft.password,
+          role: draft.role,
+          farmId: draft.role === 'SYSTEM_ADMIN' ? '' : draft.farmId,
+          plotIds: draft.role === 'FARMER' ? draft.plotIds : [],
+          authorizationCode: draft.role === 'SYSTEM_ADMIN' ? draft.authorizationCode : ''
+        });
+        await refreshUserAccounts();
+        createdRecovery.value = {
+          username: user.username,
+          roleLabel: user.roleLabel,
+          recoveryCode: user.recoveryCode
+        };
+        showCreateUser.value = false;
+        resetUserDraft();
+        toast(`账号 ${user.username} 创建成功，请立即保存恢复码`);
+      } catch (error) {
+        toast(error.message || '账号创建失败', 'error');
+      } finally {
+        userActionBusy.value = false;
+      }
+    };
+
+    const copyCreatedRecovery = async () => {
+      try {
+        await navigator.clipboard.writeText(createdRecovery.value?.recoveryCode || '');
+        toast('恢复码已复制');
+      } catch (error) {
+        toast('复制失败，请手动保存恢复码', 'error');
+      }
     };
 
     // 保存成功后把新模式写回总览与服务健康矩阵（总览/服务健康保持一致）
@@ -1621,9 +1633,11 @@ const AdminSettingsView = {
     const userPage = usePagination(filteredUsers);
     const logPage = usePagination(filteredLogs);
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, createdRecovery, userActionBusy,
+      accountFarms, availableAccountPlots, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       logFilterOptions, auditActionLabel,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, createUser, copyCreatedRecovery,
+      deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,
       userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
@@ -2043,7 +2057,8 @@ const app = createApp({
           const status = await api.getSystemStatus();
           return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
         })(),
-        scenarios: api.getScenarioRuns()
+        scenarios: api.getScenarioRuns(),
+        users: api.getUserAccounts()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
         try { return [key, { status: 'fulfilled', value: await promise }]; }
@@ -2152,24 +2167,9 @@ const app = createApp({
       const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
       const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
       const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
-      const currentUser = state.value.currentUser;
-      const adminUsers = mapSystemMembers(members, farms);
-      if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
-        adminUsers.unshift({
-          userId: currentUser.userId,
-          username: currentUser.username,
-          displayName: currentUser.displayName || currentUser.username,
-          role: currentUser.role,
-          roleLabel: currentUser.roleLabel,
-          farmIds: currentUser.farmIds || ['*'],
-          plotIds: currentUser.plotIds || ['*'],
-          farmName: '全平台',
-          enabled: true,
-          status: 'ACTIVE',
-          createdAt: '—',
-          dataOrigin: 'BACKEND'
-        });
-      }
+      const adminUsers = results.users?.status === 'fulfilled'
+        ? mapSystemMembers(results.users.value || [], farms)
+        : state.value.adminUsers;
       const adminAuditLogs = auditRecords.map((record) => ({
         id: `log:${record.traceId}`,
         time: record.time,

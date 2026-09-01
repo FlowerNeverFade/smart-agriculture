@@ -389,6 +389,7 @@ export function domainsForEventType(type = '') {
   }
   if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
   if (value.includes('member')) domains.add('members');
+  if (value.includes('account.')) domains.add('accounts');
   if (value.includes('inspection')) domains.add('inspections');
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
