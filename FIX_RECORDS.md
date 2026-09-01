@@ -17,7 +17,7 @@
 ### 验证
 
 - `:apps:api-service:compileJava` 与 `:apps:api-service:compileTestJava` 通过。
-- 完整测试套件按当前任务约定未运行。
+- 完整测试套件按当前任务约定未运行；随后线上定向复核通过。
 
 ## 2026-09-01 自定义模拟设备恢复后再次离线
 
@@ -39,7 +39,11 @@
 ### 验证
 
 - `:apps:api-service:compileJava` 与 `:apps:api-service:compileTestJava` 通过。
-- 完整测试套件按当前任务约定未运行；部署后使用线上自定义编号设备做跨周期状态/遥测复核。
+- 完整测试套件按当前任务约定未运行。
+- 已部署到 `/srv/agriloop`，提交标记为 `bbab0805e7e78cb48c9402e1c4b79bdd08b43402`；部署前数据库备份为
+  `/srv/agriloop/backups/agri-20260901-161854.sql.gz`。
+- 线上将 `plot-a02` 临时切换为 `DEVICE_OFFLINE` 后对 `002` 执行 `ONLINE`，跨模拟周期仍保持
+  `status=ONLINE`、`manualStatusOverride=ONLINE`，近两分钟遥测 `device_id=002`；随后已恢复 `NORMAL`。
 
 ## 2026-08-26 修复记录
 
