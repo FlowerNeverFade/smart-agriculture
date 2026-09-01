@@ -255,13 +255,15 @@ export const AdminAiChatView = {
     const loadConversation = async (id, { updateHash = true } = {}) => {
       if (!id) return;
       loadingHistory.value = true;
+      // 切换会话时先清空旧消息与分页计数，避免上一会话内容残留导致"先看到旧消息再下拉到最新"
+      messages.value = [];
+      visibleMessageCount.value = 20;
       try {
-        const history = await api.getAgentHistory(id, 60);
+        const history = await api.getAgentHistory(id, 100);
         conversationId.value = history?.conversation?.conversationId || id;
         selectedConversationId.value = conversationId.value;
         releaseMessageImages();
         messages.value = (history?.messages || []).map(item => normalizeAgentMessage(item, props.state.sessionMode, currentRole.value)).filter(item => item.content);
-        visibleMessageCount.value = 20;
         if (updateHash) updateRoute(conversationId.value);
       } catch (error) {
         releaseMessageImages();
