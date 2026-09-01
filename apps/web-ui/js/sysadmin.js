@@ -1,18 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-agent-history-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-settings-clean-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-agent-history-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-agent-history-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-agent-history-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-agent-history-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-agent-history-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-agent-history-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-agent-history-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-agent-history-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-agent-history-v1';
+} from './live-data.js?v=20260831-sync-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -62,102 +63,6 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 const initialUserSettings = readUserSettings();
 applyUserSettings(initialUserSettings);
 
-const ICON_CLASS = Object.freeze({
-  dashboard: 'ph-squares-four',
-  warning_amber: 'ph-warning',
-  warning: 'ph-warning',
-  cloud_off: 'ph-cloud-slash',
-  verified_user: 'ph-shield-check',
-  forum: 'ph-chats',
-  timeline: 'ph-chart-line-up',
-  task_alt: 'ph-clipboard-text',
-  task: 'ph-check-square',
-  water_drop: 'ph-drop',
-  group: 'ph-users',
-  menu_book: 'ph-book-open',
-  arrow_back: 'ph-arrow-left',
-  arrow_forward: 'ph-arrow-right',
-  monitoring: 'ph-monitor',
-  dns: 'ph-hard-drives',
-  gavel: 'ph-gavel',
-  science: 'ph-flask',
-  rule_folder: 'ph-folder-notch',
-  admin_panel_settings: 'ph-user-gear',
-  library_books: 'ph-books',
-  account_balance_wallet: 'ph-wallet',
-  menu: 'ph-list',
-  light_mode: 'ph-sun',
-  dark_mode: 'ph-moon',
-  logout: 'ph-sign-out',
-  error: 'ph-x-circle',
-  check_circle: 'ph-check-circle',
-  save: 'ph-floppy-disk',
-  add_task: 'ph-note-pencil',
-  calendar_today: 'ph-calendar-check',
-  schedule: 'ph-clock',
-  person_add: 'ph-user-plus',
-  thermometer: 'ph-thermometer-simple',
-  humidity: 'ph-drop-half-bottom',
-  eco: 'ph-leaf',
-  rainy: 'ph-cloud-rain',
-  soil_ec: 'ph-wave-sine',
-  nutrition: 'ph-plant',
-  remove_circle_outline: 'ph-minus-circle',
-  close: 'ph-x',
-  psychology: 'ph-brain',
-  receipt_long: 'ph-receipt',
-  bolt: 'ph-lightning',
-  policy: 'ph-shield-check',
-  smart_toy: 'ph-robot',
-  head_circuit: 'ph-head-circuit',
-  auto_awesome: 'ph-sparkle',
-  hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt',
-  analytics: 'ph-chart-line-up',
-  fact_check: 'ph-clipboard-text',
-  record_voice_over: 'ph-user-focus',
-  group_off: 'ph-user-minus',
-  refresh: 'ph-arrows-clockwise',
-  block: 'ph-prohibit',
-  psychiatry: 'ph-leaf',
-  info: 'ph-info',
-  more_vertical: 'ph-dots-three-vertical',
-  edit: 'ph-pencil-simple',
-  delete: 'ph-trash',
-  add: 'ph-plus',
-  expand_more: 'ph-caret-down',
-  expand_less: 'ph-caret-up',
-  lock_reset: 'ph-lock-key-open',
-  help: 'ph-question',
-  login: 'ph-sign-in',
-  update: 'ph-arrow-up',
-  settings: 'ph-gear',
-  sync: 'ph-arrows-clockwise',
-  notifications_active: 'ph-bell',
-  notifications: 'ph-bell',
-  sensors: 'ph-broadcast',
-  grid_view: 'ph-squares-four',
-  play_arrow: 'ph-play',
-  stop: 'ph-stop',
-  category: 'ph-tag',
-  compare_arrows: 'ph-arrows-left-right',
-  replay: 'ph-arrow-counter-clockwise',
-  speed: 'ph-gauge',
-  agriculture: 'ph-plant',
-  manage_accounts: 'ph-user-gear',
-  tune: 'ph-sliders',
-  history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right',
-  chevron_left: 'ph-caret-left',
-  arrow_upward: 'ph-arrow-up',
-  attach_file: 'ph-paperclip',
-  chat_bubble_outline: 'ph-chat-circle',
-  image_search: 'ph-image',
-  location_on: 'ph-map-pin',
-  more_vert: 'ph-dots-three-vertical',
-  push_pin: 'ph-push-pin',
-  inbox: 'ph-tray'
-});
 
 const AppIcon = {
   props: { name: { type: String, default: 'check_circle' } },
@@ -527,6 +432,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
+    ai: systemStatus.ai,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
     devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
@@ -1383,6 +1289,13 @@ const AdminSettingsView = {
     // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
     const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
     const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
+    // AI 连接状态（探测结果）独立于模式显示；完整模式 + AI 离线 → 自动降级规则兜底
+    const aiStatus = computed(() => props.state.adminOverview?.ai || '');
+    const aiStatusText = computed(() => ({ UP: 'AI 在线', DOWN: 'AI 离线', DEGRADED: 'AI 降级' }[aiStatus.value] || ''));
+    const aiStatusClass = computed(() => aiStatus.value === 'UP' ? 'online' : aiStatus.value === 'DOWN' ? 'offline' : aiStatus.value === 'DEGRADED' ? 'degraded' : '');
+    const degradeNote = computed(() => (draftAiMode.value === 'full' && aiStatus.value && aiStatus.value !== 'UP')
+      ? `AI ${aiStatusText.value.replace('AI ', '')}，当前以规则兜底运行；AI 恢复后自动切回完整模式`
+      : '');
     watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
       if (mode) draftAiMode.value = mode;
     });
@@ -1424,6 +1337,11 @@ const AdminSettingsView = {
     const toggleUser = (user) => {
       pendingUserAction.value = { type: user.enabled ? 'disable' : 'enable', user };
     };
+
+    // 当前登录账号不可停用/删除（后端已有 ACCOUNT_SELF_DELETE_FORBIDDEN / MEMBER_SELF_STATUS_FORBIDDEN 防护，前端一并禁用）
+    const isCurrentUser = (userId) => !!userId && !!props.state?.currentUser && props.state.currentUser.userId === userId;
+    // 受保护账号 = 系统管理员角色（唯一的 SYSTEM_ADMIN 不可停用/删除）∪ 当前登录者
+    const isProtectedAccount = (user) => !!user && (user.role === 'SYSTEM_ADMIN' || isCurrentUser(user.userId));
 
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
@@ -1588,6 +1506,8 @@ const AdminSettingsView = {
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      isCurrentUser, isProtectedAccount,
+      aiStatus, aiStatusText, aiStatusClass, degradeNote,
       userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
       logPageSize: logPage.pageSize, logPageSizeOptions: logPage.pageSizeOptions, logCurrentPage: logPage.currentPage, logJumpInput: logPage.jumpInput, logTotalRecords: logPage.totalRecords, logTotalPages: logPage.totalPages, logPageRecords: logPage.pageRecords, logPrevPage: logPage.prevPage, logNextPage: logPage.nextPage, logChangeSize: logPage.changeSize, logJumpTo: logPage.jumpTo
     };

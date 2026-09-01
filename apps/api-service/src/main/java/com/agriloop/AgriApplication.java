@@ -2079,6 +2079,7 @@ class AgriEngine {
         // ai 字段为真实连通性探测结果（UP/DEGRADED/DOWN/规则模式），aiMode 保留配置模式
         status.put("ai", checkLlmHealth());
         status.put("aiMode", properties.getAiMode());
+        status.put("llmModel", properties.getLlmModel());
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());

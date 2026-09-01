@@ -112,8 +112,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 64.2, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 43500, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 680, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.4, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.3, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 42, unit: "%", status: "WARN", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 42, unit: "%", status: "WARN", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 131, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 38, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 184, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -138,8 +142,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 61.7, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 46800, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 710, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.2, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.4, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 68, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 68, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 125, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 42, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 176, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -164,8 +172,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 68.5, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 41200, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 660, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.6, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.2, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 72, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 72, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 142, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 50, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 192, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -190,8 +202,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 60.0, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 700, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.5, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 70, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 70, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 155, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 46, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 205, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -216,8 +232,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 58.9, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 52000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 690, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.1, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.4, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 65, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 65, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 118, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 36, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 214, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -242,8 +262,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 70.4, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 38000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 740, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.3, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.1, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 60, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 60, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 109, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 43, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 168, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     },
     {
@@ -268,8 +292,12 @@ export const MOCK_DATA = {
         AIR_HUMIDITY: { value: 66.8, unit: "%RH", status: "NORMAL", label: "空气湿度", target: "45~80%RH" },
         LIGHT: { value: 45000, unit: "lux", status: "NORMAL", label: "光照强度", target: "10k~70k lux" },
         CO2: { value: 820, unit: "ppm", status: "NORMAL", label: "CO2浓度", target: "350~1200 ppm" },
+        RAINFALL: { value: 0.2, unit: "mm/h", status: "NORMAL", label: "降雨量", target: "—" },
         PH: { value: 6.3, unit: "pH", status: "NORMAL", label: "酸碱度", target: "5.8~6.8" },
-        WATER_LEVEL: { value: 75, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" }
+        WATER_LEVEL: { value: 75, unit: "%", status: "NORMAL", label: "水位", target: "20~90%" },
+        NITROGEN: { value: 136, unit: "mg/kg", status: "NORMAL", label: "速效氮", target: "—" },
+        PHOSPHORUS: { value: 40, unit: "mg/kg", status: "NORMAL", label: "速效磷", target: "—" },
+        POTASSIUM: { value: 188, unit: "mg/kg", status: "NORMAL", label: "速效钾", target: "—" }
       }
     }
   ],

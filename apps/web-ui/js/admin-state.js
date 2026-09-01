@@ -36,6 +36,20 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_HEALTH: '设备健康'
 });
 
+export const ADMIN_PLOT_METRIC_CODES = Object.freeze([
+  'SOIL_MOISTURE',
+  'AIR_TEMPERATURE',
+  'AIR_HUMIDITY',
+  'LIGHT',
+  'CO2',
+  'RAINFALL',
+  'PH',
+  'WATER_LEVEL',
+  'NITROGEN',
+  'PHOSPHORUS',
+  'POTASSIUM'
+]);
+
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',
   IRRIGATION_CONTROLLER: '灌溉控制器',
@@ -397,13 +411,24 @@ const ADMIN_CROP_ALIASES = Object.freeze([
   ['pepper', ['pepper', '辣椒']]
 ]);
 
+const ADMIN_CROP_EMOJIS = Object.freeze({
+  tomato: '🍅',
+  corn: '🌽',
+  cucumber: '🥒',
+  rice: '🌾',
+  sunflower: '🌻',
+  strawberry: '🍓',
+  pepper: '🌶️',
+  unknown: '🌱'
+});
+
 export function adminCropKey(plot = {}) {
   const text = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''} ${plot.cropVariety || ''}`.trim().toLowerCase();
-  return ADMIN_CROP_ALIASES.find(([, names]) => names.some(name => text.includes(name)))?.[0] || '';
+  return ADMIN_CROP_ALIASES.find(([, names]) => names.some(name => text.includes(name)))?.[0] || 'unknown';
 }
 
 export function adminCropEmoji(plot = {}) {
-  return ({ tomato: '🍅', corn: '🌽', cucumber: '🥒', rice: '🌾', sunflower: '🌻', strawberry: '🍓', pepper: '🌶️' }[adminCropKey(plot)] || '🌱');
+  return ADMIN_CROP_EMOJIS[adminCropKey(plot)] || ADMIN_CROP_EMOJIS.unknown;
 }
 
 export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {

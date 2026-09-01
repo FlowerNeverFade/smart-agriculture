@@ -7,18 +7,18 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-ai-presentation-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-ai-presentation-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-sync-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -233,7 +233,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260901-settings-clean-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-admin-ops-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -259,7 +259,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}<span v-if="state.adminOverview.ai" class="admin-ai-status" :class="state.adminOverview.ai === 'UP' ? 'online' : state.adminOverview.ai === 'DOWN' ? 'offline' : state.adminOverview.ai === 'DEGRADED' ? 'degraded' : ''">{{ {UP:'· AI 在线',DOWN:'· AI 离线',DEGRADED:'· AI 降级'}[state.adminOverview.ai] || '' }}</span></div></div>
         </div>
       </div>
 
@@ -1060,8 +1060,8 @@
                 <td class="admin-user-status"><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
-                  <button class="g-btn text sm" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
-                  <button class="g-btn text sm" style="color:var(--g-danger)" @click="deleteUser(u.userId)">删除</button>
+                  <button class="g-btn text sm" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可停用' : '当前登录账号不可停用') : ''" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
+                  <button class="g-btn text sm" style="color:var(--g-danger)" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可删除' : '当前登录账号不可删除') : ''" @click="deleteUser(u.userId)">删除</button>
                 </td>
               </tr>
             </tbody>
@@ -1152,12 +1152,13 @@
       <div v-if="activeTab === 'config'">
         <div class="g-grid" style="grid-template-columns: 1fr 1fr; gap: 20px">
           <div class="g-card" style="padding:20px">
-            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式</div>
+            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式 <span v-if="aiStatus" class="admin-ai-status" :class="aiStatusClass">{{ aiStatusText }}</span></div>
             <select v-model="draftAiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
               <option value="full">完整模式（智能模型 + 知识检索 + 规则）</option>
               <option value="rules-only">规则兜底（仅确定性规则）</option>
               <option value="mock">模拟模式（固定输出）</option>
             </select>
+            <p v-if="degradeNote" class="admin-ai-degrade-note"><app-icon name="warning"></app-icon>{{ degradeNote }}</p>
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
                 <button class="g-btn secondary sm" @click="saveAiMode">保存模式</button>
               <span style="font-size:12px;color:var(--g-text-tertiary)">切换后需点击保存</span>
