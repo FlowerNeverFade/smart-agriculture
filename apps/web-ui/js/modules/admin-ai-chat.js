@@ -512,7 +512,8 @@ export const AdminAiChatView = {
 
     // 历史对话管理：轻量确认 / 三点菜单 / 重命名 / 置顶 / 批量删除
     const lightConfirm = ref(null); // { type:'delete', conversation } | { type:'bulk', ids:[...] }
-    const menuFor = ref('');
+    const searchQuery = ref('');
+      const menuFor = ref('');
     const renamingId = ref('');
     const renameText = ref('');
     const pinnedIds = ref([]);
@@ -585,7 +586,9 @@ export const AdminAiChatView = {
       const folderMap = new Map();
       (props.state.plots || []).forEach(plot => folderMap.set(String(plot.plotId), { plotId: plot.plotId, name: plot.name || plot.plotId, icon: plotFacilityIcon(plot), conversations: [] }));
       const source = archivedView.value ? orderedArchivedConversations.value : orderedConversations.value;
-      source.forEach(item => {
+      const sq = searchQuery.value.trim().toLowerCase();
+      const filteredSource = sq ? source.filter(c => (c.title || '').toLowerCase().includes(sq)) : source;
+      filteredSource.forEach(item => {
         const key = String(item.plotId || '__unassigned');
         if (!folderMap.has(key)) folderMap.set(key, { plotId: item.plotId || '', name: item.plotId ? item.plotId : '未关联地块', icon: item.plotId ? 'location_on' : 'chat_bubble_outline', conversations: [] });
         folderMap.get(key).conversations.push(item);
@@ -753,19 +756,28 @@ export const AdminAiChatView = {
     // 点击侧栏任意处：关闭菜单；若仍处于重命名编辑态则提交并退出（blur 兜底）
     const onSectionClick = () => { closeMenu(); if (renamingId.value) commitRename(); };
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, activeConversationTitle, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkUnarchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, plotFolders, expandedPlotIds, togglePlotFolder, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, visibleArchivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, activeConversationTitle, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkUnarchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, plotFolders, expandedPlotIds, togglePlotFolder, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, visibleArchivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages, searchQuery };
   },
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="onSectionClick">
       <!-- 当前地块选择位于输入区上方；admin-ai-new-chat 是侧栏唯一的新建入口。 -->
       <aside class="admin-ai-conversation-sidebar" aria-label="地块与历史对话">
         <div class="admin-ai-sidebar-heading">
-          <div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : '我的地块对话' }}</strong></div>
+          <div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : '历史对话' }}</strong></div>
           <div class="admin-ai-sidebar-heading-actions">
             <button v-if="!archivedView" class="admin-ai-new-sidebar-button admin-ai-new-chat" type="button" title="创建新对话" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button>
             <button v-else class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回活跃对话</button>
           </div>
         </div>
+          <div class="admin-ai-sidebar-tools" style="display: flex; justify-content: flex-end; gap: 6px; padding: 0 10px 8px; align-items: center;">
+            <div style="position: relative; display: flex; align-items: center; flex: 1; max-width: 140px;">
+              <app-icon name="search" style="position: absolute; left: 8px; font-size: 15px; color: var(--g-text-tertiary); pointer-events: none;"></app-icon>
+              <input type="text" v-model="searchQuery" class="g-input sm" placeholder="搜索..." style="padding-left: 26px; border-radius: 16px; width: 100%; background: var(--g-bg-subtle); border-color: transparent;">
+            </div>
+            <button type="button" class="g-btn icon-only sm text" style="border-radius: 16px; background: var(--g-bg-subtle);" @click="bulkMode ? exitBulkMode() : enterBulkMode()" :title="bulkMode ? '退出多选' : '批量选择'">
+              <app-icon :name="bulkMode ? 'close' : 'checklist'"></app-icon>
+            </button>
+          </div>
         <div v-if="bulkMode" class="admin-ai-bulk-bar admin-ai-bulk-bar-top">
           <span>已选 {{ bulkSelected.size }} 项</span>
           <button class="g-btn text sm" type="button" @click="exitBulkMode">取消</button>

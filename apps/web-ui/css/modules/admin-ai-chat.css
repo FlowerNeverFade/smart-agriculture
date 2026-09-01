@@ -786,3 +786,5 @@
   .admin-ai-compose-context { padding-inline: 2px; }
   .admin-ai-compose-context select { flex: 1 1 auto; max-width: none; }
 }
+
+.admin-ai-conversation-menu-pop button .material-symbols-outlined { font-size: 16px; }
