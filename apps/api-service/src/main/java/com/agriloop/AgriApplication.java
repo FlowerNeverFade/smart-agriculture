@@ -677,14 +677,22 @@ class AgriStore {
         String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
         try {
             List<Map<String, Object>> newest = jdbc.query(
-                    "SELECT DISTINCT ON (metric) " + columns + " FROM telemetry "
-                            + "WHERE plot_id=? AND event_ts>=? AND event_ts<=? "
-                            + "ORDER BY metric,event_ts DESC,event_id DESC",
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
+                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND metric=m.metric AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
                     (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(latestFrom), TimestampParser.sql(to));
             List<Map<String, Object>> activeReal = jdbc.query(
-                    "SELECT DISTINCT ON (metric) " + columns + " FROM telemetry "
-                            + "WHERE plot_id=? AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
-                            + "ORDER BY metric,event_ts DESC,event_id DESC",
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
+                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND metric=m.metric AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
                     (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(activeRealFrom), TimestampParser.sql(to));
             Map<String, Long> validCounts = new HashMap<>();
             List<Map.Entry<String, Long>> countRows = jdbc.query(
@@ -2159,10 +2167,10 @@ class AgriEngine {
             ruleResult.put("automaticWatering", automaticWateringForEvent(event));
         }
         events.publish("telemetry.received", event);
-        // The telemetry table is already the durable audit record. Duplicating
-        // every high-frequency sample into event_log grew that table by
-        // millions of rows and added another synchronous insert to the hot
-        // path without adding information.
+        // Keep one representative audit row per plot/tick. The telemetry
+        // table remains the complete metric-level record, while logging all
+        // eleven metrics separately only multiplied high-frequency writes.
+        if ("SOIL_MOISTURE".equalsIgnoreCase(metric)) store.logEvent("telemetry.received", event);
         return Map.of("accepted", true, "duplicate", false, "event", event, "ruleResult", ruleResult);
     }
 
