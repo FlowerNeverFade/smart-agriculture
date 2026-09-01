@@ -257,7 +257,7 @@ export const AdminAiChatView = {
       loadingHistory.value = true;
       // 切换会话时先清空旧消息与分页计数，避免上一会话内容残留导致"先看到旧消息再下拉到最新"
       messages.value = [];
-      visibleMessageCount.value = 20;
+      visibleMessageCount.value = 1;
       try {
         const history = await api.getAgentHistory(id, 100);
         conversationId.value = history?.conversation?.conversationId || id;
@@ -532,8 +532,8 @@ export const AdminAiChatView = {
       const plot = (props.state.plots || []).find(p => p.plotId === plotId);
       return plot?.name || plotId;
     };
-    // 消息向上加载（内存分页：默认显示最新 20 条，向上触顶自动加载更早）
-    const visibleMessageCount = ref(20);
+    // 消息向上加载（内存分页：打开会话只显示最新 1 条，向上触顶自动加载更早）
+    const visibleMessageCount = ref(1);
     const visibleMessages = computed(() => messages.value.slice(-Math.max(1, visibleMessageCount.value)));
     const loadingOlder = ref(false);
     const loadOlderMessages = async () => {
