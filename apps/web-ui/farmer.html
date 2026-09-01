@@ -694,7 +694,7 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ is_formal_session ? '可查看智能诊断与就绪度，当前操作人确认后即可执行。' : '演示模式不会控制真实水泵。' }}</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ advice_is_no_action ? '当前已达到目标，无需灌溉或补证。' : (is_formal_session ? '可查看智能诊断与就绪度，当前操作人确认后即可执行。' : '演示模式不会控制真实水泵。') }}</p>
                 <div class="farmer-advice-actions">
                   <button
                     type="button"
@@ -710,7 +710,18 @@
                       aria-hidden="true"
                     >progress_activity</span>
                     <app-icon v-else name="water_drop"></app-icon>
-                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : '查看建议并执行' }}
+                    {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : (advice_is_no_action ? '查看无需灌溉原因' : '查看建议并执行') }}
+                  </button>
+                  <button
+                    v-if="manual_irrigation_available"
+                    type="button"
+                    class="g-btn secondary farmer-btn-light farmer-btn-manual-irrigation"
+                    @click="open_manual_irrigation"
+                    :disabled="irrigation_plan_loading || advice_loading || manual_irrigation_busy"
+                    title="绕过数据/就绪度决策阻塞，按水量执行虚拟人工浇灌"
+                  >
+                    <app-icon name="water_drop"></app-icon>
+                    人工浇灌
                   </button>
                   <button
                     type="button"
@@ -731,6 +742,7 @@
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
+                <p v-else-if="advice_is_no_action" class="farmer-operation-status is-success"><span class="farmer-freshness-dot live"></span>当前湿度正常，本次无需灌溉，也不用补证</p>
                 <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
                 <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
@@ -767,20 +779,21 @@
                   <div class="farmer-evidence-grid">
                     <section><strong>支持证据</strong><span v-for="item in advice_diagnosis_summary.supporting" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.supporting.length">暂无支持证据</em></section>
                     <section><strong>反对证据</strong><span v-for="item in advice_diagnosis_summary.opposing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.opposing.length">暂无反对证据</em></section>
-                    <section><strong>缺失证据</strong><span v-for="item in advice_diagnosis_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.missing.length">当前无缺失项</em></section>
+                    <section v-if="!advice_is_no_action"><strong>缺失证据</strong><span v-for="item in advice_diagnosis_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.missing.length">当前无缺失项</em></section>
                   </div>
                   <div v-if="advice_diagnosis_summary.conflicts.length" class="farmer-evidence-conflicts"><strong>证据冲突，需要人工复核</strong><span v-for="item in advice_diagnosis_summary.conflicts" :key="item.id">{{ item.label }} · {{ item.meta }}</span></div>
                   <div v-if="advice_readiness_summary" class="farmer-readiness-block">
                     <div class="farmer-readiness-head">
-                      <strong>{{ advice_readiness_summary.statusLabel }}</strong>
-                      <span v-if="advice_readiness_summary.score !== null">综合分 {{ advice_readiness_summary.score }}</span>
+                      <strong>{{ advice_is_no_action ? '无需操作' : advice_readiness_summary.statusLabel }}</strong>
+                      <span v-if="!advice_is_no_action && advice_readiness_summary.score !== null">综合分 {{ advice_readiness_summary.score }}</span>
                     </div>
                     <div class="farmer-readiness-gates">
                       <span v-for="gate in advice_readiness_summary.gates" :key="gate.key" :class="'gate-' + gate.status.toLowerCase()">{{ gate.label }}</span>
                     </div>
-                    <div v-if="advice_readiness_summary.missing.length" class="farmer-missing-evidence">
+                    <p v-if="advice_is_no_action" class="farmer-operation-status is-success"><span class="farmer-freshness-dot"></span>当前湿度已达到目标，无需灌溉，也不用补证；只有现场与读数不符时再巡田或复测。</p>
+                    <div v-else-if="advice_readiness_summary.missing.length" class="farmer-missing-evidence">
                       <strong>还需要补充</strong><span v-for="item in advice_readiness_summary.missing" :key="item.id">{{ item.label }}</span>
-                      <button type="button" class="g-btn secondary farmer-btn-light" :disabled="evidence_request_busy" @click="request_missing_evidence">{{ evidence_request_busy ? '创建中…' : '按最小动作创建补证任务' }}</button>
+                      <button type="button" class="g-btn secondary farmer-btn-light" :disabled="evidence_request_busy" @click="request_missing_evidence">{{ evidence_request_busy ? '创建中…' : '一键申请复测' }}</button>
                     </div>
                     <div v-if="irrigation_guard" class="farmer-irrigation-guard">
                       <div><span>迟滞状态</span><strong>{{ irrigation_guard.hysteresis?.state || 'UNAVAILABLE' }}</strong><small>{{ irrigation_guard.hysteresis?.currentValue ?? '—' }}{{ irrigation_guard.hysteresis?.unit || '%' }} · 触发 {{ irrigation_guard.hysteresis?.threshold ?? '—' }} / 复位 {{ irrigation_guard.hysteresis?.resetThreshold ?? '—' }}</small></div>
@@ -1667,6 +1680,90 @@
               </div>
               <div v-if="suggestion_result" class="farmer-suggestion-result-summary"><span>本次记录：{{ suggestion_outcome_label(suggestion_result.outcome || suggestion_result.status) }}</span><span v-if="suggestion_result.note">{{ suggestion_result.note }}</span><small>{{ suggestion_result.provenance || (is_live ? 'BACKEND' : 'SIMULATED') }} · {{ format_suggestion_time(suggestion_result.createdAt) }}</small></div>
               <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_suggestion_recovery" :disabled="suggestion_busy"><span class="material-symbols-outlined">refresh</span>{{ suggestion_busy ? '读取中…' : '刷新恢复状态' }}</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_suggestion_flow">完成</button></div>
+            </section>
+          </article>
+        </div>
+
+        <div v-if="show_no_action_reason" class="farmer-form-overlay" @click.self="close_no_action_reason">
+          <article class="farmer-form-card farmer-no-action-modal" role="dialog" aria-modal="true" aria-labelledby="no-action-title">
+            <div class="farmer-detail-header">
+              <div>
+                <span class="farmer-section-kicker">灌溉判定 · 只读</span>
+                <h3 id="no-action-title">无需灌溉原因</h3>
+                <p class="farmer-detail-meta">{{ advice_plot ? advice_plot.name + ' · ' + advice_plot.cropName : '当前地块' }}</p>
+              </div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_no_action_reason" title="关闭"><app-icon name="close"></app-icon></button>
+            </div>
+            <div class="farmer-no-action-status">
+              <span class="material-symbols-outlined">check_circle</span>
+              <div><strong>当前无需灌溉</strong><p>这是基于当前观测和作物阶段目标的只读判定，不会创建灌溉命令。</p></div>
+              <span class="g-badge success">NO_ACTION</span>
+            </div>
+            <div class="farmer-suggestion-facts farmer-no-action-facts">
+              <div><small>当前湿度</small><strong>{{ advice_plot && advice_plot.metrics && advice_plot.metrics.SOIL_MOISTURE ? advice_plot.metrics.SOIL_MOISTURE.value + '%' : '—' }}</strong></div>
+              <div><small>目标范围</small><strong>{{ selected_crop_band?.targetText || advice_plot?.metrics?.SOIL_MOISTURE?.target || '—' }}</strong></div>
+              <div><small>决策状态</small><strong>{{ advice_readiness_summary?.statusLabel || '无需操作' }}</strong></div>
+            </div>
+            <div class="farmer-suggestion-explanation farmer-no-action-explanation">
+              <span class="material-symbols-outlined">info</span>
+              <div><strong>{{ irrigation_plan?.why || advice_plan?.why || '当前湿度已达到阶段目标' }}</strong><p>当前没有水分缺口，系统不会发起灌溉、补证或人工兜底动作。</p></div>
+            </div>
+            <div v-if="advice_diagnosis_summary" class="farmer-evidence-grid farmer-no-action-evidence">
+              <section><strong>支持证据</strong><span v-for="item in advice_diagnosis_summary.supporting" :key="'no-action-support-' + item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.supporting.length">暂无支持证据</em></section>
+              <section><strong>反对证据</strong><span v-for="item in advice_diagnosis_summary.opposing" :key="'no-action-opposing-' + item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.opposing.length">暂无反对证据</em></section>
+            </div>
+            <div v-if="advice_readiness_summary" class="farmer-readiness-block farmer-no-action-readiness">
+              <div class="farmer-readiness-head"><strong>无需操作</strong><span v-if="irrigation_plan?.createdAt">评估于 {{ format_suggestion_time(irrigation_plan.createdAt) }}</span></div>
+              <div class="farmer-readiness-gates"><span v-for="gate in advice_readiness_summary.gates" :key="'no-action-gate-' + gate.key" :class="'gate-' + gate.status.toLowerCase()">{{ gate.label }}</span></div>
+            </div>
+            <p class="farmer-panel-hint farmer-no-action-note"><app-icon name="fact_check"></app-icon>如果现场情况与读数不一致，请从巡田或便携仪复测入口补充人工证据；本面板不会直接执行浇灌。</p>
+            <div class="farmer-form-footer"><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_no_action_reason">关闭</button></div>
+          </article>
+        </div>
+
+        <div v-if="show_manual_irrigation" class="farmer-form-overlay" @click.self="close_manual_irrigation">
+          <article class="farmer-form-card farmer-manual-irrigation-modal" role="dialog" aria-modal="true" aria-labelledby="manual-irrigation-title">
+            <div class="farmer-detail-header">
+              <div>
+                <span class="farmer-section-kicker">人工兜底 · 虚拟执行</span>
+                <h3 id="manual-irrigation-title">人工浇灌</h3>
+                <p class="farmer-detail-meta">{{ advice_plot ? advice_plot.name + ' · ' + advice_plot.cropName : '当前地块' }}</p>
+              </div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_manual_irrigation" :disabled="manual_irrigation_busy" title="关闭"><app-icon name="close"></app-icon></button>
+            </div>
+            <section v-if="manual_irrigation_stage === 'FORM'" class="farmer-suggestion-stage">
+              <div class="farmer-manual-warning">
+                <span class="material-symbols-outlined">warning</span>
+                <div><strong>当前灌溉决策被阻塞</strong><p>{{ manual_irrigation_fallback?.reason || irrigation_plan?.why || '当前数据或安全门未满足自动灌溉条件' }}</p></div>
+              </div>
+              <div class="farmer-suggestion-facts farmer-manual-facts">
+                <div><small>当前湿度</small><strong>{{ manual_irrigation_preview.current === null ? '—' : manual_irrigation_preview.current.toFixed(1) + '%' }}</strong></div>
+                <div><small>本次最大水量</small><strong>{{ Number(manual_irrigation_limits.maxWaterLitre || 0).toFixed(1) }} L</strong></div>
+                <div><small>每日剩余</small><strong>{{ Number(manual_irrigation_limits.dailyRemainingLitres || 0).toFixed(1) }} L</strong></div>
+              </div>
+              <label class="farmer-manual-water-input">本次浇灌水量（L）<input v-model.number="manual_irrigation_water" type="number" min="0.1" step="0.1" :max="manual_irrigation_limits.maxWaterLitre" inputmode="decimal" placeholder="请输入水量" required></label>
+              <div class="farmer-manual-preview">
+                <div><small>预计增加</small><strong>{{ manual_irrigation_preview.delta === null ? '—' : '+' + manual_irrigation_preview.delta.toFixed(1) + ' 个百分点' }}</strong></div>
+                <div><small>预计浇灌后</small><strong>{{ manual_irrigation_preview.after === null ? '无法计算' : manual_irrigation_preview.after.toFixed(1) + '%' }}</strong></div>
+                <div><small>预计时长</small><strong>{{ manual_irrigation_preview.durationSeconds === null ? '—' : Math.round(manual_irrigation_preview.durationSeconds / 6) / 10 + ' 分钟' }}</strong></div>
+              </div>
+              <div v-if="manual_irrigation_bypassed_gates.length" class="farmer-manual-gates"><strong>本次绕过的决策门</strong><span v-for="gate in manual_irrigation_bypassed_gates" :key="gate">{{ gate }}</span></div>
+              <p class="farmer-form-hint">人工浇灌不受数据冲突、诊断证据和设备就绪度阻塞影响；仍校验操作权限、幂等键、单次/每日水量、资源容量和最大时长，仅执行虚拟动作。</p>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="manual_irrigation_confirmed" type="checkbox"><span>我已核对地块、阻塞原因和本次水量，并确认立即执行虚拟人工浇灌。</span></label>
+              <p v-if="manual_irrigation_error" class="farmer-form-error">{{ manual_irrigation_error }}</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_manual_irrigation" :disabled="manual_irrigation_busy">取消</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="submit_manual_irrigation" :disabled="manual_irrigation_busy || !manual_irrigation_confirmed">{{ manual_irrigation_busy ? '执行中…' : '确认并虚拟浇灌' }}<span class="material-symbols-outlined">verified_user</span></button></div>
+            </section>
+            <section v-else class="farmer-suggestion-stage">
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>人工浇灌命令已提交</strong><p>结果由系统 ACK、模拟遥测和效果评价提供，页面不允许人工填写执行成功。</p></div></div>
+              <div class="farmer-execution-evidence is-modal">
+                <div><span>命令状态</span><b>{{ advice_execution_summary.command?.commandId || '—' }}</b><em>{{ advice_execution_summary.commandStatus }}</em></div>
+                <div><span>ACK 实际用水</span><b>{{ advice_execution_summary.actualWater ?? '—' }} L</b><em>{{ advice_execution_summary.ackAt ? format_suggestion_time(advice_execution_summary.ackAt) : '等待回执' }}</em></div>
+                <div><span>土壤湿度</span><b>{{ advice_execution_summary.before ?? '—' }}% → {{ advice_execution_summary.after ?? '—' }}%</b><em>效果分 {{ advice_execution_summary.score ?? '—' }}</em></div>
+                <div><span>执行来源</span><b>人工兜底</b><em>{{ manual_irrigation_result?.provenance || 'SIMULATED' }}</em></div>
+              </div>
+              <p v-if="manual_irrigation_result?.evaluation?.result === 'BASELINE_UNAVAILABLE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>命令已完成，但缺少数值型湿度基线，系统没有伪造含水量变化。</p>
+              <p v-else class="farmer-panel-hint">本次水量已进入虚拟执行记录；主页面土壤湿度和水位会随模拟结果刷新。</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_manual_irrigation">关闭</button></div>
             </section>
           </article>
         </div>

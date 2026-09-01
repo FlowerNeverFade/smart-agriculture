@@ -3236,6 +3236,30 @@ export class ApiService {
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
     const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
+    const manualLimits = this._demoManualWaterLimits(plotId, plot);
+    const manualBlockedGates = [];
+    if (hardBlock) {
+      if (primary === 'SENSOR_DRIFT') {
+        manualBlockedGates.push('DATA_QUALITY', 'DATA_CONFLICT');
+      } else if (primary === 'DEVICE_FAULT') {
+        manualBlockedGates.push('DEVICE_HEALTH');
+      } else {
+        manualBlockedGates.push('DATA_QUALITY');
+      }
+    }
+    if (reviewOnly) manualBlockedGates.push('DIAGNOSIS_EVIDENCE');
+    if (readinessStatus !== 'READY') manualBlockedGates.push('DECISION_READINESS');
+    const manualBlockedState = !noAction && !executable && manualBlockedGates.length > 0;
+    const planWhy = hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标';
+    const manualFallback = {
+      available: manualBlockedState && canControl && manualLimits.maxWaterLitre >= 0.1,
+      reasonCode: manualBlockedState ? (primary === 'SENSOR_DRIFT' ? 'DATA_CONFLICT' : 'SAFETY_GATE_BLOCKED') : 'NONE',
+      reason: manualBlockedState ? planWhy : '当前没有需要人工兜底的灌溉阻塞',
+      bypassedGates: manualBlockedGates,
+      virtualOnly: true,
+      noCooldown: true,
+      constraints: manualLimits
+    };
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -3254,7 +3278,7 @@ export class ApiService {
       durationSeconds,
       waterLitre,
       expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: target },
-      why: hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标',
+      why: planWhy,
       emergency: {
         eligible: emergencyEligible,
         threshold: emergencyThreshold,
@@ -3283,11 +3307,41 @@ export class ApiService {
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
+      manualFallback,
       createdAt: new Date(now).toISOString()
     };
     this.decisionCache.plans.set(plan.planId, plan);
     this._demoSaveWorkspaceState();
     return plan;
+  }
+
+  _demoManualWaterLimits(plotId, plot = this.mockPlot(plotId)) {
+    const profile = MOCK_DATA.resourceProfile || {};
+    const flow = Math.max(1, Number(profile.flowRateLitresPerMinute || 18));
+    const dailyQuota = Math.max(0, Number(profile.dailyQuotaLitres || profile.capacityLitres || DEFAULT_RESERVOIR_LITRES));
+    const balance = this.demoWaterBalance || {};
+    const historicalCommandUsage = [...this.decisionCache.commands.values()]
+      .filter((command) => ['SUCCEEDED', 'PARTIAL'].includes(String(command.status || '').toUpperCase()))
+      .reduce((total, command) => total + Math.max(0, Number(command.ack?.actualWaterLitre ?? command.actualWaterLitre ?? 0)), 0);
+    const usedToday = Math.max(0, Number(balance.actualUsedLitres ?? profile.actualUsedLitres ?? profile.usedTodayLitres ?? 0), historicalCommandUsage);
+    const reservedToday = Math.max(0, Number(balance.reservedLitres || 0));
+    const outstanding = [...this.decisionCache.commands.values()]
+      .filter((command) => command.plotId === plotId && !['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(String(command.status || '').toUpperCase()))
+      .reduce((total, command) => total + Math.max(0, Number(command.waterLitre || command.manualWaterLitre || 0)), 0);
+    const resourceCapacity = Math.max(0, Number(profile.capacityLitres || dailyQuota));
+    const resourceRemaining = Math.max(0, resourceCapacity - usedToday - reservedToday - outstanding);
+    const dailyRemaining = Math.max(0, dailyQuota - usedToday - reservedToday);
+    const maxByDuration = flow * 900 / 60;
+    const maxWater = Math.max(0, Math.min(maxByDuration, dailyRemaining, resourceRemaining));
+    return {
+      minWaterLitre: 0.1,
+      maxWaterLitre: Number(maxWater.toFixed(1)),
+      maxDurationSeconds: 900,
+      flowRateLitresPerMinute: flow,
+      dailyRemainingLitres: Number(dailyRemaining.toFixed(1)),
+      resourceRemainingLitres: Number(resourceRemaining.toFixed(1)),
+      areaM2: Math.max(1, Number(plot?.areaM2 || DEFAULT_PLOT_AREA_M2))
+    };
   }
 
   async getDecisionReadiness(subjectType, subjectId, context = {}) {
@@ -3814,6 +3868,154 @@ export class ApiService {
         };
       }
       this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
+    }
+    this._demoSaveWorkspaceState();
+    return command;
+  }
+
+  async executeManualIrrigation({ plotId, sourcePlanId, waterLitre, confirmed = false, idempotencyKey = '', source = 'farmer-manual-fallback', outcome = 'SUCCEEDED' } = {}) {
+    if (!plotId) throw new ApiError('人工浇灌前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!sourcePlanId) throw new ApiError('人工浇灌必须关联被阻塞的灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    if (confirmed !== true) throw new ApiError('人工浇灌需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
+    const key = idempotencyKey || `manual-irrigation-${sourcePlanId}-${Date.now()}`;
+    const numericWater = Number(waterLitre);
+    if (!Number.isFinite(numericWater) || numericWater < 0.1) {
+      throw new ApiError('人工浇灌水量必须不小于 0.1 L', { status: 400, code: 'MANUAL_WATER_INVALID' });
+    }
+    const payload = { plotId, sourcePlanId, waterLitre: numericWater, confirmed: true, idempotencyKey: key, source };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/irrigation/manual', { method: 'POST', body: JSON.stringify(payload) });
+      const command = resp?.data || resp;
+      if (!command?.commandId) throw new ApiError('后端返回了无效的人工浇灌命令', { code: 'MANUAL_COMMAND_INVALID', payload: resp });
+      const normalized = { ...command, executionMode: command.executionMode || 'SIMULATED', provenance: command.provenance || 'SIMULATED' };
+      this.decisionCache.commands.set(normalized.commandId, normalized);
+      return normalized;
+    }
+
+    this._demoHydrateWorkspaceState();
+    const sourcePlan = this.decisionCache.plans.get(sourcePlanId);
+    if (!sourcePlan || sourcePlan.plotId !== plotId) throw new ApiError('未找到当前地块对应的人工兜底处方', { status: 409, code: 'MANUAL_SOURCE_PLAN_NOT_FOUND' });
+    const existing = [...this.decisionCache.commands.values()].find((command) => command.idempotencyKey === key);
+    if (existing) {
+      if (existing.plotId !== plotId || existing.sourcePlanId !== sourcePlanId) throw new ApiError('幂等键已绑定其他人工浇灌上下文', { status: 409, code: 'IDEMPOTENCY_CONTEXT_MISMATCH' });
+      if (Math.abs(Number(existing.waterLitre) - numericWater) > 0.0001) throw new ApiError('幂等键已绑定其他人工浇灌水量', { status: 409, code: 'IDEMPOTENCY_WATER_MISMATCH' });
+      return { ...existing };
+    }
+    const plan = await this.estimateIrrigation({ plotId, diagnosisId: sourcePlan.diagnosisId, scenarioId: sourcePlan.simulation?.scenario || 'NORMAL', traceId: sourcePlan.traceId });
+    const fallback = plan.manualFallback || {};
+    if (fallback.available !== true) throw new ApiError('当前地块不再处于可人工兜底的灌溉阻塞状态', { status: 409, code: 'MANUAL_FALLBACK_NOT_AVAILABLE' });
+    const limits = this._demoManualWaterLimits(plotId, this.mockPlot(plotId));
+    const maxWater = Number(limits.maxWaterLitre);
+    if (Number.isFinite(maxWater) && numericWater > maxWater + 0.0001) {
+      throw new ApiError('人工浇灌水量超过当前单次、每日或资源可用上限', { status: 422, code: 'MANUAL_WATER_LIMIT', details: { limits, requestedWaterLitre: numericWater } });
+    }
+    const flow = Math.max(1, Number(limits.flowRateLitresPerMinute || 18));
+    const durationSeconds = Math.max(1, Math.ceil(numericWater / flow * 60));
+    if (durationSeconds > Number(limits.maxDurationSeconds || 900)) throw new ApiError('人工浇灌时长超过安全上限', { status: 422, code: 'SAFETY_LIMIT' });
+    const requestedOutcome = String(outcome || 'SUCCEEDED').toUpperCase();
+    const finalOutcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const actualWater = finalOutcome === 'SUCCEEDED' ? numericWater : finalOutcome === 'PARTIAL' ? Number((numericWater * 0.55).toFixed(1)) : 0;
+    const plot = this.demoPlots.get(plotId) || this.mockPlot(plotId);
+    const area = Math.max(1, Number(plot?.areaM2 || limits.areaM2 || DEFAULT_PLOT_AREA_M2));
+    const before = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+    const baselineAvailable = Number.isFinite(before);
+    const after = baselineAvailable ? Number(Math.min(100, before + moistureDeltaFromWater(actualWater, area)).toFixed(1)) : null;
+    const evaluationStatus = baselineAvailable
+      ? (['SUCCEEDED'].includes(finalOutcome) ? 'COMPLETED' : finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'INCONCLUSIVE')
+      : 'INCONCLUSIVE';
+    const evaluationResult = baselineAvailable
+      ? (finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome === 'PARTIAL' ? 'NO_EFFECT' : 'EXECUTION_FAILED')
+      : 'BASELINE_UNAVAILABLE';
+    const command = {
+      commandId: `cmd-manual-${Math.random().toString(36).substring(2, 9)}`,
+      plotId,
+      planId: plan.planId,
+      sourcePlanId,
+      traceId: plan.traceId,
+      idempotencyKey: key,
+      manualOverride: true,
+      manualWaterLitre: numericWater,
+      bypassedGates: Array.isArray(fallback.bypassedGates) ? [...fallback.bypassedGates] : [],
+      overrideReasonCode: fallback.reasonCode || 'SAFETY_GATE_BLOCKED',
+      approvalRequired: false,
+      confirmationMode: 'OPERATOR_MANUAL_OVERRIDE',
+      confirmedBy: this._demoActorId(),
+      confirmedAt: new Date().toISOString(),
+      status: finalOutcome,
+      type: 'IRRIGATION_START',
+      waterLitre: numericWater,
+      durationSeconds,
+      transport: 'MQTT_VIRTUAL_ACTUATOR',
+      executionMode: 'SIMULATED',
+      provenance: 'SIMULATED',
+      virtualOnly: true,
+      cooldownMinutes: 0,
+      riskLevel: 'HIGH',
+      ack: {
+        ackId: `ack-manual-${Math.random().toString(36).substring(2, 8)}`,
+        status: finalOutcome,
+        actualWaterLitre: actualWater,
+        result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome === 'TIMEOUT' ? 'NO_ACK' : finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'EXECUTION_FAILED',
+        provenance: 'SIMULATED',
+        receivedAt: new Date().toISOString()
+      }
+    };
+    const evaluation = {
+      evaluationId: `eval-manual-${Math.random().toString(36).substring(2, 9)}`,
+      planId: plan.planId,
+      commandId: command.commandId,
+      plotId,
+      status: evaluationStatus,
+      expected: { soilMoistureBefore: baselineAvailable ? before : null, soilMoistureAfter: baselineAvailable ? after : null, waterLitre: numericWater },
+      actual: { soilMoistureBefore: baselineAvailable ? before : null, soilMoistureAfter: baselineAvailable ? after : null, waterLitre: actualWater },
+      effectivenessScore: evaluationStatus === 'COMPLETED' && evaluationResult === 'GOOD' ? 0.94 : evaluationStatus === 'PARTIAL' ? 0.45 : 0,
+      result: evaluationResult,
+      evidenceWindow: { beforeMinutes: 30, afterMinutes: 30 },
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+    command.evaluation = evaluation;
+    this.decisionCache.commands.set(command.commandId, command);
+    this.decisionCache.evaluations.set(command.commandId, evaluation);
+    if (plot && ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome)) {
+      const metrics = { ...(plot.metrics || {}) };
+      const moisture = metrics.SOIL_MOISTURE || {};
+      if (baselineAvailable) {
+        metrics.SOIL_MOISTURE = { ...moisture, value: after, status: 'NORMAL', updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION', provenance: 'SIMULATED', dataOrigin: 'MANUAL_VIRTUAL_IRRIGATION' };
+      }
+      const waterLevel = metrics.WATER_LEVEL || {};
+      const waterLevelBefore = Number(waterLevel.value);
+      if (Number.isFinite(waterLevelBefore)) metrics.WATER_LEVEL = { ...waterLevel, value: Number(Math.max(0, waterLevelBefore - actualWater / DEFAULT_RESERVOIR_LITRES * 100).toFixed(1)), status: 'NORMAL', updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION', provenance: 'SIMULATED', dataOrigin: 'MANUAL_VIRTUAL_IRRIGATION' };
+      this.demoPlots.set(plotId, { ...plot, metrics, updatedAt: new Date().toISOString() });
+    }
+    const consumed = ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) && actualWater > 0;
+    if (consumed && this.demoWaterBalance) {
+      this.demoWaterBalance.actualUsedLitres = Number((Number(this.demoWaterBalance.actualUsedLitres || 0) + actualWater).toFixed(1));
+      this.demoWaterBalance.usedLitres = this.demoWaterBalance.actualUsedLitres;
+      this.demoWaterBalance.remainingLitres = Number(Math.max(0, Number(this.demoWaterBalance.dailyQuotaLitres || 0) - Number(this.demoWaterBalance.reservedLitres || 0) - this.demoWaterBalance.actualUsedLitres).toFixed(1));
+      this.demoWaterBalance.revision = Number(this.demoWaterBalance.revision || 0) + 1;
+      evaluation.resourceUsage = {
+        sourceType: 'MANUAL_IRRIGATION',
+        sourceRef: command.commandId,
+        requestedWaterLitre: numericWater,
+        actualWaterLitre: actualWater,
+        status: 'CONSUMED',
+        sourceMode: 'SIMULATION',
+        provenance: 'SIMULATED',
+        remainingLitres: this.demoWaterBalance.remainingLitres
+      };
+    } else {
+      evaluation.resourceUsage = {
+        sourceType: 'MANUAL_IRRIGATION',
+        sourceRef: command.commandId,
+        requestedWaterLitre: numericWater,
+        actualWaterLitre: actualWater,
+        status: 'NOT_CONSUMED',
+        sourceMode: 'SIMULATION',
+        provenance: 'SIMULATED',
+        remainingLitres: this.demoWaterBalance?.remainingLitres ?? null
+      };
     }
     this._demoSaveWorkspaceState();
     return command;

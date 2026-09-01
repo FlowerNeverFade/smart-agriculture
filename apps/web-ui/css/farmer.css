@@ -3067,6 +3067,33 @@
 .farmer-recovery-card p { margin-top: 4px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-no-action-modal,.farmer-manual-irrigation-modal { width: min(700px, 100%); }
+.farmer-no-action-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--g-success) 32%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-success-bg) 58%, var(--g-bg-surface)); }
+.farmer-no-action-status > .material-symbols-outlined { color: var(--g-success); font-size: 23px; }
+.farmer-no-action-status strong { display: block; color: var(--g-text-primary); font-size: 14px; }
+.farmer-no-action-status p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-no-action-status .g-badge { align-self: start; }
+.farmer-no-action-facts { margin-top: 12px; }
+.farmer-no-action-explanation { border: 1px solid color-mix(in srgb, var(--g-success) 25%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-success-bg) 35%, var(--g-bg-subtle)); }
+.farmer-no-action-evidence { margin-top: 2px; }
+.farmer-no-action-readiness { margin-top: 0; }
+.farmer-no-action-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; line-height: 1.5; }
+.farmer-no-action-note > .material-symbols-outlined { flex: 0 0 auto; font-size: 17px; }
+.farmer-manual-warning { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--g-warning) 42%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 78%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-manual-warning > .material-symbols-outlined { flex: 0 0 auto; font-size: 21px; }
+.farmer-manual-warning strong { display: block; color: var(--g-text-primary); font-size: 14px; }
+.farmer-manual-warning p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.55; }
+.farmer-manual-facts { margin: 0; }
+.farmer-manual-water-input { display: grid; gap: 6px; color: var(--g-text-primary); font-size: 13px; font-weight: 600; }
+.farmer-manual-water-input input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-weight: 500; outline: none; }
+.farmer-manual-water-input input:focus { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 15%, transparent); }
+.farmer-manual-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.farmer-manual-preview > div { display: grid; gap: 3px; padding: 10px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-primary-bg) 48%, var(--g-bg-base)); }
+.farmer-manual-preview small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-manual-preview strong { color: var(--g-primary); font-size: 14px; }
+.farmer-manual-gates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 11px; border-radius: var(--g-radius); background: var(--g-bg-subtle); }
+.farmer-manual-gates strong { width: 100%; color: var(--g-text-primary); font-size: 12px; }
+.farmer-manual-gates span { padding: 3px 7px; border-radius: 999px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 10px; font-weight: 600; }
 
 .farmer-stage-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 9px; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-stage-preview select { min-width: 130px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); padding: 5px 8px; }
@@ -3259,6 +3286,7 @@
   .farmer-suggestion-flow { gap: 2px; }
   .farmer-suggestion-flow-node { width: 25px; height: 25px; }
   .farmer-suggestion-facts { grid-template-columns: 1fr; }
+  .farmer-manual-preview { grid-template-columns: 1fr; }
   .farmer-danger-badge { display: none; }
 }
 
