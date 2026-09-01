@@ -92,7 +92,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'PH', 'WATER_LEVEL', 'NITROGEN', 'PHOSPHORUS', 'POTASSIUM']);
 const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_MOISTURE: 'water_drop',
   AIR_TEMPERATURE: 'thermometer',
@@ -100,8 +100,11 @@ const PLOT_METRIC_ICONS = Object.freeze({
   LIGHT: 'light_mode',
   CO2: 'eco',
   RAINFALL: 'rainy',
-  SOIL_EC: 'soil_ec',
-  NPK_RATIO: 'nutrition'
+  PH: 'science',
+  WATER_LEVEL: 'water',
+  NITROGEN: 'spa',
+  PHOSPHORUS: 'grass',
+  POTASSIUM: 'nutrition'
 });
 
 // The plot-detail simulator uses one axis at a time.  Keeping the unit and
