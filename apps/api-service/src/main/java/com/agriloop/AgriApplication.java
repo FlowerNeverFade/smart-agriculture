@@ -44,6 +44,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
@@ -69,6 +72,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.time.Duration;
@@ -125,6 +129,8 @@ class AgriProperties {
     private String valueMode = "simulation";
     private String jwtSecret = "change-me-in-production-change-me-in-production";
     private long jwtTtlMinutes = 720;
+    /** Shared server-side code required whenever a SYSTEM_ADMIN account is created. */
+    private String systemAdminAuthorizationCode = "";
     private String mqttUrl = "tcp://localhost:1883";
     private String mqttClientId = "agriloop-api";
     private String mqttUsername = "";
@@ -193,6 +199,8 @@ class AgriProperties {
     public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
     public long getJwtTtlMinutes() { return jwtTtlMinutes; }
     public void setJwtTtlMinutes(long jwtTtlMinutes) { this.jwtTtlMinutes = jwtTtlMinutes; }
+    public String getSystemAdminAuthorizationCode() { return systemAdminAuthorizationCode; }
+    public void setSystemAdminAuthorizationCode(String systemAdminAuthorizationCode) { this.systemAdminAuthorizationCode = systemAdminAuthorizationCode; }
     public String getMqttUrl() { return mqttUrl; }
     public void setMqttUrl(String mqttUrl) { this.mqttUrl = mqttUrl; }
     public String getMqttClientId() { return mqttClientId; }
@@ -343,6 +351,7 @@ class AgriStore {
     private final JdbcTemplate jdbc;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transactionTemplate;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
     private final Map<String, Long> listLoadedAt = new ConcurrentHashMap<>();
     private final Set<String> loadedTypes = ConcurrentHashMap.newKeySet();
@@ -362,11 +371,13 @@ class AgriStore {
     private volatile boolean databaseReady;
     private volatile boolean postgres;
 
-    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder) {
+    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder,
+              PlatformTransactionManager transactionManager) {
         this.mapper = mapper;
         this.jdbc = jdbc;
         this.properties = properties;
         this.passwordEncoder = passwordEncoder;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @PostConstruct
@@ -444,12 +455,18 @@ class AgriStore {
     }
 
     synchronized void saveDurably(String type, String id, Map<String, Object> value) {
-        saveDurably(type, id, value, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，写入未保存");
+        saveDurably(type, id, value, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看", "资源协同数据库不可用，写入未保存");
     }
 
-    synchronized void saveDurably(String type, String id, Map<String, Object> value, String errorCode, String errorMessage) {
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String errorMessage) {
+        saveDurably(type, id, value, errorCode, errorMessage, errorMessage);
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String unavailableMessage, String failureMessage) {
         if (!databaseReady) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, errorMessage);
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, unavailableMessage);
         }
         Map<String, Object> copy = Jsons.copy(mapper, value);
         try {
@@ -460,7 +477,7 @@ class AgriStore {
             invalidateListCache(type);
         } catch (DataAccessException error) {
             databaseReady = false;
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, errorMessage);
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, failureMessage);
         }
     }
 
@@ -803,7 +820,7 @@ class AgriStore {
         if (u != null) return Jsons.copy(mapper, u);
         if (!databaseReady) return null;
         try {
-            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE LOWER(username)=?",
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account WHERE LOWER(username)=?",
                     (rs, rowNum) -> userMap(rs), normalized);
             if (persisted != null) users.put(Jsons.text(persisted, "userId", normalized), Jsons.copy(mapper, persisted));
             return persisted;
@@ -815,7 +832,7 @@ class AgriStore {
         if (cached != null) return Jsons.copy(mapper, cached);
         if (!databaseReady) return null;
         try {
-            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE user_id=?",
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account WHERE user_id=?",
                     (rs, rowNum) -> userMap(rs), userId);
             if (persisted != null) users.put(userId, Jsons.copy(mapper, persisted));
             return persisted;
@@ -829,7 +846,7 @@ class AgriStore {
         if (!databaseReady) return result;
         try {
             List<Map<String, Object>> persisted = jdbc.query(
-                    "SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account ORDER BY username",
+                    "SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account ORDER BY username",
                     (rs, rowNum) -> userMap(rs));
             persisted.forEach(user -> users.put(Jsons.text(user, "userId", ""), Jsons.copy(mapper, user)));
             return persisted.stream().map(this::safeUser).collect(Collectors.toCollection(ArrayList::new));
@@ -856,18 +873,19 @@ class AgriStore {
     synchronized Map<String, Object> updateUserScope(String userId, Collection<String> farmIds, Collection<String> plotIds) {
         Map<String, Object> user = userById(userId);
         if (user == null) return null;
+        if (!databaseReady) return null;
         user.put("farmIds", new ArrayList<>(farmIds));
         user.put("plotIds", new ArrayList<>(plotIds));
-        if (databaseReady) {
-            try {
-                int updated = jdbc.update("UPDATE user_account SET farm_ids=?,plot_ids=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
-                        String.join(",", Jsons.strings(user.get("farmIds"))),
-                        String.join(",", Jsons.strings(user.get("plotIds"))), userId);
-                if (updated != 1) return null;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        try {
+            int updated = jdbc.update("UPDATE user_account SET farm_ids=?,plot_ids=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                    String.join(",", Jsons.strings(user.get("farmIds"))),
+                    String.join(",", Jsons.strings(user.get("plotIds"))), userId);
+            if (updated != 1) return null;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return null;
         }
+        user.put("updatedAt", Instant.now().toString());
         users.put(userId, Jsons.copy(mapper, user));
         return safeUser(Jsons.copy(mapper, user));
     }
@@ -875,19 +893,20 @@ class AgriStore {
     synchronized Map<String, Object> updateUserEnabled(String userId, boolean enabled, boolean rotateCredentials) {
         Map<String, Object> user = userById(userId);
         if (user == null) return null;
+        if (!databaseReady) return null;
         user.put("enabled", enabled);
         if (rotateCredentials) {
             user.put("credentialVersion", (int) Jsons.whole(user, "credentialVersion", 1) + 1);
         }
-        if (databaseReady) {
-            try {
-                int updated = jdbc.update("UPDATE user_account SET enabled=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
-                        enabled, Jsons.whole(user, "credentialVersion", 1), userId);
-                if (updated != 1) return null;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        try {
+            int updated = jdbc.update("UPDATE user_account SET enabled=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                    enabled, Jsons.whole(user, "credentialVersion", 1), userId);
+            if (updated != 1) return null;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return null;
         }
+        user.put("updatedAt", Instant.now().toString());
         users.put(userId, Jsons.copy(mapper, user));
         return Jsons.copy(mapper, user);
     }
@@ -895,13 +914,13 @@ class AgriStore {
     synchronized boolean deleteUserAccount(String userId) {
         Map<String, Object> user = userById(userId);
         if (user == null) return false;
-        if (databaseReady) {
-            try {
-                int deleted = jdbc.update("DELETE FROM user_account WHERE user_id=?", userId);
-                if (deleted != 1) return false;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        if (!databaseReady) return false;
+        try {
+            int deleted = jdbc.update("DELETE FROM user_account WHERE user_id=?", userId);
+            if (deleted != 1) return false;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return false;
         }
         users.remove(userId);
         return true;
@@ -913,7 +932,12 @@ class AgriStore {
         u.put("passwordHash", rs.getString("password_hash")); u.put("role", rs.getString("role_code"));
         u.put("farmIds", Jsons.strings(rs.getString("farm_ids"))); u.put("plotIds", Jsons.strings(rs.getString("plot_ids")));
         u.put("enabled", rs.getBoolean("enabled")); u.put("recoveryCodeHash", rs.getString("recovery_code_hash"));
-        u.put("credentialVersion", rs.getInt("credential_version")); return u;
+        u.put("credentialVersion", rs.getInt("credential_version"));
+        java.sql.Timestamp createdAt = rs.getTimestamp("created_at");
+        java.sql.Timestamp updatedAt = rs.getTimestamp("updated_at");
+        if (createdAt != null) u.put("createdAt", createdAt.toInstant().toString());
+        if (updatedAt != null) u.put("updatedAt", updatedAt.toInstant().toString());
+        return u;
     }
 
     private void saveUser(Map<String, Object> user) {
@@ -940,22 +964,76 @@ class AgriStore {
     synchronized boolean createUser(Map<String, Object> user) {
         String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
         if (username.isBlank() || userByUsername(username) != null) return false;
+        if (!databaseReady) return false;
         String id = Jsons.text(user, "userId", Jsons.id("usr"));
         user.put("userId", id); user.put("username", username); user.putIfAbsent("credentialVersion", 1);
-        if (databaseReady) {
-            try {
-                jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
-                        id, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
-                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
-                        Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
-            } catch (DataAccessException error) {
-                String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
-                if (message.contains("unique") || message.contains("duplicate")) return false;
-                databaseReady = false;
-            }
+        try {
+            jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                    id, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
+                    String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                    Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+        } catch (DataAccessException error) {
+            String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+            if (message.contains("unique") || message.contains("duplicate")) return false;
+            databaseReady = false;
+            return false;
         }
+        Instant now = Instant.now();
+        user.putIfAbsent("createdAt", now.toString());
+        user.put("updatedAt", now.toString());
         users.put(id, Jsons.copy(mapper, user));
         return true;
+    }
+
+    synchronized void createUserWithFarmDurably(Map<String, Object> user, Map<String, Object> farm) {
+        String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
+        String userId = Jsons.text(user, "userId", Jsons.id("user"));
+        String farmId = Jsons.text(farm, "farmId", "").trim();
+        if (username.isBlank() || userByUsername(username) != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        }
+        if (farmId.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "无法生成农场编号");
+        }
+        if (!databaseReady) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+        }
+
+        user.put("userId", userId);
+        user.put("username", username);
+        user.putIfAbsent("credentialVersion", 1);
+        Map<String, Object> farmCopy = Jsons.copy(mapper, farm);
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                try {
+                    jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                            userId, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARM_ADMIN"),
+                            String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                            Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+                } catch (DataAccessException error) {
+                    String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+                    if (message.contains("unique") || message.contains("duplicate") || message.contains("primary key")) {
+                        throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+                    }
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+                }
+                try {
+                    persistEntity("farm", farmId, farmCopy);
+                } catch (DataAccessException error) {
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+                }
+            });
+        } catch (TransactionException error) {
+            databaseReady = false;
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+        }
+
+        Instant now = Instant.now();
+        user.putIfAbsent("createdAt", now.toString());
+        user.put("updatedAt", now.toString());
+        invalidateListCache("farm");
     }
 
     synchronized Map<String, Object> updatePassword(String username, String passwordHash, String recoveryCodeHash) {
@@ -1035,13 +1113,14 @@ final class TimestampParser {
 @Service
 class AgriEventBus {
     private final ObjectMapper mapper;
+    private final AgriStore store;
     private record ScopedEmitter(SseEmitter emitter, UserPrincipal principal) { }
     private final List<ScopedEmitter> emitters = new CopyOnWriteArrayList<>();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "agriloop-sse"); t.setDaemon(true); return t;
     });
 
-    AgriEventBus(ObjectMapper mapper) { this.mapper = mapper; }
+    AgriEventBus(ObjectMapper mapper, AgriStore store) { this.mapper = mapper; this.store = store; }
 
     SseEmitter subscribe(UserPrincipal principal) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -1061,10 +1140,11 @@ class AgriEventBus {
     private boolean canReceive(UserPrincipal principal, String eventType, Map<String, Object> payload) {
         if (principal == null) return false;
         if (principal.isSystemAdmin()) return true;
+        if (Jsons.bool(payload, "systemAdminOnly", false)) return false;
         String farmId = Jsons.text(payload, "farmId", Jsons.text(payload, "scope", "")).trim();
         String plotId = Jsons.text(payload, "plotId", "").trim();
         if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) return false;
-        if (!plotId.isBlank() && !(principal.isFarmAdmin() && !farmId.isBlank()) && !principal.canAccessPlot(plotId)) return false;
+        if (!plotId.isBlank() && !canReceivePlot(principal, farmId, plotId)) return false;
         if (principal.isFarmer() && "inspection.created".equals(eventType)) {
             return principal.userId.equals(Jsons.text(payload, "operatorId", ""))
                     || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
@@ -1085,6 +1165,16 @@ class AgriEventBus {
         // Unscoped platform events are intentionally withheld from farmers.
         // Their REST refresh remains the recovery path for secondary state.
         return !farmId.isBlank() || !plotId.isBlank() || principal.isFarmAdmin();
+    }
+
+    private boolean canReceivePlot(UserPrincipal principal, String payloadFarmId, String plotId) {
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
+        String farmId = payloadFarmId;
+        if (farmId == null || farmId.isBlank()) {
+            Map<String, Object> plot = store.find("plot", plotId);
+            farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
+        }
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
 
     private Map<String, Object> scopedPayload(UserPrincipal principal, Map<String, Object> payload) {
@@ -1437,8 +1527,10 @@ class AgriEngine {
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
     private final java.time.Instant startedAt = java.time.Instant.now();
+    private static final int SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES = 5;
+    private static final Duration SYSTEM_ADMIN_AUTHORIZATION_FAILURE_WINDOW = Duration.ofMinutes(15);
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
-    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
+    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FARM_ADMIN");
     private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
     private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
     private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
@@ -1492,7 +1584,8 @@ class AgriEngine {
             "\\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\\s\\S]*$", Pattern.CASE_INSENSITIVE);
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
-    private final HttpClient llmHttpClient;
+    private volatile HttpClient llmHttpClient;
+    private final Object llmHttpClientLock = new Object();
     private final AgriStore store;
     private final AgriEventBus events;
     private final AgriProperties properties;
@@ -1510,6 +1603,7 @@ class AgriEngine {
     private final Set<String> evaluatedCommands = ConcurrentHashMap.newKeySet();
     private final Map<String, Deque<Instant>> ruleWindows = new ConcurrentHashMap<>();
     private final Map<String, Deque<Instant>> recoveryFailures = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Instant>> systemAdminAuthorizationFailures = new ConcurrentHashMap<>();
     private final AtomicBoolean redisAvailable = new AtomicBoolean(false);
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
@@ -1528,18 +1622,30 @@ class AgriEngine {
                @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
-        // vLLM/uvicorn on the private loopback endpoint is intentionally used
-        // with HTTP/1.1 requests.  This avoids a known incompatibility with
-        // Java HTTP/2 upgrade negotiation while keeping the model endpoint
-        // private and bounded by the per-request timeout.
-        this.llmHttpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
         this.simulationEngine = simulationEngine;
         this.governance = governance;
+    }
+
+    private HttpClient llmHttpClient() throws IOException {
+        HttpClient existing = llmHttpClient;
+        if (existing != null) return existing;
+        synchronized (llmHttpClientLock) {
+            if (llmHttpClient != null) return llmHttpClient;
+            try {
+                // vLLM/uvicorn on the private loopback endpoint is intentionally used
+                // with HTTP/1.1 requests. Keep this dependency lazy so a local selector
+                // failure cannot prevent unrelated API domains from starting.
+                llmHttpClient = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
+                return llmHttpClient;
+            } catch (java.io.UncheckedIOException error) {
+                throw new IOException("LLM_HTTP_CLIENT_UNAVAILABLE", error);
+            }
+        }
     }
 
     @PostConstruct
@@ -1576,20 +1682,143 @@ class AgriEngine {
     }
 
     Map<String, Object> register(String username, String password, String requestedRole) {
+        return register(username, password, requestedRole, "");
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode) {
+        return register(username, password, requestedRole, authorizationCode, Map.of());
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode, Object rawFarmProfile) {
         String normalized = normalizeUsername(username);
-        String role = validateSelfRegistrationRole(requestedRole);
         validateUsername(normalized);
         validatePassword(normalized, password);
+        String role = validateSelfRegistrationRole(requestedRole, authorizationCode, "register:" + normalized);
         String recoveryCode = generateRecoveryCode();
         Map<String, Object> user = new LinkedHashMap<>();
         user.put("userId", Jsons.id("user")); user.put("username", normalized);
         user.put("passwordHash", passwordEncoder.encode(password)); user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
-        user.put("role", role); user.put("farmIds", List.of("farm-demo"));
-        user.put("plotIds", List.of("plot-a01", "plot-a02")); user.put("enabled", true); user.put("credentialVersion", 1);
-        if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        user.put("role", role);
+        if ("SYSTEM_ADMIN".equals(role)) {
+            user.put("farmIds", List.of("*"));
+            user.put("plotIds", List.of("*"));
+        } else if ("FARM_ADMIN".equals(role)) {
+            Map<String, Object> farmProfile = validateFarmProfile(rawFarmProfile);
+            String farmId = Jsons.id("farm");
+            user.put("farmIds", List.of(farmId));
+            user.put("plotIds", List.of());
+            user.put("enabled", true); user.put("credentialVersion", 1);
+
+            Map<String, Object> farm = new LinkedHashMap<>();
+            farm.put("farmId", farmId);
+            farm.put("name", farmProfile.get("name"));
+            farm.put("region", farmProfile.get("region"));
+            farm.put("ownerId", user.get("userId"));
+            farm.put("status", "ACTIVE");
+            farm.put("createdAt", Instant.now().toString());
+            farm.put("createdBy", user.get("userId"));
+            store.createUserWithFarmDurably(user, farm);
+            store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role, "farmId", farmId));
+            events.publish("farm.created", farm);
+            Map<String, Object> result = authenticatedSession(user);
+            result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+            return result;
+        } else {
+            user.put("farmIds", List.of("farm-demo"));
+            user.put("plotIds", List.of("plot-a01", "plot-a02"));
+        }
+        user.put("enabled", true); user.put("credentialVersion", 1);
+        persistNewAccount(user, "ACCOUNT_EXISTS", "该账号已存在");
         store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role));
         Map<String, Object> result = authenticatedSession(user);
         result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+        return result;
+    }
+
+    List<Map<String, Object>> userAccounts(UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        return store.listUsers().stream()
+                .map(this::accountView)
+                .sorted(Comparator.comparing(account -> Jsons.text(account, "username", "")))
+                .toList();
+    }
+
+    Map<String, Object> createUserAccount(Map<String, Object> input, UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        String username = normalizeUsername(Jsons.text(input, "username", ""));
+        String password = Jsons.text(input, "password", "");
+        String role = normalizeRole(Jsons.text(input, "role", "FARMER"));
+        validateUsername(username);
+        validatePassword(username, password);
+        if (!ACCOUNT_ROLES.contains(role)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的账号身份");
+        }
+        if ("SYSTEM_ADMIN".equals(role)) {
+            verifySystemAdminAuthorization(Jsons.text(input, "authorizationCode", ""), "operator:" + principal.userId);
+        }
+
+        List<String> farmIds;
+        List<String> plotIds;
+        String farmId = "";
+        if ("SYSTEM_ADMIN".equals(role)) {
+            farmIds = List.of("*");
+            plotIds = List.of("*");
+        } else {
+            farmId = Jsons.text(input, "farmId", "").trim();
+            if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请选择账号所属农场");
+            if (store.find("farm", farmId) == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在");
+            farmIds = List.of(farmId);
+            plotIds = "FARM_ADMIN".equals(role) ? plotIdsForFarm(farmId) : validateAccountPlotScope(farmId, input.get("plotIds"));
+        }
+
+        String recoveryCode = generateRecoveryCode();
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("userId", Jsons.id("user"));
+        user.put("username", username);
+        user.put("passwordHash", passwordEncoder.encode(password));
+        user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
+        user.put("role", role);
+        user.put("farmIds", farmIds);
+        user.put("plotIds", plotIds);
+        user.put("enabled", true);
+        user.put("credentialVersion", 1);
+        persistNewAccount(user, "ACCOUNT_EXISTS", "该账号已存在");
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("userId", user.get("userId")); audit.put("username", username); audit.put("role", role);
+        audit.put("createdBy", principal.userId);
+        audit.put("systemAdminOnly", true);
+        if (!farmId.isBlank()) audit.put("farmId", farmId);
+        store.logEvent("ACCOUNT_CREATED", audit);
+        events.publish("account.created", audit);
+        Map<String, Object> result = accountView(user);
+        result.put("recoveryCode", recoveryCode);
+        result.put("recoveryCodeShownOnce", true);
+        result.put("createdBy", principal.userId);
+        return result;
+    }
+
+    Map<String, Object> updateUserAccountStatus(String userId, Map<String, Object> input, UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        Map<String, Object> user = store.userById(userId);
+        if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在");
+        if ("SYSTEM_ADMIN".equals(RolePolicy.canonical(Jsons.text(user, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能停用或启用");
+        }
+        if (!(input.get("enabled") instanceof Boolean enabled)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_STATUS_INVALID", "请指定账号是否启用");
+        }
+        Map<String, Object> updated = store.updateUserEnabled(userId, enabled, !enabled);
+        if (updated == null) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_STATUS_UPDATE_FAILED", "账号状态更新失败");
+        }
+        String action = enabled ? "ACCOUNT_ENABLED" : "ACCOUNT_DISABLED";
+        Map<String, Object> audit = Map.of("userId", userId, "username", Jsons.text(user, "username", userId),
+                "role", Jsons.text(user, "role", ""), "updatedBy", principal.userId, "systemAdminOnly", true);
+        store.logEvent(action, audit);
+        events.publish(enabled ? "account.enabled" : "account.disabled", audit);
+        Map<String, Object> result = accountView(updated);
+        result.put("updatedBy", principal.userId);
         return result;
     }
 
@@ -1996,17 +2225,131 @@ class AgriEngine {
         return RolePolicy.normalize(role);
     }
 
-    private String validateSelfRegistrationRole(String requestedRole) {
+    private String validateSelfRegistrationRole(String requestedRole, String authorizationCode, String attemptKey) {
         String role = normalizeRole(requestedRole);
         if (role.isBlank()) role = "FARMER";
         if (SELF_REGISTRATION_ROLES.contains(role)) return role;
         if (RolePolicy.LEGACY_ROLES.contains(role) || "OPERATOR".equals(role)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "旧操作员身份已迁移为种植农户，请由管理员授权账号");
         }
-        if (ACCOUNT_ROLES.contains(role)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "管理员身份需要系统授权，不能自助注册");
+        if ("SYSTEM_ADMIN".equals(role)) {
+            verifySystemAdminAuthorization(authorizationCode, attemptKey);
+            return role;
         }
         throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的注册身份");
+    }
+
+    private void verifySystemAdminAuthorization(String authorizationCode, String attemptKey) {
+        String configured = String.valueOf(properties.getSystemAdminAuthorizationCode() == null ? "" : properties.getSystemAdminAuthorizationCode());
+        if (configured.isBlank()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SYSTEM_ADMIN_CREATION_DISABLED", "系统管理员创建尚未配置，请联系服务维护人员");
+        }
+        String key = String.valueOf(attemptKey == null ? "unknown" : attemptKey);
+        ensureSystemAdminAuthorizationAllowed(key);
+        byte[] expected = configured.getBytes(StandardCharsets.UTF_8);
+        byte[] presented = String.valueOf(authorizationCode == null ? "" : authorizationCode).getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expected, presented)) {
+            recordSystemAdminAuthorizationFailure(key);
+            throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_AUTHORIZATION_INVALID", "系统管理员授权码无效");
+        }
+        systemAdminAuthorizationFailures.remove(key);
+    }
+
+    private void ensureSystemAdminAuthorizationAllowed(String key) {
+        Deque<Instant> attempts = systemAdminAuthorizationFailures.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+        synchronized (attempts) {
+            pruneAuthorizationFailures(attempts);
+            if (attempts.size() >= SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES) {
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED", "授权码尝试次数过多，请 15 分钟后重试");
+            }
+        }
+    }
+
+    private void recordSystemAdminAuthorizationFailure(String key) {
+        Deque<Instant> attempts = systemAdminAuthorizationFailures.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+        synchronized (attempts) {
+            pruneAuthorizationFailures(attempts);
+            attempts.addLast(Instant.now());
+            if (attempts.size() >= SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES) {
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED", "授权码尝试次数过多，请 15 分钟后重试");
+            }
+        }
+    }
+
+    private void pruneAuthorizationFailures(Deque<Instant> attempts) {
+        Instant cutoff = Instant.now().minus(SYSTEM_ADMIN_AUTHORIZATION_FAILURE_WINDOW);
+        while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) attempts.removeFirst();
+    }
+
+    private List<String> plotIdsForFarm(String farmId) {
+        return store.list("plot").stream()
+                .filter(plot -> farmId.equals(Jsons.text(plot, "farmId", "")))
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(plotId -> !plotId.isBlank())
+                .sorted()
+                .toList();
+    }
+
+    private List<String> validateAccountPlotScope(String farmId, Object rawPlotIds) {
+        LinkedHashSet<String> plotIds = new LinkedHashSet<>(Jsons.strings(rawPlotIds));
+        for (String plotId : plotIds) {
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot == null || !farmId.equals(Jsons.text(plot, "farmId", ""))) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SCOPE_FORBIDDEN", "只能分配账号所属农场内的地块");
+            }
+        }
+        return new ArrayList<>(plotIds);
+    }
+
+    private void persistNewAccount(Map<String, Object> user, String conflictCode, String conflictMessage) {
+        if (!store.createUser(user)) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.CONFLICT, conflictCode, conflictMessage);
+        }
+    }
+
+    private ApiException accountPersistenceUnavailable() {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能修改账号");
+    }
+
+    private void requireSystemAccountAdministrator(UserPrincipal principal) {
+        if (principal == null || !principal.isSystemAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_MANAGEMENT_FORBIDDEN", "只有系统管理员可以管理全平台账号");
+        }
+    }
+
+    private Map<String, Object> accountView(Map<String, Object> user) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        String role = RolePolicy.canonical(Jsons.text(user, "role", "FARMER"));
+        boolean enabled = Jsons.bool(user, "enabled", true);
+        view.put("userId", Jsons.text(user, "userId", ""));
+        view.put("username", Jsons.text(user, "username", ""));
+        view.put("role", role);
+        view.put("roleLabel", RolePolicy.label(role));
+        List<String> farmIds = Jsons.strings(user.get("farmIds"));
+        List<String> plotIds = "FARM_ADMIN".equals(role)
+                ? farmIds.stream().filter(farmId -> !"*".equals(farmId)).flatMap(farmId -> plotIdsForFarm(farmId).stream()).distinct().sorted().toList()
+                : Jsons.strings(user.get("plotIds"));
+        view.put("farmIds", farmIds);
+        view.put("plotIds", plotIds);
+        view.put("enabled", enabled);
+        view.put("status", enabled ? "ACTIVE" : "INACTIVE");
+        view.put("createdAt", Jsons.text(user, "createdAt", ""));
+        view.put("updatedAt", Jsons.text(user, "updatedAt", ""));
+        return view;
+    }
+
+    private Map<String, Object> validateFarmProfile(Object rawFarmProfile) {
+        Map<String, Object> profile = Jsons.map(mapper, rawFarmProfile);
+        String name = Jsons.text(profile, "name", "").trim();
+        String region = Jsons.text(profile, "region", "").trim();
+        if (name.length() < 2 || name.length() > 60) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "农场名称需为 2–60 个字符");
+        }
+        if (region.length() < 2 || region.length() > 80) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "所在地区需为 2–80 个字符");
+        }
+        return Map.of("name", name, "region", region);
     }
 
     private void validateUsername(String username) {
@@ -2547,7 +2890,7 @@ class AgriEngine {
             if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
                 builder.header("Authorization", "Bearer " + properties.getLlmApiKey());
             }
-            HttpResponse<String> response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = llmHttpClient().send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int code = response.statusCode();
             return code >= 200 && code < 300 ? "UP" : "DOWN";
         } catch (Exception ex) {
@@ -5553,7 +5896,7 @@ class AgriEngine {
         if (normalizedFarmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
         if (!principal.canAccessFarm(normalizedFarmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         return store.listUsers().stream()
-                .filter(user -> Set.of("FARMER", "FARM_ADMIN").contains(RolePolicy.canonical(Jsons.text(user, "role", ""))))
+                .filter(user -> "FARMER".equals(RolePolicy.canonical(Jsons.text(user, "role", ""))))
                 .filter(user -> Jsons.strings(user.get("farmIds")).contains(normalizedFarmId) || Jsons.strings(user.get("farmIds")).contains("*"))
                 .map(user -> {
                     Map<String, Object> member = new LinkedHashMap<>();
@@ -5630,8 +5973,11 @@ class AgriEngine {
         if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         Map<String, Object> member = store.userById(userId);
         if (member == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "农场成员不存在");
-        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", ""))) && !adminWide) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "只有系统管理员可以启用或停用非农户账号");
+        if ("SYSTEM_ADMIN".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能停用或启用");
+        }
+        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "农场成员接口只能启用或停用种植农户账号");
         }
         List<String> memberFarms = Jsons.strings(member.get("farmIds"));
         if (!adminWide && !memberFarms.contains(farmId) && !memberFarms.contains("*")) {
@@ -5650,7 +5996,10 @@ class AgriEngine {
         boolean currentlyEnabled = Jsons.bool(member, "enabled", true);
         Map<String, Object> updated = currentlyEnabled == enabled ? member
                 : store.updateUserEnabled(userId, enabled, !enabled);
-        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_STATUS_UPDATE_FAILED", "成员状态更新失败");
+        if (updated == null) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_STATUS_UPDATE_FAILED", "成员状态更新失败");
+        }
         store.logEvent(enabled ? "FARM_MEMBER_ENABLED" : "FARM_MEMBER_DISABLED",
                 Map.of("userId", userId, "farmId", farmId, "updatedBy", principal.userId));
         events.publish(enabled ? "member.enabled" : "member.disabled", Map.of("userId", userId, "farmId", farmId));
@@ -5701,10 +6050,19 @@ class AgriEngine {
         if (principal.userId.equals(userId)) throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_SELF_DELETE_FORBIDDEN", "不能删除自己的账号");
         Map<String, Object> user = store.userById(userId);
         if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在");
+        String role = RolePolicy.canonical(Jsons.text(user, "role", ""));
+        if ("SYSTEM_ADMIN".equals(role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能删除");
+        }
         String username = Jsons.text(user, "username", userId);
-        if (!store.deleteUserAccount(userId)) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_DELETE_FAILED", "账号删除失败");
-        store.logEvent("ACCOUNT_DELETED", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
-        events.publish("account.deleted", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
+        if (!store.deleteUserAccount(userId)) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_DELETE_FAILED", "账号删除失败");
+        }
+        Map<String, Object> audit = Map.of("userId", userId, "username", username, "role", role,
+                "deletedBy", principal.userId, "systemAdminOnly", true);
+        store.logEvent("ACCOUNT_DELETED", audit);
+        events.publish("account.deleted", audit);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", userId); result.put("username", username);
         result.put("removed", true); result.put("deletedAt", Instant.now().toString());
@@ -7619,7 +7977,7 @@ class AgriEngine {
         }
         HttpResponse<String> response;
         try {
-            response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            response = llmHttpClient().send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IOException("LLM_REQUEST_INTERRUPTED", ex);
@@ -8170,6 +8528,10 @@ class AgriEngine {
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
         result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 200))));
         return result;
+    }
+
+    List<Map<String, Object>> agentConversations(int limit, boolean archived, UserPrincipal principal) {
+        return agentConversations(limit, archived, null, principal);
     }
 
     List<Map<String, Object>> agentConversations(int limit, boolean archived, String plotId, UserPrincipal principal) {
@@ -8781,11 +9143,11 @@ class AgriEngine {
     Map<String, Object> record(String type, String id) { return requireRecord(type, id); }
     List<Map<String, Object>> records(String type) { return store.list(type); }
     boolean canAccessPlot(UserPrincipal principal, String plotId) {
-        if (principal == null || principal.canAccessPlot(plotId)) return true;
-        if (!principal.isFarmAdmin()) return false;
+        if (principal == null || principal.isSystemAdmin()) return true;
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
         Map<String, Object> plot = store.find("plot", plotId);
         String farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
-        return principal.farmIds.contains("*") || principal.farmIds.contains(farmId);
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
     void ensurePlotAccess(UserPrincipal principal, String plotId) { if (!canAccessPlot(principal, plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权访问该地块"); }
     private Map<String, Object> requireRecord(String type, String id) { Map<String, Object> value = store.find(type, id); if (value == null) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", type + " " + id + " 不存在"); return value; }
@@ -8819,7 +9181,8 @@ class AgriController {
     @PostMapping("/auth/register")
     ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(
-                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "FARMER"))));
+                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""),
+                        Jsons.text(body, "role", "FARMER"), Jsons.text(body, "authorizationCode", ""), body.get("farmProfile"))));
     }
 
     @PostMapping("/auth/password/reset")
@@ -9456,6 +9819,22 @@ class AgriController {
     @DeleteMapping("/farm-members/{userId}")
     ResponseEntity<?> deleteFarmMember(@PathVariable String userId, @RequestParam String farmId, Authentication a) {
         return ok(adminManagement.deleteFarmMember(userId, farmId, principal(a)));
+    }
+
+    @GetMapping("/users")
+    ResponseEntity<?> users(Authentication a) {
+        return ok(engine.userAccounts(principal(a)));
+    }
+
+    @PostMapping("/users")
+    ResponseEntity<?> createUserAccount(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(engine.createUserAccount(body, principal(a))));
+    }
+
+    @PatchMapping("/users/{userId}/status")
+    ResponseEntity<?> updateUserAccountStatus(@PathVariable String userId, @RequestBody Map<String, Object> body,
+                                              Authentication a) {
+        return ok(engine.updateUserAccountStatus(userId, body, principal(a)));
     }
 
     @DeleteMapping("/users/{userId}")

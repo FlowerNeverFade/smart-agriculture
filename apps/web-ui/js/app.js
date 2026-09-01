@@ -1,20 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v600-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v600-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v600-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v4';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v600-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v600-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v600-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v600-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v600-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v600-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v2';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v2';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v2';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v2';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v600-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v600-main-merge-v1';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-workspace-settings-v4';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v600-main-merge-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v600-main-merge-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v2';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v2';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v600-main-merge-v1';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -123,6 +123,7 @@ const ICON_CLASS = Object.freeze({
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
   add: 'ph-plus',
+  add_location_alt: 'ph-map-pin-plus',
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
   lock_reset: 'ph-lock-key-open',
@@ -617,6 +618,7 @@ const DashboardView = {
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
+    const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
     const visiblePlots = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
@@ -847,6 +849,7 @@ const DashboardView = {
     return {
       isFarmAdmin,
       selectedFarmId,
+      managedFarm,
       visiblePlots,
       devices,
       deviceOptions,

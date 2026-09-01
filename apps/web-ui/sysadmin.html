@@ -7,19 +7,19 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v599-accounts-v2">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v599-accounts-v2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-workspace-settings-v4">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-v5910-main-merge-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -234,7 +234,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260901-v593-market-v3"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-v599-accounts-v2"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1038,7 +1038,7 @@
             <option value="FARMER">种植农户</option>
           </select>
           <div style="margin-left:auto">
-            <button class="g-btn primary" @click="showCreateUser = true">
+            <button class="g-btn primary" @click="openCreateUser">
               <app-icon name="person_add"></app-icon> 创建用户
             </button>
           </div>
@@ -1079,31 +1079,65 @@
         </div>
 
         <!-- Create User Modal -->
-        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="showCreateUser = false">
-          <div class="admin-modal">
+        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="closeCreateUser">
+          <div class="admin-modal admin-modal-wide admin-account-create-modal">
             <div class="admin-modal-header">
               <h3>创建用户</h3>
-              <button class="g-btn icon-only" @click="showCreateUser = false"><app-icon name="close"></app-icon></button>
+              <button class="g-btn icon-only" :disabled="userActionBusy" @click="closeCreateUser"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body">
-              <label>用户名</label>
-              <input type="text" v-model="newUser.username" placeholder="4-32位字母数字">
-              <label>密码</label>
-              <input type="password" v-model="newUser.password" placeholder="8位以上，含字母和数字">
-              <label>角色</label>
-              <select v-model="newUser.role">
-                <option value="FARMER">种植农户</option>
-                <option value="FARM_ADMIN">农场管理员</option>
-                <option value="SYSTEM_ADMIN">系统管理员</option>
-              </select>
-              <label>关联农场</label>
-              <select v-model="newUser.farmId">
-                <option value="farm-demo">农智示范农场</option>
-              </select>
+              <p class="admin-modal-hint">账号只有在持久化数据库写入成功后才会创建；恢复码只显示一次。</p>
+              <div class="admin-form-grid">
+                <label><span>用户名</span><input type="text" v-model.trim="newUser.username" autocomplete="off" maxlength="32" placeholder="4–32 位字母、数字或 . _ -"></label>
+                <label><span>初始密码</span><input type="password" v-model="newUser.password" autocomplete="new-password" maxlength="64" placeholder="8–64 位，包含字母和数字"></label>
+                <label><span>角色</span><select v-model="newUser.role">
+                  <option value="FARMER">种植农户</option>
+                  <option value="FARM_ADMIN">农场管理员</option>
+                  <option value="SYSTEM_ADMIN">系统管理员</option>
+                </select></label>
+                <label v-if="newUser.role !== 'SYSTEM_ADMIN'"><span>所属农场</span><select v-model="newUser.farmId">
+                  <option v-for="farm in accountFarms" :key="farm.farmId" :value="farm.farmId">{{ farm.name || farm.farmId }}</option>
+                </select></label>
+              </div>
+
+              <section v-if="newUser.role === 'FARMER'" class="admin-account-scope">
+                <header><div><strong>地块范围</strong><small>可暂不分配，之后仍可在农场成员管理中调整。</small></div><span>{{ newUser.plotIds.length }} 个已选</span></header>
+                <div class="admin-account-plot-grid" v-if="availableAccountPlots.length">
+                  <label v-for="plot in availableAccountPlots" :key="plot.plotId">
+                    <input type="checkbox" :value="plot.plotId" v-model="newUser.plotIds">
+                    <span><strong>{{ plot.name }}</strong><small>{{ plot.plotId }}</small></span>
+                  </label>
+                </div>
+                <p v-else>该农场暂无可分配地块，可先创建账号。</p>
+              </section>
+
+              <div v-else-if="newUser.role === 'FARM_ADMIN'" class="admin-account-role-note success">
+                <app-icon name="verified_user"></app-icon><div><strong>自动获得完整农场范围</strong><p>该账号会自动获得所选农场的完整管理范围，无需在创建时逐块授权。</p></div>
+              </div>
+
+              <div v-else class="admin-account-system-fields">
+                <div class="admin-account-role-note warning"><app-icon name="shield"></app-icon><div><strong>全平台永久保护账号</strong><p>创建后不能被任何管理员停用或删除，并自动获得全平台范围。</p></div></div>
+                <label><span>服务端授权码</span><input type="password" v-model="newUser.authorizationCode" autocomplete="off" maxlength="128" placeholder="再次输入部署环境配置的授权码"></label>
+              </div>
             </div>
             <div class="admin-modal-footer">
-              <button class="g-btn" @click="showCreateUser = false">取消</button>
-              <button class="g-btn primary" @click="createUser">确认创建</button>
+              <button class="g-btn" :disabled="userActionBusy" @click="closeCreateUser">取消</button>
+              <button class="g-btn primary" :disabled="userActionBusy" @click="createUser">{{ userActionBusy ? '正在创建…' : '确认创建' }}</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-modal-overlay" v-if="createdRecovery">
+          <div class="admin-modal admin-account-recovery-modal" role="dialog" aria-modal="true" aria-labelledby="createdRecoveryTitle">
+            <div class="admin-modal-header"><h3 id="createdRecoveryTitle">保存一次性恢复码</h3></div>
+            <div class="admin-modal-body">
+              <div class="admin-account-role-note success"><app-icon name="check_circle"></app-icon><div><strong>{{ createdRecovery.username }} 已创建</strong><p>{{ createdRecovery.roleLabel }} · 恢复码关闭后不再显示。</p></div></div>
+              <code class="admin-account-recovery-code">{{ createdRecovery.recoveryCode }}</code>
+              <p class="admin-modal-hint">恢复码等同于账号备用钥匙，请交给账号本人并保存在安全位置，不要写入聊天或审计备注。</p>
+            </div>
+            <div class="admin-modal-footer">
+              <button class="g-btn" @click="copyCreatedRecovery"><app-icon name="content_copy"></app-icon>复制恢复码</button>
+              <button class="g-btn primary" @click="createdRecovery = null">我已安全保存</button>
             </div>
           </div>
         </div>

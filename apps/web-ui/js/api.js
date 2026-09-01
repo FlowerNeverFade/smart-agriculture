@@ -644,6 +644,27 @@ function normalizeFarmMember(item, sourceMode) {
   };
 }
 
+function normalizeUserAccount(item, sourceMode = 'ACCOUNT') {
+  const role = String(item?.role || '').trim().toUpperCase();
+  const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+  const enabled = typeof item?.enabled === 'boolean'
+    ? item.enabled
+    : String(item?.status || 'ACTIVE').trim().toUpperCase() !== 'INACTIVE';
+  return {
+    userId: String(item?.userId || '').trim(),
+    username: String(item?.username || '').trim(),
+    role,
+    roleLabel: String(item?.roleLabel || roleLabels[role] || role).trim(),
+    farmIds: Array.isArray(item?.farmIds) ? [...item.farmIds] : [],
+    plotIds: Array.isArray(item?.plotIds) ? [...item.plotIds] : [],
+    enabled,
+    status: enabled ? 'ACTIVE' : 'INACTIVE',
+    createdAt: String(item?.createdAt || '').trim(),
+    updatedAt: String(item?.updatedAt || '').trim(),
+    sourceMode
+  };
+}
+
 function farmerWorkspacePreferenceStorageKey(user) {
   const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
   return `agriloop_demo_farmer_workspace_preference:${identity}`;
@@ -855,6 +876,10 @@ export class ApiService {
       ...member,
       farmIds: member.farmIds || ['farm-demo']
     }, 'SIMULATED')]));
+    this.demoUserAccounts = new Map((MOCK_DATA.adminUsers || []).map(account => [account.userId, normalizeUserAccount({
+      ...account,
+      farmIds: account.farmIds || (account.role === 'SYSTEM_ADMIN' ? ['*'] : ['farm-demo'])
+    }, 'SIMULATED')]));
   }
 
   readStoredUser() {
@@ -922,10 +947,17 @@ export class ApiService {
     }
   }
 
-  async register({ username, password, role }) {
+  async register({ username, password, role, authorizationCode = '', farmProfile }) {
+    const payload = { username, password, role, authorizationCode };
+    if (role === 'FARM_ADMIN') {
+      payload.farmProfile = {
+        name: String(farmProfile?.name || '').trim(),
+        region: String(farmProfile?.region || '').trim()
+      };
+    }
     const resp = await this._fetch('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, role })
+      body: JSON.stringify(payload)
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {
@@ -2156,13 +2188,13 @@ export class ApiService {
       const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
       if (Array.isArray(response?.data)) {
         const members = response.data.map((member) => normalizeFarmMember(member, 'ACCOUNT'));
-        const invalid = members.find((member) => !member.userId || !member.username || !['FARMER', 'FARM_ADMIN'].includes(member.role));
+        const invalid = members.find((member) => !member.userId || !member.username || member.role !== 'FARMER');
         if (!invalid) return members;
       }
       throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
     }
     return Array.from(this.demoFarmMembers.values())
-      .filter(member => !farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId))
+      .filter(member => member.role === 'FARMER' && (!farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId)))
       .map(member => ({ ...member, plotIds: [...member.plotIds], farmIds: [...member.farmIds] }));
   }
 
@@ -2182,6 +2214,8 @@ export class ApiService {
     const preserved = current.plotIds.filter(plotId => !farmPlotIds.has(plotId));
     const updated = { ...current, plotIds: [...new Set([...preserved, ...plotIds])], sourceMode: 'SIMULATED' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, plotIds: updated.plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
@@ -2197,14 +2231,15 @@ export class ApiService {
       throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
+    if (String(role || 'FARMER').toUpperCase() !== 'FARMER') throw new ApiError('农场成员接口只能创建种植农户账号', { status: 403, code: 'MEMBER_ROLE_FORBIDDEN' });
     if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'MEMBER_USERNAME_INVALID' });
     if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'MEMBER_PASSWORD_WEAK' });
-    if ([...this.demoFarmMembers.values()].some(member => member.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
+    if ([...this.demoUserAccounts.values()].some(account => account.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
-    const memberRole = String(role || 'FARMER').toUpperCase();
-    const memberRoleLabel = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' }[memberRole] || '种植农户';
+    const memberRole = 'FARMER';
+    const memberRoleLabel = '种植农户';
     const member = normalizeFarmMember({
       userId,
       username: normalized,
@@ -2212,10 +2247,11 @@ export class ApiService {
       role: memberRole,
       roleLabel: memberRoleLabel,
       farmIds: [farmId],
-      plotIds: memberRole === 'SYSTEM_ADMIN' ? ['*'] : plotIds,
+      plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
+    this.demoUserAccounts.set(userId, normalizeUserAccount({ ...member, enabled: true, createdAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
   }
 
@@ -2234,6 +2270,8 @@ export class ApiService {
     if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
     const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, enabled: nextEnabled, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
   }
 
@@ -2250,6 +2288,8 @@ export class ApiService {
     const plotIds = member.plotIds.filter(id => !farmPlotIds.has(id));
     if (farmIds.length) this.demoFarmMembers.set(userId, { ...member, farmIds, plotIds });
     else this.demoFarmMembers.delete(userId);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, farmIds, plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { userId, username: member.username, farmId, removed: true, sourceMode: 'SIMULATED' };
   }
 
@@ -2259,8 +2299,86 @@ export class ApiService {
       if (response?.data?.removed) return response.data;
       throw new ApiError('后端返回了无效的账号删除结果', { code: 'ACCOUNT_DELETE_INVALID', payload: response });
     }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能删除', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    this.demoUserAccounts.delete(userId);
     this.demoFarmMembers.delete(userId);
     return { userId, removed: true, sourceMode: 'SIMULATED' };
+  }
+
+  async getUserAccounts() {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users');
+      if (!Array.isArray(response?.data)) throw new ApiError('后端返回了无效的账号列表', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      const users = response.data.map((account) => normalizeUserAccount(account, 'ACCOUNT'));
+      if (users.some((account) => !account.userId || !account.username || !['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(account.role))) {
+        throw new ApiError('后端返回了无效的账号数据', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      }
+      return users;
+    }
+    return [...this.demoUserAccounts.values()].map((account) => normalizeUserAccount(account, 'SIMULATED'));
+  }
+
+  async createUserAccount({ username, password, role = 'FARMER', farmId = '', plotIds = [], authorizationCode = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, role, farmId, plotIds, authorizationCode })
+      });
+      if (!response?.data?.userId || !response?.data?.recoveryCode) {
+        throw new ApiError('后端返回了无效的账号创建结果', { code: 'USER_ACCOUNT_CREATE_INVALID', payload: response });
+      }
+      return { ...normalizeUserAccount(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode };
+    }
+    const normalized = String(username || '').trim().toLowerCase();
+    const normalizedRole = String(role || 'FARMER').trim().toUpperCase();
+    if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'ACCOUNT_USERNAME_INVALID' });
+    if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'ACCOUNT_PASSWORD_WEAK' });
+    if (!['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(normalizedRole)) throw new ApiError('请选择有效的账号身份', { status: 400, code: 'ACCOUNT_ROLE_INVALID' });
+    if (normalizedRole === 'SYSTEM_ADMIN' && !String(authorizationCode || '').trim()) throw new ApiError('创建系统管理员必须填写服务端授权码', { status: 403, code: 'SYSTEM_ADMIN_AUTHORIZATION_INVALID' });
+    if ([...this.demoUserAccounts.values()].some((account) => account.username.toLowerCase() === normalized)) throw new ApiError('该账号已存在', { status: 409, code: 'ACCOUNT_EXISTS' });
+    if (normalizedRole !== 'SYSTEM_ADMIN' && !(MOCK_DATA.farms || []).some((farm) => farm.farmId === farmId)) throw new ApiError('请选择有效的账号所属农场', { status: 404, code: 'FARM_NOT_FOUND' });
+    const availablePlots = [...this.demoPlots.values()].filter((plot) => plot.farmId === farmId).map((plot) => plot.plotId);
+    if (normalizedRole === 'FARMER' && plotIds.some((plotId) => !availablePlots.includes(plotId))) throw new ApiError('只能分配账号所属农场内的地块', { status: 403, code: 'ACCOUNT_SCOPE_FORBIDDEN' });
+    const scopedPlots = normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : normalizedRole === 'FARM_ADMIN' ? availablePlots : [...plotIds];
+    const account = normalizeUserAccount({
+      userId: `user-demo-${Date.now().toString(36)}`,
+      username: normalized,
+      role: normalizedRole,
+      farmIds: normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : [farmId],
+      plotIds: scopedPlots,
+      enabled: true,
+      createdAt: new Date().toISOString()
+    }, 'SIMULATED');
+    this.demoUserAccounts.set(account.userId, account);
+    if (normalizedRole === 'FARMER') {
+      this.demoFarmMembers.set(account.userId, normalizeFarmMember({
+        ...account,
+        displayName: normalized,
+        status: 'ACTIVE'
+      }, 'SIMULATED'));
+    }
+    return { ...account, recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateUserAccountStatus(userId, { enabled } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/users/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: Boolean(enabled) })
+      });
+      if (response?.data?.userId) return normalizeUserAccount(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的账号状态结果', { code: 'USER_ACCOUNT_STATUS_INVALID', payload: response });
+    }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能停用或启用', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    const updated = normalizeUserAccount({ ...account, enabled: Boolean(enabled), updatedAt: new Date().toISOString() }, 'SIMULATED');
+    this.demoUserAccounts.set(userId, updated);
+    const member = this.demoFarmMembers.get(userId);
+    if (member) this.demoFarmMembers.set(userId, normalizeFarmMember({ ...member, status: updated.status }, 'SIMULATED'));
+    return updated;
   }
 
   _demoActorId() {

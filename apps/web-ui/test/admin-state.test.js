@@ -282,6 +282,7 @@ test('backend events invalidate every affected fact domain', () => {
   assert.deepEqual(domainsForEventType('cropplan.approved'), ['workOrders', 'overview', 'batches']);
   assert.deepEqual(domainsForEventType('resource.request.created'), ['resourceProfiles', 'resourcePlans', 'resourceRequests', 'overview']);
   assert.deepEqual(domainsForEventType('rule-set.created'), ['rulesStrategies', 'alerts', 'overview']);
+  assert.deepEqual(domainsForEventType('account.created'), ['accounts']);
 });
 
 test('an old farm response cannot overwrite the newly selected farm', () => {

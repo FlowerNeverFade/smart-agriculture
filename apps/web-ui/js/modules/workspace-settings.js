@@ -2,7 +2,7 @@
  * Every role shell mounts the same view and this same state/normalisation
  * path, so appearance controls cannot drift by role.
  */
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260901-workspace-settings-v4';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260901-v5910-main-merge-v2';
 
 export function createWorkspaceSettingsController({ props, emit, ref, computed, watch }) {
   const account = computed(() => props.state?.currentUser || null);

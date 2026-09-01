@@ -13,14 +13,14 @@
   <link rel="stylesheet" href="css/account-profile.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v5910-main-merge-v2">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v593-market-v3">
   <link rel="stylesheet" href="css/modules/admin-market.css?v=20260901-v598-domestic-data-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v5910-main-merge-v2">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-workspace-settings-v4">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-v5910-main-merge-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -262,7 +262,7 @@
         </button>
       </div>
 
-      <div class="manager-plot-grid" aria-label="地块状态和管理列表">
+      <div v-if="visiblePlots.length" class="manager-plot-grid" aria-label="地块状态和管理列表">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
                  class="manager-plot-card" :class="[`is-${cardTone(plot)}`, { 'has-open-menu': plotMenuId === plot.plotId }]"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
@@ -343,9 +343,14 @@
         </button>
       </div>
       <div v-if="!visiblePlots.length" class="simple-empty-state manager-plot-empty">
-        <app-icon name="info"></app-icon>
-        <h2>暂无可显示的地块</h2>
-        <p>请确认后端服务和当前账户的地块权限；系统不会用演示指标代替正式数据。</p>
+        <span class="manager-plot-empty-icon"><app-icon name="add_location_alt"></app-icon></span>
+        <p class="manager-plot-empty-eyebrow">{{ managedFarm.name || '你的农场' }}{{ managedFarm.region ? ` · ${managedFarm.region}` : '' }}</p>
+        <h2>添加第一块地，开始管理农场</h2>
+        <p>录入真实地块资料后，它会进入总览、设备绑定和农务任务；系统不会复制示范农场的数据。</p>
+        <button type="button" class="g-btn primary manager-first-plot-button" @click="openCreatePlot">
+          <app-icon name="add"></app-icon>添加第一块地
+        </button>
+        <small>现在不添加也没关系，你可以稍后从农场总览继续。</small>
       </div>
 
       <div v-if="plotEditor.open" class="g-modal-overlay manager-plot-editor-overlay" @click.self="closePlotEditor">
@@ -1210,7 +1215,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260901-v600-main-merge-v1"></script>
+  <script type="module" src="js/app.js?v=20260901-v5910-main-merge-v2"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 

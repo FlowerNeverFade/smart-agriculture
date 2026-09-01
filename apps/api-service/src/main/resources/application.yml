@@ -57,6 +57,9 @@ agriloop:
   value-mode: ${VALUE_MODE:simulation}
   jwt-secret: ${JWT_SECRET:change-me-in-production-change-me-in-production}
   jwt-ttl-minutes: ${JWT_TTL_MINUTES:720}
+  # Intentionally has no repository default. SYSTEM_ADMIN creation remains
+  # disabled until the deployment operator supplies a secret value.
+  system-admin-authorization-code: ${SYSTEM_ADMIN_AUTHORIZATION_CODE:}
   mqtt-url: ${MQTT_URL:tcp://localhost:1883}
   mqtt-client-id: ${MQTT_CLIENT_ID:agriloop-api}
   mqtt-username: ${MQTT_USERNAME:}

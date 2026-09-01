@@ -328,7 +328,10 @@ class AdminManagementService {
         plot.put("facilityLabel", PlotFacility.label(facilityType));
         plot.put("plotId", plotId); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
         plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", principal.userId);
-        store.save("plot", plotId, plot);
+        store.saveDurably("plot", plotId, plot,
+                "PLOT_PERSISTENCE_UNAVAILABLE",
+                "地块数据库当前不可用，暂时不能添加地块",
+                "地块资料写入失败，未创建临时地块");
         engine.syncSimulationConfiguration();
         publish("plot.created", plot);
         return plot;
@@ -496,7 +499,12 @@ class AdminManagementService {
         }
         preserved.addAll(requested);
         Map<String, Object> updated = store.updateUserScope(userId, memberFarms, preserved);
-        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_SCOPE_UPDATE_FAILED", "成员权限更新失败");
+        if (updated == null) {
+            if (!store.databaseReady()) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能修改账号");
+            }
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_SCOPE_UPDATE_FAILED", "成员权限更新失败");
+        }
         Map<String, Object> result = memberView(updated, farmId);
         result.put("updatedAt", Instant.now().toString());
         result.put("updatedBy", principal.userId);
@@ -505,13 +513,11 @@ class AdminManagementService {
     }
 
     Map<String, Object> createFarmMember(Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isAdmin()) {
-            requireFarmAdmin(principal);
+        if (!principal.isFarmAdmin() && !principal.isSystemAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_MEMBERS_FORBIDDEN", "当前身份不能管理农场成员");
         }
         String farmId = Jsons.text(input, "farmId", "farm-demo");
-        if (!principal.isAdmin()) {
-            requireManagedFarm(farmId, principal);
-        }
+        requireVisibleFarm(farmId, principal);
 
         String username = requiredText(input, "username", "请填写成员账号").toLowerCase(Locale.ROOT);
         if (!username.matches("^[a-z0-9][a-z0-9._-]{3,31}$")) {
@@ -523,22 +529,25 @@ class AdminManagementService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MEMBER_PASSWORD_WEAK", "初始密码需为 8～64 位并包含字母和数字，且不能包含账号");
         }
 
-        String role = Jsons.text(input, "role", "FARMER");
-        if (!principal.isAdmin() && !"FARMER".equals(role)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_FORBIDDEN", "非系统管理员只能创建农户账号");
+        String role = RolePolicy.canonical(Jsons.text(input, "role", "FARMER"));
+        if (!"FARMER".equals(role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_FORBIDDEN", "农场成员接口只能创建种植农户账号");
         }
 
-        List<String> plotIds = "SYSTEM_ADMIN".equals(role) ? List.of("*") : validateMemberPlots(farmId, input.get("plotIds"), principal);
+        List<String> plotIds = validateMemberPlots(farmId, input.get("plotIds"), principal);
         Map<String, Object> member = new LinkedHashMap<>();
         member.put("userId", Jsons.id("user"));
         member.put("username", username);
         member.put("passwordHash", passwordEncoder.encode(password));
         member.put("role", role);
-        member.put("farmIds", "SYSTEM_ADMIN".equals(role) ? List.of("*") : List.of(farmId));
+        member.put("farmIds", List.of(farmId));
         member.put("plotIds", plotIds);
         member.put("enabled", true);
         member.put("credentialVersion", 1);
         if (!store.createUser(member)) {
+            if (!store.databaseReady()) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能修改账号");
+            }
             throw new ApiException(HttpStatus.CONFLICT, "MEMBER_EXISTS", "该成员账号已存在");
         }
         Map<String, Object> result = memberView(member, farmId);
@@ -564,7 +573,12 @@ class AdminManagementService {
             return plot == null || !farmId.equals(Jsons.text(plot, "farmId", ""));
         }).toList();
         Map<String, Object> updated = store.updateUserScope(userId, farmIds, plotIds);
-        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FARM_MEMBER_DELETE_FAILED", "成员移除失败");
+        if (updated == null) {
+            if (!store.databaseReady()) {
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能修改账号");
+            }
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "FARM_MEMBER_DELETE_FAILED", "成员移除失败");
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", userId);
         result.put("username", Jsons.text(member, "username", userId));
