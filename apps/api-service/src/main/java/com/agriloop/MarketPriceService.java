@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -65,6 +66,7 @@ class MarketPriceService {
     private final AgriStore store;
     private final MarketPriceProvider provider;
     private final AgriProperties properties;
+    private final MarketReferenceCatalog referenceCatalog;
     private final ConcurrentMap<String, Instant> lastAttemptAt = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, MarketQuoteBatch> transientLatest = new ConcurrentHashMap<>();
 
@@ -72,6 +74,7 @@ class MarketPriceService {
         this.store = store;
         this.provider = provider;
         this.properties = properties;
+        this.referenceCatalog = MarketReferenceCatalog.load();
     }
 
     Map<String, Object> overview(String farmId, int requestedRangeDays, boolean includeCatalog, UserPrincipal principal) {
@@ -124,6 +127,8 @@ class MarketPriceService {
         result.put("farmCropCodes", new ArrayList<>(farmCropCodes));
         result.put("availableCropCount", available);
         result.put("totalCropCount", crops.size());
+        result.put("internationalReferenceCropCount", crops.stream()
+                .filter(item -> item.containsKey("internationalReference")).count());
         result.put("source", source);
         result.put("crops", crops);
         return result;
@@ -235,6 +240,8 @@ class MarketPriceService {
         view.put("historyDays", history.size());
         view.put("requestedRangeDays", rangeDays);
         view.put("salesObservation", salesObservation(latestPrice, changePct, movingAverage7, history.size()));
+        Map<String, Object> internationalReference = referenceCatalog.forCrop(definition.cropCode());
+        if (!internationalReference.isEmpty()) view.put("internationalReference", internationalReference);
         return view;
     }
 
@@ -343,6 +350,91 @@ class MarketPriceService {
     }
 }
 
+/**
+ * Attributed, read-only international reference observations bundled with the
+ * application. They are a separate chart series and never enter the local
+ * wholesale snapshot index or any farm decision statistic.
+ */
+final class MarketReferenceCatalog {
+    private static final String RESOURCE = "/market-reference/defra-uk-wholesale-2026-08-17.json";
+    private final Map<String, Map<String, Object>> byCrop;
+
+    private MarketReferenceCatalog(Map<String, Map<String, Object>> byCrop) {
+        this.byCrop = Map.copyOf(byCrop);
+    }
+
+    static MarketReferenceCatalog load() {
+        try (InputStream stream = MarketReferenceCatalog.class.getResourceAsStream(RESOURCE)) {
+            if (stream == null) return new MarketReferenceCatalog(Map.of());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> root = new ObjectMapper().readValue(stream, Map.class);
+            Map<String, Map<String, Object>> indexed = new LinkedHashMap<>();
+            Object rawSeries = root.get("series");
+            if (!(rawSeries instanceof Collection<?> series)) return new MarketReferenceCatalog(Map.of());
+            for (Object rawItem : series) {
+                if (!(rawItem instanceof Map<?, ?> item)) continue;
+                String cropCode = text(item.get("cropCode"));
+                if (cropCode.isBlank()) continue;
+                List<Map<String, Object>> points = referencePoints(item.get("points"));
+                if (points.isEmpty()) continue;
+                Map<String, Object> view = new LinkedHashMap<>();
+                copy(root, view, "provider", "name", "region", "cadence", "publishedThrough", "sourceUrl",
+                        "downloadUrl", "license", "licenseUrl", "method", "disclaimer");
+                copy(item, view, "sourceItem", "sourceVariety", "label", "unit", "unitLabel");
+                view.put("provenance", "OBSERVED_EXTERNAL_REFERENCE");
+                view.put("comparableToLocalPrice", false);
+                view.put("observationCount", points.size());
+                view.put("points", List.copyOf(points));
+                indexed.put(cropCode, Map.copyOf(view));
+            }
+            return new MarketReferenceCatalog(indexed);
+        } catch (Exception ignored) {
+            return new MarketReferenceCatalog(Map.of());
+        }
+    }
+
+    Map<String, Object> forCrop(String cropCode) {
+        return byCrop.getOrDefault(String.valueOf(cropCode == null ? "" : cropCode).toLowerCase(Locale.ROOT), Map.of());
+    }
+
+    private static List<Map<String, Object>> referencePoints(Object value) {
+        if (!(value instanceof Collection<?> rawPoints)) return List.of();
+        List<Map<String, Object>> points = new ArrayList<>();
+        for (Object rawPoint : rawPoints) {
+            if (!(rawPoint instanceof Map<?, ?> point)) continue;
+            Optional<LocalDate> date = parseReferenceDate(point.get("date"));
+            Double price = finiteReference(point.get("price"));
+            if (date.isEmpty() || price == null || price <= 0) continue;
+            points.add(Map.of("date", date.get().toString(), "price", Math.round(price * 100.0) / 100.0));
+        }
+        return points.stream().sorted(Comparator.comparing(item -> String.valueOf(item.get("date")))).toList();
+    }
+
+    private static void copy(Map<?, ?> source, Map<String, Object> target, String... keys) {
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (value != null && !String.valueOf(value).isBlank()) target.put(key, value);
+        }
+    }
+
+    private static String text(Object value) { return String.valueOf(value == null ? "" : value).trim().toLowerCase(Locale.ROOT); }
+
+    private static Double finiteReference(Object value) {
+        if (value instanceof Number number && Double.isFinite(number.doubleValue())) return number.doubleValue();
+        try {
+            double parsed = Double.parseDouble(String.valueOf(value));
+            return Double.isFinite(parsed) ? parsed : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Optional<LocalDate> parseReferenceDate(Object value) {
+        try { return value == null ? Optional.empty() : Optional.of(LocalDate.parse(String.valueOf(value))); }
+        catch (Exception ignored) { return Optional.empty(); }
+    }
+}
+
 record CropQuoteDefinition(String cropCode, String cropName, String marketVarietyName, String varietyId, String emoji) { }
 record MarketQuote(String marketName, double price) { }
 record MarketQuoteBatch(LocalDate sourceDate, List<MarketQuote> quotes, Instant fetchedAt) { }
@@ -372,7 +464,7 @@ class MoaPfscMarketPriceProvider implements MarketPriceProvider {
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getMarketPriceTimeoutMs())))
                 .header("Accept", "application/json")
-                .header("User-Agent", "AgriLoop/5.9.3 market-price-reader")
+                .header("User-Agent", "AgriLoop/5.9.4 market-price-reader")
                 .POST(HttpRequest.BodyPublishers.noBody()).build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() < 200 || response.statusCode() >= 300) return Optional.empty();

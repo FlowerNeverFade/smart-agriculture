@@ -53,6 +53,8 @@ class MarketPriceServiceTest {
         Map<String, Object> result = service.overview("farm-demo", 30, false, admin);
         assertThat(crops(result)).extracting(item -> item.get("cropCode")).containsExactly("tomato");
         assertThat(crops(result).get(0)).containsEntry("latestPrice", 3.2).containsEntry("historyDays", 1);
+        assertThat(crops(result).get(0)).containsKey("internationalReference");
+        assertThat(result).containsEntry("internationalReferenceCropCount", 1L);
         verify(provider).fetch(MarketPriceService.CATALOG.get(0), "500000");
 
         UserPrincipal farmer = new UserPrincipal("farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a"));
@@ -99,6 +101,22 @@ class MarketPriceServiceTest {
                 .containsEntry("tone", "NEUTRAL").containsEntry("actionable", false);
     }
 
+    @Test
+    void internationalReferenceKeepsOriginalUnitAndObservedPublicationGaps() {
+        Map<String, Object> reference = MarketReferenceCatalog.load().forCrop("tomato");
+
+        assertThat(reference).containsEntry("provider", "UK_DEFRA")
+                .containsEntry("unit", "GBP/kg")
+                .containsEntry("unitLabel", "英镑/公斤")
+                .containsEntry("comparableToLocalPrice", false)
+                .containsEntry("provenance", "OBSERVED_EXTERNAL_REFERENCE")
+                .containsEntry("observationCount", 17);
+        assertThat(referencePoints(reference)).extracting(point -> point.get("date"))
+                .contains("2026-08-03", "2026-08-17")
+                .doesNotContain("2026-08-10");
+        assertThat(MarketReferenceCatalog.load().forCrop("rice")).isEmpty();
+    }
+
     private static AgriProperties properties() {
         AgriProperties properties = new AgriProperties();
         properties.setMarketPriceProvinceCode("500000");
@@ -119,5 +137,10 @@ class MarketPriceServiceTest {
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> crops(Map<String, Object> overview) {
         return (List<Map<String, Object>>) overview.get("crops");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> referencePoints(Map<String, Object> reference) {
+        return (List<Map<String, Object>>) reference.get("points");
     }
 }
