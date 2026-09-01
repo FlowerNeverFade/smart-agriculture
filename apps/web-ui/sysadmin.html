@@ -255,7 +255,7 @@
         </div>
         <div class="admin-metric-card">
           <div class="admin-metric-icon green"><app-icon name="schedule"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div><div class="admin-metric-sub">接口版本 {{ state.adminOverview.apiVersion }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div></div>
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
