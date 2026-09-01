@@ -268,6 +268,150 @@ html[data-workspace-preset][data-surface-style="glass-latest"] :is(#app, #farmer
   backdrop-filter: blur(20px) saturate(132%) !important;
 }
 
+/* Unified role navigation ---------------------------------------------------
+ * Workspace settings are shared by all three role shells.  Keep the same
+ * compact, card-based rail as the farm-admin reference, while allowing each
+ * entry to retain its semantic accent colour.  This block intentionally lives
+ * after the legacy role sheets so an old SysAdmin reset cannot flatten it. */
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-sidebar-main, .farmer-nav-main) {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  min-height: 0 !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-sidebar-footer, .farmer-nav-footer) {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  margin-top: auto !important;
+  padding-top: 10px !important;
+  border-top: 0 !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-sidebar, .farmer-sidebar) {
+  background: var(--workspace-sidebar) !important;
+  background-image: none !important;
+  border-right-color: var(--workspace-border) !important;
+  box-shadow: 7px 0 24px color-mix(in srgb, var(--workspace-text) 7%, transparent), inset -1px 0 0 color-mix(in srgb, #fff 62%, transparent) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item) {
+  --workspace-nav-accent: var(--nav-accent, var(--system-nav-accent, var(--sidebar-accent, var(--workspace-primary))));
+  margin: 0 !important;
+  border: 1px solid var(--workspace-border-subtle) !important;
+  border-radius: 14px !important;
+  background: var(--workspace-bg-surface) !important;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--workspace-text) 9%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 84%, transparent) !important;
+  color: var(--workspace-text) !important;
+  text-shadow: none !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item) :is(.ph, .material-symbols-outlined) {
+  color: var(--workspace-nav-accent) !important;
+  font-size: 21px !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item):not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 30%, var(--workspace-border-subtle)) !important;
+  background: var(--workspace-bg-hover) !important;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--workspace-nav-accent) 12%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 92%, transparent) !important;
+  color: var(--workspace-text) !important;
+  transform: translateY(-1px);
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item).active {
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 42%, var(--workspace-border)) !important;
+  background: var(--workspace-primary-bg) !important;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--workspace-nav-accent) 15%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 92%, transparent) !important;
+  color: var(--workspace-nav-accent) !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--workspace-nav-accent) 34%, transparent) !important;
+  outline-offset: 2px;
+}
+
+/* Classic keeps the accepted farm-admin material: translucent white cards,
+ * crisp edges and a light rail.  The same values are now used by every role. */
+html[data-workspace-preset][data-surface-style="classic"] :is(#app, #farmer_app) :is(.g-sidebar, .farmer-sidebar) {
+  background: var(--agriloop-appearance-sidebar, var(--workspace-sidebar)) !important;
+  border-right-color: var(--agriloop-appearance-border, var(--workspace-border)) !important;
+  box-shadow: var(--agriloop-appearance-sidebar-shadow, 7px 0 24px color-mix(in srgb, var(--workspace-text) 7%, transparent)) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="classic"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item) {
+  background: var(--agriloop-appearance-control, var(--workspace-bg-surface)) !important;
+  border-color: var(--agriloop-appearance-border-subtle, var(--workspace-border-subtle)) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow, 0 5px 14px color-mix(in srgb, var(--workspace-text) 9%, transparent)) !important;
+  text-shadow: var(--agriloop-appearance-control-text-shadow, none) !important;
+}
+
+html[data-workspace-preset][data-surface-style="classic"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item):not(:disabled):hover {
+  background: var(--agriloop-appearance-control-hover, var(--workspace-bg-hover)) !important;
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 34%, var(--agriloop-appearance-border, var(--workspace-border))) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover, 0 8px 18px color-mix(in srgb, var(--workspace-nav-accent) 12%, transparent)) !important;
+}
+
+html[data-workspace-preset][data-surface-style="classic"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item).active {
+  background: var(--agriloop-appearance-control, var(--workspace-bg-surface)), color-mix(in srgb, var(--workspace-nav-accent) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 42%, var(--agriloop-appearance-border, var(--workspace-border))) !important;
+  box-shadow: var(--agriloop-appearance-control-shadow-hover, 0 8px 20px color-mix(in srgb, var(--workspace-nav-accent) 15%, transparent)) !important;
+  color: var(--workspace-nav-accent) !important;
+}
+
+/* Liquid glass changes the material, not the navigation geometry or colour
+ * semantics. */
+html[data-workspace-preset][data-surface-style="glass-latest"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 68%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 22%, var(--workspace-border)) !important;
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--workspace-primary) 14%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(128%) !important;
+  backdrop-filter: blur(16px) saturate(128%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item):not(:disabled):hover {
+  background: color-mix(in srgb, var(--workspace-bg-hover) 82%, transparent) !important;
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 38%, var(--workspace-border)) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item).active {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--workspace-nav-accent) 18%, var(--workspace-bg-surface)), color-mix(in srgb, var(--workspace-nav-accent) 8%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--workspace-nav-accent) 48%, var(--workspace-border)) !important;
+  color: var(--workspace-nav-accent) !important;
+}
+
+/* The settings route itself is one shared component.  Keep its cards and
+ * material-choice previews identical when opened from any role shell. */
+html[data-workspace-preset] :is(#app, #farmer_app) .settings-card {
+  background: var(--workspace-bg-surface) !important;
+  border: 1px solid var(--workspace-border-subtle) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--g-shadow-1) !important;
+  color: var(--workspace-text) !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) .settings-surface-option[data-style="classic"] {
+  border-color: var(--workspace-border) !important;
+  border-radius: 10px !important;
+  background: var(--workspace-bg-surface) !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--workspace-text) 11%, transparent) !important;
+}
+
+html[data-workspace-preset] :is(#app, #farmer_app) .settings-surface-option[data-style="glass-latest"] {
+  border-color: color-mix(in srgb, var(--workspace-primary) 28%, var(--workspace-border)) !important;
+  border-radius: 22px !important;
+  background: linear-gradient(135deg, color-mix(in srgb, #fff 32%, transparent), color-mix(in srgb, var(--workspace-primary) 12%, transparent)) !important;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 86%, transparent) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(135%) !important;
+  backdrop-filter: blur(16px) saturate(135%) !important;
+}
+
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::before,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::after {
