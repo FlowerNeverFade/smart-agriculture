@@ -7,24 +7,23 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=local-font-20260827">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-three-branch-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-ai-presentation-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-ai-presentation-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-sync-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
   <script src="vendor/vue.global.prod.js"></script>
   <script src="vendor/echarts.min.js"></script>
-  <script src="vendor/ort/ort.all.min.js?v=1.17.3"></script>
 
   <style>
     .feed-actions { display: flex; gap: 8px; margin-top: 12px; }
@@ -234,7 +233,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260831-ai-role-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-admin-ops-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -260,7 +259,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}<span v-if="state.adminOverview.ai" class="admin-ai-status" :class="state.adminOverview.ai === 'UP' ? 'online' : state.adminOverview.ai === 'DOWN' ? 'offline' : state.adminOverview.ai === 'DEGRADED' ? 'degraded' : ''">{{ {UP:'· AI 在线',DOWN:'· AI 离线',DEGRADED:'· AI 降级'}[state.adminOverview.ai] || '' }}</span></div></div>
         </div>
       </div>
 
@@ -370,7 +369,7 @@
           <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': userSettings.plotBackground === 'crop' ? 'url(' + cropBackgroundFor(plot) + ')' : 'none' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.name }}</span>
@@ -445,7 +444,7 @@
               <th>设备编号</th><th>所属地块</th><th>类型</th><th>最后心跳</th><th>状态</th>
             </tr></thead>
             <tbody>
-              <tr v-for="d in filteredDevices" :key="d.deviceId">
+              <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
                 <td>{{ d.plotId }}</td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
@@ -454,6 +453,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ deviceTotalRecords }} 条</span>
+          <select v-model.number="devicePageSize" @change="deviceChangeSize()">
+            <option v-for="s in devicePageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="deviceCurrentPage <= 1" @click="devicePrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ deviceCurrentPage }} / {{ deviceTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="deviceCurrentPage >= deviceTotalPages" @click="deviceNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="deviceJumpInput" min="1" :max="deviceTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="deviceJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
 
@@ -468,7 +479,8 @@
           </select>
           <select v-model="alertLevel">
             <option value="all">全部级别</option>
-            <option value="CRITICAL">严重</option>
+            <option value="HIGH">高</option>
+            <option value="MEDIUM">中</option>
             <option value="WARNING">警告</option>
             <option value="INFO">信息</option>
           </select>
@@ -479,7 +491,7 @@
               <th>时间</th><th>级别</th><th>来源</th><th>摘要</th><th>状态</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="a in filteredAlerts" :key="a.id">
+              <tr v-for="a in alertPageRecords" :key="a.id">
                 <td style="white-space:nowrap">{{ a.time }}</td>
                 <td><span class="status-pill" :class="a.level === 'CRITICAL' ? 'down' : a.level === 'WARNING' ? 'warning' : 'info'">{{ a.levelLabel || levelLabel(a.level) }}</span></td>
                 <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
@@ -492,6 +504,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ alertTotalRecords }} 条</span>
+          <select v-model.number="alertPageSize" @change="alertChangeSize()">
+            <option v-for="s in alertPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="alertCurrentPage <= 1" @click="alertPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ alertCurrentPage }} / {{ alertTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="alertCurrentPage >= alertTotalPages" @click="alertNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="alertJumpInput" min="1" :max="alertTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="alertJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>
@@ -819,7 +843,7 @@
               <div style="margin-top: 12px; display: flex; gap: 8px;">
                 <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="openEditPack(pack)"><app-icon name="edit"></app-icon>编辑</button>
                 <button class="g-btn text sm" style="padding: 4px 8px" :disabled="savingPack" @click="togglePackStatus(pack)">{{ pack.status === 'published' ? '转为草稿' : '发布' }}</button>
-                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="deletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
+                <button v-if="canDeletePack(pack)" class="g-btn text sm danger-text" style="padding: 4px 8px" :disabled="savingPack" @click="requestDeletePack(pack)"><app-icon name="delete"></app-icon>删除</button>
               </div>
             </div>
           </div>
@@ -855,15 +879,32 @@
         </div>
       </div>
 
+      <div v-if="pendingDeletePack" class="admin-modal-overlay" @click.self="pendingDeletePack = null">
+        <div class="admin-modal">
+          <div class="admin-modal-header">
+            <h3>删除作物包</h3>
+            <button type="button" class="g-btn icon-only" :disabled="savingPack" @click="pendingDeletePack = null"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="admin-modal-body">
+            <p style="margin:0 0 8px;line-height:1.7">确定要<strong style="color:var(--g-danger)">删除</strong>作物包「{{ pendingDeletePack.name }}」吗？<br>内置版本不会被物理删除，重启后会恢复。</p>
+          </div>
+          <div class="admin-modal-footer">
+            <button class="g-btn" @click="pendingDeletePack = null">取消</button>
+            <button class="g-btn danger" :disabled="savingPack" @click="confirmDeletePack">删除</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Tab: Rules -->
       <div v-if="activeTab === 'rules'">
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>规则编号</th><th>描述</th><th>类型</th><th>版本</th><th>状态</th>
+              <th>作物</th><th>规则编号</th><th>描述</th><th>类型</th><th>版本</th><th>状态</th>
             </tr></thead>
             <tbody>
-              <tr v-for="rule in state.adminRules" :key="rule.id">
+              <tr v-for="rule in rulePageRecords" :key="rule.cropCode + '@' + rule.id">
+                <td><span class="status-pill info">{{ rule.cropName || rule.cropCode }}</span></td>
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>
@@ -872,6 +913,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ ruleTotalRecords }} 条</span>
+          <select v-model.number="rulePageSize" @change="ruleChangeSize()">
+            <option v-for="s in rulePageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="ruleCurrentPage <= 1" @click="rulePrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ ruleCurrentPage }} / {{ ruleTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="ruleCurrentPage >= ruleTotalPages" @click="ruleNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="ruleJumpInput" min="1" :max="ruleTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="ruleJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
 
@@ -883,7 +936,7 @@
               <th>候选编号</th><th>来源</th><th>描述</th><th>离线验证</th><th>状态</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="cand in state.adminStrategyCandidates" :key="cand.id">
+              <tr v-for="cand in candPageRecords" :key="cand.id">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}</td>
                 <td><span class="status-pill" :class="cand.source === 'learning' ? 'agent' : 'info'">{{ cand.sourceLabel || (cand.source === 'learning' ? '案例学习' : '人工录入') }}</span></td>
                 <td>{{ displayText(cand.description) }}</td>
@@ -896,6 +949,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ candTotalRecords }} 条</span>
+          <select v-model.number="candPageSize" @change="candChangeSize()">
+            <option v-for="s in candPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="candCurrentPage <= 1" @click="candPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ candCurrentPage }} / {{ candTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="candCurrentPage >= candTotalPages" @click="candNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="candJumpInput" min="1" :max="candTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="candJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>
@@ -929,12 +994,6 @@
             </div>
           </div>
           <div class="settings-field">
-            <span class="settings-label">地块背景</span>
-            <div class="settings-theme-options settings-plot-background-options" role="group" aria-label="选择地块背景">
-              <button v-for="background in plotBackgroundOptions" :key="background.value" type="button" class="settings-theme-option settings-plot-background-option" :class="{active: settings.plotBackground === background.value}" @click="updateSetting('plotBackground', background.value)"><span class="settings-theme-icon"><app-icon :name="background.value === 'crop' ? 'image_search' : 'grid_view'"></app-icon></span><strong>{{ background.label }}</strong><small>{{ background.hint }}</small></button>
-            </div>
-          </div>
-          <div class="settings-field">
             <span class="settings-label">强调色</span>
             <div class="settings-accent-options" role="group" aria-label="选择强调色">
               <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value" name="check_circle"></app-icon></button>
@@ -956,157 +1015,10 @@
         </article>
       </div>
 
-      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 地块背景：{{ plotBackgroundLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
     </section>
   </template>
 
-  <!-- ADMIN: Agent -->
-  <template id="tmpl-admin-agent">
-    <div class="admin-agent-workspace">
-      <div class="admin-agent-page-header">
-        <div>
-          <div class="admin-agent-title-row">
-            <span class="admin-agent-title-icon"><app-icon name="smart_toy"></app-icon></span>
-            <div>
-              <h2>{{ rolePresentation.assistantName }}</h2>
-              <p class="role-summary">{{ rolePresentation.titleDescription }}</p>
-            </div>
-          </div>
-        </div>
-        <div class="admin-agent-toolbar">
-          <span class="admin-agent-service-status" :class="assistant_service_tone" role="status">
-            <span class="admin-agent-status-dot"></span>{{ assistant_service_label }}
-          </span>
-          <label class="admin-agent-plot-picker">
-            <span>{{ rolePresentation.contextLabel }}</span>
-            <select v-if="agentPlots.length" v-model="assistant_plot_id" :disabled="assistant_busy" aria-label="关联地块">
-              <option v-for="plot in agentPlots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}（{{ plot.farm }}）</option>
-            </select>
-            <span v-else>暂无地块</span>
-          </label>
-          <button type="button" class="g-btn secondary" @click="assistant_drawer_open = true" aria-label="打开历史对话">
-            <app-icon name="history"></app-icon>{{ rolePresentation.historyTitle }}
-            <span v-if="assistant_conversations.length" class="admin-agent-toolbar-count">{{ assistant_conversations.length }}</span>
-          </button>
-          <button type="button" class="g-btn primary" @click="start_assistant_conversation">
-            <app-icon name="add_task"></app-icon>新对话
-          </button>
-        </div>
-      </div>
-
-      <div class="admin-agent-shell">
-        <div class="admin-agent-chat-card">
-          <div v-if="assistant_error" class="admin-agent-inline-error" role="alert">
-            <app-icon name="cloud_off"></app-icon><span>{{ assistant_error }}</span>
-          </div>
-
-          <div ref="assistant_message_list" class="admin-agent-message-list" aria-live="polite">
-            <div v-if="!assistant_messages.length && !assistant_busy" class="admin-agent-empty-state ai-chat-empty-state">
-              <span class="admin-agent-empty-icon"><app-icon name="smart_toy"></app-icon></span>
-              <p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p>
-              <h3>{{ rolePresentation.emptyGreeting }}</h3>
-              <p>{{ rolePresentation.emptyCopy }}</p>
-              <div class="admin-agent-shortcuts ai-chat-shortcuts">
-                <button v-for="shortcut in assistant_shortcuts" :key="shortcut.label" type="button" @click="ask_assistant_shortcut(shortcut.question)">
-                  <app-icon :name="shortcut.icon"></app-icon><span>{{ shortcut.label }}</span><app-icon name="arrow_forward"></app-icon>
-                </button>
-              </div>
-            </div>
-
-            <article v-for="message in assistant_messages" :key="message.id" class="admin-agent-message" :class="'is-' + message.role">
-              <div v-if="message.role === 'user'" class="admin-agent-user-bubble ai-chat-user-bubble">{{ message.content }}</div>
-              <div v-else class="admin-agent-assistant-block">
-                <div class="admin-agent-message-meta ai-chat-message-meta">
-                  <span class="admin-agent-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></span>
-                  <strong>{{ rolePresentation.assistantName }}</strong>
-                  <span class="g-badge ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.sourceLabel || assistant_source_label }}</span>
-                  <span v-if="message.intentLabel" class="admin-agent-intent ai-chat-intent">{{ message.intentLabel }}</span>
-                </div>
-                <div class="admin-agent-answer ai-chat-answer">{{ message.content }}</div>
-                <div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div>
-                <div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div>
-                <div v-if="message.actionProposal" class="admin-agent-action-card ai-chat-action-card" :class="'status-' + assistant_action_tone(message.actionProposal)">
-                  <div class="admin-agent-action-header">
-                    <div class="admin-agent-action-heading"><span class="admin-agent-action-icon"><app-icon name="verified_user"></app-icon></span><div><strong>{{ rolePresentation.actionTitle }}</strong><small>{{ assistant_action_status_label(message.actionProposal.status) }}</small></div></div>
-                    <span class="admin-agent-risk-chip" :class="'risk-' + String(message.actionProposal.riskLevel || 'LOW').toLowerCase()">{{ assistant_risk_label(message.actionProposal.riskLevel) }}</span>
-                  </div>
-                  <p class="admin-agent-action-summary">{{ message.actionProposal.summary }}</p>
-                  <dl class="admin-agent-action-facts">
-                    <div><dt>操作</dt><dd>{{ assistant_tool_label(message.actionProposal.toolName) }}</dd></div>
-                    <div><dt>参数</dt><dd>{{ assistant_action_arguments(message.actionProposal) }}</dd></div>
-                    <div><dt>来源</dt><dd>{{ assistant_source_label_for(message.actionProposal.sourceMode) }}</dd></div>
-                    <div><dt>有效期</dt><dd>{{ assistant_action_expiry_label(message.actionProposal) }}</dd></div>
-                  </dl>
-                  <p v-if="message.actionProposal.status === 'SUCCEEDED'" class="admin-agent-action-result is-success"><app-icon name="check_circle"></app-icon>已完成：{{ assistant_action_result(message.actionProposal) }}</p>
-                  <p v-if="['FAILED', 'PARTIAL', 'TIMEOUT'].includes(message.actionProposal.status)" class="admin-agent-action-result is-error"><app-icon name="error"></app-icon>{{ assistant_action_result(message.actionProposal) }}</p>
-                  <p v-if="['CANCELED', 'EXPIRED'].includes(message.actionProposal.status)" class="admin-agent-action-result is-muted"><app-icon name="schedule"></app-icon>{{ assistant_action_status_label(message.actionProposal.status) }}</p>
-                </div>
-                <button v-if="message.turn || message.audit" type="button" class="admin-agent-details-button ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggle_assistant_details(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button>
-                <div v-if="message.detailsOpen" class="admin-agent-details ai-chat-details">
-                  <div class="admin-agent-detail-grid ai-chat-detail-grid">
-                    <span v-if="message.turn?.roleLabel"><small>回答身份</small><strong>{{ message.turn.roleLabel }}</strong></span>
-                    <span v-if="message.turn?.scopeLabel"><small>数据范围</small><strong>{{ message.turn.scopeLabel }}</strong></span>
-                    <span v-if="message.turn?.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span>
-                    <span v-if="message.turn?.traceId"><small>记录编号</small><code>{{ message.turn.traceId }}</code></span>
-                    <span v-if="message.turn?.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span>
-                    <span v-if="message.turn?.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示规则' }}</strong></span>
-                  </div>
-                  <div v-if="message.turn?.evidence && message.turn.evidence.length" class="admin-agent-evidence">
-                    <strong>{{ rolePresentation.evidenceTitle }}</strong>
-                    <ul class="ai-chat-evidence"><li v-for="item in message.turn.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small></li></ul>
-                  </div>
-                  <div v-if="message.audit" class="admin-agent-audit">
-                    <strong>工具调用记录</strong>
-                    <article v-for="(item, index) in (message.audit.tools || message.audit.calls || [])" :key="item.name || item.tool || index"><b>{{ assistant_tool_label(item.name || item.tool) }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><small>已校验 · {{ item.durationMs ?? '—' }} 毫秒</small></article>
-                    <small v-if="message.actionProposal">操作版本：{{ message.actionProposal.traceId || message.turn?.traceId || '—' }}</small>
-                  </div>
-                </div>
-              </div>
-            </article>
-            <div v-if="assistant_busy" class="admin-agent-typing" aria-label="正在分析"><span></span><span></span><span></span><small>{{ rolePresentation.typingLabel }}</small></div>
-          </div>
-
-          <form class="admin-agent-composer" @submit.prevent="send_assistant_message">
-            <textarea v-model="assistant_input" rows="1" :disabled="assistant_busy" :placeholder="rolePresentation.inputPlaceholder" aria-label="农智助手输入框" @keydown="assistant_keydown"></textarea>
-            <button type="submit" class="admin-agent-send-button" :disabled="assistant_busy || !assistant_input.trim()" :aria-busy="assistant_busy ? 'true' : 'false'"><span v-if="assistant_busy" class="material-symbols-outlined admin-btn-spin">progress_activity</span><app-icon v-else name="send"></app-icon></button>
-            <small>{{ rolePresentation.composerFootnote }} Enter 发送 · Shift+Enter 换行</small>
-          </form>
-        </div>
-      </div>
-
-      <div v-if="assistant_drawer_open" class="admin-agent-drawer-backdrop" @click.self="assistant_drawer_open = false">
-        <aside class="admin-agent-history-drawer" aria-label="历史对话">
-            <header><div><strong>{{ rolePresentation.historyTitle }}</strong><small>只显示本账号的对话</small></div><button type="button" class="g-btn icon-only" aria-label="关闭历史对话" @click="assistant_drawer_open = false"><app-icon name="close"></app-icon></button></header>
-          <div v-if="assistant_conversations.length" class="admin-agent-history-list">
-            <div v-for="conversation in assistant_conversations" :key="conversation.conversationId" class="admin-agent-history-item" :class="{ active: conversation.conversationId === assistant_conversation_id }" @click="select_assistant_conversation(conversation.conversationId)">
-              <span class="admin-agent-history-icon"><app-icon name="forum"></app-icon></span><span><strong>{{ conversation.title || rolePresentation.historyItemFallback }}</strong><small>{{ agent_conversation_plot_label(conversation) }} · {{ agent_conversation_time(conversation) }}</small><small>{{ conversation.messageCount || 0 }} 条消息</small></span>
-              <button type="button" class="admin-agent-history-delete" :disabled="assistant_busy" :aria-label="'删除对话 ' + (conversation.title || '')" @click.stop="requestDeleteConversation(conversation)"><app-icon name="delete"></app-icon></button>
-            </div>
-          </div>
-          <div v-else class="admin-agent-history-empty"><app-icon name="history"></app-icon><p>还没有历史对话</p><small>{{ rolePresentation.historyEmpty }}。</small></div>
-          <footer><button type="button" class="g-btn primary" @click="start_assistant_conversation"><app-icon name="add_task"></app-icon>开始新对话</button></footer>
-        </aside>
-      </div>
-
-      <div v-if="pendingDeleteConversation" class="admin-modal-overlay" @click.self="pendingDeleteConversation = null">
-        <div class="admin-modal">
-          <div class="admin-modal-header">
-            <h3>删除历史对话</h3>
-            <button type="button" class="g-btn icon-only" @click="pendingDeleteConversation = null"><app-icon name="close"></app-icon></button>
-          </div>
-          <div class="admin-modal-body">
-            <p style="margin:0 0 8px;line-height:1.7">确定要<strong style="color:var(--g-danger)">删除</strong>「{{ pendingDeleteConversation.title }}」吗？<br>删除后该对话及其中所有消息将无法恢复。</p>
-          </div>
-          <div class="admin-modal-footer">
-            <button class="g-btn" @click="pendingDeleteConversation = null">取消</button>
-            <button class="g-btn danger" :disabled="assistant_busy" @click="confirmDeleteConversation">确认删除</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <!-- ADMIN: System Settings -->
   <template id="tmpl-admin-settings">
     <div>
       <h2 class="g-page-title"><app-icon name="admin_panel_settings"></app-icon> 系统管理</h2>
@@ -1136,24 +1048,36 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>用户编号</th><th>用户名</th><th>角色</th><th>所属农场</th><th>关联地块</th><th>状态</th><th>创建时间</th><th>操作</th>
+              <th>用户编号</th><th>用户名</th><th class="admin-user-role">角色</th><th>所属农场</th><th>关联地块</th><th class="admin-user-status">状态</th><th>创建时间</th><th>操作</th>
             </tr></thead>
             <tbody>
-              <tr v-for="u in filteredUsers" :key="u.userId">
+              <tr v-for="u in userPageRecords" :key="u.userId">
                 <td style="font-family:var(--g-mono);font-size:11px">{{ u.userId }}</td>
                 <td style="font-weight:500">{{ u.username }}</td>
-                <td><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
+                <td class="admin-user-role"><span class="status-pill" :class="u.role === 'SYSTEM_ADMIN' ? 'audit' : u.role === 'FARM_ADMIN' ? 'info' : 'completed'">{{ u.roleLabel }}</span></td>
                 <td>{{ u.farmName }}</td>
                 <td>{{ u.plotIds.join(', ') }}</td>
-                <td><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
+                <td class="admin-user-status"><span class="status-pill" :class="u.enabled ? 'enabled' : 'disabled'">{{ u.enabled ? '启用' : '停用' }}</span></td>
                 <td>{{ u.createdAt }}</td>
                 <td>
-                  <button class="g-btn text sm" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
-                  <button class="g-btn text sm" style="color:var(--g-danger)" @click="deleteUser(u.userId)">删除</button>
+                  <button class="g-btn text sm" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可停用' : '当前登录账号不可停用') : ''" @click="toggleUser(u)">{{ u.enabled ? '停用' : '启用' }}</button>
+                  <button class="g-btn text sm" style="color:var(--g-danger)" :disabled="isProtectedAccount(u)" :title="isProtectedAccount(u) ? (u.role === 'SYSTEM_ADMIN' ? '系统管理员账号不可删除' : '当前登录账号不可删除') : ''" @click="deleteUser(u.userId)">删除</button>
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ userTotalRecords }} 条</span>
+          <select v-model.number="userPageSize" @change="userChangeSize()">
+            <option v-for="s in userPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="userCurrentPage <= 1" @click="userPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ userCurrentPage }} / {{ userTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="userCurrentPage >= userTotalPages" @click="userNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="userJumpInput" min="1" :max="userTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="userJumpTo()">跳转</button>
+          </span>
         </div>
 
         <!-- Create User Modal -->
@@ -1228,12 +1152,13 @@
       <div v-if="activeTab === 'config'">
         <div class="g-grid" style="grid-template-columns: 1fr 1fr; gap: 20px">
           <div class="g-card" style="padding:20px">
-            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式</div>
+            <div class="admin-section-title" style="margin-bottom:16px"><app-icon name="head_circuit"></app-icon> 智能模型运行模式 <span v-if="aiStatus" class="admin-ai-status" :class="aiStatusClass">{{ aiStatusText }}</span></div>
             <select v-model="draftAiMode" style="width:100%;padding:10px;border:1px solid var(--g-border);border-radius:var(--g-radius);background:var(--g-bg-base);color:var(--g-text-primary);font-size:14px">
               <option value="full">完整模式（智能模型 + 知识检索 + 规则）</option>
               <option value="rules-only">规则兜底（仅确定性规则）</option>
               <option value="mock">模拟模式（固定输出）</option>
             </select>
+            <p v-if="degradeNote" class="admin-ai-degrade-note"><app-icon name="warning"></app-icon>{{ degradeNote }}</p>
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
                 <button class="g-btn secondary sm" @click="saveAiMode">保存模式</button>
               <span style="font-size:12px;color:var(--g-text-tertiary)">切换后需点击保存</span>
@@ -1268,7 +1193,7 @@
               <th>时间</th><th>操作人</th><th>操作类型</th><th>详情</th><th>IP 地址</th>
             </tr></thead>
             <tbody>
-              <tr v-for="log in filteredLogs" :key="log.id">
+              <tr v-for="log in logPageRecords" :key="log.id">
                 <td style="white-space:nowrap">{{ log.time }}</td>
                 <td style="font-weight:500">{{ log.operator }}</td>
                 <td><span class="status-pill" :class="log.action === 'LOGIN' ? 'info' : log.action === 'CONFIG_CHANGE' ? 'warning' : 'audit'">{{ log.actionLabel }}</span></td>
@@ -1277,6 +1202,18 @@
               </tr>
             </tbody>
           </table>
+        </div>
+        <div class="admin-pagination-bar">
+          <span>共 {{ logTotalRecords }} 条</span>
+          <select v-model.number="logPageSize" @change="logChangeSize()">
+            <option v-for="s in logPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+          </select>
+          <button class="g-btn text sm" :disabled="logCurrentPage <= 1" @click="logPrevPage()">上一页</button>
+          <span class="admin-pagination-current">第 {{ logCurrentPage }} / {{ logTotalPages }} 页</span>
+          <button class="g-btn text sm" :disabled="logCurrentPage >= logTotalPages" @click="logNextPage()">下一页</button>
+          <span>跳至 <input type="number" v-model.number="logJumpInput" min="1" :max="logTotalPages" class="admin-page-jump-input"> 页
+            <button class="g-btn text sm" @click="logJumpTo()">跳转</button>
+          </span>
         </div>
       </div>
     </div>

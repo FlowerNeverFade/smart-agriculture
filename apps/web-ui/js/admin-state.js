@@ -36,6 +36,20 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_HEALTH: '设备健康'
 });
 
+export const ADMIN_PLOT_METRIC_CODES = Object.freeze([
+  'SOIL_MOISTURE',
+  'AIR_TEMPERATURE',
+  'AIR_HUMIDITY',
+  'LIGHT',
+  'CO2',
+  'RAINFALL',
+  'PH',
+  'WATER_LEVEL',
+  'NITROGEN',
+  'PHOSPHORUS',
+  'POTASSIUM'
+]);
+
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',
   IRRIGATION_CONTROLLER: '灌溉控制器',
@@ -54,7 +68,7 @@ const ADMIN_WORK_ACTION_META = Object.freeze({
   IRRIGATION: { label: '灌溉', icon: 'water_drop', tone: 'irrigation' },
   MANUAL_IRRIGATION: { label: '人工灌溉', icon: 'water_drop', tone: 'irrigation' },
   DEVICE_CHECK: { label: '设备检查', icon: 'monitoring', tone: 'device' },
-  FERTILIZATION: { label: '施肥', icon: 'nutrition', tone: 'fertilization' },
+  FERTILIZATION: { label: '施肥检查', icon: 'nutrition', tone: 'fertilization' },
   PEST_CONTROL: { label: '植保', icon: 'pest_control', tone: 'field' },
   WEEDING: { label: '除草', icon: 'grass', tone: 'field' },
   PRUNING: { label: '整枝', icon: 'content_cut', tone: 'field' }
@@ -370,6 +384,9 @@ export function domainsForEventType(type = '') {
   if (value.includes('plot.')) { domains.add('plots'); domains.add('overview'); }
   if (value.includes('workorder') || value.includes('work-order') || value.includes('cropplan')) { domains.add('workOrders'); domains.add('overview'); }
   if (value.includes('alert')) { domains.add('alerts'); domains.add('overview'); }
+  if (value.includes('rule-set') || value.includes('ruleset') || value.includes('strategy.candidate') || value.includes('strategy-candidate')) {
+    domains.add('rulesStrategies'); domains.add('alerts'); domains.add('overview');
+  }
   if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
   if (value.includes('member')) domains.add('members');
   if (value.includes('inspection')) domains.add('inspections');
@@ -382,6 +399,40 @@ export function domainsForEventType(type = '') {
     domains.add('resourcePlans'); domains.add('resourceProfiles'); domains.add('workOrders'); domains.add('ledgers'); domains.add('overview');
   }
   return [...domains];
+}
+
+const ADMIN_CROP_ALIASES = Object.freeze([
+  ['tomato', ['tomato', '番茄']],
+  ['corn', ['corn', '玉米']],
+  ['cucumber', ['cucumber', '黄瓜']],
+  ['rice', ['rice', '水稻', '稻']],
+  ['sunflower', ['sunflower', '向日葵', '油葵']],
+  ['strawberry', ['strawberry', '草莓']],
+  ['pepper', ['pepper', '辣椒']],
+  ['eggplant', ['eggplant', '茄子', '茄']],
+  ['lettuce', ['lettuce', '生菜', '莴苣']]
+]);
+
+const ADMIN_CROP_EMOJIS = Object.freeze({
+  tomato: '🍅',
+  corn: '🌽',
+  cucumber: '🥒',
+  rice: '🌾',
+  sunflower: '🌻',
+  strawberry: '🍓',
+  pepper: '🌶️',
+  eggplant: '🍆',
+  lettuce: '🥬',
+  unknown: '🌱'
+});
+
+export function adminCropKey(plot = {}) {
+  const text = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''} ${plot.cropVariety || ''}`.trim().toLowerCase();
+  return ADMIN_CROP_ALIASES.find(([, names]) => names.some(name => text.includes(name)))?.[0] || 'unknown';
+}
+
+export function adminCropEmoji(plot = {}) {
+  return ADMIN_CROP_EMOJIS[adminCropKey(plot)] || ADMIN_CROP_EMOJIS.unknown;
 }
 
 export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {

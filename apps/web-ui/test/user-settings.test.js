@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
-const { DEFAULT_USER_SETTINGS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } = await import('../js/user-settings.js?settings-test');
+const { DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, getAppearancePalette, getFontFamily, normalizeUserSettings, readUserSettings, saveUserSettings, userSettingsKey } = await import('../js/user-settings.js?settings-test');
 
 test('工作台设置按白名单归一化并保存到浏览器本地', () => {
   const data = new Map();
@@ -16,12 +17,72 @@ test('工作台设置按白名单归一化并保存到浏览器本地', () => {
   assert.deepEqual(readUserSettings(storage), normalized);
 });
 
-test('工作台设置应用主题、布局、密度和来源标记数据属性', () => {
+test('工作台设置应用主题、布局、密度和纯色地块数据属性', () => {
   const root = { dataset: {}, style: { setProperty() {}, colorScheme: '' } };
-  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', showDataOrigin: false }, { documentElement: root });
+  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', fontFamily: 'yahei', showDataOrigin: false, plotBackground: 'crop' }, { documentElement: root });
   assert.equal(normalized.theme, 'dark');
   assert.equal(root.dataset.theme, 'dark');
   assert.equal(root.dataset.layout, 'wide');
   assert.equal(root.dataset.density, 'compact');
+  assert.equal(Object.hasOwn(normalized, 'language'), false);
+  assert.equal(root.dataset.language, undefined);
+  assert.equal(root.lang, 'zh-CN');
+  assert.equal(root.dataset.fontFamily, 'yahei');
   assert.equal(root.dataset.showDataOrigin, 'false');
+  assert.equal(normalized.plotBackground, 'none');
+  assert.equal(root.dataset.plotBackground, 'none');
+  assert.match(getFontFamily('yahei'), /Microsoft YaHei/);
+});
+
+test('旧柔和玻璃与作物背景设置自动迁移到清晰纯色外观', () => {
+  assert.deepEqual(SURFACE_STYLE_OPTIONS.map((item) => item.value), ['classic', 'glass-latest']);
+  const normalized = normalizeUserSettings({ surfaceStyle: 'glass-soft', plotBackground: 'crop' });
+  assert.equal(normalized.surfaceStyle, 'classic');
+  assert.equal(normalized.plotBackground, 'none');
+  assert.equal(normalized.surfaceStyleVersion, 7);
+});
+
+test('三个工作台隐藏地块背景选项且外观切换静默生效', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const farmerSource = readFileSync(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const sysadminSource = readFileSync(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const appSettings = appSource.slice(appSource.indexOf('const SettingsView ='), appSource.indexOf('const AdminSettingsView ='));
+  const farmerSettings = farmerSource.slice(farmerSource.indexOf('const update_user_setting ='), farmerSource.indexOf('const toggle_theme ='));
+  const sysadminSettings = sysadminSource.slice(sysadminSource.indexOf('const SettingsView ='), sysadminSource.indexOf('const AdminSettingsView ='));
+  assert.doesNotMatch(appSettings, /toast\s*\(/);
+  assert.doesNotMatch(farmerSettings, /show_toast\s*\(/);
+  assert.doesNotMatch(sysadminSettings, /toast\s*\(/);
+  for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
+    const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+    assert.doesNotMatch(html, /settings-plot-background-options|plot_background_options|plotBackgroundLabel/);
+  }
+});
+
+test('工作台设置按账号隔离，并支持主题预设与安全自选色', () => {
+  const data = new Map();
+  const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };
+  const alice = { userId: 'User-A', username: 'Alice' };
+  const bob = { userId: 'User-B', username: 'Bob' };
+  saveUserSettings({ ...DEFAULT_USER_SETTINGS, preset: 'sky', customAccent: '#abcdef', fontFamily: 'sans' }, storage, alice);
+  assert.equal(readUserSettings(storage, alice).preset, 'sky');
+  assert.equal(readUserSettings(storage, alice).customAccent, '#abcdef');
+  assert.equal(Object.hasOwn(readUserSettings(storage, alice), 'language'), false);
+  assert.equal(readUserSettings(storage, alice).fontFamily, 'sans');
+  assert.equal(readUserSettings(storage, bob).preset, DEFAULT_USER_SETTINGS.preset);
+  assert.equal(userSettingsKey(alice), 'agriloop-user-settings-v2:user-a');
+  assert.equal(normalizeUserSettings({ preset: 'missing', customAccent: 'red' }).preset, 'codex');
+  const palette = getAppearancePalette({ ...DEFAULT_USER_SETTINGS, preset: 'orchard', customAccent: '#7657c4' });
+  assert.equal(palette.theme, 'light');
+  assert.equal(palette.accent.color, '#7657c4');
+  assert.ok(palette.accent.background.startsWith('#'));
+});
+
+test('旧版浏览器设置只迁移给首次账号并可在刷新后恢复', () => {
+  const data = new Map([['agriloop-user-settings-v1', JSON.stringify({ theme: 'dark', preset: 'orchard' })]]);
+  const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };
+  const first = { userId: 'first-admin', username: 'first' };
+  const second = { userId: 'second-admin', username: 'second' };
+  assert.equal(readUserSettings(storage, first).theme, 'dark');
+  assert.equal(readUserSettings(storage, first).preset, 'orchard');
+  assert.equal(readUserSettings(storage, second).theme, DEFAULT_USER_SETTINGS.theme);
 });

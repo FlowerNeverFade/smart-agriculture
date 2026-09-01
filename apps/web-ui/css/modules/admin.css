@@ -217,6 +217,14 @@
   border-bottom: 1px solid var(--g-border-subtle);
 }
 
+/* Keep user role and status labels readable at narrow widths. */
+.admin-table .admin-user-role,
+.admin-table .admin-user-status,
+.admin-table .admin-user-role .status-pill,
+.admin-table .admin-user-status .status-pill {
+  white-space: nowrap;
+}
+
 .admin-table tbody tr { transition: background 0.15s; }
 .admin-table tbody tr:hover { background: var(--g-bg-hover); }
 .admin-table tbody tr:last-child td { border-bottom: none; }
@@ -1692,9 +1700,26 @@
   --metric-tint: #fff7df;
 }
 
-.role-farm-admin .manager-metric[data-metric="SOIL_EC"] {
+.role-farm-admin .manager-metric[data-metric="SOIL_EC"],
+.role-farm-admin .manager-metric[data-metric="PH"],
+.role-farm-admin .manager-metric[data-metric="PHOSPHORUS"] {
   --metric-accent: var(--admin-purple);
   --metric-tint: var(--admin-purple-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="WATER_LEVEL"] {
+  --metric-accent: var(--admin-blue);
+  --metric-tint: var(--admin-blue-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="NITROGEN"] {
+  --metric-accent: var(--admin-mint);
+  --metric-tint: var(--admin-mint-bg);
+}
+
+.role-farm-admin .manager-metric[data-metric="POTASSIUM"] {
+  --metric-accent: var(--admin-orange);
+  --metric-tint: var(--admin-orange-bg);
 }
 
 .role-farm-admin .manager-metric-name {
@@ -2924,6 +2949,77 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   box-shadow: 0 0 0 2px rgba(255, 211, 122, .20), 0 0 8px rgba(255, 211, 122, .52);
 }
 
+/* Workspace surface modes --------------------------------------------------
+ * The admin skin has several older card rules in this file.  Keep the mode
+ * variables at the end of the cascade so every module inherits one coherent
+ * surface, instead of leaving overview/alert/device/Crop Pack cards behind.
+ * Plot cards keep their crop photograph; only their frame changes. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin {
+  --g-bg-surface: var(--workspace-bg-surface);
+  --g-bg-subtle: var(--workspace-bg-subtle);
+  --g-bg-hover: var(--workspace-bg-hover);
+  --admin-glass-surface: var(--workspace-bg-surface);
+  --admin-glass-surface-strong: var(--workspace-sidebar);
+  --admin-glass-surface-soft: var(--workspace-bg-subtle);
+  --admin-glass-cell: var(--workspace-bg-base);
+  --admin-glass-outline: var(--workspace-border);
+  --admin-glass-control-outline: var(--workspace-border);
+  --admin-glass-shadow: 0 1px 3px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+  --admin-glass-shadow-raised: 0 8px 18px color-mix(in srgb, var(--workspace-text) 14%, transparent);
+  --admin-surface-radius: 10px;
+  --admin-surface-inner-radius: 7px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 86%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 90%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 82%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 90%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 72%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 74%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 20%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 16%, var(--workspace-border));
+  --admin-glass-shadow: 0 12px 30px color-mix(in srgb, var(--workspace-text) 12%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 70%, transparent);
+  --admin-glass-shadow-raised: 0 18px 38px color-mix(in srgb, var(--workspace-primary) 16%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 78%, transparent);
+  --admin-surface-radius: 16px;
+  --admin-surface-inner-radius: 11px;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin {
+  --g-bg-surface: color-mix(in srgb, var(--workspace-bg-surface) 62%, transparent);
+  --g-bg-subtle: color-mix(in srgb, var(--workspace-bg-subtle) 66%, transparent);
+  --g-bg-hover: color-mix(in srgb, var(--workspace-bg-hover) 76%, transparent);
+  --admin-glass-surface: color-mix(in srgb, var(--workspace-bg-surface) 60%, transparent);
+  --admin-glass-surface-strong: color-mix(in srgb, var(--workspace-sidebar) 74%, transparent);
+  --admin-glass-surface-soft: color-mix(in srgb, var(--workspace-bg-subtle) 58%, transparent);
+  --admin-glass-cell: color-mix(in srgb, var(--workspace-bg-base) 56%, transparent);
+  --admin-glass-outline: color-mix(in srgb, var(--workspace-primary) 34%, var(--workspace-border));
+  --admin-glass-control-outline: color-mix(in srgb, var(--workspace-primary) 26%, var(--workspace-border));
+  --admin-glass-shadow: 0 22px 52px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 76%, transparent);
+  --admin-glass-shadow-raised: 0 28px 64px color-mix(in srgb, var(--workspace-primary) 24%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 86%, transparent);
+  --admin-surface-radius: 22px;
+  --admin-surface-inner-radius: 14px;
+}
+
+/* All non-photo business surfaces share the selected treatment. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: var(--workspace-bg-surface) !important;
+  background-image: none !important;
+  border-color: var(--workspace-border-subtle) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 /* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
 html[data-surface-style="classic"] .role-system-admin.role-system-admin {
   --g-bg-base: #f8f9fa !important;
@@ -3180,8 +3276,199 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.adm
   background: var(--g-bg-surface) !important;
   border-color: var(--g-border) !important;
   box-shadow: none !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 78%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 28%, transparent), transparent 42%) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 22%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(118%) !important;
+  backdrop-filter: blur(16px) saturate(118%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(
+  .g-card, .admin-panel, .admin-metric-card, .admin-device-card, .admin-member-card,
+  .admin-alert-card, .admin-alert-empty, .admin-ai-action-card, .admin-chat,
+  .admin-governance-section, .admin-pack-summary-card, .admin-plan-summary-card,
+  .simple-summary-row, .simple-data-panel, .simple-empty-state, .work-summary,
+  .work-filters, .work-order-card, .inspection-history, .rp-hero, .rp-summary article,
+  .rp-card
+) {
+  background: color-mix(in srgb, var(--workspace-bg-surface) 56%, transparent) !important;
+  background-image: linear-gradient(135deg, color-mix(in srgb, #fff 44%, transparent), transparent 34%, color-mix(in srgb, var(--workspace-primary) 12%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 36%, var(--workspace-border)) !important;
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(142%) !important;
+  backdrop-filter: blur(26px) saturate(142%) !important;
+}
+
+/* Photograph-backed plot cards retain their image, but inherit the mode's
+   frame, depth and corner treatment so the overview changes too. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-soft"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 32%, rgba(255,255,255,.38)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(4px) saturate(112%) !important;
+  backdrop-filter: blur(4px) saturate(112%) !important;
+}
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin :is(.manager-plot-card, .admin-plot-card) {
+  border-radius: var(--admin-surface-radius) !important;
+  border-color: color-mix(in srgb, var(--workspace-primary) 48%, rgba(255,255,255,.48)) !important;
+  box-shadow: var(--admin-glass-shadow) !important;
+  -webkit-backdrop-filter: blur(7px) saturate(128%) !important;
+  backdrop-filter: blur(7px) saturate(128%) !important;
+}
+
+html[data-workspace-preset][data-surface-style="glass-latest"] #app.role-farm-admin .g-main {
+  background-image: radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--workspace-primary) 14%, transparent), transparent 36%), radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--workspace-primary) 10%, transparent), transparent 32%) !important;
+}
+
+/* Make the three choices themselves communicate the difference before a
+   setting is saved. */
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] {
+  border-radius: 10px;
+  background: var(--workspace-bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--workspace-text) 10%, transparent);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--workspace-bg-surface) 74%, transparent);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--workspace-text) 11%, transparent), inset 0 1px 0 rgba(255,255,255,.72);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+  backdrop-filter: blur(8px) saturate(115%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] {
+  border-radius: 22px;
+  background: linear-gradient(135deg, color-mix(in srgb, #fff 32%, transparent), color-mix(in srgb, var(--workspace-primary) 12%, transparent));
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(135%);
+  backdrop-filter: blur(16px) saturate(135%);
+}
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="classic"] .settings-theme-icon { border-radius: 5px; }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-soft"] .settings-theme-icon { border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255,255,255,.72); }
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-style="glass-latest"] .settings-theme-icon { border-radius: 11px; box-shadow: 0 4px 10px color-mix(in srgb, var(--workspace-primary) 18%, transparent), inset 0 1px 0 rgba(255,255,255,.86); }
+
+/* Farm overview keeps the original crop identity panel in the upper-left of
+   every plot card.  This is deliberately scoped to the dashboard cards so
+   the newer appearance controls do not replace the farm context layout. */
+.role-farm-admin article.manager-plot-card {
+  isolation: isolate;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--g-border) 84%, #9eb8aa) !important;
+  border-top-color: var(--admin-mint) !important;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--g-bg-surface) 96%, #eaf5ed), color-mix(in srgb, var(--g-bg-subtle) 92%, #f4faf6)) !important;
+  background-image: none !important;
+  color: var(--g-text-primary) !important;
+  text-shadow: none !important;
+}
+.role-farm-admin article.manager-plot-card.is-attention { border-top-color: var(--admin-orange) !important; }
+.role-farm-admin article.manager-plot-card.is-inactive { border-top-color: var(--g-text-secondary) !important; }
+.role-farm-admin article.manager-plot-card .manager-plot-title h2 { color: var(--g-text-primary) !important; }
+.role-farm-admin article.manager-plot-card .manager-plot-title span,
+.role-farm-admin article.manager-plot-card .manager-health-score,
+.role-farm-admin article.manager-plot-card .manager-plot-meta { color: var(--g-text-secondary) !important; }
+.role-farm-admin article.manager-plot-card .manager-more-button {
+  border-color: color-mix(in srgb, var(--g-border) 86%, var(--g-primary));
+  background: color-mix(in srgb, var(--g-bg-surface) 88%, transparent);
+  color: var(--g-text-secondary);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--g-text-primary) 10%, transparent), inset 0 1px 0 rgba(255,255,255,.9);
+  text-shadow: none;
+}
+.role-farm-admin article.manager-plot-card .manager-more-button:hover,
+.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--g-primary) 58%, var(--g-border));
+  background: color-mix(in srgb, var(--g-primary-bg) 62%, var(--g-bg-surface));
+  color: var(--g-primary);
+}
+.role-farm-admin .manager-plot-context {
+  display: grid;
+  grid-template-columns: minmax(180px, .9fr) minmax(0, 1.6fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.role-farm-admin .manager-crop-identity {
+  --crop-accent: #4b8f66;
+  --crop-soft: #eaf5ed;
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, var(--g-border));
+  border-radius: 14px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, var(--g-bg-surface)), color-mix(in srgb, var(--g-bg-surface) 80%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.92);
+}
+.role-farm-admin .manager-crop-identity[data-crop="tomato"] { --crop-accent: #c9554f; --crop-soft: #fff0ed; }
+.role-farm-admin .manager-crop-identity[data-crop="corn"] { --crop-accent: #b57918; --crop-soft: #fff6dc; }
+.role-farm-admin .manager-crop-identity[data-crop="cucumber"] { --crop-accent: #4d8e56; --crop-soft: #ecf6e9; }
+.role-farm-admin .manager-crop-identity[data-crop="rice"] { --crop-accent: #9b7a2f; --crop-soft: #fbf4df; }
+.role-farm-admin .manager-crop-identity[data-crop="sunflower"] { --crop-accent: #b97914; --crop-soft: #fff5d8; }
+.role-farm-admin .manager-crop-identity[data-crop="strawberry"] { --crop-accent: #c34e5a; --crop-soft: #fff0f2; }
+.role-farm-admin .manager-crop-identity[data-crop="pepper"] { --crop-accent: #bc4e43; --crop-soft: #fff0ec; }
+.role-farm-admin .manager-crop-art {
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 20%, var(--g-bg-surface));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent);
+  color: var(--g-text-primary);
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 44px;
+  line-height: 1;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--crop-accent) 14%, transparent), inset 0 1px 0 rgba(255,255,255,.92);
+}
+.role-farm-admin .manager-crop-copy { display: grid; min-width: 0; gap: 3px; }
+.role-farm-admin .manager-crop-copy > span { color: var(--g-text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .04em; }
+.role-farm-admin .manager-crop-copy strong { overflow: hidden; color: var(--g-text-primary); font-size: 16px; line-height: 1.25; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.role-farm-admin .manager-crop-copy small { overflow: hidden; color: var(--crop-accent); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.role-farm-admin .manager-plot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 14px; background: var(--g-border-subtle); }
+.role-farm-admin .manager-plot-facts > div { display: grid; align-content: center; min-width: 0; padding: 12px; background: color-mix(in srgb, var(--g-bg-surface) 82%, transparent); }
+.role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right: 1px solid var(--g-border-subtle); }
+.role-farm-admin .manager-plot-facts dt { color: var(--g-text-secondary); font-size: 10px; font-weight: 600; }
+.role-farm-admin .manager-plot-facts dd { margin-top: 7px; overflow: hidden; color: var(--g-text-primary); font-size: 13px; line-height: 1.35; font-weight: 650; text-overflow: ellipsis; }
+.role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); border-color: var(--g-border-subtle); background: var(--g-border-subtle); box-shadow: inset 0 1px 0 rgba(255,255,255,.82); }
+.role-farm-admin article.manager-plot-card .manager-metric { grid-column: span 2; background: color-mix(in srgb, var(--g-bg-surface) 92%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: none; }
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
+.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: color-mix(in srgb, var(--g-bg-subtle) 88%, transparent); }
+.role-farm-admin article.manager-plot-card .manager-metric-label,
+.role-farm-admin article.manager-plot-card .manager-metric-target,
+.role-farm-admin article.manager-plot-card .manager-metric-value small { color: var(--g-text-secondary); }
+.role-farm-admin article.manager-plot-card .manager-metric-value { color: var(--g-text-primary); }
+@media (max-width: 700px) {
+  .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
+  .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
+  .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .role-farm-admin article.manager-plot-card .manager-metric,
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: 1 / -1; }
+}
+
+@media (max-width: 440px) {
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: 1fr; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: auto; }
 }
 
 /* User explicitly asked to remove shadow from the two large config cards */
@@ -3191,133 +3478,12 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-grid 
 
 
 /* --- Admin Agent --- */
-.admin-agent-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
-.admin-agent-title-row { display: flex; align-items: center; gap: 12px; }
-.admin-agent-title-row h2 { margin: 0; }
-.admin-agent-title-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 14px; background: var(--g-success-bg); color: var(--g-success); font-size: 23px; }
-.admin-agent-toolbar { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.admin-agent-service-status { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 10px; border-radius: 999px; background: var(--g-success-bg); color: var(--g-success); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.admin-agent-service-status.is-degraded { background: var(--g-warning-bg); color: var(--g-warning); }
-.admin-agent-service-status.is-demo { background: var(--g-primary-bg); color: var(--g-primary); }
-.admin-agent-plot-picker { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-surface); color: var(--g-text-secondary); font-size: 12px; }
-.admin-agent-plot-picker select { max-width: 150px; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; }
-.admin-agent-shell { width: min(900px, 100%); flex: 1; margin: 0 auto; }
-.admin-agent-chat-card { position: relative; display: flex; flex-direction: column; min-height: min(680px, calc(100vh - 205px)); max-height: calc(100vh - 170px); overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 18px; background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); }
-.admin-agent-message-list { flex: 1; min-height: 360px; overflow-y: auto; padding: 28px clamp(16px, 5vw, 62px) 20px; scroll-behavior: smooth; }
-.admin-agent-empty-state { display: grid; justify-items: center; gap: 9px; min-height: 430px; padding: 70px 10px 24px; text-align: center; }
-.admin-agent-empty-icon { display: grid; width: 58px; height: 58px; place-items: center; border-radius: 20px; background: var(--g-success-bg); color: var(--g-success); font-size: 30px; }
-.admin-agent-empty-state h3 { margin: 8px 0 0; font-size: 21px; font-weight: 600; }
-.admin-agent-empty-state p { max-width: 460px; margin: 0; color: var(--g-text-secondary); font-size: 13px; line-height: 1.6; }
-.admin-agent-shortcuts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; width: min(610px, 100%); margin-top: 17px; }
-.admin-agent-shortcuts button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: border-color .18s ease, transform .18s ease; }
-.admin-agent-shortcuts button:hover { border-color: var(--g-success); transform: translateY(-1px); }
-.admin-agent-shortcuts button > .material-symbols-outlined:first-child { color: var(--g-success); font-size: 18px; }
-.admin-agent-shortcuts button > .material-symbols-outlined:last-child { color: var(--g-text-tertiary); font-size: 16px; }
-.admin-agent-message { display: flex; margin: 0 0 22px; }
-.admin-agent-message.is-user { justify-content: flex-end; }
-.admin-agent-user-bubble { max-width: min(75%, 580px); padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.admin-agent-assistant-block { width: min(100%, 690px); }
-.admin-agent-message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--g-text-secondary); font-size: 11px; }
-.admin-agent-avatar { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: var(--g-success-bg); color: var(--g-success); font-size: 14px; }
-.admin-agent-message-meta strong { color: var(--g-text-primary); font-size: 12px; }
-.admin-agent-message-meta .g-badge { font-size: 10px; }
-.admin-agent-intent { padding: 2px 7px; border-radius: 999px; background: var(--g-bg-subtle); }
-.admin-agent-answer { color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.admin-agent-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
-.admin-agent-details-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; }
-.admin-agent-details-button:hover { color: var(--g-success); }
-.admin-agent-details-button .material-symbols-outlined { font-size: 17px; }
-.admin-agent-action-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle)); border-radius: 14px; background: color-mix(in srgb, var(--g-primary-bg) 46%, var(--g-bg-surface)); }
-.admin-agent-action-card.status-succeeded { border-color: color-mix(in srgb, var(--g-success) 36%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-success-bg) 45%, var(--g-bg-surface)); }
-.admin-agent-action-card.status-failed,.admin-agent-action-card.status-partial,.admin-agent-action-card.status-timeout { border-color: color-mix(in srgb, var(--g-danger) 38%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-danger-bg) 30%, var(--g-bg-surface)); }
-.admin-agent-action-card.status-canceled,.admin-agent-action-card.status-expired { opacity: .78; }
-.admin-agent-action-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.admin-agent-action-heading { display: flex; align-items: center; gap: 9px; }
-.admin-agent-action-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 10px; background: var(--g-bg-surface); color: var(--g-primary); }
-.admin-agent-action-heading strong,.admin-agent-action-heading small { display: block; }
-.admin-agent-action-heading strong { font-size: 13px; }
-.admin-agent-action-heading small { margin-top: 2px; color: var(--g-text-secondary); font-size: 11px; }
-.admin-agent-risk-chip { padding: 3px 7px; border-radius: 999px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 10px; font-weight: 700; white-space: nowrap; }
-.admin-agent-risk-chip.risk-low { background: var(--g-success-bg); color: var(--g-success); }
-.admin-agent-risk-chip.risk-high,.admin-agent-risk-chip.risk-critical { background: var(--g-danger-bg); color: var(--g-danger); }
-.admin-agent-action-summary { margin: 0; font-size: 13px; line-height: 1.55; }
-.admin-agent-action-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; }
-.admin-agent-action-facts > div { min-width: 0; padding: 8px 9px; border-radius: 9px; background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent); }
-.admin-agent-action-facts dt { color: var(--g-text-secondary); font-size: 10px; }
-.admin-agent-action-facts dd { margin: 3px 0 0; color: var(--g-text-primary); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
-.admin-agent-action-hint { margin: 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
-.admin-agent-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.admin-agent-action-buttons .g-btn { min-height: 36px; }
-.admin-agent-action-result { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12px; line-height: 1.5; }
-.admin-agent-action-result.is-success { color: var(--g-success); }
-.admin-agent-action-result.is-error { color: var(--g-danger); }
-.admin-agent-action-result.is-muted { color: var(--g-text-secondary); }
-.admin-agent-details { display: grid; gap: 11px; margin-top: 10px; padding: 12px; border: 1px dashed var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-subtle); }
-.admin-agent-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.admin-agent-detail-grid span { display: grid; gap: 3px; min-width: 0; }
-.admin-agent-detail-grid small { color: var(--g-text-secondary); font-size: 10px; }
-.admin-agent-detail-grid strong,.admin-agent-detail-grid code { color: var(--g-text-primary); font-size: 11px; overflow-wrap: anywhere; }
-.admin-agent-evidence { display: grid; gap: 7px; }
-.admin-agent-evidence > strong,.admin-agent-audit > strong { font-size: 11px; }
-.admin-agent-evidence ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.admin-agent-evidence li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 7px; align-items: center; }
-.admin-agent-evidence li > span { width: fit-content; padding: 2px 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 9px; }
-.admin-agent-evidence li b { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.admin-agent-evidence li small { grid-column: 2; color: var(--g-text-secondary); font-size: 10px; }
-.admin-agent-audit { display: grid; gap: 6px; }
-.admin-agent-audit article { display: grid; gap: 3px; padding: 7px; border-radius: 8px; background: var(--g-bg-surface); }
-.admin-agent-audit article b { font-size: 10px; }
-.admin-agent-audit article code,.admin-agent-audit article small { color: var(--g-text-secondary); font-size: 9px; overflow-wrap: anywhere; }
-.admin-agent-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin: 0 16px 15px; padding: 10px 11px 7px 15px; border: 1px solid var(--g-border); border-radius: 17px; background: var(--g-bg-base); }
-.admin-agent-composer:focus-within { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 14%, transparent); }
-.admin-agent-composer textarea { width: 100%; min-height: 25px; max-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--g-text-primary); font: inherit; font-size: 14px; line-height: 1.55; }
-.admin-agent-composer textarea::placeholder { color: var(--g-text-tertiary); }
-.admin-agent-send-button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 12px; background: var(--g-primary); color: #fff; cursor: pointer; }
-.admin-agent-send-button:disabled { opacity: .45; cursor: not-allowed; }
-.admin-agent-send-button .material-symbols-outlined { font-size: 18px; }
-.admin-agent-composer > small { grid-column: 1 / -1; color: var(--g-text-tertiary); font-size: 10px; }
-.admin-agent-typing { display: flex; align-items: center; gap: 4px; margin: 0 0 14px 33px; color: var(--g-text-secondary); font-size: 11px; }
-.admin-agent-typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--g-primary); animation: admin-agent-bounce 1.2s infinite ease-in-out; }
-.admin-agent-typing span:nth-child(2) { animation-delay: .15s; }.admin-agent-typing span:nth-child(3) { animation-delay: .3s; }
-@keyframes admin-agent-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
-.admin-agent-typing small { margin-left: 5px; }
-.admin-agent-inline-error { display: flex; align-items: center; gap: 7px; margin: 14px 16px 0; padding: 9px 11px; border-radius: 10px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 12px; }
-.admin-agent-drawer-backdrop { position: fixed; z-index: 150; inset: var(--g-header-height, 64px) 0 0; background: rgba(15, 23, 42, .28); }
-.admin-agent-history-drawer { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; width: min(380px, 90vw); height: 100%; border-left: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); box-shadow: -12px 0 32px rgba(15, 23, 42, .14); }
-.admin-agent-history-drawer > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 22px 18px 16px; border-bottom: 1px solid var(--g-border-subtle); }
-.admin-agent-history-drawer > header strong,.admin-agent-history-drawer > header small { display: block; }.admin-agent-history-drawer > header strong { font-size: 18px; }.admin-agent-history-drawer > header small { margin-top: 4px; color: var(--g-text-secondary); font-size: 11px; }
-.admin-agent-history-list { flex: 1; overflow-y: auto; padding: 10px; }
-.admin-agent-history-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; width: 100%; padding: 12px 10px; border: 0; border-radius: 11px; background: transparent; color: var(--g-text-primary); font: inherit; text-align: left; cursor: pointer; }
-.admin-agent-history-item:hover,.admin-agent-history-item.active { background: var(--g-primary-bg); }.admin-agent-history-item > span:last-child { display: grid; gap: 4px; min-width: 0; }.admin-agent-history-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }.admin-agent-history-item small { color: var(--g-text-secondary); font-size: 10px; }
-.admin-agent-history-delete { display: grid; width: 26px; height: 26px; place-items: center; align-self: center; border: 0; border-radius: 8px; background: transparent; color: var(--g-text-tertiary); cursor: pointer; transition: background .18s ease, color .18s ease; }
-.admin-agent-history-delete:hover { background: var(--g-danger-bg); color: var(--g-danger); }
-.admin-agent-history-delete:disabled { opacity: .4; cursor: default; }
-.admin-agent-history-icon { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 10px; background: var(--g-bg-subtle); color: var(--g-primary); }
-.admin-agent-history-empty { display: grid; justify-items: center; align-content: center; flex: 1; gap: 8px; color: var(--g-text-secondary); text-align: center; }.admin-agent-history-empty > .material-symbols-outlined { font-size: 32px; color: var(--g-text-tertiary); }.admin-agent-history-empty p { margin: 0; color: var(--g-text-primary); font-size: 14px; }.admin-agent-history-empty small { font-size: 11px; }
-.admin-agent-history-drawer > footer { padding: 14px 16px 18px; border-top: 1px solid var(--g-border-subtle); }.admin-agent-history-drawer > footer .g-btn { width: 100%; justify-content: center; }
 
 @media (max-width: 900px) {
-  .admin-agent-page-header { flex-direction: column; }
-  .admin-agent-toolbar { justify-content: flex-start; }
-  .admin-agent-chat-card { min-height: calc(100vh - 255px); max-height: calc(100vh - 210px); }
 }
 @media (max-width: 560px) {
-  .admin-agent-message-list { padding: 20px 13px 14px; }
-  .admin-agent-empty-state { min-height: 390px; padding-top: 55px; }
-  .admin-agent-shortcuts { grid-template-columns: 1fr; }
-  .admin-agent-user-bubble { max-width: 88%; }
-  .admin-agent-action-facts,.admin-agent-detail-grid { grid-template-columns: 1fr 1fr; }
-  .admin-agent-toolbar { width: 100%; }
-  .admin-agent-plot-picker { flex: 1 1 180px; }.admin-agent-plot-picker select { max-width: none; flex: 1; }
-  .admin-agent-toolbar .g-btn { flex: 1 1 auto; justify-content: center; }
 }
 @media (max-width: 390px) {
-  .admin-agent-page-header { gap: 12px; }.admin-agent-title-icon { width: 36px; height: 36px; border-radius: 11px; font-size: 20px; }
-  .admin-agent-title-row h2 { font-size: 21px; }.admin-agent-title-row .role-summary { font-size: 11px; }
-  .admin-agent-toolbar { gap: 6px; }.admin-agent-service-status { order: 3; }.admin-agent-plot-picker { flex-basis: 100%; }
-  .admin-agent-chat-card { min-height: calc(100vh - 275px); max-height: calc(100vh - 230px); border-radius: 14px; }
-  .admin-agent-composer { margin: 0 9px 10px; padding-left: 11px; border-radius: 14px; }
-  .admin-agent-history-drawer { width: 100%; }.admin-agent-action-facts,.admin-agent-detail-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
@@ -4185,12 +4351,6 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 }
 
 /* --- Admin Agent: missing pieces --- */
-.admin-agent-workspace { min-height: calc(100vh - var(--g-header-height, 64px) - 40px); display: flex; flex-direction: column; }
-.admin-agent-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.admin-agent-toolbar-count { display: inline-grid; min-width: 18px; height: 18px; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--g-primary-bg); color: var(--g-primary); font-size: 10px; }
-.admin-agent-send-button .admin-btn-spin { animation: admin-agent-btn-spin 0.75s linear infinite; }
-@keyframes admin-agent-btn-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .admin-agent-send-button .admin-btn-spin { animation-duration: 1.6s; } }
 
 /* Crop photography is an explicit presentation preference.  The default
    neutral surface must remove both the image and its dark readability mask;
@@ -4244,4 +4404,35 @@ html[data-plot-background="crop"] .admin-plot-card {
 
 html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
   background-image: linear-gradient(180deg, rgba(9, 29, 22, .18) 0%, rgba(9, 29, 22, .36) 54%, rgba(9, 29, 22, .64) 100%), var(--plot-background, none);
+}
+
+/* AI 状态徽标与降级提示（智能模型运行模式） */
+.admin-ai-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: 1px;
+}
+.admin-ai-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.admin-ai-status.online { color: var(--g-success); background: color-mix(in srgb, var(--g-success) 14%, transparent); }
+.admin-ai-status.offline { color: var(--g-danger); background: color-mix(in srgb, var(--g-danger) 14%, transparent); }
+.admin-ai-status.degraded { color: var(--g-warning, #d97706); background: color-mix(in srgb, var(--g-warning, #d97706) 14%, transparent); }
+.admin-ai-degrade-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--g-warning, #d97706) 42%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--g-warning, #d97706) 10%, transparent);
+  color: var(--g-warning, #d97706);
+  font-size: 12px;
+  line-height: 1.5;
 }

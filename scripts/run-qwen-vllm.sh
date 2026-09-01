@@ -32,9 +32,18 @@ args=(
   --max-num-seqs "${QWEN_MAX_NUM_SEQS:-8}"
   --max-num-batched-tokens "${QWEN_MAX_NUM_BATCHED_TOKENS:-8192}"
   --attention-config "{\"backend\":\"${QWEN_ATTENTION_BACKEND:-TRITON_ATTN}\"}"
-  --language-model-only
   --trust-remote-code
 )
+
+if [[ "${QWEN_LANGUAGE_MODEL_ONLY:-false}" == "true" ]]; then
+  args+=(--language-model-only)
+else
+  # Qwen3.8 includes a native vision tower. Keep the request surface bounded
+  # while allowing the three role workspaces to send up to four field photos.
+  MM_LIMITS="${QWEN_LIMIT_MM_PER_PROMPT:-}"
+  [[ -n "$MM_LIMITS" ]] || MM_LIMITS='{"image":4,"video":0}'
+  args+=(--limit-mm-per-prompt "$MM_LIMITS")
+fi
 
 if [[ "${QWEN_ENABLE_LORA:-false}" == "true" && -f "$LORA_PATH/adapter_config.json" ]]; then
   args+=(--enable-lora --lora-modules "$LORA_NAME=$LORA_PATH" --max-lora-rank "${QWEN_MAX_LORA_RANK:-16}" --max-loras 1)

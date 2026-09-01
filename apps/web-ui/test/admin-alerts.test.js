@@ -21,7 +21,7 @@ const {
   finalizedAssignedTask,
   finalizedClosedAlert
 } = await import('../js/admin-alerts.js');
-const { api } = await import('../js/api.js?v=20260831-three-branch-v1');
+const { api } = await import('../js/api.js?v=20260831-sync-v1');
 const { MOCK_DATA } = await import('../js/mock-data.js');
 
 test('AI 派单只选择在岗且有地块权限的农户', () => {
@@ -105,6 +105,38 @@ test('告警页面保留卡片详情结构并提供新的批量入口', () => {
   assert.doesNotMatch(AdminAlertCenter.template, /确认收到|升级处理|转成任务|一键下发任务/);
   assert.doesNotMatch(AdminAlertCenter.template, /<h2/);
   assert.doesNotMatch(AdminAlertCenter.template, /aria-label="关闭"\s+:disabled="busyKey/);
+});
+
+test('告警批量智能处理和核查发布必须先选择告警', async () => {
+  const originals = {
+    evaluateDiagnosis: api.evaluateDiagnosis,
+    getStrategyPreview: api.getStrategyPreview
+  };
+  const state = {
+    sessionMode: 'demo',
+    adminContext: { farmId: 'farm-demo' },
+    alerts: [{ alertId: 'alert-selection', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'HIGH' }],
+    workOrders: [],
+    farmMembers: []
+  };
+  let diagnosisCalls = 0;
+  try {
+    api.evaluateDiagnosis = async () => { diagnosisCalls += 1; return { confidence: 0.4, primaryCause: 'WATER_DEFICIT' }; };
+    api.getStrategyPreview = async () => ({ matched: false, candidate: {} });
+    const view = AdminAlertCenter.setup({ state }, { emit: () => {} });
+
+    await view.aiProcess();
+    await view.publishVerificationTasks();
+    assert.equal(diagnosisCalls, 0, '未选择时不能触发批量 AI 处理');
+    assert.match(AdminAlertCenter.template, /:disabled="busyKey !== '' \|\| !selectedAlerts\.length"/);
+    assert.doesNotMatch(AdminAlertCenter.template, /!selectedAlerts\.length && !reviewCount/);
+
+    view.selectedIds.value = ['alert-selection'];
+    await view.aiProcess();
+    assert.equal(diagnosisCalls, 1, '选中后只处理所选告警');
+  } finally {
+    Object.assign(api, originals);
+  }
 });
 
 test('演示告警覆盖自动下发和多种人工审核场景', () => {

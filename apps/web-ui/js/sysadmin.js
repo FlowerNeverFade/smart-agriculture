@@ -1,19 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-ai-role-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-three-branch-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-three-branch-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-three-branch-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-three-branch-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-three-branch-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-three-branch-v1';
-import { cropBackgroundFor } from './plot-background.js?v=20260831-ai-presentation-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-three-branch-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-ai-role-v1';
+} from './live-data.js?v=20260831-sync-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -63,90 +63,6 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 const initialUserSettings = readUserSettings();
 applyUserSettings(initialUserSettings);
 
-const ICON_CLASS = Object.freeze({
-  dashboard: 'ph-squares-four',
-  warning_amber: 'ph-warning',
-  warning: 'ph-warning',
-  timeline: 'ph-chart-line-up',
-  task_alt: 'ph-clipboard-text',
-  task: 'ph-check-square',
-  water_drop: 'ph-drop',
-  group: 'ph-users',
-  menu_book: 'ph-book-open',
-  arrow_back: 'ph-arrow-left',
-  arrow_forward: 'ph-arrow-right',
-  monitoring: 'ph-monitor',
-  dns: 'ph-hard-drives',
-  gavel: 'ph-gavel',
-  science: 'ph-flask',
-  rule_folder: 'ph-folder-notch',
-  admin_panel_settings: 'ph-user-gear',
-  library_books: 'ph-books',
-  account_balance_wallet: 'ph-wallet',
-  menu: 'ph-list',
-  light_mode: 'ph-sun',
-  dark_mode: 'ph-moon',
-  logout: 'ph-sign-out',
-  error: 'ph-x-circle',
-  check_circle: 'ph-check-circle',
-  save: 'ph-floppy-disk',
-  add_task: 'ph-note-pencil',
-  calendar_today: 'ph-calendar-check',
-  schedule: 'ph-clock',
-  person_add: 'ph-user-plus',
-  thermometer: 'ph-thermometer-simple',
-  humidity: 'ph-drop-half-bottom',
-  eco: 'ph-leaf',
-  rainy: 'ph-cloud-rain',
-  soil_ec: 'ph-wave-sine',
-  nutrition: 'ph-plant',
-  remove_circle_outline: 'ph-minus-circle',
-  close: 'ph-x',
-  psychology: 'ph-brain',
-  receipt_long: 'ph-receipt',
-  bolt: 'ph-lightning',
-  policy: 'ph-shield-check',
-  smart_toy: 'ph-robot',
-  head_circuit: 'ph-head-circuit',
-  auto_awesome: 'ph-sparkle',
-  hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt',
-  analytics: 'ph-chart-line-up',
-  fact_check: 'ph-clipboard-text',
-  record_voice_over: 'ph-user-focus',
-  group_off: 'ph-user-minus',
-  refresh: 'ph-arrows-clockwise',
-  block: 'ph-prohibit',
-  psychiatry: 'ph-leaf',
-  info: 'ph-info',
-  more_vertical: 'ph-dots-three-vertical',
-  edit: 'ph-pencil-simple',
-  delete: 'ph-trash',
-  add: 'ph-plus',
-  expand_more: 'ph-caret-down',
-  expand_less: 'ph-caret-up',
-  lock_reset: 'ph-lock-key-open',
-  help: 'ph-question',
-  login: 'ph-sign-in',
-  update: 'ph-arrow-up',
-  settings: 'ph-gear',
-  sync: 'ph-arrows-clockwise',
-  notifications_active: 'ph-bell',
-  notifications: 'ph-bell',
-  sensors: 'ph-broadcast',
-  grid_view: 'ph-squares-four',
-  play_arrow: 'ph-play',
-  stop: 'ph-stop',
-  category: 'ph-tag',
-  compare_arrows: 'ph-arrows-left-right',
-  replay: 'ph-arrow-counter-clockwise',
-  speed: 'ph-gauge',
-  agriculture: 'ph-plant',
-  manage_accounts: 'ph-user-gear',
-  tune: 'ph-sliders',
-  history: 'ph-clock-counter-clockwise',
-  chevron_right: 'ph-caret-right'
-});
 
 const AppIcon = {
   props: { name: { type: String, default: 'check_circle' } },
@@ -437,6 +353,11 @@ function liveStatusValue(status, fallback = 'UNKNOWN') {
 function aiServiceStatus(mode) {
   const m = String(mode || '').trim().toLowerCase();
   if (!m) return 'UNKNOWN';
+  // 后端 AI 连通性探测结果：UP / DEGRADED / DOWN
+  if (m === 'up') return 'UP';
+  if (['down', 'error', 'unavailable', 'offline'].includes(m)) return 'DOWN';
+  if (['degraded'].includes(m)) return 'DEGRADED';
+  // 兼容旧语义（配置模式）：openai 系视为 UP，其余（rules-only/mock/maxkb）视为降级
   if (['openai', 'openai-compatible', 'full'].includes(m)) return 'UP';
   return 'DEGRADED';
 }
@@ -469,7 +390,7 @@ function adminServiceCards(systemStatus = {}) {
     { name: 'MQTT 消息代理', status: systemStatus.mqtt, latencyMs: systemStatus.mqttLatencyMs },
     { name: 'SSE 实时推送', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
     { name: '接口服务', status: 'UP', latencyMs: systemStatus.requestLatencyMs },
-    { name: '智能模型服务', status: aiServiceStatus(systemStatus.ai), isAi: true, mode: systemStatus.ai === 'openai-compatible' ? 'full' : systemStatus.ai }
+    { name: '智能模型服务', status: aiServiceStatus(systemStatus.ai), isAi: true, mode: systemStatus.aiMode || (systemStatus.ai === 'openai-compatible' ? 'full' : systemStatus.ai) }
   ];
   return entries.map(({ name, status, isAi = false, latencyMs, mode }) => ({
     name,
@@ -511,6 +432,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
+    ai: systemStatus.ai,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
     devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
@@ -767,7 +689,13 @@ const AdminOpsView = {
       }
     };
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText };
+    // 设备心跳与告警列表分页
+    const devicePage = usePagination(filteredDevices);
+    const alertPage = usePagination(filteredAlerts);
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText,
+      devicePageSize: devicePage.pageSize, devicePageSizeOptions: devicePage.pageSizeOptions, deviceCurrentPage: devicePage.currentPage, deviceJumpInput: devicePage.jumpInput, deviceTotalRecords: devicePage.totalRecords, deviceTotalPages: devicePage.totalPages, devicePageRecords: devicePage.pageRecords, devicePrevPage: devicePage.prevPage, deviceNextPage: devicePage.nextPage, deviceChangeSize: devicePage.changeSize, deviceJumpTo: devicePage.jumpTo,
+      alertPageSize: alertPage.pageSize, alertPageSizeOptions: alertPage.pageSizeOptions, alertCurrentPage: alertPage.currentPage, alertJumpInput: alertPage.jumpInput, alertTotalRecords: alertPage.totalRecords, alertTotalPages: alertPage.totalPages, alertPageRecords: alertPage.pageRecords, alertPrevPage: alertPage.prevPage, alertNextPage: alertPage.nextPage, alertChangeSize: alertPage.changeSize, alertJumpTo: alertPage.jumpTo };
   }
 };
 
@@ -1215,9 +1143,13 @@ const AdminRulesView = {
         savingPack.value = false;
       }
     };
-    const canDeletePack = (pack) => !pack?.builtIn && String(pack?.sourceMode || '').toUpperCase() === 'USER_MANAGED';
-    const deletePack = async (pack) => {
-      if (savingPack.value || !confirm(`确定删除作物包“${pack.name}”吗？内置版本不会被物理删除。`)) return;
+    const canDeletePack = (pack) => !!(pack?.cropCode || pack?.id);
+    const pendingDeletePack = ref(null);
+    const requestDeletePack = (pack) => { if (savingPack.value) return; pendingDeletePack.value = pack; };
+    const confirmDeletePack = async () => {
+      const pack = pendingDeletePack.value;
+      if (!pack) return;
+      pendingDeletePack.value = null;
       savingPack.value = true;
       try {
         const key = packKey(pack);
@@ -1282,11 +1214,18 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
+    // 规则集与策略候选列表分页
+    const rulesList = computed(() => props.state.adminRules || []);
+    const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
+    const rulePage = usePagination(rulesList);
+    const candidatePage = usePagination(candidatesList);
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
-      deletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
-      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText
+      pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText,
+      rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
+      candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };
   }
 };
@@ -1301,11 +1240,9 @@ const SettingsView = {
   props: ['state'],
   emits: ['settings-changed'],
   setup(props, { emit }) {
-    const toast = inject('toast');
     const settings = ref(readUserSettings());
     const accentOptions = ACCENT_OPTIONS;
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
-    const plotBackgroundOptions = PLOT_BACKGROUND_OPTIONS;
     const themeOptions = [
       { value: 'light', label: '白色', hint: '清爽明亮，适合日常工作（默认）' },
       { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
@@ -1316,320 +1253,25 @@ const SettingsView = {
     const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '白色');
     const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-    const plotBackgroundLabel = computed(() => plotBackgroundOptions.find((item) => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const updateSetting = (key, value) => {
       const next = saveUserSettings({ ...settings.value, [key]: value });
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
-        toast(`${labels[key]}已更新`);
-      }
     };
     const resetSettings = () => {
       const next = saveUserSettings(DEFAULT_USER_SETTINGS);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast('工作台设置已恢复默认');
     };
     return {
-      settings, accentOptions, surfaceStyleOptions, plotBackgroundOptions, themeOptions, refreshOptions,
-      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, plotBackgroundLabel, updateSetting, resetSettings
+      settings, accentOptions, surfaceStyleOptions, themeOptions, refreshOptions,
+      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings
     };
   }
 };
 
-
-const AdminAgentView = {
-  template: '#tmpl-admin-agent',
-  props: ['state', 'routeParams'],
-  setup(props) {
-    const isLiveSession = computed(() => props.state?.sessionMode === 'live');
-    const currentRole = computed(() => props.state?.currentUser?.role || 'SYSTEM_ADMIN');
-    const rolePresentation = computed(() => agentRolePresentation(currentRole.value));
-    const assistant_input = ref('');
-    const assistant_messages = ref([]);
-    const assistant_conversations = ref([]);
-    const assistant_conversation_id = ref('');
-    const assistant_drawer_open = ref(false);
-    const assistant_busy = ref(false);
-    const assistant_error = ref('');
-    const assistant_service_status = ref(isLiveSession.value ? 'CONNECTING' : 'DEMO');
-    const assistant_plot_id = ref('');
-    const assistant_message_list = ref(null);
-    const assistant_shortcuts = computed(() => rolePresentation.value.shortcutQuestions);
-
-    // 系统管理员视角：可跨农场选择任意地块进行排查
-    const agentPlots = computed(() => {
-      const plots = props.state?.adminGlobalPlots || props.state?.allPlots || [];
-      return Array.isArray(plots) ? plots : [];
-    });
-    watch(agentPlots, (plots) => {
-      if (!assistant_plot_id.value && plots.length) assistant_plot_id.value = plots[0].plotId;
-    }, { immediate: true });
-
-    const assistant_create_conversation_id = () => {
-      const identity = String(props.state?.currentUser?.userId || props.state?.currentUser?.username || 'sysadmin')
-        .replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 42) || 'sysadmin';
-      return `conversation-${identity}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.slice(0, 116);
-    };
-    const assistant_service_label = computed(() => ({
-      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示规则'
-    }[assistant_service_status.value] || '服务状态未知'));
-    const assistant_service_tone = computed(() => assistant_service_status.value === 'DEGRADED' ? 'is-degraded' : assistant_service_status.value === 'DEMO' ? 'is-demo' : 'is-ready');
-    const assistant_source_label = computed(() => isLiveSession.value ? (assistant_service_status.value === 'DEGRADED' ? '规则降级回答' : '后端智能服务') : '演示规则');
-
-    const scrollToBottom = () => {
-      setTimeout(() => {
-        if (assistant_message_list.value) {
-          assistant_message_list.value.scrollTop = assistant_message_list.value.scrollHeight;
-        }
-      }, 50);
-    };
-
-    const find_agent_plot = (plotId) => agentPlots.value.find((p) => p.plotId === plotId) || null;
-
-    const send_assistant_message = async () => {
-      const question = assistant_input.value.trim();
-      if (!question || assistant_busy.value) return;
-      if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
-      const plot_id = assistant_plot_id.value || agentPlots.value[0]?.plotId || '';
-      const plot = find_agent_plot(plot_id);
-      assistant_messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: question, plotId: plot_id });
-      assistant_input.value = '';
-      assistant_busy.value = true;
-      assistant_error.value = '';
-      try {
-        const response = await api.agentChat(question, plot_id || undefined, assistant_conversation_id.value);
-        const turn = normalizeAgentTurn(response, question, { plot, role: props.state?.currentUser?.role || 'SYSTEM_ADMIN', sessionMode: isLiveSession.value ? 'live' : 'demo' });
-        const audit = await api.getAgentRun(response?.traceId || `demo-${Date.now()}`).catch(() => null);
-        assistant_messages.value.push({
-          id: `assistant-${response?.traceId || Date.now()}`,
-          role: 'assistant',
-          content: turn.answer,
-          sourceLabel: turn.sourceLabel,
-          degraded: turn.degraded,
-          intentLabel: turn.intentLabel,
-          facts: turn.facts || [],
-          recommendations: turn.recommendations || [],
-          turn,
-          actionProposal: turn.actionProposal || response?.actionProposal || null,
-          audit,
-          detailsOpen: false
-        });
-        assistant_service_status.value = turn.degraded ? 'DEGRADED' : (isLiveSession.value ? 'READY' : 'DEMO');
-        await load_assistant_conversations({ openRecent: false });
-      } catch (error) {
-        assistant_service_status.value = isLiveSession.value ? 'DEGRADED' : 'DEMO';
-      assistant_error.value = `智能助手暂不可用：${error.message || '后端服务错误'}`;
-      } finally {
-        assistant_busy.value = false;
-        scrollToBottom();
-      }
-    };
-
-    const ask_assistant_shortcut = (question) => {
-      assistant_input.value = question;
-      void send_assistant_message();
-    };
-
-    const assistant_keydown = (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        void send_assistant_message();
-      }
-    };
-
-    const toggle_assistant_details = (msg) => {
-      msg.detailsOpen = !msg.detailsOpen;
-    };
-
-    const start_assistant_conversation = () => {
-      assistant_conversation_id.value = assistant_create_conversation_id();
-      assistant_messages.value = [];
-      assistant_input.value = '';
-      assistant_error.value = '';
-      assistant_drawer_open.value = false;
-    };
-
-    const load_assistant_conversations = async ({ openRecent = true } = {}) => {
-      try {
-        assistant_service_status.value = isLiveSession.value ? 'CONNECTING' : 'DEMO';
-        const list = await api.getAgentConversations(20);
-        assistant_conversations.value = Array.isArray(list) ? list : [];
-        assistant_error.value = '';
-        assistant_service_status.value = isLiveSession.value ? 'READY' : 'DEMO';
-        if (openRecent && assistant_conversations.value.length && !assistant_messages.value.length) {
-          await select_assistant_conversation(assistant_conversations.value[0].conversationId);
-        }
-        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
-      } catch (error) {
-        assistant_service_status.value = isLiveSession.value ? 'DEGRADED' : 'DEMO';
-        assistant_error.value = `历史对话暂不可用：${error.message || '服务异常'}`;
-        if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
-      }
-    };
-
-    const assistant_history_message = (item, question) => {
-      const response = {
-        narrative: item.content,
-        summary: item.content,
-        intent: item.intent,
-        traceId: item.traceId,
-        adapter: item.adapter,
-        degraded: item.degraded,
-        knowledgeEvidence: item.knowledgeEvidence,
-        actionProposal: item.actionProposal,
-        agentRole: item.agentRole,
-        role: item.agentRole,
-        roleLabel: item.roleLabel,
-        roleProfile: item.roleProfile,
-        result: item.result,
-        plan: item.plan,
-        diagnosis: item.diagnosis,
-        workItems: item.workItems,
-        context: item.context,
-        confidence: item.confidence,
-        readiness: item.readiness,
-        warnings: item.warnings,
-        scenarioLabel: item.scenarioLabel
-      };
-      const plot = find_agent_plot(item.plotId || assistant_plot_id.value);
-      const turn = normalizeAgentTurn(response, question, { plot, role: props.state?.currentUser?.role || 'SYSTEM_ADMIN', sessionMode: isLiveSession.value ? 'live' : 'demo' });
-      return {
-        id: item.messageId || `assistant-${Date.now()}-${Math.random()}`,
-        role: 'assistant',
-        content: turn.answer,
-        sourceLabel: turn.sourceLabel,
-        degraded: turn.degraded,
-        intentLabel: turn.intentLabel,
-        facts: turn.facts || [],
-        recommendations: turn.recommendations || [],
-        turn,
-        actionProposal: turn.actionProposal || item.actionProposal || null,
-        detailsOpen: false
-      };
-    };
-
-    const select_assistant_conversation = async (conversationId) => {
-      if (!conversationId || assistant_busy.value) return;
-      assistant_busy.value = true;
-      assistant_error.value = '';
-      try {
-        const payload = await api.getAgentHistory(conversationId, 100);
-        const rawMessages = Array.isArray(payload?.messages) ? payload.messages : [];
-        const next = [];
-        let latestQuestion = '';
-        rawMessages.forEach((item) => {
-          const role = String(item?.role || '').toUpperCase();
-          if (role === 'USER') {
-            latestQuestion = item.content || '';
-            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: item.content || '', plotId: item.plotId || '' });
-          } else if (role === 'ASSISTANT') {
-            next.push(assistant_history_message(item, latestQuestion));
-          }
-        });
-        assistant_messages.value = next;
-        assistant_conversation_id.value = conversationId;
-        if (payload?.conversation?.plotId) assistant_plot_id.value = payload.conversation.plotId;
-        assistant_drawer_open.value = false;
-      } catch (error) {
-        assistant_error.value = error.message || '历史消息读取失败';
-      } finally {
-        assistant_busy.value = false;
-        scrollToBottom();
-      }
-    };
-
-    const pendingDeleteConversation = ref(null);
-    const requestDeleteConversation = (conversation) => {
-      if (!conversation?.conversationId || assistant_busy.value) return;
-      pendingDeleteConversation.value = { conversationId: conversation.conversationId, title: conversation.title || '该历史对话' };
-    };
-    const confirmDeleteConversation = async () => {
-      const target = pendingDeleteConversation.value;
-      if (!target) return;
-      pendingDeleteConversation.value = null;
-      assistant_busy.value = true;
-      assistant_error.value = '';
-      try {
-        await api.deleteAgentConversation(target.conversationId);
-        assistant_conversations.value = assistant_conversations.value.filter((c) => c.conversationId !== target.conversationId);
-        if (assistant_conversation_id.value === target.conversationId) {
-          assistant_conversation_id.value = '';
-          assistant_messages.value = [];
-        }
-      } catch (error) {
-        assistant_error.value = error.message || '删除对话失败';
-      } finally {
-        assistant_busy.value = false;
-      }
-    };
-
-    const assistant_tool_labels = Object.freeze({
-      create_plot: '新增地块',
-      update_plot: '更新地块',
-      set_plot_devices: '绑定设备',
-      create_and_assign_work_order: '创建并下发任务',
-      publish_alert_verification: '发布告警核查',
-      close_alert: '关闭告警',
-      create_inspection_record: '提交巡田记录',
-      create_evidence_request: '申请补证任务',
-      execute_virtual_irrigation: '执行虚拟灌溉',
-      transition_assigned_work_order: '更新任务状态'
-    });
-    const assistant_action_status_labels = Object.freeze({
-      AWAITING_CONFIRMATION: '待确认', EXECUTING: '执行中', SUCCEEDED: '已完成',
-      FAILED: '失败', PARTIAL: '部分完成', TIMEOUT: '超时', CANCELED: '已取消', EXPIRED: '已过期'
-    });
-    const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
-    const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
-    const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
-    const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
-    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
-    const assistant_action_arguments = (proposal) => {
-      const summary = proposal?.argumentSummary || proposal?.argumentsSummary || proposal?.parameterSummary;
-      if (summary) return summary;
-      const args = proposal?.arguments || {};
-      const entries = Object.entries(args).filter(([key]) => !['farmId'].includes(key));
-      return entries.slice(0, 3).map(([key, value]) => `${key}=${value}`).join(' · ') || '参数已校验';
-    };
-    const assistant_action_expiry_label = (proposal) => {
-      const expires = new Date(proposal?.expiresAt || 0);
-      if (!Number.isFinite(expires.getTime()) || expires.getTime() < Date.now()) return '已过期';
-      const minutes = Math.max(1, Math.ceil((expires.getTime() - Date.now()) / 60000));
-      return `${minutes} 分钟内有效`;
-    };
-    const assistant_action_result = (proposal) => {
-      const result = proposal?.result || {};
-      if (proposal?.error) return proposal.error;
-      if (result?.ack?.status) return `虚拟执行/模拟结果：${assistant_action_status_label(result.ack.status)}`;
-      if (result?.status) return result.status === 'SUCCEEDED' ? '已写入记录' : assistant_action_status_label(result.status);
-      return result?.message || '已完成本次受控操作';
-    };
-
-    const agent_conversation_plot_label = (conversation) => conversation.plotId || '全局';
-    const agent_conversation_time = (conversation) => conversation.updatedAt || conversation.createdAt || '';
-
-    onMounted(() => { void load_assistant_conversations({ openRecent: false }); });
-
-    return {
-      assistant_input, assistant_messages, assistant_conversations, assistant_conversation_id,
-      assistant_drawer_open, assistant_busy, assistant_error, assistant_service_status,
-      assistant_plot_id, assistant_message_list, assistant_shortcuts, agentPlots, currentRole, rolePresentation,
-      agent_conversation_plot_label, agent_conversation_time,
-      assistant_service_label, assistant_service_tone, assistant_source_label,
-      assistant_action_tone, assistant_action_status_label, assistant_risk_label,
-      assistant_tool_label, assistant_source_label_for, assistant_action_arguments,
-      assistant_action_expiry_label, assistant_action_result,
-      send_assistant_message, ask_assistant_shortcut, assistant_keydown, toggle_assistant_details,
-      start_assistant_conversation, load_assistant_conversations, select_assistant_conversation,
-      pendingDeleteConversation, requestDeleteConversation, confirmDeleteConversation
-    };
-  }
-};
 
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
@@ -1647,6 +1289,13 @@ const AdminSettingsView = {
     // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
     const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
     const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
+    // AI 连接状态（探测结果）独立于模式显示；完整模式 + AI 离线 → 自动降级规则兜底
+    const aiStatus = computed(() => props.state.adminOverview?.ai || '');
+    const aiStatusText = computed(() => ({ UP: 'AI 在线', DOWN: 'AI 离线', DEGRADED: 'AI 降级' }[aiStatus.value] || ''));
+    const aiStatusClass = computed(() => aiStatus.value === 'UP' ? 'online' : aiStatus.value === 'DOWN' ? 'offline' : aiStatus.value === 'DEGRADED' ? 'degraded' : '');
+    const degradeNote = computed(() => (draftAiMode.value === 'full' && aiStatus.value && aiStatus.value !== 'UP')
+      ? `AI ${aiStatusText.value.replace('AI ', '')}，当前以规则兜底运行；AI 恢复后自动切回完整模式`
+      : '');
     watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
       if (mode) draftAiMode.value = mode;
     });
@@ -1688,6 +1337,11 @@ const AdminSettingsView = {
     const toggleUser = (user) => {
       pendingUserAction.value = { type: user.enabled ? 'disable' : 'enable', user };
     };
+
+    // 当前登录账号不可停用/删除（后端已有 ACCOUNT_SELF_DELETE_FORBIDDEN / MEMBER_SELF_STATUS_FORBIDDEN 防护，前端一并禁用）
+    const isCurrentUser = (userId) => !!userId && !!props.state?.currentUser && props.state.currentUser.userId === userId;
+    // 受保护账号 = 系统管理员角色（唯一的 SYSTEM_ADMIN 不可停用/删除）∪ 当前登录者
+    const isProtectedAccount = (user) => !!user && (user.role === 'SYSTEM_ADMIN' || isCurrentUser(user.userId));
 
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
@@ -1846,9 +1500,16 @@ const AdminSettingsView = {
           .replace('❌', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-danger)">cancel</span>')
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
+    // 账号列表与操作审计日志分页
+    const userPage = usePagination(filteredUsers);
+    const logPage = usePagination(filteredLogs);
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText
+      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      isCurrentUser, isProtectedAccount,
+      aiStatus, aiStatusText, aiStatusClass, degradeNote,
+      userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
+      logPageSize: logPage.pageSize, logPageSizeOptions: logPage.pageSizeOptions, logCurrentPage: logPage.currentPage, logJumpInput: logPage.jumpInput, logTotalRecords: logPage.totalRecords, logTotalPages: logPage.totalPages, logPageRecords: logPage.pageRecords, logPrevPage: logPage.prevPage, logNextPage: logPage.nextPage, logChangeSize: logPage.changeSize, logJumpTo: logPage.jumpTo
     };
   }
 };

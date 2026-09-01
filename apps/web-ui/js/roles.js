@@ -14,7 +14,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     description: '负责全场运营、任务安排、风险审批与资源调度。',
     avatar: '👑',
     defaultView: 'dashboard',
-    views: Object.freeze(['dashboard', 'work-orders', 'decision-console', 'ai-assistant', 'resource-coordination', 'farm-members', 'settings']),
+    views: Object.freeze(['dashboard', 'work-orders', 'decision-console', 'rules-strategies', 'ai-assistant', 'resource-coordination', 'farm-members', 'settings']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'inspection:create', 'work-order:manage',
       'irrigation:request', 'irrigation:execute', 'irrigation:approve', 'simulator:control', 'strategy:manage',

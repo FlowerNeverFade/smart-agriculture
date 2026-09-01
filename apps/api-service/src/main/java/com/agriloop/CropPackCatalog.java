@@ -81,6 +81,8 @@ class CropPackCatalog {
     private volatile List<Map<String, Object>> packs = List.of();
     /** Immutable baseline used to reveal a built-in pack after an override is deleted. */
     private volatile List<Map<String, Object>> builtInPacks = List.of();
+    /** 方案 A：被删除的内置包 key（cropCode@version），仅内存保存，重启后自动恢复。 */
+    private final java.util.Set<String> hiddenBuiltIn = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     CropPackCatalog(ObjectMapper mapper, AgriStore store) {
         this.mapper = mapper;
@@ -172,9 +174,13 @@ class CropPackCatalog {
         if (existing == null) {
             throw new ApiException(HttpStatus.NOT_FOUND, "CROP_PACK_NOT_FOUND", "没有找到要删除的作物包");
         }
-        if (Jsons.bool(existing, "builtIn", false)
-                || !"USER_MANAGED".equalsIgnoreCase(Jsons.text(existing, "sourceMode", ""))) {
-            throw new ApiException(HttpStatus.CONFLICT, "CROP_PACK_BUILTIN", "内置作物包不能删除，可编辑后作为版本覆盖");
+        boolean builtIn = Jsons.bool(existing, "builtIn", false)
+                || !"USER_MANAGED".equalsIgnoreCase(Jsons.text(existing, "sourceMode", ""));
+        if (builtIn) {
+            // 方案 A：内置包运行期移除（不删 classpath 源文件），重启后自动恢复
+            hiddenBuiltIn.add(packKey(normalizedCrop, normalizedVersion));
+            reloadManagedPacks();
+            return;
         }
         store.delete("crop-pack", packKey(normalizedCrop, normalizedVersion));
         reloadManagedPacks();
@@ -242,7 +248,9 @@ class CropPackCatalog {
     private List<Map<String, Object>> mergeManagedPacks(List<Map<String, Object>> base) {
         Map<String, Map<String, Object>> byKey = new LinkedHashMap<>();
         for (Map<String, Object> pack : base) {
-            byKey.put(packKey(Jsons.text(pack, "cropCode", ""), Jsons.text(pack, "version", "1.0.0")), Jsons.copy(mapper, pack));
+            String key = packKey(Jsons.text(pack, "cropCode", ""), Jsons.text(pack, "version", "1.0.0"));
+            if (hiddenBuiltIn.contains(key)) continue;
+            byKey.put(key, Jsons.copy(mapper, pack));
         }
         for (Map<String, Object> stored : store.list("crop-pack")) {
             String cropCode = Jsons.text(stored, "cropCode", "");
@@ -574,6 +582,25 @@ class CropPackCatalog {
                 || Jsons.text(stage, "code", "").equalsIgnoreCase(stageCode);
         Map<String, Object> target = Jsons.map(mapper, stage.get("target"));
         List<Map<String, Object>> effectiveRules = effectiveRules(pack, stage, target);
+        if (farmId != null && !farmId.isBlank()) {
+            String resolvedCrop = Jsons.text(pack, "cropCode", "");
+            String resolvedStage = Jsons.text(stage, "code", "");
+            for (Map<String, Object> custom : store.list("farm-rule-set").stream()
+                    .filter(rule -> farmId.equals(Jsons.text(rule, "farmId", "")))
+                    .filter(rule -> "ACTIVE".equalsIgnoreCase(Jsons.text(rule, "status", "ACTIVE")))
+                    .filter(rule -> {
+                        String crop = Jsons.text(rule, "cropCode", "");
+                        return crop.isBlank() || "全场作物".equals(crop) || crop.equalsIgnoreCase(resolvedCrop);
+                    })
+                    .filter(rule -> {
+                        String stageValue = Jsons.text(rule, "stageCode", "");
+                        return stageValue.isBlank() || "所有阶段".equals(stageValue) || stageValue.equalsIgnoreCase(resolvedStage);
+                    }).toList()) {
+                String code = Jsons.text(custom, "code", Jsons.text(custom, "ruleId", ""));
+                effectiveRules.removeIf(existing -> code.equalsIgnoreCase(Jsons.text(existing, "code", "")));
+                effectiveRules.add(Jsons.copy(mapper, custom));
+            }
+        }
         Map<String, Object> forecastProfile = Jsons.map(mapper, pack.get("forecastProfile"));
         Map<String, Object> healthProfile = Jsons.map(mapper, pack.get("healthProfile"));
         Map<String, Object> resolved = new LinkedHashMap<>();

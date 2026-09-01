@@ -1,13 +1,15 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-ai-role-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-three-branch-v1';
-import { presentRoleUser } from './roles.js?v=20260831-three-branch-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-perf-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
+import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-ai-presentation-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-ai-role-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-ai-presentation-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
 import {
   agentResponseSource,
   agentResponseText,
+  agentHistoryUserText,
   buildFarmerMessages,
   buildFarmerProfile,
   dueLabel,
@@ -26,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-ai-role-v1';
+} from './live-data.js?v=20260831-sync-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -37,32 +39,11 @@ applyUserSettings(initial_user_settings);
 // Keep farmer.html independent from the remote Google icon font.  The same
 // local Phosphor set is used by the shared admin shell, so icon geometry and
 // fallback behaviour stay consistent when the server has no internet access.
-const FARMER_ICON_CLASS = Object.freeze({
-  menu: 'ph-list', light_mode: 'ph-sun', dark_mode: 'ph-moon', logout: 'ph-sign-out',
-  expand_more: 'ph-caret-down', expand_less: 'ph-caret-up', close: 'ph-x',
-  agriculture: 'ph-plant', manage_accounts: 'ph-user-gear', admin_panel_settings: 'ph-user-gear',
-  today: 'ph-calendar-check', date_range: 'ph-calendar', lock_reset: 'ph-lock-key-open', help: 'ph-question',
-  dashboard: 'ph-squares-four', grass: 'ph-plant', task: 'ph-check-square', fact_check: 'ph-clipboard-text',
-  water_drop: 'ph-drop', forum: 'ph-chat-circle', apps: 'ph-squares-four', assignment: 'ph-clipboard-text',
-  error: 'ph-x-circle', warning: 'ph-warning', warning_amber: 'ph-warning', sync: 'ph-arrows-clockwise',
-  arrow_forward: 'ph-arrow-right', build_circle: 'ph-wrench', verified: 'ph-seal-check',
-  event_available: 'ph-calendar-check', psychology: 'ph-brain', timeline: 'ph-chart-line-up',
-  stop_circle: 'ph-stop-circle', water: 'ph-drop', check_circle: 'ph-check-circle', thumb_up: 'ph-thumbs-up',
-  edit_note: 'ph-note-pencil', schedule: 'ph-clock', history: 'ph-clock-counter-clockwise',
-  radio_button_checked: 'ph-check-circle', radio_button_unchecked: 'ph-circle', verified_user: 'ph-shield-check',
-  smart_toy: 'ph-robot', mark_email_unread: 'ph-envelope-open', auto_awesome: 'ph-sparkle',
-  insights: 'ph-chart-line-up', menu_book: 'ph-book-open', cloud_off: 'ph-cloud-slash', add_task: 'ph-note-pencil', assignment_late: 'ph-clipboard-text', info: 'ph-info',
-  science: 'ph-flask', wifi_off: 'ph-wifi-slash', check: 'ph-check', hourglass_empty: 'ph-hourglass',
-  send: 'ph-paper-plane-tilt', inbox: 'ph-tray', campaign: 'ph-megaphone', settings: 'ph-gear', sensors_off: 'ph-wifi-slash',
-  chevron_left: 'ph-caret-left', chevron_right: 'ph-caret-right', chat_bubble_outline: 'ph-chat-circle',
-  location_on: 'ph-map-pin', add: 'ph-plus', attach_file: 'ph-paperclip', image_search: 'ph-image-square',
-  bolt: 'ph-lightning', arrow_upward: 'ph-arrow-up'
-});
 
 const FarmerAppIcon = {
   props: { name: { type: String, default: 'check_circle' } },
   setup(props) {
-    const iconClass = computed(() => FARMER_ICON_CLASS[props.name] || 'ph-circle');
+    const iconClass = computed(() => ICON_CLASS[props.name] || 'ph-circle');
     return { iconClass };
   },
   template: '<span class="material-symbols-outlined ph" :class="iconClass" aria-hidden="true"></span>'
@@ -425,12 +406,20 @@ const READINESS_GATE_LABELS = Object.freeze({
   safetyLimit: '用水上限'
 });
 
+const MANUAL_GATE_LABELS = Object.freeze({
+  DATA_QUALITY: '数据质量',
+  DATA_CONFLICT: '数据冲突',
+  DEVICE_HEALTH: '设备状态',
+  DIAGNOSIS_EVIDENCE: '诊断证据',
+  DECISION_READINESS: '决策就绪度'
+});
+
 const EVIDENCE_LABELS = Object.freeze({
   FLOW_RATE_CALIBRATION: '检查流量计校准', PORTABLE_METER_COMPARISON: '使用便携仪复测',
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
   MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
   GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
-  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据'
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）'
 });
 
 function evidence_view(item, index = 0) {
@@ -1194,7 +1183,11 @@ const app = createApp({
 
     const farm = ref(is_formal_session ? {} : MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
-    const assigned_plots = is_formal_session ? [] : MOCK_DATA.plots.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
+    // The demo API hydrates browser-session effects before the app mounts.
+    // Read that snapshot here instead of rebuilding cards from MOCK_DATA, so
+    // a completed virtual irrigation remains visible after a full reload.
+    const demo_plot_source = is_formal_session ? [] : Array.from(api.demoPlots?.values?.() || MOCK_DATA.plots);
+    const assigned_plots = is_formal_session ? [] : demo_plot_source.filter((plot) => assigned_plot_names.has(plot.name)).map((plot) => ({
       ...plot,
       healthScore: compute_plot_health_score(plot)
     }));
@@ -2001,6 +1994,11 @@ const app = createApp({
         conflicts: (diagnosis.evidenceConflicts || []).map(evidence_view)
       };
     });
+    const advice_is_no_action = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return String(plan?.status || '').toUpperCase() === 'NO_ACTION';
+    });
     const advice_readiness_summary = computed(() => {
       const readiness = advice_readiness.value;
       if (!readiness) return null;
@@ -2023,10 +2021,45 @@ const app = createApp({
         canRequestReview: Boolean(irrigation_plan.value?.planId || advice_plan.value?.planId)
       };
     });
+    const manual_irrigation_fallback = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return plan?.manualFallback || null;
+    });
+    const manual_irrigation_available = computed(() => manual_irrigation_fallback.value?.available === true && !advice_is_no_action.value);
+    const manual_irrigation_limits = computed(() => manual_irrigation_fallback.value?.constraints || {
+      minWaterLitre: 0.1,
+      maxWaterLitre: 0,
+      maxDurationSeconds: 900,
+      flowRateLitresPerMinute: 18,
+      dailyRemainingLitres: 0,
+      resourceRemainingLitres: 0,
+      areaM2: Number(advice_plot.value?.areaM2 || 80)
+    });
+    const manual_irrigation_bypassed_gates = computed(() => (manual_irrigation_fallback.value?.bypassedGates || [])
+      .map((gate) => MANUAL_GATE_LABELS[gate] || READINESS_GATE_LABELS[gate] || gate));
+    const manual_irrigation_preview = computed(() => {
+      const plot = advice_plot.value;
+      const current = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+      const water = Number(manual_irrigation_water.value);
+      const area = Number(manual_irrigation_limits.value.areaM2 || plot?.areaM2 || 80);
+      const flow = Number(manual_irrigation_limits.value.flowRateLitresPerMinute || 18);
+      const validWater = Number.isFinite(water) && water > 0;
+      const delta = validWater && Number.isFinite(current) ? moistureDeltaFromWater(water, area) : null;
+      return {
+        current: Number.isFinite(current) ? current : null,
+        water: validWater ? water : null,
+        delta,
+        after: delta === null ? null : Number(Math.min(100, current + delta).toFixed(1)),
+        durationSeconds: validWater ? Math.max(1, Math.ceil(water / Math.max(1, flow) * 60)) : null
+      };
+    });
     const advice_execution_summary = computed(() => {
       const commands = advice_passport.value?.commands || [];
       const evaluations = advice_passport.value?.evaluations || [];
-      const directCommand = suggestion_result.value?.commandId ? suggestion_result.value : null;
+      const directCommand = manual_irrigation_result.value?.commandId
+        ? manual_irrigation_result.value
+        : suggestion_result.value?.commandId ? suggestion_result.value : null;
       const command = directCommand || commands[commands.length - 1] || null;
       const evaluation = command
         ? command.evaluation || evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
@@ -2121,6 +2154,8 @@ const app = createApp({
     const show_weather_controls = ref(false);
     const show_resource_allocation = ref(false);
     const show_suggestion_flow = ref(false);
+    const show_manual_irrigation = ref(false);
+    const show_no_action_reason = ref(false);
     const active_suggestion = ref(null);
     const suggestion_flow_stage = ref('VIEW');
     const suggestion_confirm_checked = ref(false);
@@ -2135,6 +2170,13 @@ const app = createApp({
     const suggestion_recovery_status = ref('');
     const suggestion_busy = ref(false);
     const suggestion_idempotency_key = ref('');
+    const manual_irrigation_stage = ref('FORM');
+    const manual_irrigation_water = ref('');
+    const manual_irrigation_confirmed = ref(false);
+    const manual_irrigation_result = ref(null);
+    const manual_irrigation_error = ref('');
+    const manual_irrigation_busy = ref(false);
+    const manual_irrigation_idempotency_key = ref('');
     const report_subscribed = ref(localStorage.getItem('agriloop-farmer-weekly-report') === 'true');
     const active_report_key = ref('daily');
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
@@ -2168,6 +2210,8 @@ const app = createApp({
     const irrigation_guard = ref(null);
     const automatic_watering_result = ref(null);
     const automatic_watering_busy = ref(false);
+    const automatic_watering_setting = ref(null);
+    const automatic_watering_setting_busy = ref(false);
     const advice_passport = ref(null);
     const evidence_request_busy = ref(false);
     const advice_loading = ref(false);
@@ -2199,12 +2243,16 @@ const app = createApp({
         ?? irrigation_guard.value?.automaticWatering?.threshold
         ?? irrigation_plan.value?.automaticWatering?.threshold
         ?? 10);
+      const enabled = automatic_watering_setting.value?.enabled
+        ?? irrigation_guard.value?.automaticWatering?.enabled
+        ?? irrigation_plan.value?.automaticWatering?.enabled
+        ?? true;
       const resultStatus = String(automatic_watering_result.value?.status || '').toUpperCase();
       const eligible = Number.isFinite(moisture) && moisture < threshold;
-      const status = resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
-      const statusLabel = { TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
-      const label = status === 'TRIGGERED' ? '已根据最新读数发起虚拟浇水' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
-      return { enabled: true, threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
+      const status = !enabled ? 'DISABLED' : resultStatus === 'TRIGGERED' ? 'TRIGGERED' : resultStatus === 'BLOCKED' ? 'BLOCKED' : eligible ? 'READY' : 'MONITORING';
+      const statusLabel = { DISABLED: '未开启', TRIGGERED: '已自动发起', BLOCKED: '已阻断', READY: '待触发', MONITORING: '监测中' }[status] || '监测中';
+      const label = !enabled ? '自动浇水未开启' : status === 'TRIGGERED' ? '已根据最新读数发起' : status === 'BLOCKED' ? '低湿度已识别，但安全校验未通过' : eligible ? '土壤偏干，达到自动浇水阈值' : '土壤含水量正常';
+      return { enabled: Boolean(enabled), threshold, moisture: Number.isFinite(moisture) ? moisture : null, eligible: Boolean(enabled) && eligible, status, statusLabel, label, plotId: plot?.plotId || '' };
     });
 
     // Keep the old QA names as local aliases for the existing advice helpers;
@@ -2848,17 +2896,13 @@ const app = createApp({
       show_toast(report_subscribed.value ? '已开启本机周报提醒（演示）' : '已关闭本机周报提醒');
     };
 
-    const update_user_setting = (key, value, announce = true) => {
+    const update_user_setting = (key, value) => {
       const next = saveUserSettings({ ...user_settings.value, [key]: value });
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
         start_live_polling();
-      }
-      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
-        show_toast(`${labels[key]}已更新`);
       }
     };
 
@@ -2868,7 +2912,6 @@ const app = createApp({
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (typeof start_live_polling === 'function') start_live_polling();
-      show_toast('工作台设置已恢复默认');
     };
 
     const toggle_theme = () => {
@@ -3017,17 +3060,29 @@ const app = createApp({
       return true;
     };
 
+    const telemetry_refresh_targets = (sourcePlots) => {
+      const source = Array.isArray(sourcePlots) ? sourcePlots : [];
+      const ids = new Set([selected_plot.value?.plotId].filter(Boolean));
+      if (current_view.value === 'advice') ids.add(advice_selected_plot.value?.plotId);
+      if (current_view.value === 'tools' && tools_tab.value === 'risk') ids.add(risk_tool_plot_id.value);
+      if (!ids.size && source[0]?.plotId) ids.add(source[0].plotId);
+      const matches = source.filter((plot) => ids.has(plot.plotId));
+      return matches.length ? matches : source.slice(0, 1);
+    };
+
     const refresh_plot_telemetry = async () => {
       if (!is_formal_session || !plots.value.length) return false;
       const snapshot = plots.value.slice();
-      const telemetryResults = await Promise.allSettled(snapshot.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+      const targets = telemetry_refresh_targets(snapshot);
+      const telemetryResults = await Promise.allSettled(targets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
       if (!plots.value.length) return false;
-      const nextPlots = snapshot.map((plot, index) => {
+      const refreshed = new Map(targets.map((plot, index) => {
         const result = telemetryResults[index];
-        if (result?.status !== 'fulfilled') return plot;
+        if (result?.status !== 'fulfilled') return [plot.plotId, plot];
         const merged = mergePlotTelemetryWindow(plot, result.value || []);
-        return { ...merged, healthScore: compute_plot_health_score(merged) };
-      });
+        return [plot.plotId, { ...merged, healthScore: compute_plot_health_score(merged) }];
+      }));
+      const nextPlots = snapshot.map((plot) => refreshed.get(plot.plotId) || plot);
       // Preserve references when the farmer is reading messages; only swap plots.
       replace_ref_array(plots, nextPlots);
       selected_plot.value = nextPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || nextPlots[0] || null;
@@ -3101,9 +3156,15 @@ const app = createApp({
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         if (showProgress) set_workspace_progress(52, '正在同步地块遥测…');
-        const telemetryResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
-        normalizedPlots = normalizedPlots.map((plot, index) => {
-          const result = telemetryResults[index];
+        // The overview already contains each plot's latest values. Blocking
+        // the first screen on one 120-point history request per plot turned a
+        // 20-plot farm into several browser connection batches. Load only the
+        // active plot's chart window now; other plots load when selected.
+        const initialTelemetryTargets = telemetry_refresh_targets(normalizedPlots);
+        const telemetryResults = await Promise.allSettled(initialTelemetryTargets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+        const telemetryByPlot = new Map(initialTelemetryTargets.map((plot, index) => [plot.plotId, telemetryResults[index]]));
+        normalizedPlots = normalizedPlots.map((plot) => {
+          const result = telemetryByPlot.get(plot.plotId);
           if (result?.status !== 'fulfilled') return plot;
           const merged = mergePlotTelemetryWindow(plot, result.value || []);
           return { ...merged, healthScore: compute_plot_health_score(merged) };
@@ -3111,8 +3172,8 @@ const app = createApp({
         if (showProgress) set_workspace_progress(78, '正在整理巡田与消息…');
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
-        const inspectionResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getInspections(plot.plotId)));
-        const records = Array.from(new Map(inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((record) => [record.inspectionId, {
+        const inspectionResult = await Promise.allSettled([api.getInspections()]);
+        const records = Array.from(new Map((inspectionResult[0]?.status === 'fulfilled' ? inspectionResult[0].value || [] : []).map((record) => [record.inspectionId, {
           ...record,
           plotName: plotMap.get(String(record.plotId))?.name || record.plotId
         }])).values()).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
@@ -3263,7 +3324,7 @@ const app = createApp({
       // from missed events and keep secondary resources (tasks, inspections,
       // crop batches and device state) current as well.
       const refresh_ms = Math.max(5000, Number(user_settings.value.refreshInterval || 15) * 1000);
-      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, Math.min(5000, refresh_ms));
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, refresh_ms);
       live_workspace_poll_timer = window.setInterval(poll_live_workspace, refresh_ms);
       live_poll_visibility_handler = () => {
         if (!document.hidden) {
@@ -3467,6 +3528,7 @@ const app = createApp({
       irrigation_plan_loading.value = true;
       irrigation_plan_error.value = '';
       irrigation_guard.value = null;
+      automatic_watering_setting.value = null;
       if (automatic_watering_result.value?.plotId !== plotId) automatic_watering_result.value = null;
       try {
         const plan = await api.estimateIrrigation({
@@ -3491,11 +3553,25 @@ const app = createApp({
             // stay disabled until the guard can be read again.
             irrigation_guard.value = null;
           }
+          try {
+            automatic_watering_setting.value = await api.getAutomaticWateringSetting(plotId);
+          } catch {
+            // Keep the existing default-on behavior if an older server does
+            // not expose the optional setting endpoint yet.  The guard remains
+            // the source of truth for eligibility and safety checks.
+            automatic_watering_setting.value = {
+              plotId,
+              enabled: irrigation_guard.value?.automaticWatering?.enabled !== false,
+              threshold: irrigation_guard.value?.automaticWatering?.threshold || 10,
+              sourceMode: 'SIMULATION',
+              provenance: 'DERIVED'
+            };
+          }
           // The server also evaluates this on every telemetry event.  The
           // page-level check catches an already-low reading when a farmer
           // opens the irrigation view and is idempotent per reading in demo
           // mode.
-          if (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true) {
+          if (automatic_watering_status.value.enabled && (plan?.automaticWatering?.eligible === true || irrigation_guard.value?.automaticWatering?.eligible === true)) {
             void check_automatic_watering(plotId, { silent: true });
           }
         }
@@ -3512,8 +3588,37 @@ const app = createApp({
       }
     };
 
+    const toggle_automatic_watering = async (plotId = advice_plot.value?.plotId) => {
+      if (!plotId || automatic_watering_setting_busy.value) return null;
+      const currentEnabled = automatic_watering_setting.value?.enabled
+        ?? automatic_watering_status.value.enabled;
+      automatic_watering_setting_busy.value = true;
+      try {
+        const setting = await api.setAutomaticWateringSetting(plotId, !currentEnabled);
+        automatic_watering_setting.value = setting;
+        automatic_watering_result.value = null;
+        try {
+          irrigation_guard.value = await api.getIrrigationGuard(plotId);
+        } catch {
+          // The saved setting is still reflected immediately; a later refresh
+          // can fill the guard details when the service is available again.
+        }
+        show_toast(setting.enabled ? '已开启自动浇水' : '已关闭自动浇水');
+        return setting;
+      } catch (error) {
+        show_toast(error?.message || '自动浇水设置保存失败', 'error');
+        return null;
+      } finally {
+        automatic_watering_setting_busy.value = false;
+      }
+    };
+
     const check_automatic_watering = async (plotId = advice_plot.value?.plotId, { silent = false } = {}) => {
       if (!plotId || automatic_watering_busy.value) return null;
+      if (!automatic_watering_status.value.enabled) {
+        if (!silent) show_toast('请先开启自动浇水');
+        return { plotId, enabled: false, status: 'DISABLED', reason: 'AUTOMATIC_WATERING_DISABLED' };
+      }
       automatic_watering_busy.value = true;
       try {
         const result = await api.autoWaterIfNeeded(plotId);
@@ -3553,6 +3658,95 @@ const app = createApp({
       if (active_suggestion.value.kind === 'TASK') return '任务结果已提交，等待管理员验收。';
       return '已确认处理，等待现场复测或设备心跳恢复。';
     });
+
+    const open_no_action_reason = () => {
+      show_suggestion_flow.value = false;
+      show_no_action_reason.value = true;
+    };
+
+    const close_no_action_reason = () => {
+      show_no_action_reason.value = false;
+    };
+
+    const open_manual_irrigation = () => {
+      if (!manual_irrigation_available.value) {
+        show_toast('当前地块没有可用的人工浇灌兜底', 'error');
+        return;
+      }
+      show_suggestion_flow.value = false;
+      manual_irrigation_stage.value = 'FORM';
+      manual_irrigation_water.value = '';
+      manual_irrigation_confirmed.value = false;
+      manual_irrigation_result.value = null;
+      manual_irrigation_error.value = '';
+      manual_irrigation_busy.value = false;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      manual_irrigation_idempotency_key.value = `manual-irrigation-${plan?.planId || plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      show_manual_irrigation.value = true;
+    };
+
+    const close_manual_irrigation = () => {
+      if (manual_irrigation_busy.value) return;
+      show_manual_irrigation.value = false;
+    };
+
+    const submit_manual_irrigation = async () => {
+      if (manual_irrigation_busy.value) return;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      const water = Number(manual_irrigation_water.value);
+      const limits = manual_irrigation_limits.value;
+      manual_irrigation_error.value = '';
+      if (!manual_irrigation_available.value || !plan?.planId || !plotId) {
+        manual_irrigation_error.value = '当前地块已不再处于可人工兜底状态，请刷新后重试';
+        return;
+      }
+      if (!Number.isFinite(water) || water < Number(limits.minWaterLitre || 0.1)) {
+        manual_irrigation_error.value = `请输入不小于 ${Number(limits.minWaterLitre || 0.1)} L 的有效水量`;
+        return;
+      }
+      if (Number.isFinite(Number(limits.maxWaterLitre)) && water > Number(limits.maxWaterLitre) + 0.0001) {
+        manual_irrigation_error.value = `本次最多可输入 ${Number(limits.maxWaterLitre).toFixed(1)} L，仍受每日和资源上限约束`;
+        return;
+      }
+      if (!manual_irrigation_confirmed.value) {
+        manual_irrigation_error.value = '请先确认地块、阻塞原因和本次水量';
+        return;
+      }
+      manual_irrigation_busy.value = true;
+      try {
+        let result = await api.executeManualIrrigation({
+          plotId,
+          sourcePlanId: plan.planId,
+          waterLitre: water,
+          confirmed: true,
+          idempotencyKey: manual_irrigation_idempotency_key.value,
+          source: 'farmer-manual-fallback'
+        });
+        if (is_live.value) {
+          result = await wait_for_irrigation_completion(result);
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+          if (result?.commandId) {
+            const evaluation = await api.getCommandEvaluation(result.commandId).catch(() => null);
+            if (evaluation) result = { ...result, evaluation };
+          }
+        } else {
+          await load_live_workspace({ announce: false });
+          await load_irrigation_plan(plotId, { silent: true });
+        }
+        manual_irrigation_result.value = result;
+        manual_irrigation_stage.value = 'RESULT';
+        show_toast(is_live.value ? '人工浇灌命令已提交，等待设备回执' : '演示人工浇灌已完成，不会控制真实水泵');
+      } catch (error) {
+        manual_irrigation_error.value = error?.message || '人工浇灌失败，请稍后重试';
+        manual_irrigation_confirmed.value = false;
+        show_toast(manual_irrigation_error.value, 'error');
+      } finally {
+        manual_irrigation_busy.value = false;
+      }
+    };
 
     const open_suggestion = (kind = 'RISK', context = {}) => {
       const task = context.task || (kind === 'TASK' ? context : null);
@@ -3836,6 +4030,10 @@ const app = createApp({
     };
 
     const toggle_irrigation = () => {
+      if (advice_is_no_action.value) {
+        open_no_action_reason();
+        return;
+      }
       // 农户与管理员都进入同一条安全确认、幂等和虚拟执行闭环。
       open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
@@ -4167,6 +4365,33 @@ const app = createApp({
       return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, facts: turn.facts || [], recommendations: turn.recommendations || [], turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
     };
 
+    const refresh_assistant_action_states = async (messageList = assistant_messages.value) => {
+      const proposals = [];
+      const seen = new Set();
+      (Array.isArray(messageList) ? messageList : []).forEach((message) => {
+        const proposal = message?.actionProposal;
+        if (!proposal?.actionId || seen.has(proposal.actionId)) return;
+        seen.add(proposal.actionId);
+        proposals.push({ message, proposal });
+      });
+      await Promise.all(proposals.map(async ({ message, proposal }) => {
+        try {
+          const latest = await api.getAgentAction(proposal.actionId);
+          Object.assign(proposal, latest);
+          // `normalizeAgentTurn` keeps its own proposal copy.  Keep both
+          // references aligned so the card and the expanded audit details
+          // cannot disagree after a conversation is re-opened.
+          if (message?.turn?.actionProposal && message.turn.actionProposal !== proposal) {
+            Object.assign(message.turn.actionProposal, latest);
+          }
+        } catch {
+          // A missing legacy action row should not erase the immutable
+          // proposal embedded in history; retain it as the best fallback.
+        }
+      }));
+      return messageList;
+    };
+
     const load_assistant_conversations = async ({ openRecent = true } = {}) => {
       try {
         assistant_service_status.value = is_formal_session ? 'CONNECTING' : 'DEMO';
@@ -4174,8 +4399,16 @@ const app = createApp({
         assistant_conversations.value = Array.isArray(list) ? list : [];
         assistant_error.value = '';
         assistant_service_status.value = is_formal_session ? 'READY' : 'DEMO';
-        if (openRecent && assistant_conversations.value.length && !assistant_messages.value.length) {
-          await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+        if (openRecent && assistant_conversations.value.length) {
+          const currentId = assistant_conversation_id.value;
+          const currentExists = currentId && assistant_conversations.value.some((item) => item.conversationId === currentId);
+          if (!assistant_messages.value.length || !currentExists) {
+            await select_assistant_conversation(assistant_conversations.value[0].conversationId);
+          } else {
+            // Returning from another route must re-read durable action state;
+            // history messages intentionally contain only a render snapshot.
+            await refresh_assistant_action_states();
+          }
         }
         if (!assistant_conversation_id.value) assistant_conversation_id.value = assistant_create_conversation_id();
       } catch (error) {
@@ -4197,22 +4430,14 @@ const app = createApp({
         rawMessages.forEach((item) => {
           const role = String(item?.role || '').toUpperCase();
           if (role === 'USER') {
-            latestQuestion = item.content || '';
-            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: item.content || '', plotId: item.plotId || '' });
+            latestQuestion = agentHistoryUserText(item.content, '已上传现场图片');
+            next.push({ id: item.messageId || `user-${Date.now()}-${next.length}`, role: 'user', content: latestQuestion, plotId: item.plotId || '' });
           } else if (role === 'ASSISTANT') {
             const plot = find_plot_by_id(plots.value, item.plotId || assistant_plot_id.value);
             next.push(assistant_history_message(item, latestQuestion, plot));
           }
         });
-        const proposals = next.map((item) => item.actionProposal).filter((proposal) => proposal?.actionId);
-        await Promise.all(proposals.map(async (proposal) => {
-          try {
-            Object.assign(proposal, await api.getAgentAction(proposal.actionId));
-          } catch {
-            // Older formal records may not have an action row anymore; keep
-            // the immutable proposal embedded in the conversation history.
-          }
-        }));
+        await refresh_assistant_action_states(next);
         assistant_messages.value = next;
         assistant_conversation_id.value = conversationId;
         if (payload?.conversation?.plotId) assistant_plot_id.value = payload.conversation.plotId;
@@ -4242,14 +4467,25 @@ const app = createApp({
         return;
       }
       try {
+        const assignedPlotIds = new Set(plots.value.map((plot) => String(plot.plotId)));
+        const rawPlots = await api.getPlots({ farmId: farm.value.farmId || 'farm-demo', includeInactive: true });
+        const normalizedPlots = (rawPlots || [])
+          .filter((plot) => !assignedPlotIds.size || assignedPlotIds.has(String(plot.plotId)))
+          .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+          .map((plot) => ({ ...plot, healthScore: compute_plot_health_score(plot) }));
+        const selectedPlotId = selected_plot.value?.plotId || advice_selected_plot.value?.plotId || assistant_plot_id.value;
+        replace_ref_array(plots, normalizedPlots);
+        selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selectedPlotId) || normalizedPlots[0] || null;
+        advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
+        if (!normalizedPlots.some((plot) => plot.plotId === assistant_plot_id.value)) assistant_plot_id.value = normalizedPlots[0]?.plotId || '';
         const rawTasks = await api.getWorkOrders({ farmId: farm.value.farmId || 'farm-demo' });
-        const plotMap = new Map(plots.value.map((plot) => [String(plot.plotId), plot]));
+        const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = rawTasks.map((work) => normalizeFarmerTask(work, plotMap));
         replace_ref_array(tasks, normalizedTasks);
         const records = [];
-        for (const plot of plots.value) records.push(...await api.getInspections(plot.plotId));
+        for (const plot of normalizedPlots) records.push(...await api.getInspections(plot.plotId));
         replace_ref_array(inspection_records, records);
-        apply_messages(buildFarmerMessages({ alerts: Array.from(api.demoAlerts?.values?.() || []), tasks: normalizedTasks, inspections: records, plots: plots.value }));
+        apply_messages(buildFarmerMessages({ alerts: Array.from(api.demoAlerts?.values?.() || []), tasks: normalizedTasks, inspections: records, plots: normalizedPlots }));
       } catch (error) {
         assistant_error.value = `数据刷新失败：${error.message || '请稍后重试'}`;
       }
@@ -4274,7 +4510,7 @@ const app = createApp({
     };
 
     const confirm_assistant_action = async (proposal) => {
-      if (!proposal?.actionId || assistant_action_busy.value) return;
+      if (!proposal?.actionId || proposal.status !== 'AWAITING_CONFIRMATION' || assistant_action_busy.value) return;
       assistant_action_busy.value = proposal.actionId;
       try {
         const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `agent-confirm:${proposal.actionId}` });
@@ -4291,7 +4527,7 @@ const app = createApp({
     };
 
     const cancel_assistant_action = async (proposal) => {
-      if (!proposal?.actionId || assistant_action_busy.value) return;
+      if (!proposal?.actionId || proposal.status !== 'AWAITING_CONFIRMATION' || assistant_action_busy.value) return;
       assistant_action_busy.value = proposal.actionId;
       try {
         const result = await api.cancelAgentAction(proposal.actionId);
@@ -4716,18 +4952,19 @@ const app = createApp({
           apply_farmer_hash();
         }
         window.addEventListener('hashchange', apply_farmer_hash);
-        set_workspace_progress(12, '正在检查服务状态…');
-        is_live.value = await api.checkHealth();
         if (is_formal_session) {
+          // Core authenticated calls establish live availability themselves.
+          // A separate public health round trip added several seconds through
+          // the remote tunnel before useful data loading could even begin.
+          set_workspace_progress(12, '正在读取正式数据…');
           await load_live_workspace({ announce: true, trackProgress: true });
           is_live.value = api.isLive;
-          set_workspace_progress(96, '正在连接实时事件…');
-          const eventsResult = await with_bootstrap_timeout(() => connect_live_events(), 8000);
-          if (eventsResult === BOOTSTRAP_TIMEOUT) {
-            api.sseAbortController?.abort();
-            if (!load_error.value) load_error.value = '实时事件连接超时，已启用定时刷新';
-          }
+          // SSE is an enhancement backed by polling. Never keep the full-page
+          // bootstrap overlay visible while a proxy holds the stream open.
+          void connect_live_events({ announce: false });
         } else {
+          set_workspace_progress(12, '正在检查服务状态…');
+          is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
         }
         // Forecast, simulation, irrigation and assistant panels are secondary
@@ -4841,7 +5078,6 @@ const app = createApp({
       user_settings,
       accent_options: ACCENT_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
-      plot_background_options: PLOT_BACKGROUND_OPTIONS,
       current_accent_label,
       current_surface_style_label,
       update_user_setting,
@@ -4936,6 +5172,8 @@ const app = createApp({
       show_weather_controls,
       show_resource_allocation,
       show_suggestion_flow,
+      show_no_action_reason,
+      show_manual_irrigation,
       active_suggestion,
       suggestion_flow_stage,
       suggestion_flow_steps,
@@ -4951,6 +5189,17 @@ const app = createApp({
       suggestion_recovery_detail,
       suggestion_recovery_status,
       suggestion_busy,
+      manual_irrigation_stage,
+      manual_irrigation_water,
+      manual_irrigation_confirmed,
+      manual_irrigation_result,
+      manual_irrigation_error,
+      manual_irrigation_busy,
+      manual_irrigation_limits,
+      manual_irrigation_fallback,
+      manual_irrigation_available,
+      manual_irrigation_bypassed_gates,
+      manual_irrigation_preview,
       format_suggestion_time,
       suggestion_outcome_label,
       report_subscribed,
@@ -4989,12 +5238,15 @@ const app = createApp({
       advice_error,
       show_advice_diagnosis,
       advice_diagnosis_summary,
+      advice_is_no_action,
       advice_readiness_summary,
       advice_execution_summary,
       irrigation_guard,
       automatic_watering_status,
       automatic_watering_result,
       automatic_watering_busy,
+      automatic_watering_setting,
+      automatic_watering_setting_busy,
       advice_passport,
       evidence_request_busy,
       advice_plan,
@@ -5127,10 +5379,16 @@ const app = createApp({
       open_plot,
       open_tools,
       load_irrigation_plan,
+      toggle_automatic_watering,
       check_automatic_watering,
       toggle_irrigation,
       open_suggestion,
       close_suggestion_flow,
+      open_no_action_reason,
+      close_no_action_reason,
+      open_manual_irrigation,
+      close_manual_irrigation,
+      submit_manual_irrigation,
       prepare_suggestion_confirmation,
       confirm_suggestion_action,
       open_suggestion_inspection,
