@@ -463,6 +463,11 @@ class SimulationEngine {
             Map<String, Object> simulation = engine.plotSimulationRecord(plotId);
             if (!Jsons.bool(simulation, "enabled", true)) continue;
             if (mockDeviceControlledOffline(plotId)) continue;
+            // A successful administrator ONLINE command is a deliberate
+            // override of the DEVICE_OFFLINE scenario. Keep producing the
+            // virtual readings so the device can recover instead of being
+            // overwritten by the next scenario tick.
+            boolean manualOnlineOverride = mockDeviceManuallyOnline(plotId);
             String scenario = normalizeScenario(Jsons.text(simulation, "scenario", "NORMAL"));
             Map<String, Object> rawParams = Jsons.map(mapper, simulation.get("parameters"));
             Map<String, Double> params = scenarioParameters(scenario, rawParams);
@@ -499,7 +504,8 @@ class SimulationEngine {
             ZonedDateTime physicsTs = simBase.plusMillis(Math.round(elapsedWall * plotScale * 1000.0)).atZone(ZONE);
             double offlineRatio = "device-offline".equals(scenario) ? params.get("offlineRatio") : 0.0;
             int phase = (index + plotId.chars().sum()) % 20;
-            boolean scenarioOffline = offlineRatio > 0 && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
+            boolean scenarioOffline = !manualOnlineOverride && offlineRatio > 0
+                    && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
             if (!scenarioOffline) {
                 evolveState(state, rng, scenario, physicsTs, index, params, interval, facilityType);
             }
@@ -541,7 +547,25 @@ class SimulationEngine {
         if (device == null || device.isEmpty()) return false;
         String controlStatus = Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT);
         String desired = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
-        return "SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desired);
+        String override = Jsons.text(device, "manualStatusOverride", "").toUpperCase(Locale.ROOT);
+        return "OFFLINE".equals(override)
+                || ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desired));
+    }
+
+    private boolean mockDeviceManuallyOnline(String plotId) {
+        Map<String, Object> device = store.find("device", "mock-" + plotId);
+        if (device == null || device.isEmpty()) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
+        if (!("SIMULATION".equals(source) || "SIMULATED".equals(source) || deviceId.startsWith("mock-"))) return false;
+        String override = Jsons.text(device, "manualStatusOverride", "").toUpperCase(Locale.ROOT);
+        if ("ONLINE".equals(override)) return true;
+        // Commands created before manualStatusOverride was introduced still
+        // carry the durable command fields, so they must remain recoverable.
+        return "SUCCEEDED".equals(Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT))
+                && "ONLINE".equals(Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT))
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
     }
 
     private Map<String, Object> buildEvent(PlotState state, Random rng, String scenario, String plotId, String farmId,
