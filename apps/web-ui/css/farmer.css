@@ -3401,6 +3401,28 @@
   box-shadow: 10px 0 36px rgba(24, 67, 45, .12), inset -1px 0 0 rgba(255, 255, 255, .36);
 }
 
+/* Shared appearance-center controls for the standalone farmer shell. */
+.farmer-settings-preset-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-preset { position: relative; display: grid; grid-template-rows: 30px auto; gap: 6px; min-width: 0; padding: 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; }
+.farmer-settings-preset:hover, .farmer-settings-preset.active { border-color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-preset > .ph { position: absolute; top: 6px; right: 6px; color: var(--g-primary); font-size: 14px; }
+.farmer-settings-preset-preview { display: grid; grid-template-columns: 9px 1fr; grid-template-rows: 6px 1fr; gap: 3px; overflow: hidden; padding: 4px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); }
+.farmer-settings-preset-preview i { grid-row: 1 / 3; border-radius: 2px; background: var(--g-border); }
+.farmer-settings-preset-preview b { border-radius: 2px; background: var(--g-bg-subtle); }
+.farmer-settings-preset-preview em { border-radius: 2px; background: var(--g-primary); }
+.farmer-settings-preset > span:last-of-type { display: grid; gap: 2px; min-width: 0; }
+.farmer-settings-preset strong, .farmer-settings-preset small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-settings-preset strong { font-size: 10px; }
+.farmer-settings-preset small { color: var(--g-text-secondary); font-size: 9px; }
+.farmer-settings-custom-accent input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.farmer-settings-custom-accent .ph { margin-left: auto; font-size: 14px; }
+.farmer-settings-preview { display: grid; gap: 7px; }
+.farmer-settings-preview-frame { display: grid; grid-template-columns: 34px 1fr; height: 54px; overflow: hidden; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
+.farmer-settings-preview-frame > div { background: var(--g-bg-subtle); }
+.farmer-settings-preview-frame section { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 10px; align-items: center; }
+.farmer-settings-preview-frame section i { display: block; height: 24px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-primary-bg); }
+@media (max-width: 900px) { .farmer-settings-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 [data-theme="dark"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
   background: rgba(17, 35, 28, .48);
 }

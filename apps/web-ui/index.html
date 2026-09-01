@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-admin-ops-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-codex-ai-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-codex-ai-v2">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-sync-v1">
@@ -141,9 +141,6 @@
             </div>
 
             <div class="account-profile-popover-footer">
-              <button v-if="state.currentUser.role === 'FARM_ADMIN'" type="button" class="g-btn secondary" @click="openArchivedConversations">
-                <app-icon name="history"></app-icon>已归档对话
-              </button>
               <button type="button" class="g-btn secondary" @click="openAccountModal">
                 <app-icon name="lock_reset"></app-icon>修改密码
               </button>
@@ -1211,7 +1208,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260901-admin-ops-v1"></script>
+  <script type="module" src="js/app.js?v=20260901-admin-ops-v2"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1872,7 +1869,7 @@
               <button v-for="theme in themeOptions" :key="theme.value" type="button" class="settings-theme-option" :class="{active: settings.theme === theme.value}" @click="updateSetting('theme', theme.value)"><span class="settings-theme-icon"><app-icon :name="theme.value === 'dark' ? 'dark_mode' : theme.value === 'light' ? 'light_mode' : 'settings'"></app-icon></span><strong>{{ theme.label }}</strong><small>{{ theme.hint }}</small></button>
             </div>
           </div>
-          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field">
+          <div class="settings-field">
             <span class="settings-label">工作台主题</span>
             <div class="settings-preset-grid" role="group" aria-label="选择工作台主题">
               <button v-for="preset in presetOptions" :key="preset.value" type="button" class="settings-preset-option" :class="['preset-' + preset.value, {active: settings.preset === preset.value}]" @click="updateSetting('preset', preset.value)"><span class="settings-preset-preview"><i></i><b></b><em></em></span><span class="settings-preset-copy"><strong>{{ preset.label }}</strong><small>{{ preset.hint }}</small></span><app-icon v-if="settings.preset === preset.value" name="check_circle"></app-icon></button>
@@ -1888,10 +1885,10 @@
             <span class="settings-label">强调色</span>
             <div class="settings-accent-options" role="group" aria-label="选择强调色">
               <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value && !settings.customAccent}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value && !settings.customAccent" name="check_circle"></app-icon></button>
-              <label v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-custom-accent" :class="{active: !!settings.customAccent}" title="自定义主题色"><input type="color" :value="settings.customAccent || '#2f7d55'" @input="updateSetting('customAccent', $event.target.value)"><span>自定义</span><app-icon v-if="settings.customAccent" name="check_circle"></app-icon></label>
+              <label class="settings-custom-accent" :class="{active: !!settings.customAccent}" title="自定义主题色"><input type="color" :value="settings.customAccent || '#2f7d55'" @input="updateSetting('customAccent', $event.target.value)"><span>自定义</span><app-icon v-if="settings.customAccent" name="check_circle"></app-icon></label>
             </div>
           </div>
-          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field settings-preview-field">
+          <div class="settings-field settings-preview-field">
             <span class="settings-label">实时预览</span>
             <div class="settings-live-preview"><div class="settings-preview-rail"><span></span><span></span><span></span></div><div class="settings-preview-body"><div class="settings-preview-toolbar"><i></i><i></i><b></b></div><div class="settings-preview-cards"><div></div><div></div><div></div></div><div class="settings-preview-line"></div></div><div class="settings-preview-caption"><strong>{{ presetLabel }}</strong><span>当前主题会同步到农场管理员工作台</span></div></div>
           </div>
@@ -1899,7 +1896,7 @@
             <label>显示密度<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
             <label>内容宽度<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
           </div>
-          <div v-if="state.currentUser?.role === 'FARM_ADMIN'" class="settings-field"><label>界面字体<select :value="settings.fontFamily" @change="updateSetting('fontFamily', $event.target.value)"><option v-for="item in fontOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select><small class="settings-field-hint">选择适合当前设备和阅读习惯的字体。</small></label></div>
+          <div class="settings-field"><label>界面字体<select :value="settings.fontFamily" @change="updateSetting('fontFamily', $event.target.value)"><option v-for="item in fontOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select><small class="settings-field-hint">选择适合当前设备和阅读习惯的字体。</small></label></div>
           <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>减少动效</strong><small>减少过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
         </article>
 

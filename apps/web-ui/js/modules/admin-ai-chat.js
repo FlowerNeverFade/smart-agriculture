@@ -290,11 +290,16 @@ export const AdminAiChatView = {
     };
 
     const startNewConversation = ({ updateHash: shouldUpdateHash = true } = {}) => {
-      conversationId.value = createConversationId();
+      // A new conversation is a local draft until the first message is sent.
+      // Keeping the id empty prevents blank chats from being written to the
+      // server or appearing in the history list.
+      conversationId.value = '';
       selectedConversationId.value = '';
       releaseMessageImages();
       messages.value = [];
       input.value = '';
+      attachments.value.forEach(revokeAttachment);
+      attachments.value = [];
       if (shouldUpdateHash) updateRoute('');
       scrollToBottom();
     };
@@ -507,6 +512,11 @@ export const AdminAiChatView = {
       list.sort((a, b) => new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0));
       return list;
     });
+    const activeConversationTitle = computed(() => {
+      const active = [...conversations.value, ...archivedConversations.value]
+        .find(item => item.conversationId === selectedConversationId.value);
+      return active?.title || (conversationId.value ? '当前对话' : '新对话');
+    });
     const plotFolders = computed(() => {
       const folderMap = new Map();
       (props.state.plots || []).forEach(plot => folderMap.set(String(plot.plotId), { plotId: plot.plotId, name: plot.name || plot.plotId, conversations: [] }));
@@ -667,10 +677,11 @@ export const AdminAiChatView = {
     // 点击侧栏任意处：关闭菜单；若仍处于重命名编辑态则提交并退出（blur 兜底）
     const onSectionClick = () => { closeMenu(); if (renamingId.value) commitRename(); };
 
-    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkUnarchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, plotFolders, expandedPlotIds, togglePlotFolder, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, visibleArchivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
+    return { input, selectedPlotId, conversationId, selectedConversationId, conversations, messages, loadingHistory, loadingConversations, sending, actionBusy, isActionBusy, isActionRunning, messageList, chatRoot, sidebarCollapsed, sidebarWidth, draggingSidebar, imageInput, attachments, suggestions, selectedPlotName, activeConversationTitle, currentRole, rolePresentation, conversationTime, formatAttachmentSize, send, startNewConversation, selectConversation, handleKeydown, confirmAction, cancelAction, toggleDetails, toggleSidebar, startSidebarResize, onImageSelected, removeAttachment, analyzePhoto, lightConfirm, closeConfirm, confirmDeleteConversation, requestDeleteConversation, requestArchiveConversation, requestUnarchiveConversation, requestBulkArchive, requestBulkUnarchive, requestBulkDelete, menuFor, menuPos, toggleMenu, closeMenu, onSectionClick, renamingId, renameText, startRename, commitRename, togglePin, isPinned, orderedConversations, plotFolders, expandedPlotIds, togglePlotFolder, bulkMode, bulkSelected, enterBulkMode, exitBulkMode, toggleBulkSelect, archivedView, archivedConversations, visibleArchivedConversations, enterArchivedView, exitArchivedView, plotNameOf, visibleMessages, loadOlderMessages };
   },
   template: `
     <section ref="chatRoot" class="admin-ai-chat" :class="{ 'is-sidebar-collapsed': sidebarCollapsed, 'is-sidebar-resizing': draggingSidebar }" :style="{ '--ai-sidebar-width': sidebarWidth + 'px' }" aria-label="AI助手" @click="onSectionClick">
+      <!-- 当前地块选择位于输入区上方；admin-ai-new-chat 是侧栏唯一的新建入口。 -->
       <aside class="admin-ai-conversation-sidebar" aria-label="地块与历史对话">
         <div class="admin-ai-sidebar-heading">
           <div><span class="admin-ai-sidebar-kicker">AgriLoop</span><strong>{{ archivedView ? '已归档对话' : '我的地块对话' }}</strong></div>
@@ -679,7 +690,6 @@ export const AdminAiChatView = {
             <button v-else class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回活跃对话</button>
           </div>
         </div>
-        <div v-if="!archivedView && !bulkMode" class="admin-ai-sidebar-toolbar"><button class="g-btn text sm" type="button" title="批量管理历史对话" @click="enterBulkMode">批量</button><span>按地块整理</span></div>
         <div v-if="bulkMode" class="admin-ai-bulk-bar admin-ai-bulk-bar-top">
           <span>已选 {{ bulkSelected.size }} 项</span>
           <button class="g-btn text sm" type="button" @click="exitBulkMode">取消</button>
@@ -691,7 +701,7 @@ export const AdminAiChatView = {
           <div v-if="!loadingConversations && !plotFolders.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>{{ archivedView ? '暂无已归档对话' : rolePresentation.historyEmpty }}</span></div>
           <section v-for="folder in plotFolders" :key="folder.plotId || '__unassigned'" class="admin-ai-plot-folder" :class="{ 'is-current': folder.plotId === selectedPlotId }">
             <button type="button" class="admin-ai-plot-folder-heading" :aria-expanded="folder.expanded ? 'true' : 'false'" @click="togglePlotFolder(folder)">
-              <app-icon :name="folder.expanded ? 'expand_more' : 'chevron_right'"></app-icon><app-icon name="rule_folder"></app-icon><span>{{ folder.name }}</span><small>{{ folder.conversations.length }}</small>
+              <app-icon :name="folder.expanded ? 'expand_more' : 'chevron_right'"></app-icon><app-icon name="agriculture" class="admin-ai-plot-icon"></app-icon><span>{{ folder.name }}</span><small>{{ folder.conversations.length }}</small>
             </button>
             <div v-if="folder.expanded" class="admin-ai-plot-folder-list">
               <div v-if="!folder.conversations.length" class="admin-ai-folder-empty">暂无对话</div>
@@ -708,10 +718,19 @@ export const AdminAiChatView = {
             </div>
           </section>
         </div>
+        <div class="admin-ai-sidebar-footer">
+          <button v-if="!archivedView" type="button" class="admin-ai-archived-entry" @click="enterArchivedView">
+            <app-icon name="inbox"></app-icon><span>已归档对话</span>
+          </button>
+          <button v-else type="button" class="admin-ai-archived-entry" @click="exitArchivedView">
+            <app-icon name="arrow_back"></app-icon><span>返回活跃对话</span>
+          </button>
+          <button v-if="archivedView && !bulkMode" type="button" class="admin-ai-archived-manage" @click="enterBulkMode">管理归档</button>
+        </div>
       </aside>
       <button v-if="!sidebarCollapsed" class="admin-ai-sidebar-resizer" type="button" aria-label="调整历史对话栏宽度" title="拖动调整历史对话栏宽度" @pointerdown="startSidebarResize"><span></span></button>
       <div class="admin-ai-chat-main">
-        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" :title="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><div class="admin-ai-chat-tools"><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">当前地块</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label></div></div><!-- 当前地块与 admin-ai-new-chat 已按 Codex 风格拆分布局 -->
+        <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" :title="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span class="admin-ai-session-title">{{ activeConversationTitle }}</span></div></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
           <button v-else-if="visibleMessages.length && visibleMessages.length < messages.length" type="button" class="admin-ai-load-older" @click="loadOlderMessages">加载更早消息</button>
@@ -721,7 +740,7 @@ export const AdminAiChatView = {
               <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message ai-chat-message assistant" v-if="sending"><div class="admin-ai-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>{{ rolePresentation.typingLabel }}</span></div></article></template>
         </div>
-        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
+        <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><label class="admin-ai-compose-context"><app-icon name="agriculture"></app-icon><span>关联地块</span><select class="g-select" v-model="selectedPlotId" aria-label="当前地块"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向 AI 助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
       </div>
       <div v-if="lightConfirm" class="admin-ai-confirm-overlay" @click.self="closeConfirm">
         <div class="admin-ai-confirm-dialog">

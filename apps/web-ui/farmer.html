@@ -10,9 +10,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260901-workspace-settings-v2">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-codex-ai-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-codex-ai-v2">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-sync-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
@@ -1515,6 +1515,12 @@
                   </div>
                 </div>
                 <div class="farmer-settings-field">
+                  <span class="farmer-settings-label">工作台主题</span>
+                  <div class="farmer-settings-preset-grid">
+                    <button v-for="preset in preset_options" :key="preset.value" type="button" class="farmer-settings-preset" :class="['preset-' + preset.value, {active: user_settings.preset === preset.value}]" @click="update_user_setting('preset', preset.value)"><span class="farmer-settings-preset-preview"><i></i><b></b><em></em></span><span><strong>{{ preset.label }}</strong><small>{{ preset.hint }}</small></span><app-icon v-if="user_settings.preset === preset.value" name="check_circle"></app-icon></button>
+                  </div>
+                </div>
+                <div class="farmer-settings-field">
                   <span class="farmer-settings-label">卡片风格</span>
                   <div class="farmer-settings-choice-row farmer-settings-surface-row">
                     <button v-for="surface in surface_style_options" :key="surface.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :data-surface-style="surface.value" :class="{active: user_settings.surfaceStyle === surface.value}" @click="update_user_setting('surfaceStyle', surface.value)" :title="surface.hint"><span>{{ surface.label }}</span><small>{{ surface.hint }}</small></button>
@@ -1523,13 +1529,19 @@
                 <div class="farmer-settings-field">
                   <span class="farmer-settings-label">强调色</span>
                   <div class="farmer-settings-accent-row">
-                    <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
+                    <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value && !user_settings.customAccent}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
+                    <label class="farmer-settings-accent farmer-settings-custom-accent" :class="{active: !!user_settings.customAccent}" title="自定义主题色"><input type="color" :value="user_settings.customAccent || '#2f7d55'" @input="update_user_setting('customAccent', $event.target.value)"><span>自定义</span><app-icon v-if="user_settings.customAccent" name="check_circle"></app-icon></label>
                   </div>
+                </div>
+                <div class="farmer-settings-preview">
+                  <span class="farmer-settings-label">实时预览</span>
+                  <div class="farmer-settings-preview-frame"><div></div><section><i></i><i></i><i></i></section></div>
                 </div>
                 <div class="farmer-settings-inline-fields">
                   <label class="farmer-settings-select">显示密度<select :value="user_settings.density" @change="update_user_setting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
                   <label class="farmer-settings-select">内容宽度<select :value="user_settings.layout" @change="update_user_setting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
                 </div>
+                <label class="farmer-settings-select">界面字体<select :value="user_settings.fontFamily" @change="update_user_setting('fontFamily', $event.target.value)"><option v-for="font in font_options" :key="font.value" :value="font.value">{{ font.label }}</option></select><small>{{ current_font_label }}</small></label>
                 <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.reducedMotion" @change="update_user_setting('reducedMotion', $event.target.checked)"><span><strong>减少动效</strong><small>降低过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
               </article>
 
@@ -1544,7 +1556,7 @@
                 <div class="farmer-settings-note"><app-icon name="info"></app-icon><span>这些偏好保存在当前浏览器。清除站点数据后会恢复默认值；服务器上的三角色数据仍由后端统一管理。</span></div>
               </article>
             </div>
-            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ current_accent_label }}</span></div>
+            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>{{ current_preset_label }} · 主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ user_settings.customAccent || current_accent_label }} · {{ current_font_label }}</span></div>
           </section>
 
         </transition>
@@ -1683,6 +1695,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-admin-ops-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-admin-ops-v2"></script>
 </body>
 </html>

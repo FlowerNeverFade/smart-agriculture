@@ -4,8 +4,8 @@ import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -33,7 +33,7 @@ import {
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
 // Keep the standalone farmer shell in lock-step with the shared role pages.
-const initial_user_settings = readUserSettings();
+const initial_user_settings = readUserSettings(undefined, api.readSession()?.user);
 applyUserSettings(initial_user_settings);
 
 // Keep farmer.html independent from the remote Google icon font.  The same
@@ -1108,10 +1108,12 @@ function compute_plot_health_score(plot) {
 const app = createApp({
   setup() {
     const is_live = ref(false);
-    const user_settings = ref(readUserSettings());
+    const user_settings = ref(readUserSettings(undefined, api.readSession()?.user));
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
+    const current_preset_label = computed(() => PRESET_OPTIONS.find((item) => item.value === user_settings.value.preset)?.label || 'Codex 中性');
+    const current_font_label = computed(() => FONT_FAMILY_OPTIONS.find((item) => item.value === user_settings.value.fontFamily)?.label || '系统默认');
     const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -2835,7 +2837,8 @@ const app = createApp({
     };
 
     const update_user_setting = (key, value) => {
-      const next = saveUserSettings({ ...user_settings.value, [key]: value });
+      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
+      const next = saveUserSettings({ ...user_settings.value, ...patch }, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -2845,7 +2848,7 @@ const app = createApp({
     };
 
     const reset_user_settings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -4749,7 +4752,7 @@ const app = createApp({
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
       try {
-        user_settings.value = readUserSettings();
+        user_settings.value = readUserSettings(undefined, user.value);
         applyUserSettings(user_settings.value);
         is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
         // Keep the current farmer page across refresh / back-forward.
@@ -4883,9 +4886,13 @@ const app = createApp({
       is_dark,
       user_settings,
       accent_options: ACCENT_OPTIONS,
+      preset_options: PRESET_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
+      font_options: FONT_FAMILY_OPTIONS,
       current_accent_label,
       current_surface_style_label,
+      current_preset_label,
+      current_font_label,
       update_user_setting,
       reset_user_settings,
       is_sidebar_open,

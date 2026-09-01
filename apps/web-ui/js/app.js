@@ -2,15 +2,16 @@ import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMU
 import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v2';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-admin-ops-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-admin-ops-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-admin-ops-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
+import { createWorkspaceSettingsController } from './modules/workspace-settings.js?v=20260901-workspace-settings-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-sync-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
@@ -2755,56 +2756,7 @@ const SettingsView = {
   props: ['state'],
   emits: ['settings-changed'],
   setup(props, { emit }) {
-    const account = computed(() => props.state?.currentUser || null);
-    const settings = ref(readUserSettings(undefined, account.value));
-    const copy = computed(() => SETTINGS_COPY['zh-CN']);
-    const themeOptions = computed(() => [
-      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
-      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
-      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
-    ]);
-    const presetOptions = computed(() => PRESET_OPTIONS);
-    const accentOptions = computed(() => ACCENT_OPTIONS);
-    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
-    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
-    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
-    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
-    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
-    const updateSetting = (key, value) => {
-      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
-      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings,
-      copy,
-      presetOptions,
-      accentOptions,
-      surfaceStyleOptions,
-      fontOptions,
-      themeOptions,
-      refreshOptions,
-      roleLabel,
-      themeLabel,
-      presetLabel,
-      accentLabel,
-      surfaceStyleLabel,
-      fontLabel,
-      updateSetting,
-      resetSettings
-    };
+    return createWorkspaceSettingsController({ props, emit, ref, computed });
   }
 };
 
