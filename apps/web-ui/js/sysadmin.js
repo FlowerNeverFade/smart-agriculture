@@ -2030,11 +2030,27 @@ const app = createApp({
           candidate.plotId === record.plotId && candidate.type === record.type && candidate.summary === record.summary
         ) === index)
         .slice(0, 20);
+      // 事件类型 → 中文（live 后端类型名人类可读化）
+      const RECORD_TYPE_LABELS = {
+        ALERT: '系统告警', DIAGNOSIS: '智能诊断', COMMAND: '控制命令', IRRIGATION_PLAN: '灌溉计划',
+        IRRIGATION: '灌溉', READINESS: '决策就绪度', EVALUATION: '效果评价', INSPECTION: '巡田核验',
+        WORK_ORDER: '农务工单', DEVICE: '设备更新', CONFIG: '配置变更', PREDICTION: '风险预测'
+      };
+      const recordTypeLabel = (type) => RECORD_TYPE_LABELS[String(type || '').toUpperCase()] || String(type || '系统事件').replace(/[._]/g, ' ');
+      const SUMMARY_WORD_MAP = {
+        'device.updated': '设备状态更新', 'irrigation.plan.created': '灌溉计划已生成',
+        'irrigation.plan.updated': '灌溉计划已更新', 'diagnosis.created': '诊断已生成',
+        'readiness': '就绪度评估', 'control.command': '控制命令', 'command.submitted': '命令已提交'
+      };
+      const humanSummary = (summary) => {
+        if (!summary) return '';
+        return Object.entries(SUMMARY_WORD_MAP).reduce((text, [key, value]) => text.split(key).join(value), String(summary));
+      };
       const recentEvents = recentEventRecords.map((record) => ({
         id: `audit:${record.traceId}`,
         category: record.type === 'ALERT' || record.result === 'REJECT' ? 'alert' : record.type === 'DIAGNOSIS' ? 'agent' : 'system',
         icon: record.type === 'ALERT' || record.result === 'REJECT' ? 'warning' : record.type === 'DIAGNOSIS' ? 'psychology' : record.type === 'COMMAND' ? 'login' : 'history',
-        title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${record.summary}`,
+        title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${recordTypeLabel(record.type)}：${humanSummary(record.summary)}`,
         time: record.time,
         traceId: record.traceId,
         dataOrigin: 'BACKEND'
