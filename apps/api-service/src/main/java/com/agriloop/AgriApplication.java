@@ -1506,10 +1506,40 @@ class AgriEngine {
         if (input.containsKey("enabled")) saved.put("enabled", Jsons.bool(input, "enabled", true));
         store.save("plot-simulation", plotId, saved);
         boolean delivered = syncSimulationConfiguration();
+        if (scenarioChanged) {
+            recordScenarioRun(plotId, scenario, principal);
+        }
         Map<String, Object> event = new LinkedHashMap<>(saved); event.put("configDelivered", delivered);
         events.publish("plot.simulation.updated", event); store.logEvent("plot.simulation.updated", event);
         Map<String, Object> view = plotSimulationView(plotId); view.put("configDelivered", delivered);
         return view;
+    }
+
+    // 切换场景 = 结束该地块旧的运行记录 + 按新场景开始一条新运行（供'运行历史'展示）
+    private void recordScenarioRun(String plotId, String scenario, UserPrincipal principal) {
+        Instant now = Instant.now();
+        for (Map<String, Object> oldRun : store.list("scenario-run")) {
+            if (plotId.equals(Jsons.text(oldRun, "plotId", ""))
+                    && "RUNNING".equalsIgnoreCase(Jsons.text(oldRun, "status", ""))) {
+                oldRun.put("status", "COMPLETED");
+                oldRun.put("endedAt", now.toString());
+                oldRun.put("endedBy", principal.userId);
+                store.save("scenario-run", Jsons.text(oldRun, "runId", ""), oldRun);
+            }
+        }
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("runId", Jsons.id("scenario-run"));
+        run.put("scenarioId", Jsons.id("scenario-run"));
+        run.put("plotId", plotId);
+        run.put("scenario", scenario.toLowerCase(Locale.ROOT));
+        run.put("seed", 42);
+        run.put("status", "RUNNING");
+        run.put("startedAt", now.toString());
+        run.put("startedBy", principal.userId);
+        run.put("branchId", "MAIN");
+        run.put("sourceMode", "SIMULATION");
+        store.save("scenario-run", Jsons.text(run, "runId", ""), run);
+        events.publish("scenario.started", run);
     }
 
     synchronized Map<String, Object> resetPlotSimulation(String plotId, String requestedTarget, UserPrincipal principal) {
