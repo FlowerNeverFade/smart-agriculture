@@ -248,7 +248,10 @@ class AdminManagementService {
         plot.put("facilityLabel", PlotFacility.label(facilityType));
         plot.put("plotId", plotId); plot.put("farmId", farmId); plot.put("status", "ACTIVE");
         plot.put("createdAt", Instant.now().toString()); plot.put("createdBy", principal.userId);
-        store.save("plot", plotId, plot);
+        store.saveDurably("plot", plotId, plot,
+                "PLOT_PERSISTENCE_UNAVAILABLE",
+                "地块数据库当前不可用，暂时不能添加地块",
+                "地块资料写入失败，未创建临时地块");
         engine.syncSimulationConfiguration();
         publish("plot.created", plot);
         return plot;

@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260901-v599-accounts-v2';
+import { ApiError, api } from './api.js?v=20260901-v5910-farm-onboarding-v1';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v599-accounts-v2';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v5910-farm-onboarding-v1';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -14,6 +14,9 @@ const registerForm = document.getElementById('registerForm');
 const registerUsername = document.getElementById('registerUsername');
 const registerRole = document.getElementById('registerRole');
 const registerRoleNote = document.getElementById('registerRoleNote');
+const registerFarmProfileFields = document.getElementById('registerFarmProfileFields');
+const registerFarmName = document.getElementById('registerFarmName');
+const registerFarmRegion = document.getElementById('registerFarmRegion');
 const systemAdminAuthorizationField = document.getElementById('systemAdminAuthorizationField');
 const registerAuthorizationCode = document.getElementById('registerAuthorizationCode');
 const registerPassword = document.getElementById('registerPassword');
@@ -53,13 +56,21 @@ let recoveryCodeContext = 'register';
 
 const REGISTRATION_ROLE_NOTES = Object.freeze({
   FARMER: '种植农户将加入示范农场并获得默认地块；注册成功后会生成一次性账户恢复码。',
-  FARM_ADMIN: '农场管理员无需额外授权，将立即加入示范农场并获得完整农场管理范围。',
+  FARM_ADMIN: '农场管理员将获得独立的空农场；进入总览后可添加第一块地，也可以稍后配置。',
   SYSTEM_ADMIN: '系统管理员拥有全平台范围，必须使用服务端配置的授权码；该账号创建后受永久保护。'
 });
 
 function syncRegistrationRole() {
   const role = registerRole.value || 'FARMER';
   const needsAuthorization = role === 'SYSTEM_ADMIN';
+  const needsFarmProfile = role === 'FARM_ADMIN';
+  registerFarmProfileFields.hidden = !needsFarmProfile;
+  registerFarmName.required = needsFarmProfile;
+  registerFarmRegion.required = needsFarmProfile;
+  if (!needsFarmProfile) {
+    registerFarmName.value = '';
+    registerFarmRegion.value = '';
+  }
   systemAdminAuthorizationField.hidden = !needsAuthorization;
   registerAuthorizationCode.required = needsAuthorization;
   if (!needsAuthorization) registerAuthorizationCode.value = '';
@@ -372,6 +383,8 @@ async function submitRegistration(event) {
   const selectedRole = registerRole.value;
   const secret = registerPassword.value;
   const authorizationCode = registerAuthorizationCode.value.trim();
+  const farmName = registerFarmName.value.trim();
+  const farmRegion = registerFarmRegion.value.trim();
 
   if (!validateUsername(account)) {
     setFormError(registerForm, registerError, '账号需为 4–32 位字母、数字、点、下划线或短横线');
@@ -398,11 +411,27 @@ async function submitRegistration(event) {
     registerAuthorizationCode.focus();
     return;
   }
+  if (selectedRole === 'FARM_ADMIN' && (farmName.length < 2 || farmName.length > 60)) {
+    setFormError(registerForm, registerError, '农场名称需为 2–60 个字符');
+    registerFarmName.focus();
+    return;
+  }
+  if (selectedRole === 'FARM_ADMIN' && (farmRegion.length < 2 || farmRegion.length > 80)) {
+    setFormError(registerForm, registerError, '所在地区需为 2–80 个字符');
+    registerFarmRegion.focus();
+    return;
+  }
 
   setFormError(registerForm, registerError, '');
   setLoading(registerButton, true);
   try {
-    const result = await api.register({ username: account, password: secret, role: selectedRole, authorizationCode });
+    const result = await api.register({
+      username: account,
+      password: secret,
+      role: selectedRole,
+      authorizationCode,
+      farmProfile: selectedRole === 'FARM_ADMIN' ? { name: farmName, region: farmRegion } : undefined
+    });
     pendingRegistration = { token: result.accessToken, user: presentUser(result.user) };
     showRecoveryCode(result.recoveryCode, 'register');
     registerForm.reset();

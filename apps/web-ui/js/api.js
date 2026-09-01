@@ -940,10 +940,17 @@ export class ApiService {
     }
   }
 
-  async register({ username, password, role, authorizationCode = '' }) {
+  async register({ username, password, role, authorizationCode = '', farmProfile }) {
+    const payload = { username, password, role, authorizationCode };
+    if (role === 'FARM_ADMIN') {
+      payload.farmProfile = {
+        name: String(farmProfile?.name || '').trim(),
+        region: String(farmProfile?.region || '').trim()
+      };
+    }
     const resp = await this._fetch('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, role, authorizationCode })
+      body: JSON.stringify(payload)
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {

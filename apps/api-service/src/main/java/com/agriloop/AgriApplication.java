@@ -44,6 +44,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
@@ -348,6 +351,7 @@ class AgriStore {
     private final JdbcTemplate jdbc;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transactionTemplate;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
     private final Map<String, Long> listLoadedAt = new ConcurrentHashMap<>();
     private final Set<String> loadedTypes = ConcurrentHashMap.newKeySet();
@@ -367,11 +371,13 @@ class AgriStore {
     private volatile boolean databaseReady;
     private volatile boolean postgres;
 
-    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder) {
+    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder,
+              PlatformTransactionManager transactionManager) {
         this.mapper = mapper;
         this.jdbc = jdbc;
         this.properties = properties;
         this.passwordEncoder = passwordEncoder;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @PostConstruct
@@ -449,8 +455,13 @@ class AgriStore {
     }
 
     synchronized void saveDurably(String type, String id, Map<String, Object> value) {
+        saveDurably(type, id, value, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看", "资源协同数据库不可用，写入未保存");
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String unavailableMessage, String failureMessage) {
         if (!databaseReady) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看");
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, unavailableMessage);
         }
         Map<String, Object> copy = Jsons.copy(mapper, value);
         try {
@@ -460,7 +471,7 @@ class AgriStore {
             records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
         } catch (DataAccessException error) {
             databaseReady = false;
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，写入未保存");
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, failureMessage);
         }
     }
 
@@ -968,6 +979,57 @@ class AgriStore {
         return true;
     }
 
+    synchronized void createUserWithFarmDurably(Map<String, Object> user, Map<String, Object> farm) {
+        String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
+        String userId = Jsons.text(user, "userId", Jsons.id("user"));
+        String farmId = Jsons.text(farm, "farmId", "").trim();
+        if (username.isBlank() || userByUsername(username) != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        }
+        if (farmId.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "无法生成农场编号");
+        }
+        if (!databaseReady) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+        }
+
+        user.put("userId", userId);
+        user.put("username", username);
+        user.putIfAbsent("credentialVersion", 1);
+        Map<String, Object> farmCopy = Jsons.copy(mapper, farm);
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                try {
+                    jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                            userId, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARM_ADMIN"),
+                            String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                            Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+                } catch (DataAccessException error) {
+                    String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+                    if (message.contains("unique") || message.contains("duplicate") || message.contains("primary key")) {
+                        throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+                    }
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+                }
+                try {
+                    persistEntity("farm", farmId, farmCopy);
+                } catch (DataAccessException error) {
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+                }
+            });
+        } catch (TransactionException error) {
+            databaseReady = false;
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+        }
+
+        Instant now = Instant.now();
+        user.putIfAbsent("createdAt", now.toString());
+        user.put("updatedAt", now.toString());
+        invalidateListCache("farm");
+    }
+
     synchronized Map<String, Object> updatePassword(String username, String passwordHash, String recoveryCodeHash) {
         Map<String, Object> user = userByUsername(username);
         if (user == null) return null;
@@ -1045,13 +1107,14 @@ final class TimestampParser {
 @Service
 class AgriEventBus {
     private final ObjectMapper mapper;
+    private final AgriStore store;
     private record ScopedEmitter(SseEmitter emitter, UserPrincipal principal) { }
     private final List<ScopedEmitter> emitters = new CopyOnWriteArrayList<>();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "agriloop-sse"); t.setDaemon(true); return t;
     });
 
-    AgriEventBus(ObjectMapper mapper) { this.mapper = mapper; }
+    AgriEventBus(ObjectMapper mapper, AgriStore store) { this.mapper = mapper; this.store = store; }
 
     SseEmitter subscribe(UserPrincipal principal) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -1071,7 +1134,7 @@ class AgriEventBus {
         String farmId = Jsons.text(payload, "farmId", Jsons.text(payload, "scope", "")).trim();
         String plotId = Jsons.text(payload, "plotId", "").trim();
         if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) return false;
-        if (!plotId.isBlank() && !(principal.isFarmAdmin() && !farmId.isBlank()) && !principal.canAccessPlot(plotId)) return false;
+        if (!plotId.isBlank() && !canReceivePlot(principal, farmId, plotId)) return false;
         if (principal.isFarmer() && !Jsons.text(payload, "resourceRequestId", "").isBlank()) {
             return principal.userId.equals(Jsons.text(payload, "requestedBy", ""))
                     || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
@@ -1083,6 +1146,16 @@ class AgriEventBus {
         // Unscoped platform events are intentionally withheld from farmers.
         // Their REST refresh remains the recovery path for secondary state.
         return !farmId.isBlank() || !plotId.isBlank() || principal.isFarmAdmin();
+    }
+
+    private boolean canReceivePlot(UserPrincipal principal, String payloadFarmId, String plotId) {
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
+        String farmId = payloadFarmId;
+        if (farmId == null || farmId.isBlank()) {
+            Map<String, Object> plot = store.find("plot", plotId);
+            farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
+        }
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
 
     private Map<String, Object> scopedPayload(UserPrincipal principal, Map<String, Object> payload) {
@@ -1590,6 +1663,10 @@ class AgriEngine {
     }
 
     Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode) {
+        return register(username, password, requestedRole, authorizationCode, Map.of());
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode, Object rawFarmProfile) {
         String normalized = normalizeUsername(username);
         validateUsername(normalized);
         validatePassword(normalized, password);
@@ -1602,9 +1679,30 @@ class AgriEngine {
         if ("SYSTEM_ADMIN".equals(role)) {
             user.put("farmIds", List.of("*"));
             user.put("plotIds", List.of("*"));
+        } else if ("FARM_ADMIN".equals(role)) {
+            Map<String, Object> farmProfile = validateFarmProfile(rawFarmProfile);
+            String farmId = Jsons.id("farm");
+            user.put("farmIds", List.of(farmId));
+            user.put("plotIds", List.of());
+            user.put("enabled", true); user.put("credentialVersion", 1);
+
+            Map<String, Object> farm = new LinkedHashMap<>();
+            farm.put("farmId", farmId);
+            farm.put("name", farmProfile.get("name"));
+            farm.put("region", farmProfile.get("region"));
+            farm.put("ownerId", user.get("userId"));
+            farm.put("status", "ACTIVE");
+            farm.put("createdAt", Instant.now().toString());
+            farm.put("createdBy", user.get("userId"));
+            store.createUserWithFarmDurably(user, farm);
+            store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role, "farmId", farmId));
+            events.publish("farm.created", farm);
+            Map<String, Object> result = authenticatedSession(user);
+            result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+            return result;
         } else {
             user.put("farmIds", List.of("farm-demo"));
-            user.put("plotIds", "FARM_ADMIN".equals(role) ? plotIdsForFarm("farm-demo") : List.of("plot-a01", "plot-a02"));
+            user.put("plotIds", List.of("plot-a01", "plot-a02"));
         }
         user.put("enabled", true); user.put("credentialVersion", 1);
         persistNewAccount(user, "ACCOUNT_EXISTS", "该账号已存在");
@@ -2206,13 +2304,30 @@ class AgriEngine {
         view.put("username", Jsons.text(user, "username", ""));
         view.put("role", role);
         view.put("roleLabel", RolePolicy.label(role));
-        view.put("farmIds", Jsons.strings(user.get("farmIds")));
-        view.put("plotIds", Jsons.strings(user.get("plotIds")));
+        List<String> farmIds = Jsons.strings(user.get("farmIds"));
+        List<String> plotIds = "FARM_ADMIN".equals(role)
+                ? farmIds.stream().filter(farmId -> !"*".equals(farmId)).flatMap(farmId -> plotIdsForFarm(farmId).stream()).distinct().sorted().toList()
+                : Jsons.strings(user.get("plotIds"));
+        view.put("farmIds", farmIds);
+        view.put("plotIds", plotIds);
         view.put("enabled", enabled);
         view.put("status", enabled ? "ACTIVE" : "INACTIVE");
         view.put("createdAt", Jsons.text(user, "createdAt", ""));
         view.put("updatedAt", Jsons.text(user, "updatedAt", ""));
         return view;
+    }
+
+    private Map<String, Object> validateFarmProfile(Object rawFarmProfile) {
+        Map<String, Object> profile = Jsons.map(mapper, rawFarmProfile);
+        String name = Jsons.text(profile, "name", "").trim();
+        String region = Jsons.text(profile, "region", "").trim();
+        if (name.length() < 2 || name.length() > 60) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "农场名称需为 2–60 个字符");
+        }
+        if (region.length() < 2 || region.length() > 80) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "所在地区需为 2–80 个字符");
+        }
+        return Map.of("name", name, "region", region);
     }
 
     private void validateUsername(String username) {
@@ -8658,11 +8773,11 @@ class AgriEngine {
     Map<String, Object> record(String type, String id) { return requireRecord(type, id); }
     List<Map<String, Object>> records(String type) { return store.list(type); }
     boolean canAccessPlot(UserPrincipal principal, String plotId) {
-        if (principal == null || principal.canAccessPlot(plotId)) return true;
-        if (!principal.isFarmAdmin()) return false;
+        if (principal == null || principal.isSystemAdmin()) return true;
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
         Map<String, Object> plot = store.find("plot", plotId);
         String farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
-        return principal.farmIds.contains("*") || principal.farmIds.contains(farmId);
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
     void ensurePlotAccess(UserPrincipal principal, String plotId) { if (!canAccessPlot(principal, plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权访问该地块"); }
     private Map<String, Object> requireRecord(String type, String id) { Map<String, Object> value = store.find(type, id); if (value == null) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", type + " " + id + " 不存在"); return value; }
@@ -8697,7 +8812,7 @@ class AgriController {
     ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(
                 engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""),
-                        Jsons.text(body, "role", "FARMER"), Jsons.text(body, "authorizationCode", ""))));
+                        Jsons.text(body, "role", "FARMER"), Jsons.text(body, "authorizationCode", ""), body.get("farmProfile"))));
     }
 
     @PostMapping("/auth/password/reset")

@@ -1243,6 +1243,64 @@
   background-color: color-mix(in srgb, var(--g-primary-bg) 72%, transparent);
 }
 
+.role-farm-admin .manager-plot-empty {
+  gap: 10px;
+  min-height: 360px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--g-primary) 22%, var(--g-border));
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--g-primary-bg) 78%, transparent), transparent 54%),
+    var(--admin-glass-surface-soft);
+  box-shadow: 0 16px 36px rgba(24, 56, 39, .06), inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+
+.role-farm-admin .manager-plot-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 4px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 22%, var(--g-border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--g-primary-bg) 78%, var(--g-bg-surface));
+  color: var(--g-primary);
+}
+
+.role-farm-admin .manager-plot-empty-icon .material-symbols-outlined {
+  margin: 0;
+  color: inherit;
+  font-size: 30px;
+}
+
+.role-farm-admin .manager-plot-empty .manager-plot-empty-eyebrow {
+  margin: 0;
+  color: var(--g-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.role-farm-admin .manager-plot-empty h2 {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: 700;
+}
+
+.role-farm-admin .manager-plot-empty > p:not(.manager-plot-empty-eyebrow) {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.role-farm-admin .manager-first-plot-button {
+  min-width: 180px;
+  justify-content: center;
+}
+
+.role-farm-admin .manager-plot-empty > small {
+  color: var(--g-text-tertiary);
+  font-size: 11px;
+}
+
 .role-farm-admin :is(.admin-local-tabs, .admin-alert-tabs) {
   border-color: var(--admin-glass-outline);
   background: var(--admin-glass-surface-soft);

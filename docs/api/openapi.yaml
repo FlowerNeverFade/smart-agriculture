@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.3.3
+  version: 1.3.4
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and an explicit
@@ -36,14 +36,15 @@ paths:
       tags: [auth]
       security: []
       description: |
-        创建 FARMER 或 FARM_ADMIN 无需额外授权；创建 SYSTEM_ADMIN 必须提交服务端环境变量
-        SYSTEM_ADMIN_AUTHORIZATION_CODE 对应的授权码。恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
+        创建 FARMER 或 FARM_ADMIN 无需额外授权；FARM_ADMIN 必须提交 farmProfile，服务端原子创建独立空农场，
+        不再加入 farm-demo。创建 SYSTEM_ADMIN 必须提交服务端环境变量 SYSTEM_ADMIN_AUTHORIZATION_CODE 对应的授权码。
+        恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/RegisterRequest'}}}
       responses:
         '201': {description: 账号创建成功，返回 JWT、用户与一次性展示的恢复码, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
-        '400': {description: 账号格式或密码强度不符合要求}
+        '400': {description: 账号格式、密码强度或 FARM_ADMIN 农场资料不符合要求（FARM_PROFILE_INVALID）}
         '403': {description: SYSTEM_ADMIN_AUTHORIZATION_INVALID 授权码无效}
         '429': {description: SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED，连续失败 5 次后限制 15 分钟}
         '409': {description: 账号已存在}
@@ -113,7 +114,7 @@ paths:
     get: {tags: [farm], responses: {'200': {description: 授权农场列表}}}
   /api/v1/plots:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: status, in: query, schema: {type: string, enum: [ACTIVE, INACTIVE]}}, {name: includeInactive, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 按农场和生命周期过滤的授权地块列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
-    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建 ACTIVE 地块, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建持久化 ACTIVE 地块；不复制示范农场遥测、设备或任务, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 地块持久化成功}, '403': {$ref: '#/components/responses/Forbidden'}, '503': {description: PLOT_PERSISTENCE_UNAVAILABLE，数据库不可用且不会创建临时地块}}}
   /api/v1/plots/{plotId}:
     patch: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 修改作物、品种、生长阶段、生长周期或面积}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/devices:
@@ -673,6 +674,14 @@ components:
         password: {type: string, format: password, minLength: 8, maxLength: 64}
         role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN], default: FARMER}
         authorizationCode: {type: string, format: password, writeOnly: true, description: 仅 role=SYSTEM_ADMIN 时必填；与服务端环境配置进行恒定时间比较}
+        farmProfile: {$ref: '#/components/schemas/FarmRegistrationProfile'}
+    FarmRegistrationProfile:
+      type: object
+      description: 仅 role=FARM_ADMIN 时必填；成功后创建该管理员独占的空农场。
+      required: [name, region]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 60}
+        region: {type: string, minLength: 2, maxLength: 80}
     CreateUserAccountRequest:
       type: object
       required: [username, password, role]

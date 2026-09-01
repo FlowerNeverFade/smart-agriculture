@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-farm-onboarding-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
@@ -122,6 +122,7 @@ const ICON_CLASS = Object.freeze({
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
   add: 'ph-plus',
+  add_location_alt: 'ph-map-pin-plus',
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
   lock_reset: 'ph-lock-key-open',
@@ -601,6 +602,7 @@ const DashboardView = {
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
+    const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
     const visiblePlots = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
@@ -830,6 +832,7 @@ const DashboardView = {
     return {
       isFarmAdmin,
       selectedFarmId,
+      managedFarm,
       visiblePlots,
       devices,
       deviceOptions,

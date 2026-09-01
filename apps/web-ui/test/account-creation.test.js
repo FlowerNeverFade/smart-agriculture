@@ -3,22 +3,67 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
-const [loginHtml, loginSource, apiSource, systemHtml, systemSource] = await Promise.all([
+const [loginHtml, loginSource, apiSource, systemHtml, systemSource, indexHtml] = await Promise.all([
   readFile(new URL('login.html', root), 'utf8'),
   readFile(new URL('js/login.js', root), 'utf8'),
   readFile(new URL('js/api.js', root), 'utf8'),
   readFile(new URL('sysadmin.html', root), 'utf8'),
-  readFile(new URL('js/sysadmin.js', root), 'utf8')
+  readFile(new URL('js/sysadmin.js', root), 'utf8'),
+  readFile(new URL('index.html', root), 'utf8')
 ]);
 
-test('registration exposes all three public roles and only requests authorization for SYSTEM_ADMIN', () => {
+test('registration exposes all roles and requests a private farm profile only for FARM_ADMIN', () => {
   assert.match(loginHtml, /option value="FARMER"/);
   assert.match(loginHtml, /option value="FARM_ADMIN"/);
   assert.match(loginHtml, /option value="SYSTEM_ADMIN"/);
+  assert.match(loginHtml, /id="registerFarmName"/);
+  assert.match(loginHtml, /id="registerFarmRegion"/);
   assert.match(loginHtml, /id="registerAuthorizationCode"/);
+  assert.match(loginSource, /selectedRole === 'FARM_ADMIN'/);
+  assert.match(loginSource, /farmProfile: selectedRole === 'FARM_ADMIN'/);
   assert.match(loginSource, /selectedRole === 'SYSTEM_ADMIN'/);
   assert.match(loginSource, /authorizationCode/);
-  assert.match(apiSource, /JSON\.stringify\(\{ username, password, role, authorizationCode \}\)/);
+  assert.match(apiSource, /payload\.farmProfile/);
+  assert.match(apiSource, /body: JSON\.stringify\(payload\)/);
+});
+
+test('FARM_ADMIN registration sends trimmed farm profile and preserves the recovery response', async () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+  globalThis.localStorage = storage;
+  globalThis.sessionStorage = storage;
+  let requestBody;
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({
+      success: true,
+      data: {
+        accessToken: 'farm-admin-token',
+        user: { userId: 'user-private-farm', username: 'private.manager', role: 'FARM_ADMIN', farmIds: ['farm-private'], plotIds: [] },
+        recoveryCode: 'ABCD-EFGH-JKLM-NPQR'
+      }
+    }), { status: 201, headers: { 'content-type': 'application/json' } });
+  };
+  const { ApiService } = await import(`../js/api.js?farm-registration=${Date.now()}`);
+  const service = new ApiService();
+  const result = await service.register({
+    username: 'private.manager', password: 'StrongPass2026', role: 'FARM_ADMIN',
+    farmProfile: { name: '  青禾家庭农场  ', region: '  重庆市 · 渝北区  ' }
+  });
+  assert.deepEqual(requestBody.farmProfile, { name: '青禾家庭农场', region: '重庆市 · 渝北区' });
+  assert.equal(result.recoveryCode, 'ABCD-EFGH-JKLM-NPQR');
+  assert.deepEqual(result.user.plotIds, []);
+});
+
+test('empty FARM_ADMIN farm is a first-plot onboarding state instead of a backend error', () => {
+  assert.match(indexHtml, /添加第一块地，开始管理农场/);
+  assert.match(indexHtml, /系统不会复制示范农场的数据/);
+  assert.match(indexHtml, /@click="openCreatePlot"/);
+  assert.doesNotMatch(indexHtml, /请确认后端服务和当前账户的地块权限/);
 });
 
 test('SYSTEM_ADMIN workspace uses global account APIs and role-specific scope controls', () => {

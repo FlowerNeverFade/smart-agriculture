@@ -2,11 +2,12 @@
 
 ## 已实现范围
 
-登录页在原有液态背景和玻璃面板内提供登录、创建账号、忘记密码和恢复码确认四个状态。登录时必须选择账户身份，服务端会核对所选身份与账号角色；系统公开三类角色：`FARMER`（种植农户）、`FARM_ADMIN`（农场管理员）和 `SYSTEM_ADMIN`（系统管理员）。`FARMER` 与 `FARM_ADMIN` 可直接注册并加入示范农场；`SYSTEM_ADMIN` 必须额外提交仅由部署环境保存的服务端授权码。
+登录页在原有液态背景和玻璃面板内提供登录、创建账号、忘记密码和恢复码确认四个状态。登录时必须选择账户身份，服务端会核对所选身份与账号角色；系统公开三类角色：`FARMER`（种植农户）、`FARM_ADMIN`（农场管理员）和 `SYSTEM_ADMIN`（系统管理员）。`FARMER` 继续加入示范农场；自注册 `FARM_ADMIN` 必须填写农场名称和地区，服务端为其创建独立空农场，不再共享 `farm-demo`；`SYSTEM_ADMIN` 必须额外提交仅由部署环境保存的服务端授权码。
 
 ## 接口与数据流
 
-- `POST /api/v1/auth/register`：输入 `username`、`password`、`role`，仅 `SYSTEM_ADMIN` 需要 `authorizationCode`；校验账号格式、密码强度和授权码后，使用 BCrypt 保存密码和恢复码哈希，返回 JWT、用户信息及仅展示一次的恢复码。兼容旧调用：省略 `role` 时仍注册为 `FARMER`。
+- `POST /api/v1/auth/register`：输入 `username`、`password`、`role`；`FARM_ADMIN` 额外提交 `farmProfile.name` 和 `farmProfile.region`，账号与独立农场在同一事务内创建，初始地块范围为空；仅 `SYSTEM_ADMIN` 需要 `authorizationCode`。校验成功后使用 BCrypt 保存密码和恢复码哈希，返回 JWT、用户信息及仅展示一次的恢复码。兼容旧调用：省略 `role` 时仍注册为 `FARMER`。
+- `POST /api/v1/plots`：`FARM_ADMIN` 可在其授权农场添加首块或后续地块；地块先持久化再发布事件，数据库不可用时不产生内存临时记录。农场管理员的有效地块范围按所属农场动态计算，因此当前 JWT 可立即访问新建地块，同时不能越过授权农场。
 - `GET /api/v1/users`：仅 `SYSTEM_ADMIN` 可读取全平台真实账号、安全角色范围和真实创建/更新时间；响应不包含密码、恢复码哈希或凭据版本。
 - `POST /api/v1/users`：仅 `SYSTEM_ADMIN` 可创建三类账号。创建 `FARMER` 时选择农场并可选地块，创建 `FARM_ADMIN` 时选择农场并自动授予完整农场范围，创建 `SYSTEM_ADMIN` 时仍须再次填写服务端授权码。
 - `PATCH /api/v1/users/{userId}/status`：仅 `SYSTEM_ADMIN` 可启停 `FARMER`、`FARM_ADMIN`。
@@ -24,8 +25,9 @@
 
 - 账号需为 4–32 位字母、数字、点、下划线或短横线；密码需为 8–64 位且包含字母和数字，不能包含账号。
 - 登录身份不匹配与账号或密码错误统一返回 `401 AUTH_INVALID`，避免泄露账号对应角色。
-- `FARMER` 与 `FARM_ADMIN` 可直接注册；`SYSTEM_ADMIN` 未配置授权码时返回 `503 SYSTEM_ADMIN_CREATION_DISABLED`，授权码错误返回 `403 SYSTEM_ADMIN_AUTHORIZATION_INVALID`，连续失败达到阈值返回 `429 SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED`。旧操作员身份仍返回 `403 ACCOUNT_ROLE_REQUIRES_ADMIN`，未知角色返回 `400 ACCOUNT_ROLE_INVALID`。
-- 所有账号创建、状态和删除操作必须先持久化成功；数据库不可用返回 `503 ACCOUNT_PERSISTENCE_UNAVAILABLE`，不会生成重启后消失的内存账号。
+- `FARMER` 与 `FARM_ADMIN` 可直接注册；FARM_ADMIN 农场名称或地区缺失、过短或过长返回 `400 FARM_PROFILE_INVALID`。`SYSTEM_ADMIN` 未配置授权码时返回 `503 SYSTEM_ADMIN_CREATION_DISABLED`，授权码错误返回 `403 SYSTEM_ADMIN_AUTHORIZATION_INVALID`，连续失败达到阈值返回 `429 SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED`。旧操作员身份仍返回 `403 ACCOUNT_ROLE_REQUIRES_ADMIN`，未知角色返回 `400 ACCOUNT_ROLE_INVALID`。
+- 所有账号创建、状态和删除操作必须先持久化成功；FARM_ADMIN 注册中的账号和农场任一写入失败均整体回滚并返回 `503 ACCOUNT_PERSISTENCE_UNAVAILABLE`，不会生成孤立账号或农场。
+- 地块创建数据库不可用时返回 `503 PLOT_PERSISTENCE_UNAVAILABLE`；总览不会显示重启后消失的临时地块。
 - 对任意系统管理员的停用或删除统一返回 `403 ACCOUNT_SYSTEM_ADMIN_PROTECTED`。
 - 重复账号返回 `409 ACCOUNT_EXISTS`；账号或恢复码错误统一返回 `401 ACCOUNT_RECOVERY_INVALID`，避免暴露账号是否存在。
 - 同一账号 15 分钟内连续失败 5 次后返回 `429 ACCOUNT_RECOVERY_LOCKED`。
@@ -34,11 +36,12 @@
 
 ## 验收证据
 
-- 后端测试覆盖三类角色注册、SYSTEM_ADMIN 授权码禁用/错误/限流、范围生成、全局列表敏感字段隔离、越权创建、状态切换、永久保护和数据库拒写。
-- 前端 Node 测试覆盖注册身份和条件授权码、全局账号接口、角色化范围、一次性恢复码，以及演示模式下相同的永久保护合同。
+- 后端测试覆盖三类角色注册、SYSTEM_ADMIN 授权码禁用/错误/限流、FARM_ADMIN 农场资料校验、账号与农场事务回滚、两个独立农场、动态地块范围、跨农场拒绝、全局列表敏感字段隔离、状态切换、永久保护和数据库拒写；直接编译运行的 Java JUnit 为 89/89。
+- 前端 Node 124/124 覆盖注册身份和条件字段、`farmProfile` 载荷、全局账号接口、一次性恢复码、空农场正常引导及首块地入口；Vite、关键 JS、OpenAPI YAML 和差异检查通过。
 - `node scripts/verify-webui.mjs real`、`stub`、`svg`：登录页账户表单、资源引用和降级路径探针通过。
-- 本地 API 黑盒：注册、`/auth/me`、密码重设、旧 JWT 返回 401、新密码登录均通过。
-- 内置浏览器验收以本地登录页和 SYSTEM_ADMIN“系统管理 / 账号管理”为准；三类角色、条件字段、地块范围、永久保护和一次性恢复码均须在桌面与 698px 下无溢出或控制台错误。
+- 隔离本地 API 黑盒使用两个新 FARM_ADMIN 验证独立空农场且无 Demo 地块、设备或遥测继承；首块地创建与修改后，创建前 JWT 可立即读取本场而另一个管理员跨场列表和修改均为 403；重启文件型 H2 后同一农场 ID、地块 ID 与修改内容仍存在。
+- 内置浏览器已在本地正式登录页、独立空农场和首块地表单完成桌面与 698px 验收；条件字段、恢复码流程、可稍后创建、创建后立即显示均无横向溢出或控制台 warning/error。
+- 本机完整 Gradle 在编译前被 Java NIO loopback 连接故障阻断；以上 Java 结论来自相同源码和测试集的直接编译运行，不将其表述为 Gradle 通过。
 
 ## 历史公网验收（2026-08-24，V4 三角色迁移之前）
 

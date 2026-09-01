@@ -420,6 +420,8 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 
 .field[hidden] { display: none; }
 
+.register-farm-profile[hidden] { display: none; }
+
 .field::after {
   content: "";
   position: absolute;
