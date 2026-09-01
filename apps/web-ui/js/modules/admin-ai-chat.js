@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260901-v593-market-v3';
+﻿import { api } from '../api.js?v=20260901-v593-market-v3';
 import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260901-v593-market-v3';
 import { analyzeImageFiles } from './image-vision.js?v=20260901-v593-market-v3';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260901-v593-market-v3';
@@ -304,7 +304,7 @@ export const AdminAiChatView = {
       loadingHistory.value = true;
       // 切换会话时先清空旧消息与分页计数，避免上一会话内容残留导致"先看到旧消息再下拉到最新"
       messages.value = [];
-      visibleMessageCount.value = 5;
+      visibleMessageCount.value = 20;
       try {
         const history = await api.getAgentHistory(id, 100);
         const historyPlotId = String(history?.conversation?.plotId || '').trim();
@@ -720,31 +720,28 @@ export const AdminAiChatView = {
       return plot?.name || plotId;
     };
     // 消息向上加载（打开会话自动显示最新 20 条并定位最新；向上触顶自动加载更早，无需按钮）
-    const visibleMessageCount = ref(5);
+    const visibleMessageCount = ref(20);
     const visibleMessages = computed(() => messages.value.slice(-Math.max(1, visibleMessageCount.value)));
     const loadingOlder = ref(false);
     const loadOlderMessages = async () => {
       if (loadingOlder.value || visibleMessageCount.value >= messages.value.length) return;
       loadingOlder.value = true;
       const el = messageList.value;
-      // 锚定当前视口内第一条可见消息：加载更早内容后把它放回原位，位置不突变
-      let anchorEl = null;
-      let anchorOffset = 0;
-      if (el) {
-        const containerTop = el.getBoundingClientRect().top;
-        for (const m of el.querySelectorAll('.admin-ai-message')) {
-          const t = m.getBoundingClientRect().top - containerTop;
-          if (t >= -1) { anchorEl = m; anchorOffset = Math.max(0, t); break; }
-        }
-      }
+      const oldScrollHeight = el ? el.scrollHeight : 0;
+      const oldScrollTop = el ? el.scrollTop : 0;
+      
       visibleMessageCount.value += 20;
       await nextTick();
-      if (el && anchorEl) {
-        // 瞬间回位（禁用 smooth），锚定消息回到加载前的视口位置
-        const prev = el.style.scrollBehavior;
-        el.style.scrollBehavior = 'auto';
-        el.scrollTop += (anchorEl.getBoundingClientRect().top - el.getBoundingClientRect().top) - anchorOffset;
-        el.style.scrollBehavior = prev;
+      
+      if (el) {
+        const newScrollHeight = el.scrollHeight;
+        const heightDiff = newScrollHeight - oldScrollHeight;
+        if (heightDiff > 0) {
+          const prev = el.style.scrollBehavior;
+          el.style.scrollBehavior = 'auto';
+          el.scrollTop = oldScrollTop + heightDiff;
+          el.style.scrollBehavior = prev;
+        }
       }
       loadingOlder.value = false;
     };
@@ -812,7 +809,7 @@ export const AdminAiChatView = {
         <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" :title="sidebarCollapsed ? '显示地块与历史对话' : '隐藏地块与历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span class="admin-ai-session-title">{{ activeConversationTitle }}</span></div></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
-          <button v-else-if="visibleMessages.length && visibleMessages.length < messages.length" type="button" class="admin-ai-load-older" @click="loadOlderMessages">加载更早消息</button>
+
           <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in visibleMessages" :key="message.id" class="admin-ai-message ai-chat-message" :class="[message.role, { error: message.error }]">
             <div class="admin-ai-avatar ai-chat-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><div v-if="message.role !== 'user'" class="admin-ai-message-meta ai-chat-message-meta"><span class="admin-ai-message-author"><strong>{{ rolePresentation.assistantName }}</strong></span><span class="admin-ai-source ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.source || '智能助手' }}</span><span v-if="message.intentLabel" class="admin-ai-intent ai-chat-intent">{{ message.intentLabel }}</span></div><div v-else class="ai-chat-user-bubble">{{ message.content }}</div><p v-if="message.role !== 'user'" class="ai-chat-answer">{{ message.content }}</p><div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div><div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
@@ -861,3 +858,6 @@ export const AdminAiChatView = {
     </section>
   `
 };
+
+
+
