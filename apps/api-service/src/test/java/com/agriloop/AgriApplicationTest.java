@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -1457,6 +1458,59 @@ class AgriApplicationTest {
                 Map.of("targetStatus", "ONLINE", "idempotencyKey", "test-online-" + deviceId), admin);
         assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
         assertThat(Jsons.map(new ObjectMapper(), online.get("device"))).containsEntry("status", "ONLINE");
+    }
+
+    @Test
+    void simulatedDeviceOnlineControlWinsOverOfflineScenarioAcrossTicks() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-device-recovery-" + suffix;
+        // Registered simulator ids are not required to use the historical
+        // mock-<plotId> convention. The engine must follow the bound record.
+        String deviceId = "002-" + suffix;
+        UserPrincipal admin = new UserPrincipal("user-admin-recovery-" + suffix, "admin-recovery-" + suffix,
+                "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        boolean simulatorWasRunning = "RUNNING".equals(String.valueOf(simulationEngine.status().get("status")));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "设备恢复测试田", "cropCode", "tomato", "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "plotId", plotId, "bindingState", "BOUND",
+                "sourceMode", "SIMULATION", "dataOrigin", "SIMULATOR", "status", "OFFLINE",
+                "desiredStatus", "OFFLINE", "controlStatus", "SUCCEEDED")));
+        try {
+            engine.updatePlotSimulation(plotId, Map.of("scenario", "DEVICE_OFFLINE"), admin);
+            simulationEngine.stop();
+            Map<String, Object> online = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "ONLINE", "idempotencyKey", "recovery-online-" + suffix), admin);
+            assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
+            assertThat(Jsons.map(new ObjectMapper(), online.get("device")))
+                    .containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+
+            simulationEngine.tickOnce();
+            simulationEngine.tickOnce();
+            Map<String, Object> recovered = store.find("device", deviceId);
+            assertThat(recovered).containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, Instant.EPOCH, Instant.now().plus(1, ChronoUnit.DAYS), 1000);
+            assertThat(samples).isNotEmpty();
+            assertThat(samples).allSatisfy(sample -> assertThat(sample).containsEntry("deviceId", deviceId));
+
+            engine.markStaleDevicesOffline();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "ONLINE");
+
+            Map<String, Object> offline = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "OFFLINE", "idempotencyKey", "recovery-offline-" + suffix), admin);
+            assertThat(Jsons.map(new ObjectMapper(), offline.get("device")))
+                    .containsEntry("status", "OFFLINE").containsEntry("manualStatusOverride", "OFFLINE");
+            int telemetryBefore = store.telemetryCount(plotId);
+            simulationEngine.tickOnce();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "OFFLINE");
+            assertThat(store.telemetryCount(plotId)).isEqualTo(telemetryBefore);
+        } finally {
+            store.delete("plot-simulation", plotId);
+            store.delete("device", deviceId);
+            store.delete("plot", plotId);
+            store.deleteSimulatedTelemetryForPlot(plotId);
+            if (simulatorWasRunning) simulationEngine.start(true);
+        }
     }
 
     @Test

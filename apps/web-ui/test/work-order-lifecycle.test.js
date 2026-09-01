@@ -155,9 +155,9 @@ test('农务任务与主应用复用同一 API 数据实例并定时刷新逾期
   const lifecycleSource = readFileSync(new URL('../js/work-order-lifecycle.js', import.meta.url), 'utf8');
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   const managementSource = readFileSync(new URL('../js/modules/admin-work-management.js', import.meta.url), 'utf8');
-  assert.match(lifecycleSource, /from '\.\/api\.js\?v=20260901-v592-main-merge-v1'/);
-  assert.match(appSource, /from '\.\/api\.js\?v=20260901-v592-main-merge-v1'/);
-  assert.match(managementSource, /from '\.\.\/api\.js\?v=20260901-v592-main-merge-v1'/);
+  assert.match(lifecycleSource, /from '\.\/api\.js\?v=20260901-v593-market-v3'/);
+  assert.match(appSource, /from '\.\/api\.js\?v=20260901-v593-market-v3'/);
+  assert.match(managementSource, /from '\.\.\/api\.js\?v=20260901-v593-market-v3'/);
   assert.match(lifecycleSource, /setInterval\(\(\) => \{ lifecycleNow\.value = Date\.now\(\); \}, 30000\)/);
 });
 

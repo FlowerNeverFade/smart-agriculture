@@ -1,18 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v592-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v592-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v592-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v592-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v592-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v592-main-merge-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v592-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v592-main-merge-v1';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v592-main-merge-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
+import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v593-market-v3';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
 import {
   agentResponseSource,
   agentResponseText,
@@ -43,7 +44,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-market-v3';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -146,7 +147,8 @@ const ICON_CLASS = Object.freeze({
   chevron_right: 'ph-caret-right',
   chevron_left: 'ph-caret-left',
   attach_file: 'ph-paperclip',
-  image_search: 'ph-image-square'
+  image_search: 'ph-image-square',
+  market: 'ph-chart-line-up'
 });
 
 const AppIcon = {
@@ -160,6 +162,7 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
+  { id: 'market-insights', label: '市场行情', icon: 'market', labels: { FARM_ADMIN: '市场行情' } },
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
   { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
   { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
@@ -3002,6 +3005,7 @@ const AdminSettingsView = {
 const app = createApp({
   components: {
     'dashboard-view': DashboardView,
+    'market-insights-view': AdminMarketInsightsView,
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'ai-assistant-view': AdminAiChatView,
