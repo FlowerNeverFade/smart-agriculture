@@ -521,11 +521,23 @@
   max-height: 150px;
   resize: none;
   padding: 11px 2px 7px;
-  border: 0;
-  outline: 0;
+  /* The composer itself owns the visible frame. Keep the native textarea
+     completely frameless so the workspace focus ring cannot render a second
+     inset box around the text area. */
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  appearance: none;
   color: var(--g-text-primary);
   background: transparent;
   font: 500 16px/1.5 var(--g-font-family);
+}
+
+.admin-ai-composer textarea:focus,
+.admin-ai-composer textarea:focus-visible {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .admin-ai-composer textarea::placeholder {
