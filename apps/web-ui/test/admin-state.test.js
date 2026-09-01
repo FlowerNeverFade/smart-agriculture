@@ -96,7 +96,18 @@ test('farm summary and merged plot facts use current records', () => {
   const summary = adminSummary({ plots, workOrders: [{ status: 'OPEN', dueAt: '2026-01-01T00:00:00Z' }] }, Date.parse('2026-08-26T00:00:00Z'));
   assert.equal(plots[0].areaM2, 80);
   assert.equal(plots[0].metrics.SOIL_MOISTURE.value, 12);
-  assert.deepEqual(summary, { today: 1, overdue: 1, abnormal: 1, unassigned: 1, approval: 0 });
+  assert.deepEqual(summary, { today: 1, overdue: 1, abnormal: 1, unassigned: 1, approval: 0, farmerReports: 0 });
+});
+
+test('farmer issue reports are counted only while they need admin attention', () => {
+  const summary = adminSummary({
+    workOrders: [
+      { status: 'OPEN', sourceType: 'FARMER_REPORT' },
+      { status: 'DONE', sourceType: 'FARMER_REPORT' },
+      { status: 'IN_PROGRESS', sourceType: 'FIELD_OPERATION' }
+    ]
+  });
+  assert.equal(summary.farmerReports, 1);
 });
 
 test('manager summary entries route to a real destination with the farm context', () => {
@@ -115,6 +126,9 @@ test('manager summary entries route to a real destination with the farm context'
   assert.deepEqual(managerSummaryTarget('approval', 'farm-a'), {
     view: 'work-orders', params: { tab: 'tasks', scope: 'approval', farmId: 'farm-a' }
   });
+  assert.deepEqual(managerSummaryTarget('farmer-reports', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'farmer-reports', status: 'ALL', farmId: 'farm-a' }
+  });
   assert.equal(managerSummaryTarget('unknown', 'farm-a'), null);
 });
 
@@ -123,11 +137,15 @@ test('dashboard task scopes reproduce overdue, unassigned, and approval queues',
   const overdue = { status: 'ASSIGNED', assigneeId: 'farmer-a', dueAt: '2026-08-26T10:00:00Z', actionType: 'FIELD_OPERATION' };
   const unassigned = { status: 'OPEN', assigneeId: '', dueAt: '2026-08-27T10:00:00Z', actionType: 'FIELD_OPERATION' };
   const approval = { status: 'OPEN', assigneeId: 'farmer-a', dueAt: '2026-08-27T10:00:00Z', actionType: 'IRRIGATION_REVIEW' };
+  const farmerReport = { status: 'OPEN', sourceType: 'FARMER_REPORT', assigneeId: '', dueAt: '2026-08-27T10:00:00Z' };
   assert.equal(normalizeWorkSummaryScope('OVERDUE'), 'overdue');
   assert.equal(normalizeWorkSummaryScope('invalid'), '');
   assert.equal(workOrderMatchesSummaryScope(overdue, 'overdue', now), true);
   assert.equal(workOrderMatchesSummaryScope(unassigned, 'unassigned', now), true);
   assert.equal(workOrderMatchesSummaryScope(approval, 'approval', now), true);
+  assert.equal(normalizeWorkSummaryScope('FARMER-REPORTS'), 'farmer-reports');
+  assert.equal(workOrderMatchesSummaryScope(farmerReport, 'farmer-reports', now), true);
+  assert.equal(workOrderMatchesSummaryScope({ ...farmerReport, status: 'DONE' }, 'farmer-reports', now), false);
   assert.equal(workOrderMatchesSummaryScope({ ...approval, status: 'DONE' }, 'approval', now), false);
 });
 

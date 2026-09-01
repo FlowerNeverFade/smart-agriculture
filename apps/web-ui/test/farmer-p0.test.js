@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { metricLabel } from '../js/live-data.js';
+import { buildLiveFeedItems, metricLabel, normalizeFarmerTask } from '../js/live-data.js';
 import { MOCK_DATA } from '../js/mock-data.js';
 import { canExecuteIrrigation, roleCan } from '../js/roles.js';
 
@@ -13,6 +13,36 @@ globalThis.localStorage ||= {
 };
 
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
+
+test('legacy farmer task records retain an actionable work-order identity', () => {
+  const task = normalizeFarmerTask({ id: 'ft-demo', status: 'IN_PROGRESS', title: '演示任务' });
+  assert.equal(task.id, 'ft-demo');
+  assert.equal(task.workOrderId, 'ft-demo');
+});
+
+test('demo farmer task issue reporting keeps task state and admin visibility in one idempotent flow', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', permissions: [] } });
+  const created = await service.createWorkOrder({ farmId: 'farm-demo', plotId: 'plot-a01', title: '问题上报演示任务', reason: '检查滴灌设施', actionType: 'INSPECTION', priority: 'HIGH' });
+  await service.assignWorkOrder(created.workOrderId, { assigneeId: 'user-farmer' });
+  service.saveSession({ mode: 'demo', user: { userId: 'user-farmer', username: 'farmer', role: 'FARMER', permissions: [] } });
+
+  const report = await service.reportWorkOrderIssue(created.workOrderId, { description: '北侧滴灌管接头持续漏水，无法按计划完成补水' });
+  assert.equal(report.sourceType, 'FARMER_REPORT');
+  assert.equal(report.reason, '北侧滴灌管接头持续漏水，无法按计划完成补水');
+  assert.equal(report.sourceWorkOrderId, created.workOrderId);
+  assert.equal(report.reused, false);
+  const repeated = await service.reportWorkOrderIssue(created.workOrderId, { description: '北侧滴灌管接头持续漏水，无法按计划完成补水' });
+  assert.equal(repeated.workOrderId, report.workOrderId);
+  assert.equal(repeated.reused, true);
+  assert.equal((await service.getWorkOrders()).some((item) => item.workOrderId === report.workOrderId), false);
+
+  service.saveSession({ mode: 'demo', user: { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', permissions: [] } });
+  assert.equal((await service.getWorkOrders()).some((item) => item.workOrderId === report.workOrderId), true);
+  const feed = buildLiveFeedItems({ workOrders: [report] });
+  assert.equal(feed[0].category, '农户问题上报');
+  assert.match(feed[0].summary, /北侧滴灌管接头持续漏水/);
+});
 
 test('demo P0 contracts expose deterministic guard, dual branches and direct farmer execution', async () => {
   const service = new ApiService();
@@ -152,13 +182,13 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
     readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
   ]);
   const farmerSurface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '人工复核或补充现场证据']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '人工复核或补充现场证据', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测', 'executeManualIrrigation', 'manualFallback', 'show_no_action_reason', 'manual_irrigation_water']) {
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测', 'executeManualIrrigation', 'manualFallback', 'show_no_action_reason', 'manual_irrigation_water', 'sync_task_references', 'reportWorkOrderIssue', 'task_has_active_issue_report']) {
     assert.match(html + source, new RegExp(marker));
   }
   // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。

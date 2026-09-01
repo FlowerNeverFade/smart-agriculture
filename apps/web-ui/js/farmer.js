@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v593-task-report-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
@@ -28,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-task-report-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -2142,6 +2142,11 @@ const app = createApp({
     const selected_message = ref(null);
     const message_filter = ref('all');
     const selected_task = ref(null);
+    const show_issue_report_modal = ref(false);
+    const issue_report_busy = ref(false);
+    const issue_report_error = ref('');
+    const issue_report_task = ref(null);
+    const issue_report_form = ref({ description: '', priority: 'HIGH' });
     const analyzing = ref(false);
     const analysis_result = ref('');
     const analysis_error = ref('');
@@ -3056,6 +3061,52 @@ const app = createApp({
       target.value.splice(0, target.value.length, ...(Array.isArray(values) ? values : []));
     };
 
+    const task_identity = (task) => String(task?.workOrderId || task?.id || '').trim();
+    const find_task_by_identity = (collection, target) => {
+      const identity = task_identity(target);
+      if (!identity) return null;
+      return (Array.isArray(collection) ? collection : []).find((item) => task_identity(item) === identity) || null;
+    };
+    const enrich_task = (task) => {
+      if (!task) return task;
+      const enriched = { ...task };
+      if (task.plot_id) {
+        const plot = find_plot_by_id(plots.value, task.plot_id);
+        if (plot) {
+          enriched.plot = {
+            plotId: plot.plotId,
+            name: plot.name,
+            crop_name: plot.cropName,
+            crop_variety: plot.cropVariety,
+            stage_label: plot.stageLabel,
+            cultivation_status_label: plot.cultivationStatusLabel || '正常种植',
+            facility_label: plot.facilityLabel || '露地（裸地）',
+            device_status: plot.deviceStatus,
+            metrics: plot.metrics
+          };
+        }
+      }
+      return enriched;
+    };
+    const sync_task_references = (nextTasks = tasks.value) => {
+      const refresh = (current) => {
+        const latest = find_task_by_identity(nextTasks, current);
+        return latest ? enrich_task(latest) : current;
+      };
+      if (selected_task.value) selected_task.value = refresh(selected_task.value);
+      if (active_suggestion.value?.task) {
+        active_suggestion.value = { ...active_suggestion.value, task: refresh(active_suggestion.value.task) };
+      }
+      if (issue_report_task.value) issue_report_task.value = refresh(issue_report_task.value);
+    };
+    const patch_task_state = (task, changes = {}) => {
+      const source = find_task_by_identity(tasks.value, task);
+      if (source) Object.assign(source, changes);
+      if (task && typeof task === 'object') Object.assign(task, changes);
+      sync_task_references();
+      return source || task;
+    };
+
     const message_fingerprint = (list) => (Array.isArray(list) ? list : [])
       .map((message) => [message.id, message.read ? 1 : 0, message.title, message.snippet, message.time_iso].join('\u0001'))
       .join('\n');
@@ -3204,6 +3255,10 @@ const app = createApp({
         farm.value = selectedFarm;
         replace_ref_array(plots, normalizedPlots);
         replace_ref_array(tasks, normalizedTasks);
+        // Reloads replace the task array in place. Rebind every open dialog and
+        // suggestion flow to the fresh backend object so stale statuses cannot
+        // leave an executable button visible after START/SUBMIT.
+        sync_task_references(normalizedTasks);
         apply_messages(nextMessages);
         replace_ref_array(inspection_records, records);
         evidence_requests.value = normalizedTasks.filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS').map((task) => ({
@@ -3475,24 +3530,8 @@ const app = createApp({
     };
 
     const open_task = (task) => {
-      const enriched = { ...task };
-      if (task.plot_id) {
-        const plot = find_plot_by_id(plots.value, task.plot_id);
-        if (plot) {
-          enriched.plot = {
-            plotId: plot.plotId,
-            name: plot.name,
-            crop_name: plot.cropName,
-            crop_variety: plot.cropVariety,
-            stage_label: plot.stageLabel,
-            cultivation_status_label: plot.cultivationStatusLabel || '正常种植',
-            facility_label: plot.facilityLabel || '露地（裸地）',
-            device_status: plot.deviceStatus,
-            metrics: plot.metrics
-          };
-        }
-      }
-      selected_task.value = enriched;
+      const latest = find_task_by_identity(tasks.value, task) || task;
+      selected_task.value = enrich_task(latest);
     };
 
     const open_task_from_dashboard = (task) => {
@@ -3765,6 +3804,10 @@ const app = createApp({
 
     const open_suggestion = (kind = 'RISK', context = {}) => {
       const task = context.task || (kind === 'TASK' ? context : null);
+      if (kind === 'TASK' && !['PENDING', 'ASSIGNED', 'REJECTED', 'IN_PROGRESS'].includes(farmer_task_status(task))) {
+        show_toast('任务状态已更新，请按最新状态处理', 'warning');
+        return;
+      }
       const plotId = context.plotId || task?.plot_id || (kind === 'RISK' ? weather_risk_card.value.plotId : advice_plot.value?.plotId);
       const plot = find_plot_by_id(plots.value, plotId);
       const issue = plot ? plot_issue_summary(plot) : null;
@@ -3883,13 +3926,12 @@ const app = createApp({
           const task = active.task;
           const status = farmer_task_status(task);
           if (['PENDING', 'ASSIGNED', 'REJECTED'].includes(status)) {
-      if (is_formal_session) {
-              await api.transitionWorkOrder(task.workOrderId, { action: status === 'REJECTED' ? 'RESTART' : 'START', note: '农户确认开始执行任务' });
+            if (is_formal_session) {
+              const saved = await api.transitionWorkOrder(task.workOrderId, { action: status === 'REJECTED' ? 'RESTART' : 'START', note: '农户确认开始执行任务' });
+              patch_task_state(task, { ...(saved || {}), status: saved?.status || 'IN_PROGRESS' });
               await load_live_workspace({ announce: false });
             } else {
-              const source = tasks.value.find((item) => item.id === task.id);
-              if (source) source.status = 'IN_PROGRESS';
-              task.status = 'IN_PROGRESS';
+              patch_task_state(task, { status: 'IN_PROGRESS' });
             }
           }
           suggestion_flow_stage.value = 'RESULT';
@@ -3966,9 +4008,10 @@ const app = createApp({
           });
         }
         if (active.kind === 'TASK') {
-          const source = tasks.value.find((item) => item.id === active.task?.id);
-          if (source) source.status = is_formal_session ? (saved?.status || 'SUBMITTED') : 'SUBMITTED';
-          active.task.status = is_formal_session ? (saved?.status || 'SUBMITTED') : 'SUBMITTED';
+          patch_task_state(active.task, {
+            ...(saved || {}),
+            status: is_formal_session ? (saved?.status || 'SUBMITTED') : 'SUBMITTED'
+          });
         }
         suggestion_result.value = saved;
         suggestion_recovery_status.value = active.kind === 'IRRIGATION'
@@ -4781,19 +4824,106 @@ const app = createApp({
 
     const close_task = () => { selected_task.value = null; };
 
+    const task_has_active_issue_report = (task) => {
+      if (!task?.issueReportId) return false;
+      const status = String(task.issueReportStatus || 'OPEN').trim().toUpperCase();
+      return !['DONE', 'CANCELLED', 'REJECTED'].includes(status);
+    };
+
+    const open_issue_report = (task) => {
+      if (!task?.workOrderId && is_formal_session) {
+        show_toast('当前任务缺少工单编号，暂不能上报问题', 'error');
+        return;
+      }
+      if (['DONE', 'CANCELLED'].includes(farmer_task_status(task))) {
+        show_toast('已结束任务不能上报新问题', 'warning');
+        return;
+      }
+      if (task_has_active_issue_report(task)) {
+        show_toast('该任务的问题已上报，等待农场管理员处理', 'warning');
+        return;
+      }
+      issue_report_task.value = find_task_by_identity(tasks.value, task) || task;
+      issue_report_form.value = { description: '', priority: 'HIGH' };
+      issue_report_error.value = '';
+      show_issue_report_modal.value = true;
+    };
+
+    const close_issue_report = (force = false) => {
+      if (issue_report_busy.value && !force) return;
+      show_issue_report_modal.value = false;
+      issue_report_task.value = null;
+      issue_report_error.value = '';
+    };
+
+    const submit_issue_report = async () => {
+      if (issue_report_busy.value) return;
+      const task = issue_report_task.value;
+      const description = String(issue_report_form.value.description || '').trim();
+      if (description.length < 2) {
+        issue_report_error.value = '请具体描述遇到的问题（至少 2 个字）';
+        return;
+      }
+      if (description.length > 1000) {
+        issue_report_error.value = '问题描述不能超过 1000 个字';
+        return;
+      }
+      if (!task?.workOrderId && is_formal_session) {
+        issue_report_error.value = '当前任务缺少工单编号，无法上报';
+        return;
+      }
+      if (!task?.workOrderId) {
+        const now = new Date().toISOString();
+        patch_task_state(task, {
+          issueReportId: task.issueReportId || `demo-farmer-report-${task.id || Date.now()}`,
+          issueReportStatus: 'OPEN',
+          issueReportDescription: description,
+          issueReportedAt: now,
+          issueReportedBy: session_user?.userId || user.value?.userId || ''
+        });
+        close_issue_report(true);
+        show_toast('演示问题已记录；正式环境提交后会同步给农场管理员');
+        return;
+      }
+      issue_report_busy.value = true;
+      issue_report_error.value = '';
+      try {
+        const saved = await api.reportWorkOrderIssue(task.workOrderId, {
+          description,
+          priority: issue_report_form.value.priority || 'HIGH'
+        });
+        const report = saved?.report || saved || {};
+        const reportId = report.workOrderId || report.workItemId || saved?.reportWorkOrderId;
+        patch_task_state(task, {
+          issueReportId: reportId || task.issueReportId,
+          issueReportStatus: report.status || 'OPEN',
+          issueReportDescription: description,
+          issueReportedAt: new Date().toISOString(),
+          issueReportedBy: session_user?.userId || user.value?.userId || ''
+        });
+        if (is_formal_session) await load_live_workspace({ announce: false });
+        close_issue_report(true);
+        show_toast(saved?.reused ? '该问题已上报，管理员正在处理' : '问题已上报，农场管理员已收到');
+      } catch (error) {
+        issue_report_error.value = error?.message || '问题上报失败，请稍后重试';
+        show_toast(issue_report_error.value, 'error');
+      } finally {
+        issue_report_busy.value = false;
+      }
+    };
+
     const start_task = async (task) => {
       if (is_formal_session) {
         try {
-          await api.transitionWorkOrder(task.workOrderId, { action: 'START', note: '农户开始执行任务' });
+          const saved = await api.transitionWorkOrder(task.workOrderId, { action: 'START', note: '农户开始执行任务' });
+          patch_task_state(task, { ...(saved || {}), status: saved?.status || 'IN_PROGRESS' });
           close_task();
           await load_live_workspace({ announce: false });
           show_toast(`已开始执行：${task.title}`);
         } catch (error) { show_toast(error.message || '开始任务失败', 'error'); }
         return;
       }
-      const source = tasks.value.find((item) => item.id === task.id);
-      if (source) source.status = 'IN_PROGRESS';
-      task.status = 'IN_PROGRESS';
+      patch_task_state(task, { status: 'IN_PROGRESS' });
       show_toast(`已开始执行：${task.title}`);
       close_task();
     };
@@ -4801,41 +4931,22 @@ const app = createApp({
     const complete_task = async (task) => {
       if (is_formal_session) {
         try {
-          await api.transitionWorkOrder(task.workOrderId, { action: 'SUBMIT', resultSummary: '农户已提交现场处理结果' });
+          const saved = await api.transitionWorkOrder(task.workOrderId, { action: 'SUBMIT', resultSummary: '农户已提交现场处理结果' });
+          patch_task_state(task, { ...(saved || {}), status: saved?.status || 'SUBMITTED' });
           close_task();
           await load_live_workspace({ announce: false });
           show_toast(`已提交完成：${task.title}，等待管理员验收`);
         } catch (error) { show_toast(error.message || '提交任务失败', 'error'); }
         return;
       }
-      const source = tasks.value.find((item) => item.id === task.id);
-      if (source) source.status = 'DONE';
-      task.status = 'DONE';
+      patch_task_state(task, { status: 'DONE' });
       show_toast(`已提交完成：${task.title}`);
       close_task();
     };
 
-    const report_issue = async (task) => {
-      if (is_formal_session && task?.plot_id) {
-        try {
-          await api.createWorkOrder({
-            farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
-            plotId: task.plot_id,
-            title: `任务异常：${task.title}`,
-            reason: `农户上报：${task.reason || '执行过程中发现异常'}`,
-            sourceType: 'READINESS',
-            actionType: 'INSPECTION',
-            priority: 'HIGH'
-          });
-          close_task();
-          await load_live_workspace({ announce: false });
-          show_toast(`问题已上报：${task.title}`, 'error');
-        } catch (error) { show_toast(error.message || '问题上报失败', 'error'); }
-        return;
-      }
-      show_toast(`演示问题已上报：${task.title}`, 'error');
-      close_task();
-    };
+    // Keep the old method name for any embedded callers while routing all
+    // reports through the form and the dedicated idempotent API.
+    const report_issue = (task) => open_issue_report(task);
 
     const submit_resource_request = async () => {
       if (resource_request_busy.value) return;
@@ -5205,6 +5316,11 @@ const app = createApp({
       advice_moisture_chart,
       selected_message,
       selected_task,
+      show_issue_report_modal,
+      issue_report_busy,
+      issue_report_error,
+      issue_report_task,
+      issue_report_form,
       analyzing,
       analysis_result,
       analysis_error,
@@ -5378,6 +5494,8 @@ const app = createApp({
       message_filter_counts,
       unread_count,
       task_columns,
+      farmer_task_status,
+      task_has_active_issue_report,
       profile_stats,
       account_profile,
       navigate,
@@ -5429,6 +5547,9 @@ const app = createApp({
       open_device_attention,
       open_priority_item,
       close_task,
+      open_issue_report,
+      close_issue_report,
+      submit_issue_report,
       delete_task,
       delete_all_completed_tasks,
       open_plot,

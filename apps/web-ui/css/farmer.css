@@ -1465,6 +1465,7 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.farmer-task-report-status { flex-basis: 100%; display: flex; align-items: center; gap: 5px; margin: -2px 0 0; color: var(--g-warning); font-size: 12px; }
 
 /* 个人中心 */
 .farmer-profile-layout {
@@ -1985,10 +1986,14 @@
 .farmer-record-item time { color: var(--g-text-secondary); font-size: 11px; white-space: nowrap; }
 .farmer-form-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
 .farmer-form-card { width: min(560px, 100%); max-height: 90vh; overflow-y: auto; display: grid; gap: 14px; padding: 22px; border-radius: var(--g-radius-lg); background: var(--g-bg-surface); box-shadow: var(--g-shadow-3); }
+.farmer-form-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.farmer-form-header h3 { margin: 4px 0; color: var(--g-text-primary); }
+.farmer-form-header p { margin: 0; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-card > label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .farmer-form-grid label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+.farmer-form-hint { margin: 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.6; }
 .farmer-form-error { padding: 9px 11px; color: var(--g-danger); background: var(--g-danger-bg); border-radius: var(--g-radius); font-size: 13px; }
 .farmer-security-panel { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 20px; }
 

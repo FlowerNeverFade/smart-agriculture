@@ -421,6 +421,8 @@ paths:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AssignWorkOrderRequest'}}}}, responses: {'200': {description: 管理员将任务分配或重新分配给有对应地块权限的活跃种植农户}}}
   /api/v1/work-orders/{workOrderId}/transition:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农户开始、重新处理、提交结果或管理员取消任务}}}
+  /api/v1/work-orders/{workOrderId}/report-issue:
+    post: {tags: [management], description: 农户填写具体问题并创建与原任务关联的 FARMER_REPORT 工单；同一农户对同一任务的未结束上报幂等复用，管理员通过工单列表和实时事件接收, parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {required: false, content: {application/json: {schema: {type: object, required: [description], properties: {description: {type: string, minLength: 2, maxLength: 1000}, priority: {type: string, enum: [HIGH, MEDIUM, LOW]}}}}}}, responses: {'200': {description: 关联的 FARMER_REPORT 工单与原任务摘要}, '400': {description: 问题描述为空或超过长度限制}, '403': {description: 仅允许该任务的执行农户上报}, '409': {description: 原任务已结束}}}
   /api/v1/work-orders/{workOrderId}/review:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:

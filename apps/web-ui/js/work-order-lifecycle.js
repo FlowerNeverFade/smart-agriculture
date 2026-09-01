@@ -1,5 +1,5 @@
-import { api } from './api.js?v=20260901-v592-main-merge-v1';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { api } from './api.js?v=20260901-v593-task-report-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v593-task-report-v1';
 import { roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
@@ -81,6 +81,10 @@ export function isReworkOrder(order) {
 
 export function isAlertVerificationOrder(order) {
   return String(order?.taskPurpose || '').trim().toUpperCase() === 'ALERT_VERIFICATION';
+}
+
+export function isFarmerIssueReport(order) {
+  return String(order?.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
 }
 
 export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '', requireDifferent = false) {
@@ -237,6 +241,7 @@ export const WorkOrderLifecycleView = {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
       if (!isFarmer.value) return orders;
       return orders.filter((order) => {
+        if (isFarmerIssueReport(order)) return false;
         if (order.assigneeId === currentActorId.value) return true;
         // A farmer must be able to track an evidence request they created
         // before it is assigned.  The backend applies the same rule in
@@ -306,7 +311,8 @@ export const WorkOrderLifecycleView = {
       today: '今日任务',
       overdue: '已逾期',
       unassigned: '待分配',
-      approval: '待审批'
+      approval: '待审批',
+      'farmer-reports': '农户问题上报'
     }[scopeFilter.value] || ''));
     const taskFilterParams = (params = {}) => ({
       tab: 'tasks',
@@ -328,9 +334,9 @@ export const WorkOrderLifecycleView = {
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
-    const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建' }[String(source || '').toUpperCase()] || '系统任务');
+    const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建', FARMER_REPORT: '农户问题上报' }[String(source || '').toUpperCase()] || '系统任务');
     const taskTypeLabel = (type) => workActionMeta(type).label;
-    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
+    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', ISSUE_REPORTED: '上报问题', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
     const formatTime = (value) => {
       if (!value) return '—';
       const date = new Date(value);
@@ -869,7 +875,7 @@ export const WorkOrderLifecycleView = {
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
-      isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, formatTime, workStatus, TERMINAL_STATUSES,
+      isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, isFarmerIssueReport, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
       openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
@@ -940,7 +946,7 @@ export const WorkOrderLifecycleView = {
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="isFarmerIssueReport(order)" class="work-source work-issue-report">农户问题</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
@@ -1026,6 +1032,7 @@ export const WorkOrderLifecycleView = {
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
             <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
+            <div v-if="isFarmerIssueReport(activeOrder)" class="work-result work-issue-report-detail"><strong>农户具体描述</strong><p>{{ activeOrder.issueDescription || activeOrder.description || activeOrder.reason }}</p><small>上报人：{{ activeOrder.reporterName || activeOrder.reporterId || '农户' }}</small></div>
             <dl class="work-order-facts work-detail-facts">
               <div><dt>地块</dt><dd>{{ plotName(activeOrder.plotId) }}</dd></div>
               <div><dt>负责人</dt><dd :class="{ 'needs-owner': !activeOrder.assigneeId }">{{ farmerName(activeOrder) }}</dd></div>

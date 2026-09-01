@@ -727,6 +727,50 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerCanReportSpecificIssueOnceAndFarmAdminReceivesReport() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "title", "问题上报闭环测试-" + suffix,
+                "reason", "执行后反馈异常", "actionType", "INSPECTION", "priority", "HIGH"), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+        engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer"), admin);
+
+        Map<String, Object> report = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水", "priority", "HIGH"), farmer);
+        assertThat(report).containsEntry("sourceType", "FARMER_REPORT")
+                .containsEntry("sourceRef", workOrderId)
+                .containsEntry("reason", "北侧滴灌管接头持续漏水，无法按计划完成补水")
+                .containsEntry("reused", false)
+                .containsEntry("sourceWorkOrderId", workOrderId);
+        String reportId = String.valueOf(report.get("workOrderId"));
+        assertThat(store.find("work-order", workOrderId))
+                .containsEntry("issueReportId", reportId)
+                .containsEntry("issueReportStatus", "OPEN")
+                .containsEntry("issueReportDescription", "北侧滴灌管接头持续漏水，无法按计划完成补水");
+
+        Map<String, Object> repeated = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水"), farmer);
+        assertThat(repeated).containsEntry("workOrderId", reportId).containsEntry("reused", true);
+        assertThat(store.list("work-order").stream()
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> "FARMER_REPORT".equals(Jsons.text(item, "sourceType", "")))
+                .count()).isEqualTo(1);
+
+        assertThat(engine.workOrders(Map.of(), admin)).anyMatch(item -> reportId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).anyMatch(item -> workOrderId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).noneMatch(item -> reportId.equals(item.get("workOrderId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", "其他农户尝试上报"), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_ASSIGNEE_REQUIRED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", " "), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ISSUE_DESCRIPTION_REQUIRED"));
+    }
+
+    @Test
     void overdueReassignmentRequiresAFutureRenewedDueAt() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> created = engine.createWorkOrder(Map.of(

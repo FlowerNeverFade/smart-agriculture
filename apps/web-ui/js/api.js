@@ -1744,6 +1744,7 @@ export class ApiService {
     return Array.from(this.demoWorkOrders.values())
       .filter(item => !farmId || item.farmId === farmId || (!item.farmId && farmId === 'farm-demo'))
       .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT')
       .map(cloneWorkOrder);
   }
 
@@ -1760,7 +1761,9 @@ export class ApiService {
     }
     const currentActorId = this._demoActorId();
     return Array.from(this.demoWorkOrders.values())
-      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))
+      .filter((item) => this.user?.role !== 'FARMER'
+        || (String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT'
+          && (item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))))
       .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
       .filter((item) => !filters.plotId || item.plotId === filters.plotId)
       .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
@@ -1810,6 +1813,71 @@ export class ApiService {
   }
 
   async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async reportWorkOrderIssue(workOrderId, input = {}) {
+    const body = input && typeof input === 'object' ? input : {};
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/report-issue`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return response?.data || response;
+    }
+    const work = this._demoWorkOrder(workOrderId);
+    this._requireDemoAssignee(work);
+    const current = normalizeWorkOrderStatus(work.status);
+    if (TERMINAL_WORK_ORDER_STATUSES.has(current)) throw new ApiError('已结束的任务不能上报新问题', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+    const description = String(body.description || body.issueDescription || body.note || '').trim();
+    if (description.length < 2) throw new ApiError('请具体描述遇到的问题', { status: 400, code: 'ISSUE_DESCRIPTION_REQUIRED' });
+    if (description.length > 1000) throw new ApiError('问题描述不能超过 1000 个字', { status: 400, code: 'ISSUE_DESCRIPTION_TOO_LONG' });
+    const reporterId = this._demoActorId();
+    const existing = Array.from(this.demoWorkOrders.values()).find((item) =>
+      String(item.sourceType || '').toUpperCase() === 'FARMER_REPORT'
+      && String(item.sourceRef || '') === String(workOrderId)
+      && String(item.reporterId || item.createdBy || '') === reporterId
+      && !['DONE', 'CANCELLED', 'REJECTED'].includes(normalizeWorkOrderStatus(item.status))
+    );
+    if (existing) {
+      return {
+        ...cloneWorkOrder(existing),
+        reused: true,
+        sourceWorkOrderId: workOrderId,
+        originalWorkOrder: cloneWorkOrder(work)
+      };
+    }
+    const report = await this.saveWorkOrder({
+      farmId: work.farmId || 'farm-demo',
+      plotId: work.plotId,
+      sourceType: 'FARMER_REPORT',
+      sourceRef: workOrderId,
+      parentWorkOrderId: workOrderId,
+      title: `农户问题上报：${work.title || '农务任务'}`,
+      reason: description,
+      description,
+      issueDescription: description,
+      reporterId,
+      reporterName: this.user?.displayName || this.user?.username || reporterId,
+      reporterRole: 'FARMER',
+      actionType: 'INSPECTION',
+      priority: body.priority || 'HIGH',
+      status: 'OPEN',
+      provenance: 'USER_PROVIDED',
+      sourceMode: 'SIMULATION'
+    });
+    const updatedOriginal = this._saveDemoTransition(work, {
+      issueReportId: report.workOrderId,
+      issueReportStatus: 'OPEN',
+      issueReportDescription: description,
+      issueReportedAt: new Date().toISOString(),
+      issueReportedBy: reporterId
+    }, 'ISSUE_REPORTED', description);
+    return {
+      ...report,
+      reused: false,
+      sourceWorkOrderId: workOrderId,
+      originalWorkOrder: updatedOriginal
+    };
+  }
 
   async assignWorkOrder(workOrderId, input = {}) {
     if (this.sessionMode === 'live') {

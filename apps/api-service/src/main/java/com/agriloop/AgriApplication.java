@@ -4901,6 +4901,85 @@ class AgriEngine {
         return work;
     }
 
+    synchronized Map<String, Object> reportWorkOrderIssue(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> original = requireRecord("work-order", workOrderId);
+        ensurePlotAccess(principal, Jsons.text(original, "plotId", ""));
+        requireAssignedFarmer(original, principal);
+        String current = normalizeWorkStatus(original.get("status"));
+        ensureWorkOrderState(current);
+        if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能上报新问题");
+        }
+        String description = Jsons.text(request, "description", Jsons.text(request, "issueDescription", Jsons.text(request, "note", ""))).trim();
+        if (description.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_REQUIRED", "请具体描述遇到的问题");
+        }
+        if (description.length() > 1000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_TOO_LONG", "问题描述不能超过 1000 个字");
+        }
+        Map<String, Object> existing = store.list("work-order").stream()
+                .filter(item -> "FARMER_REPORT".equalsIgnoreCase(Jsons.text(item, "sourceType", "")))
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> principal.userId.equals(Jsons.text(item, "reporterId", Jsons.text(item, "createdBy", ""))))
+                .filter(item -> !Set.of("DONE", "CANCELLED", "REJECTED").contains(normalizeWorkStatus(item.get("status"))))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(existing));
+            result.put("reused", true);
+            result.put("sourceWorkOrderId", workOrderId);
+            result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+            return result;
+        }
+
+        Instant now = Instant.now();
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("workOrderId", Jsons.id("wo"));
+        report.put("farmId", Jsons.text(original, "farmId", farmIdForPlot(Jsons.text(original, "plotId", ""))));
+        report.put("plotId", Jsons.text(original, "plotId", ""));
+        report.put("sourceType", "FARMER_REPORT");
+        report.put("sourceRef", workOrderId);
+        report.put("parentWorkOrderId", workOrderId);
+        report.put("title", "农户问题上报：" + Jsons.text(original, "title", "农务任务"));
+        report.put("reason", description);
+        report.put("description", description);
+        report.put("issueDescription", description);
+        report.put("reporterId", principal.userId);
+        report.put("reporterName", principal.username);
+        report.put("reporterRole", "FARMER");
+        report.put("actionType", "INSPECTION");
+        report.put("actionLabel", workOperationLabel("INSPECTION"));
+        report.put("priority", normalizePriority(Jsons.text(request, "priority", "HIGH")));
+        report.put("status", "OPEN");
+        report.put("createdBy", principal.userId);
+        report.put("updatedBy", principal.userId);
+        report.put("createdAt", now.toString());
+        report.put("updatedAt", now.toString());
+        report.put("provenance", "USER_PROVIDED");
+        report.put("sourceMode", "SIMULATION");
+        appendWorkOrderHistory(report, "CREATE", null, "OPEN", principal, description, List.of());
+        saveWorkOrder(report, "farmer-report");
+
+        original.put("issueReportId", report.get("workOrderId"));
+        original.put("issueReportStatus", "OPEN");
+        original.put("issueReportDescription", description);
+        original.put("issueReportedAt", now.toString());
+        original.put("issueReportedBy", principal.userId);
+        updateWorkOrderAudit(original, principal, now);
+        appendWorkOrderHistory(original, "ISSUE_REPORTED", current, current, principal, description, List.of(Jsons.text(report, "workOrderId", "")));
+        // The report event is the single admin notification. Keep the parent
+        // marker auditable without publishing a duplicate SSE notification.
+        store.save("work-order", workOrderId, original);
+        store.logEvent("workorder.issue-reported", original);
+
+        Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(report));
+        result.put("reused", false);
+        result.put("sourceWorkOrderId", workOrderId);
+        result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+        return result;
+    }
+
     List<Map<String, Object>> workOrders(Map<String, String> filters, UserPrincipal principal) {
         String farmId = filters == null ? "" : String.valueOf(filters.getOrDefault("farmId", "")).trim();
         String plotId = filters == null ? "" : String.valueOf(filters.getOrDefault("plotId", "")).trim();
@@ -4953,6 +5032,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,
                 Jsons.text(input, "note", "任务已分配"), List.of());
         saveWorkOrder(work, "assigned");
+        syncFarmerIssueReportParent(work, "ASSIGNED", principal, now);
         return work;
     }
 
@@ -5026,6 +5106,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, action, current, target, principal, note,
                 "SUBMIT".equals(action) ? Jsons.strings(work.get("evidenceRefs")) : Jsons.strings(input.get("evidenceRefs")));
         saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
+        syncFarmerIssueReportParent(work, target, principal, now);
         return work;
     }
 
@@ -5065,6 +5146,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
                 note.isBlank() ? "验收通过" : note, List.of());
         saveWorkOrder(work, approved ? "completed" : "rejected");
+        syncFarmerIssueReportParent(work, target, principal, now);
         if (approved && isManualIrrigationWork(work)) settleManualIrrigationWork(work, principal);
         if (verification && approved) {
             Map<String, Object> result = new LinkedHashMap<>(work);
@@ -5352,6 +5434,7 @@ class AgriEngine {
      */
     private boolean farmerCanSeeWorkOrder(Map<String, Object> work, UserPrincipal principal) {
         if (principal == null || !"FARMER".equals(principal.role)) return true;
+        if ("FARMER_REPORT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))) return false;
         if (principal.userId.equals(Jsons.text(work, "assigneeId", ""))) return true;
         return principal.userId.equals(Jsons.text(work, "createdBy", ""))
                 && ("READINESS".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
@@ -5420,6 +5503,23 @@ class AgriEngine {
     private void updateWorkOrderAudit(Map<String, Object> work, UserPrincipal principal, Instant now) {
         work.put("updatedAt", now.toString());
         work.put("updatedBy", principal.userId);
+    }
+
+    private void syncFarmerIssueReportParent(Map<String, Object> report, String status, UserPrincipal principal, Instant now) {
+        if (!"FARMER_REPORT".equalsIgnoreCase(Jsons.text(report, "sourceType", ""))) return;
+        String parentId = Jsons.text(report, "parentWorkOrderId", Jsons.text(report, "sourceRef", ""));
+        if (parentId.isBlank()) return;
+        Map<String, Object> parent = store.find("work-order", parentId);
+        if (parent == null) return;
+        String parentStatus = normalizeWorkStatus(parent.get("status"));
+        parent.put("issueReportStatus", status);
+        parent.put("issueReportUpdatedAt", now.toString());
+        parent.put("issueReportUpdatedBy", principal.userId);
+        updateWorkOrderAudit(parent, principal, now);
+        appendWorkOrderHistory(parent, "ISSUE_REPORT_STATUS_UPDATED", parentStatus, parentStatus, principal,
+                "问题上报工单状态更新为：" + status, List.of(Jsons.text(report, "workOrderId", "")));
+        store.save("work-order", parentId, parent);
+        store.logEvent("workorder.issue-report-updated", parent);
     }
 
     private void appendWorkOrderHistory(Map<String, Object> work, String action, String fromStatus, String toStatus,
@@ -8895,6 +8995,13 @@ class AgriController {
     @PostMapping("/work-orders/{workOrderId}/transition")
     ResponseEntity<?> transitionWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.transitionWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @PostMapping("/work-orders/{workOrderId}/report-issue")
+    ResponseEntity<?> reportWorkOrderIssue(@PathVariable String workOrderId,
+                                            @RequestBody(required = false) Map<String, Object> body,
+                                            Authentication a) {
+        return ok(engine.reportWorkOrderIssue(workOrderId, body == null ? Map.of() : body, principal(a)));
     }
 
     @PostMapping("/work-orders/{workOrderId}/review")

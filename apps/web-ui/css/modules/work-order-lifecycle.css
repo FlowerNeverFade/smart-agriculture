@@ -366,6 +366,7 @@
 .work-status.tone-danger { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-status.tone-success { color: var(--g-success); border-color: color-mix(in srgb, var(--g-success) 35%, var(--g-border)); background: var(--g-success-bg); }
 .work-rework { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
+.work-source.work-issue-report { color: #8f5b00; border-color: color-mix(in srgb, var(--g-warning) 42%, var(--g-border)); background: var(--g-warning-bg); }
 .work-overdue { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-priority { flex: 0 0 auto; background: transparent; }
 .work-priority.priority-high { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 42%, var(--g-border)); }
@@ -405,8 +406,10 @@
 }
 
 .work-result.rejected { border-color: color-mix(in srgb, #9a6700 35%, var(--g-border)); background: var(--g-warning-bg); }
+.work-issue-report-detail { border-color: color-mix(in srgb, var(--g-warning) 42%, var(--g-border)); background: var(--g-warning-bg); }
 .work-result strong { display: block; margin-bottom: 4px; color: var(--g-text-primary); font-size: 12px; }
 .work-result p { color: var(--g-text-secondary); font-size: 13px; font-weight: 500; line-height: 1.55; }
+.work-result small { display: block; margin-top: 6px; color: var(--g-text-secondary); font-size: 11px; }
 
 .work-order-footer {
   display: flex;

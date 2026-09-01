@@ -1,18 +1,18 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-task-report-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v592-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v592-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v592-main-merge-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-task-report-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v592-main-merge-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v592-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v592-main-merge-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-task-report-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v592-main-merge-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v592-main-merge-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v592-main-merge-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-task-report-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -43,7 +43,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-task-report-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -635,7 +635,8 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' },
+        { id: 'farmer-reports', icon: 'report_problem', label: '农户问题', value: summary.farmerReports, hint: '查看农户上报的具体问题' }
       ];
     });
 
@@ -3687,6 +3688,12 @@ const app = createApp({
           const oldest = seenSystemEventIds.values().next().value;
           if (oldest) seenSystemEventIds.delete(oldest);
         }
+      }
+      const payload = event?.data?.payload || event?.data || {};
+      const isFarmerIssueReport = systemEvent.type === 'workorder.farmer-report'
+        || String(payload.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && isFarmerIssueReport && shouldAnnounceSystemToast(systemEvent, payload)) {
+        showToast(`收到农户问题上报：${payload.title || '请查看农务任务'}`, 'warning');
       }
       // Some proxies normalize the SSE event name to `message`; the payload
       // still carries the authoritative eventType.
