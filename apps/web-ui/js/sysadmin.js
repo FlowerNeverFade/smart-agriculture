@@ -760,6 +760,13 @@ const AdminAuditView = {
     const typeFilter = ref('all');
     const expandedPassport = ref(props.routeParams?.traceId || null);
 
+    // 地块编号 → 地块名（决策审计'地块'列）
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plot = (props.state.plots || props.state.adminGlobalPlots || []).find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
     watch(() => props.routeParams, (p) => {
       if (p?.traceId) {
         searchQuery.value = p.traceId;
@@ -790,7 +797,7 @@ const AdminAuditView = {
             prevPage: auditPrevPage, nextPage: auditNextPage, changeSize: auditChangeSize, jumpTo: auditJumpTo } = usePagination(filteredRecords);
     watch([searchQuery, typeFilter], () => { auditPage.value = 1; });
 
-    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport,
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, plotNameOf,
              auditPageSize, auditPageSizeOptions, auditPage, auditJumpInput, auditTotalRecords, auditTotalPages, auditPageRecords,
              auditPrevPage, auditNextPage, auditChangeSize, auditJumpTo,
              localizedStatusLabel, provenanceLabel, levelLabel, displayText };
