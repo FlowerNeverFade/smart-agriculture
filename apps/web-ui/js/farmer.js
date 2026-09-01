@@ -1,11 +1,11 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v592-main-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v593-market-v3';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { presentRoleUser } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
 import {
   agentResponseSource,
   agentResponseText,
@@ -28,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-market-v3';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 

@@ -146,6 +146,16 @@ class AgriProperties {
     private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";
+    /** Daily wholesale-price provider used by the farm-admin market workspace. */
+    private boolean marketPriceEnabled = true;
+    private String marketPriceBaseUrl = "https://pfsc.agri.cn";
+    private String marketPriceProvinceCode = "500000";
+    private String marketPriceProvinceName = "重庆市";
+    private String marketPricePreferredMarket = "重庆双福国际农贸城";
+    /** The provider publishes this browser-side protocol key; deployments may override it when the upstream rotates. */
+    private String marketPriceAesKey = "7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV";
+    private long marketPriceTimeoutMs = 8000;
+    private long marketPriceCacheMinutes = 30;
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -219,6 +229,22 @@ class AgriProperties {
     public void setSimulationConfigPath(String simulationConfigPath) { this.simulationConfigPath = simulationConfigPath; }
     public String getAttachmentDir() { return attachmentDir; }
     public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
+    public boolean isMarketPriceEnabled() { return marketPriceEnabled; }
+    public void setMarketPriceEnabled(boolean marketPriceEnabled) { this.marketPriceEnabled = marketPriceEnabled; }
+    public String getMarketPriceBaseUrl() { return marketPriceBaseUrl; }
+    public void setMarketPriceBaseUrl(String marketPriceBaseUrl) { this.marketPriceBaseUrl = marketPriceBaseUrl; }
+    public String getMarketPriceProvinceCode() { return marketPriceProvinceCode; }
+    public void setMarketPriceProvinceCode(String marketPriceProvinceCode) { this.marketPriceProvinceCode = marketPriceProvinceCode; }
+    public String getMarketPriceProvinceName() { return marketPriceProvinceName; }
+    public void setMarketPriceProvinceName(String marketPriceProvinceName) { this.marketPriceProvinceName = marketPriceProvinceName; }
+    public String getMarketPricePreferredMarket() { return marketPricePreferredMarket; }
+    public void setMarketPricePreferredMarket(String marketPricePreferredMarket) { this.marketPricePreferredMarket = marketPricePreferredMarket; }
+    public String getMarketPriceAesKey() { return marketPriceAesKey; }
+    public void setMarketPriceAesKey(String marketPriceAesKey) { this.marketPriceAesKey = marketPriceAesKey; }
+    public long getMarketPriceTimeoutMs() { return marketPriceTimeoutMs; }
+    public void setMarketPriceTimeoutMs(long marketPriceTimeoutMs) { this.marketPriceTimeoutMs = marketPriceTimeoutMs; }
+    public long getMarketPriceCacheMinutes() { return marketPriceCacheMinutes; }
+    public void setMarketPriceCacheMinutes(long marketPriceCacheMinutes) { this.marketPriceCacheMinutes = marketPriceCacheMinutes; }
 }
 
 @Configuration
@@ -310,7 +336,8 @@ class AgriStore {
             "readiness", 1_000,
             "irrigation-plan", 1_000,
             "evaluation", 1_000,
-            "scenario-run", 1_000
+            "scenario-run", 1_000,
+            "market-price-snapshot", 5_000
     );
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
@@ -1588,7 +1615,7 @@ class AgriEngine {
 
     List<String> permissionsFor(UserPrincipal principal) {
         if (principal.isSystemAdmin()) return List.of("plots:read", "diagnosis:read", "work-order:audit", "simulator:control", "strategy:manage", "value:audit", "platform:manage", "irrigation:execute", "irrigation:approve");
-        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "strategy:read", "value:manage");
+        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "market-price:read", "strategy:read", "value:manage");
         return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request", "irrigation:execute");
     }
 
@@ -8326,11 +8353,12 @@ class AgriController {
     private final SimulatorControl simulator;
     private final AdminManagementService adminManagement;
     private final FarmGovernanceService governance;
+    private final MarketPriceService marketPrices;
 
     AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator,
-                   AdminManagementService adminManagement, FarmGovernanceService governance) {
+                   AdminManagementService adminManagement, FarmGovernanceService governance, MarketPriceService marketPrices) {
         this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
-        this.adminManagement = adminManagement; this.governance = governance;
+        this.adminManagement = adminManagement; this.governance = governance; this.marketPrices = marketPrices;
     }
 
     @PostMapping("/auth/login")
@@ -8379,6 +8407,14 @@ class AgriController {
         String selectedFarm = farmId == null || farmId.isBlank()
                 ? p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null) : farmId;
         return ok(engine.overview(selectedFarm, p));
+    }
+
+    @GetMapping("/market-prices")
+    ResponseEntity<?> marketPrices(@RequestParam String farmId,
+                                   @RequestParam(defaultValue = "30") int rangeDays,
+                                   @RequestParam(defaultValue = "farm") String scope,
+                                   Authentication a) {
+        return ok(marketPrices.overview(farmId, rangeDays, "all".equalsIgnoreCase(scope), principal(a)));
     }
 
     @GetMapping("/system/status")

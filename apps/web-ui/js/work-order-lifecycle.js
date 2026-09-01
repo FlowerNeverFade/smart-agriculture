@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260901-v592-main-merge-v1';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v592-main-merge-v1';
-import { roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
+import { api } from './api.js?v=20260901-v593-market-v3';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v593-market-v3';
+import { roleCan } from './roles.js?v=20260901-v593-market-v3';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 

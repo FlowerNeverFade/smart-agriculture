@@ -1,19 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v592-main-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v592-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v592-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v592-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v592-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v592-main-merge-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v592-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v592-main-merge-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-market-v3';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -1364,6 +1364,7 @@ const AdminSettingsView = {
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
       { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
+      { module: '市场行情', farmer: '❌ 不提供入口', farmAdmin: '👁 本场作物与监测品种', sysAdmin: '❌ 不提供入口' },
       { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
     ];
 
