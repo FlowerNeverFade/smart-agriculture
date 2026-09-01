@@ -93,6 +93,15 @@ const NAV_CATALOG = Object.freeze([
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
+// 模块顶层 utility：主 view 的实时刷新构造 adminSimHistory 也用到（之前在 AdminSimulatorView setup 内 const 导致 ReferenceError）
+function formatSimTime(t) {
+  if (!t || t === '—') return '—';
+  const d = new Date(t);
+  if (isNaN(d.getTime())) return String(t);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'PH', 'WATER_LEVEL', 'NITROGEN', 'PHOSPHORUS', 'POTASSIUM']);
 const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_MOISTURE: 'water_drop',
@@ -1144,14 +1153,6 @@ const AdminSimulatorView = {
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
 
-    // ISO 时间戳 → 本地短格式（MM-DD HH:mm:ss）；运行中/未结束返回 '—'
-    const formatSimTime = (t) => {
-      if (!t || t === '—') return '—';
-      const d = new Date(t);
-      if (isNaN(d.getTime())) return String(t);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    };
     // 场景编号：demo 的 sim-xxx 有意义编号完整保留；live 随机 runId 只显示尾部 8 位（title 可看完整）
     const shortId = (id) => {
       const s = String(id || '');
