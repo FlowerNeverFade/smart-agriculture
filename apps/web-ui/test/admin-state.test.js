@@ -37,9 +37,13 @@ test('farm dashboard crop Emoji use stable aliases and a neutral fallback', () =
   assert.equal(adminCropKey({ cropName: '鲜食玉米' }), 'corn');
   assert.equal(adminCropKey({ cropName: '油葵花海' }), 'sunflower');
   assert.equal(adminCropKey({ cropCode: 'pepper', cropName: '辣椒' }), 'pepper');
+  assert.equal(adminCropKey({ cropCode: 'eggplant', cropName: '茄子' }), 'eggplant');
+  assert.equal(adminCropKey({ cropCode: 'lettuce', cropName: '生菜' }), 'lettuce');
   assert.equal(adminCropKey({ cropCode: 'dragon-fruit', cropName: '火龙果' }), 'unknown');
   assert.equal(adminCropEmoji({ cropCode: 'tomato' }), '🍅');
   assert.equal(adminCropEmoji({ cropName: '鲜食玉米' }), '🌽');
+  assert.equal(adminCropEmoji({ cropCode: 'eggplant' }), '🍆');
+  assert.equal(adminCropEmoji({ cropName: '生菜' }), '🥬');
   assert.equal(adminCropEmoji({ cropCode: 'dragon-fruit', cropName: '火龙果' }), '🌱');
 });
 
@@ -258,6 +262,7 @@ test('escalated alerts expose the existing acknowledgement action as downgrade',
 test('backend events invalidate every affected fact domain', () => {
   assert.deepEqual(domainsForEventType('device.bound'), ['devices', 'plots', 'overview']);
   assert.deepEqual(domainsForEventType('cropplan.approved'), ['workOrders', 'overview', 'batches']);
+  assert.deepEqual(domainsForEventType('resource.request.created'), ['resourceProfiles', 'resourcePlans', 'resourceRequests', 'overview']);
   assert.deepEqual(domainsForEventType('rule-set.created'), ['rulesStrategies', 'alerts', 'overview']);
 });
 

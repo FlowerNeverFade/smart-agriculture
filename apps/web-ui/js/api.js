@@ -6,9 +6,9 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260831-sync-v1';
-import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -17,6 +17,42 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
 const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 10, cooldownMinutes: 0, automaticWateringThreshold: 10 });
+const AUTH_SESSION_KEYS = Object.freeze(['agriloop_token', 'agriloop_user', 'agriloop_session_mode']);
+
+function browserStorage(name) {
+  try {
+    const storage = globalThis?.[name];
+    return storage && typeof storage.getItem === 'function' ? storage : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function authSessionStorage() {
+  const scoped = browserStorage('sessionStorage');
+  const legacy = browserStorage('localStorage');
+  if (!scoped) return legacy;
+
+  // V5.9 moves credentials from origin-wide localStorage to per-tab
+  // sessionStorage.  Copy one complete legacy session into the current tab,
+  // then remove the shared copy so a newly opened role workspace cannot
+  // silently inherit or overwrite another account's JWT.
+  try {
+    const hasScopedSession = AUTH_SESSION_KEYS.some((key) => scoped.getItem(key) !== null);
+    const hasLegacySession = legacy && AUTH_SESSION_KEYS.some((key) => legacy.getItem(key) !== null);
+    if (!hasScopedSession && hasLegacySession) {
+      AUTH_SESSION_KEYS.forEach((key) => {
+        const value = legacy.getItem(key);
+        if (value !== null) scoped.setItem(key, value);
+      });
+    }
+    if (legacy) AUTH_SESSION_KEYS.forEach((key) => legacy.removeItem(key));
+  } catch (error) {
+    // A storage migration failure must not expose or fabricate a session.
+    // The caller will simply be redirected to the login page.
+  }
+  return scoped;
+}
 
 // The backend returns the same contract in a live session.  These profiles
 // keep the explicit offline/demo path honest when the API is unavailable and
@@ -622,9 +658,10 @@ export class ApiError extends Error {
 export class ApiService {
   constructor(baseUrl = '') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.token = localStorage.getItem('agriloop_token') || '';
+    this.sessionStore = authSessionStorage();
+    this.token = this._sessionGet('agriloop_token') || '';
     this.user = this.readStoredUser();
-    this.sessionMode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
+    this.sessionMode = this._sessionGet('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     this.isLive = false;
     this.sseSource = null;
     this.sseAbortController = null;
@@ -716,6 +753,7 @@ export class ApiService {
       revision: 1
     };
     this.demoResourcePlans = new Map();
+    this.demoResourceRequests = new Map((MOCK_DATA.resourceRequests || []).map(item => [item.resourceRequestId, { ...item }]));
     this.demoStrategyCandidates = new Map((MOCK_DATA.adminStrategyCandidates || []).map(item => [item.candidateId || item.id, { ...item, candidateId: item.candidateId || item.id, status: String(item.status || 'DRAFT').toUpperCase() }]));
     this.demoFarmRules = new Map();
     try {
@@ -742,12 +780,27 @@ export class ApiService {
 
   readStoredUser() {
     try {
-      const raw = localStorage.getItem('agriloop_user');
+      const raw = this._sessionGet('agriloop_user');
       return raw ? presentRoleUser(JSON.parse(raw)) : null;
     } catch (e) {
-      localStorage.removeItem('agriloop_user');
+      this._sessionRemove('agriloop_user');
       return null;
     }
+  }
+
+  _sessionGet(key) {
+    try { return this.sessionStore?.getItem(key) ?? null; }
+    catch (error) { return null; }
+  }
+
+  _sessionSet(key, value) {
+    try { this.sessionStore?.setItem(key, String(value)); }
+    catch (error) { /* unavailable storage leaves the session in memory only */ }
+  }
+
+  _sessionRemove(key) {
+    try { this.sessionStore?.removeItem(key); }
+    catch (error) { /* unavailable storage is already equivalent to removal */ }
   }
 
   getUser() {
@@ -835,7 +888,7 @@ export class ApiService {
     const user = resp?.data || resp;
     if (user) {
       this.user = presentRoleUser(user);
-      localStorage.setItem('agriloop_user', JSON.stringify(this.user));
+      this._sessionSet('agriloop_user', JSON.stringify(this.user));
     }
     return user;
   }
@@ -858,10 +911,10 @@ export class ApiService {
     if (mode !== 'live') this.isLive = false;
     this.user = normalizedUser;
     if (mode === 'demo') this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
-    localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
-    localStorage.setItem('agriloop_session_mode', mode);
-    if (this.token) localStorage.setItem('agriloop_token', this.token);
-    else localStorage.removeItem('agriloop_token');
+    this._sessionSet('agriloop_user', JSON.stringify(normalizedUser));
+    this._sessionSet('agriloop_session_mode', mode);
+    if (this.token) this._sessionSet('agriloop_token', this.token);
+    else this._sessionRemove('agriloop_token');
     const nextWorkspaceKey = this._demoWorkspaceStorageKey();
     if (mode === 'demo' && (previousMode !== 'demo' || previousWorkspaceKey !== nextWorkspaceKey)) {
       // A single ApiService instance can be reused after logout/login.  Do
@@ -874,8 +927,8 @@ export class ApiService {
   }
 
   readSession() {
-    const mode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
-    const token = localStorage.getItem('agriloop_token') || '';
+    const mode = this._sessionGet('agriloop_session_mode') || (this.token ? 'live' : 'demo');
+    const token = this._sessionGet('agriloop_token') || '';
     const user = presentRoleUser(this.readStoredUser());
     if (!user?.username || !user?.role || !isPublicRole(user.role)) return null;
     if (mode === 'live' && token) return { mode, token, user };
@@ -905,9 +958,7 @@ export class ApiService {
     this.sseSource = null;
     this.sseAbortController?.abort();
     this.sseAbortController = null;
-    localStorage.removeItem('agriloop_token');
-    localStorage.removeItem('agriloop_user');
-    localStorage.removeItem('agriloop_session_mode');
+    AUTH_SESSION_KEYS.forEach((key) => this._sessionRemove(key));
   }
 
   async checkHealth() {
@@ -2191,7 +2242,10 @@ export class ApiService {
 
   async getInspections(plotId = '') {
     if (this.sessionMode === 'live') {
-      const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
+      const path = plotId
+        ? `/api/v1/plots/${encodeURIComponent(plotId)}/inspections`
+        : '/api/v1/inspections';
+      const response = await this._fetch(path);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
@@ -2308,6 +2362,67 @@ export class ApiService {
     };
   }
 
+  async listResourceRequests({ farmId = '', plotId = '', status = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const params = new URLSearchParams(); if (farmId) params.set('farmId', farmId); if (plotId) params.set('plotId', plotId); if (status) params.set('status', status);
+      const resp = await this._fetch(`/api/v1/resource-requests${params.toString() ? `?${params}` : ''}`);
+      const data = resp?.data || resp; return Array.isArray(data) ? data : (data?.requests || []);
+    }
+    const role = String(this.user?.role || '').toUpperCase(); const actorId = this.user?.userId || '';
+    const farmIds = this.user?.farmIds || []; const plotIds = this.user?.plotIds || [];
+    return [...this.demoResourceRequests.values()]
+      .filter(item => !farmId || item.farmId === farmId)
+      .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => !status || item.status === status)
+      .filter(item => role === 'SYSTEM_ADMIN' || !role || ((farmIds.includes('*') || !farmIds.length || farmIds.includes(item.farmId)) && (plotIds.includes('*') || !plotIds.length || plotIds.includes(item.plotId)) && (role !== 'FARMER' || item.requestedBy === actorId || item.assignedFarmerId === actorId)))
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  }
+
+  async createResourceRequest(input = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/resource-requests', { method: 'POST', body: JSON.stringify(input) });
+      return resp?.data || resp;
+    }
+    const requestedLitres = Number(input.requestedLitres);
+    if (!Number.isFinite(requestedLitres) || requestedLitres <= 0 || requestedLitres > 100000) throw new ApiError('申请水量必须在 0 到 100000 L 之间', { status: 400, code: 'RESOURCE_REQUEST_AMOUNT_INVALID' });
+    const start = input.preferredStart ? new Date(input.preferredStart) : null; const end = input.preferredEnd ? new Date(input.preferredEnd) : null;
+    if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime())) || (start && end && end <= start)) throw new ApiError('期望执行时间窗无效', { status: 400, code: 'RESOURCE_REQUEST_WINDOW_INVALID' });
+    const now = new Date().toISOString();
+    const actorId = this.user?.userId || 'user-farmer'; const actorName = this.user?.username || 'farmer';
+    const open = [...this.demoResourceRequests.values()].find(item => item.plotId === input.plotId && item.requestedBy === actorId && ['SUBMITTED', 'IN_REVIEW', 'PENDING_ACK', 'ACKNOWLEDGED', 'CONFLICT_REPORTED'].includes(item.status));
+    if (open && !['SUBMITTED', 'IN_REVIEW', 'CONFLICT_REPORTED'].includes(open.status)) throw new ApiError('当前需求已进入确认或执行阶段，请先完成本轮协同', { status: 409, code: 'RESOURCE_REQUEST_LOCKED' });
+    const active = open; const resourceRequestId = active?.resourceRequestId || `resource-request-demo-${Date.now()}`;
+    const request = {
+      ...(active || {}), resourceRequestId, farmId: input.farmId || 'farm-demo', plotId: input.plotId,
+      requestedLitres, preferredStart: input.preferredStart || null, preferredEnd: input.preferredEnd || null,
+      constraints: input.constraints || '', note: input.note || '', status: 'SUBMITTED', requestedBy: actorId, requestedByName: actorName,
+      requestedByRole: this.user?.role || 'FARMER', revision: Number(active?.revision || 0) + 1, createdAt: active?.createdAt || now, updatedAt: now,
+      provenance: 'USER_PROVIDED', sourceMode: 'SIMULATION',
+      history: [...(active?.history || []), { action: active ? 'RESUBMITTED' : 'SUBMITTED', actorId, actorName, actorRole: this.user?.role || 'FARMER', at: now, note: input.note || '' }]
+    };
+    ['resourcePlanId', 'allocatedLitres', 'scheduledStart', 'scheduledEnd', 'responseNote', 'respondedAt'].forEach(key => delete request[key]);
+    this.demoResourceRequests.set(resourceRequestId, request); return { ...request };
+  }
+
+  async actOnResourceRequest(resourceRequestId, { action, note = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/resource-requests/${encodeURIComponent(resourceRequestId)}/actions`, { method: 'POST', body: JSON.stringify({ action, note }) });
+      return resp?.data || resp;
+    }
+    const current = this.demoResourceRequests.get(resourceRequestId); if (!current) throw new ApiError('未找到用水需求', { status: 404, code: 'NOT_FOUND' });
+    const normalized = String(action || '').toUpperCase();
+    const actorId = this.user?.userId || 'user-farmer';
+    if (current.requestedBy !== actorId && current.assignedFarmerId !== actorId) throw new ApiError('只能处理本人申请或分配给本人的用水需求', { status: 403, code: 'RESOURCE_REQUEST_FORBIDDEN' });
+    const status = normalized === 'ACKNOWLEDGE' ? 'ACKNOWLEDGED' : normalized === 'REPORT_CONFLICT' ? 'CONFLICT_REPORTED' : normalized === 'WITHDRAW' ? 'CANCELLED' : '';
+    if (!status) throw new ApiError('未知的协同操作', { status: 400, code: 'RESOURCE_REQUEST_ACTION_INVALID' });
+    if (normalized === 'REPORT_CONFLICT' && !String(note || '').trim()) throw new ApiError('反馈冲突必须说明原因', { status: 400, code: 'RESOURCE_REQUEST_CONFLICT_NOTE_REQUIRED' });
+    if (normalized === 'WITHDRAW' && !['SUBMITTED', 'IN_REVIEW', 'CONFLICT_REPORTED'].includes(current.status)) throw new ApiError('当前需求不能撤回', { status: 409, code: 'RESOURCE_REQUEST_NOT_WITHDRAWABLE' });
+    if (normalized === 'ACKNOWLEDGE' && !['PENDING_ACK', 'CONFLICT_REPORTED', 'ACKNOWLEDGED'].includes(current.status)) throw new ApiError('当前还没有可确认的分配结果', { status: 409, code: 'RESOURCE_REQUEST_NOT_CONFIRMABLE' });
+    if (normalized === 'REPORT_CONFLICT' && !['PENDING_ACK', 'ACKNOWLEDGED', 'CONFLICT_REPORTED'].includes(current.status)) throw new ApiError('当前还没有可反馈的分配结果', { status: 409, code: 'RESOURCE_REQUEST_NOT_RESPONDABLE' });
+    const now = new Date().toISOString(); const next = { ...current, status, responseNote: note, respondedBy: actorId, respondedByName: this.user?.username || 'farmer', respondedAt: now, updatedAt: now, revision: Number(current.revision || 1) + 1, history: [...(current.history || []), { action: normalized, actorId, actorName: this.user?.username || 'farmer', actorRole: this.user?.role || 'FARMER', at: now, note }] };
+    this.demoResourceRequests.set(resourceRequestId, next); return { ...next };
+  }
+
   async getWaterResourceProfile(farmId = '', date = '') {
     if (this.sessionMode === 'live') {
       const params = new URLSearchParams(); if (farmId) params.set('farmId', farmId); if (date) params.set('date', date);
@@ -2346,14 +2461,21 @@ export class ApiService {
           const moisture = Number(plot.metrics?.SOIL_MOISTURE?.value ?? 0);
           const target = Number(String(plot.metrics?.SOIL_MOISTURE?.target || '').match(/(\d+(?:\.\d+)?)/)?.[1] || 30);
           const area = Number(plot.areaM2 ?? plot.area ?? 0);
-          const requested = Math.max(0, Math.round(area * 0.08 * Math.max(0, target - moisture) * 10) / 10);
+          const recommended = Math.max(0, Math.round(area * 0.08 * Math.max(0, target - moisture) * 10) / 10);
+          const requests = [...this.demoResourceRequests.values()].filter(item => item.plotId === plot.plotId && ['SUBMITTED', 'IN_REVIEW', 'CONFLICT_REPORTED'].includes(item.status));
+          const submittedDemandLitres = requests.reduce((sum, item) => sum + Number(item.requestedLitres || 0), 0);
+          const requested = submittedDemandLitres > 0 ? Math.min(submittedDemandLitres, recommended) : recommended;
           const needScore = Math.max(.1, Math.min(1, (target - moisture) / Math.max(1, target)));
           const start = new Date(Date.now() + (index + 1) * 60000);
-          return { plotId: plot.plotId, farmId, requestedLitres: requested, allocatedLitres: requested, unmetLitres: 0, needScore, readinessStatus: 'READY', deviceId: '', scheduledStart: start.toISOString(), scheduledEnd: new Date(start.getTime() + 300000).toISOString(), executionStatus: 'PENDING', explanation: '按土壤湿度缺口与作物阶段综合分析' };
+          return { plotId: plot.plotId, farmId, requestedLitres: requested, recommendedLitres: recommended, submittedDemandLitres, safetyCappedLitres: Math.max(0, submittedDemandLitres - recommended), resourceRequestIds: requests.map(item => item.resourceRequestId), requesterNames: [...new Set(requests.map(item => item.requestedByName).filter(Boolean))], assignedFarmerId: requests[0]?.requestedBy || null, assignedFarmerName: requests[0]?.requestedByName || null, allocatedLitres: requested, unmetLitres: 0, needScore, readinessStatus: 'READY', deviceId: '', scheduledStart: start.toISOString(), scheduledEnd: new Date(start.getTime() + 300000).toISOString(), executionStatus: 'PENDING', collaborationStatus: requests.length ? 'IN_REVIEW' : 'NO_REQUEST', explanation: requests.length ? '已合并农户提交需求、湿度缺口与作物阶段' : '按土壤湿度缺口与作物阶段综合分析' };
         });
         plan = { resourcePlanId: `rp-demo-${Date.now()}`, farmId, businessDate: date, status: 'DRAFT', revision: 1, algorithmVersion: 'water-allocation-v2', allocations, totalRequestedLitres: allocations.reduce((sum, item) => sum + item.requestedLitres, 0), totalAllocatedLitres: allocations.reduce((sum, item) => sum + item.allocatedLitres, 0), totalUnmetLitres: 0, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(), provenance: 'SIMULATED', sourceMode: 'AI_RULES' };
       }
       this.demoResourcePlans.set(plan.resourcePlanId, { ...plan, farmId, businessDate: date, status: 'DRAFT', revision: plan.revision || 1, expiresAt: plan.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString() });
+      (plan.allocations || []).flatMap(item => item.resourceRequestIds || []).forEach(requestId => {
+        const request = this.demoResourceRequests.get(requestId); if (!request) return;
+        this.demoResourceRequests.set(requestId, { ...request, status: 'IN_REVIEW', resourcePlanId: plan.resourcePlanId, planRevision: plan.revision || 1, revision: Number(request.revision || 1) + 1, updatedAt: new Date().toISOString() });
+      });
     }
     return plan;
   }
@@ -2368,12 +2490,12 @@ export class ApiService {
   async confirmResourcePlan(resourcePlanId, input = {}) {
     if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(resourcePlanId)}/confirm`, { method: 'POST', body: JSON.stringify(input) }); return resp?.data || resp; }
     const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' }); if (plan.status === 'CONFIRMED') return { ...plan }; if (plan.status !== 'DRAFT') throw new ApiError('当前计划不能确认', { status: 409, code: 'RESOURCE_PLAN_NOT_CONFIRMABLE' });
-    const allocated = (plan.allocations || []).map(item => ({ ...item, executionStatus: Number(item.allocatedLitres || 0) > 0 ? 'SCHEDULED' : 'FALLBACK_REQUIRED' })); const next = { ...plan, status: 'CONFIRMED', revision: Number(plan.revision || 1) + 1, confirmedAt: new Date().toISOString(), allocations }; this.demoResourcePlans.set(resourcePlanId, next); this.demoWaterBalance.reservedLitres += Number(next.totalAllocatedLitres || 0); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
+    const allocations = (plan.allocations || []).map(item => ({ ...item, executionStatus: Number(item.allocatedLitres || 0) > 0 ? 'SCHEDULED' : 'FALLBACK_REQUIRED', collaborationStatus: (item.resourceRequestIds || []).length ? 'PENDING_ACK' : 'NO_REQUEST' })); const next = { ...plan, status: 'CONFIRMED', revision: Number(plan.revision || 1) + 1, confirmedAt: new Date().toISOString(), allocations }; this.demoResourcePlans.set(resourcePlanId, next); allocations.forEach(item => (item.resourceRequestIds || []).forEach(requestId => { const request = this.demoResourceRequests.get(requestId); if (request) this.demoResourceRequests.set(requestId, { ...request, status: 'PENDING_ACK', resourcePlanId, planRevision: next.revision, allocatedLitres: item.allocatedLitres, unmetLitres: item.unmetLitres, scheduledStart: item.scheduledStart, scheduledEnd: item.scheduledEnd, assignedFarmerId: item.assignedFarmerId, assignedFarmerName: item.assignedFarmerName, executionStatus: item.executionStatus, updatedAt: new Date().toISOString(), revision: Number(request.revision || 1) + 1 }); })); this.demoWaterBalance.reservedLitres += Number(next.totalAllocatedLitres || 0); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
   }
 
   async cancelResourcePlan(resourcePlanId) {
     if (this.sessionMode === 'live') { const resp = await this._fetch(`/api/v1/resource-plans/${encodeURIComponent(resourcePlanId)}/cancel`, { method: 'POST' }); return resp?.data || resp; }
-    const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' }); const next = { ...plan, status: 'CANCELLED', cancelledAt: new Date().toISOString() }; this.demoResourcePlans.set(resourcePlanId, next); this.demoWaterBalance.reservedLitres = Math.max(0, this.demoWaterBalance.reservedLitres - Number(plan.totalAllocatedLitres || 0)); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
+    const plan = this.demoResourcePlans.get(resourcePlanId); if (!plan) throw new ApiError('未找到资源计划', { status: 404, code: 'NOT_FOUND' }); if (plan.status === 'CANCELLED') return { ...plan }; const next = { ...plan, status: 'CANCELLED', cancelledAt: new Date().toISOString() }; this.demoResourcePlans.set(resourcePlanId, next); (plan.allocations || []).flatMap(item => item.resourceRequestIds || []).forEach(requestId => { const request = this.demoResourceRequests.get(requestId); if (request && !['COMPLETED', 'CANCELLED'].includes(request.status)) this.demoResourceRequests.set(requestId, { ...request, status: 'SUBMITTED', resourcePlanId: undefined, allocatedLitres: undefined, scheduledStart: undefined, scheduledEnd: undefined, updatedAt: new Date().toISOString(), revision: Number(request.revision || 1) + 1 }); }); this.demoWaterBalance.reservedLitres = Math.max(0, this.demoWaterBalance.reservedLitres - Number(plan.totalAllocatedLitres || 0)); this.demoWaterBalance.remainingLitres = Math.max(0, this.demoWaterProfile.dailyQuotaLitres - this.demoWaterBalance.actualUsedLitres - this.demoWaterBalance.reservedLitres); return next;
   }
   _demoAgentStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
@@ -3243,6 +3365,30 @@ export class ApiService {
       : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
     const executable = readinessStatus === 'READY' && durationSeconds > 0;
     const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
+    const manualLimits = this._demoManualWaterLimits(plotId, plot);
+    const manualBlockedGates = [];
+    if (hardBlock) {
+      if (primary === 'SENSOR_DRIFT') {
+        manualBlockedGates.push('DATA_QUALITY', 'DATA_CONFLICT');
+      } else if (primary === 'DEVICE_FAULT') {
+        manualBlockedGates.push('DEVICE_HEALTH');
+      } else {
+        manualBlockedGates.push('DATA_QUALITY');
+      }
+    }
+    if (reviewOnly) manualBlockedGates.push('DIAGNOSIS_EVIDENCE');
+    if (readinessStatus !== 'READY') manualBlockedGates.push('DECISION_READINESS');
+    const manualBlockedState = !noAction && !executable && manualBlockedGates.length > 0;
+    const planWhy = hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标';
+    const manualFallback = {
+      available: manualBlockedState && canControl && manualLimits.maxWaterLitre >= 0.1,
+      reasonCode: manualBlockedState ? (primary === 'SENSOR_DRIFT' ? 'DATA_CONFLICT' : 'SAFETY_GATE_BLOCKED') : 'NONE',
+      reason: manualBlockedState ? planWhy : '当前没有需要人工兜底的灌溉阻塞',
+      bypassedGates: manualBlockedGates,
+      virtualOnly: true,
+      noCooldown: true,
+      constraints: manualLimits
+    };
     const now = Date.now();
     const plan = {
       planId: `plan-demo-${now}`,
@@ -3261,7 +3407,7 @@ export class ApiService {
       durationSeconds,
       waterLitre,
       expectedResult: { metric: 'SOIL_MOISTURE', from: current, to: target },
-      why: hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标',
+      why: planWhy,
       emergency: {
         eligible: emergencyEligible,
         threshold: emergencyThreshold,
@@ -3290,11 +3436,41 @@ export class ApiService {
       advisoryOnly: !executable,
       executable,
       status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
+      manualFallback,
       createdAt: new Date(now).toISOString()
     };
     this.decisionCache.plans.set(plan.planId, plan);
     this._demoSaveWorkspaceState();
     return plan;
+  }
+
+  _demoManualWaterLimits(plotId, plot = this.mockPlot(plotId)) {
+    const profile = MOCK_DATA.resourceProfile || {};
+    const flow = Math.max(1, Number(profile.flowRateLitresPerMinute || 18));
+    const dailyQuota = Math.max(0, Number(profile.dailyQuotaLitres || profile.capacityLitres || DEFAULT_RESERVOIR_LITRES));
+    const balance = this.demoWaterBalance || {};
+    const historicalCommandUsage = [...this.decisionCache.commands.values()]
+      .filter((command) => ['SUCCEEDED', 'PARTIAL'].includes(String(command.status || '').toUpperCase()))
+      .reduce((total, command) => total + Math.max(0, Number(command.ack?.actualWaterLitre ?? command.actualWaterLitre ?? 0)), 0);
+    const usedToday = Math.max(0, Number(balance.actualUsedLitres ?? profile.actualUsedLitres ?? profile.usedTodayLitres ?? 0), historicalCommandUsage);
+    const reservedToday = Math.max(0, Number(balance.reservedLitres || 0));
+    const outstanding = [...this.decisionCache.commands.values()]
+      .filter((command) => command.plotId === plotId && !['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT', 'CANCELLED'].includes(String(command.status || '').toUpperCase()))
+      .reduce((total, command) => total + Math.max(0, Number(command.waterLitre || command.manualWaterLitre || 0)), 0);
+    const resourceCapacity = Math.max(0, Number(profile.capacityLitres || dailyQuota));
+    const resourceRemaining = Math.max(0, resourceCapacity - usedToday - reservedToday - outstanding);
+    const dailyRemaining = Math.max(0, dailyQuota - usedToday - reservedToday);
+    const maxByDuration = flow * 900 / 60;
+    const maxWater = Math.max(0, Math.min(maxByDuration, dailyRemaining, resourceRemaining));
+    return {
+      minWaterLitre: 0.1,
+      maxWaterLitre: Number(maxWater.toFixed(1)),
+      maxDurationSeconds: 900,
+      flowRateLitresPerMinute: flow,
+      dailyRemainingLitres: Number(dailyRemaining.toFixed(1)),
+      resourceRemainingLitres: Number(resourceRemaining.toFixed(1)),
+      areaM2: Math.max(1, Number(plot?.areaM2 || DEFAULT_PLOT_AREA_M2))
+    };
   }
 
   async getDecisionReadiness(subjectType, subjectId, context = {}) {
@@ -3821,6 +3997,154 @@ export class ApiService {
         };
       }
       this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
+    }
+    this._demoSaveWorkspaceState();
+    return command;
+  }
+
+  async executeManualIrrigation({ plotId, sourcePlanId, waterLitre, confirmed = false, idempotencyKey = '', source = 'farmer-manual-fallback', outcome = 'SUCCEEDED' } = {}) {
+    if (!plotId) throw new ApiError('人工浇灌前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!sourcePlanId) throw new ApiError('人工浇灌必须关联被阻塞的灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    if (confirmed !== true) throw new ApiError('人工浇灌需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
+    const key = idempotencyKey || `manual-irrigation-${sourcePlanId}-${Date.now()}`;
+    const numericWater = Number(waterLitre);
+    if (!Number.isFinite(numericWater) || numericWater < 0.1) {
+      throw new ApiError('人工浇灌水量必须不小于 0.1 L', { status: 400, code: 'MANUAL_WATER_INVALID' });
+    }
+    const payload = { plotId, sourcePlanId, waterLitre: numericWater, confirmed: true, idempotencyKey: key, source };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/irrigation/manual', { method: 'POST', body: JSON.stringify(payload) });
+      const command = resp?.data || resp;
+      if (!command?.commandId) throw new ApiError('后端返回了无效的人工浇灌命令', { code: 'MANUAL_COMMAND_INVALID', payload: resp });
+      const normalized = { ...command, executionMode: command.executionMode || 'SIMULATED', provenance: command.provenance || 'SIMULATED' };
+      this.decisionCache.commands.set(normalized.commandId, normalized);
+      return normalized;
+    }
+
+    this._demoHydrateWorkspaceState();
+    const sourcePlan = this.decisionCache.plans.get(sourcePlanId);
+    if (!sourcePlan || sourcePlan.plotId !== plotId) throw new ApiError('未找到当前地块对应的人工兜底处方', { status: 409, code: 'MANUAL_SOURCE_PLAN_NOT_FOUND' });
+    const existing = [...this.decisionCache.commands.values()].find((command) => command.idempotencyKey === key);
+    if (existing) {
+      if (existing.plotId !== plotId || existing.sourcePlanId !== sourcePlanId) throw new ApiError('幂等键已绑定其他人工浇灌上下文', { status: 409, code: 'IDEMPOTENCY_CONTEXT_MISMATCH' });
+      if (Math.abs(Number(existing.waterLitre) - numericWater) > 0.0001) throw new ApiError('幂等键已绑定其他人工浇灌水量', { status: 409, code: 'IDEMPOTENCY_WATER_MISMATCH' });
+      return { ...existing };
+    }
+    const plan = await this.estimateIrrigation({ plotId, diagnosisId: sourcePlan.diagnosisId, scenarioId: sourcePlan.simulation?.scenario || 'NORMAL', traceId: sourcePlan.traceId });
+    const fallback = plan.manualFallback || {};
+    if (fallback.available !== true) throw new ApiError('当前地块不再处于可人工兜底的灌溉阻塞状态', { status: 409, code: 'MANUAL_FALLBACK_NOT_AVAILABLE' });
+    const limits = this._demoManualWaterLimits(plotId, this.mockPlot(plotId));
+    const maxWater = Number(limits.maxWaterLitre);
+    if (Number.isFinite(maxWater) && numericWater > maxWater + 0.0001) {
+      throw new ApiError('人工浇灌水量超过当前单次、每日或资源可用上限', { status: 422, code: 'MANUAL_WATER_LIMIT', details: { limits, requestedWaterLitre: numericWater } });
+    }
+    const flow = Math.max(1, Number(limits.flowRateLitresPerMinute || 18));
+    const durationSeconds = Math.max(1, Math.ceil(numericWater / flow * 60));
+    if (durationSeconds > Number(limits.maxDurationSeconds || 900)) throw new ApiError('人工浇灌时长超过安全上限', { status: 422, code: 'SAFETY_LIMIT' });
+    const requestedOutcome = String(outcome || 'SUCCEEDED').toUpperCase();
+    const finalOutcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const actualWater = finalOutcome === 'SUCCEEDED' ? numericWater : finalOutcome === 'PARTIAL' ? Number((numericWater * 0.55).toFixed(1)) : 0;
+    const plot = this.demoPlots.get(plotId) || this.mockPlot(plotId);
+    const area = Math.max(1, Number(plot?.areaM2 || limits.areaM2 || DEFAULT_PLOT_AREA_M2));
+    const before = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+    const baselineAvailable = Number.isFinite(before);
+    const after = baselineAvailable ? Number(Math.min(100, before + moistureDeltaFromWater(actualWater, area)).toFixed(1)) : null;
+    const evaluationStatus = baselineAvailable
+      ? (['SUCCEEDED'].includes(finalOutcome) ? 'COMPLETED' : finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'INCONCLUSIVE')
+      : 'INCONCLUSIVE';
+    const evaluationResult = baselineAvailable
+      ? (finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome === 'PARTIAL' ? 'NO_EFFECT' : 'EXECUTION_FAILED')
+      : 'BASELINE_UNAVAILABLE';
+    const command = {
+      commandId: `cmd-manual-${Math.random().toString(36).substring(2, 9)}`,
+      plotId,
+      planId: plan.planId,
+      sourcePlanId,
+      traceId: plan.traceId,
+      idempotencyKey: key,
+      manualOverride: true,
+      manualWaterLitre: numericWater,
+      bypassedGates: Array.isArray(fallback.bypassedGates) ? [...fallback.bypassedGates] : [],
+      overrideReasonCode: fallback.reasonCode || 'SAFETY_GATE_BLOCKED',
+      approvalRequired: false,
+      confirmationMode: 'OPERATOR_MANUAL_OVERRIDE',
+      confirmedBy: this._demoActorId(),
+      confirmedAt: new Date().toISOString(),
+      status: finalOutcome,
+      type: 'IRRIGATION_START',
+      waterLitre: numericWater,
+      durationSeconds,
+      transport: 'MQTT_VIRTUAL_ACTUATOR',
+      executionMode: 'SIMULATED',
+      provenance: 'SIMULATED',
+      virtualOnly: true,
+      cooldownMinutes: 0,
+      riskLevel: 'HIGH',
+      ack: {
+        ackId: `ack-manual-${Math.random().toString(36).substring(2, 8)}`,
+        status: finalOutcome,
+        actualWaterLitre: actualWater,
+        result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome === 'TIMEOUT' ? 'NO_ACK' : finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'EXECUTION_FAILED',
+        provenance: 'SIMULATED',
+        receivedAt: new Date().toISOString()
+      }
+    };
+    const evaluation = {
+      evaluationId: `eval-manual-${Math.random().toString(36).substring(2, 9)}`,
+      planId: plan.planId,
+      commandId: command.commandId,
+      plotId,
+      status: evaluationStatus,
+      expected: { soilMoistureBefore: baselineAvailable ? before : null, soilMoistureAfter: baselineAvailable ? after : null, waterLitre: numericWater },
+      actual: { soilMoistureBefore: baselineAvailable ? before : null, soilMoistureAfter: baselineAvailable ? after : null, waterLitre: actualWater },
+      effectivenessScore: evaluationStatus === 'COMPLETED' && evaluationResult === 'GOOD' ? 0.94 : evaluationStatus === 'PARTIAL' ? 0.45 : 0,
+      result: evaluationResult,
+      evidenceWindow: { beforeMinutes: 30, afterMinutes: 30 },
+      provenance: 'SIMULATED',
+      createdAt: new Date().toISOString()
+    };
+    command.evaluation = evaluation;
+    this.decisionCache.commands.set(command.commandId, command);
+    this.decisionCache.evaluations.set(command.commandId, evaluation);
+    if (plot && ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome)) {
+      const metrics = { ...(plot.metrics || {}) };
+      const moisture = metrics.SOIL_MOISTURE || {};
+      if (baselineAvailable) {
+        metrics.SOIL_MOISTURE = { ...moisture, value: after, status: 'NORMAL', updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION', provenance: 'SIMULATED', dataOrigin: 'MANUAL_VIRTUAL_IRRIGATION' };
+      }
+      const waterLevel = metrics.WATER_LEVEL || {};
+      const waterLevelBefore = Number(waterLevel.value);
+      if (Number.isFinite(waterLevelBefore)) metrics.WATER_LEVEL = { ...waterLevel, value: Number(Math.max(0, waterLevelBefore - actualWater / DEFAULT_RESERVOIR_LITRES * 100).toFixed(1)), status: 'NORMAL', updatedAt: new Date().toISOString(), sourceMode: 'SIMULATION', provenance: 'SIMULATED', dataOrigin: 'MANUAL_VIRTUAL_IRRIGATION' };
+      this.demoPlots.set(plotId, { ...plot, metrics, updatedAt: new Date().toISOString() });
+    }
+    const consumed = ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) && actualWater > 0;
+    if (consumed && this.demoWaterBalance) {
+      this.demoWaterBalance.actualUsedLitres = Number((Number(this.demoWaterBalance.actualUsedLitres || 0) + actualWater).toFixed(1));
+      this.demoWaterBalance.usedLitres = this.demoWaterBalance.actualUsedLitres;
+      this.demoWaterBalance.remainingLitres = Number(Math.max(0, Number(this.demoWaterBalance.dailyQuotaLitres || 0) - Number(this.demoWaterBalance.reservedLitres || 0) - this.demoWaterBalance.actualUsedLitres).toFixed(1));
+      this.demoWaterBalance.revision = Number(this.demoWaterBalance.revision || 0) + 1;
+      evaluation.resourceUsage = {
+        sourceType: 'MANUAL_IRRIGATION',
+        sourceRef: command.commandId,
+        requestedWaterLitre: numericWater,
+        actualWaterLitre: actualWater,
+        status: 'CONSUMED',
+        sourceMode: 'SIMULATION',
+        provenance: 'SIMULATED',
+        remainingLitres: this.demoWaterBalance.remainingLitres
+      };
+    } else {
+      evaluation.resourceUsage = {
+        sourceType: 'MANUAL_IRRIGATION',
+        sourceRef: command.commandId,
+        requestedWaterLitre: numericWater,
+        actualWaterLitre: actualWater,
+        status: 'NOT_CONSUMED',
+        sourceMode: 'SIMULATION',
+        provenance: 'SIMULATED',
+        remainingLitres: this.demoWaterBalance?.remainingLitres ?? null
+      };
     }
     this._demoSaveWorkspaceState();
     return command;

@@ -7,18 +7,18 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v592-main-merge-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -1208,7 +1208,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260831-sync-v1"></script>
+  <script type="module" src="js/app.js?v=20260901-v592-main-merge-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1343,7 +1343,7 @@
           <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': userSettings.plotBackground === 'crop' ? 'url(' + cropBackgroundFor(plot) + ')' : 'none' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.id }}</span>
@@ -1467,6 +1467,48 @@
           </table>
         </div>
       </div>
+    </div>
+  </template>
+
+  <!-- ADMIN: Resource Collaboration Audit -->
+  <template id="tmpl-admin-resources">
+    <div class="system-resource-page">
+      <div class="system-resource-header">
+        <div>
+          <span class="resource-eyebrow">SYSTEM_ADMIN / READ ONLY</span>
+          <h2 class="g-page-title"><app-icon name="water_drop"></app-icon> 资源协同审计</h2>
+          <p>跨农场查看配额、协同需求、计划版本和农户回执；系统管理员不代替农场管理员调整分配。</p>
+        </div>
+        <span class="source-badge" :class="state.sessionMode === 'live' ? 'is-ready' : 'is-muted'">{{ state.sessionMode === 'live' ? '后端共享事实' : '演示数据' }}</span>
+      </div>
+
+      <div class="admin-filter-bar">
+        <select v-model="farmFilter"><option value="all">全部农场</option><option v-for="farm in farms" :key="farm.farmId" :value="farm.farmId">{{ farm.name }}</option></select>
+        <select v-model="statusFilter"><option value="active">活跃协同</option><option value="all">全部状态</option><option value="SUBMITTED">待纳入计划</option><option value="PENDING_ACK">待农户确认</option><option value="CONFLICT_REPORTED">冲突待复核</option><option value="COMPLETED">已完成</option></select>
+      </div>
+
+      <section class="system-resource-kpis">
+        <article><span>纳管农场</span><strong>{{ totals.farms }}</strong><small>当前筛选范围</small></article>
+        <article><span>日配额合计</span><strong>{{ totals.quota.toFixed(1) }} L</strong><small>版本化配置口径</small></article>
+        <article><span>可分配余额</span><strong>{{ totals.remaining.toFixed(1) }} L</strong><small>扣除预留与实际使用</small></article>
+        <article :class="{'is-warning': totals.pendingAck > 0}"><span>待农户确认</span><strong>{{ totals.pendingAck }}</strong><small>已确认计划待回执</small></article>
+        <article :class="{'is-danger': totals.conflicts > 0}"><span>协同冲突</span><strong>{{ totals.conflicts }}</strong><small>需要农场管理员复核</small></article>
+      </section>
+
+      <section class="resource-panel system-water-profiles">
+        <div class="panel-heading"><div><span class="resource-eyebrow">容量审计</span><h3>各农场水资源余额</h3></div><small>{{ selectedProfiles.length }} 个资源档案</small></div>
+        <div class="system-water-profile-grid"><article v-for="profile in selectedProfiles" :key="profile.farmId"><div><strong>{{ farmName(profile.farmId) }}</strong><small>{{ profile.businessDate || '今日' }} · v{{ profile.revision || profile.balance?.revision || 0 }}</small></div><div class="system-water-progress"><b :style="{width: Math.max(0, Math.min(100, Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? 0) / Math.max(1, Number(profile.dailyQuotaLitres || profile.balance?.dailyQuotaLitres || 1)) * 100)) + '%'}"></b></div><p><span>配额 {{ Number(profile.dailyQuotaLitres || profile.balance?.dailyQuotaLitres || 0).toFixed(1) }} L</span><span>已用 {{ Number(profile.actualUsedLitres ?? profile.balance?.actualUsedLitres ?? 0).toFixed(1) }} L</span><span>预留 {{ Number(profile.reservedLitres ?? profile.balance?.reservedLitres ?? 0).toFixed(1) }} L</span><span>余量 {{ Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? 0).toFixed(1) }} L</span></p></article><p v-if="!selectedProfiles.length" class="rp-empty">当前范围没有水资源档案。</p></div>
+      </section>
+
+      <section class="resource-panel">
+        <div class="panel-heading"><div><span class="resource-eyebrow">计划版本</span><h3>跨农场配水计划</h3></div><small>{{ plans.length }} 个版本</small></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>农场 / 日期</th><th>计划编号</th><th>版本</th><th>申请 / 分配 / 缺口</th><th>状态</th><th>来源</th></tr></thead><tbody><tr v-for="plan in plans" :key="plan.resourcePlanId"><td><strong>{{ farmName(plan.farmId) }}</strong><small>{{ plan.businessDate }}</small></td><td class="system-resource-id">{{ plan.resourcePlanId }}</td><td>v{{ plan.revision || 1 }}</td><td>{{ Number(plan.totalRequestedLitres || 0).toFixed(1) }} / {{ Number(plan.totalAllocatedLitres || 0).toFixed(1) }} / {{ Number(plan.totalUnmetLitres || 0).toFixed(1) }} L</td><td><span class="request-status" :class="String(plan.status || '').toLowerCase()">{{ planStatusLabel(plan.status) }}</span></td><td>{{ plan.provenance || 'DERIVED' }} · {{ plan.algorithmVersion || '—' }}</td></tr><tr v-if="!plans.length"><td colspan="6" class="rp-empty">当前范围没有配水计划。</td></tr></tbody></table></div>
+      </section>
+
+      <section class="resource-panel">
+        <div class="panel-heading"><div><span class="resource-eyebrow">人员协同</span><h3>农户需求与回执审计</h3></div><small>{{ requests.length }} 条记录</small></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>更新时间</th><th>农场 / 地块</th><th>申请人</th><th>申请 / 分配</th><th>执行时段</th><th>状态与反馈</th></tr></thead><tbody><tr v-for="request in requests" :key="request.resourceRequestId"><td>{{ timeLabel(request.updatedAt || request.createdAt) }}</td><td><strong>{{ farmName(request.farmId) }}</strong><small>{{ plotName(request.plotId) }}</small></td><td>{{ request.requestedByName || request.requestedBy }}</td><td>{{ Number(request.requestedLitres || 0).toFixed(1) }} / {{ request.allocatedLitres == null ? '—' : Number(request.allocatedLitres).toFixed(1) }} L</td><td>{{ timeLabel(request.scheduledStart || request.preferredStart) }}</td><td><span class="request-status" :class="String(request.status || '').toLowerCase()">{{ requestStatusLabel(request.status) }}</span><small>{{ request.responseNote || request.constraints || request.note || '无附加说明' }}</small></td></tr><tr v-if="!requests.length"><td colspan="6" class="rp-empty">当前筛选范围没有协同记录。</td></tr></tbody></table></div>
+      </section>
     </div>
   </template>
 
@@ -1882,12 +1924,6 @@
             </div>
           </div>
           <div class="settings-field">
-            <span class="settings-label">地块背景</span>
-            <div class="settings-theme-options settings-plot-background-options" role="group" aria-label="选择地块背景">
-              <button v-for="background in plotBackgroundOptions" :key="background.value" type="button" class="settings-theme-option settings-plot-background-option" :class="{active: settings.plotBackground === background.value}" @click="updateSetting('plotBackground', background.value)"><span class="settings-theme-icon"><app-icon :name="background.value === 'crop' ? 'image_search' : 'grid_view'"></app-icon></span><strong>{{ background.label }}</strong><small>{{ background.hint }}</small></button>
-            </div>
-          </div>
-          <div class="settings-field">
             <span class="settings-label">强调色</span>
             <div class="settings-accent-options" role="group" aria-label="选择强调色">
               <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value && !settings.customAccent}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value && !settings.customAccent" name="check_circle"></app-icon></button>
@@ -1915,7 +1951,7 @@
         </article>
       </div>
 
-      <footer class="settings-footer"><div><strong>当前设置</strong><span>{{ presetLabel }} · 主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 地块背景：{{ plotBackgroundLabel }} · 强调色：{{ settings.customAccent || accentLabel }} · {{ fontLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>{{ presetLabel }} · 主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ settings.customAccent || accentLabel }} · {{ fontLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
     </section>
   </template>
 
@@ -1947,7 +1983,7 @@
         <div class="admin-appearance-section-title"><span>默认风格</span><small>新用户和“恢复默认设置”会使用此风格</small></div>
         <button type="button" class="admin-appearance-option is-default" :class="{active: appearanceSettings.surfaceStyle === 'classic'}" data-surface-style="classic" @click="selectAppearanceStyle('classic')">
           <span class="admin-appearance-option-icon"><app-icon name="grid_view"></app-icon></span>
-          <span><strong>经典卡片</strong><small>4e9326a 农场管理员基线 · 白色玻璃、清晰边框、紧凑信息层级</small></span>
+          <span><strong>经典卡片</strong><small>农场管理员纯色卡片基线 · 清晰边框、紧凑信息层级</small></span>
           <app-icon v-if="appearanceSettings.surfaceStyle === 'classic'" name="check_circle" class="admin-appearance-check"></app-icon>
         </button>
 

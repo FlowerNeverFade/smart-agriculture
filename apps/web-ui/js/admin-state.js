@@ -393,7 +393,7 @@ export function domainsForEventType(type = '') {
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
   if (value.includes('resource') || value.includes('water.balance') || value.includes('irrigation.plan')) {
-    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('overview');
+    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('resourceRequests'); domains.add('overview');
   }
   if (value.includes('command.approved') || value.includes('evaluation')) {
     domains.add('resourcePlans'); domains.add('resourceProfiles'); domains.add('workOrders'); domains.add('ledgers'); domains.add('overview');
@@ -405,24 +405,24 @@ const ADMIN_CROP_ALIASES = Object.freeze([
   ['tomato', ['tomato', '番茄']],
   ['corn', ['corn', '玉米']],
   ['cucumber', ['cucumber', '黄瓜']],
+  ['eggplant', ['eggplant', '茄子', '茄']],
+  ['lettuce', ['lettuce', '生菜', '莴苣']],
   ['rice', ['rice', '水稻', '稻']],
   ['sunflower', ['sunflower', '向日葵', '油葵']],
   ['strawberry', ['strawberry', '草莓']],
-  ['pepper', ['pepper', '辣椒']],
-  ['eggplant', ['eggplant', '茄子', '茄']],
-  ['lettuce', ['lettuce', '生菜', '莴苣']]
+  ['pepper', ['pepper', '辣椒']]
 ]);
 
 const ADMIN_CROP_EMOJIS = Object.freeze({
   tomato: '🍅',
   corn: '🌽',
   cucumber: '🥒',
+  eggplant: '🍆',
+  lettuce: '🥬',
   rice: '🌾',
   sunflower: '🌻',
   strawberry: '🍓',
   pepper: '🌶️',
-  eggplant: '🍆',
-  lettuce: '🥬',
   unknown: '🌱'
 });
 

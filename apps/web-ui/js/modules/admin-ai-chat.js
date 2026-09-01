@@ -1,7 +1,7 @@
-import { api } from '../api.js?v=20260831-sync-v1';
-import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-sync-v1';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-sync-v1';
-import { agentRolePresentation } from '../agent-presentation.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260901-v592-main-merge-v1';
+import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260901-v592-main-merge-v1';
+import { analyzeImageFiles } from './image-vision.js?v=20260901-v592-main-merge-v1';
+import { agentRolePresentation } from '../agent-presentation.js?v=20260901-v592-main-merge-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 

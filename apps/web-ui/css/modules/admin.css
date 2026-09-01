@@ -2827,28 +2827,52 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
    have a later glass-surface rule, so keep the crop photography and the
    readability overlay at the role-specific layer as well. */
 .role-farm-admin article.manager-plot-card {
+  --manager-data-surface: #f8fbf9;
+  --manager-data-divider: #cbd6d0;
+  --manager-section-border: #aebdb5;
   position: relative;
   isolation: isolate;
+  container: manager-plot-card / inline-size;
   overflow: hidden;
-  min-height: 286px;
-  border-color: rgba(255,255,255,.22);
-  background-color: var(--g-bg-surface);
-  background-image: var(--plot-background, none);
-  background-position: center;
-  background-size: cover;
-  color: #f6fbf7;
-  text-shadow: 0 1px 2px rgba(0,0,0,.22);
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, #71877b 52%, var(--g-border));
+  border-top: 4px solid var(--admin-mint);
+  background: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(244, 250, 246, .91));
+  color: var(--g-text-primary);
+  text-shadow: none;
+  box-shadow: 0 12px 30px rgba(24, 59, 39, .10);
 }
 
+.role-farm-admin article.manager-plot-card.is-attention {
+  border-color: color-mix(in srgb, var(--admin-orange) 35%, #9caaa2);
+  border-top-color: var(--admin-orange);
+}
+.role-farm-admin article.manager-plot-card.is-inactive {
+  border-color: color-mix(in srgb, var(--g-text-secondary) 38%, var(--g-border));
+  border-top-color: var(--g-text-secondary);
+}
 .role-farm-admin article.manager-plot-card > * { position: relative; z-index: 1; }
 .role-farm-admin article.manager-plot-card .manager-plot-title h2,
 .role-farm-admin article.manager-plot-card .manager-plot-title span,
-.role-farm-admin article.manager-plot-card .manager-health-score,
-.role-farm-admin article.manager-plot-card .manager-health-score strong,
-.role-farm-admin article.manager-plot-card .manager-plot-meta { color: #f6fbf7; }
-.role-farm-admin article.manager-plot-card .manager-more-button { color: rgba(246,251,247,.88); }
-.role-farm-admin article.manager-plot-card .manager-more-button:hover,
-.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] { background: rgba(255,255,255,.18); color: #fff; }
+.role-farm-admin article.manager-plot-card .manager-health-score { color: var(--g-text-secondary); }
+
+.role-farm-admin article.manager-plot-card .manager-plot-card-header {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.role-farm-admin article.manager-plot-card .manager-plot-card-header::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  left: 0;
+  height: 1px;
+  border-radius: 999px;
+  background: var(--manager-data-divider);
+}
+
 .role-farm-admin article.manager-plot-card .manager-more-button {
   width: 32px;
   height: 32px;
@@ -3396,25 +3420,25 @@ html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-s
 }
 .role-farm-admin .manager-plot-context {
   display: grid;
-  grid-template-columns: minmax(180px, .9fr) minmax(0, 1.6fr);
-  gap: 12px;
-  margin-bottom: 14px;
+  grid-template-columns: minmax(160px, .78fr) minmax(0, 1.72fr);
+  gap: 10px;
+  margin-bottom: 10px;
 }
 .role-farm-admin .manager-crop-identity {
   --crop-accent: #4b8f66;
   --crop-soft: #eaf5ed;
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
+  grid-template-columns: 62px minmax(0, 1fr);
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   min-width: 0;
-  min-height: 96px;
-  padding: 10px;
+  min-height: 80px;
+  padding: 8px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, var(--g-border));
-  border-radius: 14px;
-  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, var(--g-bg-surface)), color-mix(in srgb, var(--g-bg-surface) 80%, transparent));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.92);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 36%, #a7b4ad);
+  border-radius: 12px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, white), rgba(255, 255, 255, .8));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
 }
 .role-farm-admin .manager-crop-identity[data-crop="tomato"] { --crop-accent: #c9554f; --crop-soft: #fff0ed; }
 .role-farm-admin .manager-crop-identity[data-crop="corn"] { --crop-accent: #b57918; --crop-soft: #fff6dc; }
@@ -3424,51 +3448,257 @@ html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-s
 .role-farm-admin .manager-crop-identity[data-crop="strawberry"] { --crop-accent: #c34e5a; --crop-soft: #fff0f2; }
 .role-farm-admin .manager-crop-identity[data-crop="pepper"] { --crop-accent: #bc4e43; --crop-soft: #fff0ec; }
 .role-farm-admin .manager-crop-art {
+  width: 62px;
+  height: 62px;
   display: grid;
   place-items: center;
-  width: 74px;
-  height: 74px;
-  border: 1px solid color-mix(in srgb, var(--crop-accent) 20%, var(--g-bg-surface));
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, white);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .72);
   color: var(--g-text-primary);
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 44px;
+  font-size: 38px;
   line-height: 1;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--crop-accent) 14%, transparent), inset 0 1px 0 rgba(255,255,255,.92);
 }
-.role-farm-admin .manager-crop-copy { display: grid; min-width: 0; gap: 3px; }
-.role-farm-admin .manager-crop-copy > span { color: var(--g-text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .04em; }
-.role-farm-admin .manager-crop-copy strong { overflow: hidden; color: var(--g-text-primary); font-size: 16px; line-height: 1.25; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.role-farm-admin .manager-crop-copy small { overflow: hidden; color: var(--crop-accent); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.role-farm-admin .manager-plot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 14px; background: var(--g-border-subtle); }
-.role-farm-admin .manager-plot-facts > div { display: grid; align-content: center; min-width: 0; padding: 12px; background: color-mix(in srgb, var(--g-bg-surface) 82%, transparent); }
-.role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right: 1px solid var(--g-border-subtle); }
+.role-farm-admin .manager-crop-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.role-farm-admin .manager-crop-copy > span {
+  color: var(--g-text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+
+.role-farm-admin .manager-crop-copy strong {
+  overflow: hidden;
+  color: var(--g-text-primary);
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .manager-crop-copy small {
+  overflow: hidden;
+  color: var(--crop-accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .manager-plot-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--manager-section-border);
+  border-radius: 12px;
+  background: var(--manager-data-divider);
+  box-shadow: none;
+}
+
+.role-farm-admin .manager-plot-facts > div {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  padding: 10px;
+  background: var(--manager-data-surface);
+}
+
+.role-farm-admin .manager-plot-facts > div:not(:last-child) {
+  border-right: 1px solid var(--manager-data-divider);
+}
 .role-farm-admin .manager-plot-facts dt { color: var(--g-text-secondary); font-size: 10px; font-weight: 600; }
-.role-farm-admin .manager-plot-facts dd { margin-top: 7px; overflow: hidden; color: var(--g-text-primary); font-size: 13px; line-height: 1.35; font-weight: 650; text-overflow: ellipsis; }
-.role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); border-color: var(--g-border-subtle); background: var(--g-border-subtle); box-shadow: inset 0 1px 0 rgba(255,255,255,.82); }
-.role-farm-admin article.manager-plot-card .manager-metric { grid-column: span 2; background: color-mix(in srgb, var(--g-bg-surface) 92%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: none; }
-.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
-.role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
-.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: color-mix(in srgb, var(--g-bg-subtle) 88%, transparent); }
+.role-farm-admin .manager-plot-facts dd {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--g-text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.role-farm-admin article.manager-plot-card .manager-metric-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--manager-section-border);
+  background: var(--manager-data-divider);
+  box-shadow: none;
+}
+.role-farm-admin article.manager-plot-card .manager-metric {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  grid-column: span 3;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-content: center;
+  min-height: 70px;
+  padding: 8px 10px;
+  background: var(--manager-data-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+.role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable {
+  background: var(--manager-data-surface);
+}
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: span 4; }
+.role-farm-admin article.manager-plot-card .manager-metric-label { grid-column: 1 / -1; }
+.role-farm-admin article.manager-plot-card .manager-metric-value {
+  grid-column: 1;
+  align-self: end;
+  margin-top: 0;
+  white-space: nowrap;
+}
+.role-farm-admin article.manager-plot-card .manager-metric-target {
+  grid-column: 2;
+  align-self: end;
+  min-width: 0;
+  margin-top: 0;
+  text-align: right;
+}
 .role-farm-admin article.manager-plot-card .manager-metric-label,
 .role-farm-admin article.manager-plot-card .manager-metric-target,
 .role-farm-admin article.manager-plot-card .manager-metric-value small { color: var(--g-text-secondary); }
 .role-farm-admin article.manager-plot-card .manager-metric-value { color: var(--g-text-primary); }
-@media (max-width: 700px) {
+/* Keep the plot lifecycle badge readable over every crop photograph. */
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--g-primary-bg) 72%, white);
+  color: var(--g-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .01em;
+  text-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--g-success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-success) 14%, transparent);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive {
+  border-color: color-mix(in srgb, var(--g-warning) 36%, var(--g-border));
+  background: color-mix(in srgb, var(--g-warning-bg) 72%, white);
+  color: var(--g-warning);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive::before {
+  background: var(--g-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-warning) 14%, transparent);
+}
+
+[data-theme="dark"] .role-farm-admin article.manager-plot-card {
+  --manager-data-surface: #1e2f26;
+  --manager-data-divider: #42564b;
+  --manager-section-border: #53685c;
+  border-color: #53685c;
+  border-top-color: var(--admin-mint);
+  background: linear-gradient(145deg, rgba(27, 43, 34, .96), rgba(20, 35, 27, .94));
+  box-shadow: 0 15px 34px rgba(0, 0, 0, .30);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-attention {
+  border-color: color-mix(in srgb, var(--admin-orange) 46%, #53685c);
+  border-top-color: var(--admin-orange);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-inactive {
+  border-color: color-mix(in srgb, var(--g-text-secondary) 46%, #53685c);
+  border-top-color: var(--g-text-secondary);
+}
+[data-theme="dark"] .role-farm-admin .manager-crop-identity {
+  border-color: color-mix(in srgb, var(--crop-accent) 58%, #66756d);
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-accent) 18%, #21352a), rgba(29, 45, 36, .92));
+}
+[data-theme="dark"] .role-farm-admin .manager-crop-art { background: rgba(244, 250, 246, .88); }
+[data-theme="dark"] .role-farm-admin .manager-plot-facts {
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
+}
+[data-theme="dark"] .role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right-color: var(--manager-data-divider); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric-grid {
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
+}
+[data-theme="dark"] .role-farm-admin .manager-plot-facts > div,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: var(--manager-data-surface); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-more-button { background: rgba(33, 51, 41, .94); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-plot-menu { background: rgba(25, 39, 32, .98); }
+
+@container manager-plot-card (max-width: 820px) {
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .role-farm-admin article.manager-plot-card .manager-metric,
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-column: span 2;
+    row-gap: 3px;
+    min-height: 76px;
+  }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
+  .role-farm-admin article.manager-plot-card .manager-metric-label,
+  .role-farm-admin article.manager-plot-card .manager-metric-value,
+  .role-farm-admin article.manager-plot-card .manager-metric-target { grid-column: 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric-target { text-align: left; }
+}
+
+@container manager-plot-card (max-width: 519px) {
   .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
-  .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
-  .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+  .role-farm-admin .manager-crop-identity { grid-template-columns: 58px minmax(0, 1fr); min-height: 76px; }
+  .role-farm-admin .manager-crop-art { width: 58px; height: 58px; font-size: 36px; }
   .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .role-farm-admin article.manager-plot-card .manager-metric,
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
-  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"] { grid-column: span 1; }
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: 1 / -1; }
 }
 
-@media (max-width: 440px) {
+@container manager-plot-card (max-width: 359px) {
   .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: 1fr; }
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: auto; }
+}
+
+@media (max-width: 420px) {
+  .role-farm-admin .g-header .g-header-farm-select-btn {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* User explicitly asked to remove shadow from the two large config cards */

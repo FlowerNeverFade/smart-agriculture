@@ -318,9 +318,15 @@ paths:
         '200': {description: 已保存的自动浇水开关状态}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/estimate:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+    post: {tags: [decision], description: 生成灌溉处方并返回诊断、证据、就绪度、虚拟执行参数和 manualFallback；仅在存在阻塞且仍有可用水量时提供人工兜底入口, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
   /api/v1/irrigation/auto:
     post: {tags: [decision], description: 土壤含水量低于 10% 且通过数据质量、设备、资源和权限校验时发起一次虚拟浇水；同一遥测事件使用幂等键避免重复命令, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 自动浇水触发、未触发或阻断结果}}}
+  /api/v1/irrigation/manual:
+    post:
+      tags: [execution]
+      description: 当前地块处于数据冲突、数据质量、设备状态或决策就绪度阻塞时，由有权限的操作人输入水量并确认一次虚拟人工浇灌；仅绕过决策门，仍校验地块权限、幂等、单次/每日水量、资源容量和最大执行时长。新的幂等键不受次数或冷却限制；结果沿用命令、ACK、效果评价和模拟遥测链路。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationRequest'}}}}
+      responses: {'200': {description: 带 manualOverride、sourcePlanId、bypassedGates、ACK 和效果评价的虚拟人工浇灌命令, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationCommand'}}}}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键、处方上下文或人工兜底状态冲突}, '422': {description: 水量、时长或资源安全约束拒绝}}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -603,6 +609,37 @@ components:
         approvalRequired: {type: boolean, default: false, description: 固定为 false，保留安全确认而非管理员审批}
         confirmationMode: {type: string, enum: [OPERATOR_CONFIRMED]}
         outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
+    ManualIrrigationRequest:
+      type: object
+      required: [plotId, sourcePlanId, waterLitre, idempotencyKey, confirmed]
+      properties:
+        plotId: {type: string}
+        sourcePlanId: {type: string, description: 当前被阻塞灌溉处方编号；服务端会重新确认阻塞状态}
+        waterLitre: {type: number, format: double, minimum: 0.1, description: 本次人工浇灌水量（升），仍受单次、每日和资源上限约束}
+        idempotencyKey: {type: string, minLength: 1}
+        confirmed: {type: boolean, description: 当前操作人已核对地块、原因和水量并确认虚拟人工浇灌}
+        source: {type: string, default: farmer-manual-fallback}
+    ManualIrrigationCommand:
+      type: object
+      required: [commandId, plotId, planId, sourcePlanId, manualOverride, waterLitre, manualWaterLitre, confirmationMode, executionMode, provenance, virtualOnly, cooldownMinutes]
+      properties:
+        commandId: {type: string}
+        plotId: {type: string}
+        planId: {type: string, description: 本次虚拟执行使用的刷新后灌溉处方}
+        sourcePlanId: {type: string, description: 农户发起人工兜底时查看的被阻塞处方}
+        manualOverride: {type: boolean, enum: [true]}
+        manualWaterLitre: {type: number, minimum: 0.1}
+        waterLitre: {type: number, minimum: 0.1}
+        durationSeconds: {type: integer, minimum: 1}
+        bypassedGates: {type: array, items: {type: string}}
+        overrideReasonCode: {type: string}
+        confirmationMode: {type: string, enum: [OPERATOR_MANUAL_OVERRIDE]}
+        executionMode: {type: string, enum: [SIMULATED]}
+        provenance: {type: string, enum: [SIMULATED]}
+        virtualOnly: {type: boolean, enum: [true]}
+        cooldownMinutes: {type: integer, minimum: 0, enum: [0]}
+        ack: {$ref: '#/components/schemas/CommandAck'}
+        evaluation: {type: object, additionalProperties: true, description: ACK 后的效果评价；无数值型湿度基线时 status=INCONCLUSIVE}
     CommandAck:
       type: object
       required: [status]
