@@ -94,6 +94,57 @@ test('demo automatic watering setting gates the automatic trigger without changi
   assert.equal((await service.getAutomaticWateringSetting('plot-a02')).enabled, true);
 });
 
+test('demo blocked irrigation exposes manual fallback and updates virtual soil moisture', async () => {
+  const service = new ApiService();
+  const userId = `manual-fallback-${Date.now()}`;
+  service.saveSession({ mode: 'demo', user: { userId, username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:request', 'irrigation:execute'] } });
+  const plan = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'sensor-drift', traceId: `manual-fallback-trace-${userId}` });
+  assert.equal(plan.status, 'BLOCKED');
+  assert.equal(plan.manualFallback.available, true);
+  assert.ok(plan.manualFallback.bypassedGates.includes('DATA_CONFLICT'));
+  assert.equal(plan.manualFallback.virtualOnly, true);
+  const before = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
+  const key = `manual-fallback-key-${userId}`;
+  await assert.rejects(
+    () => service.executeManualIrrigation({ plotId: plan.plotId, sourcePlanId: plan.planId, waterLitre: 20, idempotencyKey: key }),
+    (error) => error.code === 'CONFIRMATION_REQUIRED'
+  );
+  const command = await service.executeManualIrrigation({ plotId: plan.plotId, sourcePlanId: plan.planId, waterLitre: 20, confirmed: true, idempotencyKey: key });
+  assert.equal(command.manualOverride, true);
+  assert.equal(command.sourcePlanId, plan.planId);
+  assert.equal(command.confirmationMode, 'OPERATOR_MANUAL_OVERRIDE');
+  assert.equal(command.executionMode, 'SIMULATED');
+  assert.equal(command.provenance, 'SIMULATED');
+  assert.equal(command.virtualOnly, true);
+  assert.equal(command.ack.status, 'SUCCEEDED');
+  assert.equal(command.evaluation.status, 'COMPLETED');
+  assert.equal(command.evaluation.result, 'GOOD');
+  assert.ok(command.evaluation.actual.soilMoistureAfter > before);
+  const after = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
+  assert.ok(after > before);
+  const repeated = await service.executeManualIrrigation({ plotId: plan.plotId, sourcePlanId: plan.planId, waterLitre: 20, confirmed: true, idempotencyKey: key });
+  assert.equal(repeated.commandId, command.commandId);
+  const second = await service.executeManualIrrigation({ plotId: plan.plotId, sourcePlanId: plan.planId, waterLitre: 10, confirmed: true, idempotencyKey: `${key}-second` });
+  assert.notEqual(second.commandId, command.commandId);
+});
+
+test('demo normal and no-action irrigation never expose manual fallback', async () => {
+  storage.clear();
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'manual-fallback-gates', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:request', 'irrigation:execute'] } });
+  const normal = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-normal-gate' });
+  assert.equal(normal.manualFallback.available, false);
+
+  const plot = service.demoPlots.get('plot-a01');
+  service.demoPlots.set('plot-a01', {
+    ...plot,
+    metrics: { ...plot.metrics, SOIL_MOISTURE: { ...plot.metrics.SOIL_MOISTURE, value: 42 } }
+  });
+  const noAction = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-no-action-gate' });
+  assert.equal(noAction.status, 'NO_ACTION');
+  assert.equal(noAction.manualFallback.available, false);
+});
+
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
   const [html, source, presentation] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
@@ -101,13 +152,13 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
     readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
   ]);
   const farmerSurface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '农户不能自行填写执行成功']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测']) {
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测', 'executeManualIrrigation', 'manualFallback', 'show_no_action_reason', 'manual_irrigation_water']) {
     assert.match(html + source, new RegExp(marker));
   }
   // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。
@@ -137,6 +188,12 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.doesNotMatch(html, /自动浇水 · 虚拟执行/);
   assert.match(html, /toggle_automatic_watering/);
   assert.match(source, /setAutomaticWateringSetting/);
+  assert.match(source, /if \(advice_is_no_action\.value\)/);
+  assert.match(source, /open_no_action_reason\(\)/);
+  assert.match(html, /v-if="manual_irrigation_available"/);
+  assert.match(html, /farmer-no-action-modal/);
+  assert.match(html, /farmer-manual-irrigation-modal/);
+  assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);
 });
 
 test('farmer can read plot simulation strategy and forecast curve', async () => {

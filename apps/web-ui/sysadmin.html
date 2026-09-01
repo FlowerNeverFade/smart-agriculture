@@ -7,18 +7,18 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v592-crop-pack-emoji-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v59-resource-sync-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v592-main-merge-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -233,7 +233,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260901-v592-crop-pack-emoji-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-v592-main-merge-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -369,7 +369,7 @@
           <span class="all" :class="{active: statusFilter === 'all'}" @click="statusFilter = 'all'">全部</span>
         </div>
         <div class="admin-plot-grid">
-          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" :style="{ '--plot-background': userSettings.plotBackground === 'crop' ? 'url(' + cropBackgroundFor(plot) + ')' : 'none' }" @click="goToOps(plot)" title="点击排查该地块告警与设备">
+          <article v-for="plot in filteredPlots" :key="plot.id" class="admin-plot-card" :class="plot.status.toLowerCase()" @click="goToOps(plot)" title="点击排查该地块告警与设备">
             <div class="admin-plot-card-head">
               <span class="admin-plot-status-dot"></span>
               <span class="admin-plot-id">{{ plot.name }}</span>
@@ -1036,12 +1036,6 @@
             </div>
           </div>
           <div class="settings-field">
-            <span class="settings-label">地块背景</span>
-            <div class="settings-theme-options settings-plot-background-options" role="group" aria-label="选择地块背景">
-              <button v-for="background in plotBackgroundOptions" :key="background.value" type="button" class="settings-theme-option settings-plot-background-option" :class="{active: settings.plotBackground === background.value}" @click="updateSetting('plotBackground', background.value)"><span class="settings-theme-icon"><app-icon :name="background.value === 'crop' ? 'image_search' : 'grid_view'"></app-icon></span><strong>{{ background.label }}</strong><small>{{ background.hint }}</small></button>
-            </div>
-          </div>
-          <div class="settings-field">
             <span class="settings-label">强调色</span>
             <div class="settings-accent-options" role="group" aria-label="选择强调色">
               <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value" name="check_circle"></app-icon></button>
@@ -1063,7 +1057,7 @@
         </article>
       </div>
 
-      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 地块背景：{{ plotBackgroundLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
     </section>
   </template>
 

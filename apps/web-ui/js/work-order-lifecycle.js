@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260901-v59-resource-sync-v1';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v59-resource-sync-v1';
-import { roleCan } from './roles.js?v=20260901-v59-resource-sync-v1';
+import { api } from './api.js?v=20260901-v592-main-merge-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 
@@ -83,7 +83,7 @@ export function isAlertVerificationOrder(order) {
   return String(order?.taskPurpose || '').trim().toUpperCase() === 'ALERT_VERIFICATION';
 }
 
-export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '') {
+export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '', requireDifferent = false) {
   const currentAssigneeId = String(order?.assigneeId || '');
   const eligible = (Array.isArray(members) ? members : []).filter((member) => {
     const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
@@ -93,8 +93,11 @@ export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '')
       && (!farmId || farmIds.includes('*') || farmIds.includes(farmId))
       && (plotIds.includes('*') || plotIds.includes(order?.plotId));
   });
-  const alternatives = eligible.filter((member) => member.userId !== currentAssigneeId);
-  const candidates = alternatives.length ? alternatives : eligible;
+  const alternatives = eligible.filter((member) => String(member.userId || '') !== currentAssigneeId);
+  // Bulk overdue disposition must hand the work to somebody else.  Keep the
+  // fallback for ordinary assignment flows, where retaining the current
+  // assignee is still a valid choice when no alternative exists.
+  const candidates = requireDifferent ? alternatives : (alternatives.length ? alternatives : eligible);
   const ranked = candidates.map((member) => {
     const assigned = (Array.isArray(workOrders) ? workOrders : []).filter((item) => item.assigneeId === member.userId);
     return {
@@ -110,12 +113,16 @@ export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '')
 }
 
 export function finalizedWorkOrderAssignment(order, response, member, renewedDueAt = '') {
+  const responseStatus = String(response?.status || '').trim().toUpperCase();
+  const assignedStatus = !responseStatus || ['OPEN', 'PENDING', 'NEW'].includes(responseStatus)
+    ? 'ASSIGNED'
+    : response.status;
   return {
     ...order,
     ...(response || {}),
     workOrderId: response?.workOrderId || response?.workItemId || order?.workOrderId || order?.workItemId,
     workItemId: response?.workItemId || response?.workOrderId || order?.workItemId || order?.workOrderId,
-    status: response?.status || 'ASSIGNED',
+    status: assignedStatus,
     assigneeId: response?.assigneeId || member?.userId || order?.assigneeId || null,
     assigneeName: response?.assigneeName || member?.displayName || member?.username || order?.assigneeName || null,
     dueAt: renewedDueAt || response?.dueAt || order?.dueAt || null
@@ -301,12 +308,22 @@ export const WorkOrderLifecycleView = {
       unassigned: '待分配',
       approval: '待审批'
     }[scopeFilter.value] || ''));
-    const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', status: 'IN_PROGRESS', farmId: currentFarmId.value });
-    const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
+    const taskFilterParams = (params = {}) => ({
+      tab: 'tasks',
+      farmId: currentFarmId.value,
+      ...params,
+      ...(assigneeFilter.value ? { assigneeId: assigneeFilter.value } : {})
+    });
+    const clearSummaryScope = () => emit('navigate', 'work-orders', taskFilterParams({ status: 'IN_PROGRESS' }));
+    const applyStatusFilter = (status) => emit('navigate', 'work-orders', taskFilterParams({ status: status || 'ALL' }));
     const onStatusSelect = () => applyStatusFilter(statusFilter.value);
+    const onAssigneeSelect = () => emit('navigate', 'work-orders', taskFilterParams({
+      status: statusFilter.value || 'ALL',
+      scope: scopeFilter.value || undefined
+    }));
     const applySummaryScope = (scope) => {
       const target = managerSummaryTarget(scope, currentFarmId.value);
-      if (target) emit('navigate', target.view, target.params);
+      if (target) emit('navigate', target.view, target.view === 'work-orders' ? { ...target.params, ...(assigneeFilter.value ? { assigneeId: assigneeFilter.value } : {}) } : target.params);
     };
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
@@ -462,17 +479,23 @@ export const WorkOrderLifecycleView = {
       const failures = [];
       try {
         for (const order of targets) {
-          const currentMember = eligibleFarmers(order).find((member) => member.userId === order.assigneeId);
-          const choice = mode === 'DISPOSE' && currentMember
-            ? { member: currentMember, activeLoad: memberActiveTaskCount(currentMember.userId) }
-            : chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
+          // Both bulk actions are a hand-off: the expired owner's task must be
+          // assigned to another eligible, active farmer before it can return to
+          // the in-progress lane.  Never silently send it back to the owner.
+          const choice = chooseWorkOrderAssignee(
+            props.state.farmMembers,
+            props.state.workOrders,
+            order,
+            currentFarmId.value,
+            true
+          );
           if (!choice) {
-            failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
+            failures.push(`${order.title || order.workOrderId}：没有其他具备该地块权限的在岗农户可接手`);
             continue;
           }
           try {
             const renewedDueAt = overdueRecoveryDueAt(order, lifecycleNow.value);
-            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务继续处置';
+            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务处置并转交其他农户';
             const response = await api.assignWorkOrder(order.workOrderId, {
               assigneeId: choice.member.userId,
               dueAt: renewedDueAt,
@@ -783,10 +806,26 @@ export const WorkOrderLifecycleView = {
     watch(() => props.routeParams, (params) => {
       const nextScope = normalizeWorkSummaryScope(params?.scope);
       scopeFilter.value = nextScope;
+      const requestedAssignee = String(params?.assigneeId || '').trim();
+      const hasLoadedMembers = props.state.farmMembers.length > 0;
+      const matchingMember = props.state.farmMembers.find((member) => String(member?.userId || '') === requestedAssignee
+        && String(member?.role || '').toUpperCase() === 'FARMER'
+        && String(member?.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+        && (() => {
+          const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
+          return !farmIds.length || farmIds.includes('*') || farmIds.includes(currentFarmId.value);
+        })());
+      // Live member data can arrive after the route.  Keep the deep-link until
+      // it is loaded, then reject stale or cross-role member ids.
+      assigneeFilter.value = requestedAssignee && (!hasLoadedMembers || matchingMember) ? requestedAssignee : '';
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       const routeStatus = String(params?.status || '').toUpperCase();
-      if (['IN_PROGRESS', 'OPEN', 'SUBMITTED', 'OVERDUE', 'DONE'].includes(routeStatus)) {
+      if (routeStatus === 'ALL') {
+        statusFilter.value = '';
+      } else if (['IN_PROGRESS', 'OPEN', 'SUBMITTED', 'OVERDUE', 'DONE'].includes(routeStatus)) {
         statusFilter.value = routeStatus;
+      } else if (requestedAssignee && !nextScope) {
+        statusFilter.value = '';
       } else {
         statusFilter.value = ({ overdue: 'OVERDUE', unassigned: 'OPEN', approval: 'SUBMITTED', today: '' }[nextScope] ?? 'IN_PROGRESS');
       }
@@ -799,6 +838,19 @@ export const WorkOrderLifecycleView = {
         inspectionForm.value.plotId = props.state.plots[0]?.plotId || '';
       }
       loadInspections(false);
+    }, { immediate: true });
+
+    watch(() => props.state.farmMembers.map((member) => `${member.userId}:${member.status}`).join('|'), () => {
+      const requestedAssignee = String(props.routeParams?.assigneeId || '').trim();
+      if (!requestedAssignee || !props.state.farmMembers.length) return;
+      const matchingMember = props.state.farmMembers.some((member) => String(member?.userId || '') === requestedAssignee
+        && String(member?.role || '').toUpperCase() === 'FARMER'
+        && String(member?.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+        && (() => {
+          const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
+          return !farmIds.length || farmIds.includes('*') || farmIds.includes(currentFarmId.value);
+        })());
+      if (!matchingMember) assigneeFilter.value = '';
     }, { immediate: true });
 
     watch(() => inspectionForm.value.plotId, () => {
@@ -823,7 +875,7 @@ export const WorkOrderLifecycleView = {
       openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
-      clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect,
+      clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect, onAssigneeSelect,
       loadInspections, openInspection, onInspectionPhotos, submitInspection
     };
   },
@@ -858,10 +910,10 @@ export const WorkOrderLifecycleView = {
 
       <div class="work-filters">
         <label><span>任务状态</span><select class="g-select" v-model="statusFilter" @change="onStatusSelect">
-          <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option>
+          <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option><option value="">全部状态</option>
         </select></label>
         <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-        <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
+        <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter" @change="onAssigneeSelect"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
         <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
       </div>
 
@@ -871,7 +923,7 @@ export const WorkOrderLifecycleView = {
       </section>
 
       <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
-        <div><strong>逾期任务处置</strong><span>一键处置由原负责人继续处理；一键重新分配会更换合适农户。完成后均转入进行中。</span></div>
+        <div><strong>逾期任务处置</strong><span>一键处置和一键重新分配都会转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
         <div class="work-overdue-disposition-actions">
           <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
           <span>已选 {{ selectedOverdueOrders.length }} 项</span>

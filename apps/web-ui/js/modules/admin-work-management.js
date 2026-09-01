@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260901-v59-resource-sync-v1';
-import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v592-crop-pack-emoji-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v59-resource-sync-v1';
-import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v59-resource-sync-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v59-resource-sync-v1';
+import { api } from '../api.js?v=20260901-v592-main-merge-v1';
+import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v592-main-merge-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v592-main-merge-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v592-main-merge-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v592-main-merge-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -303,7 +303,7 @@ export const AdminWorkManagementView = {
     const value = input => input === undefined || input === null || input === '' ? '—' : input;
     const plotName = plotId => activePlots.value.find(plot => plot.plotId === plotId)?.name || plotId || '—';
     const cropName = cropCode => packs.value.find(pack => pack.cropCode === cropCode)?.identity?.name || cropCode || '—';
-    const cropEmoji = pack => adminCropEmoji({ cropCode: pack?.cropCode, cropName: pack?.identity?.name, cropVariety: pack?.identity?.variety });
+    const cropEmoji = pack => String(pack?.icon || '').trim() || adminCropEmoji({ cropCode: pack?.cropCode, cropName: pack?.identity?.name, cropVariety: pack?.identity?.variety });
     const dateLabel = input => input ? String(input).slice(0, 10).replaceAll('-', '/') : '—';
     const batchStatusLabel = status => ({ ACTIVE: '进行中', PLANNED: '待执行', COMPLETED: '已完成', INACTIVE: '已停用' }[String(status || '').toUpperCase()] || statusLabel(status, '进行中'));
     const batchStatusTone = status => ({ ACTIVE: 'active', PLANNED: 'planned', COMPLETED: 'completed', INACTIVE: 'inactive' }[String(status || '').toUpperCase()] || 'neutral');

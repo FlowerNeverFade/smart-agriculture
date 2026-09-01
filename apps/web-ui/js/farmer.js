@@ -1,11 +1,11 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v59-resource-sync-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v59-resource-sync-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v59-resource-sync-v1';
-import { presentRoleUser } from './roles.js?v=20260901-v59-resource-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v592-main-merge-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
+import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-resource-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-resource-sync-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v59-resource-sync-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -28,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v59-resource-sync-v1';
+} from './live-data.js?v=20260901-v592-main-merge-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -406,12 +406,20 @@ const READINESS_GATE_LABELS = Object.freeze({
   safetyLimit: '用水上限'
 });
 
+const MANUAL_GATE_LABELS = Object.freeze({
+  DATA_QUALITY: '数据质量',
+  DATA_CONFLICT: '数据冲突',
+  DEVICE_HEALTH: '设备状态',
+  DIAGNOSIS_EVIDENCE: '诊断证据',
+  DECISION_READINESS: '决策就绪度'
+});
+
 const EVIDENCE_LABELS = Object.freeze({
   FLOW_RATE_CALIBRATION: '检查流量计校准', PORTABLE_METER_COMPARISON: '使用便携仪复测',
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
   MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
   GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
-  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据'
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）'
 });
 
 function evidence_view(item, index = 0) {
@@ -1986,6 +1994,11 @@ const app = createApp({
         conflicts: (diagnosis.evidenceConflicts || []).map(evidence_view)
       };
     });
+    const advice_is_no_action = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return String(plan?.status || '').toUpperCase() === 'NO_ACTION';
+    });
     const advice_readiness_summary = computed(() => {
       const readiness = advice_readiness.value;
       if (!readiness) return null;
@@ -2008,10 +2021,45 @@ const app = createApp({
         canRequestReview: Boolean(irrigation_plan.value?.planId || advice_plan.value?.planId)
       };
     });
+    const manual_irrigation_fallback = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return plan?.manualFallback || null;
+    });
+    const manual_irrigation_available = computed(() => manual_irrigation_fallback.value?.available === true && !advice_is_no_action.value);
+    const manual_irrigation_limits = computed(() => manual_irrigation_fallback.value?.constraints || {
+      minWaterLitre: 0.1,
+      maxWaterLitre: 0,
+      maxDurationSeconds: 900,
+      flowRateLitresPerMinute: 18,
+      dailyRemainingLitres: 0,
+      resourceRemainingLitres: 0,
+      areaM2: Number(advice_plot.value?.areaM2 || 80)
+    });
+    const manual_irrigation_bypassed_gates = computed(() => (manual_irrigation_fallback.value?.bypassedGates || [])
+      .map((gate) => MANUAL_GATE_LABELS[gate] || READINESS_GATE_LABELS[gate] || gate));
+    const manual_irrigation_preview = computed(() => {
+      const plot = advice_plot.value;
+      const current = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+      const water = Number(manual_irrigation_water.value);
+      const area = Number(manual_irrigation_limits.value.areaM2 || plot?.areaM2 || 80);
+      const flow = Number(manual_irrigation_limits.value.flowRateLitresPerMinute || 18);
+      const validWater = Number.isFinite(water) && water > 0;
+      const delta = validWater && Number.isFinite(current) ? moistureDeltaFromWater(water, area) : null;
+      return {
+        current: Number.isFinite(current) ? current : null,
+        water: validWater ? water : null,
+        delta,
+        after: delta === null ? null : Number(Math.min(100, current + delta).toFixed(1)),
+        durationSeconds: validWater ? Math.max(1, Math.ceil(water / Math.max(1, flow) * 60)) : null
+      };
+    });
     const advice_execution_summary = computed(() => {
       const commands = advice_passport.value?.commands || [];
       const evaluations = advice_passport.value?.evaluations || [];
-      const directCommand = suggestion_result.value?.commandId ? suggestion_result.value : null;
+      const directCommand = manual_irrigation_result.value?.commandId
+        ? manual_irrigation_result.value
+        : suggestion_result.value?.commandId ? suggestion_result.value : null;
       const command = directCommand || commands[commands.length - 1] || null;
       const evaluation = command
         ? command.evaluation || evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
@@ -2106,6 +2154,8 @@ const app = createApp({
     const show_weather_controls = ref(false);
     const show_resource_allocation = ref(false);
     const show_suggestion_flow = ref(false);
+    const show_manual_irrigation = ref(false);
+    const show_no_action_reason = ref(false);
     const active_suggestion = ref(null);
     const suggestion_flow_stage = ref('VIEW');
     const suggestion_confirm_checked = ref(false);
@@ -2120,6 +2170,13 @@ const app = createApp({
     const suggestion_recovery_status = ref('');
     const suggestion_busy = ref(false);
     const suggestion_idempotency_key = ref('');
+    const manual_irrigation_stage = ref('FORM');
+    const manual_irrigation_water = ref('');
+    const manual_irrigation_confirmed = ref(false);
+    const manual_irrigation_result = ref(null);
+    const manual_irrigation_error = ref('');
+    const manual_irrigation_busy = ref(false);
+    const manual_irrigation_idempotency_key = ref('');
     const report_subscribed = ref(localStorage.getItem('agriloop-farmer-weekly-report') === 'true');
     const active_report_key = ref('daily');
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
@@ -2856,17 +2913,13 @@ const app = createApp({
       show_toast(report_subscribed.value ? '已开启本机周报提醒（演示）' : '已关闭本机周报提醒');
     };
 
-    const update_user_setting = (key, value, announce = true) => {
+    const update_user_setting = (key, value) => {
       const next = saveUserSettings({ ...user_settings.value, [key]: value });
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
         start_live_polling();
-      }
-      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
-        show_toast(`${labels[key]}已更新`);
       }
     };
 
@@ -2876,7 +2929,6 @@ const app = createApp({
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (typeof start_live_polling === 'function') start_live_polling();
-      show_toast('工作台设置已恢复默认');
     };
 
     const toggle_theme = () => {
@@ -3025,17 +3077,29 @@ const app = createApp({
       return true;
     };
 
+    const telemetry_refresh_targets = (sourcePlots) => {
+      const source = Array.isArray(sourcePlots) ? sourcePlots : [];
+      const ids = new Set([selected_plot.value?.plotId].filter(Boolean));
+      if (current_view.value === 'advice') ids.add(advice_selected_plot.value?.plotId);
+      if (current_view.value === 'tools' && tools_tab.value === 'risk') ids.add(risk_tool_plot_id.value);
+      if (!ids.size && source[0]?.plotId) ids.add(source[0].plotId);
+      const matches = source.filter((plot) => ids.has(plot.plotId));
+      return matches.length ? matches : source.slice(0, 1);
+    };
+
     const refresh_plot_telemetry = async () => {
       if (!is_formal_session || !plots.value.length) return false;
       const snapshot = plots.value.slice();
-      const telemetryResults = await Promise.allSettled(snapshot.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+      const targets = telemetry_refresh_targets(snapshot);
+      const telemetryResults = await Promise.allSettled(targets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
       if (!plots.value.length) return false;
-      const nextPlots = snapshot.map((plot, index) => {
+      const refreshed = new Map(targets.map((plot, index) => {
         const result = telemetryResults[index];
-        if (result?.status !== 'fulfilled') return plot;
+        if (result?.status !== 'fulfilled') return [plot.plotId, plot];
         const merged = mergePlotTelemetryWindow(plot, result.value || []);
-        return { ...merged, healthScore: compute_plot_health_score(merged) };
-      });
+        return [plot.plotId, { ...merged, healthScore: compute_plot_health_score(merged) }];
+      }));
+      const nextPlots = snapshot.map((plot) => refreshed.get(plot.plotId) || plot);
       // Preserve references when the farmer is reading messages; only swap plots.
       replace_ref_array(plots, nextPlots);
       selected_plot.value = nextPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || nextPlots[0] || null;
@@ -3113,9 +3177,15 @@ const app = createApp({
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         if (showProgress) set_workspace_progress(52, '正在同步地块遥测…');
-        const telemetryResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
-        normalizedPlots = normalizedPlots.map((plot, index) => {
-          const result = telemetryResults[index];
+        // The overview already contains each plot's latest values. Blocking
+        // the first screen on one 120-point history request per plot turned a
+        // 20-plot farm into several browser connection batches. Load only the
+        // active plot's chart window now; other plots load when selected.
+        const initialTelemetryTargets = telemetry_refresh_targets(normalizedPlots);
+        const telemetryResults = await Promise.allSettled(initialTelemetryTargets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+        const telemetryByPlot = new Map(initialTelemetryTargets.map((plot, index) => [plot.plotId, telemetryResults[index]]));
+        normalizedPlots = normalizedPlots.map((plot) => {
+          const result = telemetryByPlot.get(plot.plotId);
           if (result?.status !== 'fulfilled') return plot;
           const merged = mergePlotTelemetryWindow(plot, result.value || []);
           return { ...merged, healthScore: compute_plot_health_score(merged) };
@@ -3123,8 +3193,8 @@ const app = createApp({
         if (showProgress) set_workspace_progress(78, '正在整理巡田与消息…');
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
-        const inspectionResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getInspections(plot.plotId)));
-        const records = Array.from(new Map(inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((record) => [record.inspectionId, {
+        const inspectionResult = await Promise.allSettled([api.getInspections()]);
+        const records = Array.from(new Map((inspectionResult[0]?.status === 'fulfilled' ? inspectionResult[0].value || [] : []).map((record) => [record.inspectionId, {
           ...record,
           plotName: plotMap.get(String(record.plotId))?.name || record.plotId
         }])).values()).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
@@ -3275,7 +3345,7 @@ const app = createApp({
       // from missed events and keep secondary resources (tasks, inspections,
       // crop batches and device state) current as well.
       const refresh_ms = Math.max(5000, Number(user_settings.value.refreshInterval || 15) * 1000);
-      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, Math.min(5000, refresh_ms));
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, refresh_ms);
       live_workspace_poll_timer = window.setInterval(poll_live_workspace, refresh_ms);
       live_poll_visibility_handler = () => {
         if (!document.hidden) {
@@ -3603,6 +3673,95 @@ const app = createApp({
       return '已确认处理，等待现场复测或设备心跳恢复。';
     });
 
+    const open_no_action_reason = () => {
+      show_suggestion_flow.value = false;
+      show_no_action_reason.value = true;
+    };
+
+    const close_no_action_reason = () => {
+      show_no_action_reason.value = false;
+    };
+
+    const open_manual_irrigation = () => {
+      if (!manual_irrigation_available.value) {
+        show_toast('当前地块没有可用的人工浇灌兜底', 'error');
+        return;
+      }
+      show_suggestion_flow.value = false;
+      manual_irrigation_stage.value = 'FORM';
+      manual_irrigation_water.value = '';
+      manual_irrigation_confirmed.value = false;
+      manual_irrigation_result.value = null;
+      manual_irrigation_error.value = '';
+      manual_irrigation_busy.value = false;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      manual_irrigation_idempotency_key.value = `manual-irrigation-${plan?.planId || plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      show_manual_irrigation.value = true;
+    };
+
+    const close_manual_irrigation = () => {
+      if (manual_irrigation_busy.value) return;
+      show_manual_irrigation.value = false;
+    };
+
+    const submit_manual_irrigation = async () => {
+      if (manual_irrigation_busy.value) return;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      const water = Number(manual_irrigation_water.value);
+      const limits = manual_irrigation_limits.value;
+      manual_irrigation_error.value = '';
+      if (!manual_irrigation_available.value || !plan?.planId || !plotId) {
+        manual_irrigation_error.value = '当前地块已不再处于可人工兜底状态，请刷新后重试';
+        return;
+      }
+      if (!Number.isFinite(water) || water < Number(limits.minWaterLitre || 0.1)) {
+        manual_irrigation_error.value = `请输入不小于 ${Number(limits.minWaterLitre || 0.1)} L 的有效水量`;
+        return;
+      }
+      if (Number.isFinite(Number(limits.maxWaterLitre)) && water > Number(limits.maxWaterLitre) + 0.0001) {
+        manual_irrigation_error.value = `本次最多可输入 ${Number(limits.maxWaterLitre).toFixed(1)} L，仍受每日和资源上限约束`;
+        return;
+      }
+      if (!manual_irrigation_confirmed.value) {
+        manual_irrigation_error.value = '请先确认地块、阻塞原因和本次水量';
+        return;
+      }
+      manual_irrigation_busy.value = true;
+      try {
+        let result = await api.executeManualIrrigation({
+          plotId,
+          sourcePlanId: plan.planId,
+          waterLitre: water,
+          confirmed: true,
+          idempotencyKey: manual_irrigation_idempotency_key.value,
+          source: 'farmer-manual-fallback'
+        });
+        if (is_live.value) {
+          result = await wait_for_irrigation_completion(result);
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+          if (result?.commandId) {
+            const evaluation = await api.getCommandEvaluation(result.commandId).catch(() => null);
+            if (evaluation) result = { ...result, evaluation };
+          }
+        } else {
+          await load_live_workspace({ announce: false });
+          await load_irrigation_plan(plotId, { silent: true });
+        }
+        manual_irrigation_result.value = result;
+        manual_irrigation_stage.value = 'RESULT';
+        show_toast(is_live.value ? '人工浇灌命令已提交，等待设备回执' : '演示人工浇灌已完成，不会控制真实水泵');
+      } catch (error) {
+        manual_irrigation_error.value = error?.message || '人工浇灌失败，请稍后重试';
+        manual_irrigation_confirmed.value = false;
+        show_toast(manual_irrigation_error.value, 'error');
+      } finally {
+        manual_irrigation_busy.value = false;
+      }
+    };
+
     const open_suggestion = (kind = 'RISK', context = {}) => {
       const task = context.task || (kind === 'TASK' ? context : null);
       const plotId = context.plotId || task?.plot_id || (kind === 'RISK' ? weather_risk_card.value.plotId : advice_plot.value?.plotId);
@@ -3883,6 +4042,10 @@ const app = createApp({
     };
 
     const toggle_irrigation = () => {
+      if (advice_is_no_action.value) {
+        open_no_action_reason();
+        return;
+      }
       // 农户与管理员都进入同一条安全确认、幂等和虚拟执行闭环。
       open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
@@ -4835,18 +4998,19 @@ const app = createApp({
           apply_farmer_hash();
         }
         window.addEventListener('hashchange', apply_farmer_hash);
-        set_workspace_progress(12, '正在检查服务状态…');
-        is_live.value = await api.checkHealth();
         if (is_formal_session) {
+          // Core authenticated calls establish live availability themselves.
+          // A separate public health round trip added several seconds through
+          // the remote tunnel before useful data loading could even begin.
+          set_workspace_progress(12, '正在读取正式数据…');
           await load_live_workspace({ announce: true, trackProgress: true });
           is_live.value = api.isLive;
-          set_workspace_progress(96, '正在连接实时事件…');
-          const eventsResult = await with_bootstrap_timeout(() => connect_live_events(), 8000);
-          if (eventsResult === BOOTSTRAP_TIMEOUT) {
-            api.sseAbortController?.abort();
-            if (!load_error.value) load_error.value = '实时事件连接超时，已启用定时刷新';
-          }
+          // SSE is an enhancement backed by polling. Never keep the full-page
+          // bootstrap overlay visible while a proxy holds the stream open.
+          void connect_live_events({ announce: false });
         } else {
+          set_workspace_progress(12, '正在检查服务状态…');
+          is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
         }
         // Forecast, simulation, irrigation and assistant panels are secondary
@@ -4960,7 +5124,6 @@ const app = createApp({
       user_settings,
       accent_options: ACCENT_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
-      plot_background_options: PLOT_BACKGROUND_OPTIONS,
       current_accent_label,
       current_surface_style_label,
       update_user_setting,
@@ -5055,6 +5218,8 @@ const app = createApp({
       show_weather_controls,
       show_resource_allocation,
       show_suggestion_flow,
+      show_no_action_reason,
+      show_manual_irrigation,
       active_suggestion,
       suggestion_flow_stage,
       suggestion_flow_steps,
@@ -5070,6 +5235,17 @@ const app = createApp({
       suggestion_recovery_detail,
       suggestion_recovery_status,
       suggestion_busy,
+      manual_irrigation_stage,
+      manual_irrigation_water,
+      manual_irrigation_confirmed,
+      manual_irrigation_result,
+      manual_irrigation_error,
+      manual_irrigation_busy,
+      manual_irrigation_limits,
+      manual_irrigation_fallback,
+      manual_irrigation_available,
+      manual_irrigation_bypassed_gates,
+      manual_irrigation_preview,
       format_suggestion_time,
       suggestion_outcome_label,
       report_subscribed,
@@ -5119,6 +5295,7 @@ const app = createApp({
       advice_error,
       show_advice_diagnosis,
       advice_diagnosis_summary,
+      advice_is_no_action,
       advice_readiness_summary,
       advice_execution_summary,
       irrigation_guard,
@@ -5263,6 +5440,11 @@ const app = createApp({
       respond_resource_request,
       open_suggestion,
       close_suggestion_flow,
+      open_no_action_reason,
+      close_no_action_reason,
+      open_manual_irrigation,
+      close_manual_irrigation,
+      submit_manual_irrigation,
       prepare_suggestion_confirmation,
       confirm_suggestion_action,
       open_suggestion_inspection,

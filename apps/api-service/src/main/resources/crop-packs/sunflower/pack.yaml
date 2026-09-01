@@ -1,6 +1,7 @@
 cropCode: sunflower
 version: 1.0.0
 schemaVersion: '1.0'
+icon: 🌻
 status: ACTIVE
 identity: {name: 向日葵, variety: field-demo, region: 重庆, environment: open_field}
 ruleVersion: rule-1.0.0
