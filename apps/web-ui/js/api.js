@@ -12,6 +12,7 @@ import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-m
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+let demoWorkOrderSequence = 0;
 // A stalled browser connection must not keep a role workspace's bootstrap
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
@@ -664,6 +665,11 @@ function normalizeUserAccount(item, sourceMode = 'ACCOUNT') {
   };
 }
 
+function farmerWorkspacePreferenceStorageKey(user) {
+  const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
+  return `agriloop_demo_farmer_workspace_preference:${identity}`;
+}
+
 const DEMO_MARKET_CATALOG = Object.freeze([
   { cropCode: 'tomato', cropName: '番茄', marketVarietyName: '西红柿', emoji: '🍅', base: 4.8 },
   { cropCode: 'corn', cropName: '玉米', marketVarietyName: '鲜食玉米', emoji: '🌽', base: 3.6 },
@@ -768,6 +774,7 @@ export class ApiService {
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
+    this._demoHydrateOperationRecords();
     this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
       const type = plotFacilityType(item);
       return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
@@ -1423,6 +1430,44 @@ export class ApiService {
       .map(plot => ({ ...plot }));
   }
 
+  async getFarmerWorkspacePreference() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace');
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序配置', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const storage = browserStorage('localStorage');
+    try {
+      const raw = storage?.getItem(farmerWorkspacePreferenceStorageKey(this.user));
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && Array.isArray(saved.plotOrder)) return saved;
+    } catch { /* malformed demo preference falls back to the deterministic order */ }
+    return { scope: 'FARMER_WORKSPACE', plotOrder: [], revision: 0, updatedAt: null };
+  }
+
+  async saveFarmerWorkspacePreference(plotOrder = [], expectedRevision = 0) {
+    const normalizedOrder = Array.from(new Set((Array.isArray(plotOrder) ? plotOrder : [])
+      .map((plotId) => String(plotId ?? '').trim())
+      .filter(Boolean)));
+    const revision = Number.isFinite(Number(expectedRevision)) ? Number(expectedRevision) : 0;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace', {
+        method: 'PUT',
+        body: JSON.stringify({ plotOrder: normalizedOrder, expectedRevision: revision })
+      });
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序保存结果', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const saved = {
+      scope: 'FARMER_WORKSPACE',
+      plotOrder: normalizedOrder,
+      revision: revision + 1,
+      updatedAt: new Date().toISOString()
+    };
+    browserStorage('localStorage')?.setItem(farmerWorkspacePreferenceStorageKey(this.user), JSON.stringify(saved));
+    return saved;
+  }
+
   async createPlot(input = {}) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/plots', {
@@ -1871,6 +1916,7 @@ export class ApiService {
     return Array.from(this.demoWorkOrders.values())
       .filter(item => !farmId || item.farmId === farmId || (!item.farmId && farmId === 'farm-demo'))
       .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT')
       .map(cloneWorkOrder);
   }
 
@@ -1887,7 +1933,9 @@ export class ApiService {
     }
     const currentActorId = this._demoActorId();
     return Array.from(this.demoWorkOrders.values())
-      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))
+      .filter((item) => this.user?.role !== 'FARMER'
+        || (String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT'
+          && (item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))))
       .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
       .filter((item) => !filters.plotId || item.plotId === filters.plotId)
       .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
@@ -1903,7 +1951,11 @@ export class ApiService {
       });
       return response?.data || response;
     }
-    const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
+    const requestedWorkOrderId = String(workOrder.workOrderId || '').trim();
+    let workOrderId = requestedWorkOrderId || `wo-demo-${Date.now()}`;
+    while (!requestedWorkOrderId && this.demoWorkOrders.has(workOrderId)) {
+      workOrderId = `wo-demo-${Date.now()}-${++demoWorkOrderSequence}`;
+    }
     const now = new Date().toISOString();
     const actionType = normalizeWorkActionType(workOrder.actionType);
     const saved = cloneWorkOrder({
@@ -1933,10 +1985,76 @@ export class ApiService {
       }]
     });
     this.demoWorkOrders.set(workOrderId, saved);
+    this._demoSaveOperationRecords();
     return cloneWorkOrder(saved);
   }
 
   async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async reportWorkOrderIssue(workOrderId, input = {}) {
+    const body = input && typeof input === 'object' ? input : {};
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/report-issue`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return response?.data || response;
+    }
+    const work = this._demoWorkOrder(workOrderId);
+    this._requireDemoAssignee(work);
+    const current = normalizeWorkOrderStatus(work.status);
+    if (TERMINAL_WORK_ORDER_STATUSES.has(current)) throw new ApiError('已结束的任务不能上报新问题', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+    const description = String(body.description || body.issueDescription || body.note || '').trim();
+    if (description.length < 2) throw new ApiError('请具体描述遇到的问题', { status: 400, code: 'ISSUE_DESCRIPTION_REQUIRED' });
+    if (description.length > 1000) throw new ApiError('问题描述不能超过 1000 个字', { status: 400, code: 'ISSUE_DESCRIPTION_TOO_LONG' });
+    const reporterId = this._demoActorId();
+    const existing = Array.from(this.demoWorkOrders.values()).find((item) =>
+      String(item.sourceType || '').toUpperCase() === 'FARMER_REPORT'
+      && String(item.sourceRef || '') === String(workOrderId)
+      && String(item.reporterId || item.createdBy || '') === reporterId
+      && !['DONE', 'CANCELLED', 'REJECTED'].includes(normalizeWorkOrderStatus(item.status))
+    );
+    if (existing) {
+      return {
+        ...cloneWorkOrder(existing),
+        reused: true,
+        sourceWorkOrderId: workOrderId,
+        originalWorkOrder: cloneWorkOrder(work)
+      };
+    }
+    const report = await this.saveWorkOrder({
+      farmId: work.farmId || 'farm-demo',
+      plotId: work.plotId,
+      sourceType: 'FARMER_REPORT',
+      sourceRef: workOrderId,
+      parentWorkOrderId: workOrderId,
+      title: `农户问题上报：${work.title || '农务任务'}`,
+      reason: description,
+      description,
+      issueDescription: description,
+      reporterId,
+      reporterName: this.user?.displayName || this.user?.username || reporterId,
+      reporterRole: 'FARMER',
+      actionType: 'INSPECTION',
+      priority: body.priority || 'HIGH',
+      status: 'OPEN',
+      provenance: 'USER_PROVIDED',
+      sourceMode: 'SIMULATION'
+    });
+    const updatedOriginal = this._saveDemoTransition(work, {
+      issueReportId: report.workOrderId,
+      issueReportStatus: 'OPEN',
+      issueReportDescription: description,
+      issueReportedAt: new Date().toISOString(),
+      issueReportedBy: reporterId
+    }, 'ISSUE_REPORTED', description);
+    return {
+      ...report,
+      reused: false,
+      sourceWorkOrderId: workOrderId,
+      originalWorkOrder: updatedOriginal
+    };
+  }
 
   async assignWorkOrder(workOrderId, input = {}) {
     if (this.sessionMode === 'live') {
@@ -2443,16 +2561,29 @@ export class ApiService {
     return saved;
   }
 
-  async getInspections(plotId = '') {
+  async getInspections(scope = '') {
+    const filters = typeof scope === 'string' ? { plotId: scope } : (scope || {});
+    const farmId = String(filters.farmId || '').trim();
+    const plotId = String(filters.plotId || '').trim();
     if (this.sessionMode === 'live') {
-      const path = plotId
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (plotId) query.set('plotId', plotId);
+      const path = plotId && !farmId
         ? `/api/v1/plots/${encodeURIComponent(plotId)}/inspections`
-        : '/api/v1/inspections';
+        : `/api/v1/inspections${query.size ? `?${query.toString()}` : ''}`;
       const response = await this._fetch(path);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
-    return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+    const actorId = this._demoActorId();
+    const compatibleActorIds = new Set([actorId, this.user?.username === 'farmer' ? 'demo-farmer' : '']);
+    return Array.from(this.demoInspections.values())
+      .filter(item => !farmId || (item.farmId || this.demoPlots.get(item.plotId)?.farmId || 'farm-demo') === farmId)
+      .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || compatibleActorIds.has(item.operatorId)
+        || (item.workOrderId && this.demoWorkOrders.get(item.workOrderId)?.assigneeId === actorId))
+      .map(item => ({ ...item }));
   }
 
   async createInspection(inspection, files = []) {
@@ -2465,14 +2596,22 @@ export class ApiService {
       const saved = response?.data || response;
       if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
       if (!uploads.length) return saved;
-      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
+      try {
+        const uploaded = await this.uploadInspectionPhotos(saved.inspectionId, uploads);
+        return { ...saved, ...(uploaded || {}) };
+      } catch (error) {
+        return {
+          ...saved,
+          photoUploadError: error?.message || '照片上传失败'
+        };
+      }
     }
     const now = new Date().toISOString();
     const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
-      operatorId: this.user?.userId || 'demo-farmer',
+      operatorId: this._demoActorId(),
       operatorName: this.user?.username || 'demo',
       operatorRole: this.user?.role || 'FARMER',
       observedAt: inspection.observedAt || now,
@@ -2501,6 +2640,7 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2521,6 +2661,7 @@ export class ApiService {
     const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
     const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
     this.demoInspections.set(inspectionId, saved);
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2708,6 +2849,53 @@ export class ApiService {
   _demoWorkspaceStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
     return `agriloop-workspace-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoOperationRecordsStorageKey() {
+    return 'agriloop-demo-operation-records:v1';
+  }
+
+  _demoOperationRecordStorages() {
+    return [...new Set([
+      browserStorage('localStorage'),
+      this._demoSessionStorage()
+    ].filter(Boolean))];
+  }
+
+  _demoHydrateOperationRecords() {
+    try {
+      const storages = this._demoOperationRecordStorages();
+      let raw = null;
+      for (const storage of storages) {
+        raw = storage.getItem(this._demoOperationRecordsStorageKey());
+        if (raw) break;
+      }
+      if (!raw) return;
+      const parsed = raw ? JSON.parse(raw) : {};
+      (Array.isArray(parsed?.workOrders) ? parsed.workOrders : []).forEach((item) => {
+        if (item?.workOrderId) this.demoWorkOrders.set(item.workOrderId, cloneWorkOrder(item));
+      });
+      (Array.isArray(parsed?.inspections) ? parsed.inspections : []).forEach((item) => {
+        if (item?.inspectionId) this.demoInspections.set(item.inspectionId, { ...item });
+      });
+    } catch {
+      // Demo operation history is optional; malformed local data must not
+      // block the workspace from opening.
+    }
+  }
+
+  _demoSaveOperationRecords() {
+    try {
+      const payload = JSON.stringify({
+        workOrders: [...this.demoWorkOrders.values()],
+        inspections: [...this.demoInspections.values()]
+      });
+      this._demoOperationRecordStorages().forEach((storage) => {
+        try { storage.setItem(this._demoOperationRecordsStorageKey(), payload); } catch { /* try the next storage */ }
+      });
+    } catch {
+      // Demo storage is optional; the current page still keeps in-memory data.
+    }
   }
 
   _demoResetWorkspaceState() {
@@ -3735,17 +3923,15 @@ export class ApiService {
       });
       return resp?.data || resp;
     }
-    return {
+    return this.createWorkOrder({
       ...input,
-      workOrderId: `wo-evidence-${Date.now()}`,
       sourceType: 'READINESS',
       sourceRef: readinessId,
       actionType: input.actionType || 'INSPECTION',
       status: 'OPEN',
       priority: input.priority || 'HIGH',
-      provenance: 'SIMULATED',
-      createdAt: new Date().toISOString()
-    };
+      provenance: 'SIMULATED'
+    });
   }
 
   async getAgentRun(traceId) {

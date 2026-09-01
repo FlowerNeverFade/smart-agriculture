@@ -414,6 +414,15 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   alerts = alerts || [];
   devices = devices || [];
   recentEvents = recentEvents || [];
+  // 运行时长（秒）→ 可读文本
+  const formatUptime = (seconds) => {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s < 0) return '';
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}天 ${h}小时`;
+    if (h > 0) return `${h}小时 ${m}分`;
+    return `${Math.max(1, m)}分钟`;
+  };
   const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
   const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
@@ -433,7 +442,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     .map((scenario) => String(scenario).toUpperCase()))];
   const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
   return {
-    uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
+    uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
     ai: systemStatus.ai,
@@ -855,22 +864,37 @@ const AdminSimulatorView = {
     const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
+    // 场景名规范化：与后端 canonicalSimulationScenario 一致（STORM/HEAVYRAIN → HEAVY_RAIN）
+    const canonicalScenario = (scenario) => {
+      const s = String(scenario || 'NORMAL').toUpperCase().replace('-', '_');
+      return s === 'STORM' || s === 'HEAVYRAIN' ? 'HEAVY_RAIN' : s;
+    };
 
     watch(plots, (newPlots) => {
       const demoScenarios = props.state.sessionMode !== 'live' ? api.getDemoSimulationScenarioMap() : {};
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
         const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
-        const configuredScenario = persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const configuredScenario = canonicalScenario(persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          scenario: existing ? existing.scenario : configuredScenario,
+          // 初始场景值：保存时只提交有变更的地块
+          originalScenario: existing ? existing.originalScenario : configuredScenario,
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
     }, { immediate: true });
+
+    // 按模拟场景筛选（场景配置表格）
+    const scenarioFilter = ref('all');
+    const filteredPlotScenarios = computed(() => {
+      const list = plotScenarios.value || [];
+      if (scenarioFilter.value === 'all') return list;
+      return list.filter(plot => plot.scenario === scenarioFilter.value);
+    });
 
     const globalScenario = computed({
       get: () => {
@@ -947,22 +971,26 @@ const AdminSimulatorView = {
     };
     const applyPlotScenarios = async () => {
       if (simBusy.value) return;
-      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
-      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      // 批量应用只针对当前筛选显示的地块，且只提交场景有变更的
+      const targets = (filteredPlotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      const changed = targets.filter((plot) => canonicalScenario(plot.scenario) !== canonicalScenario(plot.originalScenario));
+      if (targets.length === 0) { toast('当前筛选下没有可保存的地块场景配置', 'error'); return; }
+      if (changed.length === 0) { toast('当前筛选下的地块场景均无变更', 'info'); return; }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
-        for (const plot of targets) {
-          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+        for (const plot of changed) {
+          const scenario = canonicalScenario(plot.scenario);
           try {
             await api.updatePlotSimulation(plot.plotId, { scenario });
+            plot.originalScenario = scenario;
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
           }
         }
-        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (updated > 0) toast(`已保存 ${updated}/${changed.length} 个有变更地块的场景配置，模拟器将按新策略生成数据`);
         if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
       } catch (error) {
         toast(error.message || '场景配置保存失败', 'error');
@@ -1077,7 +1105,7 @@ const AdminSimulatorView = {
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
-      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'HEAVY_RAIN', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
@@ -1087,6 +1115,30 @@ const AdminSimulatorView = {
     }, { immediate: true });
 
     const simHistory = computed(() => props.state.adminSimHistory || []);
+    // 运行历史按地块分组（A 方案）：每地块只显示最新一条运行，历史折叠展开
+    const expandedSimPlots = ref({});
+    const simGrouped = computed(() => {
+      const groups = new Map();
+      (props.state.adminSimHistory || []).forEach((run) => {
+        const key = run.plotId || '未分配';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(run);
+      });
+      const list = [];
+      groups.forEach((runs, plotId) => {
+        runs.sort((a, b) => {
+          const ta = new Date(a.timeIso || 0).getTime() || 0;
+          const tb = new Date(b.timeIso || 0).getTime() || 0;
+          return tb - ta;
+        });
+        // 默认只显示最新一条（RUNNING 优先）；展开后显示全部
+        const latest = runs[0];
+        const displayRuns = expandedSimPlots.value[plotId] ? runs : (latest ? [latest] : []);
+        list.push({ plotId, name: plotNameOf(plotId), runs, displayRuns, expanded: !!expandedSimPlots.value[plotId] });
+      });
+      return list;
+    });
+    const toggleSimGroup = (plotId) => { expandedSimPlots.value[plotId] = !expandedSimPlots.value[plotId]; };
     const { pageSize: simPageSize, pageSizeOptions: simPageSizeOptions, currentPage: simPage, jumpInput: simJumpInput,
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
@@ -1113,12 +1165,12 @@ const AdminSimulatorView = {
     };
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioFilter, filteredPlotScenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
-      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf
+      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf, simGrouped, expandedSimPlots, toggleSimGroup
     };
   }
 };
@@ -2213,6 +2265,7 @@ const app = createApp({
           typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
           seed: run.seed,
           plotId: run.plotId,
+          timeIso: run.startedAt || run.createdAt || null,
           startTime: formatSimTime(run.startedAt || run.createdAt),
           endTime: running ? null : formatSimTime(run.completedAt || run.endedAt),
           events: Number(run.events || run.mainEvents || run.replayEvents || 0),

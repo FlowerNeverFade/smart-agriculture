@@ -1,19 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-farm-onboarding-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v1';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v593-market-v3';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v1';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +44,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v593-market-v3';
+} from './live-data.js?v=20260901-v5910-main-merge-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -640,7 +640,8 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' },
+        { id: 'farmer-reports', icon: 'report_problem', label: '农户问题', value: summary.farmerReports, hint: '查看农户上报的具体问题' }
       ];
     });
 
@@ -3118,7 +3119,7 @@ const app = createApp({
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
       'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator',
-      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies'
+      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies', 'inspections'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3381,11 +3382,7 @@ const app = createApp({
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
-        jobs.inspections = api.getPlots({ farmId, includeInactive: false })
-          .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
-          .then((results) => results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => result.value || []));
+        jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
       const settled = await Promise.all(entries.map(async ([key, promise]) => {
@@ -3695,6 +3692,12 @@ const app = createApp({
           if (oldest) seenSystemEventIds.delete(oldest);
         }
       }
+      const payload = event?.data?.payload || event?.data || {};
+      const isFarmerIssueReport = systemEvent.type === 'workorder.farmer-report'
+        || String(payload.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && isFarmerIssueReport && shouldAnnounceSystemToast(systemEvent, payload)) {
+        showToast(`收到农户问题上报：${payload.title || '请查看农务任务'}`, 'warning');
+      }
       // Some proxies normalize the SSE event name to `message`; the payload
       // still carries the authoritative eventType.
       const domains = domainsForEventType(systemEvent.type || event.type);
@@ -4000,9 +4003,12 @@ const app = createApp({
           }
           if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
           if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
-          const plotMap = new Map(state.value.plots.map((plot) => [String(plot.plotId), plot]));
-          const inspectionResults = await Promise.allSettled(state.value.plots.map((plot) => api.getInspections(plot.plotId)));
-          state.value.inspections = inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+          const farmerFarmId = state.value.currentUser?.farmIds?.find((farmId) => farmId !== '*') || '';
+          try {
+            state.value.inspections = await api.getInspections(farmerFarmId ? { farmId: farmerFarmId } : {});
+          } catch (error) {
+            showToast('读取巡田记录失败，已保留已有记录：' + (error?.message || '后端返回异常'), 'error');
+          }
           state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.plots });
           if (state.value.currentUser?.role === 'FARM_ADMIN') {
             state.value.farmMembers = [];

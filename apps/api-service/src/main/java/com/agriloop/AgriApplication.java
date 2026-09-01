@@ -459,6 +459,11 @@ class AgriStore {
     }
 
     synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String errorMessage) {
+        saveDurably(type, id, value, errorCode, errorMessage, errorMessage);
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
                                   String errorCode, String unavailableMessage, String failureMessage) {
         if (!databaseReady) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, unavailableMessage);
@@ -468,7 +473,8 @@ class AgriStore {
             // Persist first so a failed collaborative write never appears in
             // the shared in-memory read model or emits a false success event.
             persistEntity(type, id, copy);
-            records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
+            cacheRecord(type, id, copy);
+            invalidateListCache(type);
         } catch (DataAccessException error) {
             databaseReady = false;
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, failureMessage);
@@ -1128,6 +1134,10 @@ class AgriEventBus {
     }
 
     boolean canReceive(UserPrincipal principal, Map<String, Object> payload) {
+        return canReceive(principal, "", payload);
+    }
+
+    private boolean canReceive(UserPrincipal principal, String eventType, Map<String, Object> payload) {
         if (principal == null) return false;
         if (principal.isSystemAdmin()) return true;
         if (Jsons.bool(payload, "systemAdminOnly", false)) return false;
@@ -1135,6 +1145,15 @@ class AgriEventBus {
         String plotId = Jsons.text(payload, "plotId", "").trim();
         if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) return false;
         if (!plotId.isBlank() && !canReceivePlot(principal, farmId, plotId)) return false;
+        if (principal.isFarmer() && "inspection.created".equals(eventType)) {
+            return principal.userId.equals(Jsons.text(payload, "operatorId", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
+        }
+        if (principal.isFarmer() && eventType.startsWith("workorder.")
+                && "READINESS".equalsIgnoreCase(Jsons.text(payload, "sourceType", ""))) {
+            return principal.userId.equals(Jsons.text(payload, "createdBy", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assigneeId", ""));
+        }
         if (principal.isFarmer() && !Jsons.text(payload, "resourceRequestId", "").isBlank()) {
             return principal.userId.equals(Jsons.text(payload, "requestedBy", ""))
                     || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
@@ -1173,7 +1192,7 @@ class AgriEventBus {
     void publish(String type, Map<String, Object> payload) {
         String eventId = Jsons.id("evt"); String timestamp = Instant.now().toString();
         for (ScopedEmitter subscription : emitters) {
-            if (!canReceive(subscription.principal(), payload)) continue;
+            if (!canReceive(subscription.principal(), type, payload)) continue;
             Map<String, Object> event = new LinkedHashMap<>(); event.put("eventType", type); event.put("eventId", eventId); event.put("ts", timestamp);
             event.put("payload", scopedPayload(subscription.principal(), payload));
             executor.submit(() -> {
@@ -1507,10 +1526,14 @@ class AgriEngine {
     private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private final java.time.Instant startedAt = java.time.Instant.now();
     private static final int SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES = 5;
     private static final Duration SYSTEM_ADMIN_AUTHORIZATION_FAILURE_WINDOW = Duration.ofMinutes(15);
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FARM_ADMIN");
+    private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
+    private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
+    private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
     private static final Set<String> PLOT_SIMULATION_SCENARIOS = Set.of(
@@ -2118,9 +2141,7 @@ class AgriEngine {
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
         List<Map<String, Object>> hardware = store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
-                .filter(device -> "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                        || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
-                        || !Jsons.text(device, "deviceId", "mock-").toLowerCase(Locale.ROOT).startsWith("mock-"))
+                .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
         if (hardware.isEmpty()) return Map.of("bindingState", "UNBOUND", "status", "NOT_BOUND", "usability", "NOT_BOUND", "label", "未绑定硬件");
@@ -2138,8 +2159,9 @@ class AgriEngine {
     private Map<String, Object> simulatorDeviceForPlot(String plotId) {
         Map<String, Object> device = store.list("device").stream()
                 .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
-                .filter(item -> Jsons.text(item, "deviceId", "").toLowerCase(Locale.ROOT).startsWith("mock-")
-                        || "SIMULATOR".equalsIgnoreCase(Jsons.text(item, "dataOrigin", "")))
+                .filter(this::deviceIsSimulated)
+                .filter(item -> !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "bindingState", ""))
+                        && !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "status", "")))
                 .sorted(Comparator
                         .comparing((Map<String, Object> item) -> "ONLINE".equalsIgnoreCase(Jsons.text(item, "status", "")))
                                 .reversed()
@@ -2387,6 +2409,128 @@ class AgriEngine {
         return overview(farmId, principal);
     }
 
+    synchronized Map<String, Object> farmerWorkspacePreference(UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        return farmerWorkspacePreferenceView(principal, store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal)));
+    }
+
+    synchronized Map<String, Object> updateFarmerWorkspacePreference(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        Map<String, Object> current = store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal));
+        long currentRevision = current == null ? 0 : Jsons.whole(current, "revision", 0);
+        Map<String, Object> request = input == null ? Map.of() : input;
+        if (!(request.get("plotOrder") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "plotOrder 必须是数组");
+        }
+        long expectedRevision = requiredFarmerWorkspaceRevision(request);
+        if (expectedRevision != currentRevision) {
+            throw new ApiException(HttpStatus.CONFLICT, "FARMER_WORKSPACE_PREFERENCE_CONFLICT", "地块顺序已在其他设备更新，请刷新后重试");
+        }
+
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> requestedOrder = normalizePreferenceOrder(request.get("plotOrder"));
+        if (requestedOrder.size() > FARMER_WORKSPACE_MAX_PLOTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "地块顺序数量超过上限");
+        }
+
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        for (String plotId : requestedOrder) {
+            if (availableIds.contains(plotId)) {
+                order.add(plotId);
+                continue;
+            }
+            // A plot may disappear or become inactive while a drag is in
+            // progress. Ignore that stale id, but never accept an id that is
+            // currently owned by another farmer.
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot != null && !principal.canAccessPlot(plotId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权设置该地块顺序");
+            }
+        }
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Instant now = Instant.now();
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("preferenceId", farmerWorkspacePreferenceId(principal));
+        saved.put("userId", principal.userId);
+        saved.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        saved.put("plotOrder", new ArrayList<>(order));
+        saved.put("revision", currentRevision + 1);
+        saved.put("updatedAt", now.toString());
+        saved.put("updatedBy", principal.userId);
+        // Durable preference writes must not silently fall back to this
+        // process's cache: another browser must be able to read the order.
+        store.saveDurably(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal), saved);
+        return farmerWorkspacePreferenceView(principal, saved);
+    }
+
+    private long requiredFarmerWorkspaceRevision(Map<String, Object> input) {
+        Object value = input == null ? null : input.get("expectedRevision");
+        double revision = Jsons.numberValue(value, Double.NaN);
+        if (!Double.isFinite(revision) || revision < 0 || Math.rint(revision) != revision || revision > Long.MAX_VALUE) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "expectedRevision 必须是非负整数");
+        }
+        return (long) revision;
+    }
+
+    private void requireFarmerWorkspacePreferenceAccess(UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARMER_WORKSPACE_PREFERENCE_FORBIDDEN", "只有农户可以设置自己的地块顺序");
+        }
+    }
+
+    private String farmerWorkspacePreferenceId(UserPrincipal principal) {
+        return principal.userId + ":" + FARMER_WORKSPACE_PREFERENCE_SCOPE;
+    }
+
+    private List<Map<String, Object>> activeFarmerPlots(UserPrincipal principal) {
+        return store.list("plot").stream()
+                .filter(plot -> !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> principal.canAccessPlot(Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", "")))
+                .toList();
+    }
+
+    private List<String> normalizePreferenceOrder(Object value) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (String plotId : Jsons.strings(value)) {
+            String normalized = String.valueOf(plotId == null ? "" : plotId).trim();
+            if (!normalized.isBlank()) ids.add(normalized);
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private Map<String, Object> farmerWorkspacePreferenceView(UserPrincipal principal, Map<String, Object> stored) {
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        normalizePreferenceOrder(stored == null ? null : stored.get("plotOrder")).forEach(id -> {
+            if (availableIds.contains(id)) order.add(id);
+        });
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", principal.userId);
+        result.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        result.put("plotOrder", new ArrayList<>(order));
+        result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
+        result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
+        return result;
+    }
+
     Map<String, Object> overview(String farmId, UserPrincipal principal) {
         if (principal != null && farmId != null && !principal.canAccessFarm(farmId)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
@@ -2625,8 +2769,10 @@ class AgriEngine {
             Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
             boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
                     && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
+            boolean simulatorOnlineOverride = simulatorManualOnlineOverride(device, sourceMode);
             if (!realControlPending) {
-                device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
+                device.put("status", simulatorOnlineOverride || !offlineSignal ? "ONLINE" : "OFFLINE");
+                device.put("lastSeen", event.get("ts"));
                 device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
             }
             device.put("sourceMode", sourceMode);
@@ -2687,6 +2833,9 @@ class AgriEngine {
         status.put("ai", checkLlmHealth());
         status.put("aiMode", properties.getAiMode());
         status.put("llmModel", properties.getLlmModel());
+        // 运行时长（秒）与接口版本
+        status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
+        status.put("apiVersion", "v1");
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
@@ -2766,7 +2915,9 @@ class AgriEngine {
         Instant now = Instant.now();
         for (Map<String, Object> device : store.list("device")) {
             Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
-            if ("ONLINE".equals(Jsons.text(device, "status", "")) && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
+            if ("ONLINE".equals(Jsons.text(device, "status", ""))
+                    && !simulatorManualOnlineOverride(device, Jsons.text(device, "sourceMode", ""))
+                    && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
                 String id = Jsons.text(device, "deviceId", ""); device.put("status", "OFFLINE"); device.put("offlineAt", now.toString());
                 store.save("device", id, device); events.publish("device.offline", device); store.logEvent("device.offline", device);
             }
@@ -3152,9 +3303,12 @@ class AgriEngine {
     }
 
     private boolean isHardwareDevice(Map<String, Object> device) {
-        String id = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+        if (deviceIsSimulated(device)) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .trim().toUpperCase(Locale.ROOT);
+        String id = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        return "REAL".equals(source)
+                || "HARDWARE".equals(source)
                 || ("BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "")) && !id.startsWith("mock-"));
     }
 
@@ -3206,6 +3360,10 @@ class AgriEngine {
         String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
         if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
             device.put("status", "OFFLINE");
+        } else if (simulatorManualOnlineOverride(device, Jsons.text(input, "sourceMode", ""))) {
+            // Ignore a stale/scene-generated OFFLINE status after the
+            // administrator has explicitly brought a simulated device back.
+            device.put("status", "ONLINE");
         } else if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus) && current != null) {
             device.put("status", Jsons.text(current, "status", "OFFLINE"));
         }
@@ -3280,9 +3438,28 @@ class AgriEngine {
     }
 
     private boolean deviceIsSimulated(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
         String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        if ("REAL".equals(source) || "HARDWARE".equals(source)) return false;
+        return Set.of("SIMULATION", "SIMULATED", "SIMULATOR").contains(source) || deviceId.startsWith("mock-");
+    }
+
+    private boolean simulatorManualOnlineOverride(Map<String, Object> device, String incomingSourceMode) {
+        if (!deviceIsSimulated(device)) return false;
         String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return Set.of("SIMULATION", "SIMULATED").contains(source) || deviceId.startsWith("mock-");
+        String source = incomingSourceMode == null || incomingSourceMode.isBlank()
+                ? Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                : incomingSourceMode;
+        if (!("SIMULATION".equalsIgnoreCase(source) || "SIMULATED".equalsIgnoreCase(source)
+                || "SIMULATOR".equalsIgnoreCase(source) || deviceId.startsWith("mock-"))) return false;
+        String override = Jsons.text(device, "manualStatusOverride", "").trim().toUpperCase(Locale.ROOT);
+        if ("ONLINE".equals(override)) return true;
+        // Backward compatibility for successful ONLINE controls written by an
+        // older server before the explicit override field existed.
+        return "SUCCEEDED".equals(Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT))
+                && "ONLINE".equals(Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT))
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
     }
 
     private Map<String, Object> deviceControlResponse(Map<String, Object> command, Map<String, Object> device) {
@@ -3314,6 +3491,14 @@ class AgriEngine {
                 device.put("status", target); device.put("desiredStatus", target); device.put("controlStatus", "SUCCEEDED");
                 device.put("lastControlCommandId", Jsons.text(command, "commandId", "")); device.put("lastControlAt", ack.get("receivedAt"));
                 device.remove("lastControlError");
+                if (deviceIsSimulated(device)) {
+                    device.put("manualStatusOverride", target);
+                    device.put("manualStatusOverrideAt", ack.get("receivedAt"));
+                    if ("ONLINE".equals(target)) device.put("lastSeen", ack.get("receivedAt"));
+                } else {
+                    device.remove("manualStatusOverride");
+                    device.remove("manualStatusOverrideAt");
+                }
                 if ("OFFLINE".equals(target)) device.put("offlineAt", ack.get("receivedAt")); else device.remove("offlineAt");
             } else {
                 device.put("controlStatus", status); device.put("lastControlCommandId", Jsons.text(command, "commandId", ""));
@@ -3767,6 +3952,7 @@ class AgriEngine {
             case "DEVICE_HEALTH" -> "检查设备心跳";
             case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
             case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            case "HUMAN_EVIDENCE_REVIEW" -> "复核人工现场证据";
             case "SOIL_MOISTURE" -> "土壤湿度数据";
             case "GOOD_DATA_QUALITY" -> "合格数据质量";
             case "QUALITY_REVIEW" -> "数据质量复核";
@@ -5033,6 +5219,7 @@ class AgriEngine {
 
         String inspectionId = Jsons.id("ins");
         String summary = inspectionSummary(soilSurface, cropCondition, deviceStatus, notes);
+        Map<String, Object> sensorConflictAlert = null;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("inspectionId", inspectionId);
         record.put("farmId", farmId);
@@ -5091,14 +5278,18 @@ class AgriEngine {
                     alert.put("createdAt", now.toString());
                     alert.put("raisedAt", now.toString());
                     alert.put("updatedAt", now.toString());
-                    store.save("alert", alertId, alert);
-                    events.publish("alert.created", alert);
-                    store.logEvent("alert.created", alert);
+                    sensorConflictAlert = alert;
                 }
             }
         }
 
-        store.save("inspection", inspectionId, record);
+        store.saveDurably("inspection", inspectionId, record,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "巡田记录数据库不可用，写入未保存");
+        if (sensorConflictAlert != null) {
+            store.save("alert", Jsons.text(sensorConflictAlert, "alertId", ""), sensorConflictAlert);
+            events.publish("alert.created", sensorConflictAlert);
+            store.logEvent("alert.created", sensorConflictAlert);
+        }
         if (linkedWorkOrder != null) {
             List<String> evidenceRefs = new ArrayList<>(Jsons.strings(linkedWorkOrder.get("evidenceRefs")));
             if (!evidenceRefs.contains(inspectionId)) evidenceRefs.add(inspectionId);
@@ -5108,7 +5299,12 @@ class AgriEngine {
             appendWorkOrderHistory(linkedWorkOrder, "EVIDENCE_ADDED", status, status, principal, "新增巡田证据：" + summary, List.of(inspectionId));
             saveWorkOrder(linkedWorkOrder, "evidence-added");
         }
-        events.publish("inspection.created", record);
+        Map<String, Object> inspectionEvent = new LinkedHashMap<>(record);
+        if (linkedWorkOrder != null) {
+            String assignedFarmerId = Jsons.text(linkedWorkOrder, "assigneeId", "");
+            if (!assignedFarmerId.isBlank()) inspectionEvent.put("assignedFarmerId", assignedFarmerId);
+        }
+        events.publish("inspection.created", inspectionEvent);
         store.logEvent("inspection.created", record);
         return record;
     }
@@ -5256,10 +5452,39 @@ class AgriEngine {
     }
 
     List<Map<String, Object>> inspections(UserPrincipal principal) {
+        return inspections(principal, "", "");
+    }
+
+    List<Map<String, Object>> inspections(String plotId, UserPrincipal principal) {
+        return inspections(principal, "", plotId);
+    }
+
+    List<Map<String, Object>> inspections(UserPrincipal principal, String farmId, String plotId) {
+        String requestedFarmId = farmId == null ? "" : farmId.trim();
+        String requestedPlotId = plotId == null ? "" : plotId.trim();
+        if (principal != null && !requestedFarmId.isBlank() && !principal.canAccessFarm(requestedFarmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        }
+        if (principal != null && !requestedPlotId.isBlank()) ensurePlotAccess(principal, requestedPlotId);
         return store.list("inspection").stream()
-                .filter(item -> canAccessPlot(principal, Jsons.text(item, "plotId", "")))
+                .filter(item -> {
+                    String itemFarmId = Jsons.text(item, "farmId", farmIdForPlot(Jsons.text(item, "plotId", "")));
+                    return requestedFarmId.isBlank() || requestedFarmId.equals(itemFarmId);
+                })
+                .filter(item -> requestedPlotId.isBlank() || requestedPlotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || canAccessPlot(principal, Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || !principal.isFarmer() || farmerCanSeeInspection(item, principal))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
                 .toList();
+    }
+
+    private boolean farmerCanSeeInspection(Map<String, Object> inspection, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) return true;
+        if (principal.userId.equals(Jsons.text(inspection, "operatorId", ""))) return true;
+        String workOrderId = Jsons.text(inspection, "workOrderId", "").trim();
+        if (workOrderId.isBlank()) return false;
+        Map<String, Object> workOrder = store.find("work-order", workOrderId);
+        return workOrder != null && principal.userId.equals(Jsons.text(workOrder, "assigneeId", ""));
     }
 
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
@@ -5281,7 +5506,9 @@ class AgriEngine {
     }
 
     Map<String, Object> createWorkOrder(Map<String, Object> input, UserPrincipal principal) {
-        boolean evidenceRequest = "READINESS".equalsIgnoreCase(Jsons.text(input, "sourceType", ""))
+        String sourceType = Jsons.text(input, "sourceType", "").trim().toUpperCase(Locale.ROOT);
+        boolean readinessEvidenceRequest = "READINESS".equals(sourceType);
+        boolean evidenceRequest = readinessEvidenceRequest
                 || "INSPECTION".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         boolean irrigationReview = "IRRIGATION_REVIEW".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)
@@ -5305,6 +5532,12 @@ class AgriEngine {
         String actionType = canonicalWorkActionType(Jsons.text(input, "actionType", evidenceRequest ? "INSPECTION" : "FIELD_OPERATION"));
         work.put("actionType", actionType);
         work.put("actionLabel", workOperationLabel(actionType));
+        if (readinessEvidenceRequest) {
+            work.put("sourceType", "READINESS");
+            work.put("evidenceType", canonicalEvidenceType(Jsons.text(input, "evidenceType", "FIELD_INSPECTION")));
+            work.put("requesterId", principal.userId);
+            work.put("requesterName", principal.username);
+        }
         work.put("status", "OPEN");
         work.put("priority", normalizePriority(Jsons.text(input, "priority", "MEDIUM")));
         work.put("assigneeId", null);
@@ -5314,8 +5547,88 @@ class AgriEngine {
         work.put("createdBy", principal.userId);
         work.put("updatedBy", principal.userId);
         appendWorkOrderHistory(work, "CREATE", null, "OPEN", principal, Jsons.text(input, "reason", "创建任务"), List.of());
-        saveWorkOrder(work, "created");
+        if (readinessEvidenceRequest) saveWorkOrderDurably(work, "created");
+        else saveWorkOrder(work, "created");
         return work;
+    }
+
+    synchronized Map<String, Object> reportWorkOrderIssue(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> original = requireRecord("work-order", workOrderId);
+        ensurePlotAccess(principal, Jsons.text(original, "plotId", ""));
+        requireAssignedFarmer(original, principal);
+        String current = normalizeWorkStatus(original.get("status"));
+        ensureWorkOrderState(current);
+        if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能上报新问题");
+        }
+        String description = Jsons.text(request, "description", Jsons.text(request, "issueDescription", Jsons.text(request, "note", ""))).trim();
+        if (description.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_REQUIRED", "请具体描述遇到的问题");
+        }
+        if (description.length() > 1000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_TOO_LONG", "问题描述不能超过 1000 个字");
+        }
+        Map<String, Object> existing = store.list("work-order").stream()
+                .filter(item -> "FARMER_REPORT".equalsIgnoreCase(Jsons.text(item, "sourceType", "")))
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> principal.userId.equals(Jsons.text(item, "reporterId", Jsons.text(item, "createdBy", ""))))
+                .filter(item -> !Set.of("DONE", "CANCELLED", "REJECTED").contains(normalizeWorkStatus(item.get("status"))))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(existing));
+            result.put("reused", true);
+            result.put("sourceWorkOrderId", workOrderId);
+            result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+            return result;
+        }
+
+        Instant now = Instant.now();
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("workOrderId", Jsons.id("wo"));
+        report.put("farmId", Jsons.text(original, "farmId", farmIdForPlot(Jsons.text(original, "plotId", ""))));
+        report.put("plotId", Jsons.text(original, "plotId", ""));
+        report.put("sourceType", "FARMER_REPORT");
+        report.put("sourceRef", workOrderId);
+        report.put("parentWorkOrderId", workOrderId);
+        report.put("title", "农户问题上报：" + Jsons.text(original, "title", "农务任务"));
+        report.put("reason", description);
+        report.put("description", description);
+        report.put("issueDescription", description);
+        report.put("reporterId", principal.userId);
+        report.put("reporterName", principal.username);
+        report.put("reporterRole", "FARMER");
+        report.put("actionType", "INSPECTION");
+        report.put("actionLabel", workOperationLabel("INSPECTION"));
+        report.put("priority", normalizePriority(Jsons.text(request, "priority", "HIGH")));
+        report.put("status", "OPEN");
+        report.put("createdBy", principal.userId);
+        report.put("updatedBy", principal.userId);
+        report.put("createdAt", now.toString());
+        report.put("updatedAt", now.toString());
+        report.put("provenance", "USER_PROVIDED");
+        report.put("sourceMode", "SIMULATION");
+        appendWorkOrderHistory(report, "CREATE", null, "OPEN", principal, description, List.of());
+        saveWorkOrder(report, "farmer-report");
+
+        original.put("issueReportId", report.get("workOrderId"));
+        original.put("issueReportStatus", "OPEN");
+        original.put("issueReportDescription", description);
+        original.put("issueReportedAt", now.toString());
+        original.put("issueReportedBy", principal.userId);
+        updateWorkOrderAudit(original, principal, now);
+        appendWorkOrderHistory(original, "ISSUE_REPORTED", current, current, principal, description, List.of(Jsons.text(report, "workOrderId", "")));
+        // The report event is the single admin notification. Keep the parent
+        // marker auditable without publishing a duplicate SSE notification.
+        store.save("work-order", workOrderId, original);
+        store.logEvent("workorder.issue-reported", original);
+
+        Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(report));
+        result.put("reused", false);
+        result.put("sourceWorkOrderId", workOrderId);
+        result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+        return result;
     }
 
     List<Map<String, Object>> workOrders(Map<String, String> filters, UserPrincipal principal) {
@@ -5370,6 +5683,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,
                 Jsons.text(input, "note", "任务已分配"), List.of());
         saveWorkOrder(work, "assigned");
+        syncFarmerIssueReportParent(work, "ASSIGNED", principal, now);
         return work;
     }
 
@@ -5443,6 +5757,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, action, current, target, principal, note,
                 "SUBMIT".equals(action) ? Jsons.strings(work.get("evidenceRefs")) : Jsons.strings(input.get("evidenceRefs")));
         saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
+        syncFarmerIssueReportParent(work, target, principal, now);
         return work;
     }
 
@@ -5482,6 +5797,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
                 note.isBlank() ? "验收通过" : note, List.of());
         saveWorkOrder(work, approved ? "completed" : "rejected");
+        syncFarmerIssueReportParent(work, target, principal, now);
         if (approved && isManualIrrigationWork(work)) settleManualIrrigationWork(work, principal);
         if (verification && approved) {
             Map<String, Object> result = new LinkedHashMap<>(work);
@@ -5820,6 +6136,7 @@ class AgriEngine {
      */
     private boolean farmerCanSeeWorkOrder(Map<String, Object> work, UserPrincipal principal) {
         if (principal == null || !"FARMER".equals(principal.role)) return true;
+        if ("FARMER_REPORT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))) return false;
         if (principal.userId.equals(Jsons.text(work, "assigneeId", ""))) return true;
         return principal.userId.equals(Jsons.text(work, "createdBy", ""))
                 && ("READINESS".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
@@ -5855,6 +6172,15 @@ class AgriEngine {
         return Set.of("HIGH", "MEDIUM", "LOW").contains(priority) ? priority : "MEDIUM";
     }
 
+    private String canonicalEvidenceType(String value) {
+        String normalized = String.valueOf(value == null ? "FIELD_INSPECTION" : value)
+                .trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (!Set.of("FIELD_INSPECTION", "RETEST", "DEVICE_CHECK").contains(normalized)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EVIDENCE_TYPE_INVALID", "补证类型只能是现场巡田、传感器复测或设备检查");
+        }
+        return normalized;
+    }
+
     private void requireFarmAdmin(UserPrincipal principal) {
         if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以安排和验收任务");
     }
@@ -5888,6 +6214,23 @@ class AgriEngine {
     private void updateWorkOrderAudit(Map<String, Object> work, UserPrincipal principal, Instant now) {
         work.put("updatedAt", now.toString());
         work.put("updatedBy", principal.userId);
+    }
+
+    private void syncFarmerIssueReportParent(Map<String, Object> report, String status, UserPrincipal principal, Instant now) {
+        if (!"FARMER_REPORT".equalsIgnoreCase(Jsons.text(report, "sourceType", ""))) return;
+        String parentId = Jsons.text(report, "parentWorkOrderId", Jsons.text(report, "sourceRef", ""));
+        if (parentId.isBlank()) return;
+        Map<String, Object> parent = store.find("work-order", parentId);
+        if (parent == null) return;
+        String parentStatus = normalizeWorkStatus(parent.get("status"));
+        parent.put("issueReportStatus", status);
+        parent.put("issueReportUpdatedAt", now.toString());
+        parent.put("issueReportUpdatedBy", principal.userId);
+        updateWorkOrderAudit(parent, principal, now);
+        appendWorkOrderHistory(parent, "ISSUE_REPORT_STATUS_UPDATED", parentStatus, parentStatus, principal,
+                "问题上报工单状态更新为：" + status, List.of(Jsons.text(report, "workOrderId", "")));
+        store.save("work-order", parentId, parent);
+        store.logEvent("workorder.issue-report-updated", parent);
     }
 
     private void appendWorkOrderHistory(Map<String, Object> work, String action, String fromStatus, String toStatus,
@@ -6136,6 +6479,14 @@ class AgriEngine {
     private void saveWorkOrder(Map<String, Object> work, String eventSuffix) {
         String workOrderId = Jsons.text(work, "workOrderId", "");
         store.save("work-order", workOrderId, work);
+        events.publish("workorder." + eventSuffix, work);
+        store.logEvent("workorder." + eventSuffix, work);
+    }
+
+    private void saveWorkOrderDurably(Map<String, Object> work, String eventSuffix) {
+        String workOrderId = Jsons.text(work, "workOrderId", "");
+        store.saveDurably("work-order", workOrderId, work,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "补证申请数据库不可用，写入未保存");
         events.publish("workorder." + eventSuffix, work);
         store.logEvent("workorder." + eventSuffix, work);
     }
@@ -8835,6 +9186,17 @@ class AgriController {
         user.put("permissions", engine.permissionsFor(p)); return ok(user);
     }
 
+    @GetMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> farmerWorkspacePreference(Authentication authentication) {
+        return ok(engine.farmerWorkspacePreference(principal(authentication)));
+    }
+
+    @PutMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> updateFarmerWorkspacePreference(@RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication authentication) {
+        return ok(engine.updateFarmerWorkspacePreference(body == null ? Map.of() : body, principal(authentication)));
+    }
+
     @GetMapping("/auth/roles")
     ResponseEntity<?> roles() {
         return ok(List.of(
@@ -9027,7 +9389,8 @@ class AgriController {
                 .filter(plot -> farmId == null || farmId.isBlank() || farmId.equals(Jsons.text(plot, "farmId", "")))
                 .filter(plot -> includeInactive || !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
                 .filter(plot -> status == null || status.isBlank() || status.equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
-                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", ""))).toList());
+                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", ""))).toList());
     }
 
     @PostMapping("/plots")
@@ -9161,10 +9524,18 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/timeline")
-    ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {
-        engine.ensurePlotAccess(principal(a), plotId); List<Map<String, Object>> timeline = new ArrayList<>();
+    ResponseEntity<?> timeline(@PathVariable String plotId,
+                               @RequestParam(defaultValue = "50") int limit, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        // 每类型只返回最近 cap 条（按时间倒序截取），避免全量历史导致平台总览加载缓慢
+        int cap = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> timeline = new ArrayList<>();
         for (String type : List.of("alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            store.list(type).stream().filter(x -> plotId.equals(Jsons.text(x, "plotId", ""))).forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
+            store.list(type).stream()
+                    .filter(x -> plotId.equals(Jsons.text(x, "plotId", "")))
+                    .sorted(Comparator.comparing((Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder()))
+                    .limit(cap)
+                    .forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
         }
         timeline.sort(Comparator.comparing(x -> Jsons.text(x, "at", ""))); return ok(timeline);
     }
@@ -9238,7 +9609,11 @@ class AgriController {
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
 
     @GetMapping("/inspections")
-    ResponseEntity<?> inspections(Authentication a) { return ok(engine.inspections(principal(a))); }
+    ResponseEntity<?> inspections(@RequestParam(required = false) String farmId,
+                                  @RequestParam(required = false) String plotId,
+                                  Authentication a) {
+        return ok(engine.inspections(principal(a), farmId, plotId));
+    }
 
     @PostMapping(value = "/inspections/{inspectionId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<?> inspectionPhotos(@PathVariable String inspectionId,
@@ -9259,7 +9634,9 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/inspections")
-    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.inspections(plotId)); }
+    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) {
+        return ok(engine.inspections(plotId, principal(a)));
+    }
 
     @PostMapping("/irrigation/estimate")
     ResponseEntity<?> irrigation(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.irrigationPlan(body, principal(a))); }
@@ -9380,6 +9757,13 @@ class AgriController {
     @PostMapping("/work-orders/{workOrderId}/transition")
     ResponseEntity<?> transitionWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.transitionWorkOrder(workOrderId, body, principal(a)));
+    }
+
+    @PostMapping("/work-orders/{workOrderId}/report-issue")
+    ResponseEntity<?> reportWorkOrderIssue(@PathVariable String workOrderId,
+                                            @RequestBody(required = false) Map<String, Object> body,
+                                            Authentication a) {
+        return ok(engine.reportWorkOrderIssue(workOrderId, body == null ? Map.of() : body, principal(a)));
     }
 
     @PostMapping("/work-orders/{workOrderId}/review")

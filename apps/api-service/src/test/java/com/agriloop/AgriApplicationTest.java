@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -354,6 +355,51 @@ class AgriApplicationTest {
         assertThat(store.list("farm")).hasSize(farmCountBeforeFailure);
         assertThat(store.find("plot", rejectedPlotId)).isNull();
         assertThat(engine.deleteAccount(Jsons.text(account, "userId", ""), systemAdmin)).containsEntry("removed", true);
+    }
+
+    @Test
+    void farmerPlotOrderIsStableScopedAndOptimisticallyLocked() {
+        String suffix = String.valueOf(System.nanoTime());
+        String firstId = "plot-order-a-" + suffix;
+        String middleId = "plot-order-m-" + suffix;
+        String lastId = "plot-order-z-" + suffix;
+        List<String> plotIds = List.of(firstId, middleId, lastId);
+        plotIds.forEach(plotId -> store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE"))));
+        String userId = "farmer-plot-order-" + suffix;
+        UserPrincipal farmer = new UserPrincipal(userId, "plot-order-farmer", "FARMER", List.of("farm-demo"), plotIds);
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        try {
+            Map<String, Object> initial = responseData(controller.farmerWorkspacePreference(authentication));
+            assertThat(initial.get("revision")).isEqualTo(0L);
+            assertThat(initial.get("plotOrder")).isEqualTo(plotIds);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> apiPlots = (List<Map<String, Object>>) ((Map<String, Object>) controller
+                    .plots(null, null, false, authentication).getBody()).get("data");
+            assertThat(apiPlots).extracting(plot -> plot.get("plotId")).containsExactly(firstId, middleId, lastId);
+
+            Map<String, Object> saved = responseData(controller.updateFarmerWorkspacePreference(Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), authentication));
+            assertThat(saved.get("revision")).isEqualTo(1L);
+            assertThat(saved.get("plotOrder")).isEqualTo(List.of(lastId, firstId, middleId));
+            assertThat(responseData(controller.farmerWorkspacePreference(authentication)).get("plotOrder"))
+                    .isEqualTo(List.of(lastId, firstId, middleId));
+
+            UserPrincipal otherFarmer = new UserPrincipal(userId + "-other", "plot-order-other", "FARMER",
+                    List.of("farm-demo"), List.of(firstId));
+            var otherAuthentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(otherFarmer, null, List.of());
+            assertThat(responseData(controller.farmerWorkspacePreference(otherAuthentication)).get("plotOrder"))
+                    .isEqualTo(List.of(firstId));
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmerWorkspacePreference(Map.of(
+                            "plotOrder", List.of(firstId, lastId), "expectedRevision", 0), authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
+                            .isEqualTo("FARMER_WORKSPACE_PREFERENCE_CONFLICT"));
+        } finally {
+            store.delete("user-preference", userId + ":FARMER_WORKSPACE");
+            plotIds.forEach(plotId -> store.delete("plot", plotId));
+        }
     }
 
     @Test
@@ -929,6 +975,50 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerCanReportSpecificIssueOnceAndFarmAdminReceivesReport() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "title", "问题上报闭环测试-" + suffix,
+                "reason", "执行后反馈异常", "actionType", "INSPECTION", "priority", "HIGH"), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+        engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer"), admin);
+
+        Map<String, Object> report = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水", "priority", "HIGH"), farmer);
+        assertThat(report).containsEntry("sourceType", "FARMER_REPORT")
+                .containsEntry("sourceRef", workOrderId)
+                .containsEntry("reason", "北侧滴灌管接头持续漏水，无法按计划完成补水")
+                .containsEntry("reused", false)
+                .containsEntry("sourceWorkOrderId", workOrderId);
+        String reportId = String.valueOf(report.get("workOrderId"));
+        assertThat(store.find("work-order", workOrderId))
+                .containsEntry("issueReportId", reportId)
+                .containsEntry("issueReportStatus", "OPEN")
+                .containsEntry("issueReportDescription", "北侧滴灌管接头持续漏水，无法按计划完成补水");
+
+        Map<String, Object> repeated = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水"), farmer);
+        assertThat(repeated).containsEntry("workOrderId", reportId).containsEntry("reused", true);
+        assertThat(store.list("work-order").stream()
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> "FARMER_REPORT".equals(Jsons.text(item, "sourceType", "")))
+                .count()).isEqualTo(1);
+
+        assertThat(engine.workOrders(Map.of(), admin)).anyMatch(item -> reportId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).anyMatch(item -> workOrderId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).noneMatch(item -> reportId.equals(item.get("workOrderId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", "其他农户尝试上报"), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_ASSIGNEE_REQUIRED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", " "), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ISSUE_DESCRIPTION_REQUIRED"));
+    }
+
+    @Test
     void overdueReassignmentRequiresAFutureRenewedDueAt() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> created = engine.createWorkOrder(Map.of(
@@ -1029,6 +1119,33 @@ class AgriApplicationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(Map.of(
                         "plotId", "plot-a01", "workOrderId", otherPlotOrder.get("workOrderId"), "notes", "现场正常"), admin))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("INSPECTION_WORK_ORDER_MISMATCH"));
+    }
+
+    @Test
+    void inspectionVisibilityIsScopedByOperatorAssignmentFarmAndFilters() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+
+        Map<String, Object> adminRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().minusSeconds(20).toString(),
+                "soilSurface", "NORMAL", "notes", "管理员独立巡田-" + System.nanoTime())), admin);
+        Map<String, Object> farmerRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a02", "observedAt", Instant.now().minusSeconds(10).toString(),
+                "soilSurface", "DRY", "notes", "农户本人巡田-" + System.nanoTime())), farmer);
+
+        String adminInspectionId = String.valueOf(adminRecord.get("inspectionId"));
+        String farmerInspectionId = String.valueOf(farmerRecord.get("inspectionId"));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).noneMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(otherFarmer, "farm-demo", "")).noneMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "")).anyMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "plot-a02")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.inspections(admin, "farm-other", ""))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+                    assertThat(error.code).isEqualTo("FARM_FORBIDDEN");
+                });
     }
 
     @Test
@@ -1224,6 +1341,37 @@ class AgriApplicationTest {
                         assertThat(error.code).isEqualTo("RESOURCE_PERSISTENCE_UNAVAILABLE");
                     });
             assertThat(store.countWhere("resource-request", request -> "farmer-persistence".equals(request.get("requestedBy")))).isEqualTo(before);
+        } finally {
+            databaseReady.setBoolean(store, original);
+        }
+    }
+
+    @Test
+    void operationRecordsRejectWritesWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("farmer-operation-persistence", "farmer-operation-persistence", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        long inspectionsBefore = store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")));
+        long requestsBefore = store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")));
+        var databaseReady = AgriStore.class.getDeclaredField("databaseReady");
+        databaseReady.setAccessible(true);
+        boolean original = databaseReady.getBoolean(store);
+        try {
+            databaseReady.setBoolean(store, false);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().toString(),
+                            "soilSurface", "DRY", "notes", "数据库不可用时不应伪装成功")), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createWorkOrder(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "sourceType", "READINESS",
+                            "actionType", "INSPECTION", "evidenceType", "RETEST", "reason", "数据库不可用时不应伪装成功"), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            assertThat(store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")))).isEqualTo(inspectionsBefore);
+            assertThat(store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")))).isEqualTo(requestsBefore);
         } finally {
             databaseReady.setBoolean(store, original);
         }
@@ -1658,6 +1806,59 @@ class AgriApplicationTest {
                 Map.of("targetStatus", "ONLINE", "idempotencyKey", "test-online-" + deviceId), admin);
         assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
         assertThat(Jsons.map(new ObjectMapper(), online.get("device"))).containsEntry("status", "ONLINE");
+    }
+
+    @Test
+    void simulatedDeviceOnlineControlWinsOverOfflineScenarioAcrossTicks() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-device-recovery-" + suffix;
+        // Registered simulator ids are not required to use the historical
+        // mock-<plotId> convention. The engine must follow the bound record.
+        String deviceId = "002-" + suffix;
+        UserPrincipal admin = new UserPrincipal("user-admin-recovery-" + suffix, "admin-recovery-" + suffix,
+                "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        boolean simulatorWasRunning = "RUNNING".equals(String.valueOf(simulationEngine.status().get("status")));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "设备恢复测试田", "cropCode", "tomato", "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "plotId", plotId, "bindingState", "BOUND",
+                "sourceMode", "SIMULATION", "dataOrigin", "SIMULATOR", "status", "OFFLINE",
+                "desiredStatus", "OFFLINE", "controlStatus", "SUCCEEDED")));
+        try {
+            engine.updatePlotSimulation(plotId, Map.of("scenario", "DEVICE_OFFLINE"), admin);
+            simulationEngine.stop();
+            Map<String, Object> online = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "ONLINE", "idempotencyKey", "recovery-online-" + suffix), admin);
+            assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
+            assertThat(Jsons.map(new ObjectMapper(), online.get("device")))
+                    .containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+
+            simulationEngine.tickOnce();
+            simulationEngine.tickOnce();
+            Map<String, Object> recovered = store.find("device", deviceId);
+            assertThat(recovered).containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, Instant.EPOCH, Instant.now().plus(1, ChronoUnit.DAYS), 1000);
+            assertThat(samples).isNotEmpty();
+            assertThat(samples).allSatisfy(sample -> assertThat(sample).containsEntry("deviceId", deviceId));
+
+            engine.markStaleDevicesOffline();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "ONLINE");
+
+            Map<String, Object> offline = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "OFFLINE", "idempotencyKey", "recovery-offline-" + suffix), admin);
+            assertThat(Jsons.map(new ObjectMapper(), offline.get("device")))
+                    .containsEntry("status", "OFFLINE").containsEntry("manualStatusOverride", "OFFLINE");
+            int telemetryBefore = store.telemetryCount(plotId);
+            simulationEngine.tickOnce();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "OFFLINE");
+            assertThat(store.telemetryCount(plotId)).isEqualTo(telemetryBefore);
+        } finally {
+            store.delete("plot-simulation", plotId);
+            store.delete("device", deviceId);
+            store.delete("plot", plotId);
+            store.deleteSimulatedTelemetryForPlot(plotId);
+            if (simulatorWasRunning) simulationEngine.start(true);
+        }
     }
 
     @Test

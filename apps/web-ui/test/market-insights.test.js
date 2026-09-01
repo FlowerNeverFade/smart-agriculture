@@ -66,5 +66,5 @@ test('market UI has redundant rise/fall encoding and responsive terminal layout'
   assert.match(styles, /@media \(max-width: 1100px\)/);
   assert.match(styles, /@media \(max-width: 720px\)/);
   assert.match(indexSource, /admin-market\.css\?v=20260901-v598-domestic-data-v1/);
-  assert.match(indexSource, /js\/app\.js\?v=20260901-v5910-farm-onboarding-v1/);
+  assert.match(indexSource, /js\/app\.js\?v=20260901-v5910-main-merge-v1/);
 });

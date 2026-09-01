@@ -142,6 +142,8 @@ class AdminManagementService {
             device.put("status", "OFFLINE");
             device.put("desiredStatus", "OFFLINE");
             device.put("controlStatus", "SUCCEEDED");
+            device.remove("manualStatusOverride");
+            device.remove("manualStatusOverrideAt");
             device.remove("lastControlError");
         } else {
             device.putIfAbsent("status", "OFFLINE");
@@ -198,6 +200,8 @@ class AdminManagementService {
                 device.put("desiredStatus", "OFFLINE");
                 device.put("controlStatus", "SUCCEEDED");
                 device.put("previousPlotId", plotId);
+                device.remove("manualStatusOverride");
+                device.remove("manualStatusOverrideAt");
                 device.put("unboundAt", now.toString());
                 device.put("unboundBy", principal.userId);
                 store.save("device", deviceId, device);
@@ -217,6 +221,8 @@ class AdminManagementService {
                 device.put("desiredStatus", "OFFLINE");
                 device.put("controlStatus", "SUCCEEDED");
                 device.remove("lastControlError");
+                device.remove("manualStatusOverride");
+                device.remove("manualStatusOverrideAt");
                 store.save("device", deviceId, device);
                 publish("device.bound", device);
                 updatedDevices.add(new LinkedHashMap<>(device));
@@ -318,6 +324,8 @@ class AdminManagementService {
         device.put("status", "OFFLINE");
         device.put("desiredStatus", "OFFLINE");
         device.put("controlStatus", "SUCCEEDED");
+        device.remove("manualStatusOverride");
+        device.remove("manualStatusOverrideAt");
         device.put("unboundAt", Instant.now().toString());
         device.put("unboundBy", principal.userId);
         device.put("previousPlotId", previousPlotId);

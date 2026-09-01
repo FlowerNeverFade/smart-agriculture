@@ -255,7 +255,7 @@
         </div>
         <div class="admin-metric-card">
           <div class="admin-metric-icon green"><app-icon name="schedule"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div><div class="admin-metric-sub">接口版本 {{ state.adminOverview.apiVersion }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div></div>
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
@@ -715,9 +715,14 @@
 
       <!-- Scenario Selection -->
       <div class="admin-section-head">
-        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置矩阵</div>
+        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置</div>
         <div style="display:flex; gap: 8px; align-items: center">
-          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
+          <span style="font-size: 13px; color: var(--g-text-secondary)">按场景筛选：</span>
+          <select v-model="scenarioFilter" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+            <option value="all">全部场景</option>
+            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+          </select>
+          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用（当前筛选 {{ filteredPlotScenarios.length }} 地块）：</span>
           <select v-model="globalScenario" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
             <option value="">-- 选择场景 --</option>
             <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
@@ -734,7 +739,7 @@
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
-            <tr v-for="plot in plotScenarios" :key="plot.plotId">
+            <tr v-for="plot in filteredPlotScenarios" :key="plot.plotId">
               <td style="font-family:var(--g-mono);font-size:11px">{{ plot.plotId }}</td>
               <td style="font-weight:500">{{ plot.name }}</td>
               <td><span class="status-pill info">{{ plot.cropName }}</span></td>
@@ -772,16 +777,7 @@
         <div class="admin-section-title"><app-icon name="history"></app-icon> 运行历史</div>
       </div>
       <div class="admin-pagination-bar">
-        <span>共 {{ simTotalRecords }} 条</span>
-        <select v-model.number="simPageSize" @change="simChangeSize()">
-          <option v-for="s in simPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
-        </select>
-        <button class="g-btn text sm" :disabled="simPage <= 1" @click="simPrevPage()">上一页</button>
-        <span class="admin-pagination-current">第 {{ simPage }} / {{ simTotalPages }} 页</span>
-        <button class="g-btn text sm" :disabled="simPage >= simTotalPages" @click="simNextPage()">下一页</button>
-        <span>跳至 <input type="number" v-model.number="simJumpInput" min="1" :max="simTotalPages" class="admin-page-jump-input"> 页
-          <button class="g-btn text sm" @click="simJumpTo()">跳转</button>
-        </span>
+        <span>共 {{ simTotalRecords }} 条运行记录（按地块分组，每地块显示最新一条）</span>
       </div>
       <div class="admin-table-wrap">
         <table class="admin-table">
@@ -789,19 +785,31 @@
             <th>场景编号</th><th>场景类型</th><th>地块</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>
-            <tr v-for="run in simPageRecords" :key="run.scenarioId">
-              <td style="font-family:var(--g-mono);font-size:11px" :title="run.scenarioId">{{ shortId(run.scenarioId) }}</td>
-              <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
-              <td>{{ plotNameOf(run.plotId) }}</td>
-              <td>{{ run.startTime }}</td>
-              <td>{{ run.endTime || '—' }}</td>
-              <td>{{ run.events }}</td>
-              <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.statusLabel || localizedStatusLabel(run.status) }}</span></td>
-              <td class="admin-action-cell">
-                <button class="g-btn text sm" @click="openDualTrack(run)"><app-icon name="compare_arrows"></app-icon> 双轨对比</button>
-                <button class="g-btn text sm" @click="openReplay(run)"><app-icon name="replay"></app-icon> 回放</button>
-              </td>
-            </tr>
+            <template v-for="group in simGrouped" :key="group.plotId">
+              <tr class="admin-sim-group-head" style="background:var(--g-bg-muted, rgba(127,127,127,0.06))">
+                <td colspan="8">
+                  <strong>{{ group.name }}</strong>
+                  <span style="opacity:.65;margin:0 10px">共 {{ group.runs.length }} 次运行</span>
+                  <button v-if="group.runs.length > 1" class="g-btn text sm" @click="toggleSimGroup(group.plotId)">
+                    <app-icon :name="group.expanded ? 'expand_less' : 'expand_more'"></app-icon>{{ group.expanded ? '收起历史' : '展开历史' }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-for="run in group.displayRuns" :key="run.scenarioId">
+                <td style="font-family:var(--g-mono);font-size:11px" :title="run.scenarioId">{{ shortId(run.scenarioId) }}</td>
+                <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
+                <td>{{ plotNameOf(run.plotId) }}</td>
+                <td>{{ run.startTime }}</td>
+                <td>{{ run.endTime || '—' }}</td>
+                <td>{{ run.events }}</td>
+                <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.statusLabel || localizedStatusLabel(run.status) }}</span></td>
+                <td class="admin-action-cell">
+                  <button class="g-btn text sm" @click="openDualTrack(run)"><app-icon name="compare_arrows"></app-icon> 双轨对比</button>
+                  <button class="g-btn text sm" @click="openReplay(run)"><app-icon name="replay"></app-icon> 回放</button>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="!simGrouped.length"><td colspan="8" style="text-align:center;color:var(--g-muted);padding:24px">暂无运行历史</td></tr>
           </tbody>
         </table>
       </div>
