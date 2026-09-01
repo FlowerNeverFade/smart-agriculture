@@ -681,6 +681,7 @@ export class ApiService {
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
+    this._demoHydrateOperationRecords();
     this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
       const type = plotFacilityType(item);
       return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
@@ -1857,6 +1858,7 @@ export class ApiService {
       }]
     });
     this.demoWorkOrders.set(workOrderId, saved);
+    this._demoSaveOperationRecords();
     return cloneWorkOrder(saved);
   }
 
@@ -2346,16 +2348,29 @@ export class ApiService {
     return saved;
   }
 
-  async getInspections(plotId = '') {
+  async getInspections(scope = '') {
+    const filters = typeof scope === 'string' ? { plotId: scope } : (scope || {});
+    const farmId = String(filters.farmId || '').trim();
+    const plotId = String(filters.plotId || '').trim();
     if (this.sessionMode === 'live') {
-      const path = plotId
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (plotId) query.set('plotId', plotId);
+      const path = plotId && !farmId
         ? `/api/v1/plots/${encodeURIComponent(plotId)}/inspections`
-        : '/api/v1/inspections';
+        : `/api/v1/inspections${query.size ? `?${query.toString()}` : ''}`;
       const response = await this._fetch(path);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
-    return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+    const actorId = this._demoActorId();
+    const compatibleActorIds = new Set([actorId, this.user?.username === 'farmer' ? 'demo-farmer' : '']);
+    return Array.from(this.demoInspections.values())
+      .filter(item => !farmId || (item.farmId || this.demoPlots.get(item.plotId)?.farmId || 'farm-demo') === farmId)
+      .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || compatibleActorIds.has(item.operatorId)
+        || (item.workOrderId && this.demoWorkOrders.get(item.workOrderId)?.assigneeId === actorId))
+      .map(item => ({ ...item }));
   }
 
   async createInspection(inspection, files = []) {
@@ -2368,14 +2383,22 @@ export class ApiService {
       const saved = response?.data || response;
       if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
       if (!uploads.length) return saved;
-      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
+      try {
+        const uploaded = await this.uploadInspectionPhotos(saved.inspectionId, uploads);
+        return { ...saved, ...(uploaded || {}) };
+      } catch (error) {
+        return {
+          ...saved,
+          photoUploadError: error?.message || '照片上传失败'
+        };
+      }
     }
     const now = new Date().toISOString();
     const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
-      operatorId: this.user?.userId || 'demo-farmer',
+      operatorId: this._demoActorId(),
       operatorName: this.user?.username || 'demo',
       operatorRole: this.user?.role || 'FARMER',
       observedAt: inspection.observedAt || now,
@@ -2404,6 +2427,7 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2424,6 +2448,7 @@ export class ApiService {
     const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
     const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
     this.demoInspections.set(inspectionId, saved);
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2611,6 +2636,53 @@ export class ApiService {
   _demoWorkspaceStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
     return `agriloop-workspace-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoOperationRecordsStorageKey() {
+    return 'agriloop-demo-operation-records:v1';
+  }
+
+  _demoOperationRecordStorages() {
+    return [...new Set([
+      browserStorage('localStorage'),
+      this._demoSessionStorage()
+    ].filter(Boolean))];
+  }
+
+  _demoHydrateOperationRecords() {
+    try {
+      const storages = this._demoOperationRecordStorages();
+      let raw = null;
+      for (const storage of storages) {
+        raw = storage.getItem(this._demoOperationRecordsStorageKey());
+        if (raw) break;
+      }
+      if (!raw) return;
+      const parsed = raw ? JSON.parse(raw) : {};
+      (Array.isArray(parsed?.workOrders) ? parsed.workOrders : []).forEach((item) => {
+        if (item?.workOrderId) this.demoWorkOrders.set(item.workOrderId, cloneWorkOrder(item));
+      });
+      (Array.isArray(parsed?.inspections) ? parsed.inspections : []).forEach((item) => {
+        if (item?.inspectionId) this.demoInspections.set(item.inspectionId, { ...item });
+      });
+    } catch {
+      // Demo operation history is optional; malformed local data must not
+      // block the workspace from opening.
+    }
+  }
+
+  _demoSaveOperationRecords() {
+    try {
+      const payload = JSON.stringify({
+        workOrders: [...this.demoWorkOrders.values()],
+        inspections: [...this.demoInspections.values()]
+      });
+      this._demoOperationRecordStorages().forEach((storage) => {
+        try { storage.setItem(this._demoOperationRecordsStorageKey(), payload); } catch { /* try the next storage */ }
+      });
+    } catch {
+      // Demo storage is optional; the current page still keeps in-memory data.
+    }
   }
 
   _demoResetWorkspaceState() {
@@ -3638,17 +3710,15 @@ export class ApiService {
       });
       return resp?.data || resp;
     }
-    return {
+    return this.createWorkOrder({
       ...input,
-      workOrderId: `wo-evidence-${Date.now()}`,
       sourceType: 'READINESS',
       sourceRef: readinessId,
       actionType: input.actionType || 'INSPECTION',
       status: 'OPEN',
       priority: input.priority || 'HIGH',
-      provenance: 'SIMULATED',
-      createdAt: new Date().toISOString()
-    };
+      provenance: 'SIMULATED'
+    });
   }
 
   async getAgentRun(traceId) {

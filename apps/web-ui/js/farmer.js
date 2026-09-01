@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v594-plot-order-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v595-operation-records-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
@@ -1228,8 +1228,44 @@ const app = createApp({
       plotName: find_plot_by_id(MOCK_DATA.plots, record.plotId)?.name || record.plotId
     })));
     const load_error = ref('');
+    const operation_record_load_error = ref('');
     let workspace_request_version = 0;
     const evidence_requests = ref([]);
+
+    const load_demo_operation_records = async () => {
+      if (is_formal_session) return false;
+      try {
+        const farmId = farm.value?.farmId || 'farm-demo';
+        const [records, workOrders] = await Promise.all([
+          api.getInspections({ farmId }),
+          api.getWorkOrders({ farmId })
+        ]);
+        const plotMap = new Map(plots.value.map((plot) => [String(plot.plotId), plot]));
+        const normalizedRecords = (records || []).map((record) => ({
+          ...record,
+          plotName: plotMap.get(String(record.plotId))?.name || record.plotId
+        })).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
+        replace_ref_array(inspection_records, normalizedRecords);
+        evidence_requests.value = (workOrders || [])
+          .filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS')
+          .map((task) => ({
+            id: task.workOrderId || task.id,
+            plotId: task.plotId,
+            type: task.evidenceType || 'FIELD_INSPECTION',
+            reason: task.reason,
+            status: task.status,
+            createdAt: task.createdAt,
+            requesterId: task.requesterId || task.createdBy,
+            requesterName: task.requesterName || task.createdBy,
+            dataOrigin: 'SIMULATED'
+          }));
+        operation_record_load_error.value = '';
+        return true;
+      } catch (error) {
+        operation_record_load_error.value = error?.message || '巡田记录和补证申请读取失败';
+        return false;
+      }
+    };
 
     const current_view = ref(parse_farmer_hash());
     const tools_tab = ref(parse_tools_tab());
@@ -3417,6 +3453,7 @@ const app = createApp({
       if (!is_formal_session) return false;
       const version = ++workspace_request_version;
       load_error.value = '';
+      operation_record_load_error.value = '';
       const showProgress = Boolean(trackProgress || announce || bootstrap_loading.value);
       if (showProgress) begin_workspace_progress('正在读取农场与地块…');
       try {
@@ -3436,9 +3473,12 @@ const app = createApp({
           api.getSystemStatus()
         ]);
         const coreFailure = [0, 1, 2, 3, 5]
-          .map((index) => results[index])
-          .find((result) => result.status === 'rejected');
-        if (coreFailure) throw coreFailure.reason;
+          .map((index) => ({ index, result: results[index] }))
+          .find(({ result }) => result.status === 'rejected');
+        if (coreFailure) {
+          if (coreFailure.index === 3) operation_record_load_error.value = coreFailure.result.reason?.message || '巡田记录和补证申请读取失败';
+          throw coreFailure.result.reason;
+        }
         const [farmsResult, plotsResult, overviewResult, workOrdersResult, todayWorkResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult, systemStatusResult] = results;
         const farms = farmsResult.value || [];
         const rawPlots = plotsResult.value || [];
@@ -3498,10 +3538,14 @@ const app = createApp({
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
         const inspectionResult = await Promise.allSettled([api.getInspections()]);
-        const records = Array.from(new Map((inspectionResult[0]?.status === 'fulfilled' ? inspectionResult[0].value || [] : []).map((record) => [record.inspectionId, {
+        const inspectionSucceeded = inspectionResult[0]?.status === 'fulfilled';
+        const sourceRecords = inspectionSucceeded ? inspectionResult[0].value || [] : inspection_records.value;
+        const records = Array.from(new Map(sourceRecords.map((record) => [record.inspectionId, {
           ...record,
           plotName: plotMap.get(String(record.plotId))?.name || record.plotId
         }])).values()).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
+        if (inspectionSucceeded) operation_record_load_error.value = '';
+        else operation_record_load_error.value = inspectionResult[0]?.reason?.message || '巡田记录读取失败，已保留已有记录';
         const nextMessages = buildFarmerMessages({ alerts: rawAlerts, tasks: normalizedTasks, inspections: records, plots: normalizedPlots });
         const profile = buildFarmerProfile({ user: user.value, farm: selectedFarm, plots: normalizedPlots, tasks: normalizedTasks, inspections: records, messages: nextMessages });
         farm.value = selectedFarm;
@@ -3516,10 +3560,12 @@ const app = createApp({
         evidence_requests.value = normalizedTasks.filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS').map((task) => ({
           id: task.workOrderId || task.id,
           plotId: task.plot_id,
-          type: task.actionType || 'FIELD_INSPECTION',
+          type: task.evidenceType || 'FIELD_INSPECTION',
           reason: task.reason,
           status: task.status,
           createdAt: task.created_iso,
+          requesterId: task.requesterId || task.createdBy,
+          requesterName: task.requesterName || task.createdBy,
           dataOrigin: 'BACKEND'
         }));
         user.value = {
@@ -3561,8 +3607,6 @@ const app = createApp({
         replace_ref_array(plots, []);
         replace_ref_array(tasks, []);
         replace_ref_array(messages, []);
-        replace_ref_array(inspection_records, []);
-        evidence_requests.value = [];
         farm.value = {};
         if (announce) show_toast(`正式农户数据读取失败：${load_error.value}`, 'error');
         return false;
@@ -4411,17 +4455,30 @@ const app = createApp({
       try {
         const action = readiness.requiredActions?.[0] || {};
         const key = `farmer-evidence-${readiness.readinessId}-${action.action || action.type || 'inspection'}`;
+        const requestedEvidenceType = action.action === 'CHECK_DEVICE' ? 'DEVICE_CHECK' : action.action === 'REMEASURE' ? 'RETEST' : 'FIELD_INSPECTION';
         const saved = await api.createDecisionEvidenceRequest(readiness.readinessId, {
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
           plotId: plot.plotId,
           title: `决策补证：${EVIDENCE_LABELS[action.action] || EVIDENCE_LABELS[readiness.missingEvidence?.[0]] || '现场复测'}`,
           reason: `就绪度 ${readiness.status}，需要补充最小证据`,
           actionType: action.type === 'REQUEST_APPROVAL' ? 'IRRIGATION_REVIEW' : 'INSPECTION',
+          evidenceType: requestedEvidenceType,
           priority: action.priority || 'HIGH',
           idempotencyKey: key
         });
-        evidence_requests.value.unshift(saved);
-        show_toast(`补证任务已创建：${saved.workOrderId || '待同步'}`);
+        evidence_requests.value.unshift({
+          id: saved.workOrderId || saved.id,
+          plotId: saved.plotId || plot.plotId,
+          type: saved.evidenceType || requestedEvidenceType,
+          reason: saved.reason || `就绪度 ${readiness.status}，需要补充最小证据`,
+          status: saved.status || 'OPEN',
+          createdAt: saved.createdAt || new Date().toISOString(),
+          requesterId: saved.requesterId || saved.createdBy || session_user?.userId,
+          requesterName: saved.requesterName || saved.createdBy || session_user?.username,
+          dataOrigin: 'BACKEND'
+        });
+        const refreshed = await load_live_workspace({ announce: false });
+        show_toast(refreshed ? `补证任务已创建：${saved.workOrderId || '待同步'}` : `补证任务已创建，但列表刷新失败：${load_error.value || '请稍后重试'}`, refreshed ? 'success' : 'warning');
       } catch (error) {
         show_toast(error.message || '补证任务创建失败', 'error');
       } finally {
@@ -4950,9 +5007,22 @@ const app = createApp({
             portableSoilMoisture: portable_moisture,
             notes: inspection_form.value.notes.trim()
           }, inspection_form.value.photos);
+          const recordWithName = {
+            ...saved,
+            plotName: plot.name
+          };
+          const existingIndex = inspection_records.value.findIndex((record) => record.inspectionId === saved.inspectionId);
+          if (existingIndex >= 0) inspection_records.value.splice(existingIndex, 1, recordWithName);
+          else inspection_records.value.unshift(recordWithName);
           close_inspection_form();
-          await load_live_workspace({ announce: false });
-          show_toast('巡田记录已保存，管理员和诊断模块可读取');
+          const refreshed = await load_live_workspace({ announce: false });
+          if (saved?.photoUploadError) {
+            show_toast(`巡田记录已保存，照片上传失败：${saved.photoUploadError}`, 'warning');
+          } else if (!refreshed || operation_record_load_error.value) {
+            show_toast(`巡田记录已保存，但列表刷新失败：${operation_record_load_error.value || load_error.value || '请稍后重试'}`, 'warning');
+          } else {
+            show_toast('巡田记录已保存，管理员和诊断模块可读取');
+          }
           if (saved?.sensorConflict) {
             show_toast(saved.sensorConflict.message, 'error');
           }
@@ -4964,20 +5034,20 @@ const app = createApp({
       try {
         const saved = await api.createInspection({
           farmId: farm.value.farmId || 'farm-demo',
-        plotId: plot.plotId,
+          plotId: plot.plotId,
           workOrderId: inspection_form.value.work_order_id || undefined,
-        observedAt: new Date().toISOString(),
-        soilSurface: inspection_form.value.soil_surface,
-        cropCondition: inspection_form.value.crop_condition,
+          observedAt: new Date().toISOString(),
+          soilSurface: inspection_form.value.soil_surface,
+          cropCondition: inspection_form.value.crop_condition,
           portableSoilMoisture: portable_moisture,
           notes: inspection_form.value.notes.trim()
         }, inspection_form.value.photos);
         inspection_records.value.unshift({ ...saved, plotName: plot.name });
-      close_inspection_form();
-      show_toast('演示巡田记录已保存');
-      if (saved?.sensorConflict) {
-        show_toast(saved.sensorConflict.message, 'error');
-      }
+        close_inspection_form();
+        show_toast('演示巡田记录已保存');
+        if (saved?.sensorConflict) {
+          show_toast(saved.sensorConflict.message, 'error');
+        }
       } catch (error) {
         show_toast(error.message || '巡田记录保存失败', 'error');
       }
@@ -5003,33 +5073,68 @@ const app = createApp({
           return;
         }
         try {
-          await api.createWorkOrder({
+          const saved = await api.createWorkOrder({
             farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
             plotId: plot.plotId,
             title: `${evidence_type_label(evidence_form.value.type)}补证申请`,
             reason: evidence_form.value.reason.trim(),
             sourceType: 'READINESS',
             actionType: 'INSPECTION',
-            priority: 'MEDIUM'
+            priority: 'MEDIUM',
+            evidenceType: evidence_form.value.type
+          });
+          evidence_requests.value.unshift({
+            id: saved.workOrderId || saved.id,
+            plotId: saved.plotId || plot.plotId,
+            type: saved.evidenceType || evidence_form.value.type,
+            reason: saved.reason || evidence_form.value.reason.trim(),
+            status: saved.status || 'OPEN',
+            createdAt: saved.createdAt || new Date().toISOString(),
+            requesterId: saved.requesterId || saved.createdBy || session_user?.userId,
+            requesterName: saved.requesterName || saved.createdBy || session_user?.username,
+            dataOrigin: 'BACKEND'
           });
           close_evidence_form();
-          await load_live_workspace({ announce: false });
-          show_toast('补证申请已提交，管理员工作台可直接分配');
+          const refreshed = await load_live_workspace({ announce: false });
+          if (!refreshed) show_toast(`补证申请已提交，但列表刷新失败：${load_error.value || '请稍后重试'}`, 'warning');
+          else show_toast('补证申请已提交，管理员工作台可直接分配');
         } catch (error) {
           show_toast(error.message || '补证申请提交失败', 'error');
         }
         return;
       }
-      evidence_requests.value.unshift({
-        id: `evidence-${Date.now()}`,
-        plotId: evidence_form.value.plot_id,
-        type: evidence_form.value.type,
-        reason: evidence_form.value.reason,
-        status: 'PENDING',
-        createdAt: new Date().toISOString()
-      });
-      close_evidence_form();
-      show_toast('演示补证申请已提交，管理员会安排处理');
+      try {
+        const plot = find_plot_by_id(plots.value, evidence_form.value.plot_id);
+        if (!plot) {
+          show_toast('请选择有效地块', 'error');
+          return;
+        }
+        const saved = await api.createDecisionEvidenceRequest(`demo-readiness-${Date.now()}`, {
+          farmId: farm.value.farmId || 'farm-demo',
+          plotId: plot.plotId,
+          title: `${evidence_type_label(evidence_form.value.type)}补证申请`,
+          reason: evidence_form.value.reason.trim(),
+          sourceType: 'READINESS',
+          actionType: 'INSPECTION',
+          priority: 'MEDIUM',
+          evidenceType: evidence_form.value.type
+        });
+        evidence_requests.value.unshift({
+          id: saved.workOrderId || saved.id,
+          plotId: saved.plotId || plot.plotId,
+          type: saved.evidenceType || evidence_form.value.type,
+          reason: saved.reason || evidence_form.value.reason.trim(),
+          status: saved.status || 'OPEN',
+          createdAt: saved.createdAt || new Date().toISOString(),
+          requesterId: saved.requesterId || saved.createdBy || session_user?.userId,
+          requesterName: saved.requesterName || saved.createdBy || session_user?.username,
+          dataOrigin: 'SIMULATED'
+        });
+        close_evidence_form();
+        show_toast('演示补证申请已提交，管理员会安排处理');
+      } catch (error) {
+        show_toast(error.message || '补证申请提交失败', 'error');
+      }
     };
 
     const open_account_modal = () => {
@@ -5162,6 +5267,14 @@ const app = createApp({
       } finally {
         issue_report_busy.value = false;
       }
+    };
+
+    const retry_operation_records = async () => {
+      const refreshed = await load_live_workspace({ announce: false, trackProgress: false });
+      if (!refreshed) show_toast(`巡田记录和补证申请刷新失败：${load_error.value || '正式数据读取失败'}`, 'error');
+      else if (operation_record_load_error.value) show_toast(`巡田记录刷新失败：${operation_record_load_error.value}`, 'error');
+      else show_toast('巡田记录和补证申请已刷新');
+      return refreshed && !operation_record_load_error.value;
     };
 
     const start_task = async (task) => {
@@ -5378,6 +5491,7 @@ const app = createApp({
           await load_plot_order_preference();
           is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
+          await load_demo_operation_records();
         }
         // Forecast, simulation, irrigation and assistant panels are secondary
         // data. Hydrate them after the shell is usable so a slow endpoint can
@@ -5590,6 +5704,8 @@ const app = createApp({
       analysis_source_label,
       inspection_records,
       evidence_requests,
+      operation_record_load_error,
+      retry_operation_records,
       show_inspection_form,
       show_evidence_form,
       show_account_modal,

@@ -2025,6 +2025,9 @@
 .farmer-record-item strong { font-size: 13px; }
 .farmer-record-item p { margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-record-item time { color: var(--g-text-secondary); font-size: 11px; white-space: nowrap; }
+.farmer-operation-load-error { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border)); border-radius: var(--g-radius); color: var(--g-danger); background: var(--g-danger-bg); font-size: 12px; line-height: 1.45; }
+.farmer-operation-load-error > span { flex: 1 1 auto; }
+.farmer-operation-load-error .g-btn { flex: 0 0 auto; }
 .farmer-form-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
 .farmer-form-card { width: min(560px, 100%); max-height: 90vh; overflow-y: auto; display: grid; gap: 14px; padding: 22px; border-radius: var(--g-radius-lg); background: var(--g-bg-surface); box-shadow: var(--g-shadow-3); }
 .farmer-form-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }

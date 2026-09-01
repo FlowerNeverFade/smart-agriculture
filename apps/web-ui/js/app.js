@@ -1,14 +1,14 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-task-report-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v595-operation-records-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v592-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v592-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-task-report-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v595-operation-records-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v592-main-merge-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v592-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-task-report-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v595-operation-records-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v592-main-merge-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v592-main-merge-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v592-main-merge-v1';
@@ -3112,7 +3112,7 @@ const app = createApp({
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
       'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator',
-      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies'
+      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies', 'inspections'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3375,11 +3375,7 @@ const app = createApp({
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
-        jobs.inspections = api.getPlots({ farmId, includeInactive: false })
-          .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
-          .then((results) => results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => result.value || []));
+        jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
       const settled = await Promise.all(entries.map(async ([key, promise]) => {
@@ -4000,9 +3996,12 @@ const app = createApp({
           }
           if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
           if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
-          const plotMap = new Map(state.value.plots.map((plot) => [String(plot.plotId), plot]));
-          const inspectionResults = await Promise.allSettled(state.value.plots.map((plot) => api.getInspections(plot.plotId)));
-          state.value.inspections = inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+          const farmerFarmId = state.value.currentUser?.farmIds?.find((farmId) => farmId !== '*') || '';
+          try {
+            state.value.inspections = await api.getInspections(farmerFarmId ? { farmId: farmerFarmId } : {});
+          } catch (error) {
+            showToast('读取巡田记录失败，已保留已有记录：' + (error?.message || '后端返回异常'), 'error');
+          }
           state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.plots });
           if (state.value.currentUser?.role === 'FARM_ADMIN') {
             state.value.farmMembers = [];

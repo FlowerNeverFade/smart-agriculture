@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260901-v594-plot-order-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260901-v595-operation-records-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v592-main-merge-v1">
@@ -1312,6 +1312,12 @@
               </article>
             </div>
 
+            <div v-if="operation_record_load_error" class="farmer-operation-load-error" role="alert">
+              <app-icon name="error"></app-icon>
+              <span>{{ operation_record_load_error }}；已保留已有记录，列表不是空数据。</span>
+              <button type="button" class="g-btn secondary compact" @click="retry_operation_records">重试读取</button>
+            </div>
+
             <div class="g-card farmer-record-panel">
               <div class="farmer-panel-header">
                 <div><h3>全部巡田记录</h3><p class="farmer-panel-hint">人工观察不会覆盖传感器数据，按时间倒序展示</p></div>
@@ -1323,17 +1329,17 @@
                   <div>
                     <strong>{{ record.plotName || record.plotId }}</strong>
                     <p>{{ displayText(record.notes) }}</p>
-                    <p class="farmer-record-meta">表层 {{ soil_surface_label(record.soilSurface) }} · 作物 {{ crop_condition_label(record.cropCondition) }} · 便携仪 {{ record.portableSoilMoisture }}% · {{ (record.photos || []).length }} 张现场照片</p>
+                    <p class="farmer-record-meta">表层 {{ soil_surface_label(record.soilSurface) }} · 作物 {{ crop_condition_label(record.cropCondition) }} · 便携仪 {{ record.portableSoilMoisture == null ? '—' : record.portableSoilMoisture + '%' }} · {{ (record.photos || []).length }} 张现场照片</p>
                   </div>
                   <time>{{ format_record_time(record.observedAt) }}</time>
                 </div>
-                <p v-if="!inspection_records.length" class="farmer-empty">还没有巡田记录</p>
+                <p v-if="!inspection_records.length && !operation_record_load_error" class="farmer-empty">还没有巡田记录</p>
               </div>
             </div>
 
-            <div v-if="evidence_requests.length" class="g-card farmer-record-panel farmer-evidence-panel">
+            <div class="g-card farmer-record-panel farmer-evidence-panel">
               <div class="farmer-panel-header">
-                <div><h3>补证申请</h3><p class="farmer-panel-hint">已提交、等待管理员安排的补证请求</p></div>
+                <div><h3>我的补证申请</h3><p class="farmer-panel-hint">仅显示本人提交或分配给本人的补证请求</p></div>
                 <span class="g-badge primary">{{ evidence_requests.length }} 条</span>
               </div>
               <div class="farmer-record-list">
@@ -1346,6 +1352,7 @@
                   </div>
                   <time>{{ format_record_time(req.createdAt) }}</time>
                 </div>
+                <p v-if="!evidence_requests.length && !operation_record_load_error" class="farmer-empty">还没有补证申请</p>
               </div>
             </div>
 
@@ -1836,6 +1843,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v594-plot-order-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-v595-operation-records-v1"></script>
 </body>
 </html>

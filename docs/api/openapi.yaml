@@ -274,9 +274,32 @@ paths:
   /api/v1/decisions/{subjectType}/{subjectId}/readiness:
     get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
   /api/v1/decision-readiness/{readinessId}/evidence-requests:
-    post: {tags: [decision], parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 补证工单}}}
+    post:
+      tags: [decision]
+      parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/EvidenceRequestCreate'}}}}
+      responses:
+        '200': {description: 已持久化的 OPEN 补证申请；包含 evidenceType、requesterId/requesterName、farmId、plotId、reason、createdAt 和当前状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 巡田/补证操作记录数据库不可用，写入未保存，错误码 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE}
   /api/v1/inspections:
-    post: {tags: [decision], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}, responses: {'200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}}}
+    post:
+      tags: [decision]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}
+      responses:
+        '200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 巡田/补证操作记录数据库不可用，写入未保存，错误码 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE}
+    get:
+      tags: [decision]
+      description: 按当前 JWT 角色读取持久化巡田记录；FARMER 仅返回本人提交或关联任务分配给本人的记录，FARM_ADMIN 返回指定授权农场全部记录。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQuery'}
+        - {name: plotId, in: query, schema: {type: string}, description: 可选地块筛选；与 farmId 同时提供时必须属于该农场}
+      responses:
+        '200': {description: 按 observedAt 倒序返回当前账号可见的巡田记录}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 操作记录读取不可用}
   /api/v1/inspections/{inspectionId}/photos:
     post:
       tags: [decision]
@@ -309,7 +332,7 @@ paths:
             image/webp: {}
         '404': {description: 照片不存在}
   /api/v1/plots/{plotId}/inspections:
-    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/irrigation-guard:
     get:
       tags: [decision]
@@ -717,6 +740,17 @@ components:
         assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
         note: {type: string, description: 分配说明}
         dueAt: {type: string, format: date-time, description: 可选；重新处置逾期任务时设置晚于当前时间的新处理时限}
+    EvidenceRequestCreate:
+      type: object
+      required: [reason]
+      properties:
+        farmId: {type: string}
+        plotId: {type: string}
+        title: {type: string}
+        reason: {type: string, minLength: 1, description: 为什么需要补充现场证据}
+        evidenceType: {type: string, enum: [FIELD_INSPECTION, RETEST, DEVICE_CHECK], default: FIELD_INSPECTION}
+        actionType: {type: string, default: INSPECTION}
+        priority: {type: string, enum: [HIGH, MEDIUM, LOW], default: MEDIUM}
     InspectionCreateRequest:
       type: object
       required: [farmId, plotId, observedAt]

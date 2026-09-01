@@ -919,6 +919,33 @@ class AgriApplicationTest {
     }
 
     @Test
+    void inspectionVisibilityIsScopedByOperatorAssignmentFarmAndFilters() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+
+        Map<String, Object> adminRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().minusSeconds(20).toString(),
+                "soilSurface", "NORMAL", "notes", "管理员独立巡田-" + System.nanoTime())), admin);
+        Map<String, Object> farmerRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a02", "observedAt", Instant.now().minusSeconds(10).toString(),
+                "soilSurface", "DRY", "notes", "农户本人巡田-" + System.nanoTime())), farmer);
+
+        String adminInspectionId = String.valueOf(adminRecord.get("inspectionId"));
+        String farmerInspectionId = String.valueOf(farmerRecord.get("inspectionId"));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).noneMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(otherFarmer, "farm-demo", "")).noneMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "")).anyMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "plot-a02")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.inspections(admin, "farm-other", ""))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+                    assertThat(error.code).isEqualTo("FARM_FORBIDDEN");
+                });
+    }
+
+    @Test
     void rejectedWorkOrderCanBeRestartedAndTerminalOrdersCannotMove() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
@@ -1112,6 +1139,37 @@ class AgriApplicationTest {
                         assertThat(error.code).isEqualTo("RESOURCE_PERSISTENCE_UNAVAILABLE");
                     });
             assertThat(store.countWhere("resource-request", request -> "farmer-persistence".equals(request.get("requestedBy")))).isEqualTo(before);
+        } finally {
+            databaseReady.setBoolean(store, original);
+        }
+    }
+
+    @Test
+    void operationRecordsRejectWritesWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("farmer-operation-persistence", "farmer-operation-persistence", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        long inspectionsBefore = store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")));
+        long requestsBefore = store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")));
+        var databaseReady = AgriStore.class.getDeclaredField("databaseReady");
+        databaseReady.setAccessible(true);
+        boolean original = databaseReady.getBoolean(store);
+        try {
+            databaseReady.setBoolean(store, false);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().toString(),
+                            "soilSurface", "DRY", "notes", "数据库不可用时不应伪装成功")), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createWorkOrder(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "sourceType", "READINESS",
+                            "actionType", "INSPECTION", "evidenceType", "RETEST", "reason", "数据库不可用时不应伪装成功"), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            assertThat(store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")))).isEqualTo(inspectionsBefore);
+            assertThat(store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")))).isEqualTo(requestsBefore);
         } finally {
             databaseReady.setBoolean(store, original);
         }

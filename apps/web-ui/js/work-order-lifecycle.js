@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260901-v593-task-report-v1';
+import { api } from './api.js?v=20260901-v595-operation-records-v1';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v593-task-report-v1';
 import { roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
 
@@ -20,6 +20,12 @@ const INSPECTION_LABELS = Object.freeze({
   soil: { NORMAL: '正常', DRY: '干燥或开裂', WET: '过湿或积水' },
   crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' },
   device: { NORMAL: '外观完好', LOOSE: '接头松动', LEAKING: '管线渗漏', OFFLINE: '离线或无显示' }
+});
+
+const EVIDENCE_TYPE_LABELS = Object.freeze({
+  FIELD_INSPECTION: '现场巡田',
+  RETEST: '传感器复测',
+  DEVICE_CHECK: '设备检查'
 });
 
 const WORK_ACTION_META = Object.freeze({
@@ -196,6 +202,7 @@ export const WorkOrderLifecycleView = {
     const memberLoadError = ref('');
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
+    const showAllInspections = ref(false);
     const lifecycleNow = ref(Date.now());
     const statusFilter = ref('IN_PROGRESS');
     const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
@@ -282,6 +289,13 @@ export const WorkOrderLifecycleView = {
       .slice()
       .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0)));
     const recentInspections = computed(() => inspections.value.slice(0, 8));
+    const visibleInspections = computed(() => showAllInspections.value ? inspections.value : recentInspections.value);
+    const evidenceRequests = computed(() => scopedOrders.value
+      .filter((order) => String(order.sourceType || '').toUpperCase() === 'READINESS')
+      .slice()
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)));
+    const evidenceTypeLabel = (value) => EVIDENCE_TYPE_LABELS[String(value || 'FIELD_INSPECTION').toUpperCase()] || '补证申请';
+    const requesterName = (order) => order.requesterName || props.state.farmMembers.find((member) => member.userId === (order.requesterId || order.createdBy))?.displayName || order.requesterId || order.createdBy || '未记录';
     const relatedInspections = (order) => inspections.value.filter((record) =>
       record.workOrderId === order?.workOrderId || (order?.evidenceRefs || []).includes(record.inspectionId));
     const eligibleInspectionOrders = computed(() => scopedOrders.value.filter((order) => {
@@ -347,7 +361,7 @@ export const WorkOrderLifecycleView = {
       const index = props.state.workOrders.findIndex((order) => order.workOrderId === saved.workOrderId);
       if (index >= 0) props.state.workOrders.splice(index, 1, { ...props.state.workOrders[index], ...saved });
       else props.state.workOrders.unshift(saved);
-      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders', 'plots'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
+      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders', 'plots', 'inspections'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
     };
 
     const runAction = async (operation, successMessage) => {
@@ -718,24 +732,14 @@ export const WorkOrderLifecycleView = {
 
     const loadInspections = async (announce = false) => {
       if (inspectionLoading.value) return false;
-      const plotIds = props.state.plots.map((plot) => plot.plotId).filter(Boolean);
-      if (!plotIds.length) {
-        props.state.inspections.splice(0, props.state.inspections.length);
-        return true;
-      }
       inspectionLoading.value = true;
       inspectionLoadError.value = '';
       try {
-        const results = await Promise.allSettled(plotIds.map((plotId) => api.getInspections(plotId)));
-        const rejected = results.filter((result) => result.status === 'rejected');
-        const records = Array.from(new Map(results
-          .filter((result) => result.status === 'fulfilled')
-          .flatMap((result) => result.value || [])
+        const scope = isFarmer.value ? {} : (currentFarmId.value ? { farmId: currentFarmId.value } : {});
+        const records = Array.from(new Map((await api.getInspections(scope) || [])
           .map((record) => [record.inspectionId, record])).values())
           .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
         props.state.inspections.splice(0, props.state.inspections.length, ...records);
-        if (rejected.length && !records.length) throw rejected[0].reason;
-        if (rejected.length) inspectionLoadError.value = `${rejected.length} 个地块的巡田记录暂不可用`;
         if (announce) toast(`已重新读取 ${records.length} 条巡田证据`);
         return true;
       } catch (error) {
@@ -787,11 +791,13 @@ export const WorkOrderLifecycleView = {
             props.state.workOrders.splice(0, props.state.workOrders.length, ...refreshed);
           } catch (_error) { /* 已保存的巡田记录仍保留，后续刷新会重新读取工单。 */ }
         }
-        await loadInspections(false);
+        const refreshed = await loadInspections(false);
         showInspectionModal.value = false;
         inspectionForm.value = emptyInspectionForm(props.state.plots, draft.plotId);
-        emit('data-invalidated', { type: 'data-invalidated', domains: ['workOrders'], farmId: currentFarmId.value, plotId: saved.plotId, reason: 'inspection-created' });
-        toast(draft.workOrderId ? '巡田证据已保存，并已关联到任务' : '巡田证据已保存，可在下方历史记录中查看');
+        emit('data-invalidated', { type: 'data-invalidated', domains: ['workOrders', 'inspections'], farmId: currentFarmId.value, plotId: saved.plotId, reason: 'inspection-created' });
+        if (saved?.photoUploadError) toast(`巡田记录已保存，照片上传失败：${saved.photoUploadError}`, 'warning');
+        else if (!refreshed) toast(`巡田记录已保存，但列表刷新失败：${inspectionLoadError.value || '请稍后重试'}`, 'warning');
+        else toast(draft.workOrderId ? '巡田证据已保存，并已关联到任务' : '巡田证据已保存，可在下方历史记录中查看');
       } catch (error) {
         toast(error.message || '巡田记录保存失败', 'error');
       } finally {
@@ -874,7 +880,8 @@ export const WorkOrderLifecycleView = {
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
-      inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
+      inspections, recentInspections, visibleInspections, showAllInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
+      evidenceRequests, evidenceTypeLabel, requesterName,
       isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, isFarmerIssueReport, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
       activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
@@ -997,14 +1004,37 @@ export const WorkOrderLifecycleView = {
       </div>
       <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
 
+      <section v-if="canManage" class="evidence-request-history" aria-labelledby="evidence-request-history-title">
+        <header>
+          <div><p class="work-lifecycle-kicker">READINESS REQUESTS</p><h2 id="evidence-request-history-title">补证申请</h2><span>独立于任务状态筛选，当前农场的新申请会直接显示在这里。</span></div>
+          <span class="evidence-request-count">共 {{ evidenceRequests.length }} 条</span>
+        </header>
+        <div v-if="evidenceRequests.length" class="evidence-request-list">
+          <article v-for="request in evidenceRequests" :key="request.workOrderId" class="evidence-request-card" @click="openDetail(request)">
+            <header>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(request).tone">{{ statusMeta(request).label }}</span><span class="work-source">{{ evidenceTypeLabel(request.evidenceType) }}</span></div>
+              <time>{{ formatTime(request.createdAt) }}</time>
+            </header>
+            <h3>{{ request.title || evidenceTypeLabel(request.evidenceType) + '补证申请' }}</h3>
+            <p>{{ request.reason || '申请补充现场证据' }}</p>
+            <dl class="evidence-request-facts"><div><dt>提交人</dt><dd>{{ requesterName(request) }}</dd></div><div><dt>地块</dt><dd>{{ plotName(request.plotId) }}</dd></div></dl>
+            <footer>
+              <button type="button" class="g-btn secondary compact" @click.stop="openDetail(request)">查看详情</button>
+              <button v-if="workStatus(request.status) === 'OPEN'" type="button" class="g-btn primary compact" @click.stop="openAssign(request)">进入分配</button>
+            </footer>
+          </article>
+        </div>
+        <div v-else class="inspection-empty-state"><app-icon name="assignment_late"></app-icon><strong>当前农场暂无补证申请</strong><span>农户提交后，新的 OPEN 申请会在这里显示。</span></div>
+      </section>
+
       <section class="inspection-history" aria-labelledby="inspection-history-title">
         <header>
-          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">最近巡田证据</h2><span>人工记录不会覆盖传感器数据，每条都保留人员、时间和关联任务。</span></div>
-          <button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button>
+          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">巡田记录</h2><span>共 {{ inspections.length }} 条；默认展示最新 8 条，人工记录不会覆盖传感器数据。</span></div>
+          <div class="inspection-history-actions"><button v-if="inspections.length > 8" type="button" class="g-btn secondary compact" @click="showAllInspections = !showAllInspections">{{ showAllInspections ? '收起记录' : '查看全部' }}</button><button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button></div>
         </header>
         <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
-        <div v-if="recentInspections.length" class="inspection-record-list">
-          <article v-for="record in recentInspections" :key="record.inspectionId">
+        <div v-if="visibleInspections.length" class="inspection-record-list">
+          <article v-for="record in visibleInspections" :key="record.inspectionId">
             <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
             <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
             <div class="inspection-observations">
