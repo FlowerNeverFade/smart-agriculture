@@ -8844,10 +8844,18 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/timeline")
-    ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {
-        engine.ensurePlotAccess(principal(a), plotId); List<Map<String, Object>> timeline = new ArrayList<>();
+    ResponseEntity<?> timeline(@PathVariable String plotId,
+                               @RequestParam(defaultValue = "50") int limit, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        // 每类型只返回最近 cap 条（按时间倒序截取），避免全量历史导致平台总览加载缓慢
+        int cap = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> timeline = new ArrayList<>();
         for (String type : List.of("alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            store.list(type).stream().filter(x -> plotId.equals(Jsons.text(x, "plotId", ""))).forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
+            store.list(type).stream()
+                    .filter(x -> plotId.equals(Jsons.text(x, "plotId", "")))
+                    .sorted(Comparator.comparing((Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder()))
+                    .limit(cap)
+                    .forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
         }
         timeline.sort(Comparator.comparing(x -> Jsons.text(x, "at", ""))); return ok(timeline);
     }
