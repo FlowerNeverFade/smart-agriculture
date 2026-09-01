@@ -21,7 +21,7 @@ const {
   finalizedAssignedTask,
   finalizedClosedAlert
 } = await import('../js/admin-alerts.js');
-const { api } = await import('../js/api.js?v=20260831-sync-v1');
+const { api } = await import('../js/api.js?v=20260901-v593-market-v3');
 const { MOCK_DATA } = await import('../js/mock-data.js');
 
 test('AI 派单只选择在岗且有地块权限的农户', () => {

@@ -5,22 +5,65 @@ import assert from 'node:assert/strict';
 // session boundary without starting a browser or a real HTTP server.
 const storage = new Map();
 const agentSessionStorage = new Map();
-globalThis.localStorage = {
-  getItem: (key) => storage.get(key) || null,
-  setItem: (key, value) => storage.set(key, String(value)),
-  removeItem: (key) => storage.delete(key)
-};
-globalThis.sessionStorage = {
-  getItem: (key) => agentSessionStorage.get(key) || null,
-  setItem: (key, value) => agentSessionStorage.set(key, String(value)),
-  removeItem: (key) => agentSessionStorage.delete(key),
-  clear: () => agentSessionStorage.clear()
-};
+const storageFacade = (values) => ({
+  getItem: (key) => values.has(key) ? values.get(key) : null,
+  setItem: (key, value) => values.set(key, String(value)),
+  removeItem: (key) => values.delete(key),
+  clear: () => values.clear()
+});
+globalThis.localStorage = storageFacade(storage);
+globalThis.sessionStorage = storageFacade(agentSessionStorage);
 globalThis.fetch = async () => {
   throw new Error('backend offline');
 };
 
 const { ApiService } = await import('../js/api.js');
+
+test('live authentication is isolated per tab and migrates one legacy shared session', () => {
+  storage.clear();
+  const legacyUser = { userId: 'legacy-admin', username: 'legacy.admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  localStorage.setItem('agriloop_token', 'legacy-token');
+  localStorage.setItem('agriloop_user', JSON.stringify(legacyUser));
+  localStorage.setItem('agriloop_session_mode', 'live');
+
+  const migratedTabValues = new Map();
+  const originalSessionStorage = globalThis.sessionStorage;
+  globalThis.sessionStorage = storageFacade(migratedTabValues);
+  try {
+    const migrated = new ApiService();
+    assert.equal(migrated.readSession()?.user.username, 'legacy.admin');
+    assert.equal(migrated.readSession()?.token, 'legacy-token');
+    assert.equal(localStorage.getItem('agriloop_token'), null);
+
+    const farmerTabValues = new Map();
+    globalThis.sessionStorage = storageFacade(farmerTabValues);
+    const farmerTab = new ApiService();
+    farmerTab.saveSession({
+      mode: 'live', token: 'farmer-token',
+      user: { userId: 'farmer-tab', username: 'farmer.tab', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] }
+    });
+
+    const systemTabValues = new Map();
+    globalThis.sessionStorage = storageFacade(systemTabValues);
+    const systemTab = new ApiService();
+    systemTab.saveSession({
+      mode: 'live', token: 'system-token',
+      user: { userId: 'system-tab', username: 'sysadmin.tab', role: 'SYSTEM_ADMIN', farmIds: ['*'], plotIds: ['*'] }
+    });
+
+    assert.equal(migrated.readSession()?.user.username, 'legacy.admin');
+    assert.equal(farmerTab.readSession()?.user.username, 'farmer.tab');
+    assert.equal(systemTab.readSession()?.user.username, 'sysadmin.tab');
+    farmerTab.clearSession();
+    assert.equal(farmerTab.readSession(), null);
+    assert.equal(migrated.readSession()?.token, 'legacy-token');
+    assert.equal(systemTab.readSession()?.token, 'system-token');
+  } finally {
+    globalThis.sessionStorage = originalSessionStorage;
+    storage.clear();
+    agentSessionStorage.clear();
+  }
+});
 
 test('formal sessions never fall back to demo records when backend is offline', async () => {
   const service = new ApiService();
@@ -42,6 +85,115 @@ test('demo sessions remain explicitly local and switching sessions clears live h
   const farms = await service.getFarms();
   assert.ok(farms.length > 0);
   assert.ok(farms.every((farm) => farm.sourceMode === 'SIMULATED'));
+});
+
+test('巡田读取兼容按地块调用并在正式集合调用中携带农场和地块筛选', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'live';
+  service.token = 'formal-test-token';
+  service.isLive = true;
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await service.getInspections('plot-a01');
+    await service.getInspections({ farmId: 'farm-demo', plotId: 'plot-a01' });
+    assert.match(requests[0], /\/api\/v1\/plots\/plot-a01\/inspections$/);
+    assert.match(requests[1], /\/api\/v1\/inspections\?farmId=farm-demo&plotId=plot-a01$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('演示巡田和补证记录按当前农户可见并在重读后保留补证类型', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'visibility-farmer', username: 'visibility.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const own = await service.createInspection({ farmId: 'farm-demo', plotId: 'plot-a01', notes: '本人现场观察' });
+  const request = await service.createDecisionEvidenceRequest('readiness-demo', {
+    farmId: 'farm-demo', plotId: 'plot-a01', reason: '需要复测', evidenceType: 'RETEST'
+  });
+  assert.equal((await service.getInspections()).some(item => item.inspectionId === own.inspectionId), true);
+  assert.equal((await service.getWorkOrders()).find(item => item.workOrderId === request.workOrderId)?.evidenceType, 'RETEST');
+  service.user = { userId: 'visibility-other', username: 'visibility.other', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  assert.equal((await service.getInspections()).some(item => item.inspectionId === own.inspectionId), false);
+  assert.equal((await service.getWorkOrders()).some(item => item.workOrderId === request.workOrderId), false);
+});
+
+test('演示操作记录跨服务实例保留并供农场管理员读取', async () => {
+  storage.clear();
+  agentSessionStorage.clear();
+  const farmer = new ApiService();
+  farmer.sessionMode = 'demo';
+  farmer.user = { userId: 'persisted-farmer', username: 'persisted.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const inspection = await farmer.createInspection({ farmId: 'farm-demo', plotId: 'plot-a01', notes: '跨页面保留的巡田记录' });
+  const request = await farmer.createDecisionEvidenceRequest('readiness-persisted', {
+    farmId: 'farm-demo', plotId: 'plot-a01', reason: '跨页面保留的复测申请', evidenceType: 'RETEST'
+  });
+
+  const reloadedFarmer = new ApiService();
+  reloadedFarmer.sessionMode = 'demo';
+  reloadedFarmer.user = farmer.user;
+  assert.equal((await reloadedFarmer.getInspections()).some(item => item.inspectionId === inspection.inspectionId), true);
+  assert.equal((await reloadedFarmer.getWorkOrders()).some(item => item.workOrderId === request.workOrderId), true);
+
+  const admin = new ApiService();
+  admin.sessionMode = 'demo';
+  admin.user = { userId: 'persisted-admin', username: 'persisted.admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  assert.equal((await admin.getInspections({ farmId: 'farm-demo' })).some(item => item.inspectionId === inspection.inspectionId), true);
+  assert.equal((await admin.getWorkOrders({ farmId: 'farm-demo' })).some(item => item.workOrderId === request.workOrderId), true);
+
+  storage.clear();
+  agentSessionStorage.clear();
+});
+
+test('farmer workspace plot order is isolated by account and survives a reread', async () => {
+  const service = new ApiService();
+  const userId = `plot-order-${Date.now()}`;
+  service.sessionMode = 'demo';
+  service.user = { userId, username: `${userId}.farmer`, role: 'FARMER' };
+
+  const initial = await service.getFarmerWorkspacePreference();
+  assert.deepEqual(initial.plotOrder, []);
+  const saved = await service.saveFarmerWorkspacePreference(['plot-b02', 'plot-a01'], initial.revision);
+  assert.equal(saved.revision, 1);
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, ['plot-b02', 'plot-a01']);
+
+  service.user = { userId: `${userId}-other`, username: `${userId}-other.farmer`, role: 'FARMER' };
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, []);
+});
+
+test('demo resource collaboration persists one shared request lifecycle and enforces participants', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  const userId = `resource-farmer-${Date.now()}`;
+  service.user = { userId, username: 'resource.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const request = await service.createResourceRequest({
+    farmId: 'farm-demo', plotId: 'plot-a01', requestedLitres: 45,
+    preferredStart: new Date(Date.now() + 60_000).toISOString(),
+    preferredEnd: new Date(Date.now() + 3_600_000).toISOString(), constraints: '采摘结束后执行'
+  });
+  assert.equal(request.status, 'SUBMITTED');
+  assert.equal(request.sourceMode, 'SIMULATION');
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).some(item => item.resourceRequestId === request.resourceRequestId), true);
+
+  service.user = { userId: `${userId}-other`, username: 'resource.other', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).some(item => item.resourceRequestId === request.resourceRequestId), false);
+  await assert.rejects(service.actOnResourceRequest(request.resourceRequestId, { action: 'ACKNOWLEDGE' }), error => error.code === 'RESOURCE_REQUEST_FORBIDDEN');
+
+  service.user = { userId, username: 'resource.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const plan = await service.evaluateAutoResourcePlan({ farmId: 'farm-demo', businessDate: '2026-09-01' });
+  assert.ok(plan.allocations.some(item => (item.resourceRequestIds || []).includes(request.resourceRequestId)));
+  const confirmed = await service.confirmResourcePlan(plan.resourcePlanId, { expectedRevision: plan.revision });
+  assert.equal(confirmed.status, 'CONFIRMED');
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).find(item => item.resourceRequestId === request.resourceRequestId)?.status, 'PENDING_ACK');
+  await service.actOnResourceRequest(request.resourceRequestId, { action: 'ACKNOWLEDGE' });
+  await assert.rejects(service.createResourceRequest({ plotId: 'plot-a01', requestedLitres: 12 }), error => error.code === 'RESOURCE_REQUEST_LOCKED');
+  await service.cancelResourcePlan(plan.resourcePlanId);
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).find(item => item.resourceRequestId === request.resourceRequestId)?.status, 'SUBMITTED');
 });
 
 test('formal reads recover after a transient health-probe failure', async () => {

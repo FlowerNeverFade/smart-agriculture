@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260901-v593-market-v3';
 import { adminMetricLabel } from '../admin-state.js';
 
 const { ref, computed, inject, onMounted, watch } = Vue;
@@ -14,7 +14,7 @@ const RULE_LABELS = Object.freeze({
   SENSOR_DRIFT: '传感器漂移', DEVICE_FAULT: '设备故障', DATA_STALE: '数据过期',
   RAINFALL_EXCESS: '降雨过量'
 });
-const CROP_LABELS = Object.freeze({ tomato: '番茄', cucumber: '黄瓜', strawberry: '草莓', corn: '玉米', sunflower: '向日葵', rice: '水稻', maize: '玉米' });
+const CROP_LABELS = Object.freeze({ tomato: '番茄', cucumber: '黄瓜', strawberry: '草莓', corn: '玉米', sunflower: '向日葵', rice: '水稻', maize: '玉米', eggplant: '茄子', lettuce: '生菜', pepper: '辣椒' });
 const STAGE_LABELS = Object.freeze({ seedling: '苗期', vegetative: '营养生长期', flowering: '开花期', fruiting: '结果期',
   germination: '出苗期', tillering: '分蘖期', heading: '抽穗期', harvest: '采收期' });
 const SOURCE_LABELS = Object.freeze({ learning: '历史案例学习', manual: '人工经验', rule: '规则推演', system: '系统分析', simulated: '模拟分析' });
@@ -68,7 +68,13 @@ function ruleDisplayName(rule = {}, index = 0) {
   const name = translateKnownText(rule.name || rule.description || '').trim();
   if (name && !/^[A-Z0-9_-]+$/.test(name)) return name;
   const code = upper(rule.code || rule.ruleId || rule.id, '');
-  return RULE_LABELS[code] || `告警规则 ${index + 1}`;
+  // 同 code 规则在不同作物下会重名（编号撞），追加作物名区分
+  const label = RULE_LABELS[code];
+  if (label) {
+    const crop = cropLabel(rule.cropCode);
+    return crop && crop !== '全场作物' ? `${label}（${crop}）` : label;
+  }
+  return `告警规则 ${index + 1}`;
 }
 
 export function ruleCodeValue(rule = {}) {

@@ -80,6 +80,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BinaryOperator;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -145,6 +146,16 @@ class AgriProperties {
     private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";
+    /** Daily wholesale-price provider used by the farm-admin market workspace. */
+    private boolean marketPriceEnabled = true;
+    private String marketPriceBaseUrl = "https://pfsc.agri.cn";
+    private String marketPriceProvinceCode = "500000";
+    private String marketPriceProvinceName = "重庆市";
+    private String marketPricePreferredMarket = "重庆双福国际农贸城";
+    /** The provider publishes this browser-side protocol key; deployments may override it when the upstream rotates. */
+    private String marketPriceAesKey = "7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV";
+    private long marketPriceTimeoutMs = 8000;
+    private long marketPriceCacheMinutes = 30;
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -218,6 +229,22 @@ class AgriProperties {
     public void setSimulationConfigPath(String simulationConfigPath) { this.simulationConfigPath = simulationConfigPath; }
     public String getAttachmentDir() { return attachmentDir; }
     public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
+    public boolean isMarketPriceEnabled() { return marketPriceEnabled; }
+    public void setMarketPriceEnabled(boolean marketPriceEnabled) { this.marketPriceEnabled = marketPriceEnabled; }
+    public String getMarketPriceBaseUrl() { return marketPriceBaseUrl; }
+    public void setMarketPriceBaseUrl(String marketPriceBaseUrl) { this.marketPriceBaseUrl = marketPriceBaseUrl; }
+    public String getMarketPriceProvinceCode() { return marketPriceProvinceCode; }
+    public void setMarketPriceProvinceCode(String marketPriceProvinceCode) { this.marketPriceProvinceCode = marketPriceProvinceCode; }
+    public String getMarketPriceProvinceName() { return marketPriceProvinceName; }
+    public void setMarketPriceProvinceName(String marketPriceProvinceName) { this.marketPriceProvinceName = marketPriceProvinceName; }
+    public String getMarketPricePreferredMarket() { return marketPricePreferredMarket; }
+    public void setMarketPricePreferredMarket(String marketPricePreferredMarket) { this.marketPricePreferredMarket = marketPricePreferredMarket; }
+    public String getMarketPriceAesKey() { return marketPriceAesKey; }
+    public void setMarketPriceAesKey(String marketPriceAesKey) { this.marketPriceAesKey = marketPriceAesKey; }
+    public long getMarketPriceTimeoutMs() { return marketPriceTimeoutMs; }
+    public void setMarketPriceTimeoutMs(long marketPriceTimeoutMs) { this.marketPriceTimeoutMs = marketPriceTimeoutMs; }
+    public long getMarketPriceCacheMinutes() { return marketPriceCacheMinutes; }
+    public void setMarketPriceCacheMinutes(long marketPriceCacheMinutes) { this.marketPriceCacheMinutes = marketPriceCacheMinutes; }
 }
 
 @Configuration
@@ -300,14 +327,37 @@ final class Jsons {
 
 @Service
 class AgriStore {
+    private static final int IN_MEMORY_TELEMETRY_LIMIT = 20_000;
+    private static final long LIST_CACHE_TTL_MS = 1_000L;
+    private static final long REAL_LOOKUP_CACHE_TTL_MS = 5_000L;
+    private static final Map<String, Integer> ENTITY_CACHE_LIMITS = Map.of(
+            "forecast", 1_000,
+            "diagnosis", 1_000,
+            "readiness", 1_000,
+            "irrigation-plan", 1_000,
+            "evaluation", 1_000,
+            "scenario-run", 1_000,
+            "market-price-snapshot", 5_000
+    );
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
+    private final Map<String, Long> listLoadedAt = new ConcurrentHashMap<>();
+    private final Set<String> loadedTypes = ConcurrentHashMap.newKeySet();
     private final Map<String, Map<String, Object>> users = new ConcurrentHashMap<>();
-    private final List<Map<String, Object>> telemetry = new CopyOnWriteArrayList<>();
+    /**
+     * Emergency read model used only when the database is unavailable. In
+     * database mode PostgreSQL is already the authoritative indexed store, so
+     * mirroring every sample here would make every append copy an ever-growing
+     * array and eventually consume tens of gigabytes of temporary heap.
+     */
+    private final Deque<Map<String, Object>> telemetry = new ConcurrentLinkedDeque<>();
     private final Set<String> eventIds = ConcurrentHashMap.newKeySet();
+    private final AtomicLong telemetryCacheSize = new AtomicLong();
+    private final Map<String, Map<String, Object>> latestRealTelemetry = new ConcurrentHashMap<>();
+    private final Map<String, Long> realLookupAt = new ConcurrentHashMap<>();
     private final AtomicLong eventCount = new AtomicLong();
     private volatile boolean databaseReady;
     private volatile boolean postgres;
@@ -350,28 +400,86 @@ class AgriStore {
         }
     }
 
+    private void cacheRecord(String type, String id, Map<String, Object> value) {
+        Map<String, Map<String, Object>> byType = records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>());
+        byType.put(id, value);
+        int limit = ENTITY_CACHE_LIMITS.getOrDefault(type, Integer.MAX_VALUE);
+        if (byType.size() <= limit) return;
+        for (String candidate : byType.keySet()) {
+            if (byType.size() <= limit) break;
+            if (!id.equals(candidate)) byType.remove(candidate);
+        }
+    }
+
+    private void invalidateListCache(String type) {
+        listLoadedAt.remove(type);
+        loadedTypes.remove(type);
+    }
+
+    private boolean addFallbackTelemetry(String eventId, Map<String, Object> event) {
+        if (!eventIds.add(eventId)) return false;
+        telemetry.addLast(event);
+        long size = telemetryCacheSize.incrementAndGet();
+        while (size > IN_MEMORY_TELEMETRY_LIMIT) {
+            Map<String, Object> removed = telemetry.pollFirst();
+            if (removed == null) break;
+            telemetryCacheSize.decrementAndGet();
+            eventIds.remove(Jsons.text(removed, "eventId", ""));
+            size = telemetryCacheSize.get();
+        }
+        eventCount.incrementAndGet();
+        return true;
+    }
+
     synchronized void save(String type, String id, Map<String, Object> value) {
         Map<String, Object> copy = Jsons.copy(mapper, value);
-        records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
+        cacheRecord(type, id, copy);
+        invalidateListCache(type);
         if (!databaseReady) return;
         try {
-            if (postgres) {
-                jdbc.update("INSERT INTO entity_record(entity_type,entity_id,payload) VALUES (?,?,?) " +
-                                "ON CONFLICT(entity_type,entity_id) DO UPDATE SET payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP",
-                        type, id, Jsons.json(mapper, copy));
-            } else {
-                jdbc.update("MERGE INTO entity_record(entity_type,entity_id,payload,created_at,updated_at) " +
-                                "KEY(entity_type,entity_id) VALUES (?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
-                        type, id, Jsons.json(mapper, copy));
-            }
+            persistEntity(type, id, copy);
         } catch (DataAccessException ignored) {
             databaseReady = false;
+        }
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value) {
+        saveDurably(type, id, value, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，写入未保存");
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value, String errorCode, String errorMessage) {
+        if (!databaseReady) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, errorMessage);
+        }
+        Map<String, Object> copy = Jsons.copy(mapper, value);
+        try {
+            // Persist first so a failed collaborative write never appears in
+            // the shared in-memory read model or emits a false success event.
+            persistEntity(type, id, copy);
+            cacheRecord(type, id, copy);
+            invalidateListCache(type);
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, errorMessage);
+        }
+    }
+
+    private void persistEntity(String type, String id, Map<String, Object> copy) {
+        if (postgres) {
+            jdbc.update("INSERT INTO entity_record(entity_type,entity_id,payload) VALUES (?,?,?) " +
+                            "ON CONFLICT(entity_type,entity_id) DO UPDATE SET payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP",
+                    type, id, Jsons.json(mapper, copy));
+        } else {
+            jdbc.update("MERGE INTO entity_record(entity_type,entity_id,payload,created_at,updated_at) " +
+                            "KEY(entity_type,entity_id) VALUES (?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                    type, id, Jsons.json(mapper, copy));
         }
     }
 
     synchronized boolean delete(String type, String id) {
         Map<String, Map<String, Object>> byType = records.get(type);
         boolean removed = byType != null && byType.remove(id) != null;
+        invalidateListCache(type);
         if (!databaseReady) return removed;
         try {
             return jdbc.update("DELETE FROM entity_record WHERE entity_type=? AND entity_id=?", type, id) > 0 || removed;
@@ -436,7 +544,7 @@ class AgriStore {
             String payload = jdbc.queryForObject("SELECT payload FROM entity_record WHERE entity_type=? AND entity_id=?",
                     String.class, type, id);
             Map<String, Object> value = mapper.readValue(payload, Map.class);
-            records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, value);
+            cacheRecord(type, id, value);
             return Jsons.copy(mapper, value);
         } catch (Exception ignored) { return null; }
     }
@@ -445,16 +553,24 @@ class AgriStore {
         Map<String, Map<String, Object>> byType = records.getOrDefault(type, Map.of());
         List<Map<String, Object>> result = byType.values().stream().map(v -> Jsons.copy(mapper, v)).collect(Collectors.toCollection(ArrayList::new));
         if (databaseReady) {
+            long now = System.currentTimeMillis();
+            Long loaded = listLoadedAt.get(type);
+            if (loadedTypes.contains(type) && loaded != null && now - loaded < LIST_CACHE_TTL_MS) return result;
             try {
-                List<Map<String, Object>> persisted = jdbc.query("SELECT entity_id,payload FROM entity_record WHERE entity_type=? ORDER BY updated_at DESC",
+                int readLimit = ENTITY_CACHE_LIMITS.getOrDefault(type, 0);
+                String sql = "SELECT entity_id,payload FROM entity_record WHERE entity_type=? ORDER BY updated_at DESC"
+                        + (readLimit > 0 ? " LIMIT " + readLimit : "");
+                List<Map<String, Object>> persisted = jdbc.query(sql,
                         (rs, rowNum) -> {
                             try {
                                 Map<String, Object> value = mapper.readValue(rs.getString("payload"), Map.class);
-                                records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(rs.getString("entity_id"), value);
+                                cacheRecord(type, rs.getString("entity_id"), value);
                                 return value;
                             } catch (Exception e) { return Map.<String, Object>of(); }
-                        }, type);
+                }, type);
                 if (!persisted.isEmpty()) result = persisted;
+                loadedTypes.add(type);
+                listLoadedAt.put(type, now);
             } catch (DataAccessException ignored) { databaseReady = false; }
         }
         return result;
@@ -462,13 +578,14 @@ class AgriStore {
 
     boolean saveTelemetry(Map<String, Object> event) {
         String eventId = Jsons.text(event, "eventId", Jsons.id("evt"));
-        if (!eventIds.add(eventId)) return false;
         Map<String, Object> copy = Jsons.copy(mapper, event);
         copy.put("eventId", eventId);
+        String sourceMode = Jsons.text(copy, "sourceMode", "SIMULATION").toUpperCase(Locale.ROOT);
+        String realCacheKey = Jsons.text(copy, "plotId", "") + "|" + Jsons.text(copy, "metric", "").toUpperCase(Locale.ROOT);
         if (!databaseReady) {
-            telemetry.add(copy);
-            eventCount.incrementAndGet();
-            return true;
+            boolean inserted = addFallbackTelemetry(eventId, copy);
+            if (inserted && "REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
+            return inserted;
         }
         String sql = "INSERT INTO telemetry(event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try {
@@ -484,32 +601,47 @@ class AgriStore {
             if (String.valueOf(ignored.getMessage()).toLowerCase(Locale.ROOT).contains("duplicate") ||
                     String.valueOf(ignored.getMessage()).toLowerCase(Locale.ROOT).contains("unique")) return false;
             databaseReady = false;
+            boolean inserted = addFallbackTelemetry(eventId, copy);
+            if (inserted && "REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
+            return inserted;
         }
-        // Only expose an event through the in-memory read model after the
-        // database insert succeeds (or after an explicit persistence
-        // downgrade).  This keeps a duplicate received after a process
-        // restart from appearing twice in API queries.
-        telemetry.add(copy);
+        // PostgreSQL is the indexed read model in database mode. Keeping a
+        // second unbounded Java copy made inserts and reads progressively
+        // slower because the previous CopyOnWriteArrayList copied its entire
+        // backing array for every simulator sample.
+        if ("REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
         eventCount.incrementAndGet();
         return true;
     }
 
-    List<Map<String, Object>> telemetry(String plotId, String metric, Instant from, Instant to, int limit) {
-        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
-                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
-                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+    private Map<String, Object> readTelemetryRow(ResultSet rs) throws java.sql.SQLException {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", rs.getString("event_id")); event.put("farmId", rs.getString("farm_id"));
+        event.put("plotId", rs.getString("plot_id")); event.put("deviceId", rs.getString("device_id"));
+        event.put("metric", rs.getString("metric")); event.put("value", rs.getDouble("metric_value")); event.put("unit", rs.getString("unit"));
+        event.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
+        event.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
+        event.put("scenarioId", rs.getString("scenario_id")); event.put("scenario", rs.getString("scenario_id")); event.put("branchId", rs.getString("branch_id"));
+        event.put("sourceMode", rs.getString("source_mode")); event.put("provenance", rs.getString("provenance")); event.put("dataOrigin", rs.getString("data_origin"));
+        return event;
+    }
+
+    private List<Map<String, Object>> telemetryFromMemory(String plotId, String metric, Instant from, Instant to, int limit) {
+        Predicate<Map<String, Object>> filter = event -> (plotId == null || plotId.equals(Jsons.text(event, "plotId", "")))
+                && (metric == null || metric.equalsIgnoreCase(Jsons.text(event, "metric", "")))
+                && !Jsons.instant(event.get("ts"), Instant.EPOCH).isBefore(from)
+                && !Jsons.instant(event.get("ts"), Instant.MAX).isAfter(to);
         Comparator<Map<String, Object>> byTimestamp = Comparator
-                .comparing((Map<String, Object> e) -> Jsons.instant(e.get("ts"), Instant.EPOCH))
-                .thenComparing(e -> Jsons.text(e, "eventId", ""));
-        // Select the newest window first, then return that window in
-        // chronological order for charts and deterministic algorithms.
-        // Limiting an ascending stream returned the oldest data of the day and
-        // could make live telemetry/forecasts look stale once history grew.
-        List<Map<String, Object>> result = telemetry.stream().filter(filter)
-                .sorted(byTimestamp.reversed()).limit(cappedLimit).sorted(byTimestamp)
-                .map(e -> Jsons.copy(mapper, e)).collect(Collectors.toCollection(ArrayList::new));
-        if (!result.isEmpty() || !databaseReady) return result;
+                .comparing((Map<String, Object> event) -> Jsons.instant(event.get("ts"), Instant.EPOCH))
+                .thenComparing(event -> Jsons.text(event, "eventId", ""));
+        return telemetry.stream().filter(filter)
+                .sorted(byTimestamp.reversed()).limit(limit).sorted(byTimestamp)
+                .map(event -> Jsons.copy(mapper, event)).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    List<Map<String, Object>> telemetry(String plotId, String metric, Instant from, Instant to, int limit) {
+        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+        if (!databaseReady) return telemetryFromMemory(plotId, metric, from, to, cappedLimit);
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
@@ -517,30 +649,20 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC, event_id DESC LIMIT ").append(cappedLimit);
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
             Collections.reverse(rows);
             return rows;
-        } catch (Exception ignored) { return result; }
+        } catch (Exception ignored) {
+            databaseReady = false;
+            return telemetryFromMemory(plotId, metric, from, to, cappedLimit);
+        }
     }
 
     Map<String, Object> latestTelemetry(String plotId, String metric, Instant from, Instant to) {
-        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
-                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
-                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        Map<String, Object> latest = telemetry.stream().filter(filter)
-                .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
-                .map(e -> Jsons.copy(mapper, e)).orElse(null);
-        if (latest != null || !databaseReady) return latest;
+        if (!databaseReady) {
+            List<Map<String, Object>> rows = telemetryFromMemory(plotId, metric, from, to, 1);
+            return rows.isEmpty() ? null : rows.get(0);
+        }
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
@@ -548,19 +670,13 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
             return rows.isEmpty() ? null : rows.get(0);
-        } catch (Exception ignored) { return null; }
+        } catch (Exception ignored) {
+            databaseReady = false;
+            List<Map<String, Object>> rows = telemetryFromMemory(plotId, metric, from, to, 1);
+            return rows.isEmpty() ? null : rows.get(0);
+        }
     }
 
     /**
@@ -573,10 +689,16 @@ class AgriStore {
                 (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
                 "REAL".equalsIgnoreCase(Jsons.text(e, "sourceMode", "")) &&
                 !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        Map<String, Object> latest = telemetry.stream().filter(filter)
+        String cacheKey = String.valueOf(plotId) + "|" + String.valueOf(metric).toUpperCase(Locale.ROOT);
+        Map<String, Object> cached = latestRealTelemetry.get(cacheKey);
+        if (cached != null && filter.test(cached)) return Jsons.copy(mapper, cached);
+        long nowMillis = System.currentTimeMillis();
+        Long lastLookup = realLookupAt.get(cacheKey);
+        if (lastLookup != null && nowMillis - lastLookup < REAL_LOOKUP_CACHE_TTL_MS) return null;
+        realLookupAt.put(cacheKey, nowMillis);
+        if (!databaseReady) return telemetry.stream().filter(filter)
                 .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
                 .map(e -> Jsons.copy(mapper, e)).orElse(null);
-        if (latest != null || !databaseReady) return latest;
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE source_mode='REAL'");
             List<Object> args = new ArrayList<>();
@@ -584,18 +706,66 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
+            if (!rows.isEmpty()) latestRealTelemetry.put(cacheKey, rows.get(0));
             return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ignored) {
+            databaseReady = false;
+            return telemetry.stream().filter(filter)
+                    .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
+                    .map(e -> Jsons.copy(mapper, e)).orElse(null);
+        }
+    }
+
+    /**
+     * Fetch one latest sample per metric plus the 30-minute valid-sample
+     * counts. PostgreSQL can answer this with indexed, compact result sets;
+     * returning thousands of raw rows for every overview card made a
+     * 20-plot dashboard needlessly parse hundreds of thousands of records.
+     * A null result asks the engine to use the bounded in-memory fallback.
+     */
+    Map<String, Map<String, Object>> latestMetricWindow(String plotId, Instant latestFrom, Instant to,
+                                                        Instant activeRealFrom, Instant qualityFrom) {
+        if (!databaseReady || !postgres) return null;
+        String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
+        try {
+            List<Map<String, Object>> newest = jdbc.query(
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
+                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND metric=m.metric AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
+                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(latestFrom), TimestampParser.sql(to));
+            List<Map<String, Object>> activeReal = jdbc.query(
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
+                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND metric=m.metric AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
+                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(activeRealFrom), TimestampParser.sql(to));
+            Map<String, Long> validCounts = new HashMap<>();
+            List<Map.Entry<String, Long>> countRows = jdbc.query(
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT m.metric,COALESCE(window.valid_count,0) AS valid_count FROM metrics m "
+                            + "LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE quality_status<>'BAD') AS valid_count "
+                            + "FROM (SELECT quality_status FROM telemetry WHERE plot_id=? AND metric=m.metric "
+                            + "AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC,event_id DESC LIMIT 120) recent) window ON TRUE",
+                    (rs, rowNum) -> Map.entry(rs.getString("metric"), rs.getLong("valid_count")),
+                    plotId, TimestampParser.sql(qualityFrom), TimestampParser.sql(to));
+            countRows.forEach(entry -> validCounts.put(entry.getKey(), entry.getValue()));
+            Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+            for (Map<String, Object> event : newest) result.put(Jsons.text(event, "metric", ""), event);
+            // A fresh hardware reading is authoritative even when a simulator
+            // sample arrives a few milliseconds later.
+            for (Map<String, Object> event : activeReal) result.put(Jsons.text(event, "metric", ""), event);
+            result.forEach((metric, event) -> event.put("_validSamples", validCounts.getOrDefault(metric, 0L)));
+            return result;
         } catch (Exception ignored) { return null; }
     }
 
@@ -606,6 +776,25 @@ class AgriStore {
             jdbc.update("INSERT INTO event_log(event_type,event_id,trace_id,scenario_id,payload) VALUES (?,?,?,?,?)",
                     type, Jsons.text(p, "eventId", null), Jsons.text(p, "traceId", null), Jsons.text(p, "scenarioId", null), Jsons.json(mapper, p));
         } catch (DataAccessException ignored) { databaseReady = false; }
+    }
+
+    // 操作审计日志：最近 limit 条系统事件（event_log 表），按时间倒序
+    List<Map<String, Object>> auditLogs(int limit) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!databaseReady) return result;
+        try {
+            return jdbc.query("SELECT id, event_type, event_id, payload, created_at FROM event_log ORDER BY id DESC LIMIT ?",
+                    (rs, rowNum) -> {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("id", "evt-" + rs.getLong("id"));
+                        m.put("action", rs.getString("event_type"));
+                        m.put("eventId", rs.getString("event_id"));
+                        m.put("payload", rs.getString("payload"));
+                        m.put("time", rs.getTimestamp("created_at").toInstant().toString());
+                        return m;
+                    }, Math.max(1, Math.min(limit, 200)));
+        } catch (DataAccessException ignored) { databaseReady = false; }
+        return result;
     }
 
     Map<String, Object> userByUsername(String username) {
@@ -846,40 +1035,88 @@ final class TimestampParser {
 @Service
 class AgriEventBus {
     private final ObjectMapper mapper;
-    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    private record ScopedEmitter(SseEmitter emitter, UserPrincipal principal) { }
+    private final List<ScopedEmitter> emitters = new CopyOnWriteArrayList<>();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "agriloop-sse"); t.setDaemon(true); return t;
     });
 
     AgriEventBus(ObjectMapper mapper) { this.mapper = mapper; }
 
-    SseEmitter subscribe() {
+    SseEmitter subscribe(UserPrincipal principal) {
         SseEmitter emitter = new SseEmitter(0L);
-        emitters.add(emitter);
-        Runnable remove = () -> emitters.remove(emitter);
+        ScopedEmitter subscription = new ScopedEmitter(emitter, principal);
+        emitters.add(subscription);
+        Runnable remove = () -> emitters.remove(subscription);
         emitter.onCompletion(remove); emitter.onTimeout(remove); emitter.onError(e -> remove.run());
         try { emitter.send(SseEmitter.event().name("connected").data(Map.of("connectedAt", Instant.now().toString()))); }
         catch (IOException e) { remove.run(); }
         return emitter;
     }
 
+    boolean canReceive(UserPrincipal principal, Map<String, Object> payload) {
+        return canReceive(principal, "", payload);
+    }
+
+    private boolean canReceive(UserPrincipal principal, String eventType, Map<String, Object> payload) {
+        if (principal == null) return false;
+        if (principal.isSystemAdmin()) return true;
+        String farmId = Jsons.text(payload, "farmId", Jsons.text(payload, "scope", "")).trim();
+        String plotId = Jsons.text(payload, "plotId", "").trim();
+        if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) return false;
+        if (!plotId.isBlank() && !(principal.isFarmAdmin() && !farmId.isBlank()) && !principal.canAccessPlot(plotId)) return false;
+        if (principal.isFarmer() && "inspection.created".equals(eventType)) {
+            return principal.userId.equals(Jsons.text(payload, "operatorId", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
+        }
+        if (principal.isFarmer() && eventType.startsWith("workorder.")
+                && "READINESS".equalsIgnoreCase(Jsons.text(payload, "sourceType", ""))) {
+            return principal.userId.equals(Jsons.text(payload, "createdBy", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assigneeId", ""));
+        }
+        if (principal.isFarmer() && !Jsons.text(payload, "resourceRequestId", "").isBlank()) {
+            return principal.userId.equals(Jsons.text(payload, "requestedBy", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
+        }
+        if (principal.isFarmer() && payload.get("allocations") instanceof Collection<?>) {
+            return Jsons.maps(mapper, payload.get("allocations")).stream()
+                    .anyMatch(allocation -> principal.canAccessPlot(Jsons.text(allocation, "plotId", "")));
+        }
+        // Unscoped platform events are intentionally withheld from farmers.
+        // Their REST refresh remains the recovery path for secondary state.
+        return !farmId.isBlank() || !plotId.isBlank() || principal.isFarmAdmin();
+    }
+
+    private Map<String, Object> scopedPayload(UserPrincipal principal, Map<String, Object> payload) {
+        Map<String, Object> copy = Jsons.copy(mapper, payload);
+        if (!principal.isFarmer() || !(copy.get("allocations") instanceof Collection<?>)) return copy;
+        List<Map<String, Object>> allocations = Jsons.maps(mapper, copy.get("allocations")).stream()
+                .filter(allocation -> principal.canAccessPlot(Jsons.text(allocation, "plotId", ""))).toList();
+        copy.put("allocations", allocations);
+        copy.put("totalRequestedLitres", allocations.stream().mapToDouble(allocation -> Jsons.number(allocation, "requestedLitres", 0)).sum());
+        copy.put("totalAllocatedLitres", allocations.stream().mapToDouble(allocation -> Jsons.number(allocation, "allocatedLitres", 0)).sum());
+        copy.put("totalUnmetLitres", allocations.stream().mapToDouble(allocation -> Jsons.number(allocation, "unmetLitres", 0)).sum());
+        return copy;
+    }
+
     void publish(String type, Map<String, Object> payload) {
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("eventType", type); event.put("eventId", Jsons.id("evt")); event.put("ts", Instant.now().toString());
-        event.put("payload", Jsons.copy(mapper, payload));
-        for (SseEmitter emitter : emitters) {
+        String eventId = Jsons.id("evt"); String timestamp = Instant.now().toString();
+        for (ScopedEmitter subscription : emitters) {
+            if (!canReceive(subscription.principal(), type, payload)) continue;
+            Map<String, Object> event = new LinkedHashMap<>(); event.put("eventType", type); event.put("eventId", eventId); event.put("ts", timestamp);
+            event.put("payload", scopedPayload(subscription.principal(), payload));
             executor.submit(() -> {
-                try { emitter.send(SseEmitter.event().name(type).id(Jsons.text(event, "eventId", "")).data(event)); }
-                catch (Exception e) { emitters.remove(emitter); }
+                try { subscription.emitter().send(SseEmitter.event().name(type).id(Jsons.text(event, "eventId", "")).data(event)); }
+                catch (Exception e) { emitters.remove(subscription); }
             });
         }
     }
 
     @Scheduled(fixedDelayString = "${agriloop.sse-heartbeat-seconds:15}000")
     void heartbeat() {
-        for (SseEmitter emitter : emitters) {
-            try { emitter.send(SseEmitter.event().name("heartbeat").data(Map.of("ts", Instant.now().toString()))); }
-            catch (Exception e) { emitters.remove(emitter); }
+        for (ScopedEmitter subscription : emitters) {
+            try { subscription.emitter().send(SseEmitter.event().name("heartbeat").data(Map.of("ts", Instant.now().toString()))); }
+            catch (Exception e) { emitters.remove(subscription); }
         }
     }
 }
@@ -1199,8 +1436,12 @@ class AgriEngine {
     private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private final java.time.Instant startedAt = java.time.Instant.now();
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
+    private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
+    private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
+    private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
     private static final Set<String> PLOT_SIMULATION_SCENARIOS = Set.of(
@@ -1224,6 +1465,8 @@ class AgriEngine {
     private static final double DEFAULT_RESERVOIR_LITRES = 900.0;
     /** Soil moisture below this percentage can trigger virtual auto-watering. */
     private static final double AUTO_WATERING_THRESHOLD = 10.0;
+    /** Smallest explicit amount accepted by the farmer's manual fallback. */
+    private static final double MIN_MANUAL_IRRIGATION_LITRES = 0.1;
     private static final Set<String> OPEN_ALERT_STATUSES = Set.of("ACTIVE", "ACKED", "ESCALATED");
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
@@ -1274,6 +1517,9 @@ class AgriEngine {
     private final Object resourcePlanLock = new Object();
     private static final Set<String> RESOURCE_PLAN_STATUSES = Set.of("DRAFT", "CONFIRMED", "RUNNING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "EXPIRED");
     private static final Set<String> RESOURCE_ALLOCATION_TERMINAL = Set.of("COMPLETED", "PARTIAL", "FAILED", "BLOCKED", "FALLBACK_REQUIRED", "CANCELLED");
+    private static final Set<String> RESOURCE_REQUEST_STATUSES = Set.of("SUBMITTED", "IN_REVIEW", "PENDING_ACK", "ACKNOWLEDGED", "CONFLICT_REPORTED", "COMPLETED", "CANCELLED");
+    private static final Set<String> RESOURCE_REQUEST_ACTIVE = Set.of("SUBMITTED", "IN_REVIEW", "CONFLICT_REPORTED");
+    private static final Set<String> RESOURCE_REQUEST_OPEN = Set.of("SUBMITTED", "IN_REVIEW", "PENDING_ACK", "ACKNOWLEDGED", "CONFLICT_REPORTED");
 
     AgriEngine(ObjectMapper mapper, ResourceLoader resourceLoader, AgriStore store, AgriEventBus events, AgriProperties properties,
                CropPackCatalog cropPackCatalog,
@@ -1410,7 +1656,7 @@ class AgriEngine {
 
     List<String> permissionsFor(UserPrincipal principal) {
         if (principal.isSystemAdmin()) return List.of("plots:read", "diagnosis:read", "work-order:audit", "simulator:control", "strategy:manage", "value:audit", "platform:manage", "irrigation:execute", "irrigation:approve");
-        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "strategy:read", "value:manage");
+        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "market-price:read", "strategy:read", "value:manage");
         return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request", "irrigation:execute");
     }
 
@@ -1487,10 +1733,40 @@ class AgriEngine {
         if (input.containsKey("enabled")) saved.put("enabled", Jsons.bool(input, "enabled", true));
         store.save("plot-simulation", plotId, saved);
         boolean delivered = syncSimulationConfiguration();
+        if (scenarioChanged) {
+            recordScenarioRun(plotId, scenario, principal);
+        }
         Map<String, Object> event = new LinkedHashMap<>(saved); event.put("configDelivered", delivered);
         events.publish("plot.simulation.updated", event); store.logEvent("plot.simulation.updated", event);
         Map<String, Object> view = plotSimulationView(plotId); view.put("configDelivered", delivered);
         return view;
+    }
+
+    // 切换场景 = 结束该地块旧的运行记录 + 按新场景开始一条新运行（供'运行历史'展示）
+    private void recordScenarioRun(String plotId, String scenario, UserPrincipal principal) {
+        Instant now = Instant.now();
+        for (Map<String, Object> oldRun : store.list("scenario-run")) {
+            if (plotId.equals(Jsons.text(oldRun, "plotId", ""))
+                    && "RUNNING".equalsIgnoreCase(Jsons.text(oldRun, "status", ""))) {
+                oldRun.put("status", "COMPLETED");
+                oldRun.put("endedAt", now.toString());
+                oldRun.put("endedBy", principal.userId);
+                store.save("scenario-run", Jsons.text(oldRun, "runId", ""), oldRun);
+            }
+        }
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("runId", Jsons.id("scenario-run"));
+        run.put("scenarioId", Jsons.id("scenario-run"));
+        run.put("plotId", plotId);
+        run.put("scenario", scenario.toLowerCase(Locale.ROOT));
+        run.put("seed", 42);
+        run.put("status", "RUNNING");
+        run.put("startedAt", now.toString());
+        run.put("startedBy", principal.userId);
+        run.put("branchId", "MAIN");
+        run.put("sourceMode", "SIMULATION");
+        store.save("scenario-run", Jsons.text(run, "runId", ""), run);
+        events.publish("scenario.started", run);
     }
 
     synchronized Map<String, Object> resetPlotSimulation(String plotId, String requestedTarget, UserPrincipal principal) {
@@ -1636,9 +1912,7 @@ class AgriEngine {
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
         List<Map<String, Object>> hardware = store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
-                .filter(device -> "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                        || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
-                        || !Jsons.text(device, "deviceId", "mock-").toLowerCase(Locale.ROOT).startsWith("mock-"))
+                .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
         if (hardware.isEmpty()) return Map.of("bindingState", "UNBOUND", "status", "NOT_BOUND", "usability", "NOT_BOUND", "label", "未绑定硬件");
@@ -1656,8 +1930,9 @@ class AgriEngine {
     private Map<String, Object> simulatorDeviceForPlot(String plotId) {
         Map<String, Object> device = store.list("device").stream()
                 .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
-                .filter(item -> Jsons.text(item, "deviceId", "").toLowerCase(Locale.ROOT).startsWith("mock-")
-                        || "SIMULATOR".equalsIgnoreCase(Jsons.text(item, "dataOrigin", "")))
+                .filter(this::deviceIsSimulated)
+                .filter(item -> !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "bindingState", ""))
+                        && !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "status", "")))
                 .sorted(Comparator
                         .comparing((Map<String, Object> item) -> "ONLINE".equalsIgnoreCase(Jsons.text(item, "status", "")))
                                 .reversed()
@@ -1789,6 +2064,128 @@ class AgriEngine {
     Map<String, Object> overview(UserPrincipal principal) {
         String farmId = principal == null ? null : principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null);
         return overview(farmId, principal);
+    }
+
+    synchronized Map<String, Object> farmerWorkspacePreference(UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        return farmerWorkspacePreferenceView(principal, store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal)));
+    }
+
+    synchronized Map<String, Object> updateFarmerWorkspacePreference(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        Map<String, Object> current = store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal));
+        long currentRevision = current == null ? 0 : Jsons.whole(current, "revision", 0);
+        Map<String, Object> request = input == null ? Map.of() : input;
+        if (!(request.get("plotOrder") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "plotOrder 必须是数组");
+        }
+        long expectedRevision = requiredFarmerWorkspaceRevision(request);
+        if (expectedRevision != currentRevision) {
+            throw new ApiException(HttpStatus.CONFLICT, "FARMER_WORKSPACE_PREFERENCE_CONFLICT", "地块顺序已在其他设备更新，请刷新后重试");
+        }
+
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> requestedOrder = normalizePreferenceOrder(request.get("plotOrder"));
+        if (requestedOrder.size() > FARMER_WORKSPACE_MAX_PLOTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "地块顺序数量超过上限");
+        }
+
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        for (String plotId : requestedOrder) {
+            if (availableIds.contains(plotId)) {
+                order.add(plotId);
+                continue;
+            }
+            // A plot may disappear or become inactive while a drag is in
+            // progress. Ignore that stale id, but never accept an id that is
+            // currently owned by another farmer.
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot != null && !principal.canAccessPlot(plotId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权设置该地块顺序");
+            }
+        }
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Instant now = Instant.now();
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("preferenceId", farmerWorkspacePreferenceId(principal));
+        saved.put("userId", principal.userId);
+        saved.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        saved.put("plotOrder", new ArrayList<>(order));
+        saved.put("revision", currentRevision + 1);
+        saved.put("updatedAt", now.toString());
+        saved.put("updatedBy", principal.userId);
+        // Durable preference writes must not silently fall back to this
+        // process's cache: another browser must be able to read the order.
+        store.saveDurably(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal), saved);
+        return farmerWorkspacePreferenceView(principal, saved);
+    }
+
+    private long requiredFarmerWorkspaceRevision(Map<String, Object> input) {
+        Object value = input == null ? null : input.get("expectedRevision");
+        double revision = Jsons.numberValue(value, Double.NaN);
+        if (!Double.isFinite(revision) || revision < 0 || Math.rint(revision) != revision || revision > Long.MAX_VALUE) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "expectedRevision 必须是非负整数");
+        }
+        return (long) revision;
+    }
+
+    private void requireFarmerWorkspacePreferenceAccess(UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARMER_WORKSPACE_PREFERENCE_FORBIDDEN", "只有农户可以设置自己的地块顺序");
+        }
+    }
+
+    private String farmerWorkspacePreferenceId(UserPrincipal principal) {
+        return principal.userId + ":" + FARMER_WORKSPACE_PREFERENCE_SCOPE;
+    }
+
+    private List<Map<String, Object>> activeFarmerPlots(UserPrincipal principal) {
+        return store.list("plot").stream()
+                .filter(plot -> !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> principal.canAccessPlot(Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", "")))
+                .toList();
+    }
+
+    private List<String> normalizePreferenceOrder(Object value) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (String plotId : Jsons.strings(value)) {
+            String normalized = String.valueOf(plotId == null ? "" : plotId).trim();
+            if (!normalized.isBlank()) ids.add(normalized);
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private Map<String, Object> farmerWorkspacePreferenceView(UserPrincipal principal, Map<String, Object> stored) {
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        normalizePreferenceOrder(stored == null ? null : stored.get("plotOrder")).forEach(id -> {
+            if (availableIds.contains(id)) order.add(id);
+        });
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", principal.userId);
+        result.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        result.put("plotOrder", new ArrayList<>(order));
+        result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
+        result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
+        return result;
     }
 
     Map<String, Object> overview(String farmId, UserPrincipal principal) {
@@ -2017,19 +2414,29 @@ class AgriEngine {
         boolean inserted = store.saveTelemetry(event);
         if (!inserted) return Map.of("accepted", false, "duplicate", true, "eventId", event.get("eventId"), "quality", event.get("quality"));
         publishTelemetryStream(event);
-        Map<String, Object> device = store.find("device", deviceId);
-        if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
-        Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
-        boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
-                && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
-        if (!realControlPending) {
-        device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
-        device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        String metric = Jsons.text(event, "metric", "");
+        // A simulator tick emits many metrics for the same device. One
+        // heartbeat-style device update per plot is sufficient; writing the
+        // identical device JSON for all eleven metrics multiplied database
+        // work without changing any visible state. Physical telemetry still
+        // refreshes the device on every reading.
+        if (!"SIMULATION".equals(sourceMode) || "SOIL_MOISTURE".equalsIgnoreCase(metric)) {
+            Map<String, Object> device = store.find("device", deviceId);
+            if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
+            Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
+            boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
+                    && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
+            boolean simulatorOnlineOverride = simulatorManualOnlineOverride(device, sourceMode);
+            if (!realControlPending) {
+                device.put("status", simulatorOnlineOverride || !offlineSignal ? "ONLINE" : "OFFLINE");
+                device.put("lastSeen", event.get("ts"));
+                device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+            }
+            device.put("sourceMode", sourceMode);
+            device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
+            device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
+            store.save("device", deviceId, device);
         }
-        device.put("sourceMode", sourceMode);
-        device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
-        device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
-        store.save("device", deviceId, device);
         Map<String, Object> ruleResult = evaluateRuleForEvent(event);
         // A fresh, good-quality soil reading below the farmer's emergency
         // threshold starts one virtual watering run immediately.  The action
@@ -2042,7 +2449,10 @@ class AgriEngine {
             ruleResult.put("automaticWatering", automaticWateringForEvent(event));
         }
         events.publish("telemetry.received", event);
-        store.logEvent("telemetry.received", event);
+        // Keep one representative audit row per plot/tick. The telemetry
+        // table remains the complete metric-level record, while logging all
+        // eleven metrics separately only multiplied high-frequency writes.
+        if ("SOIL_MOISTURE".equalsIgnoreCase(metric)) store.logEvent("telemetry.received", event);
         return Map.of("accepted", true, "duplicate", false, "event", event, "ruleResult", ruleResult);
     }
 
@@ -2080,6 +2490,9 @@ class AgriEngine {
         status.put("ai", checkLlmHealth());
         status.put("aiMode", properties.getAiMode());
         status.put("llmModel", properties.getLlmModel());
+        // 运行时长（秒）与接口版本
+        status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
+        status.put("apiVersion", "v1");
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
@@ -2159,7 +2572,9 @@ class AgriEngine {
         Instant now = Instant.now();
         for (Map<String, Object> device : store.list("device")) {
             Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
-            if ("ONLINE".equals(Jsons.text(device, "status", "")) && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
+            if ("ONLINE".equals(Jsons.text(device, "status", ""))
+                    && !simulatorManualOnlineOverride(device, Jsons.text(device, "sourceMode", ""))
+                    && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
                 String id = Jsons.text(device, "deviceId", ""); device.put("status", "OFFLINE"); device.put("offlineAt", now.toString());
                 store.save("device", id, device); events.publish("device.offline", device); store.logEvent("device.offline", device);
             }
@@ -2250,6 +2665,10 @@ class AgriEngine {
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
         String metric = Jsons.text(event, "metric", ""); double value = Jsons.number(event, "value", 0); String plotId = Jsons.text(event, "plotId", "");
         Map<String, Object> result = new LinkedHashMap<>(); result.put("metric", metric); result.put("value", value); result.put("evaluatedAt", Instant.now().toString());
+        // Only these two metrics participate in the current rules. Resolving
+        // crop packs and batch context for light/CO2/NPK/etc. performed a
+        // database query for every sample while producing no rule output.
+        if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE").contains(metric)) return result;
         Map<String, Object> context = plotCropContext(plotId);
         Map<String, Object> waterRule = cropPackCatalog.rule(context, "WATER_DEFICIT");
         Map<String, Object> heatRule = cropPackCatalog.rule(context, "HEAT_STRESS");
@@ -2450,35 +2869,48 @@ class AgriEngine {
     Map<String, Object> latestMetrics(String plotId) {
         Instant now = Instant.now();
         Instant from = now.minus(48, ChronoUnit.HOURS);
-        List<Map<String, Object>> samples = store.telemetry(plotId, null, from, now.plusSeconds(1), 10000);
-        Map<String, Map<String, Object>> latest = new LinkedHashMap<>();
-        Map<String, Map<String, Object>> activeReal = new LinkedHashMap<>();
+        Instant to = now.plusSeconds(1);
+        Instant qualityWindowStart = now.minus(30, ChronoUnit.MINUTES);
         Instant realCutoff = now.minus(Math.max(1, properties.getRealSourceTimeoutSeconds()), ChronoUnit.SECONDS);
-        for (Map<String, Object> sample : samples) {
-            String metric = Jsons.text(sample, "metric", "");
-            if (metric.isBlank()) continue;
-            if (newerTelemetry(sample, latest.get(metric))) latest.put(metric, sample);
-            if ("REAL".equalsIgnoreCase(Jsons.text(sample, "sourceMode", ""))
-                    && !Jsons.instant(sample.get("ts"), Instant.EPOCH).isBefore(realCutoff)
-                    && newerTelemetry(sample, activeReal.get(metric))) {
-                activeReal.put(metric, sample);
+        Map<String, Map<String, Object>> latest = new LinkedHashMap<>();
+        Map<String, Long> validSamplesByMetric = new HashMap<>();
+        Map<String, Map<String, Object>> databaseWindow = store.latestMetricWindow(
+                plotId, from, to, realCutoff, qualityWindowStart);
+        if (databaseWindow != null) {
+            databaseWindow.forEach((metric, sample) -> {
+                Map<String, Object> copy = Jsons.copy(mapper, sample);
+                validSamplesByMetric.put(metric, Jsons.whole(copy, "_validSamples", 0));
+                copy.remove("_validSamples");
+                latest.put(metric, copy);
+            });
+        } else {
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, from, to, 10000);
+            Map<String, Map<String, Object>> activeReal = new LinkedHashMap<>();
+            for (Map<String, Object> sample : samples) {
+                String metric = Jsons.text(sample, "metric", "");
+                if (metric.isBlank()) continue;
+                if (newerTelemetry(sample, latest.get(metric))) latest.put(metric, sample);
+                if ("REAL".equalsIgnoreCase(Jsons.text(sample, "sourceMode", ""))
+                        && !Jsons.instant(sample.get("ts"), Instant.EPOCH).isBefore(realCutoff)
+                        && newerTelemetry(sample, activeReal.get(metric))) {
+                    activeReal.put(metric, sample);
+                }
+            }
+            activeReal.forEach(latest::put);
+            for (String metric : latest.keySet()) {
+                long count = samples.stream()
+                        .filter(item -> metric.equalsIgnoreCase(Jsons.text(item, "metric", "")))
+                        .filter(item -> !Jsons.instant(item.get("ts"), Instant.EPOCH).isBefore(qualityWindowStart))
+                        .filter(item -> !"BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, item.get("quality")), "status", "GOOD")))
+                        .count();
+                validSamplesByMetric.put(metric, count);
             }
         }
-        // A synthetic sample can be timestamped a few milliseconds after a
-        // physical reading while both MQTT callbacks are in flight.  Source
-        // priority must win that race, otherwise the overview briefly shows
-        // the simulator even though the hardware is already active.
-        activeReal.forEach(latest::put);
-        Instant qualityWindowStart = now.minus(30, ChronoUnit.MINUTES);
         int expectedSamples = 90; // simulator/default collection cadence: 20 seconds
         latest.replaceAll((metric, sample) -> {
             Map<String, Object> enriched = Jsons.copy(mapper, sample);
             Map<String, Object> quality = Jsons.map(mapper, enriched.get("quality"));
-            long validSamples = samples.stream()
-                    .filter(item -> metric.equalsIgnoreCase(Jsons.text(item, "metric", "")))
-                    .filter(item -> !Jsons.instant(item.get("ts"), Instant.EPOCH).isBefore(qualityWindowStart))
-                    .filter(item -> !"BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, item.get("quality")), "status", "GOOD")))
-                    .count();
+            long validSamples = validSamplesByMetric.getOrDefault(metric, 0L);
             quality.put("freshnessMs", Math.max(0, Duration.between(Jsons.instant(enriched.get("ts"), now), now).toMillis()));
             quality.put("validSamples", validSamples);
             quality.put("expectedSamples", expectedSamples);
@@ -2528,9 +2960,12 @@ class AgriEngine {
     }
 
     private boolean isHardwareDevice(Map<String, Object> device) {
-        String id = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+        if (deviceIsSimulated(device)) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .trim().toUpperCase(Locale.ROOT);
+        String id = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        return "REAL".equals(source)
+                || "HARDWARE".equals(source)
                 || ("BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "")) && !id.startsWith("mock-"));
     }
 
@@ -2582,6 +3017,10 @@ class AgriEngine {
         String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
         if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
             device.put("status", "OFFLINE");
+        } else if (simulatorManualOnlineOverride(device, Jsons.text(input, "sourceMode", ""))) {
+            // Ignore a stale/scene-generated OFFLINE status after the
+            // administrator has explicitly brought a simulated device back.
+            device.put("status", "ONLINE");
         } else if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus) && current != null) {
             device.put("status", Jsons.text(current, "status", "OFFLINE"));
         }
@@ -2656,9 +3095,28 @@ class AgriEngine {
     }
 
     private boolean deviceIsSimulated(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
         String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        if ("REAL".equals(source) || "HARDWARE".equals(source)) return false;
+        return Set.of("SIMULATION", "SIMULATED", "SIMULATOR").contains(source) || deviceId.startsWith("mock-");
+    }
+
+    private boolean simulatorManualOnlineOverride(Map<String, Object> device, String incomingSourceMode) {
+        if (!deviceIsSimulated(device)) return false;
         String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return Set.of("SIMULATION", "SIMULATED").contains(source) || deviceId.startsWith("mock-");
+        String source = incomingSourceMode == null || incomingSourceMode.isBlank()
+                ? Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                : incomingSourceMode;
+        if (!("SIMULATION".equalsIgnoreCase(source) || "SIMULATED".equalsIgnoreCase(source)
+                || "SIMULATOR".equalsIgnoreCase(source) || deviceId.startsWith("mock-"))) return false;
+        String override = Jsons.text(device, "manualStatusOverride", "").trim().toUpperCase(Locale.ROOT);
+        if ("ONLINE".equals(override)) return true;
+        // Backward compatibility for successful ONLINE controls written by an
+        // older server before the explicit override field existed.
+        return "SUCCEEDED".equals(Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT))
+                && "ONLINE".equals(Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT))
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
     }
 
     private Map<String, Object> deviceControlResponse(Map<String, Object> command, Map<String, Object> device) {
@@ -2690,6 +3148,14 @@ class AgriEngine {
                 device.put("status", target); device.put("desiredStatus", target); device.put("controlStatus", "SUCCEEDED");
                 device.put("lastControlCommandId", Jsons.text(command, "commandId", "")); device.put("lastControlAt", ack.get("receivedAt"));
                 device.remove("lastControlError");
+                if (deviceIsSimulated(device)) {
+                    device.put("manualStatusOverride", target);
+                    device.put("manualStatusOverrideAt", ack.get("receivedAt"));
+                    if ("ONLINE".equals(target)) device.put("lastSeen", ack.get("receivedAt"));
+                } else {
+                    device.remove("manualStatusOverride");
+                    device.remove("manualStatusOverrideAt");
+                }
                 if ("OFFLINE".equals(target)) device.put("offlineAt", ack.get("receivedAt")); else device.remove("offlineAt");
             } else {
                 device.put("controlStatus", status); device.put("lastControlCommandId", Jsons.text(command, "commandId", ""));
@@ -2838,6 +3304,14 @@ class AgriEngine {
                                 .count())
                         .thenComparing(user -> Jsons.text(user, "username", "")))
                 .findFirst().orElse(null);
+    }
+
+    private Map<String, Object> chooseResourceAssignee(String farmId, String plotId, List<Map<String, Object>> requests) {
+        Map<String, Object> requester = requests.stream()
+                .map(request -> store.userById(Jsons.text(request, "requestedBy", "")))
+                .filter(user -> isEligibleFarmerForPlot(user, farmId, plotId))
+                .findFirst().orElse(null);
+        return requester != null ? requester : chooseBestFarmerForPlot(farmId, plotId);
     }
 
     private String farmerAssignmentReason(Map<String, Object> farmer, String plotId) {
@@ -3135,6 +3609,7 @@ class AgriEngine {
             case "DEVICE_HEALTH" -> "检查设备心跳";
             case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
             case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            case "HUMAN_EVIDENCE_REVIEW" -> "复核人工现场证据";
             case "SOIL_MOISTURE" -> "土壤湿度数据";
             case "GOOD_DATA_QUALITY" -> "合格数据质量";
             case "QUALITY_REVIEW" -> "数据质量复核";
@@ -3260,6 +3735,7 @@ class AgriEngine {
     Map<String, Object> irrigationPlan(Map<String, Object> request, UserPrincipal principal) {
         String plotId = Jsons.text(request, "plotId", "plot-a01"); ensurePlotAccess(principal, plotId);
         boolean automaticWatering = Jsons.bool(request, "automatic", false);
+        boolean canControl = principal != null && principal.canControl();
         Map<String, Object> diagnosis = request.get("diagnosisId") == null ? diagnose(plotId, request) : store.find("diagnosis", Jsons.text(request, "diagnosisId", ""));
         if (diagnosis == null) diagnosis = diagnose(plotId, request);
         String primary = Jsons.text(diagnosis, "primaryCause", "INSUFFICIENT_EVIDENCE");
@@ -3285,12 +3761,14 @@ class AgriEngine {
                 && Jsons.number(simulationParameters, "rainfallRate", 0) > 0;
         boolean configuredOffline = "DEVICE_OFFLINE".equalsIgnoreCase(simulationScenario)
                 && "OFFLINE".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, simulation.get("simulatorDevice")), "status", ""));
-        boolean hardDataBlock = soil.isEmpty()
+        boolean dataQualityBlocked = soil.isEmpty()
                 || "BAD".equals(qualityStatus)
                 || anyMetricBad
-                || "OFFLINE".equals(Jsons.text(device, "status", "OFFLINE"))
-                || configuredOffline
                 || ("SENSOR_DRIFT".equals(primary) && diagnosisConfidence >= 0.6);
+        boolean deviceBlocked = "OFFLINE".equals(Jsons.text(device, "status", "OFFLINE"))
+                || configuredOffline
+                || ("DEVICE_FAULT".equals(primary) && diagnosisConfidence >= 0.6);
+        boolean hardDataBlock = dataQualityBlocked || deviceBlocked;
         boolean reviewOnly = !hardDataBlock
                 && (anyMetricDegraded || "DEGRADED".equals(qualityStatus) || "SENSOR_DRIFT".equals(primary) || "INSUFFICIENT_EVIDENCE".equals(primary));
         // A heavy-rain strategy keeps the recommendation advisory while rain
@@ -3336,10 +3814,12 @@ class AgriEngine {
                 ? "数据质量或设备状态未通过硬门，先补证更稳妥"
                 : activeHeavyRain
                     ? "当前地块处于暴雨模拟场景，先观察积水和排水状态"
+                : noWaterNeeded
+                    ? "当前湿度已达到阶段目标，暂时不需要灌溉"
                 : reviewOnly
                     ? "数据有轻度不确定性，先给人工复核版参考，不自动执行"
                 : emergencyEligible ? "当前土壤湿度已低于 10%，满足自动浇水触发条件"
-                : noWaterNeeded ? "当前湿度已达到阶段目标，暂时不需要灌溉" : "土壤湿度低于当前阶段目标";
+                : "土壤湿度低于当前阶段目标";
         plan.put("why", why); plan.put("evidence", List.of(soil, diagnosis));
         Map<String, Object> emergency = new LinkedHashMap<>();
         emergency.put("eligible", emergencyEligible);
@@ -3372,8 +3852,59 @@ class AgriEngine {
         plan.put("executionMode", automaticWatering ? "AUTOMATIC_THRESHOLD" : "OPERATOR_CONFIRMED");
         plan.put("advisoryOnly", !executable); plan.put("executable", executable); plan.put("readinessStatus", readinessStatus);
         plan.put("status", hardDataBlock ? "BLOCKED" : noWaterNeeded ? "NO_ACTION" : reviewOnly ? "HUMAN_REVIEW" : "PROPOSED"); plan.put("createdAt", Instant.now().toString());
+        Map<String, Object> manualLimits = irrigationWaterLimits(plotId, plot, resource);
+        List<String> bypassedGates = new ArrayList<>();
+        if (dataQualityBlocked || anyMetricDegraded || "DEGRADED".equals(qualityStatus)) {
+            bypassedGates.add("DATA_QUALITY");
+        }
+        if ("SENSOR_DRIFT".equals(primary) && hardDataBlock) bypassedGates.add("DATA_CONFLICT");
+        if (deviceBlocked) bypassedGates.add("DEVICE_HEALTH");
+        if (reviewOnly) bypassedGates.add("DIAGNOSIS_EVIDENCE");
+        if (!"READY".equals(readinessStatus)) bypassedGates.add("DECISION_READINESS");
+        boolean manualBlockedState = !noWaterNeeded && !executable && !bypassedGates.isEmpty();
+        double manualMaxWater = Jsons.number(manualLimits, "maxWaterLitre", 0);
+        boolean manualAvailable = manualBlockedState && canControl && resource != null
+                && manualMaxWater >= MIN_MANUAL_IRRIGATION_LITRES;
+        Map<String, Object> manualFallback = new LinkedHashMap<>();
+        manualFallback.put("available", manualAvailable);
+        manualFallback.put("reasonCode", manualBlockedState ? ("SENSOR_DRIFT".equals(primary) ? "DATA_CONFLICT" : "SAFETY_GATE_BLOCKED") : "NONE");
+        manualFallback.put("reason", manualBlockedState ? why : "当前没有需要人工兜底的灌溉阻塞");
+        manualFallback.put("bypassedGates", bypassedGates);
+        manualFallback.put("virtualOnly", true);
+        manualFallback.put("noCooldown", true);
+        manualFallback.put("constraints", manualLimits);
+        plan.put("manualFallback", manualFallback);
         store.save("irrigation-plan", Jsons.text(plan, "planId", ""), plan); events.publish("irrigation.plan.created", plan); store.logEvent("irrigation.plan.created", plan);
         return plan;
+    }
+
+    private Map<String, Object> irrigationWaterLimits(String plotId, Map<String, Object> plot, Map<String, Object> resource) {
+        Map<String, Object> limits = new LinkedHashMap<>();
+        double flow = Math.max(1, Jsons.number(resource, "flowRateLitresPerMinute", 18));
+        double maxByDuration = flow * properties.getMaxIrrigationSeconds() / 60.0;
+        double dailyRemaining = properties.getDailyWaterLimitLitres();
+        double capacityRemaining = Jsons.number(resource, "capacityLitres", properties.getDailyWaterLimitLitres());
+        if (resource != null) {
+            String farmId = Jsons.text(plot, "farmId", farmIdForPlot(plotId));
+            Map<String, Object> balance = currentWaterBalance(farmId, LocalDate.now(waterZone(resource)));
+            dailyRemaining = Math.max(0, Jsons.number(balance, "remainingLitres", dailyRemaining));
+            double allocated = store.list("command").stream()
+                    .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")))
+                    .filter(c -> !Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED")
+                            .contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
+                    .mapToDouble(c -> Jsons.number(c, "waterLitre", 0)).sum();
+            capacityRemaining = Math.max(0, Jsons.number(resource, "capacityLitres", dailyRemaining) - allocated);
+        } else {
+            capacityRemaining = 0;
+        }
+        double maxWater = Math.max(0, Math.min(maxByDuration, Math.min(dailyRemaining, capacityRemaining)));
+        limits.put("minWaterLitre", MIN_MANUAL_IRRIGATION_LITRES);
+        limits.put("maxWaterLitre", roundLitres(maxWater));
+        limits.put("maxDurationSeconds", properties.getMaxIrrigationSeconds());
+        limits.put("flowRateLitresPerMinute", flow);
+        limits.put("dailyRemainingLitres", roundLitres(dailyRemaining));
+        limits.put("resourceRemainingLitres", roundLitres(capacityRemaining));
+        return limits;
     }
 
     Map<String, Object> irrigationGuard(String plotId, UserPrincipal principal) {
@@ -3606,9 +4137,20 @@ class AgriEngine {
         String key = Jsons.text(request, "idempotencyKey", "");
         if (key.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "动作接口必须携带 idempotencyKey");
         String plotId = Jsons.text(request, "plotId", "plot-a01");
+        boolean manualOverride = Jsons.bool(request, "manualOverride", false);
+        String sourcePlanId = Jsons.text(request, "sourcePlanId", "").trim();
+        if (manualOverride && sourcePlanId.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MANUAL_SOURCE_PLAN_REQUIRED", "人工浇灌必须关联被阻塞的灌溉处方");
+        }
         // Scope the idempotency replay before looking up a prior command.  A
         // key from another plot must never become a cross-plot read shortcut.
         ensurePlotAccess(principal, plotId);
+        if (manualOverride) {
+            Map<String, Object> sourcePlanRecord = store.find("irrigation-plan", sourcePlanId);
+            if (sourcePlanRecord == null || !plotId.equals(Jsons.text(sourcePlanRecord, "plotId", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "MANUAL_SOURCE_PLAN_PLOT_MISMATCH", "人工浇灌处方不属于当前地块");
+            }
+        }
         Map<String, Object> old = idempotentCommands.get(key);
         if (old == null) {
             Map<String, Object> durableKey = store.find("idempotency", key);
@@ -3619,19 +4161,36 @@ class AgriEngine {
             }
         }
         if (old != null) {
+            if (manualOverride && !principal.canControl()) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无人工浇灌执行权限");
+            }
             if (!plotId.equals(Jsons.text(old, "plotId", ""))) {
                 throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_PLOT_MISMATCH", "幂等键已绑定其他地块的灌溉命令");
             }
-            String requestedPlanId = Jsons.text(request, "planId", "");
-            if (!requestedPlanId.isBlank() && !requestedPlanId.equals(Jsons.text(old, "planId", ""))) {
+            String requestedPlanId = Jsons.text(request, "planId", sourcePlanId);
+            String existingPlanId = manualOverride ? Jsons.text(old, "sourcePlanId", Jsons.text(old, "planId", "")) : Jsons.text(old, "planId", "");
+            if (!requestedPlanId.isBlank() && !requestedPlanId.equals(existingPlanId)) {
                 throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_PLAN_MISMATCH", "幂等键已绑定其他灌溉处方");
+            }
+            if (manualOverride) {
+                if (!Jsons.bool(old, "manualOverride", false)) {
+                    throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONTEXT_MISMATCH", "幂等键已绑定非人工浇灌命令");
+                }
+                double requestedWater = Jsons.number(request, "waterLitre", Double.NaN);
+                double existingWater = Jsons.number(old, "waterLitre", Jsons.number(old, "manualWaterLitre", Double.NaN));
+                if (!Double.isFinite(requestedWater) || !Double.isFinite(existingWater) || Math.abs(requestedWater - existingWater) > .0001) {
+                    throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_WATER_MISMATCH", "幂等键已绑定其他人工浇灌水量");
+                }
             }
             return old;
         }
         if (!principal.canControl()) throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无控制权限");
-        boolean automaticWatering = Jsons.bool(request, "automatic", false);
-        String planId = Jsons.text(request, "planId", ""); Map<String, Object> plan = store.find("irrigation-plan", planId);
+        boolean automaticWatering = !manualOverride && Jsons.bool(request, "automatic", false);
+        String planId = manualOverride ? sourcePlanId : Jsons.text(request, "planId", ""); Map<String, Object> plan = store.find("irrigation-plan", planId);
         if (plan == null) {
+            if (manualOverride) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "MANUAL_SOURCE_PLAN_NOT_FOUND", "未找到被阻塞的灌溉处方，请刷新当前地块后重试");
+            }
             Map<String, Object> planRequest = new LinkedHashMap<>();
             planRequest.put("plotId", plotId);
             planRequest.put("automatic", automaticWatering);
@@ -3645,12 +4204,28 @@ class AgriEngine {
         if (!automaticWatering && !confirmed) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CONFIRMATION_REQUIRED", "执行灌溉前需要当前操作人明确确认（人工确认），无需管理员审批");
         }
-        Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", planId), principal);
+        if (manualOverride) {
+            Map<String, Object> sourcePlan = plan;
+            String freshTraceId = Jsons.text(sourcePlan, "traceId", "manual-fallback:" + sourcePlanId);
+            Map<String, Object> refreshed = irrigationPlan(Map.of("plotId", plotId, "traceId", freshTraceId), principal);
+            Map<String, Object> refreshedFallback = Jsons.map(mapper, refreshed.get("manualFallback"));
+            String refreshedStatus = Jsons.text(refreshed, "status", "").toUpperCase(Locale.ROOT);
+            boolean fallbackAvailable = Jsons.bool(refreshedFallback, "available", false);
+            if ("NO_ACTION".equals(refreshedStatus) || !fallbackAvailable) {
+                throw new ApiException(HttpStatus.CONFLICT, "MANUAL_FALLBACK_NOT_AVAILABLE", "当前地块已不再处于可人工兜底的灌溉阻塞状态")
+                        .withDetails(Map.of("sourcePlanId", sourcePlanId, "plan", refreshed));
+            }
+            plan = refreshed;
+            planId = Jsons.text(refreshed, "planId", planId);
+        }
+        Map<String, Object> readiness = manualOverride
+                ? Map.of("status", "BYPASSED", "source", "MANUAL_OPERATOR_OVERRIDE")
+                : readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", planId), principal);
         // A preview may sit for several minutes while telemetry, device health
         // or resource state changes. Confirmation must therefore require both
         // the frozen plan and a fresh safety-gate evaluation to be READY; a
         // stale READY flag may never bypass a current block.
-        if (!"READY".equals(Jsons.text(plan, "readinessStatus", "")) || !"READY".equals(Jsons.text(readiness, "status", ""))) {
+        if (!manualOverride && (!"READY".equals(Jsons.text(plan, "readinessStatus", "")) || !"READY".equals(Jsons.text(readiness, "status", "")))) {
             List<String> missing = Jsons.strings(readiness.get("missingEvidence"));
             String missingText = missing.stream().map(this::diagnosisEvidenceLabel).limit(4).collect(Collectors.joining("、"));
             String message = missingText.isBlank()
@@ -3659,14 +4234,37 @@ class AgriEngine {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "READINESS_BLOCKED", message)
                     .withDetails(Map.of("readiness", readiness, "plan", plan));
         }
-        long duration = Jsons.whole(plan, "durationSeconds", Jsons.whole(request, "durationSeconds", 0));
-        if (duration <= 0 || duration > properties.getMaxIrrigationSeconds()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SAFETY_LIMIT", "灌溉时长超出安全上限");
-        double requestedWater = Jsons.number(plan, "waterLitre", 0);
-        if (requestedWater > properties.getDailyWaterLimitLitres()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DAILY_WATER_LIMIT", "超过每日用水上限");
+        Map<String, Object> plotRecord = requireRecord("plot", plotId);
         Map<String, Object> resource = store.find("resource-profile", "resource-default");
+        long duration;
+        double requestedWater;
+        if (manualOverride) {
+            requestedWater = Jsons.number(request, "waterLitre", Double.NaN);
+            if (!Double.isFinite(requestedWater) || requestedWater < MIN_MANUAL_IRRIGATION_LITRES) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "MANUAL_WATER_INVALID", "人工浇灌水量必须不小于 0.1 L");
+            }
+            double flow = Math.max(1, Jsons.number(resource, "flowRateLitresPerMinute", 18));
+            duration = Math.max(1, (long) Math.ceil(requestedWater / flow * 60));
+            Map<String, Object> limits = irrigationWaterLimits(plotId, plotRecord, resource);
+            double maxWater = Jsons.number(limits, "maxWaterLitre", 0);
+            if (requestedWater > maxWater + .0001) {
+                throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "MANUAL_WATER_LIMIT", "人工浇灌水量超过当前单次、每日或资源可用上限")
+                        .withDetails(Map.of("limits", limits, "requestedWaterLitre", requestedWater));
+            }
+        } else {
+            duration = Jsons.whole(plan, "durationSeconds", Jsons.whole(request, "durationSeconds", 0));
+            requestedWater = Jsons.number(plan, "waterLitre", 0);
+        }
+        if (duration <= 0 || duration > properties.getMaxIrrigationSeconds()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "SAFETY_LIMIT", "灌溉时长超出安全上限");
+        if (requestedWater > properties.getDailyWaterLimitLitres()) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DAILY_WATER_LIMIT", "超过每日用水上限");
         double capacity = Jsons.number(resource, "capacityLitres", properties.getDailyWaterLimitLitres());
         double alreadyAllocated = store.list("command").stream()
-                .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")) && !Set.of("FAILED", "TIMEOUT", "CANCELLED").contains(Jsons.text(c, "status", "")))
+                .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")))
+                .filter(c -> manualOverride
+                        ? !Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED")
+                        .contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT))
+                        : !Set.of("FAILED", "TIMEOUT", "CANCELLED")
+                        .contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
                 .mapToDouble(c -> Jsons.number(c, "waterLitre", 0)).sum();
         if (alreadyAllocated + requestedWater > capacity) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_CAPACITY", "水源容量不足");
         Map<String, Object> guard = irrigationGuard(plotId, principal);
@@ -3681,16 +4279,26 @@ class AgriEngine {
         // The legacy emergency flag is accepted for deployed clients, but no
         // longer changes a cooldown.  It only annotates a low-moisture run.
         boolean emergencyOverride = requestedEmergencyOverride && automaticEligible;
-        Map<String, Object> plotRecord = requireRecord("plot", plotId);
         Map<String, Object> command = new LinkedHashMap<>(); command.put("commandId", Jsons.id("cmd")); command.put("plotId", plotId); command.put("planId", plan.get("planId"));
         command.put("farmId", Jsons.text(plotRecord, "farmId", "farm-demo"));
         command.put("areaM2", Jsons.number(plotRecord, "areaM2", DEFAULT_PLOT_AREA_M2));
-        command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", Jsons.number(plan, "waterLitre", 0));
+        command.put("type", "IRRIGATION_START"); command.put("durationSeconds", duration); command.put("waterLitre", requestedWater);
         command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
         command.put("confirmedBy", automaticWatering ? "SYSTEM_AUTO_WATERING" : principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false);
-        command.put("confirmationMode", automaticWatering ? "AUTOMATIC_THRESHOLD" : "OPERATOR_CONFIRMED"); command.put("riskLevel", automaticWatering || emergencyOverride ? "HIGH" : "MEDIUM");
-        command.put("emergencyMode", automaticWatering ? "AUTOMATIC_SOIL_MOISTURE" : emergencyOverride ? "AUTOMATIC_SOIL_MOISTURE" : "NORMAL");
+        command.put("confirmationMode", manualOverride ? "OPERATOR_MANUAL_OVERRIDE" : automaticWatering ? "AUTOMATIC_THRESHOLD" : "OPERATOR_CONFIRMED"); command.put("riskLevel", manualOverride || automaticWatering || emergencyOverride ? "HIGH" : "MEDIUM");
+        command.put("emergencyMode", manualOverride ? "MANUAL_OPERATOR_OVERRIDE" : automaticWatering ? "AUTOMATIC_SOIL_MOISTURE" : emergencyOverride ? "AUTOMATIC_SOIL_MOISTURE" : "NORMAL");
         command.put("cooldownMinutes", 0); command.put("automaticWatering", automaticWatering);
+        if (manualOverride) {
+            Map<String, Object> manualFallback = Jsons.map(mapper, plan.get("manualFallback"));
+            command.put("manualOverride", true);
+            command.put("sourcePlanId", sourcePlanId);
+            command.put("manualWaterLitre", requestedWater);
+            command.put("bypassedGates", Jsons.strings(manualFallback.get("bypassedGates")));
+            command.put("overrideReasonCode", Jsons.text(manualFallback, "reasonCode", "SAFETY_GATE_BLOCKED"));
+            command.put("executionMode", "SIMULATED");
+            command.put("provenance", "SIMULATED");
+            command.put("virtualOnly", true);
+        }
         if (automaticWatering) command.put("automaticTrigger", Map.of("metric", "SOIL_MOISTURE", "threshold", AUTO_WATERING_THRESHOLD,
                 "mode", "AUTOMATIC_SOIL_MOISTURE", "sourceMode", "SIMULATION"));
         command.put("source", Jsons.text(request, "source", automaticWatering ? "auto-soil-moisture" : "api"));
@@ -3711,7 +4319,7 @@ class AgriEngine {
             saveWorkOrder(approvalWork, "irrigation-approved");
         }
         store.save("command", Jsons.text(command, "commandId", ""), command); idempotentCommands.put(key, command);
-        String commandEvent = workOrderId.isBlank() ? "command.confirmed" : "command.approved";
+        String commandEvent = manualOverride ? "irrigation.manual.override" : workOrderId.isBlank() ? "command.confirmed" : "command.approved";
         events.publish(commandEvent, command); store.logEvent(commandEvent, command);
         store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", command.get("commandId"), "createdAt", Instant.now().toString()));
         executeVirtual(command, request); return command;
@@ -3728,6 +4336,10 @@ class AgriEngine {
             ack.put("status", Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT").contains(outcome) ? outcome : "SUCCEEDED"); ack.put("receivedAt", Instant.now().toString());
             ack.put("actualWaterLitre", "SUCCEEDED".equals(outcome) ? Jsons.number(command, "waterLitre", 0) : "PARTIAL".equals(outcome) ? Jsons.number(command, "waterLitre", 0) * .55 : 0);
             ack.put("result", "SUCCEEDED".equals(outcome) ? "GOOD" : "TIMEOUT".equals(outcome) ? "NO_ACK" : "EXECUTION_FAILED");
+            if (Jsons.bool(command, "manualOverride", false)) {
+                ack.put("executionMode", "SIMULATED");
+                ack.put("provenance", "SIMULATED");
+            }
             ackByCommand.put(Jsons.text(command, "commandId", ""), ack); command.put("status", outcome); command.put("ack", ack); store.save("command", Jsons.text(command, "commandId", ""), command);
             events.publish("command.ack", ack); store.logEvent("command.ack", ack);
             Map<String, Object> evaluation = evaluateCommand(command, ack);
@@ -3747,21 +4359,24 @@ class AgriEngine {
         String scenarioId = Jsons.text(soil, "scenarioId", "irrigation-virtual");
         Instant effectAt = Instant.now();
 
-        Map<String, Object> moistureEvent = new LinkedHashMap<>();
-        moistureEvent.put("eventId", "virtual-irrigation-soil-" + commandId);
-        moistureEvent.put("farmId", farmId);
-        moistureEvent.put("plotId", plotId);
-        moistureEvent.put("deviceId", deviceId);
-        moistureEvent.put("metric", "SOIL_MOISTURE");
-        moistureEvent.put("value", Math.min(100, Math.max(0, soilMoistureAfter)));
-        moistureEvent.put("unit", "%");
-        moistureEvent.put("ts", effectAt.toString());
-        moistureEvent.put("sourceMode", "SIMULATION");
-        moistureEvent.put("provenance", "SIMULATED");
-        moistureEvent.put("dataOrigin", "VIRTUAL_ACTUATOR");
-        moistureEvent.put("scenarioId", scenarioId);
-        moistureEvent.put("quality", Map.of("status", "GOOD", "confidence", .98));
-        ingest(moistureEvent);
+        if (Double.isFinite(soilMoistureAfter)) {
+            Map<String, Object> moistureEvent = new LinkedHashMap<>();
+            moistureEvent.put("eventId", "virtual-irrigation-soil-" + commandId);
+            moistureEvent.put("farmId", farmId);
+            moistureEvent.put("plotId", plotId);
+            moistureEvent.put("deviceId", deviceId);
+            moistureEvent.put("metric", "SOIL_MOISTURE");
+            moistureEvent.put("value", Math.min(100, Math.max(0, soilMoistureAfter)));
+            moistureEvent.put("unit", "%");
+            moistureEvent.put("ts", effectAt.toString());
+            moistureEvent.put("sourceMode", "SIMULATION");
+            moistureEvent.put("provenance", "SIMULATED");
+            moistureEvent.put("dataOrigin", Jsons.bool(store.find("command", commandId), "manualOverride", false)
+                    ? "MANUAL_VIRTUAL_IRRIGATION" : "VIRTUAL_ACTUATOR");
+            moistureEvent.put("scenarioId", scenarioId);
+            moistureEvent.put("quality", Map.of("status", "GOOD", "confidence", .98));
+            ingest(moistureEvent);
+        }
 
         Map<String, Object> water = latest.get("WATER_LEVEL") instanceof Map<?, ?> value
                 ? Jsons.map(mapper, value) : Map.of();
@@ -3806,34 +4421,103 @@ class AgriEngine {
         String commandId = Jsons.text(command, "commandId", ""); String plotId = Jsons.text(command, "plotId", "");
         if (!evaluatedCommands.add(commandId)) return commandEvaluation(commandId);
         Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
-        double before = Jsons.number(soil, "value", 0); String ackStatus = Jsons.text(ack, "status", "TIMEOUT");
+        double observedBefore = Jsons.number(soil, "value", Double.NaN);
+        boolean manualOverride = Jsons.bool(command, "manualOverride", false);
+        boolean moistureBaselineAvailable = Double.isFinite(observedBefore);
+        double before = moistureBaselineAvailable ? observedBefore : 0;
+        String ackStatus = Jsons.text(ack, "status", "TIMEOUT");
         double actualWater = Jsons.number(ack, "actualWaterLitre", 0);
         Map<String, Object> evaluationPlot = store.find("plot", plotId);
         double areaM2 = Jsons.number(evaluationPlot, "areaM2", Jsons.number(command, "areaM2", DEFAULT_PLOT_AREA_M2));
         double expectedWater = Jsons.number(command, "waterLitre", 0);
         double expectedAfter = applyIrrigationMoisture(before, expectedWater, areaM2);
         double after = Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus) ? applyIrrigationMoisture(before, actualWater, areaM2) : before;
-        String status = "TIMEOUT".equals(ackStatus) || "FAILED".equals(ackStatus) ? "INCONCLUSIVE" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "COMPLETED";
-        String result = "SUCCEEDED".equals(ackStatus) && after > before ? "GOOD" : "PARTIAL".equals(ackStatus) ? "NO_EFFECT" : "EXECUTION_FAILED";
+        String status = !moistureBaselineAvailable && manualOverride ? "INCONCLUSIVE" : "TIMEOUT".equals(ackStatus) || "FAILED".equals(ackStatus) ? "INCONCLUSIVE" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "COMPLETED";
+        String result = !moistureBaselineAvailable && manualOverride ? "BASELINE_UNAVAILABLE" : "SUCCEEDED".equals(ackStatus) && after > before ? "GOOD" : "PARTIAL".equals(ackStatus) ? "NO_EFFECT" : "EXECUTION_FAILED";
         double diff = expectedWater == 0 ? 0 : (actualWater - expectedWater) / expectedWater;
         Map<String, Object> evaluation = new LinkedHashMap<>(); evaluation.put("evaluationId", Jsons.id("eval")); evaluation.put("planId", command.get("planId")); evaluation.put("commandId", commandId);
         evaluation.put("plotId", plotId);
         evaluation.put("farmId", evaluationPlot == null ? null : Jsons.text(evaluationPlot, "farmId", ""));
-        evaluation.put("status", status); evaluation.put("expected", Map.of("soilMoistureBefore", before, "soilMoistureAfter", expectedAfter, "waterLitre", expectedWater));
-        evaluation.put("actual", Map.of("soilMoistureBefore", before, "soilMoistureAfter", after, "waterLitre", actualWater));
-        evaluation.put("planActualDiff", Map.of("waterLitrePct", Math.round(diff * 10000.0) / 100.0, "soilMoisturePoint", round(after - expectedAfter)));
+        evaluation.put("status", status);
+        Map<String, Object> expected = new LinkedHashMap<>(); expected.put("soilMoistureBefore", moistureBaselineAvailable ? before : null); expected.put("soilMoistureAfter", moistureBaselineAvailable ? expectedAfter : null); expected.put("waterLitre", expectedWater);
+        Map<String, Object> actual = new LinkedHashMap<>(); actual.put("soilMoistureBefore", moistureBaselineAvailable ? before : null); actual.put("soilMoistureAfter", moistureBaselineAvailable ? after : null); actual.put("waterLitre", actualWater);
+        evaluation.put("expected", expected); evaluation.put("actual", actual);
+        Map<String, Object> planActualDiff = new LinkedHashMap<>(); planActualDiff.put("waterLitrePct", Math.round(diff * 10000.0) / 100.0); planActualDiff.put("soilMoisturePoint", moistureBaselineAvailable ? round(after - expectedAfter) : null);
+        evaluation.put("planActualDiff", planActualDiff);
         evaluation.put("effectivenessScore", status.equals("COMPLETED") && "GOOD".equals(result) ? .94 : status.equals("PARTIAL") ? .45 : 0.0); evaluation.put("result", result);
+        if (manualOverride) {
+            evaluation.put("manualOverride", true);
+            evaluation.put("sourcePlanId", command.get("sourcePlanId"));
+            evaluation.put("bypassedGates", Jsons.strings(command.get("bypassedGates")));
+            evaluation.put("executionMode", "SIMULATED");
+            evaluation.put("provenance", "SIMULATED");
+        }
         evaluation.put("evidenceWindow", Map.of("beforeMinutes", 30, "afterMinutes", 30)); evaluation.put("createdAt", Instant.now().toString());
         Map<String, Object> waterMetric = latest.get("WATER_LEVEL") instanceof Map<?, ?> waterValue ? Jsons.map(mapper, waterValue) : Map.of();
         double waterBefore = Jsons.number(waterMetric, "value", Double.NaN);
-        if (simulationEngine != null && Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus)) {
+        if (simulationEngine != null && moistureBaselineAvailable && Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus)) {
             simulationEngine.syncPlotMetrics(plotId, before, waterBefore);
             simulationEngine.applyIrrigation(plotId, actualWater, areaM2);
         }
-        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, after, actualWater);
+        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, moistureBaselineAvailable ? after : Double.NaN, actualWater);
+        Map<String, Object> manualResourceUsage = settleManualIrrigationResource(command, ack, evaluation);
+        if (!manualResourceUsage.isEmpty()) evaluation.put("resourceUsage", manualResourceUsage);
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
         settleResourceAllocation(command, ack, evaluation);
         return evaluation;
+    }
+
+    private Map<String, Object> settleManualIrrigationResource(Map<String, Object> command,
+                                                                Map<String, Object> ack,
+                                                                Map<String, Object> evaluation) {
+        if (!Jsons.bool(command, "manualOverride", false)) return Map.of();
+        String ackStatus = Jsons.text(ack, "status", "FAILED").toUpperCase(Locale.ROOT);
+        double actual = roundLitres(Jsons.number(ack, "actualWaterLitre", Jsons.number(ack, "actualWaterLitres", 0)));
+        String farmId = Jsons.text(command, "farmId", farmIdForPlot(Jsons.text(command, "plotId", "")));
+        Map<String, Object> usage = new LinkedHashMap<>();
+        usage.put("sourceType", "MANUAL_IRRIGATION");
+        usage.put("sourceRef", Jsons.text(command, "commandId", ""));
+        usage.put("requestedWaterLitre", roundLitres(Jsons.number(command, "waterLitre", 0)));
+        usage.put("actualWaterLitre", actual);
+        usage.put("sourceMode", "SIMULATION");
+        usage.put("provenance", "SIMULATED");
+        boolean consumed = Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus) && actual > 0;
+        usage.put("status", consumed ? "CONSUMED" : "NOT_CONSUMED");
+        Map<String, Object> profile = ensureWaterProfile(farmId);
+        LocalDate date = LocalDate.now(waterZone(profile));
+        synchronized (resourcePlanLock) {
+            Map<String, Object> balance = currentWaterBalance(farmId, date);
+            if (consumed) {
+                double used = roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + actual);
+                balance.put("actualUsedLitres", used);
+                balance.put("usedLitres", used);
+                balance.put("remainingLitres", roundLitres(Math.max(0,
+                        Jsons.number(balance, "dailyQuotaLitres", 900)
+                                - Jsons.number(balance, "reservedLitres", 0) - used)));
+                balance.put("revision", Jsons.whole(balance, "revision", 0) + 1);
+                balance.put("updatedAt", Instant.now().toString());
+                store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance);
+                events.publish("water.balance.updated", balance);
+            }
+            usage.put("businessDate", date.toString());
+            usage.put("remainingLitres", Jsons.number(balance, "remainingLitres", 0));
+        }
+        Map<String, Object> ledger = new LinkedHashMap<>();
+        ledger.put("valueLedgerId", Jsons.id("value"));
+        ledger.put("farmId", farmId);
+        ledger.put("scope", farmId);
+        ledger.put("sourceType", "MANUAL_IRRIGATION");
+        ledger.put("sourceRef", Jsons.text(command, "commandId", ""));
+        ledger.put("baseline", Map.of("waterLitres", roundLitres(Jsons.number(command, "waterLitre", 0)), "source", "MANUAL_OPERATOR_OVERRIDE"));
+        ledger.put("actual", Map.of("waterLitres", actual, "source", "OBSERVED", "sourceMode", "SIMULATION"));
+        ledger.put("status", consumed ? "COMPUTED" : "NOT_CONSUMED");
+        ledger.put("algorithmVersion", "manual-irrigation-ledger-v1");
+        ledger.put("evaluationId", Jsons.text(evaluation, "evaluationId", ""));
+        ledger.put("provenance", "SIMULATED");
+        ledger.put("createdAt", Instant.now().toString());
+        store.save("value-ledger", Jsons.text(ledger, "valueLedgerId", ""), ledger);
+        usage.put("ledgerId", ledger.get("valueLedgerId"));
+        return usage;
     }
 
     Map<String, Object> commandEvaluation(String commandId) {
@@ -3842,7 +4526,10 @@ class AgriEngine {
 
     Map<String, Object> forecast(String plotId, String metric) {
         requireRecord("plot", plotId);
-        return forecastForSimulation(plotId, metric, plotSimulationView(plotId), true);
+        // A GET refresh is a read-only projection. Persisting a brand-new
+        // forecast and event-log record on every browser poll created tens of
+        // thousands of history rows and made later timeline reads slower.
+        return forecastForSimulation(plotId, metric, plotSimulationView(plotId), false);
     }
 
     /**
@@ -4189,6 +4876,7 @@ class AgriEngine {
 
         String inspectionId = Jsons.id("ins");
         String summary = inspectionSummary(soilSurface, cropCondition, deviceStatus, notes);
+        Map<String, Object> sensorConflictAlert = null;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("inspectionId", inspectionId);
         record.put("farmId", farmId);
@@ -4247,14 +4935,18 @@ class AgriEngine {
                     alert.put("createdAt", now.toString());
                     alert.put("raisedAt", now.toString());
                     alert.put("updatedAt", now.toString());
-                    store.save("alert", alertId, alert);
-                    events.publish("alert.created", alert);
-                    store.logEvent("alert.created", alert);
+                    sensorConflictAlert = alert;
                 }
             }
         }
 
-        store.save("inspection", inspectionId, record);
+        store.saveDurably("inspection", inspectionId, record,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "巡田记录数据库不可用，写入未保存");
+        if (sensorConflictAlert != null) {
+            store.save("alert", Jsons.text(sensorConflictAlert, "alertId", ""), sensorConflictAlert);
+            events.publish("alert.created", sensorConflictAlert);
+            store.logEvent("alert.created", sensorConflictAlert);
+        }
         if (linkedWorkOrder != null) {
             List<String> evidenceRefs = new ArrayList<>(Jsons.strings(linkedWorkOrder.get("evidenceRefs")));
             if (!evidenceRefs.contains(inspectionId)) evidenceRefs.add(inspectionId);
@@ -4264,7 +4956,12 @@ class AgriEngine {
             appendWorkOrderHistory(linkedWorkOrder, "EVIDENCE_ADDED", status, status, principal, "新增巡田证据：" + summary, List.of(inspectionId));
             saveWorkOrder(linkedWorkOrder, "evidence-added");
         }
-        events.publish("inspection.created", record);
+        Map<String, Object> inspectionEvent = new LinkedHashMap<>(record);
+        if (linkedWorkOrder != null) {
+            String assignedFarmerId = Jsons.text(linkedWorkOrder, "assigneeId", "");
+            if (!assignedFarmerId.isBlank()) inspectionEvent.put("assignedFarmerId", assignedFarmerId);
+        }
+        events.publish("inspection.created", inspectionEvent);
         store.logEvent("inspection.created", record);
         return record;
     }
@@ -4411,6 +5108,42 @@ class AgriEngine {
                 .toList();
     }
 
+    List<Map<String, Object>> inspections(UserPrincipal principal) {
+        return inspections(principal, "", "");
+    }
+
+    List<Map<String, Object>> inspections(String plotId, UserPrincipal principal) {
+        return inspections(principal, "", plotId);
+    }
+
+    List<Map<String, Object>> inspections(UserPrincipal principal, String farmId, String plotId) {
+        String requestedFarmId = farmId == null ? "" : farmId.trim();
+        String requestedPlotId = plotId == null ? "" : plotId.trim();
+        if (principal != null && !requestedFarmId.isBlank() && !principal.canAccessFarm(requestedFarmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        }
+        if (principal != null && !requestedPlotId.isBlank()) ensurePlotAccess(principal, requestedPlotId);
+        return store.list("inspection").stream()
+                .filter(item -> {
+                    String itemFarmId = Jsons.text(item, "farmId", farmIdForPlot(Jsons.text(item, "plotId", "")));
+                    return requestedFarmId.isBlank() || requestedFarmId.equals(itemFarmId);
+                })
+                .filter(item -> requestedPlotId.isBlank() || requestedPlotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || canAccessPlot(principal, Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || !principal.isFarmer() || farmerCanSeeInspection(item, principal))
+                .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
+                .toList();
+    }
+
+    private boolean farmerCanSeeInspection(Map<String, Object> inspection, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) return true;
+        if (principal.userId.equals(Jsons.text(inspection, "operatorId", ""))) return true;
+        String workOrderId = Jsons.text(inspection, "workOrderId", "").trim();
+        if (workOrderId.isBlank()) return false;
+        Map<String, Object> workOrder = store.find("work-order", workOrderId);
+        return workOrder != null && principal.userId.equals(Jsons.text(workOrder, "assigneeId", ""));
+    }
+
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
         StreamBuilder work = new StreamBuilder();
         store.list("work-order").stream()
@@ -4430,7 +5163,9 @@ class AgriEngine {
     }
 
     Map<String, Object> createWorkOrder(Map<String, Object> input, UserPrincipal principal) {
-        boolean evidenceRequest = "READINESS".equalsIgnoreCase(Jsons.text(input, "sourceType", ""))
+        String sourceType = Jsons.text(input, "sourceType", "").trim().toUpperCase(Locale.ROOT);
+        boolean readinessEvidenceRequest = "READINESS".equals(sourceType);
+        boolean evidenceRequest = readinessEvidenceRequest
                 || "INSPECTION".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         boolean irrigationReview = "IRRIGATION_REVIEW".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)
@@ -4454,6 +5189,12 @@ class AgriEngine {
         String actionType = canonicalWorkActionType(Jsons.text(input, "actionType", evidenceRequest ? "INSPECTION" : "FIELD_OPERATION"));
         work.put("actionType", actionType);
         work.put("actionLabel", workOperationLabel(actionType));
+        if (readinessEvidenceRequest) {
+            work.put("sourceType", "READINESS");
+            work.put("evidenceType", canonicalEvidenceType(Jsons.text(input, "evidenceType", "FIELD_INSPECTION")));
+            work.put("requesterId", principal.userId);
+            work.put("requesterName", principal.username);
+        }
         work.put("status", "OPEN");
         work.put("priority", normalizePriority(Jsons.text(input, "priority", "MEDIUM")));
         work.put("assigneeId", null);
@@ -4463,8 +5204,88 @@ class AgriEngine {
         work.put("createdBy", principal.userId);
         work.put("updatedBy", principal.userId);
         appendWorkOrderHistory(work, "CREATE", null, "OPEN", principal, Jsons.text(input, "reason", "创建任务"), List.of());
-        saveWorkOrder(work, "created");
+        if (readinessEvidenceRequest) saveWorkOrderDurably(work, "created");
+        else saveWorkOrder(work, "created");
         return work;
+    }
+
+    synchronized Map<String, Object> reportWorkOrderIssue(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> original = requireRecord("work-order", workOrderId);
+        ensurePlotAccess(principal, Jsons.text(original, "plotId", ""));
+        requireAssignedFarmer(original, principal);
+        String current = normalizeWorkStatus(original.get("status"));
+        ensureWorkOrderState(current);
+        if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能上报新问题");
+        }
+        String description = Jsons.text(request, "description", Jsons.text(request, "issueDescription", Jsons.text(request, "note", ""))).trim();
+        if (description.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_REQUIRED", "请具体描述遇到的问题");
+        }
+        if (description.length() > 1000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_TOO_LONG", "问题描述不能超过 1000 个字");
+        }
+        Map<String, Object> existing = store.list("work-order").stream()
+                .filter(item -> "FARMER_REPORT".equalsIgnoreCase(Jsons.text(item, "sourceType", "")))
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> principal.userId.equals(Jsons.text(item, "reporterId", Jsons.text(item, "createdBy", ""))))
+                .filter(item -> !Set.of("DONE", "CANCELLED", "REJECTED").contains(normalizeWorkStatus(item.get("status"))))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(existing));
+            result.put("reused", true);
+            result.put("sourceWorkOrderId", workOrderId);
+            result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+            return result;
+        }
+
+        Instant now = Instant.now();
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("workOrderId", Jsons.id("wo"));
+        report.put("farmId", Jsons.text(original, "farmId", farmIdForPlot(Jsons.text(original, "plotId", ""))));
+        report.put("plotId", Jsons.text(original, "plotId", ""));
+        report.put("sourceType", "FARMER_REPORT");
+        report.put("sourceRef", workOrderId);
+        report.put("parentWorkOrderId", workOrderId);
+        report.put("title", "农户问题上报：" + Jsons.text(original, "title", "农务任务"));
+        report.put("reason", description);
+        report.put("description", description);
+        report.put("issueDescription", description);
+        report.put("reporterId", principal.userId);
+        report.put("reporterName", principal.username);
+        report.put("reporterRole", "FARMER");
+        report.put("actionType", "INSPECTION");
+        report.put("actionLabel", workOperationLabel("INSPECTION"));
+        report.put("priority", normalizePriority(Jsons.text(request, "priority", "HIGH")));
+        report.put("status", "OPEN");
+        report.put("createdBy", principal.userId);
+        report.put("updatedBy", principal.userId);
+        report.put("createdAt", now.toString());
+        report.put("updatedAt", now.toString());
+        report.put("provenance", "USER_PROVIDED");
+        report.put("sourceMode", "SIMULATION");
+        appendWorkOrderHistory(report, "CREATE", null, "OPEN", principal, description, List.of());
+        saveWorkOrder(report, "farmer-report");
+
+        original.put("issueReportId", report.get("workOrderId"));
+        original.put("issueReportStatus", "OPEN");
+        original.put("issueReportDescription", description);
+        original.put("issueReportedAt", now.toString());
+        original.put("issueReportedBy", principal.userId);
+        updateWorkOrderAudit(original, principal, now);
+        appendWorkOrderHistory(original, "ISSUE_REPORTED", current, current, principal, description, List.of(Jsons.text(report, "workOrderId", "")));
+        // The report event is the single admin notification. Keep the parent
+        // marker auditable without publishing a duplicate SSE notification.
+        store.save("work-order", workOrderId, original);
+        store.logEvent("workorder.issue-reported", original);
+
+        Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(report));
+        result.put("reused", false);
+        result.put("sourceWorkOrderId", workOrderId);
+        result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+        return result;
     }
 
     List<Map<String, Object>> workOrders(Map<String, String> filters, UserPrincipal principal) {
@@ -4519,6 +5340,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,
                 Jsons.text(input, "note", "任务已分配"), List.of());
         saveWorkOrder(work, "assigned");
+        syncFarmerIssueReportParent(work, "ASSIGNED", principal, now);
         return work;
     }
 
@@ -4592,6 +5414,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, action, current, target, principal, note,
                 "SUBMIT".equals(action) ? Jsons.strings(work.get("evidenceRefs")) : Jsons.strings(input.get("evidenceRefs")));
         saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
+        syncFarmerIssueReportParent(work, target, principal, now);
         return work;
     }
 
@@ -4631,6 +5454,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
                 note.isBlank() ? "验收通过" : note, List.of());
         saveWorkOrder(work, approved ? "completed" : "rejected");
+        syncFarmerIssueReportParent(work, target, principal, now);
         if (approved && isManualIrrigationWork(work)) settleManualIrrigationWork(work, principal);
         if (verification && approved) {
             Map<String, Object> result = new LinkedHashMap<>(work);
@@ -4836,6 +5660,42 @@ class AgriEngine {
         return result;
     }
 
+    // 操作审计日志视图：event_log → 前端可读格式（操作人/详情）
+    List<Map<String, Object>> auditLogsView(int limit) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> row : store.auditLogs(limit)) {
+            Map<String, Object> payload = Jsons.map(mapper, Jsons.text(row, "payload", "{}"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("time", Jsons.text(row, "time", ""));
+            item.put("action", row.get("action"));
+            item.put("operator", Stream.of("updatedBy", "userId", "username", "operator", "initiator")
+                    .map(key -> Jsons.text(payload, key, "").trim()).filter(s -> !s.isEmpty()).findFirst().orElse("system"));
+            String detail = auditLogDetail(Jsons.text(row, "action", ""), payload);
+            item.put("detail", detail);
+            result.add(item);
+        }
+        return result;
+    }
+
+    // 事件类型 → 中文操作详情（读 payload 关键字段）
+    private String auditLogDetail(String action, Map<String, Object> payload) {
+        if (action == null || action.isBlank()) return "系统事件";
+        String summary = Jsons.text(payload, "summary", "").trim();
+        if (!summary.isEmpty()) return summary;
+        String username = Jsons.text(payload, "username", "").trim();
+        if (!username.isEmpty()) return "账号：" + username;
+        String userId = Jsons.text(payload, "userId", "").trim();
+        if (!userId.isEmpty()) return "用户：" + userId;
+        String plotId = Jsons.text(payload, "plotId", "").trim();
+        if (!plotId.isEmpty()) return "地块：" + plotId;
+        String target = Jsons.text(payload, "target", "").trim();
+        if (!target.isEmpty()) return "对象：" + target;
+        String reason = Jsons.text(payload, "reason", "").trim();
+        if (!reason.isEmpty()) return reason;
+        return action.replace('.', ' ') + "（" + payload.size() + " 字段）";
+    }
+
     Map<String, Object> deleteAccount(String userId, UserPrincipal principal) {
         if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_DELETE_FORBIDDEN", "只有系统管理员可以删除账号");
         if (principal.userId.equals(userId)) throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_SELF_DELETE_FORBIDDEN", "不能删除自己的账号");
@@ -4918,6 +5778,7 @@ class AgriEngine {
      */
     private boolean farmerCanSeeWorkOrder(Map<String, Object> work, UserPrincipal principal) {
         if (principal == null || !"FARMER".equals(principal.role)) return true;
+        if ("FARMER_REPORT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))) return false;
         if (principal.userId.equals(Jsons.text(work, "assigneeId", ""))) return true;
         return principal.userId.equals(Jsons.text(work, "createdBy", ""))
                 && ("READINESS".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
@@ -4953,6 +5814,15 @@ class AgriEngine {
         return Set.of("HIGH", "MEDIUM", "LOW").contains(priority) ? priority : "MEDIUM";
     }
 
+    private String canonicalEvidenceType(String value) {
+        String normalized = String.valueOf(value == null ? "FIELD_INSPECTION" : value)
+                .trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (!Set.of("FIELD_INSPECTION", "RETEST", "DEVICE_CHECK").contains(normalized)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EVIDENCE_TYPE_INVALID", "补证类型只能是现场巡田、传感器复测或设备检查");
+        }
+        return normalized;
+    }
+
     private void requireFarmAdmin(UserPrincipal principal) {
         if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以安排和验收任务");
     }
@@ -4986,6 +5856,23 @@ class AgriEngine {
     private void updateWorkOrderAudit(Map<String, Object> work, UserPrincipal principal, Instant now) {
         work.put("updatedAt", now.toString());
         work.put("updatedBy", principal.userId);
+    }
+
+    private void syncFarmerIssueReportParent(Map<String, Object> report, String status, UserPrincipal principal, Instant now) {
+        if (!"FARMER_REPORT".equalsIgnoreCase(Jsons.text(report, "sourceType", ""))) return;
+        String parentId = Jsons.text(report, "parentWorkOrderId", Jsons.text(report, "sourceRef", ""));
+        if (parentId.isBlank()) return;
+        Map<String, Object> parent = store.find("work-order", parentId);
+        if (parent == null) return;
+        String parentStatus = normalizeWorkStatus(parent.get("status"));
+        parent.put("issueReportStatus", status);
+        parent.put("issueReportUpdatedAt", now.toString());
+        parent.put("issueReportUpdatedBy", principal.userId);
+        updateWorkOrderAudit(parent, principal, now);
+        appendWorkOrderHistory(parent, "ISSUE_REPORT_STATUS_UPDATED", parentStatus, parentStatus, principal,
+                "问题上报工单状态更新为：" + status, List.of(Jsons.text(report, "workOrderId", "")));
+        store.save("work-order", parentId, parent);
+        store.logEvent("workorder.issue-report-updated", parent);
     }
 
     private void appendWorkOrderHistory(Map<String, Object> work, String action, String fromStatus, String toStatus,
@@ -5238,6 +6125,195 @@ class AgriEngine {
         store.logEvent("workorder." + eventSuffix, work);
     }
 
+    private void saveWorkOrderDurably(Map<String, Object> work, String eventSuffix) {
+        String workOrderId = Jsons.text(work, "workOrderId", "");
+        store.saveDurably("work-order", workOrderId, work,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "补证申请数据库不可用，写入未保存");
+        events.publish("workorder." + eventSuffix, work);
+        store.logEvent("workorder." + eventSuffix, work);
+    }
+
+    private void appendResourceRequestHistory(Map<String, Object> request, String action, UserPrincipal principal, String note) {
+        List<Map<String, Object>> history = new ArrayList<>(Jsons.maps(mapper, request.get("history")));
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put("action", action); entry.put("actorId", principal.userId); entry.put("actorName", principal.username);
+        entry.put("actorRole", principal.role); entry.put("at", Instant.now().toString());
+        if (note != null && !note.isBlank()) entry.put("note", note.trim());
+        history.add(entry); request.put("history", history);
+    }
+
+    private void requireResourcePersistence() {
+        if (!store.databaseReady()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看");
+        }
+    }
+
+    private Map<String, Object> saveResourceRequest(Map<String, Object> request, String eventType) {
+        String requestId = Jsons.text(request, "resourceRequestId", "");
+        request.put("updatedAt", Instant.now().toString());
+        store.saveDurably("resource-request", requestId, request);
+        events.publish(eventType, request); store.logEvent(eventType, request);
+        return request;
+    }
+
+    Map<String, Object> createResourceRequest(Map<String, Object> input, UserPrincipal principal) {
+        if (!principal.isFarmer() && !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_REQUEST_FORBIDDEN", "当前身份不能提交地块用水需求");
+        }
+        requireResourcePersistence();
+        String plotId = Jsons.text(input, "plotId", "").trim();
+        if (plotId.isBlank() || !canAccessPlot(principal, plotId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权为该地块提交用水需求");
+        }
+        String farmId = farmIdForPlot(plotId);
+        if (farmId.isBlank() || !principal.canAccessFarm(farmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权为该农场提交用水需求");
+        }
+        double requested = Jsons.number(input, "requestedLitres", -1);
+        if (requested <= 0 || requested > 100000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_REQUEST_AMOUNT_INVALID", "申请水量必须在 0 到 100000 L 之间");
+        }
+        String preferredStart = Jsons.text(input, "preferredStart", "").trim();
+        String preferredEnd = Jsons.text(input, "preferredEnd", "").trim();
+        try {
+            if (!preferredStart.isBlank()) Instant.parse(preferredStart);
+            if (!preferredEnd.isBlank()) Instant.parse(preferredEnd);
+            if (!preferredStart.isBlank() && !preferredEnd.isBlank() && !Instant.parse(preferredEnd).isAfter(Instant.parse(preferredStart))) {
+                throw new IllegalArgumentException("end before start");
+            }
+        } catch (Exception error) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_REQUEST_WINDOW_INVALID", "期望执行时间窗无效");
+        }
+        Map<String, Object> request = store.list("resource-request").stream()
+                .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> principal.userId.equals(Jsons.text(item, "requestedBy", "")))
+                .filter(item -> RESOURCE_REQUEST_OPEN.contains(Jsons.text(item, "status", "")))
+                .findFirst().map(LinkedHashMap::new).orElseGet(LinkedHashMap::new);
+        boolean existing = !request.isEmpty();
+        if (existing && !RESOURCE_REQUEST_ACTIVE.contains(Jsons.text(request, "status", ""))) {
+            throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_REQUEST_LOCKED", "当前需求已进入确认或执行阶段，请先完成本轮协同");
+        }
+        String requestId = Jsons.text(request, "resourceRequestId", Jsons.id("resource-request"));
+        request.put("resourceRequestId", requestId); request.put("farmId", farmId); request.put("plotId", plotId);
+        request.put("requestedLitres", roundLitres(requested)); request.put("preferredStart", preferredStart.isBlank() ? null : preferredStart);
+        request.put("preferredEnd", preferredEnd.isBlank() ? null : preferredEnd); request.put("note", Jsons.text(input, "note", "").trim());
+        request.put("constraints", Jsons.text(input, "constraints", "").trim()); request.put("status", "SUBMITTED");
+        request.put("requestedBy", principal.userId); request.put("requestedByName", principal.username); request.put("requestedByRole", principal.role);
+        request.put("revision", existing ? Jsons.whole(request, "revision", 1) + 1 : 1); request.putIfAbsent("createdAt", Instant.now().toString());
+        request.remove("resourcePlanId"); request.remove("allocatedLitres"); request.remove("scheduledStart"); request.remove("scheduledEnd");
+        request.remove("assignedFarmerId"); request.remove("assignedFarmerName"); request.remove("responseNote"); request.remove("respondedAt");
+        request.put("provenance", "USER_PROVIDED"); request.put("sourceMode", "SIMULATION");
+        appendResourceRequestHistory(request, existing ? "RESUBMITTED" : "SUBMITTED", principal, Jsons.text(input, "note", ""));
+        return saveResourceRequest(request, existing ? "resource.request.resubmitted" : "resource.request.created");
+    }
+
+    List<Map<String, Object>> listResourceRequests(Map<String, String> filters, UserPrincipal principal) {
+        String farmId = filters == null ? "" : String.valueOf(filters.getOrDefault("farmId", "")).trim();
+        String plotId = filters == null ? "" : String.valueOf(filters.getOrDefault("plotId", "")).trim();
+        String status = filters == null ? "" : String.valueOf(filters.getOrDefault("status", "")).trim().toUpperCase(Locale.ROOT);
+        if (!status.isBlank() && !RESOURCE_REQUEST_STATUSES.contains(status)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_REQUEST_STATUS_INVALID", "未知的资源需求状态");
+        }
+        if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场的用水需求");
+        if (!plotId.isBlank() && !canAccessPlot(principal, plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权查看该地块的用水需求");
+        final String selectedFarm = farmId; final String selectedPlot = plotId; final String selectedStatus = status;
+        return store.list("resource-request").stream()
+                .filter(item -> {
+                    if (principal.isSystemAdmin()) return true;
+                    boolean inScope = principal.canAccessFarm(Jsons.text(item, "farmId", "")) && canAccessPlot(principal, Jsons.text(item, "plotId", ""));
+                    if (!inScope) return false;
+                    if (principal.isFarmAdmin()) return true;
+                    return principal.userId.equals(Jsons.text(item, "requestedBy", ""))
+                            || principal.userId.equals(Jsons.text(item, "assignedFarmerId", ""));
+                })
+                .filter(item -> selectedFarm.isBlank() || selectedFarm.equals(Jsons.text(item, "farmId", "")))
+                .filter(item -> selectedPlot.isBlank() || selectedPlot.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> selectedStatus.isBlank() || selectedStatus.equals(Jsons.text(item, "status", "")))
+                .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
+                .toList();
+    }
+
+    Map<String, Object> actOnResourceRequest(String resourceRequestId, Map<String, Object> input, UserPrincipal principal) {
+        if (!principal.isFarmer()) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_REQUEST_RESPONSE_FORBIDDEN", "只有地块农户可以确认或反馈分配结果");
+        requireResourcePersistence();
+        Map<String, Object> request = requireRecord("resource-request", resourceRequestId);
+        String plotId = Jsons.text(request, "plotId", "");
+        if (!canAccessPlot(principal, plotId) || !principal.canAccessFarm(Jsons.text(request, "farmId", ""))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_REQUEST_FORBIDDEN", "无权处理该用水需求");
+        }
+        boolean participant = principal.userId.equals(Jsons.text(request, "requestedBy", ""))
+                || principal.userId.equals(Jsons.text(request, "assignedFarmerId", ""));
+        if (!participant) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_REQUEST_FORBIDDEN", "只能处理本人申请或分配给本人的用水需求");
+        String action = Jsons.text(input, "action", "").trim().toUpperCase(Locale.ROOT);
+        String note = Jsons.text(input, "note", "").trim();
+        String current = Jsons.text(request, "status", "SUBMITTED");
+        if ("WITHDRAW".equals(action)) {
+            if (!principal.userId.equals(Jsons.text(request, "requestedBy", ""))) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_REQUEST_WITHDRAW_FORBIDDEN", "只能撤回本人提交的需求");
+            if (!Set.of("SUBMITTED", "IN_REVIEW", "CONFLICT_REPORTED").contains(current)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_REQUEST_NOT_WITHDRAWABLE", "当前需求不能撤回");
+            request.put("status", "CANCELLED");
+        } else if ("ACKNOWLEDGE".equals(action)) {
+            if (!Set.of("PENDING_ACK", "CONFLICT_REPORTED", "ACKNOWLEDGED").contains(current)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_REQUEST_NOT_CONFIRMABLE", "当前还没有可确认的分配结果");
+            request.put("status", "ACKNOWLEDGED");
+        } else if ("REPORT_CONFLICT".equals(action)) {
+            if (!Set.of("PENDING_ACK", "ACKNOWLEDGED", "CONFLICT_REPORTED").contains(current)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_REQUEST_NOT_RESPONDABLE", "当前还没有可反馈的分配结果");
+            if (note.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_REQUEST_CONFLICT_NOTE_REQUIRED", "反馈冲突必须说明原因");
+            request.put("status", "CONFLICT_REPORTED");
+        } else {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "RESOURCE_REQUEST_ACTION_INVALID", "仅支持 ACKNOWLEDGE、REPORT_CONFLICT 或 WITHDRAW");
+        }
+        request.put("responseNote", note); request.put("respondedBy", principal.userId); request.put("respondedByName", principal.username);
+        request.put("respondedAt", Instant.now().toString()); request.put("revision", Jsons.whole(request, "revision", 1) + 1);
+        appendResourceRequestHistory(request, action, principal, note);
+        Map<String, Object> saved = saveResourceRequest(request, "resource.request." + action.toLowerCase(Locale.ROOT));
+        updateResourcePlanCollaboration(saved);
+        if ("REPORT_CONFLICT".equals(action)) ensureResourceConflictWorkOrder(saved);
+        return saved;
+    }
+
+    private void updateResourcePlanCollaboration(Map<String, Object> request) {
+        String resourcePlanId = Jsons.text(request, "resourcePlanId", "");
+        if (resourcePlanId.isBlank()) return;
+        synchronized (resourcePlanLock) {
+            Map<String, Object> plan = store.find("resource-plan", resourcePlanId);
+            if (plan == null) return;
+            String requestId = Jsons.text(request, "resourceRequestId", "");
+            List<Map<String, Object>> allocations = new ArrayList<>();
+            Map<String, Object> changedAllocation = null;
+            for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) {
+                Map<String, Object> allocation = new LinkedHashMap<>(source);
+                List<String> requestIds = Jsons.strings(allocation.get("resourceRequestIds"));
+                if (requestIds.contains(requestId)) {
+                    List<String> statuses = requestIds.stream().map(id -> store.find("resource-request", id))
+                            .filter(Objects::nonNull).map(item -> Jsons.text(item, "status", "")).toList();
+                    String collaborationStatus = statuses.stream().anyMatch("CONFLICT_REPORTED"::equals) ? "CONFLICT_REPORTED"
+                            : !statuses.isEmpty() && statuses.stream().allMatch(status -> Set.of("ACKNOWLEDGED", "COMPLETED").contains(status)) ? "ACKNOWLEDGED"
+                            : "PENDING_ACK";
+                    allocation.put("collaborationStatus", collaborationStatus);
+                    changedAllocation = allocation;
+                }
+                allocations.add(allocation);
+            }
+            if (changedAllocation == null) return;
+            plan.put("allocations", allocations); plan.put("revision", Jsons.whole(plan, "revision", 1) + 1);
+            plan.put("updatedAt", Instant.now().toString()); store.saveDurably("resource-plan", resourcePlanId, plan);
+            events.publish("resource.plan.collaboration_updated", changedAllocation); store.logEvent("resource.plan.collaboration_updated", changedAllocation);
+        }
+    }
+
+    private void ensureResourceConflictWorkOrder(Map<String, Object> request) {
+        String requestId = Jsons.text(request, "resourceRequestId", "");
+        boolean exists = store.list("work-order").stream().anyMatch(work -> requestId.equals(Jsons.text(work, "sourceRef", ""))
+                && "RESOURCE_REQUEST".equals(Jsons.text(work, "sourceType", ""))
+                && !TERMINAL_WORK_ORDER_STATUSES.contains(normalizeWorkStatus(work.get("status"))));
+        if (exists) return;
+        Map<String, Object> work = new LinkedHashMap<>(); work.put("workOrderId", Jsons.id("wo"));
+        work.put("farmId", request.get("farmId")); work.put("plotId", request.get("plotId")); work.put("sourceType", "RESOURCE_REQUEST");
+        work.put("sourceRef", requestId); work.put("taskPurpose", "RESOURCE_COLLABORATION"); work.put("actionType", "RESOURCE_REVIEW");
+        work.put("title", "配水冲突复核：" + Jsons.text(request, "plotId", "")); work.put("reason", Jsons.text(request, "responseNote", "农户反馈执行冲突"));
+        work.put("priority", "HIGH"); work.put("status", "OPEN"); work.put("createdAt", Instant.now().toString()); work.put("updatedAt", Instant.now().toString());
+        work.put("provenance", "USER_PROVIDED"); saveWorkOrder(work, "created");
+    }
+
     Map<String, Object> resourcePlan(Map<String, Object> input, UserPrincipal principal) {
         boolean auto = "AUTO".equalsIgnoreCase(Jsons.text(input, "mode", ""));
         if (auto) return evaluateAutoResourcePlan(input, principal);
@@ -5248,6 +6324,7 @@ class AgriEngine {
     private Map<String, Object> legacyResourcePlan(Map<String, Object> input, UserPrincipal principal) {
         boolean farmerPreview = principal.isFarmer();
         if (!principal.isFarmAdmin() && !farmerPreview) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "当前身份不能试算或安排农场资源");
+        if (!farmerPreview) requireResourcePersistence();
         String farmId = resolveResourceFarm(input, principal);
         Map<String, Object> resource = ensureWaterProfile(farmId);
         List<Map<String, Object>> demands = Jsons.maps(mapper, input.get("demands"));
@@ -5269,7 +6346,7 @@ class AgriEngine {
         plan.put("farmId", farmId); plan.put("scope", farmId); plan.put("window", Map.of("from", Instant.now().toString(), "to", Instant.now().plus(6, ChronoUnit.HOURS).toString()));
         plan.put("constraints", Map.of("waterCapacityLitres", capacity)); plan.put("allocations", allocations); plan.put("conflicts", conflicts); plan.put("unmetDemands", unmet); plan.put("algorithmVersion", "capacity-priority-v1");
         plan.put("trialOnly", farmerPreview); plan.put("readOnly", farmerPreview); plan.put("provenance", "DERIVED"); plan.put("sourceMode", "ESTIMATED");
-        if (!farmerPreview) { store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.created", plan); }
+        if (!farmerPreview) { store.saveDurably("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.created", plan); }
         return plan;
     }
 
@@ -5325,6 +6402,13 @@ class AgriEngine {
 
     private double roundLitres(double value) { return Math.round(Math.max(0, value) * 10.0) / 10.0; }
 
+    private Instant resourceWindowBoundary(List<Map<String, Object>> requests, String key, boolean latest) {
+        Comparator<Instant> order = Comparator.naturalOrder();
+        return requests.stream().filter(request -> !Jsons.text(request, key, "").isBlank())
+                .map(request -> Jsons.instant(request.get(key), null)).filter(Objects::nonNull)
+                .reduce(latest ? BinaryOperator.maxBy(order) : BinaryOperator.minBy(order)).orElse(null);
+    }
+
     Map<String, Object> waterResourceProfile(String farmId, String requestedDate, UserPrincipal principal) {
         String selectedFarm = (farmId == null || farmId.isBlank()) ? resolveResourceFarm(Map.of(), principal) : farmId.trim();
         if (!principal.canAccessFarm(selectedFarm)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场的水资源");
@@ -5337,13 +6421,14 @@ class AgriEngine {
 
     Map<String, Object> updateWaterResourceProfile(Map<String, Object> input, UserPrincipal principal) {
         if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PROFILE_FORBIDDEN", "只有农场管理员可以设置水资源配额");
+        requireResourcePersistence();
         String farmId = resolveResourceFarm(input, principal); Map<String, Object> profile = ensureWaterProfile(farmId); String rawDate = Jsons.text(input, "effectiveFrom", "").trim();
         if (rawDate.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "EFFECTIVE_DATE_REQUIRED", "请指定配额生效日期");
         LocalDate effective; try { effective = LocalDate.parse(rawDate); } catch (Exception e) { throw new ApiException(HttpStatus.BAD_REQUEST, "EFFECTIVE_DATE_INVALID", "生效日期格式应为 YYYY-MM-DD"); }
         LocalDate today = LocalDate.now(waterZone(profile)); if (!effective.isAfter(today)) throw new ApiException(HttpStatus.BAD_REQUEST, "CURRENT_QUOTA_FROZEN", "当前日及过去日期的配额不可修改");
         double quota = Jsons.number(input, "dailyQuotaLitres", -1); if (quota <= 0 || quota > 100000) throw new ApiException(HttpStatus.BAD_REQUEST, "DAILY_QUOTA_INVALID", "每日配额必须在 0 到 100000 L 之间");
         List<Map<String, Object>> schedule = new ArrayList<>(Jsons.maps(mapper, profile.get("futureQuotas"))); schedule.removeIf(item -> effective.toString().equals(Jsons.text(item, "effectiveFrom", ""))); schedule.add(new LinkedHashMap<>(Map.of("effectiveFrom", effective.toString(), "dailyQuotaLitres", roundLitres(quota)))); schedule.sort(Comparator.comparing(item -> Jsons.text(item, "effectiveFrom", "")));
-        profile.put("futureQuotas", schedule); profile.put("updatedAt", Instant.now().toString()); profile.put("updatedBy", principal.userId); store.save("resource-profile", Jsons.text(profile, "resourceProfileId", "water-" + farmId), profile);
+        profile.put("futureQuotas", schedule); profile.put("updatedAt", Instant.now().toString()); profile.put("updatedBy", principal.userId); store.saveDurably("resource-profile", Jsons.text(profile, "resourceProfileId", "water-" + farmId), profile);
         events.publish("resource.profile.updated", profile); store.logEvent("resource.profile.updated", profile); return waterResourceProfile(farmId, today.toString(), principal);
     }
 
@@ -5362,7 +6447,7 @@ class AgriEngine {
     private Map<String, Object> resourcePlanForPrincipal(Map<String, Object> plan, UserPrincipal principal) {
         if (!principal.isFarmer()) return plan;
         List<Map<String, Object>> allocations = Jsons.maps(mapper, plan.get("allocations")).stream().filter(item -> canAccessPlot(principal, Jsons.text(item, "plotId", ""))).toList();
-        if (allocations.isEmpty()) return null; Map<String, Object> copy = new LinkedHashMap<>(plan); copy.put("allocations", allocations); copy.put("readOnly", true); return copy;
+        if (allocations.isEmpty()) return null; Map<String, Object> copy = new LinkedHashMap<>(plan); copy.put("allocations", allocations); copy.put("totalRequestedLitres", roundLitres(allocations.stream().mapToDouble(item -> Jsons.number(item, "requestedLitres", 0)).sum())); copy.put("totalAllocatedLitres", roundLitres(allocations.stream().mapToDouble(item -> Jsons.number(item, "allocatedLitres", 0)).sum())); copy.put("totalUnmetLitres", roundLitres(allocations.stream().mapToDouble(item -> Jsons.number(item, "unmetLitres", 0)).sum())); copy.put("readOnly", true); return copy;
     }
 
     private double needScore(Map<String, Object> plot, Map<String, Object> plan, Map<String, Object> diagnosis) {
@@ -5372,16 +6457,25 @@ class AgriEngine {
 
     Map<String, Object> evaluateAutoResourcePlan(Map<String, Object> input, UserPrincipal principal) {
         boolean farmerPreview = principal.isFarmer(); if (!principal.isFarmAdmin() && !farmerPreview) throw new ApiException(HttpStatus.FORBIDDEN, "RESOURCE_PLAN_FORBIDDEN", "当前身份不能分析农场资源");
+        if (!farmerPreview) requireResourcePersistence();
         String farmId = resolveResourceFarm(input, principal); Map<String, Object> profile = ensureWaterProfile(farmId); LocalDate businessDate;
         try { businessDate = LocalDate.parse(Jsons.text(input, "businessDate", LocalDate.now(waterZone(profile)).toString())); } catch (Exception e) { throw new ApiException(HttpStatus.BAD_REQUEST, "BUSINESS_DATE_INVALID", "业务日期格式应为 YYYY-MM-DD"); }
         Map<String, Object> balance = currentWaterBalance(farmId, businessDate); double available = Jsons.number(balance, "remainingLitres", 0); List<Map<String, Object>> candidates = new ArrayList<>();
+        Map<String, List<Map<String, Object>>> requestsByPlot = listResourceRequests(Map.of("farmId", farmId), principal).stream()
+                .filter(request -> RESOURCE_REQUEST_ACTIVE.contains(Jsons.text(request, "status", "")))
+                .collect(Collectors.groupingBy(request -> Jsons.text(request, "plotId", "")));
         for (Map<String, Object> plot : store.list("plot")) {
             String plotId = Jsons.text(plot, "plotId", ""); if (!farmId.equals(Jsons.text(plot, "farmId", farmId)) || !canAccessPlot(principal, plotId)) continue;
             String plotStatus = Jsons.text(plot, "status", "ACTIVE").toUpperCase(Locale.ROOT); if (Set.of("INACTIVE", "ARCHIVED", "DELETED").contains(plotStatus)) continue;
             try {
                 Map<String, Object> irrigation = irrigationPlan(Map.of("plotId", plotId, "traceId", Jsons.id("water")), principal); Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of(); Map<String, Object> diagnosis = store.list("diagnosis").stream().filter(d -> plotId.equals(Jsons.text(d, "plotId", ""))).max(Comparator.comparing(d -> Jsons.instant(d.get("createdAt"), Instant.EPOCH))).orElse(Map.of());
-                double target = Jsons.number(Jsons.map(mapper, irrigation.get("expectedResult")), "to", 30); double current = Jsons.number(soil, "value", 0); double requested = roundLitres(Jsons.number(irrigation, "waterLitre", 0)); Map<String, Object> device = deviceForPlot(plotId); boolean ready = "READY".equals(Jsons.text(irrigation, "readinessStatus", "")) && isIrrigationControllerReady(device);
-                Map<String, Object> allocation = new LinkedHashMap<>(); allocation.put("plotId", plotId); allocation.put("farmId", farmId); allocation.put("requestedLitres", requested); allocation.put("allocatedLitres", 0.0); allocation.put("unmetLitres", requested); allocation.put("needScore", needScore(plot, Map.of("moistureDeficitPct", Math.max(0, target - current), "trendPerHour", 0, "hoursSinceLastSuccess", 24), diagnosis)); allocation.put("readinessStatus", ready ? "READY" : Jsons.text(irrigation, "readinessStatus", "UNAVAILABLE")); allocation.put("deviceId", Jsons.text(device, "deviceId", "")); allocation.put("executionStatus", requested <= 0 ? "NO_ACTION" : ready ? "PENDING" : "FALLBACK_REQUIRED"); allocation.put("explanation", ready ? "湿度缺口、风险与近期灌溉记录综合排序" : "设备或安全门未满足自动灌溉条件，将保留人工兜底"); allocation.put("irrigationPlanId", irrigation.get("planId")); allocation.put("moisture", current); allocation.put("targetMoisture", target); candidates.add(allocation);
+                double target = Jsons.number(Jsons.map(mapper, irrigation.get("expectedResult")), "to", 30); double current = Jsons.number(soil, "value", 0); double recommended = roundLitres(Jsons.number(irrigation, "waterLitre", 0));
+                List<Map<String, Object>> plotRequests = requestsByPlot.getOrDefault(plotId, List.of()); double submitted = roundLitres(plotRequests.stream().mapToDouble(request -> Jsons.number(request, "requestedLitres", 0)).sum());
+                double requested = submitted > 0 ? roundLitres(Math.min(submitted, recommended)) : recommended; Map<String, Object> device = deviceForPlot(plotId); boolean deviceReady = "READY".equals(Jsons.text(irrigation, "readinessStatus", "")) && isIrrigationControllerReady(device);
+                Instant preferredStart = resourceWindowBoundary(plotRequests, "preferredStart", true); Instant preferredEnd = resourceWindowBoundary(plotRequests, "preferredEnd", false);
+                boolean timeWindowConflict = preferredStart != null && preferredEnd != null && !preferredEnd.isAfter(preferredStart);
+                boolean ready = deviceReady && !timeWindowConflict; Map<String, Object> assignee = chooseResourceAssignee(farmId, plotId, plotRequests);
+                Map<String, Object> allocation = new LinkedHashMap<>(); allocation.put("plotId", plotId); allocation.put("farmId", farmId); allocation.put("requestedLitres", requested); allocation.put("recommendedLitres", recommended); allocation.put("submittedDemandLitres", submitted); allocation.put("safetyCappedLitres", roundLitres(Math.max(0, submitted - recommended))); allocation.put("resourceRequestIds", plotRequests.stream().map(request -> Jsons.text(request, "resourceRequestId", "")).filter(id -> !id.isBlank()).toList()); allocation.put("requesterNames", plotRequests.stream().map(request -> Jsons.text(request, "requestedByName", "")).filter(name -> !name.isBlank()).distinct().toList()); allocation.put("preferredStart", preferredStart == null ? null : preferredStart.toString()); allocation.put("preferredEnd", preferredEnd == null ? null : preferredEnd.toString()); allocation.put("timeWindowStatus", timeWindowConflict ? "CONFLICT" : plotRequests.isEmpty() ? "OPEN" : "DECLARED"); allocation.put("allocatedLitres", 0.0); allocation.put("unmetLitres", requested); allocation.put("needScore", needScore(plot, Map.of("moistureDeficitPct", Math.max(0, target - current), "trendPerHour", 0, "hoursSinceLastSuccess", plotRequests.isEmpty() ? 24 : 36), diagnosis)); allocation.put("readinessStatus", timeWindowConflict ? "TIME_WINDOW_CONFLICT" : ready ? "READY" : Jsons.text(irrigation, "readinessStatus", "UNAVAILABLE")); allocation.put("deviceId", Jsons.text(device, "deviceId", "")); allocation.put("assignedFarmerId", assignee == null ? null : Jsons.text(assignee, "userId", "")); allocation.put("assignedFarmerName", assignee == null ? null : Jsons.text(assignee, "displayName", Jsons.text(assignee, "username", ""))); allocation.put("executionStatus", requested <= 0 ? "NO_ACTION" : ready ? "PENDING" : "FALLBACK_REQUIRED"); allocation.put("explanation", timeWindowConflict ? "多个农户时间窗没有交集，需管理员与现场重新确认" : submitted > recommended ? "农户需求已按处方安全上限收敛，结合风险与近期灌溉记录排序" : !plotRequests.isEmpty() ? "已合并农户提交需求、湿度缺口与近期灌溉记录" : ready ? "湿度缺口、风险与近期灌溉记录综合排序" : "设备或安全门未满足自动灌溉条件，将保留人工兜底"); allocation.put("irrigationPlanId", irrigation.get("planId")); allocation.put("moisture", current); allocation.put("targetMoisture", target); candidates.add(allocation);
             } catch (ApiException ignored) { }
         }
         List<Map<String, Object>> eligible = candidates.stream().filter(a -> Jsons.number(a, "requestedLitres", 0) > 0 && "READY".equals(Jsons.text(a, "readinessStatus", ""))).toList(); double floorTotal = eligible.stream().mapToDouble(a -> Jsons.number(a, "requestedLitres", 0) * .4).sum();
@@ -5392,10 +6486,23 @@ class AgriEngine {
             double scoreTotal = eligible.stream().mapToDouble(a -> Math.max(.001, Jsons.number(a, "needScore", 0))).sum(); for (Map<String, Object> allocation : eligible) allocation.put("allocatedLitres", roundLitres(available * Math.max(.001, Jsons.number(allocation, "needScore", 0)) / scoreTotal));
         }
         double allocatedTotal = candidates.stream().mapToDouble(a -> Jsons.number(a, "allocatedLitres", 0)).sum(); if (allocatedTotal > available) { Map<String, Object> last = candidates.stream().filter(a -> Jsons.number(a, "allocatedLitres", 0) > 0).reduce((first, second) -> second).orElse(null); if (last != null) last.put("allocatedLitres", roundLitres(Math.max(0, Jsons.number(last, "allocatedLitres", 0) - (allocatedTotal - available)))); }
-        Instant cursor = Instant.now().plus(5, ChronoUnit.SECONDS); for (Map<String, Object> allocation : candidates) { double allocated = roundLitres(Jsons.number(allocation, "allocatedLitres", 0)); double requested = Jsons.number(allocation, "requestedLitres", 0); allocation.put("allocatedLitres", allocated); allocation.put("unmetLitres", roundLitres(Math.max(0, requested - allocated))); long seconds = Math.max(60, Math.min(properties.getMaxIrrigationSeconds(), Math.round(allocated / Math.max(1, Jsons.number(profile, "flowRateLitresPerMinute", 18)) * 60))); allocation.put("scheduledStart", cursor.toString()); allocation.put("scheduledEnd", cursor.plusSeconds(seconds).toString()); if (allocated > 0 && "READY".equals(Jsons.text(allocation, "readinessStatus", ""))) cursor = cursor.plusSeconds(seconds + 30); }
+        Instant cursor = Instant.now().plus(5, ChronoUnit.SECONDS); for (Map<String, Object> allocation : candidates) { double allocated = roundLitres(Jsons.number(allocation, "allocatedLitres", 0)); double requested = Jsons.number(allocation, "requestedLitres", 0); Instant preferredStart = Jsons.instant(allocation.get("preferredStart"), null); Instant preferredEnd = Jsons.instant(allocation.get("preferredEnd"), null); Instant scheduledStart = preferredStart != null && preferredStart.isAfter(cursor) ? preferredStart : cursor; long seconds = Math.max(60, Math.min(properties.getMaxIrrigationSeconds(), Math.round(allocated / Math.max(1, Jsons.number(profile, "flowRateLitresPerMinute", 18)) * 60))); Instant scheduledEnd = scheduledStart.plusSeconds(seconds); if (allocated > 0 && preferredEnd != null && scheduledEnd.isAfter(preferredEnd)) { allocated = 0; allocation.put("readinessStatus", "TIME_WINDOW_CONFLICT"); allocation.put("executionStatus", "FALLBACK_REQUIRED"); allocation.put("timeWindowStatus", "CONFLICT"); allocation.put("explanation", "可执行时长超出农户申报时间窗，需重新协商"); } allocation.put("allocatedLitres", allocated); allocation.put("unmetLitres", roundLitres(Math.max(0, requested - allocated))); allocation.put("scheduledStart", scheduledStart.toString()); allocation.put("scheduledEnd", scheduledEnd.toString()); if (allocated > 0 && "READY".equals(Jsons.text(allocation, "readinessStatus", ""))) cursor = scheduledEnd.plusSeconds(30); }
         Map<String, Object> plan = new LinkedHashMap<>(); String planId = Jsons.id("resource-plan"); plan.put("resourcePlanId", planId); plan.put("farmId", farmId); plan.put("businessDate", businessDate.toString()); plan.put("status", "DRAFT"); plan.put("revision", 1); plan.put("algorithmVersion", "water-allocation-v2"); plan.put("ruleVersion", "water-allocation-v2"); plan.put("cropPackVersion", "mixed-current"); plan.put("snapshot", Map.of("profile", profile, "balance", balance, "plotCount", candidates.size())); plan.put("expiresAt", Instant.now().plus(10, ChronoUnit.MINUTES).toString()); plan.put("allocations", candidates); plan.put("totalRequestedLitres", roundLitres(candidates.stream().mapToDouble(a -> Jsons.number(a, "requestedLitres", 0)).sum())); plan.put("totalAllocatedLitres", roundLitres(candidates.stream().mapToDouble(a -> Jsons.number(a, "allocatedLitres", 0)).sum())); plan.put("totalUnmetLitres", roundLitres(candidates.stream().mapToDouble(a -> Jsons.number(a, "unmetLitres", 0)).sum())); plan.put("trialOnly", farmerPreview); plan.put("readOnly", farmerPreview); plan.put("provenance", "DERIVED"); plan.put("sourceMode", "AI_RULES");
-        if (!farmerPreview) { store.save("resource-plan", planId, plan); events.publish("resource.plan.created", plan); store.logEvent("resource.plan.created", plan); }
+        if (!farmerPreview) { store.saveDurably("resource-plan", planId, plan); markResourceRequestsInReview(plan, principal); events.publish("resource.plan.created", plan); store.logEvent("resource.plan.created", plan); }
         return plan;
+    }
+
+    private void markResourceRequestsInReview(Map<String, Object> plan, UserPrincipal principal) {
+        String planId = Jsons.text(plan, "resourcePlanId", "");
+        for (Map<String, Object> allocation : Jsons.maps(mapper, plan.get("allocations"))) {
+            for (String requestId : Jsons.strings(allocation.get("resourceRequestIds"))) {
+                Map<String, Object> request = store.find("resource-request", requestId);
+                if (request == null || !RESOURCE_REQUEST_ACTIVE.contains(Jsons.text(request, "status", ""))) continue;
+                request.put("status", "IN_REVIEW"); request.put("resourcePlanId", planId); request.put("planRevision", plan.get("revision"));
+                request.put("revision", Jsons.whole(request, "revision", 1) + 1); appendResourceRequestHistory(request, "PLAN_DRAFTED", principal, "已纳入配水草案");
+                saveResourceRequest(request, "resource.request.reviewing");
+            }
+        }
     }
 
     private boolean isIrrigationControllerReady(Map<String, Object> device) {
@@ -5404,50 +6511,79 @@ class AgriEngine {
     }
 
     Map<String, Object> adjustResourcePlan(String resourcePlanId, Map<String, Object> input, UserPrincipal principal) {
-        requireFarmAdmin(principal); synchronized (resourcePlanLock) {
+        requireFarmAdmin(principal); requireResourcePersistence(); synchronized (resourcePlanLock) {
             Map<String, Object> plan = requireRecord("resource-plan", resourcePlanId); ensureResourcePlanFarm(plan, principal);
             if (!"DRAFT".equals(Jsons.text(plan, "status", ""))) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_NOT_DRAFT", "只有草稿计划可以调整");
-            if (Jsons.instant(plan.get("expiresAt"), Instant.MAX).isBefore(Instant.now())) { plan.put("status", "EXPIRED"); store.save("resource-plan", resourcePlanId, plan); throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_EXPIRED", "资源计划已过期，请重新分析"); }
+            if (Jsons.instant(plan.get("expiresAt"), Instant.MAX).isBefore(Instant.now())) { plan.put("status", "EXPIRED"); store.saveDurably("resource-plan", resourcePlanId, plan); throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_EXPIRED", "资源计划已过期，请重新分析"); }
             long expected = Jsons.whole(input, "expectedRevision", Jsons.whole(plan, "revision", 1)); if (expected != Jsons.whole(plan, "revision", 1)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_VERSION_CONFLICT", "资源计划已被更新，请刷新后再调整");
             String reason = Jsons.text(input, "reason", "").trim(); if (reason.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "ADJUSTMENT_REASON_REQUIRED", "调整配水方案必须填写原因");
             List<Map<String, Object>> adjustments = Jsons.maps(mapper, input.get("adjustments")); Map<String, Object> profile = ensureWaterProfile(Jsons.text(plan, "farmId", "")); double available = Jsons.number(currentWaterBalance(Jsons.text(plan, "farmId", ""), LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString()))), "remainingLitres", 0); double total = 0;
             List<Map<String, Object>> allocations = new ArrayList<>(); for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> allocation = new LinkedHashMap<>(source); String plotId = Jsons.text(allocation, "plotId", ""); Map<String, Object> change = adjustments.stream().filter(item -> plotId.equals(Jsons.text(item, "plotId", ""))).findFirst().orElse(null); if (change != null) { double max = Jsons.number(allocation, "requestedLitres", 0); double requested = Jsons.number(change, "allocatedLitres", Jsons.number(allocation, "allocatedLitres", 0)); if (requested < 0 || requested > max) throw new ApiException(HttpStatus.BAD_REQUEST, "ALLOCATION_OUT_OF_RANGE", "调整量不能超过地块建议量"); allocation.put("allocatedLitres", roundLitres(requested)); if (change.containsKey("scheduledStart")) allocation.put("scheduledStart", Jsons.text(change, "scheduledStart", Jsons.text(allocation, "scheduledStart", ""))); }
                 total += Jsons.number(allocation, "allocatedLitres", 0); allocation.put("unmetLitres", roundLitres(Math.max(0, Jsons.number(allocation, "requestedLitres", 0) - Jsons.number(allocation, "allocatedLitres", 0)))); allocations.add(allocation); }
             if (total > available + .0001) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_CAPACITY", "调整后的配水量超过当日可分配余额");
-            plan.put("allocations", allocations); plan.put("totalAllocatedLitres", roundLitres(total)); plan.put("totalUnmetLitres", roundLitres(allocations.stream().mapToDouble(a -> Jsons.number(a, "unmetLitres", 0)).sum())); plan.put("revision", expected + 1); plan.put("adjustmentReason", reason); plan.put("adjustedBy", principal.userId); plan.put("adjustedAt", Instant.now().toString()); store.save("resource-plan", resourcePlanId, plan); events.publish("resource.plan.adjusted", plan); store.logEvent("resource.plan.adjusted", plan); return plan;
+            plan.put("allocations", allocations); plan.put("totalAllocatedLitres", roundLitres(total)); plan.put("totalUnmetLitres", roundLitres(allocations.stream().mapToDouble(a -> Jsons.number(a, "unmetLitres", 0)).sum())); plan.put("revision", expected + 1); plan.put("adjustmentReason", reason); plan.put("adjustedBy", principal.userId); plan.put("adjustedAt", Instant.now().toString()); store.saveDurably("resource-plan", resourcePlanId, plan); events.publish("resource.plan.adjusted", plan); store.logEvent("resource.plan.adjusted", plan); return plan;
         }
     }
 
     Map<String, Object> confirmResourcePlan(String resourcePlanId, Map<String, Object> input, UserPrincipal principal) {
-        requireFarmAdmin(principal); String key = Jsons.text(input, "idempotencyKey", "").trim(); if (key.isBlank()) key = "resource-confirm:" + resourcePlanId;
+        requireFarmAdmin(principal); requireResourcePersistence(); String key = Jsons.text(input, "idempotencyKey", "").trim(); if (key.isBlank()) key = "resource-confirm:" + resourcePlanId;
         synchronized (resourcePlanLock) {
             Map<String, Object> plan = requireRecord("resource-plan", resourcePlanId); ensureResourcePlanFarm(plan, principal); String currentStatus = Jsons.text(plan, "status", "");
             if ("CONFIRMED".equals(currentStatus) || Set.of("RUNNING", "COMPLETED", "PARTIAL", "FAILED").contains(currentStatus)) return plan;
             if (!"DRAFT".equals(currentStatus)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_NOT_CONFIRMABLE", "当前计划不能确认");
-            if (Jsons.instant(plan.get("expiresAt"), Instant.MAX).isBefore(Instant.now())) { plan.put("status", "EXPIRED"); store.save("resource-plan", resourcePlanId, plan); throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_EXPIRED", "资源计划已过期，请重新分析"); }
+            if (Jsons.instant(plan.get("expiresAt"), Instant.MAX).isBefore(Instant.now())) { plan.put("status", "EXPIRED"); store.saveDurably("resource-plan", resourcePlanId, plan); throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_EXPIRED", "资源计划已过期，请重新分析"); }
             long expected = Jsons.whole(input, "expectedRevision", Jsons.whole(plan, "revision", 1)); if (expected != Jsons.whole(plan, "revision", 1)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_VERSION_CONFLICT", "资源计划版本已更新，请刷新后再确认");
             String farmId = Jsons.text(plan, "farmId", ""); LocalDate date = LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString())); Map<String, Object> balance = currentWaterBalance(farmId, date); double allocatedTotal = roundLitres(Jsons.number(plan, "totalAllocatedLitres", 0)); if (allocatedTotal > Jsons.number(balance, "remainingLitres", 0) + .0001) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "RESOURCE_CAPACITY", "蓄水池余额不足，不能确认整批计划");
-            balance.put("reservedLitres", roundLitres(Jsons.number(balance, "reservedLitres", 0) + allocatedTotal)); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
-            plan.put("status", "CONFIRMED"); plan.put("revision", expected + 1); plan.put("confirmedBy", principal.userId); plan.put("confirmedAt", Instant.now().toString()); plan.put("approvalIdempotencyKey", key); store.save("resource-plan", resourcePlanId, plan); store.save("idempotency", key, Map.of("idempotencyKey", key, "resourcePlanId", resourcePlanId, "createdAt", Instant.now().toString())); events.publish("resource.plan.confirmed", plan); store.logEvent("resource.plan.confirmed", plan);
-            List<Map<String, Object>> allocations = new ArrayList<>(); for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> allocation = new LinkedHashMap<>(source); double allocated = Jsons.number(allocation, "allocatedLitres", 0); double unmet = Jsons.number(allocation, "unmetLitres", 0); boolean ready = allocated > 0 && "READY".equals(Jsons.text(allocation, "readinessStatus", "")) && isIrrigationControllerReady(deviceForPlot(Jsons.text(allocation, "plotId", ""))); if (ready) { allocation.put("executionStatus", "SCHEDULED"); events.publish("resource.allocation.scheduled", allocation); if (unmet > 0) allocation.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, allocation, unmet, "固定日配额不足，需人工补足缺口")); } else { allocation.put("executionStatus", "FALLBACK_REQUIRED"); double residual = roundLitres(unmet + (allocated > 0 ? allocated : 0)); if (residual > 0) allocation.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, allocation, residual, "设备、安全门或容量未满足自动灌溉条件")); }
+            balance.put("reservedLitres", roundLitres(Jsons.number(balance, "reservedLitres", 0) + allocatedTotal)); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.saveDurably("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
+            plan.put("status", "CONFIRMED"); plan.put("revision", expected + 1); plan.put("confirmedBy", principal.userId); plan.put("confirmedAt", Instant.now().toString()); plan.put("approvalIdempotencyKey", key); store.saveDurably("idempotency", key, Map.of("idempotencyKey", key, "resourcePlanId", resourcePlanId, "createdAt", Instant.now().toString()));
+            List<Map<String, Object>> allocations = new ArrayList<>(); for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> allocation = new LinkedHashMap<>(source); List<String> activeRequestIds = Jsons.strings(allocation.get("resourceRequestIds")).stream().filter(requestId -> { Map<String, Object> request = store.find("resource-request", requestId); return request != null && !Set.of("CANCELLED", "COMPLETED").contains(Jsons.text(request, "status", "")); }).toList(); allocation.put("resourceRequestIds", activeRequestIds); double allocated = Jsons.number(allocation, "allocatedLitres", 0); double unmet = Jsons.number(allocation, "unmetLitres", 0); boolean ready = allocated > 0 && "READY".equals(Jsons.text(allocation, "readinessStatus", "")) && isIrrigationControllerReady(deviceForPlot(Jsons.text(allocation, "plotId", ""))); if (ready) { allocation.put("executionStatus", "SCHEDULED"); events.publish("resource.allocation.scheduled", allocation); if (unmet > 0) allocation.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, allocation, unmet, "固定日配额不足，需人工补足缺口")); } else { allocation.put("executionStatus", "FALLBACK_REQUIRED"); double residual = roundLitres(unmet + (allocated > 0 ? allocated : 0)); if (residual > 0) allocation.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, allocation, residual, "设备、安全门或容量未满足自动灌溉条件")); }
+                allocation.put("collaborationStatus", activeRequestIds.isEmpty() ? "NO_REQUEST" : "PENDING_ACK");
                 allocations.add(allocation); }
-            plan.put("allocations", allocations); store.save("resource-plan", resourcePlanId, plan); return plan;
+            plan.put("allocations", allocations); store.saveDurably("resource-plan", resourcePlanId, plan); markResourceRequestsAllocated(plan, principal); events.publish("resource.plan.confirmed", plan); store.logEvent("resource.plan.confirmed", plan); return plan;
         }
     }
 
     Map<String, Object> cancelResourcePlan(String resourcePlanId, UserPrincipal principal) {
-        requireFarmAdmin(principal); synchronized (resourcePlanLock) { Map<String, Object> plan = requireRecord("resource-plan", resourcePlanId); ensureResourcePlanFarm(plan, principal); String status = Jsons.text(plan, "status", ""); if (Set.of("RUNNING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED").contains(status)) { if ("CANCELLED".equals(status)) return plan; throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_ALREADY_STARTED", "计划已开始执行，不能整批取消"); } if (!"DRAFT".equals(status) && !"CONFIRMED".equals(status)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_NOT_CANCELLABLE", "当前计划不能取消");
-            if ("CONFIRMED".equals(status)) { String farmId = Jsons.text(plan, "farmId", ""); LocalDate date = LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString())); Map<String, Object> balance = currentWaterBalance(farmId, date); balance.put("reservedLitres", roundLitres(Math.max(0, Jsons.number(balance, "reservedLitres", 0) - Jsons.number(plan, "totalAllocatedLitres", 0)))); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance); }
-            plan.put("status", "CANCELLED"); plan.put("cancelledBy", principal.userId); plan.put("cancelledAt", Instant.now().toString()); store.save("resource-plan", resourcePlanId, plan); events.publish("resource.plan.cancelled", plan); store.logEvent("resource.plan.cancelled", plan); return plan; }
+        requireFarmAdmin(principal); requireResourcePersistence(); synchronized (resourcePlanLock) { Map<String, Object> plan = requireRecord("resource-plan", resourcePlanId); ensureResourcePlanFarm(plan, principal); String status = Jsons.text(plan, "status", ""); if (Set.of("RUNNING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED").contains(status)) { if ("CANCELLED".equals(status)) return plan; throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_ALREADY_STARTED", "计划已开始执行，不能整批取消"); } if (!"DRAFT".equals(status) && !"CONFIRMED".equals(status)) throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_PLAN_NOT_CANCELLABLE", "当前计划不能取消");
+            if ("CONFIRMED".equals(status)) { String farmId = Jsons.text(plan, "farmId", ""); LocalDate date = LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString())); Map<String, Object> balance = currentWaterBalance(farmId, date); balance.put("reservedLitres", roundLitres(Math.max(0, Jsons.number(balance, "reservedLitres", 0) - Jsons.number(plan, "totalAllocatedLitres", 0)))); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.saveDurably("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance); }
+            plan.put("status", "CANCELLED"); plan.put("cancelledBy", principal.userId); plan.put("cancelledAt", Instant.now().toString()); store.saveDurably("resource-plan", resourcePlanId, plan); releaseResourceRequests(plan, principal); events.publish("resource.plan.cancelled", plan); store.logEvent("resource.plan.cancelled", plan); return plan; }
+    }
+
+    private void markResourceRequestsAllocated(Map<String, Object> plan, UserPrincipal principal) {
+        for (Map<String, Object> allocation : Jsons.maps(mapper, plan.get("allocations"))) {
+            for (String requestId : Jsons.strings(allocation.get("resourceRequestIds"))) {
+                Map<String, Object> request = store.find("resource-request", requestId);
+                if (request == null || "CANCELLED".equals(Jsons.text(request, "status", ""))) continue;
+                request.put("status", "PENDING_ACK"); request.put("resourcePlanId", plan.get("resourcePlanId")); request.put("planRevision", plan.get("revision"));
+                request.put("allocatedLitres", allocation.get("allocatedLitres")); request.put("unmetLitres", allocation.get("unmetLitres"));
+                request.put("scheduledStart", allocation.get("scheduledStart")); request.put("scheduledEnd", allocation.get("scheduledEnd"));
+                request.put("assignedFarmerId", allocation.get("assignedFarmerId")); request.put("assignedFarmerName", allocation.get("assignedFarmerName"));
+                request.put("executionStatus", allocation.get("executionStatus")); request.put("revision", Jsons.whole(request, "revision", 1) + 1);
+                appendResourceRequestHistory(request, "PLAN_CONFIRMED", principal, "等待农户确认执行时段"); saveResourceRequest(request, "resource.request.allocated");
+            }
+        }
+    }
+
+    private void releaseResourceRequests(Map<String, Object> plan, UserPrincipal principal) {
+        for (Map<String, Object> allocation : Jsons.maps(mapper, plan.get("allocations"))) {
+            for (String requestId : Jsons.strings(allocation.get("resourceRequestIds"))) {
+                Map<String, Object> request = store.find("resource-request", requestId);
+                if (request == null || Set.of("COMPLETED", "CANCELLED").contains(Jsons.text(request, "status", ""))) continue;
+                request.put("status", "SUBMITTED"); request.remove("resourcePlanId"); request.remove("allocatedLitres"); request.remove("scheduledStart"); request.remove("scheduledEnd");
+                request.put("revision", Jsons.whole(request, "revision", 1) + 1); appendResourceRequestHistory(request, "PLAN_CANCELLED", principal, "计划取消，需求已退回待排程");
+                saveResourceRequest(request, "resource.request.reopened");
+            }
+        }
     }
 
     private void ensureResourcePlanFarm(Map<String, Object> plan, UserPrincipal principal) { String farmId = Jsons.text(plan, "farmId", ""); if (farmId.isBlank() || !principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权操作该农场的资源计划"); }
 
     @Scheduled(fixedDelay = 5000)
     void dispatchDueResourcePlans() {
+        if (!store.databaseReady()) return;
         synchronized (resourcePlanLock) {
-            Instant now = Instant.now(); for (Map<String, Object> planView : store.list("resource-plan")) { String status = Jsons.text(planView, "status", ""); if (!Set.of("CONFIRMED", "RUNNING").contains(status)) continue; Map<String, Object> plan = store.find("resource-plan", Jsons.text(planView, "resourcePlanId", "")); if (plan == null) continue; List<Map<String, Object>> allocations = new ArrayList<>(); boolean changed = false; for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> allocation = new LinkedHashMap<>(source); if (!"SCHEDULED".equals(Jsons.text(allocation, "executionStatus", "")) || Jsons.instant(allocation.get("scheduledStart"), Instant.MAX).isAfter(now)) { allocations.add(allocation); continue; } dispatchResourceAllocation(plan, allocation); allocations.add(allocation); changed = true; }
-                if (changed) { plan.put("status", "RUNNING"); plan.put("allocations", allocations); boolean allTerminal = allocations.stream().allMatch(a -> RESOURCE_ALLOCATION_TERMINAL.contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "allocatedLitres", 0) <= 0); if (allTerminal) plan.put("status", allocations.stream().anyMatch(a -> Set.of("FAILED", "PARTIAL", "FALLBACK_REQUIRED").contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "unmetLitres", 0) > 0) ? "PARTIAL" : "COMPLETED"); store.save("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.running", plan); }
+            Instant now = Instant.now(); for (Map<String, Object> planView : store.list("resource-plan")) { String status = Jsons.text(planView, "status", ""); if (!Set.of("CONFIRMED", "RUNNING").contains(status)) continue; Map<String, Object> plan = store.find("resource-plan", Jsons.text(planView, "resourcePlanId", "")); if (plan == null) continue; List<Map<String, Object>> allocations = new ArrayList<>(); boolean changed = false; for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> allocation = new LinkedHashMap<>(source); boolean awaitingFarmer = !Jsons.strings(allocation.get("resourceRequestIds")).isEmpty() && !"ACKNOWLEDGED".equals(Jsons.text(allocation, "collaborationStatus", "")); if (!"SCHEDULED".equals(Jsons.text(allocation, "executionStatus", "")) || awaitingFarmer || Jsons.instant(allocation.get("scheduledStart"), Instant.MAX).isAfter(now)) { allocations.add(allocation); continue; } dispatchResourceAllocation(plan, allocation); allocations.add(allocation); changed = true; }
+                if (changed) { plan.put("status", "RUNNING"); plan.put("allocations", allocations); boolean allTerminal = allocations.stream().allMatch(a -> RESOURCE_ALLOCATION_TERMINAL.contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "allocatedLitres", 0) <= 0); if (allTerminal) plan.put("status", allocations.stream().anyMatch(a -> Set.of("FAILED", "PARTIAL", "FALLBACK_REQUIRED").contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "unmetLitres", 0) > 0) ? "PARTIAL" : "COMPLETED"); store.saveDurably("resource-plan", Jsons.text(plan, "resourcePlanId", ""), plan); events.publish("resource.plan.running", plan); }
             }
         }
     }
@@ -5471,20 +6607,37 @@ class AgriEngine {
 
     private void settleManualIrrigationWork(Map<String, Object> work, UserPrincipal principal) {
         if (Jsons.bool(work, "ledgerSettled", false)) return;
+        requireResourcePersistence();
         double actual = roundLitres(Jsons.number(work, "actualWaterLitres", 0)); String source = Jsons.text(work, "waterSourceMode", "EXTERNAL").toUpperCase(Locale.ROOT); String farmId = Jsons.text(work, "farmId", farmIdForPlot(Jsons.text(work, "plotId", "")));
         if ("RESERVOIR".equals(source) && actual > 0) {
-            Map<String, Object> profile = ensureWaterProfile(farmId); LocalDate date = LocalDate.now(waterZone(profile)); Map<String, Object> balance = currentWaterBalance(farmId, date); double available = Jsons.number(balance, "remainingLitres", 0); double used = Math.min(actual, available); balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + used)); balance.put("usedLitres", balance.get("actualUsedLitres")); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
+            Map<String, Object> profile = ensureWaterProfile(farmId); LocalDate date = LocalDate.now(waterZone(profile)); Map<String, Object> balance = currentWaterBalance(farmId, date); double available = Jsons.number(balance, "remainingLitres", 0); double used = Math.min(actual, available); balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + used)); balance.put("usedLitres", balance.get("actualUsedLitres")); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.saveDurably("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
         }
         Map<String, Object> ledger = new LinkedHashMap<>(); ledger.put("valueLedgerId", Jsons.id("value")); ledger.put("farmId", farmId); ledger.put("scope", farmId); ledger.put("sourceType", "MANUAL_IRRIGATION"); ledger.put("sourceRef", Jsons.text(work, "workOrderId", "")); ledger.put("baseline", Map.of("waterLitres", Jsons.number(work, "requiredWaterLitres", 0), "source", "RESOURCE_PLAN")); ledger.put("actual", Map.of("waterLitres", actual, "source", "USER_PROVIDED", "sourceMode", source)); ledger.put("status", "COMPUTED"); ledger.put("algorithmVersion", "value-ledger-v2"); ledger.put("createdAt", Instant.now().toString()); store.save("value-ledger", Jsons.text(ledger, "valueLedgerId", ""), ledger); work.put("ledgerSettled", true); work.put("ledgerId", ledger.get("valueLedgerId")); work.put("settledAt", Instant.now().toString()); store.save("work-order", Jsons.text(work, "workOrderId", ""), work); events.publish("value-ledger.updated", ledger);
     }
 
     private void settleResourceAllocation(Map<String, Object> command, Map<String, Object> ack, Map<String, Object> evaluation) {
-        String resourcePlanId = Jsons.text(command, "resourcePlanId", ""); if (resourcePlanId.isBlank()) return; synchronized (resourcePlanLock) {
+        String resourcePlanId = Jsons.text(command, "resourcePlanId", ""); if (resourcePlanId.isBlank() || !store.databaseReady()) return; synchronized (resourcePlanLock) {
             Map<String, Object> plan = store.find("resource-plan", resourcePlanId); if (plan == null) return; String plotId = Jsons.text(command, "plotId", ""); double allocated = roundLitres(Jsons.number(command, "waterLitre", 0)); double actual = roundLitres(Jsons.number(ack, "actualWaterLitre", Jsons.number(ack, "actualWaterLitres", 0))); String ackStatus = Jsons.text(ack, "status", "FAILED").toUpperCase(Locale.ROOT); String execution = "SUCCEEDED".equals(ackStatus) ? "COMPLETED" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "FAILED";
-            List<Map<String, Object>> allocations = new ArrayList<>(); Map<String, Object> target = null; for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> a = new LinkedHashMap<>(source); if (plotId.equals(Jsons.text(a, "plotId", ""))) target = a; allocations.add(a); } if (target == null) return; target.put("executionStatus", execution); target.put("actualWaterLitres", actual); target.put("evaluationId", Jsons.text(evaluation, "evaluationId", "")); target.put("completedAt", Instant.now().toString()); if (actual < allocated) { double residual = roundLitres(allocated - actual); target.put("unmetLitres", roundLitres(Jsons.number(target, "unmetLitres", 0) + residual)); target.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, target, residual, "自动灌溉未完成，需人工补水")); }
-            String farmId = Jsons.text(plan, "farmId", ""); LocalDate date = LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString())); Map<String, Object> balance = currentWaterBalance(farmId, date); balance.put("reservedLitres", roundLitres(Math.max(0, Jsons.number(balance, "reservedLitres", 0) - allocated))); balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + Math.min(actual, allocated))); balance.put("usedLitres", balance.get("actualUsedLitres")); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.save("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
+            List<Map<String, Object>> allocations = new ArrayList<>(); Map<String, Object> target = null; for (Map<String, Object> source : Jsons.maps(mapper, plan.get("allocations"))) { Map<String, Object> a = new LinkedHashMap<>(source); if (plotId.equals(Jsons.text(a, "plotId", ""))) target = a; allocations.add(a); } if (target == null) return; target.put("executionStatus", execution); target.put("collaborationStatus", "COMPLETED".equals(execution) ? "COMPLETED" : "CONFLICT_REPORTED"); target.put("actualWaterLitres", actual); target.put("evaluationId", Jsons.text(evaluation, "evaluationId", "")); target.put("completedAt", Instant.now().toString()); if (actual < allocated) { double residual = roundLitres(allocated - actual); target.put("unmetLitres", roundLitres(Jsons.number(target, "unmetLitres", 0) + residual)); target.put("fallbackWorkOrderId", ensureManualIrrigationFallback(plan, target, residual, "自动灌溉未完成，需人工补水")); }
+            String farmId = Jsons.text(plan, "farmId", ""); LocalDate date = LocalDate.parse(Jsons.text(plan, "businessDate", LocalDate.now().toString())); Map<String, Object> balance = currentWaterBalance(farmId, date); balance.put("reservedLitres", roundLitres(Math.max(0, Jsons.number(balance, "reservedLitres", 0) - allocated))); balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + Math.min(actual, allocated))); balance.put("usedLitres", balance.get("actualUsedLitres")); balance.put("revision", Jsons.whole(balance, "revision", 0) + 1); balance.put("remainingLitres", roundLitres(Math.max(0, Jsons.number(balance, "dailyQuotaLitres", 900) - Jsons.number(balance, "reservedLitres", 0) - Jsons.number(balance, "actualUsedLitres", 0)))); store.saveDurably("water-daily-balance", Jsons.text(balance, "waterBalanceId", "water:" + farmId + ":" + date), balance); events.publish("water.balance.updated", balance);
             Map<String, Object> ledger = new LinkedHashMap<>(); ledger.put("valueLedgerId", Jsons.id("value")); ledger.put("farmId", farmId); ledger.put("scope", farmId); ledger.put("sourceType", "RESOURCE_PLAN"); ledger.put("sourceRef", resourcePlanId); ledger.put("baseline", Map.of("waterLitres", allocated, "source", "AI_RULES")); ledger.put("actual", Map.of("waterLitres", actual, "source", "OBSERVED", "sourceMode", "SIMULATION")); ledger.put("status", "COMPUTED"); ledger.put("algorithmVersion", "value-ledger-v2"); ledger.put("createdAt", Instant.now().toString()); store.save("value-ledger", Jsons.text(ledger, "valueLedgerId", ""), ledger); events.publish("value-ledger.updated", ledger);
-            boolean allDone = allocations.stream().allMatch(a -> RESOURCE_ALLOCATION_TERMINAL.contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "allocatedLitres", 0) <= 0); boolean anyFailure = allocations.stream().anyMatch(a -> Set.of("FAILED", "PARTIAL", "FALLBACK_REQUIRED").contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "unmetLitres", 0) > 0); plan.put("allocations", allocations); if (allDone) plan.put("status", anyFailure ? "PARTIAL" : "COMPLETED"); store.save("resource-plan", resourcePlanId, plan); events.publish("resource.allocation.updated", target); events.publish("resource.plan.updated", plan);
+            updateResourceRequestsAfterExecution(target, execution, actual);
+            boolean allDone = allocations.stream().allMatch(a -> RESOURCE_ALLOCATION_TERMINAL.contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "allocatedLitres", 0) <= 0); boolean anyFailure = allocations.stream().anyMatch(a -> Set.of("FAILED", "PARTIAL", "FALLBACK_REQUIRED").contains(Jsons.text(a, "executionStatus", "")) || Jsons.number(a, "unmetLitres", 0) > 0); plan.put("allocations", allocations); if (allDone) plan.put("status", anyFailure ? "PARTIAL" : "COMPLETED"); store.saveDurably("resource-plan", resourcePlanId, plan); events.publish("resource.allocation.updated", target); events.publish("resource.plan.updated", plan);
+        }
+    }
+
+    private void updateResourceRequestsAfterExecution(Map<String, Object> allocation, String executionStatus, double actualWaterLitres) {
+        for (String requestId : Jsons.strings(allocation.get("resourceRequestIds"))) {
+            Map<String, Object> request = store.find("resource-request", requestId);
+            if (request == null || "CANCELLED".equals(Jsons.text(request, "status", ""))) continue;
+            boolean completed = "COMPLETED".equals(executionStatus);
+            request.put("status", completed ? "COMPLETED" : "CONFLICT_REPORTED"); request.put("executionStatus", executionStatus);
+            request.put("actualWaterLitres", roundLitres(actualWaterLitres)); request.put("completedAt", Instant.now().toString());
+            if (!completed) request.put("responseNote", "模拟执行未完全成功，已转入人工复核");
+            request.put("revision", Jsons.whole(request, "revision", 1) + 1);
+            List<Map<String, Object>> history = new ArrayList<>(Jsons.maps(mapper, request.get("history")));
+            history.add(new LinkedHashMap<>(Map.of("action", completed ? "EXECUTION_COMPLETED" : "EXECUTION_EXCEPTION", "actorId", "system", "actorName", "AgriLoop", "actorRole", "SYSTEM", "at", Instant.now().toString())));
+            request.put("history", history); saveResourceRequest(request, completed ? "resource.request.completed" : "resource.request.execution_exception");
         }
     }
 
@@ -5657,6 +6810,16 @@ class AgriEngine {
         if (containsAny(text, "执行灌溉", "启动灌溉", "开始灌溉", "执行浇水", "启动浇水")) {
             if (resolvedPlotId.isBlank()) return clarification("请先指定要灌溉的地块。");
             Map<String, Object> plan = irrigationPlan(Map.of("plotId", resolvedPlotId, "traceId", traceId), principal);
+            if ("NO_ACTION".equals(Jsons.text(plan, "status", ""))) {
+                Map<String, Object> expected = Jsons.map(mapper, plan.get("expectedResult"));
+                double current = Math.round(Jsons.number(expected, "from", 0) * 10.0) / 10.0;
+                double target = Math.round(Jsons.number(expected, "to", 0) * 10.0) / 10.0;
+                return Map.of(
+                        "status", "NO_ACTION",
+                        "clarification", "当前土壤湿度 " + current + "% 已达到补水目标 " + target
+                                + "%，本次无需灌溉，也不用补证。若现场情况与读数不符，再记录一次巡田或便携仪复测。",
+                        "plan", plan);
+            }
             String readinessStatus = Jsons.text(plan, "readinessStatus", "HUMAN_REVIEW");
             if (!Jsons.bool(plan, "executable", false) || !"READY".equals(readinessStatus)) {
                 Map<String, Object> readiness = readiness("IRRIGATION_PLAN", Jsons.text(plan, "planId", ""), principal);
@@ -7005,7 +8168,7 @@ class AgriEngine {
             conversation.putIfAbsent("pinned", false);
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
-        result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
+        result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 200))));
         return result;
     }
 
@@ -7640,11 +8803,12 @@ class AgriController {
     private final SimulatorControl simulator;
     private final AdminManagementService adminManagement;
     private final FarmGovernanceService governance;
+    private final MarketPriceService marketPrices;
 
     AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator,
-                   AdminManagementService adminManagement, FarmGovernanceService governance) {
+                   AdminManagementService adminManagement, FarmGovernanceService governance, MarketPriceService marketPrices) {
         this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
-        this.adminManagement = adminManagement; this.governance = governance;
+        this.adminManagement = adminManagement; this.governance = governance; this.marketPrices = marketPrices;
     }
 
     @PostMapping("/auth/login")
@@ -7678,6 +8842,17 @@ class AgriController {
         user.put("permissions", engine.permissionsFor(p)); return ok(user);
     }
 
+    @GetMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> farmerWorkspacePreference(Authentication authentication) {
+        return ok(engine.farmerWorkspacePreference(principal(authentication)));
+    }
+
+    @PutMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> updateFarmerWorkspacePreference(@RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication authentication) {
+        return ok(engine.updateFarmerWorkspacePreference(body == null ? Map.of() : body, principal(authentication)));
+    }
+
     @GetMapping("/auth/roles")
     ResponseEntity<?> roles() {
         return ok(List.of(
@@ -7695,12 +8870,27 @@ class AgriController {
         return ok(engine.overview(selectedFarm, p));
     }
 
+    @GetMapping("/market-prices")
+    ResponseEntity<?> marketPrices(@RequestParam String farmId,
+                                   @RequestParam(defaultValue = "30") int rangeDays,
+                                   @RequestParam(defaultValue = "farm") String scope,
+                                   Authentication a) {
+        return ok(marketPrices.overview(farmId, rangeDays, "all".equalsIgnoreCase(scope), principal(a)));
+    }
+
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }
 
     @PutMapping("/system/ai-mode")
     ResponseEntity<?> updateAiMode(@RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.updateAiMode(Jsons.text(body, "aiMode", ""), principal(a)));
+    }
+
+    @GetMapping("/system/audit-logs")
+    ResponseEntity<?> auditLogs(@RequestParam(defaultValue = "50") int limit, Authentication a) {
+        UserPrincipal principal = principal(a);
+        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "AUDIT_FORBIDDEN", "只有系统管理员可以查看操作审计日志");
+        return ok(engine.auditLogsView(limit));
     }
 
     @GetMapping("/simulator/status")
@@ -7855,7 +9045,8 @@ class AgriController {
                 .filter(plot -> farmId == null || farmId.isBlank() || farmId.equals(Jsons.text(plot, "farmId", "")))
                 .filter(plot -> includeInactive || !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
                 .filter(plot -> status == null || status.isBlank() || status.equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
-                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", ""))).toList());
+                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", ""))).toList());
     }
 
     @PostMapping("/plots")
@@ -7989,16 +9180,24 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/timeline")
-    ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {
-        engine.ensurePlotAccess(principal(a), plotId); List<Map<String, Object>> timeline = new ArrayList<>();
+    ResponseEntity<?> timeline(@PathVariable String plotId,
+                               @RequestParam(defaultValue = "50") int limit, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        // 每类型只返回最近 cap 条（按时间倒序截取），避免全量历史导致平台总览加载缓慢
+        int cap = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> timeline = new ArrayList<>();
         for (String type : List.of("alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            store.list(type).stream().filter(x -> plotId.equals(Jsons.text(x, "plotId", ""))).forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
+            store.list(type).stream()
+                    .filter(x -> plotId.equals(Jsons.text(x, "plotId", "")))
+                    .sorted(Comparator.comparing((Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder()))
+                    .limit(cap)
+                    .forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
         }
         timeline.sort(Comparator.comparing(x -> Jsons.text(x, "at", ""))); return ok(timeline);
     }
 
     @GetMapping(value = "/events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    SseEmitter stream() { return events.subscribe(); }
+    SseEmitter stream(Authentication a) { return events.subscribe(principal(a)); }
 
     @PostMapping("/scenarios/runs")
     ResponseEntity<?> scenario(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.scenarioRun(body, principal(a))); }
@@ -8065,6 +9264,13 @@ class AgriController {
     @PostMapping("/inspections")
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
 
+    @GetMapping("/inspections")
+    ResponseEntity<?> inspections(@RequestParam(required = false) String farmId,
+                                  @RequestParam(required = false) String plotId,
+                                  Authentication a) {
+        return ok(engine.inspections(principal(a), farmId, plotId));
+    }
+
     @PostMapping(value = "/inspections/{inspectionId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<?> inspectionPhotos(@PathVariable String inspectionId,
                                        @RequestParam("files") List<MultipartFile> files, Authentication a) {
@@ -8084,7 +9290,9 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/inspections")
-    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.inspections(plotId)); }
+    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) {
+        return ok(engine.inspections(plotId, principal(a)));
+    }
 
     @PostMapping("/irrigation/estimate")
     ResponseEntity<?> irrigation(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.irrigationPlan(body, principal(a))); }
@@ -8092,6 +9300,14 @@ class AgriController {
     @PostMapping("/irrigation/auto")
     ResponseEntity<?> automaticIrrigation(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
         return ok(engine.automaticWatering(body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/irrigation/manual")
+    ResponseEntity<?> manualIrrigation(@RequestBody Map<String, Object> body, Authentication a) {
+        Map<String, Object> input = new LinkedHashMap<>(body == null ? Map.of() : body);
+        input.put("manualOverride", true);
+        input.putIfAbsent("source", "farmer-manual-fallback");
+        return ok(engine.createCommand(input, principal(a)));
     }
 
     @PostMapping("/agent/chat")
@@ -8202,6 +9418,13 @@ class AgriController {
         return ok(engine.transitionWorkOrder(workOrderId, body, principal(a)));
     }
 
+    @PostMapping("/work-orders/{workOrderId}/report-issue")
+    ResponseEntity<?> reportWorkOrderIssue(@PathVariable String workOrderId,
+                                            @RequestBody(required = false) Map<String, Object> body,
+                                            Authentication a) {
+        return ok(engine.reportWorkOrderIssue(workOrderId, body == null ? Map.of() : body, principal(a)));
+    }
+
     @PostMapping("/work-orders/{workOrderId}/review")
     ResponseEntity<?> reviewWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.reviewWorkOrder(workOrderId, body, principal(a)));
@@ -8279,6 +9502,25 @@ class AgriController {
 
     @PostMapping("/resource-plans/evaluate")
     ResponseEntity<?> resourcePlan(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.resourcePlan(body, principal(a))); }
+
+    @PostMapping("/resource-requests")
+    ResponseEntity<?> createResourceRequest(@RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.createResourceRequest(body, principal(a)));
+    }
+
+    @GetMapping("/resource-requests")
+    ResponseEntity<?> resourceRequests(@RequestParam(required = false) String farmId,
+                                       @RequestParam(required = false) String plotId,
+                                       @RequestParam(required = false) String status, Authentication a) {
+        Map<String, String> filters = new LinkedHashMap<>();
+        if (farmId != null) filters.put("farmId", farmId); if (plotId != null) filters.put("plotId", plotId); if (status != null) filters.put("status", status);
+        return ok(engine.listResourceRequests(filters, principal(a)));
+    }
+
+    @PostMapping("/resource-requests/{resourceRequestId}/actions")
+    ResponseEntity<?> actOnResourceRequest(@PathVariable String resourceRequestId, @RequestBody Map<String, Object> body, Authentication a) {
+        return ok(engine.actOnResourceRequest(resourceRequestId, body, principal(a)));
+    }
 
     @GetMapping("/resource-profiles/water")
     ResponseEntity<?> waterResourceProfile(@RequestParam(required = false) String farmId,

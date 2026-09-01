@@ -1,3 +1,5 @@
+import { PLOT_METRIC_CODES } from './plot-display.js';
+
 export const ADMIN_TABS = Object.freeze({
   dashboard: ['overview'],
   'work-orders': ['tasks', 'plans', 'resources', 'crop-packs'],
@@ -36,19 +38,7 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_HEALTH: '设备健康'
 });
 
-export const ADMIN_PLOT_METRIC_CODES = Object.freeze([
-  'SOIL_MOISTURE',
-  'AIR_TEMPERATURE',
-  'AIR_HUMIDITY',
-  'LIGHT',
-  'CO2',
-  'RAINFALL',
-  'PH',
-  'WATER_LEVEL',
-  'NITROGEN',
-  'PHOSPHORUS',
-  'POTASSIUM'
-]);
+export const ADMIN_PLOT_METRIC_CODES = PLOT_METRIC_CODES;
 
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',
@@ -338,7 +328,8 @@ export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.no
     }).length,
     abnormal,
     unassigned: activeWork.filter(item => !item?.assigneeId).length,
-    approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length
+    approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length,
+    farmerReports: activeWork.filter(item => String(item?.sourceType || '').toUpperCase() === 'FARMER_REPORT').length
   };
 }
 
@@ -347,10 +338,11 @@ const MANAGER_SUMMARY_TARGETS = Object.freeze({
   overdue: { view: 'work-orders', params: { tab: 'tasks', scope: 'overdue' } },
   abnormal: { view: 'decision-console', params: { section: 'alerts' } },
   unassigned: { view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned' } },
-  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } }
+  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } },
+  'farmer-reports': { view: 'work-orders', params: { tab: 'tasks', scope: 'farmer-reports', status: 'ALL' } }
 });
 
-const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval']);
+const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval', 'farmer-reports']);
 const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED']);
 
 export function managerSummaryTarget(summaryId, farmId = '') {
@@ -372,6 +364,7 @@ export function workOrderMatchesSummaryScope(order, scope, now = Date.now()) {
   if (!normalizedScope || normalizedScope === 'today') return true;
   const status = String(order?.status || '').trim().toUpperCase();
   if (TERMINAL_WORK_STATUSES.has(status)) return false;
+  if (normalizedScope === 'farmer-reports') return String(order?.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
   if (normalizedScope === 'unassigned') return !order?.assigneeId;
   if (normalizedScope === 'approval') return String(order?.actionType || '').trim().toUpperCase() === 'IRRIGATION_REVIEW';
   const dueAt = new Date(order?.dueAt || 0).getTime();
@@ -393,7 +386,7 @@ export function domainsForEventType(type = '') {
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
   if (value.includes('resource') || value.includes('water.balance') || value.includes('irrigation.plan')) {
-    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('overview');
+    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('resourceRequests'); domains.add('overview');
   }
   if (value.includes('command.approved') || value.includes('evaluation')) {
     domains.add('resourcePlans'); domains.add('resourceProfiles'); domains.add('workOrders'); domains.add('ledgers'); domains.add('overview');
@@ -405,6 +398,8 @@ const ADMIN_CROP_ALIASES = Object.freeze([
   ['tomato', ['tomato', '番茄']],
   ['corn', ['corn', '玉米']],
   ['cucumber', ['cucumber', '黄瓜']],
+  ['eggplant', ['eggplant', '茄子', '茄']],
+  ['lettuce', ['lettuce', '生菜', '莴苣']],
   ['rice', ['rice', '水稻', '稻']],
   ['sunflower', ['sunflower', '向日葵', '油葵']],
   ['strawberry', ['strawberry', '草莓']],
@@ -415,6 +410,8 @@ const ADMIN_CROP_EMOJIS = Object.freeze({
   tomato: '🍅',
   corn: '🌽',
   cucumber: '🥒',
+  eggplant: '🍆',
+  lettuce: '🥬',
   rice: '🌾',
   sunflower: '🌻',
   strawberry: '🍓',

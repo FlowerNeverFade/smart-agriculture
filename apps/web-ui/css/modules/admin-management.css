@@ -369,6 +369,8 @@
 .admin-pack-summary-card[data-crop="corn"],
 .admin-pack-summary-card[data-crop="sunflower"] { --work-card-accent: var(--admin-orange); --work-card-tint: var(--admin-orange-bg); }
 .admin-pack-summary-card[data-crop="cucumber"] { --work-card-accent: var(--admin-mint); --work-card-tint: var(--admin-mint-bg); }
+.admin-pack-summary-card[data-crop="eggplant"] { --work-card-accent: var(--admin-purple); --work-card-tint: var(--admin-purple-bg); }
+.admin-pack-summary-card[data-crop="lettuce"] { --work-card-accent: var(--admin-mint); --work-card-tint: var(--admin-mint-bg); }
 .admin-pack-summary-card[data-crop="rice"] { --work-card-accent: var(--admin-teal); --work-card-tint: var(--admin-teal-bg); }
 .admin-pack-glyph {
   display: grid;
@@ -378,7 +380,10 @@
   border-radius: 11px;
   background: var(--work-card-tint);
   color: var(--work-card-accent) !important;
-  font-size: 14px !important;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 22px !important;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .admin-work-data-dialog {

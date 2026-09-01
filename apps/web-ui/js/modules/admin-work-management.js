@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260831-sync-v1';
-import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260831-sync-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-admin-ops-v1';
-import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260831-sync-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260901-v600-main-merge-v1';
+import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v600-main-merge-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v600-main-merge-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v600-main-merge-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v600-main-merge-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -303,6 +303,7 @@ export const AdminWorkManagementView = {
     const value = input => input === undefined || input === null || input === '' ? '—' : input;
     const plotName = plotId => activePlots.value.find(plot => plot.plotId === plotId)?.name || plotId || '—';
     const cropName = cropCode => packs.value.find(pack => pack.cropCode === cropCode)?.identity?.name || cropCode || '—';
+    const cropEmoji = pack => String(pack?.icon || '').trim() || adminCropEmoji({ cropCode: pack?.cropCode, cropName: pack?.identity?.name, cropVariety: pack?.identity?.variety });
     const dateLabel = input => input ? String(input).slice(0, 10).replaceAll('-', '/') : '—';
     const batchStatusLabel = status => ({ ACTIVE: '进行中', PLANNED: '待执行', COMPLETED: '已完成', INACTIVE: '已停用' }[String(status || '').toUpperCase()] || statusLabel(status, '进行中'));
     const batchStatusTone = status => ({ ACTIVE: 'active', PLANNED: 'planned', COMPLETED: 'completed', INACTIVE: 'inactive' }[String(status || '').toUpperCase()] || 'neutral');
@@ -316,17 +317,17 @@ export const AdminWorkManagementView = {
       validateSelectedPack, activateSelectedPack, nextPackStep, previousPackStep, addStage, removeStage, addRule, removeRule, addTaskTemplate, removeTaskTemplate, addKnowledge, removeKnowledge,
       closePlanCreateOnBackdrop, closePlanDetailOnBackdrop, closePackDetailOnBackdrop,
       submitPlanCreate,
-      taskLabel, stageLabel, metricLabel, value, plotName, cropName, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
+      taskLabel, stageLabel, metricLabel, value, plotName, cropName, cropEmoji, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
       metricStatusLabel, priorityLabel, provenanceLabel, statusLabel
     };
   },
   template: `
     <section class="admin-management-page">
-      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、资源安排与 Crop Pack 使用同一农场上下文。</p></div></header>
+      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、灌溉调度与 Crop Pack 使用同一农场上下文。</p></div></header>
       <nav class="admin-local-tabs" aria-label="农务任务页签">
         <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务列表</button>
         <button :class="{active: activeTab === 'plans'}" @click="setTab('plans')">生产计划</button>
-        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">资源安排</button>
+        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">灌溉调度</button>
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
       </nav>
 
@@ -382,7 +383,7 @@ export const AdminWorkManagementView = {
             :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" role="button" tabindex="0"
             @click="openPackDetail(pack)" @keydown.enter="openPackDetail(pack)" @keydown.space.prevent="openPackDetail(pack)">
             <header>
-              <span class="admin-pack-glyph">{{ (pack.identity?.name || pack.cropCode || 'P').slice(0, 1) }}</span>
+              <span class="admin-pack-glyph" aria-hidden="true">{{ cropEmoji(pack) }}</span>
               <span>{{ pack.farmId ? (String(pack.status || 'DRAFT').toUpperCase() === 'ACTIVE' ? '已启用' : '农场草稿') : '全局' }} · v{{ pack.version || '—' }}</span>
               <div class="admin-pack-menu-wrap" @click.stop>
                 <button type="button" class="admin-pack-menu-trigger" aria-label="打开作物包菜单" :aria-expanded="packMenuId === packKey(pack)" @click.stop="togglePackMenu(pack)"><app-icon name="more_vertical"></app-icon></button>

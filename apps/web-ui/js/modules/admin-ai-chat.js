@@ -1,7 +1,7 @@
-import { api } from '../api.js?v=20260831-sync-v1';
-import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260831-sync-v1';
-import { analyzeImageFiles } from './image-vision.js?v=20260831-sync-v1';
-import { agentRolePresentation } from '../agent-presentation.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260901-v593-market-v3';
+import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260901-v593-market-v3';
+import { analyzeImageFiles } from './image-vision.js?v=20260901-v593-market-v3';
+import { agentRolePresentation } from '../agent-presentation.js?v=20260901-v593-market-v3';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
 
@@ -267,7 +267,18 @@ export const AdminAiChatView = {
     });
     watch(selectedPlotId, (value, oldValue) => { if (!selectingConversation) switchPlotContext(value, oldValue); });
 
+    // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
+    // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画
+    const scrollToBottomInstant = async () => {
+      await nextTick();
+      const el = messageList.value;
+      if (!el) return;
+      const prev = el.style.scrollBehavior;
+      el.style.scrollBehavior = 'auto';
+      el.scrollTop = el.scrollHeight;
+      el.style.scrollBehavior = prev;
+    };
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
       if (!id) delete params.conversationId;
@@ -279,8 +290,11 @@ export const AdminAiChatView = {
     const loadConversation = async (id, { updateHash = true } = {}) => {
       if (!id) return;
       loadingHistory.value = true;
+      // 切换会话时先清空旧消息与分页计数，避免上一会话内容残留导致"先看到旧消息再下拉到最新"
+      messages.value = [];
+      visibleMessageCount.value = 5;
       try {
-        const history = await api.getAgentHistory(id, 60);
+        const history = await api.getAgentHistory(id, 100);
         const historyPlotId = String(history?.conversation?.plotId || '').trim();
         if (historyPlotId && selectedPlotId.value && historyPlotId !== String(selectedPlotId.value)) {
           startNewConversation({ updateHash: true });
@@ -290,13 +304,12 @@ export const AdminAiChatView = {
         selectedConversationId.value = conversationId.value;
         releaseMessageImages();
         messages.value = (history?.messages || []).map(item => normalizeAgentMessage(item, props.state.sessionMode, currentRole.value)).filter(item => item.content);
-        visibleMessageCount.value = 20;
         if (updateHash) updateRoute(conversationId.value);
       } catch (error) {
         releaseMessageImages();
         messages.value = [];
         toast(error.message || '历史对话加载失败', 'error');
-      } finally { loadingHistory.value = false; scrollToBottom(); }
+      } finally { loadingHistory.value = false; scrollToBottomInstant(); }
     };
 
     const startNewConversation = ({ updateHash: shouldUpdateHash = true } = {}) => {
@@ -311,7 +324,7 @@ export const AdminAiChatView = {
       attachments.value.forEach(revokeAttachment);
       attachments.value = [];
       if (shouldUpdateHash) updateRoute('');
-      scrollToBottom();
+      scrollToBottomInstant();
     };
 
     let plotContextReady = false;
@@ -694,18 +707,33 @@ export const AdminAiChatView = {
       const plot = (props.state.plots || []).find(p => p.plotId === plotId);
       return plot?.name || plotId;
     };
-    // 消息向上加载（内存分页：默认显示最新 20 条，向上触顶自动加载更早）
-    const visibleMessageCount = ref(20);
+    // 消息向上加载（打开会话自动显示最新 20 条并定位最新；向上触顶自动加载更早，无需按钮）
+    const visibleMessageCount = ref(5);
     const visibleMessages = computed(() => messages.value.slice(-Math.max(1, visibleMessageCount.value)));
     const loadingOlder = ref(false);
     const loadOlderMessages = async () => {
       if (loadingOlder.value || visibleMessageCount.value >= messages.value.length) return;
       loadingOlder.value = true;
       const el = messageList.value;
-      const before = el ? el.scrollHeight : 0;
+      // 锚定当前视口内第一条可见消息：加载更早内容后把它放回原位，位置不突变
+      let anchorEl = null;
+      let anchorOffset = 0;
+      if (el) {
+        const containerTop = el.getBoundingClientRect().top;
+        for (const m of el.querySelectorAll('.admin-ai-message')) {
+          const t = m.getBoundingClientRect().top - containerTop;
+          if (t >= -1) { anchorEl = m; anchorOffset = Math.max(0, t); break; }
+        }
+      }
       visibleMessageCount.value += 20;
       await nextTick();
-      if (el) el.scrollTop += (el.scrollHeight - before);
+      if (el && anchorEl) {
+        // 瞬间回位（禁用 smooth），锚定消息回到加载前的视口位置
+        const prev = el.style.scrollBehavior;
+        el.style.scrollBehavior = 'auto';
+        el.scrollTop += (anchorEl.getBoundingClientRect().top - el.getBoundingClientRect().top) - anchorOffset;
+        el.style.scrollBehavior = prev;
+      }
       loadingOlder.value = false;
     };
     const handleMessageScroll = () => {
@@ -773,7 +801,7 @@ export const AdminAiChatView = {
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
           <button v-else-if="visibleMessages.length && visibleMessages.length < messages.length" type="button" class="admin-ai-load-older" @click="loadOlderMessages">加载更早消息</button>
-          <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_forward"></app-icon></button></div></div>
+          <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in visibleMessages" :key="message.id" class="admin-ai-message ai-chat-message" :class="[message.role, { error: message.error }]">
             <div class="admin-ai-avatar ai-chat-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><div v-if="message.role !== 'user'" class="admin-ai-message-meta ai-chat-message-meta"><span class="admin-ai-message-author"><strong>{{ rolePresentation.assistantName }}</strong></span><span class="admin-ai-source ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.source || '智能助手' }}</span><span v-if="message.intentLabel" class="admin-ai-intent ai-chat-intent">{{ message.intentLabel }}</span></div><div v-else class="ai-chat-user-bubble">{{ message.content }}</div><p v-if="message.role !== 'user'" class="ai-chat-answer">{{ message.content }}</p><div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div><div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
               <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>

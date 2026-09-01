@@ -13,7 +13,10 @@ spring:
     default-property-inclusion: non_null
     time-zone: Asia/Shanghai
   datasource:
-    url: ${DATABASE_URL:jdbc:h2:mem:agriloop;MODE=PostgreSQL;DB_CLOSE_DELAY=-1}
+    # Standalone collaboration must survive an API restart. Generated H2
+    # files live under the ignored data/ directory; simulation deployments
+    # continue to override this URL with PostgreSQL below.
+    url: ${DATABASE_URL:jdbc:h2:file:./data/agriloop;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE}
     username: ${DATABASE_USER:sa}
     password: ${DATABASE_PASSWORD:}
     driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}
@@ -72,6 +75,16 @@ agriloop:
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
   simulation-config-path: ${SIMULATION_CONFIG_PATH:data/plot-simulation.json}
   attachment-dir: ${ATTACHMENT_DIR:data/attachments}
+  # Official daily wholesale quotations. This is not a securities-grade tick
+  # feed: the API stores one attributable daily snapshot for historical curves.
+  market-price-enabled: ${MARKET_PRICE_ENABLED:true}
+  market-price-base-url: ${MARKET_PRICE_BASE_URL:https://pfsc.agri.cn}
+  market-price-province-code: ${MARKET_PRICE_PROVINCE_CODE:500000}
+  market-price-province-name: ${MARKET_PRICE_PROVINCE_NAME:重庆市}
+  market-price-preferred-market: ${MARKET_PRICE_PREFERRED_MARKET:重庆双福国际农贸城}
+  market-price-aes-key: ${MARKET_PRICE_AES_KEY:7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV}
+  market-price-timeout-ms: ${MARKET_PRICE_TIMEOUT_MS:8000}
+  market-price-cache-minutes: ${MARKET_PRICE_CACHE_MINUTES:30}
 
 management:
   endpoints:

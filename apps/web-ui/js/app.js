@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v600-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v600-main-merge-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v600-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v4';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-admin-ops-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-admin-ops-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-ai-icons-v3';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-admin-ops-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v600-main-merge-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v600-main-merge-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v600-main-merge-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v600-main-merge-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v600-main-merge-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v600-main-merge-v1';
+import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v600-main-merge-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v600-main-merge-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-workspace-settings-v4';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-sync-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v600-main-merge-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v600-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260831-sync-v1';
+} from './live-data.js?v=20260901-v600-main-merge-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -162,7 +163,8 @@ const ICON_CLASS = Object.freeze({
   chevron_right: 'ph-caret-right',
   chevron_left: 'ph-caret-left',
   attach_file: 'ph-paperclip',
-  image_search: 'ph-image-square'
+  image_search: 'ph-image-square',
+  market: 'ph-chart-line-up'
 });
 
 const AppIcon = {
@@ -176,6 +178,7 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
+  { id: 'market-insights', label: '市场行情', icon: 'market', labels: { FARM_ADMIN: '市场行情' } },
   { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '告警智能处理', SYSTEM_ADMIN: '决策审计' } },
   { id: 'rules-strategies', label: '规则与策略', icon: 'rule_folder', labels: { FARM_ADMIN: '规则与策略' } },
   { id: 'ai-assistant', label: 'AI助手', icon: 'smart_toy', labels: { FARM_ADMIN: 'AI助手' } },
@@ -186,6 +189,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
   { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
+  { id: 'admin-resources', label: '资源协同', icon: 'water_drop', labels: { SYSTEM_ADMIN: '资源协同审计' } },
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
@@ -650,7 +654,8 @@ const DashboardView = {
         { id: 'overdue', icon: 'schedule', label: '已逾期', value: summary.overdue, hint: '查看已经超过截止时间的任务' },
         { id: 'abnormal', icon: 'warning_amber', label: '异常地块', value: summary.abnormal, hint: '进入告警处置，查看异常地块' },
         { id: 'unassigned', icon: 'person_add', label: '待分配', value: summary.unassigned, hint: '查看还没有负责人的任务' },
-        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' }
+        { id: 'approval', icon: 'task_alt', label: '待处理灌溉', value: summary.approval, hint: '查看历史审批记录或待处理的灌溉任务' },
+        { id: 'farmer-reports', icon: 'report_problem', label: '农户问题', value: summary.farmerReports, hint: '查看农户上报的具体问题' }
       ];
     });
 
@@ -2294,6 +2299,37 @@ const AdminOpsView = {
   }
 };
 
+const AdminResourcesView = {
+  template: '#tmpl-admin-resources',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const farmFilter = ref(props.routeParams?.farmId || 'all');
+    const statusFilter = ref('active');
+    const activeRequestStatuses = new Set(['SUBMITTED', 'IN_REVIEW', 'PENDING_ACK', 'ACKNOWLEDGED', 'CONFLICT_REPORTED']);
+    const farms = computed(() => props.state.farms || []);
+    const profiles = computed(() => props.state.resourceProfiles || []);
+    const plans = computed(() => (props.state.resourcePlans || []).filter(plan => farmFilter.value === 'all' || plan.farmId === farmFilter.value));
+    const requests = computed(() => (props.state.resourceRequests || [])
+      .filter(request => farmFilter.value === 'all' || request.farmId === farmFilter.value)
+      .filter(request => statusFilter.value === 'all' || (statusFilter.value === 'active' ? activeRequestStatuses.has(request.status) : request.status === statusFilter.value))
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)));
+    const selectedProfiles = computed(() => profiles.value.filter(profile => farmFilter.value === 'all' || profile.farmId === farmFilter.value));
+    const totals = computed(() => ({
+      farms: selectedProfiles.value.length,
+      quota: selectedProfiles.value.reduce((sum, profile) => sum + Number(profile.dailyQuotaLitres || profile.balance?.dailyQuotaLitres || 0), 0),
+      remaining: selectedProfiles.value.reduce((sum, profile) => sum + Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? 0), 0),
+      conflicts: requests.value.filter(request => request.status === 'CONFLICT_REPORTED').length,
+      pendingAck: requests.value.filter(request => request.status === 'PENDING_ACK').length
+    }));
+    const farmName = farmId => farms.value.find(farm => farm.farmId === farmId)?.name || farmId || '未知农场';
+    const plotName = plotId => (props.state.allPlots || []).find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
+    const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || status || '待处理');
+    const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || status || '未知');
+    const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+  }
+};
+
 const AdminAuditView = {
   template: '#tmpl-admin-audit',
   props: ['state', 'routeParams'],
@@ -2930,6 +2966,7 @@ const AdminSettingsView = {
 const app = createApp({
   components: {
     'dashboard-view': DashboardView,
+    'market-insights-view': AdminMarketInsightsView,
     'plot-detail-modal': PlotDetailModal,
     'decision-console-view': RoleAwareDecisionConsoleView,
     'ai-assistant-view': AdminAiChatView,
@@ -2941,6 +2978,7 @@ const app = createApp({
     'crop-packs-view': CropPacksView,
     'admin-overview-view': AdminOverviewView,
     'admin-ops-view': AdminOpsView,
+    'admin-resources-view': AdminResourcesView,
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
@@ -2996,7 +3034,9 @@ const app = createApp({
         : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
+      resourceProfiles: isDemoSession ? [MOCK_DATA.resourceProfile] : [],
       resourcePlans: isDemoSession ? [] : [],
+      resourceRequests: isDemoSession ? (MOCK_DATA.resourceRequests || []).map(item => ({ ...item })) : [],
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
@@ -3035,7 +3075,8 @@ const app = createApp({
     const pendingFarmDomains = new Set();
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans', 'rulesStrategies'
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator',
+      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies', 'inspections'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3296,6 +3337,7 @@ const app = createApp({
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
+      if (wants('resourceRequests') || wants('resourcePlans') || wants('overview')) jobs.resourceRequests = api.listResourceRequests({ farmId });
       if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
       if (wants('cropPacks') || wants('rulesStrategies') || wants('overview')) {
         jobs.adminRules = api.getRuleSets(farmId);
@@ -3303,11 +3345,7 @@ const app = createApp({
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
-        jobs.inspections = api.getPlots({ farmId, includeInactive: false })
-          .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
-          .then((results) => results
-            .filter((result) => result.status === 'fulfilled')
-            .flatMap((result) => result.value || []));
+        jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
       const settled = await Promise.all(entries.map(async ([key, promise]) => {
@@ -3347,7 +3385,9 @@ const app = createApp({
       if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
       if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
       if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfile = results.resourceProfile.value || {};
+      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfiles = [results.resourceProfile.value || {}];
       if (results.resourcePlans?.status === 'fulfilled') state.value.resourcePlans = results.resourcePlans.value || [];
+      if (results.resourceRequests?.status === 'fulfilled') state.value.resourceRequests = results.resourceRequests.value || [];
       if (results.cropPacks?.status === 'fulfilled') {
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
@@ -3381,6 +3421,8 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
+        resourcePlans: api.listResourcePlans({}),
+        resourceRequests: api.listResourceRequests({}),
         systemStatus: (async () => {
           const startedAt = performance.now();
           const status = await api.getSystemStatus();
@@ -3410,21 +3452,24 @@ const app = createApp({
       const devices = [];
       const members = [];
       const ledgers = [];
+      const resourceProfiles = [];
       const timelineEntries = [];
       const inspectionEntries = [];
       const farmIds = farms.map((farm) => farm.farmId).filter(Boolean);
       const farmJobs = await Promise.all(farmIds.map(async (farmId) => {
-        const [deviceResult, memberResult, ledgerResult] = await Promise.allSettled([
+        const [deviceResult, memberResult, ledgerResult, resourceProfileResult] = await Promise.allSettled([
           api.getDevices({ farmId }),
           api.getFarmMembers({ farmId }),
-          api.getValueLedgers({ farmId })
+          api.getValueLedgers({ farmId }),
+          api.getWaterResourceProfile(farmId)
         ]);
-        return { farmId, deviceResult, memberResult, ledgerResult };
+        return { farmId, deviceResult, memberResult, ledgerResult, resourceProfileResult };
       }));
-      farmJobs.forEach(({ deviceResult, memberResult, ledgerResult }) => {
+      farmJobs.forEach(({ deviceResult, memberResult, ledgerResult, resourceProfileResult }) => {
         if (deviceResult.status === 'fulfilled') devices.push(...(deviceResult.value || []));
         if (memberResult.status === 'fulfilled') members.push(...(memberResult.value || []));
         if (ledgerResult.status === 'fulfilled') ledgers.push(...(ledgerResult.value || []));
+        if (resourceProfileResult.status === 'fulfilled' && resourceProfileResult.value) resourceProfiles.push(resourceProfileResult.value);
       });
       const timelineResults = await Promise.allSettled(plots.map(async (plot) => Promise.allSettled([
         api.getPlotTimeline(plot.plotId),
@@ -3515,6 +3560,10 @@ const app = createApp({
       state.value.devices = devices;
       state.value.farmMembers = members;
       state.value.valueLedgers = ledgers;
+      state.value.resourceProfiles = resourceProfiles;
+      state.value.resourceProfile = resourceProfiles[0] || {};
+      state.value.resourcePlans = results.resourcePlans?.status === 'fulfilled' ? results.resourcePlans.value || [] : [];
+      state.value.resourceRequests = results.resourceRequests?.status === 'fulfilled' ? results.resourceRequests.value || [] : [];
       state.value.cropPacks = results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value || [] : [];
       state.value.cropPackDetails = state.value.cropPacks;
       state.value.simulatorStatus = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
@@ -3605,6 +3654,12 @@ const app = createApp({
           const oldest = seenSystemEventIds.values().next().value;
           if (oldest) seenSystemEventIds.delete(oldest);
         }
+      }
+      const payload = event?.data?.payload || event?.data || {};
+      const isFarmerIssueReport = systemEvent.type === 'workorder.farmer-report'
+        || String(payload.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+      if (state.value.currentUser?.role === 'FARM_ADMIN' && isFarmerIssueReport && shouldAnnounceSystemToast(systemEvent, payload)) {
+        showToast(`收到农户问题上报：${payload.title || '请查看农务任务'}`, 'warning');
       }
       // Some proxies normalize the SSE event name to `message`; the payload
       // still carries the authoritative eventType.
@@ -3793,7 +3848,8 @@ const app = createApp({
         }
       }
       const normalized = [...new Set(domains.flatMap(domain => {
-        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceRequests', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourceRequests') return ['resourceRequests', 'resourcePlans', 'workOrders', 'overview'];
         if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
         return [domain];
       }))];
@@ -3910,9 +3966,12 @@ const app = createApp({
           }
           if (workOrdersResult.status === 'fulfilled') state.value.workOrders = workOrdersResult.value || [];
           if (alertsResult.status === 'fulfilled') state.value.alerts = alertsResult.value || [];
-          const plotMap = new Map(state.value.plots.map((plot) => [String(plot.plotId), plot]));
-          const inspectionResults = await Promise.allSettled(state.value.plots.map((plot) => api.getInspections(plot.plotId)));
-          state.value.inspections = inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+          const farmerFarmId = state.value.currentUser?.farmIds?.find((farmId) => farmId !== '*') || '';
+          try {
+            state.value.inspections = await api.getInspections(farmerFarmId ? { farmId: farmerFarmId } : {});
+          } catch (error) {
+            showToast('读取巡田记录失败，已保留已有记录：' + (error?.message || '后端返回异常'), 'error');
+          }
           state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.plots });
           if (state.value.currentUser?.role === 'FARM_ADMIN') {
             state.value.farmMembers = [];

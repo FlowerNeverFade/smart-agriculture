@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260901-v593-market-v3';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -6,8 +6,8 @@ import {
   deviceRelatedAlerts,
   deviceRelatedWorkOrders,
   formatHealthScore
-} from '../admin-state.js?v=20260831-sync-v1';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260831-sync-v1';
+} from '../admin-state.js?v=20260901-v593-market-v3';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260901-v593-market-v3';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

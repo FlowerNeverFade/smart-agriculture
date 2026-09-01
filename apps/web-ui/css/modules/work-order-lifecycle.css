@@ -366,6 +366,7 @@
 .work-status.tone-danger { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-status.tone-success { color: var(--g-success); border-color: color-mix(in srgb, var(--g-success) 35%, var(--g-border)); background: var(--g-success-bg); }
 .work-rework { color: #8f301f; border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
+.work-source.work-issue-report { color: #8f5b00; border-color: color-mix(in srgb, var(--g-warning) 42%, var(--g-border)); background: var(--g-warning-bg); }
 .work-overdue { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); background: var(--g-danger-bg); }
 .work-priority { flex: 0 0 auto; background: transparent; }
 .work-priority.priority-high { color: var(--g-danger); border-color: color-mix(in srgb, var(--g-danger) 42%, var(--g-border)); }
@@ -405,8 +406,10 @@
 }
 
 .work-result.rejected { border-color: color-mix(in srgb, #9a6700 35%, var(--g-border)); background: var(--g-warning-bg); }
+.work-issue-report-detail { border-color: color-mix(in srgb, var(--g-warning) 42%, var(--g-border)); background: var(--g-warning-bg); }
 .work-result strong { display: block; margin-bottom: 4px; color: var(--g-text-primary); font-size: 12px; }
 .work-result p { color: var(--g-text-secondary); font-size: 13px; font-weight: 500; line-height: 1.55; }
+.work-result small { display: block; margin-top: 6px; color: var(--g-text-secondary); font-size: 11px; }
 
 .work-order-footer {
   display: flex;
@@ -531,6 +534,43 @@
 .work-empty .material-symbols-outlined { margin-bottom: 10px; font-size: 38px; }
 .work-empty h2 { margin-bottom: 6px; font-size: 18px; font-weight: 600; }
 .work-empty p { font-size: 13px; }
+
+.evidence-request-history {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--g-border);
+  border-radius: 10px;
+  background: var(--g-bg-surface);
+}
+
+.evidence-request-history > header,
+.evidence-request-card > header,
+.evidence-request-card > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evidence-request-history > header { margin-bottom: 13px; }
+.evidence-request-history > header h2 { font-size: 18px; font-weight: 600; }
+.evidence-request-history > header div > span { display: block; margin-top: 5px; color: var(--g-text-secondary); font-size: 12px; font-weight: 500; }
+.evidence-request-count { flex: 0 0 auto; color: var(--g-primary); font-size: 12px; font-weight: 700; }
+.evidence-request-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.evidence-request-card { min-width: 0; padding: 13px; border: 1px solid var(--g-border-subtle); border-radius: 8px; background: var(--g-bg-base); cursor: pointer; }
+.evidence-request-card:hover { border-color: var(--g-primary); }
+.evidence-request-card > header { align-items: center; }
+.evidence-request-card > header time { flex: 0 0 auto; color: var(--g-text-secondary); font-size: 11px; }
+.evidence-request-card h3 { margin-top: 10px; color: var(--g-text-primary); font-size: 14px; font-weight: 600; }
+.evidence-request-card > p { min-height: 38px; margin: 7px 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.evidence-request-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; padding-top: 9px; border-top: 1px solid var(--g-border-subtle); }
+.evidence-request-facts > div { min-width: 0; }
+.evidence-request-facts dt { color: var(--g-text-secondary); font-size: 10px; }
+.evidence-request-facts dd { overflow: hidden; margin-top: 2px; color: var(--g-text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-request-card > footer { align-items: center; margin-top: 12px; }
+.evidence-request-card > footer .g-btn:first-child { margin-left: auto; }
+
+.inspection-history-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 
 .work-overdue-disposition {
   display: flex;
@@ -698,8 +738,11 @@
   .work-order-footer { align-items: stretch; flex-direction: column; padding-inline: 14px; }
   .work-history { max-width: 100%; }
   .work-card-actions { flex-wrap: wrap; }
-  .inspection-history > header { align-items: stretch; flex-direction: column; }
+  .inspection-history > header,
+  .evidence-request-history > header { align-items: stretch; flex-direction: column; }
+  .inspection-history-actions { justify-content: flex-start; }
   .inspection-record-list { grid-template-columns: 1fr; }
+  .evidence-request-list { grid-template-columns: 1fr; }
   .work-form-grid { grid-template-columns: 1fr; }
   .work-form-grid .span-2 { grid-column: auto; }
   .work-member-source { align-items: flex-start; flex-direction: column; }
