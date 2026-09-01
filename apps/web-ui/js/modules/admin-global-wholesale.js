@@ -6,19 +6,24 @@ import {
   estimateGlobalWholesaleRoute,
   exportCropProfile,
   routeFacts
-} from './global-wholesale-data.js?v=20260901-v595-global-v1';
+} from './global-wholesale-data.js?v=20260901-v596-official-map-v1';
 
-const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } = Vue;
-const WORLD_MAP_NAME = 'agriloop-natural-earth-land-110m';
-const WORLD_MAP_URL = new URL('../../assets/maps/natural-earth-110m-land.geojson', import.meta.url).href;
+const { ref, computed, watch } = Vue;
+const OFFICIAL_WORLD_MAP_URL = new URL('../../assets/maps/official-world-gs2016-1663.jpg', import.meta.url).href;
+const OFFICIAL_WORLD_MAP = Object.freeze({
+  reviewNumber: 'GS(2016)1663号',
+  width: 4655,
+  height: 2444,
+  sourceUrl: 'http://bzdt.ch.mnr.gov.cn/'
+});
+const MAP_VIEWBOX = Object.freeze({ width: 1000, height: 525 });
+const OFFICIAL_MAP_BOUNDS = Object.freeze({ left: 3.1, right: 96.9, top: 5.7, bottom: 95.3, centralMeridian: 150 });
 const ROUTE_FILTERS = Object.freeze([
   { value: 'ALL', label: '全部方式' },
   { value: 'AIR', label: '航空冷链' },
   { value: 'RAIL', label: '铁路冷链' },
   { value: 'SEA', label: '海运冷链' }
 ]);
-
-let worldMapPromise = null;
 
 function finite(value) {
   if (value == null || value === '') return null;
@@ -44,25 +49,19 @@ function readinessMeta(status) {
   })[String(status || '').toUpperCase()] || { label: '待测算', tone: 'evidence' };
 }
 
-async function ensureWorldMap() {
-  if (!window.echarts) throw new Error('地图引擎未加载');
-  if (window.echarts.getMap?.(WORLD_MAP_NAME)) return;
-  if (!worldMapPromise) {
-    worldMapPromise = fetch(WORLD_MAP_URL, { cache: 'force-cache' })
-      .then(response => {
-        if (!response.ok) throw new Error(`地图底图加载失败（HTTP ${response.status}）`);
-        return response.json();
-      })
-      .then(geoJson => {
-        window.echarts.registerMap(WORLD_MAP_NAME, geoJson);
-        return geoJson;
-      })
-      .catch(error => {
-        worldMapPromise = null;
-        throw error;
-      });
-  }
-  await worldMapPromise;
+function officialMapPoint(coordinates) {
+  const [longitude, latitude] = Array.isArray(coordinates) ? coordinates.map(Number) : [0, 0];
+  const wrappedLongitude = ((longitude - OFFICIAL_MAP_BOUNDS.centralMeridian + 540) % 360) - 180;
+  const longitudeRatio = (wrappedLongitude + 180) / 360;
+  const latitudeRatio = (90 - Math.max(-90, Math.min(90, latitude))) / 180;
+  const left = OFFICIAL_MAP_BOUNDS.left + longitudeRatio * (OFFICIAL_MAP_BOUNDS.right - OFFICIAL_MAP_BOUNDS.left);
+  const top = OFFICIAL_MAP_BOUNDS.top + latitudeRatio * (OFFICIAL_MAP_BOUNDS.bottom - OFFICIAL_MAP_BOUNDS.top);
+  return Object.freeze({
+    left: Number(left.toFixed(2)),
+    top: Number(top.toFixed(2)),
+    x: Number((left * MAP_VIEWBOX.width / 100).toFixed(2)),
+    y: Number((top * MAP_VIEWBOX.height / 100).toFixed(2))
+  });
 }
 
 export const AdminGlobalWholesalePanel = {
@@ -75,7 +74,6 @@ export const AdminGlobalWholesalePanel = {
   },
   emits: ['select-crop'],
   setup(props, { emit }) {
-    const mapEl = ref(null);
     const mapError = ref('');
     const routeFilter = ref('ALL');
     const selectedMarketId = ref('tokyo');
@@ -86,10 +84,6 @@ export const AdminGlobalWholesalePanel = {
     const buyerQuoteCnyKg = ref(0);
     const originPriceSource = ref('SIMULATED');
     const buyerQuoteSource = ref('SIMULATED');
-    let mapChart = null;
-    let resizeObserver = null;
-    let resizeFrame = 0;
-    let idleHandle = 0;
 
     const selectedCrop = computed(() => props.crops.find(item => item.cropCode === props.selectedCropCode) || props.crops[0] || null);
     const cropProfile = computed(() => exportCropProfile(selectedCrop.value?.cropCode));
@@ -135,6 +129,21 @@ export const AdminGlobalWholesalePanel = {
     }));
     const availableRouteCount = computed(() => GLOBAL_WHOLESALE_MARKETS.reduce((sum, market) => sum + market.modes.length, 0));
     const selectedMarginTone = computed(() => Number(selectedEstimate.value?.simulatedMarginCny || 0) > 0 ? 'positive' : Number(selectedEstimate.value?.simulatedMarginCny || 0) < 0 ? 'negative' : 'neutral');
+    const originMapPoint = officialMapPoint(GLOBAL_WHOLESALE_ORIGIN.coordinates);
+    const marketMapPoints = computed(() => filteredMarkets.value.map(market => ({ ...market, mapPoint: officialMapPoint(market.coordinates) })));
+    const selectedMapPoint = computed(() => officialMapPoint(selectedMarket.value?.coordinates));
+    const selectedRoutePath = computed(() => {
+      const start = originMapPoint;
+      const end = selectedMapPoint.value;
+      const horizontalDistance = Math.abs(end.x - start.x);
+      const verticalDistance = Math.abs(end.y - start.y);
+      const arcHeight = Math.min(68, Math.max(13, horizontalDistance * 0.1 + verticalDistance * 0.05));
+      const controlX = (start.x + end.x) / 2;
+      const controlY = Math.max(20, (start.y + end.y) / 2 - arcHeight);
+      return `M ${start.x} ${start.y} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${end.x} ${end.y}`;
+    });
+    const selectedRouteColor = computed(() => selectedRouteFacts.value?.color || '#5b8dd9');
+    const selectedRouteDasharray = computed(() => ({ dashed: '11 8', dotted: '2 7', solid: 'none' })[selectedRouteFacts.value?.lineType] || '11 8');
 
     const syncRoute = () => {
       const market = selectedMarket.value;
@@ -161,151 +170,42 @@ export const AdminGlobalWholesalePanel = {
       buyerQuoteSource.value = 'SIMULATED';
     };
 
-    const renderMap = async () => {
-      await nextTick();
-      if (!mapEl.value) return;
-      try {
-        mapError.value = '';
-        await ensureWorldMap();
-        if (!mapEl.value) return;
-        if (!mapChart || mapChart.getDom?.() !== mapEl.value) {
-          mapChart?.dispose?.();
-          mapChart = window.echarts.init(mapEl.value, null, { renderer: 'canvas' });
-        }
-        const selected = selectedMarket.value;
-        const route = selectedRouteFacts.value;
-        const destinations = filteredMarkets.value.map(market => ({
-          name: market.city,
-          value: [...market.coordinates, market.id === selected?.id ? 2 : 1],
-          marketId: market.id,
-          marketName: market.marketName,
-          country: market.country,
-          symbol: market.id === 'london' && selectedCrop.value?.internationalReference ? 'diamond' : 'circle',
-          symbolSize: market.id === selected?.id ? 17 : 11,
-          itemStyle: {
-            color: market.id === 'london' && selectedCrop.value?.internationalReference ? '#6f5aa8' : '#2f9d84',
-            borderColor: market.id === selected?.id ? '#1d2723' : '#ffffff',
-            borderWidth: market.id === selected?.id ? 2.4 : 1.3
-          },
-          label: { show: market.id === selected?.id }
-        }));
-        mapChart.off('click');
-        mapChart.on('click', params => {
-          if (params?.data?.marketId) selectMarket(params.data.marketId);
-        });
-        mapChart.setOption({
-          animation: false,
-          backgroundColor: '#f8fbfa',
-          textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
-          aria: { enabled: true, description: `全球批发目的地示意图，共${filteredMarkets.value.length}个城市级节点。当前选择${selected?.country || ''}${selected?.city || ''}，${route?.modeLabel || ''}为模拟路线。` },
-          tooltip: {
-            trigger: 'item', confine: true, backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1,
-            textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
-            formatter: params => params?.data?.marketId
-              ? `<strong>${params.data.country} · ${params.data.name}</strong><br>${params.data.marketName}<br>点击查看销售测算`
-              : ''
-          },
-          geo: {
-            map: WORLD_MAP_NAME,
-            roam: true,
-            scaleLimit: { min: 1, max: 6 },
-            layoutCenter: ['50%', '52%'],
-            layoutSize: '106%',
-            itemStyle: { areaColor: '#e4eee9', borderColor: '#8fa299', borderWidth: 0.65 },
-            emphasis: { disabled: true },
-            select: { disabled: true }
-          },
-          series: [
-            {
-              name: '当前销售关系', type: 'lines', coordinateSystem: 'geo', silent: true, polyline: false,
-              data: selected && route ? [{ coords: [GLOBAL_WHOLESALE_ORIGIN.coordinates, selected.coordinates] }] : [],
-              lineStyle: { color: route?.color || '#5b8dd9', width: 2, type: route?.lineType || 'dashed', opacity: 0.86, curveness: 0.16 }
-            },
-            {
-              name: '当前农场', type: 'scatter', coordinateSystem: 'geo', silent: true, progressive: 0,
-              data: [{ name: GLOBAL_WHOLESALE_ORIGIN.city, value: [...GLOBAL_WHOLESALE_ORIGIN.coordinates, 3] }],
-              symbol: 'diamond', symbolSize: 15,
-              itemStyle: { color: '#d68418', borderColor: '#ffffff', borderWidth: 1.5 },
-              label: { show: true, formatter: '重庆农场', position: 'right', color: '#26332e', fontSize: 10, fontWeight: 700, backgroundColor: 'rgba(255,255,255,.86)', padding: [2, 4], borderRadius: 3 }
-            },
-            {
-              name: '批发目的地', type: 'scatter', coordinateSystem: 'geo', progressive: 0,
-              data: destinations,
-              label: { show: false, formatter: params => params.data.name, position: 'right', color: '#26332e', fontSize: 10, fontWeight: 700, backgroundColor: 'rgba(255,255,255,.9)', padding: [2, 4], borderRadius: 3 },
-              emphasis: { scale: 1.2, label: { show: true } }
-            }
-          ]
-        }, { notMerge: true, lazyUpdate: true });
-      } catch (error) {
-        mapError.value = error?.message || '全球地图暂不可用';
-      }
-    };
-
-    const queueMapRender = () => {
-      if (idleHandle && window.cancelIdleCallback) window.cancelIdleCallback(idleHandle);
-      const run = () => { idleHandle = 0; void renderMap(); };
-      idleHandle = window.requestIdleCallback ? window.requestIdleCallback(run, { timeout: 320 }) : window.setTimeout(run, 0);
-    };
-
-    const resizeMap = () => {
-      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => { resizeFrame = 0; mapChart?.resize?.(); });
-    };
-
     const chooseCrop = event => emit('select-crop', event?.target?.value || '');
     const chooseFilter = value => {
       routeFilter.value = value;
       if (!filteredMarkets.value.some(market => market.id === selectedMarketId.value)) selectedMarketId.value = filteredMarkets.value[0]?.id || '';
       syncRoute();
       resetBuyerQuote();
-      void renderMap();
     };
     const selectMarket = id => {
       selectedMarketId.value = id;
       syncRoute();
       resetBuyerQuote();
-      void renderMap();
     };
     const chooseRoute = mode => {
       if (!selectedMarket.value?.modes?.includes(mode)) return;
       selectedRouteMode.value = mode;
-      void renderMap();
     };
+    const onMapImageLoad = () => { mapError.value = ''; };
+    const onMapImageError = () => { mapError.value = '官方标准地图文件加载失败'; };
     const markOriginUserProvided = () => { originPriceSource.value = 'USER_PROVIDED'; };
     const markBuyerUserProvided = () => { buyerQuoteSource.value = 'USER_PROVIDED'; };
 
     watch(() => props.selectedCropCode, () => {
       resetCropInputs();
-      queueMapRender();
     });
-    onMounted(() => {
-      syncRoute();
-      resetCropInputs();
-      queueMapRender();
-      if (window.ResizeObserver) {
-        resizeObserver = new ResizeObserver(resizeMap);
-        if (mapEl.value) resizeObserver.observe(mapEl.value);
-      } else window.addEventListener('resize', resizeMap);
-    });
-    onBeforeUnmount(() => {
-      if (idleHandle) {
-        if (window.cancelIdleCallback) window.cancelIdleCallback(idleHandle);
-        else window.clearTimeout(idleHandle);
-      }
-      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
-      resizeObserver?.disconnect?.();
-      window.removeEventListener('resize', resizeMap);
-      mapChart?.dispose?.();
-      mapChart = null;
-    });
+    syncRoute();
+    resetCropInputs();
 
     return {
-      mapEl, mapError, routeFilter, selectedMarketId, selectedRouteMode, quantityKg, originPriceCnyKg, packingCnyKg,
+      mapError, routeFilter, selectedMarketId, selectedRouteMode, quantityKg, originPriceCnyKg, packingCnyKg,
       buyerQuoteCnyKg, originPriceSource, buyerQuoteSource, selectedCrop, cropProfile, filteredMarkets, selectedMarket,
       selectedEstimate, selectedReadiness, selectedInternationalReference, latestInternationalPoint, routeOptions, marketCards,
-      availableRouteCount, selectedMarginTone, ROUTE_FILTERS, GLOBAL_WHOLESALE_MARKETS,
+      availableRouteCount, selectedMarginTone, marketMapPoints, originMapPoint, selectedRoutePath, selectedRouteColor,
+      selectedRouteDasharray, ROUTE_FILTERS, GLOBAL_WHOLESALE_MARKETS, GLOBAL_WHOLESALE_ORIGIN,
+      OFFICIAL_WORLD_MAP_URL, OFFICIAL_WORLD_MAP, MAP_VIEWBOX,
       numberText, moneyText, readinessMeta, chooseCrop, chooseFilter, selectMarket, chooseRoute,
-      markOriginUserProvided, markBuyerUserProvided
+      markOriginUserProvided, markBuyerUserProvided, onMapImageLoad, onMapImageError
     };
   },
   template: `
@@ -334,15 +234,22 @@ export const AdminGlobalWholesalePanel = {
       <div class="global-wholesale-workspace">
         <article class="global-map-panel">
           <header class="global-panel-heading">
-            <div><span class="market-eyebrow">轻量目的地地图</span><h3>{{ selectedCrop?.emoji }} {{ selectedCrop?.cropName || '作物' }} · {{ selectedMarket?.country }} {{ selectedMarket?.city }}</h3></div>
-            <span class="global-source-chip">Natural Earth · 1:110m</span>
+            <div><span class="market-eyebrow">官方标准底图 · 独立业务覆盖层</span><h3>{{ selectedCrop?.emoji }} {{ selectedCrop?.cropName || '作物' }} · {{ selectedMarket?.country }} {{ selectedMarket?.city }}</h3></div>
+            <span class="global-source-chip">自然资源部 · {{ OFFICIAL_WORLD_MAP.reviewNumber }}</span>
           </header>
           <div v-if="mapError" class="global-map-error"><span class="ph ph-warning" aria-hidden="true"></span><strong>地图暂不可用</strong><p>{{ mapError }}。右侧目的地列表和下方表格仍可继续使用。</p></div>
-          <div v-else ref="mapEl" class="global-wholesale-map" role="img" :aria-label="'重庆农场至' + selectedMarket?.city + '的全球批发目的地示意图'"></div>
+          <div v-else class="global-wholesale-map" role="group" :aria-label="'自然资源部世界标准地图及重庆农场至' + selectedMarket?.city + '的模拟销售关系覆盖层'">
+            <img class="global-official-map" :src="OFFICIAL_WORLD_MAP_URL" :width="OFFICIAL_WORLD_MAP.width" :height="OFFICIAL_WORLD_MAP.height" loading="lazy" decoding="async" fetchpriority="low" alt="自然资源部世界标准地图，审图号 GS(2016)1663号" @load="onMapImageLoad" @error="onMapImageError">
+            <svg class="global-route-overlay" :viewBox="'0 0 ' + MAP_VIEWBOX.width + ' ' + MAP_VIEWBOX.height" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="selectedRoutePath" :stroke="selectedRouteColor" :stroke-dasharray="selectedRouteDasharray"></path>
+            </svg>
+            <span class="global-map-origin" :style="{ left: originMapPoint.left + '%', top: originMapPoint.top + '%' }" title="当前农场（重庆）"><i></i><b>重庆农场</b></span>
+            <button v-for="market in marketMapPoints" :key="market.id" type="button" class="global-map-destination" :class="[{ active: selectedMarket?.id === market.id }, { observed: market.id === 'london' && selectedCrop?.internationalReference }]" :style="{ left: market.mapPoint.left + '%', top: market.mapPoint.top + '%' }" :title="market.country + ' · ' + market.city + '｜' + market.marketName" :aria-label="'选择' + market.country + market.city + '批发目的地'" :aria-pressed="selectedMarket?.id === market.id" @click="selectMarket(market.id)"><i></i><b v-if="selectedMarket?.id === market.id">{{ market.city }}</b></button>
+          </div>
           <div class="global-map-legend" aria-label="地图图例">
             <span><i class="is-origin"></i>重庆农场</span><span><i class="is-destination"></i>模拟目的地</span><span><i class="is-observed"></i>存在外部观测参考</span>
           </div>
-          <p class="global-map-note">等经纬度世界陆地示意；目的地为城市级近似坐标，连线只表达销售关系，不代表实际航线。地图按需加载，不使用在线瓦片或持续动画。</p>
+          <p class="global-map-note">底图为标准地图原图，未裁切、未重绘边界；目的地与关系线属于独立业务覆盖层，位置仅作城市级近似表达，不代表实际航线。公开发布含覆盖层的地图前仍需按规定履行地图审核。</p>
         </article>
 
         <aside class="global-market-list" aria-label="全球批发目的地">
@@ -416,7 +323,7 @@ export const AdminGlobalWholesalePanel = {
 
       <footer class="global-wholesale-footer">
         <span class="ph ph-info" aria-hidden="true"></span>
-        <p><strong>口径与性能说明</strong>地图陆地轮廓来自 <a href="https://www.naturalearthdata.com/downloads/110m-physical-vectors/" target="_blank" rel="noopener noreferrer">Natural Earth 1:110m（Public Domain）</a>；市场节点为演示目录。运费按“方式固定成本 + 球面距离 × 模式系数”，时效按固定处理日与日均里程估算，损耗随时效递增。底图首次进入才加载，仅绘制当前一条关系线和最多 9 个节点，不连接在线地图 SDK。</p>
+        <p><strong>来源、口径与性能说明</strong>底图来自<a :href="OFFICIAL_WORLD_MAP.sourceUrl" target="_blank" rel="noopener noreferrer">自然资源部标准地图服务系统</a>，审图号 {{ OFFICIAL_WORLD_MAP.reviewNumber }}，原图审图号与“自然资源部 监制”信息完整保留。市场节点为演示目录；运费按“方式固定成本 + 球面距离 × 模式系数”，时效按固定处理日与日均里程估算，损耗随时效递增。官方 JPG 仅在进入本页后低优先级加载，覆盖层只包含当前一条关系线和最多 9 个按钮，不解析 GeoJSON、不连接在线地图 SDK、无持续动画。</p>
       </footer>
     </section>
   `

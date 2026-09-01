@@ -13,8 +13,7 @@ import {
 const viewSource = readFileSync(new URL('../js/modules/admin-global-wholesale.js', import.meta.url), 'utf8');
 const marketViewSource = readFileSync(new URL('../js/modules/admin-market-insights.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../css/modules/admin-market.css', import.meta.url), 'utf8');
-const mapBytes = readFileSync(new URL('../assets/maps/natural-earth-110m-land.geojson', import.meta.url));
-const mapGeoJson = JSON.parse(mapBytes.toString('utf8'));
+const mapBytes = readFileSync(new URL('../assets/maps/official-world-gs2016-1663.jpg', import.meta.url));
 
 test('global wholesale catalog stays compact and offers multiple transport modes', () => {
   assert.equal(GLOBAL_WHOLESALE_MARKETS.length, 9);
@@ -51,17 +50,20 @@ test('landed-cost model keeps simulated provenance and blocks routes beyond shel
   assert.ok(Number.isFinite(tomatoAir.landedCostCnyKg));
 });
 
-test('world map is local, public-domain, lazy, bounded and accessible', () => {
-  assert.equal(mapGeoJson.type, 'FeatureCollection');
-  assert.ok(mapGeoJson.features.length > 100);
-  assert.ok(mapBytes.length < 150_000);
-  assert.equal(createHash('sha256').update(mapBytes).digest('hex').toUpperCase(), '9E0729EE253CA7D7A5C4AE9395FB1902264C5377C52E224D13DD85010E2835D9');
-  assert.match(viewSource, /requestIdleCallback/);
-  assert.match(viewSource, /natural-earth-110m-land\.geojson/);
-  assert.match(viewSource, /animation: false/);
-  assert.match(viewSource, /progressive: 0/);
-  assert.match(viewSource, /仅绘制当前一条关系线和最多 9 个节点/);
-  assert.match(viewSource, /aria: \{ enabled: true/);
+test('world map uses the complete official standard map with a separate lightweight overlay', () => {
+  assert.equal(mapBytes.length, 536_363);
+  assert.equal(createHash('sha256').update(mapBytes).digest('hex').toUpperCase(), 'EBD1A68E4E700347E2A542816229519D385FBC536C0CD87DC2607E51DDD04DD2');
+  assert.match(viewSource, /official-world-gs2016-1663\.jpg/);
+  assert.match(viewSource, /GS\(2016\)1663号/);
+  assert.match(viewSource, /自然资源部标准地图服务系统/);
+  assert.match(viewSource, /loading="lazy" decoding="async" fetchpriority="low"/);
+  assert.match(viewSource, /global-route-overlay/);
+  assert.match(viewSource, /global-map-destination/);
+  assert.match(viewSource, /未裁切、未重绘边界/);
+  assert.match(viewSource, /公开发布含覆盖层的地图前仍需按规定履行地图审核/);
+  assert.doesNotMatch(viewSource, /natural-earth-110m|registerMap/i);
+  assert.match(styles, /aspect-ratio: 4655 \/ 2444/);
+  assert.match(styles, /vector-effect: non-scaling-stroke/);
   assert.match(viewSource, /右侧目的地列表和下方表格仍可继续使用/);
 });
 
@@ -75,4 +77,3 @@ test('market workspace separates observed prices from simulated global planning'
   assert.match(styles, /@media \(max-width: 720px\)/);
   assert.match(styles, /\.global-wholesale-map/);
 });
-

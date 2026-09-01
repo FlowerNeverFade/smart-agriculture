@@ -1,10 +1,15 @@
-# 全球批发地图底图
+# 全球批发官方标准地图底图
 
-- 文件：`natural-earth-110m-land.geojson`
-- 来源：Natural Earth `ne_110m_land` 1:110m 全球陆地面数据
-- 上游仓库：<https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_land.geojson>
-- 官方说明：<https://www.naturalearthdata.com/downloads/110m-physical-vectors/>
-- 许可：Public Domain
-- SHA-256：`9E0729EE253CA7D7A5C4AE9395FB1902264C5377C52E224D13DD85010E2835D9`
+- 文件：`official-world-gs2016-1663.jpg`
+- 图名：世界地图 小 8 开 · 分国设色
+- 来源：自然资源部标准地图服务系统
+- 官方入口：<http://bzdt.ch.mnr.gov.cn/>
+- 地图标识：`4o28b0625501ad13015501ad2bfc0074`
+- 审图号：`GS(2016)1663号`
+- 原始像素：`4655 × 2444`
+- 文件大小：`536,363 bytes`
+- SHA-256：`EBD1A68E4E700347E2A542816229519D385FBC536C0CD87DC2607E51DDD04DD2`
 
-前端只在进入“全球批发”模式时按需加载该 1:110m 陆地轮廓。底图不包含国界，也不用于表达主权、实际运输航线或精确市场地址；目的地坐标仅为城市级近似位置。
+仓库保存的是标准地图服务系统提供的 JPG 原图，未裁切、未重绘边界，图内审图号及“自然资源部 监制”信息完整保留。前端仅在用户进入“全球批发”页面后以低优先级加载该本地文件，不解析 GeoJSON，也不连接在线地图 SDK。
+
+重庆农场、城市级目的地与当前关系线由独立 HTML/SVG 业务覆盖层绘制，不写入底图文件；节点为近似位置，关系线不代表实际运输航线。按标准地图服务系统说明，对标准地图添加、删减或调整内容后公开使用，仍应按规定履行地图审核。

@@ -1,5 +1,5 @@
 import { api } from '../api.js?v=20260901-v593-market-v3';
-import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260901-v595-global-v1';
+import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260901-v596-official-map-v1';
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } = Vue;
 
