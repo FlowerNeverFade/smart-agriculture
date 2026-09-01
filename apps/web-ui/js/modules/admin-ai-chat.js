@@ -533,7 +533,7 @@ export const AdminAiChatView = {
       if (rect) {
         const width = 148;
         menuPos.value = {
-          left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width + 8)),
+          left: Math.max(8, Math.min(window.innerWidth - width - 8, rect.left)),
           top: Math.min(window.innerHeight - 132, rect.bottom + 4)
         };
       }
@@ -783,7 +783,10 @@ export const AdminAiChatView = {
               <div v-if="!folder.conversations.length" class="admin-ai-folder-empty">暂无对话</div>
               <div v-for="conversation in folder.conversations" :key="conversation.conversationId" class="admin-ai-conversation-item" :class="{ active: selectedConversationId === conversation.conversationId, archived: archivedView, 'is-selected': bulkSelected.has(conversation.conversationId) }" @click="bulkMode ? toggleBulkSelect(conversation.conversationId) : selectConversation(conversation.conversationId)">
                 <label v-if="bulkMode" class="admin-ai-conversation-check" @click.stop><input type="checkbox" :checked="bulkSelected.has(conversation.conversationId)" @change="toggleBulkSelect(conversation.conversationId)" :aria-label="'选择对话 ' + (conversation.title || '')"></label>
-                <span class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId) && !archivedView" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span>
+                <template v-if="renamingId === conversation.conversationId">
+                    <input type="text" class="g-input sm" style="width: 100%; margin: -4px 0 -4px -8px;" v-model="renameText" @click.stop @keyup.enter="commitRename" @blur="commitRename" placeholder="重命名对话..." autofocus>
+                  </template>
+                  <span v-else class="admin-ai-conversation-title"><app-icon v-if="isPinned(conversation.conversationId) && !archivedView" name="push_pin" class="admin-ai-pin-mark"></app-icon>{{ conversation.title || rolePresentation.historyItemFallback }}</span><span class="admin-ai-conversation-meta"><span>{{ conversationTime(conversation.updatedAt || conversation.lastMessageAt) }}</span></span>
                 <div v-if="!bulkMode" class="admin-ai-conversation-actions" @click.stop>
                     <button type="button" class="admin-ai-conversation-action" aria-label="选项" title="选项" @click="toggleMenu(conversation, $event)"><app-icon name="more_vert"></app-icon></button>
                   </div>
