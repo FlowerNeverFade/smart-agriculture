@@ -269,7 +269,9 @@ export const AdminAiChatView = {
 
     // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
-    // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画
+    // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画。
+    // 大列表/异步图片渲染会推高 scrollHeight，只滚一次可能停在半途看不到最新消息，
+    // 因此追加几次延迟滚动，确保最新对话可见。
     const scrollToBottomInstant = async () => {
       await nextTick();
       const el = messageList.value;
@@ -278,6 +280,16 @@ export const AdminAiChatView = {
       el.style.scrollBehavior = 'auto';
       el.scrollTop = el.scrollHeight;
       el.style.scrollBehavior = prev;
+      [0, 60, 180].forEach((delay) => setTimeout(() => {
+        const target = messageList.value;
+        if (!target) return;
+        if (target.scrollTop + target.clientHeight < target.scrollHeight - 8) {
+          const prevBehavior = target.style.scrollBehavior;
+          target.style.scrollBehavior = 'auto';
+          target.scrollTop = target.scrollHeight;
+          target.style.scrollBehavior = prevBehavior;
+        }
+      }, delay));
     };
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
