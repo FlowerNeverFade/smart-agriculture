@@ -282,3 +282,43 @@ html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *
     padding-inline: 14px !important;
   }
 }
+
+/* The settings surface is intentionally role-neutral. The three shells have
+ * different page defaults for their operational views, but this route must
+ * occupy the same canvas and use the same two-column proportions everywhere.
+ * Keep the rule here (the last stylesheet in each entry) so role CSS cannot
+ * reintroduce a different max width or farmer-only padding. */
+:is(#app, #farmer_app) .g-main:has(.settings-page) {
+  padding: 24px !important;
+  overflow-x: hidden;
+}
+
+:is(#app, #farmer_app) .settings-page {
+  width: 100% !important;
+  max-width: 1240px !important;
+  margin-inline: auto !important;
+  box-sizing: border-box;
+}
+
+:is(#app, #farmer_app) .settings-grid {
+  grid-template-columns: minmax(0, 1.22fr) minmax(300px, .78fr) !important;
+  gap: 16px !important;
+}
+
+:is(#app, #farmer_app) .settings-card {
+  box-sizing: border-box;
+  min-width: 0;
+  border-radius: 14px !important;
+}
+
+@media (max-width: 900px) {
+  :is(#app, #farmer_app) .settings-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-width: 600px) {
+  :is(#app, #farmer_app) .g-main:has(.settings-page) {
+    padding: 16px 14px 28px !important;
+  }
+}

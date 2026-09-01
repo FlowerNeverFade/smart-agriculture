@@ -4,12 +4,12 @@ import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v4';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v2';
-import { createWorkspaceSettingsController } from './modules/workspace-settings.js?v=20260901-workspace-settings-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-workspace-settings-v4';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
@@ -1236,14 +1236,7 @@ const AdminRulesView = {
  * dedicated system-admin entry as well as the shared role shell so the
  * lower-left settings affordance never disappears after a role redirect.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    return createWorkspaceSettingsController({ props, emit, ref, computed });
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 
 const AdminSettingsView = {

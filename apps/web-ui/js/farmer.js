@@ -5,7 +5,8 @@ import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v2';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-workspace-settings-v4';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-workspace-settings-v4';
 import {
   agentResponseSource,
   agentResponseText,
@@ -1172,6 +1173,17 @@ const app = createApp({
       contact: fallback_user.contact,
       plot_names: fallback_user.plot_names
     });
+    const workspace_settings_state = computed(() => ({
+      currentUser: {
+        ...user.value,
+        roleLabel: user.value?.roleLabel || user.value?.role_label || '种植农户'
+      }
+    }));
+    const handle_workspace_settings_changed = (next) => {
+      user_settings.value = next;
+      is_dark.value = resolveTheme(next.theme) === 'dark';
+      if (typeof start_live_polling === 'function') start_live_polling();
+    };
     const current_role = computed(() => user.value?.role || 'FARMER');
     const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
@@ -5066,6 +5078,8 @@ const app = createApp({
       assistant_view_state,
       current_role,
       role_presentation,
+      workspace_settings_state,
+      handle_workspace_settings_changed,
       assistant_plot_id,
       assistant_message_list,
       assistant_shortcuts,
@@ -5212,6 +5226,7 @@ const _session = api.readSession();
 const _session_user = presentRoleUser(_session?.user);
 app.component('app-icon', FarmerAppIcon);
 app.component('admin-ai-chat-view', AdminAiChatView);
+app.component('workspace-settings-view', createWorkspaceSettingsView({ ref, computed, watch }));
 if (!_session || !_session_user) {
   window.location.replace('login.html');
 } else if (_session_user.role !== 'FARMER') {

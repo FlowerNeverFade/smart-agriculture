@@ -66,8 +66,29 @@ test('三种角色入口都加载统一工作台主题桥接', () => {
   assert.match(sharedCss, /data-surface-style="glass-latest"/);
   for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
     const html = readFileSync(new URL(page, import.meta.url), 'utf8');
-    assert.match(html, /workspace-settings-shared\.css\?v=20260901-workspace-settings-v3/);
+    assert.match(html, /workspace-settings-shared\.css\?v=20260901-workspace-settings-v4/);
   }
+});
+
+test('三种角色复用同一工作台设置视图和同一配置控制器', () => {
+  const shared = readFileSync(new URL('../js/modules/workspace-settings.js', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const farmerSource = readFileSync(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const sysadminSource = readFileSync(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const farmerHtml = readFileSync(new URL('../farmer.html', import.meta.url), 'utf8');
+  assert.match(shared, /export function createWorkspaceSettingsController/);
+  assert.match(shared, /export function createWorkspaceSettingsView/);
+  assert.match(shared, /const WORKSPACE_SETTINGS_TEMPLATE/);
+  for (const source of [appSource, farmerSource, sysadminSource]) {
+    assert.match(source, /createWorkspaceSettingsView/);
+    assert.doesNotMatch(source, /template:\s*['"]#tmpl-settings['"]/);
+  }
+  assert.match(farmerHtml, /<workspace-settings-view/);
+  assert.match(farmerHtml, /:user-settings="user_settings"/);
+  assert.doesNotMatch(farmerHtml, /farmer-settings-(grid|choice|preset)/);
+  assert.match(shared, /主题与颜色/);
+  assert.match(shared, /卡片风格/);
+  assert.match(shared, /刷新与提示/);
 });
 
 test('工作台设置按账号隔离，并支持主题预设与安全自选色', () => {
