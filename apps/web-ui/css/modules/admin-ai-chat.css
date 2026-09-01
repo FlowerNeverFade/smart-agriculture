@@ -758,8 +758,7 @@
 .admin-ai-conversation-meta { margin-top: 3px; }
 .admin-ai-conversation-actions { position: absolute; top: 50%; right: 6px; display: flex; align-items: center; gap: 1px; transform: translateY(-50%); opacity: 0; transition: opacity .14s ease; }
 .admin-ai-conversation-item:hover .admin-ai-conversation-actions,
-.admin-ai-conversation-item:focus-within .admin-ai-conversation-actions,
-.admin-ai-conversation-item.active .admin-ai-conversation-actions { opacity: 1; }
+.admin-ai-conversation-item:focus-within .admin-ai-conversation-actions { opacity: 1; }
 .admin-ai-conversation-action { display: grid; width: 25px; height: 25px; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--g-text-tertiary); cursor: pointer; }
 .admin-ai-conversation-action:hover, .admin-ai-conversation-action.active { background: var(--g-bg-subtle); color: var(--g-primary); }
 .admin-ai-conversation-action.is-danger:hover { background: var(--g-danger-bg); color: var(--g-danger); }
