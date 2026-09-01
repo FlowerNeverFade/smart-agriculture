@@ -156,6 +156,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'crop-packs', label: '作物模型', icon: 'library_books', labels: { FARM_ADMIN: '作物模型', SYSTEM_ADMIN: '规则配置' } },
   { id: 'admin-overview', label: '平台总览', icon: 'monitoring', labels: { SYSTEM_ADMIN: '平台总览' } },
   { id: 'admin-ops', label: '运行监控', icon: 'dns', labels: { SYSTEM_ADMIN: '运行监控' } },
+  { id: 'admin-resources', label: '资源协同', icon: 'water_drop', labels: { SYSTEM_ADMIN: '资源协同审计' } },
   { id: 'admin-audit', label: '决策审计', icon: 'gavel', labels: { SYSTEM_ADMIN: '决策审计' } },
   { id: 'admin-simulator', label: '仿真验证', icon: 'science', labels: { SYSTEM_ADMIN: '仿真验证' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
@@ -2354,6 +2355,37 @@ const AdminOpsView = {
   }
 };
 
+const AdminResourcesView = {
+  template: '#tmpl-admin-resources',
+  props: ['state', 'routeParams'],
+  setup(props) {
+    const farmFilter = ref(props.routeParams?.farmId || 'all');
+    const statusFilter = ref('active');
+    const activeRequestStatuses = new Set(['SUBMITTED', 'IN_REVIEW', 'PENDING_ACK', 'ACKNOWLEDGED', 'CONFLICT_REPORTED']);
+    const farms = computed(() => props.state.farms || []);
+    const profiles = computed(() => props.state.resourceProfiles || []);
+    const plans = computed(() => (props.state.resourcePlans || []).filter(plan => farmFilter.value === 'all' || plan.farmId === farmFilter.value));
+    const requests = computed(() => (props.state.resourceRequests || [])
+      .filter(request => farmFilter.value === 'all' || request.farmId === farmFilter.value)
+      .filter(request => statusFilter.value === 'all' || (statusFilter.value === 'active' ? activeRequestStatuses.has(request.status) : request.status === statusFilter.value))
+      .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)));
+    const selectedProfiles = computed(() => profiles.value.filter(profile => farmFilter.value === 'all' || profile.farmId === farmFilter.value));
+    const totals = computed(() => ({
+      farms: selectedProfiles.value.length,
+      quota: selectedProfiles.value.reduce((sum, profile) => sum + Number(profile.dailyQuotaLitres || profile.balance?.dailyQuotaLitres || 0), 0),
+      remaining: selectedProfiles.value.reduce((sum, profile) => sum + Number(profile.remainingLitres ?? profile.balance?.remainingLitres ?? 0), 0),
+      conflicts: requests.value.filter(request => request.status === 'CONFLICT_REPORTED').length,
+      pendingAck: requests.value.filter(request => request.status === 'PENDING_ACK').length
+    }));
+    const farmName = farmId => farms.value.find(farm => farm.farmId === farmId)?.name || farmId || '未知农场';
+    const plotName = plotId => (props.state.allPlots || []).find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
+    const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || status || '待处理');
+    const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || status || '未知');
+    const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+  }
+};
+
 const AdminAuditView = {
   template: '#tmpl-admin-audit',
   props: ['state', 'routeParams'],
@@ -2873,6 +2905,7 @@ const app = createApp({
     'crop-packs-view': CropPacksView,
     'admin-overview-view': AdminOverviewView,
     'admin-ops-view': AdminOpsView,
+    'admin-resources-view': AdminResourcesView,
     'admin-audit-view': AdminAuditView,
     'admin-simulator-view': AdminSimulatorView,
     'admin-rules-view': AdminRulesView,
@@ -2926,7 +2959,9 @@ const app = createApp({
       simulatorStatus: isDemoSession ? { available: false, status: 'UNAVAILABLE', reason: 'DEMO_SESSION' } : { available: false, status: 'UNAVAILABLE', reason: 'BACKEND_OFFLINE' },
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
+      resourceProfiles: isDemoSession ? [MOCK_DATA.resourceProfile] : [],
       resourcePlans: isDemoSession ? [] : [],
+      resourceRequests: isDemoSession ? (MOCK_DATA.resourceRequests || []).map(item => ({ ...item })) : [],
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
       riskForecastConfig: isDemoSession ? MOCK_DATA.riskForecastConfig : EMPTY_RISK_FORECAST_CONFIG,
       farmerMessages: isDemoSession ? (MOCK_DATA.farmer_messages || []).map((item) => ({ ...item })) : [],
@@ -2965,7 +3000,7 @@ const app = createApp({
     const pendingFarmDomains = new Set();
     const pendingFarmPlots = new Map();
     const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans'
+      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans', 'resourceRequests'
     ]);
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
@@ -3197,6 +3232,7 @@ const app = createApp({
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
       if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
+      if (wants('resourceRequests') || wants('resourcePlans') || wants('overview')) jobs.resourceRequests = api.listResourceRequests({ farmId });
       if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
       if (wants('cropPacks') || wants('overview')) {
         jobs.adminRules = api.getRuleSets(farmId);
@@ -3248,7 +3284,9 @@ const app = createApp({
       if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
       if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
       if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfile = results.resourceProfile.value || {};
+      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfiles = [results.resourceProfile.value || {}];
       if (results.resourcePlans?.status === 'fulfilled') state.value.resourcePlans = results.resourcePlans.value || [];
+      if (results.resourceRequests?.status === 'fulfilled') state.value.resourceRequests = results.resourceRequests.value || [];
       if (results.cropPacks?.status === 'fulfilled') {
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
@@ -3282,6 +3320,8 @@ const app = createApp({
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
         simulator: api.getSimulatorStatus(),
+        resourcePlans: api.listResourcePlans({}),
+        resourceRequests: api.listResourceRequests({}),
         systemStatus: (async () => {
           const startedAt = performance.now();
           const status = await api.getSystemStatus();
@@ -3311,21 +3351,24 @@ const app = createApp({
       const devices = [];
       const members = [];
       const ledgers = [];
+      const resourceProfiles = [];
       const timelineEntries = [];
       const inspectionEntries = [];
       const farmIds = farms.map((farm) => farm.farmId).filter(Boolean);
       const farmJobs = await Promise.all(farmIds.map(async (farmId) => {
-        const [deviceResult, memberResult, ledgerResult] = await Promise.allSettled([
+        const [deviceResult, memberResult, ledgerResult, resourceProfileResult] = await Promise.allSettled([
           api.getDevices({ farmId }),
           api.getFarmMembers({ farmId }),
-          api.getValueLedgers({ farmId })
+          api.getValueLedgers({ farmId }),
+          api.getWaterResourceProfile(farmId)
         ]);
-        return { farmId, deviceResult, memberResult, ledgerResult };
+        return { farmId, deviceResult, memberResult, ledgerResult, resourceProfileResult };
       }));
-      farmJobs.forEach(({ deviceResult, memberResult, ledgerResult }) => {
+      farmJobs.forEach(({ deviceResult, memberResult, ledgerResult, resourceProfileResult }) => {
         if (deviceResult.status === 'fulfilled') devices.push(...(deviceResult.value || []));
         if (memberResult.status === 'fulfilled') members.push(...(memberResult.value || []));
         if (ledgerResult.status === 'fulfilled') ledgers.push(...(ledgerResult.value || []));
+        if (resourceProfileResult.status === 'fulfilled' && resourceProfileResult.value) resourceProfiles.push(resourceProfileResult.value);
       });
       const timelineResults = await Promise.allSettled(plots.map(async (plot) => Promise.allSettled([
         api.getPlotTimeline(plot.plotId),
@@ -3416,6 +3459,10 @@ const app = createApp({
       state.value.devices = devices;
       state.value.farmMembers = members;
       state.value.valueLedgers = ledgers;
+      state.value.resourceProfiles = resourceProfiles;
+      state.value.resourceProfile = resourceProfiles[0] || {};
+      state.value.resourcePlans = results.resourcePlans?.status === 'fulfilled' ? results.resourcePlans.value || [] : [];
+      state.value.resourceRequests = results.resourceRequests?.status === 'fulfilled' ? results.resourceRequests.value || [] : [];
       state.value.cropPacks = results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value || [] : [];
       state.value.cropPackDetails = state.value.cropPacks;
       state.value.simulatorStatus = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
@@ -3694,7 +3741,8 @@ const app = createApp({
         }
       }
       const normalized = [...new Set(domains.flatMap(domain => {
-        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourcePlans') return ['resourcePlans', 'resourceRequests', 'resourceProfiles', 'workOrders', 'ledgers', 'overview'];
+        if (domain === 'resourceRequests') return ['resourceRequests', 'resourcePlans', 'workOrders', 'overview'];
         if (domain === 'resourceProfiles') return ['resourceProfiles', 'overview'];
         return [domain];
       }))];

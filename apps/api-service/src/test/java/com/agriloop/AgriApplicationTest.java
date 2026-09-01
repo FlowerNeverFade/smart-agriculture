@@ -20,6 +20,7 @@ class AgriApplicationTest {
     @Autowired JwtService jwtService;
     @Autowired AgriController controller;
     @Autowired AdminManagementService adminManagement;
+    @Autowired AgriEventBus eventBus;
 
     @Test
     void legacyPlotAllowsPartialMetadataUpdate() {
@@ -632,6 +633,84 @@ class AgriApplicationTest {
                 Map.of("commandId", partialId, "status", "PARTIAL", "actualWaterLitre", 66.0));
         assertThat(partial.get("status")).isEqualTo("PARTIAL");
         assertThat(partial.get("result")).isNotEqualTo("GOOD");
+    }
+
+    @Test
+    void resourceRequestsAreSharedByRoleAndExecutionWaitsForFarmerAcknowledgement() {
+        String suffix = String.valueOf(System.nanoTime());
+        String farmId = "farm-resource-" + suffix;
+        String plotId = "plot-resource-" + suffix;
+        String deviceId = "mock-irrigation-" + suffix;
+        String planId = "resource-plan-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("farmer-resource-" + suffix, "farmer-resource", "FARMER", List.of(farmId), List.of(plotId));
+        UserPrincipal otherFarmer = new UserPrincipal("farmer-other-" + suffix, "farmer-other", "FARMER", List.of(farmId), List.of(plotId));
+        UserPrincipal admin = new UserPrincipal("admin-resource-" + suffix, "admin-resource", "FARM_ADMIN", List.of(farmId), List.of());
+        UserPrincipal systemAdmin = new UserPrincipal("system-resource-" + suffix, "system-resource", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        store.save("farm", farmId, new java.util.LinkedHashMap<>(Map.of("farmId", farmId, "name", "资源协同测试农场")));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of("plotId", plotId, "farmId", farmId, "name", "资源协同测试地块", "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.ofEntries(
+                Map.entry("deviceId", deviceId), Map.entry("farmId", farmId), Map.entry("plotId", plotId),
+                Map.entry("type", "IRRIGATION_CONTROLLER"), Map.entry("status", "ONLINE"), Map.entry("bindingState", "BOUND"),
+                Map.entry("supportsControl", true), Map.entry("sourceMode", "SIMULATION"), Map.entry("lastSeen", Instant.now().toString()))));
+
+        Map<String, Object> request = engine.createResourceRequest(Map.of(
+                "plotId", plotId, "requestedLitres", 48.0, "constraints", "16:00 后可配合"), farmer);
+        String requestId = String.valueOf(request.get("resourceRequestId"));
+        assertThat(request).containsEntry("status", "SUBMITTED").containsEntry("sourceMode", "SIMULATION");
+        assertThat(engine.listResourceRequests(Map.of("farmId", farmId), farmer)).extracting(item -> item.get("resourceRequestId")).contains(requestId);
+        assertThat(engine.listResourceRequests(Map.of("farmId", farmId), otherFarmer)).isEmpty();
+        assertThat(engine.listResourceRequests(Map.of("farmId", farmId), admin)).extracting(item -> item.get("resourceRequestId")).contains(requestId);
+        assertThat(engine.listResourceRequests(Map.of("farmId", farmId), systemAdmin)).extracting(item -> item.get("resourceRequestId")).contains(requestId);
+
+        Map<String, Object> allocation = new java.util.LinkedHashMap<>(Map.ofEntries(
+                Map.entry("plotId", plotId), Map.entry("farmId", farmId), Map.entry("requestedLitres", 48.0),
+                Map.entry("allocatedLitres", 48.0), Map.entry("unmetLitres", 0.0), Map.entry("readinessStatus", "READY"),
+                Map.entry("executionStatus", "PENDING"), Map.entry("deviceId", deviceId), Map.entry("resourceRequestIds", List.of(requestId)),
+                Map.entry("assignedFarmerId", farmer.userId), Map.entry("assignedFarmerName", farmer.username),
+                Map.entry("scheduledStart", Instant.now().minusSeconds(30).toString()), Map.entry("scheduledEnd", Instant.now().plusSeconds(300).toString())));
+        Map<String, Object> plan = new java.util.LinkedHashMap<>(Map.ofEntries(
+                Map.entry("resourcePlanId", planId), Map.entry("farmId", farmId), Map.entry("businessDate", java.time.LocalDate.now().toString()),
+                Map.entry("status", "DRAFT"), Map.entry("revision", 1), Map.entry("expiresAt", Instant.now().plusSeconds(600).toString()),
+                Map.entry("allocations", List.of(allocation)), Map.entry("totalRequestedLitres", 48.0), Map.entry("totalAllocatedLitres", 48.0),
+                Map.entry("totalUnmetLitres", 0.0), Map.entry("provenance", "DERIVED"), Map.entry("sourceMode", "SIMULATION")));
+        store.save("resource-plan", planId, plan);
+
+        Map<String, Object> confirmed = engine.confirmResourcePlan(planId, Map.of("expectedRevision", 1, "idempotencyKey", "confirm-" + planId), admin);
+        assertThat(confirmed).containsEntry("status", "CONFIRMED");
+        assertThat(store.find("resource-request", requestId)).containsEntry("status", "PENDING_ACK").containsEntry("assignedFarmerId", farmer.userId);
+        engine.dispatchDueResourcePlans();
+        Map<String, Object> heldPlan = store.find("resource-plan", planId);
+        Map<String, Object> heldAllocation = Jsons.maps(new ObjectMapper(), heldPlan.get("allocations")).get(0);
+        assertThat(heldAllocation).containsEntry("executionStatus", "SCHEDULED").containsEntry("collaborationStatus", "PENDING_ACK");
+        assertThat(store.list("command")).noneMatch(command -> planId.equals(command.get("resourcePlanId")));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.actOnResourceRequest(requestId, Map.of("action", "ACKNOWLEDGE"), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("RESOURCE_REQUEST_FORBIDDEN"));
+        Map<String, Object> acknowledged = engine.actOnResourceRequest(requestId, Map.of("action", "ACKNOWLEDGE"), farmer);
+        assertThat(acknowledged).containsEntry("status", "ACKNOWLEDGED");
+        assertThat(Jsons.maps(new ObjectMapper(), store.find("resource-plan", planId).get("allocations")).get(0))
+                .containsEntry("collaborationStatus", "ACKNOWLEDGED");
+        engine.dispatchDueResourcePlans();
+        assertThat(store.list("command")).anyMatch(command -> planId.equals(command.get("resourcePlanId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createResourceRequest(Map.of("plotId", plotId, "requestedLitres", 12.0), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("RESOURCE_REQUEST_LOCKED"));
+    }
+
+    @Test
+    void sseEventsAreScopedByFarmPlotAndResourceParticipant() {
+        UserPrincipal farmer = new UserPrincipal("farmer-a", "farmer-a", "FARMER", List.of("farm-a"), List.of("plot-a"));
+        UserPrincipal otherFarmer = new UserPrincipal("farmer-b", "farmer-b", "FARMER", List.of("farm-a"), List.of("plot-a"));
+        UserPrincipal farmAdmin = new UserPrincipal("admin-a", "admin-a", "FARM_ADMIN", List.of("farm-a"), List.of());
+        UserPrincipal otherAdmin = new UserPrincipal("admin-b", "admin-b", "FARM_ADMIN", List.of("farm-b"), List.of("*"));
+        UserPrincipal systemAdmin = new UserPrincipal("system", "system", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        Map<String, Object> privateRequest = Map.of(
+                "resourceRequestId", "request-a", "farmId", "farm-a", "plotId", "plot-a", "requestedBy", "farmer-a");
+        assertThat(eventBus.canReceive(farmer, privateRequest)).isTrue();
+        assertThat(eventBus.canReceive(otherFarmer, privateRequest)).isFalse();
+        assertThat(eventBus.canReceive(farmAdmin, privateRequest)).isTrue();
+        assertThat(eventBus.canReceive(otherAdmin, privateRequest)).isFalse();
+        assertThat(eventBus.canReceive(systemAdmin, privateRequest)).isTrue();
+        assertThat(eventBus.canReceive(farmer, Map.of("event", "unscoped"))).isFalse();
     }
 
     @Test

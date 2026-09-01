@@ -4,7 +4,8 @@
 .resource-header h2 { margin: 5px 0 5px; font-size: 25px; letter-spacing: -.02em; }
 .resource-header p { margin: 0; color: var(--g-text-secondary); font-size: 12px; }
 .resource-header-actions { display: flex; align-items: center; gap: 10px; }
-.resource-date { color: var(--g-text-secondary); font: 11px var(--g-mono); }
+.resource-date { display: grid; gap: 2px; color: var(--g-text-secondary); font: 11px var(--g-mono); }
+.resource-date small { font: 9px var(--g-font-family); text-align: right; }
 .rp-error, .rp-empty { padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--g-danger) 35%, var(--g-border)); border-radius: 10px; color: var(--g-danger); background: var(--g-danger-bg); font-size: 12px; }
 .rp-error { display: flex; gap: 10px; }
 .rp-error span { color: var(--g-text-secondary); }
@@ -27,6 +28,25 @@
 .quota-form label, .adjustment-dialog label { display: grid; gap: 5px; color: var(--g-text-secondary); font-size: 10px; }
 .quota-form input, .adjustment-dialog input, .adjustment-dialog select, .adjustment-dialog textarea, .metric-picker select { min-height: 34px; padding: 7px 9px; border: 1px solid var(--g-border); border-radius: 8px; color: var(--g-text-primary); background: var(--g-bg-base); font: 12px var(--g-font-family); }
 .quota-form input { width: 150px; }
+.collaboration-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 12px 17px; border-bottom: 1px solid var(--g-border-subtle); }
+.collaboration-kpis > div { padding: 10px 12px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-base); }
+.collaboration-kpis > div.is-warning { border-color: color-mix(in srgb, var(--g-warning) 45%, var(--g-border)); background: var(--g-warning-bg); }
+.collaboration-kpis span { display: block; color: var(--g-text-secondary); font-size: 10px; }
+.collaboration-kpis strong { display: block; margin-top: 4px; font: 650 18px var(--g-mono); }
+.request-table-wrap { overflow-x: auto; }
+.request-table { width: 100%; min-width: 840px; border-collapse: collapse; font-size: 11px; }
+.request-table th { padding: 9px 14px; color: var(--g-text-secondary); background: var(--g-bg-subtle); font-size: 10px; font-weight: 650; text-align: left; }
+.request-table td { padding: 10px 14px; border-top: 1px solid var(--g-border-subtle); vertical-align: middle; }
+.request-table tbody tr { cursor: pointer; }
+.request-table tbody tr:hover { background: var(--g-primary-bg); }
+.request-table tbody tr.is-conflict { background: color-mix(in srgb, var(--g-warning-bg) 60%, transparent); }
+.request-table td strong, .request-table td small { display: block; }
+.request-table td small { margin-top: 3px; color: var(--g-text-secondary); font-size: 10px; }
+.request-status { display: inline-block; padding: 4px 7px; border-radius: 999px; color: var(--g-text-secondary); background: var(--g-bg-subtle); font-size: 10px; white-space: nowrap; }
+.request-status.submitted, .request-status.in_review { color: var(--g-primary); background: var(--g-primary-bg); }
+.request-status.pending_ack { color: var(--g-warning); background: var(--g-warning-bg); }
+.request-status.acknowledged, .request-status.completed { color: var(--g-success); background: var(--g-success-bg); }
+.request-status.conflict_reported { color: var(--g-danger); background: var(--g-danger-bg); }
 .resource-workspace { display: grid; grid-template-columns: minmax(260px, .74fr) minmax(0, 1.6fr); gap: 14px; align-items: stretch; }
 .plot-queue, .forecast-panel { min-width: 0; }
 .plot-list { display: grid; gap: 6px; padding: 10px; }
@@ -70,7 +90,7 @@
 .allocation-table td strong, .allocation-table td small { display: block; }
 .allocation-table td small { margin-top: 3px; color: var(--g-text-secondary); font-size: 10px; }
 .allocation-table .allocation-value { color: var(--g-primary); font: 650 12px var(--g-mono); }
-.status-chip { display: inline-block; padding: 4px 7px; border-radius: 999px; color: var(--g-text-secondary); background: var(--g-bg-subtle); font-size: 10px; white-space: nowrap; }
+.status-chip { display: inline-block; margin: 2px 3px 2px 0; padding: 4px 7px; border-radius: 999px; color: var(--g-text-secondary); background: var(--g-bg-subtle); font-size: 10px; white-space: nowrap; }
 .status-chip.completed { color: var(--g-success); background: var(--g-success-bg); }
 .status-chip.failed, .status-chip.fallback_required { color: var(--g-danger); background: var(--g-danger-bg); }
 .status-chip.partial, .status-chip.running { color: var(--g-warning); background: var(--g-warning-bg); }
@@ -85,5 +105,27 @@
 .dialog-close { border: 0; color: var(--g-text-secondary); background: transparent; font-size: 22px; cursor: pointer; }
 .adjustment-dialog textarea { resize: vertical; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.system-resource-page { display: grid; gap: 14px; }
+.system-resource-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.system-resource-header .g-page-title { margin: 4px 0 5px; }
+.system-resource-header p { margin: 0; color: var(--g-text-secondary); font-size: 12px; }
+.system-resource-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.system-resource-kpis article { padding: 14px; border: 1px solid var(--g-border); border-radius: 12px; background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); }
+.system-resource-kpis article.is-warning { border-color: color-mix(in srgb, var(--g-warning) 45%, var(--g-border)); background: var(--g-warning-bg); }
+.system-resource-kpis article.is-danger { border-color: color-mix(in srgb, var(--g-danger) 40%, var(--g-border)); background: var(--g-danger-bg); }
+.system-resource-kpis span, .system-resource-kpis small { display: block; color: var(--g-text-secondary); font-size: 10px; }
+.system-resource-kpis strong { display: block; margin: 6px 0 3px; font: 650 20px var(--g-mono); }
+.system-water-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; padding: 14px 17px; }
+.system-water-profile-grid article { padding: 12px; border: 1px solid var(--g-border-subtle); border-radius: 10px; background: var(--g-bg-base); }
+.system-water-profile-grid article > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.system-water-profile-grid strong { font-size: 12px; }
+.system-water-profile-grid small { color: var(--g-text-secondary); font-size: 9px; }
+.system-water-progress { height: 7px; margin: 10px 0 8px; overflow: hidden; border-radius: 999px; background: var(--g-bg-subtle); }
+.system-water-progress b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--g-primary), var(--g-success)); }
+.system-water-profile-grid p { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0; color: var(--g-text-secondary); font: 9px var(--g-mono); }
+.system-resource-page .admin-table td strong, .system-resource-page .admin-table td small { display: block; }
+.system-resource-page .admin-table td small { margin-top: 3px; color: var(--g-text-secondary); font-size: 10px; }
+.system-resource-id { max-width: 210px; overflow: hidden; color: var(--g-primary); font: 10px var(--g-mono); text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 980px) { .resource-workspace { grid-template-columns: 1fr; } .forecast-panel { min-height: 0; } }
-@media (max-width: 680px) { .resource-header { align-items: flex-start; flex-direction: column; } .resource-header-actions { width: 100%; justify-content: space-between; } .resource-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quota-form { align-items: stretch; flex-direction: column; } .quota-form label, .quota-form input { width: 100%; } .quota-form .rp-button { align-self: flex-start; } .panel-heading { align-items: flex-start; flex-direction: column; } .metric-picker { width: 100%; justify-content: space-between; } .metric-picker select { flex: 1; } .plan-actions { width: 100%; margin-left: 0; } .plan-actions .rp-button { flex: 1; } .fallback-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1080px) { .system-resource-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 680px) { .resource-header, .system-resource-header { align-items: flex-start; flex-direction: column; } .resource-header-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; } .resource-date small { text-align: left; } .resource-kpis, .collaboration-kpis, .system-resource-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quota-form { align-items: stretch; flex-direction: column; } .quota-form label, .quota-form input { width: 100%; } .quota-form .rp-button { align-self: flex-start; } .panel-heading { align-items: flex-start; flex-direction: column; } .metric-picker { width: 100%; justify-content: space-between; } .metric-picker select { flex: 1; } .plan-actions { width: 100%; margin-left: 0; } .plan-actions .rp-button { flex: 1; } .fallback-grid { grid-template-columns: 1fr; } }

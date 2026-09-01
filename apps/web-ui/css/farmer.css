@@ -2314,6 +2314,20 @@
 .farmer-allocation-detail > p.is-conflict { color: var(--g-warning); }
 .farmer-allocation-detail > p .material-symbols-outlined { font-size: 17px; }
 .farmer-allocation-detail > small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.4; }
+.farmer-resource-collaboration { margin-top: 16px; padding: 15px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border)); border-radius: var(--g-radius-lg); background: color-mix(in srgb, var(--g-primary-bg) 52%, var(--g-bg-surface)); }
+.farmer-resource-request-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.farmer-resource-request-form label, .farmer-resource-response label { display: grid; gap: 5px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-resource-request-form label.is-wide { grid-column: 1 / -1; }
+.farmer-resource-request-form input, .farmer-resource-request-form textarea, .farmer-resource-response textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); color: var(--g-text-primary); background: var(--g-bg-surface); font: 12px var(--g-font-family); }
+.farmer-resource-request-form textarea, .farmer-resource-response textarea { resize: vertical; }
+.farmer-resource-request-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.farmer-resource-request-receipt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-surface); }
+.farmer-resource-request-receipt > div { min-width: 0; }
+.farmer-resource-request-receipt span { display: block; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-resource-request-receipt strong { display: block; margin-top: 3px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-resource-request-receipt p { grid-column: 1 / -1; margin: 2px 0 0; color: var(--g-warning); font-size: 11px; }
+.farmer-resource-response { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--g-border-subtle); }
+.farmer-resource-response > div { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .farmer-case-panel .farmer-panel-header { margin-bottom: 8px; }
 .farmer-case-item { display: grid; width: 100%; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; margin-top: 7px; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; text-align: left; cursor: pointer; }
@@ -2356,7 +2370,8 @@
   .farmer-mode-pill { grid-column: 2; justify-self: start; }
   .farmer-weather-summary { grid-template-columns: auto 1fr; }
   .farmer-weather-summary .farmer-ttr { grid-column: 2; align-items: flex-start; text-align: left; }
-  .farmer-weather-controls, .farmer-allocation-metrics, .farmer-report-summary-grid { grid-template-columns: 1fr; }
+  .farmer-weather-controls, .farmer-allocation-metrics, .farmer-report-summary-grid, .farmer-resource-request-form, .farmer-resource-request-receipt { grid-template-columns: 1fr; }
+  .farmer-resource-request-form label.is-wide, .farmer-resource-request-actions, .farmer-resource-request-receipt p { grid-column: 1; }
   .farmer-batch-timeline { grid-template-columns: 1fr; gap: 12px; }
   .farmer-batch-timeline li::before { display: none; }
   .farmer-fold-trigger > span:first-child { align-items: flex-start; flex-direction: column; }

@@ -412,7 +412,7 @@ export function domainsForEventType(type = '') {
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
   if (value.includes('resource') || value.includes('water.balance') || value.includes('irrigation.plan')) {
-    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('overview');
+    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('resourceRequests'); domains.add('overview');
   }
   if (value.includes('command.approved') || value.includes('evaluation')) {
     domains.add('resourcePlans'); domains.add('resourceProfiles'); domains.add('workOrders'); domains.add('ledgers'); domains.add('overview');

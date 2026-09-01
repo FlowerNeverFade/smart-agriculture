@@ -258,6 +258,7 @@ test('escalated alerts expose the existing acknowledgement action as downgrade',
 test('backend events invalidate every affected fact domain', () => {
   assert.deepEqual(domainsForEventType('device.bound'), ['devices', 'plots', 'overview']);
   assert.deepEqual(domainsForEventType('cropplan.approved'), ['workOrders', 'overview', 'batches']);
+  assert.deepEqual(domainsForEventType('resource.request.created'), ['resourceProfiles', 'resourcePlans', 'resourceRequests', 'overview']);
 });
 
 test('an old farm response cannot overwrite the newly selected farm', () => {

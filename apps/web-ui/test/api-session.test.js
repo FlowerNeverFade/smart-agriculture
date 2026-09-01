@@ -37,6 +37,36 @@ test('demo sessions remain explicitly local and switching sessions clears live h
   assert.ok(farms.every((farm) => farm.sourceMode === 'SIMULATED'));
 });
 
+test('demo resource collaboration persists one shared request lifecycle and enforces participants', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  const userId = `resource-farmer-${Date.now()}`;
+  service.user = { userId, username: 'resource.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const request = await service.createResourceRequest({
+    farmId: 'farm-demo', plotId: 'plot-a01', requestedLitres: 45,
+    preferredStart: new Date(Date.now() + 60_000).toISOString(),
+    preferredEnd: new Date(Date.now() + 3_600_000).toISOString(), constraints: '采摘结束后执行'
+  });
+  assert.equal(request.status, 'SUBMITTED');
+  assert.equal(request.sourceMode, 'SIMULATION');
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).some(item => item.resourceRequestId === request.resourceRequestId), true);
+
+  service.user = { userId: `${userId}-other`, username: 'resource.other', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).some(item => item.resourceRequestId === request.resourceRequestId), false);
+  await assert.rejects(service.actOnResourceRequest(request.resourceRequestId, { action: 'ACKNOWLEDGE' }), error => error.code === 'RESOURCE_REQUEST_FORBIDDEN');
+
+  service.user = { userId, username: 'resource.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const plan = await service.evaluateAutoResourcePlan({ farmId: 'farm-demo', businessDate: '2026-09-01' });
+  assert.ok(plan.allocations.some(item => (item.resourceRequestIds || []).includes(request.resourceRequestId)));
+  const confirmed = await service.confirmResourcePlan(plan.resourcePlanId, { expectedRevision: plan.revision });
+  assert.equal(confirmed.status, 'CONFIRMED');
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).find(item => item.resourceRequestId === request.resourceRequestId)?.status, 'PENDING_ACK');
+  await service.actOnResourceRequest(request.resourceRequestId, { action: 'ACKNOWLEDGE' });
+  await assert.rejects(service.createResourceRequest({ plotId: 'plot-a01', requestedLitres: 12 }), error => error.code === 'RESOURCE_REQUEST_LOCKED');
+  await service.cancelResourcePlan(plan.resourcePlanId);
+  assert.equal((await service.listResourceRequests({ farmId: 'farm-demo' })).find(item => item.resourceRequestId === request.resourceRequestId)?.status, 'SUBMITTED');
+});
+
 test('formal reads recover after a transient health-probe failure', async () => {
   const service = new ApiService();
   service.sessionMode = 'live';

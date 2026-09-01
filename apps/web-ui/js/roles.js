@@ -36,7 +36,7 @@ export const ROLE_DEFINITIONS = Object.freeze({
     description: '负责平台配置、数据链路、策略版本与全局审计',
     avatar: '⚙️',
     defaultView: 'admin-overview',
-    views: Object.freeze(['admin-overview', 'admin-ops', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings', 'settings']),
+    views: Object.freeze(['admin-overview', 'admin-ops', 'admin-resources', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings', 'settings']),
     permissions: Object.freeze([
       'plots:read', 'diagnosis:read', 'work-order:audit', 'simulator:control',
       'strategy:manage', 'value:audit', 'platform:manage', 'irrigation:approve'

@@ -1099,6 +1099,10 @@ const app = createApp({
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
     const risk_forecast = ref(null);
     const resource_plan = ref(null);
+    const resource_requests = ref([]);
+    const resource_request_busy = ref(false);
+    const resource_request_response_note = ref('');
+    const resource_request_form = ref({ requestedLitres: 60, preferredStart: '', preferredEnd: '', constraints: '', note: '' });
     const selected_case_id = ref('');
     const human_confirmation_checked = ref(false);
     const decision_confirmation = ref('');
@@ -1520,6 +1524,15 @@ const app = createApp({
       };
     });
 
+    const selected_resource_request = computed(() => {
+      const plot = advice_selected_plot.value || advice_plot.value || plots.value[0];
+      const priority = { CONFLICT_REPORTED: 6, PENDING_ACK: 5, IN_REVIEW: 4, SUBMITTED: 3, ACKNOWLEDGED: 2, COMPLETED: 1, CANCELLED: 0 };
+      return resource_requests.value.filter(item => item.plotId === plot?.plotId)
+        .sort((a, b) => (priority[b.status] || 0) - (priority[a.status] || 0) || new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
+    });
+    const resource_request_locked = computed(() => ['PENDING_ACK', 'ACKNOWLEDGED'].includes(String(selected_resource_request.value?.status || '').toUpperCase()));
+    const resource_request_status_label = status => ({ SUBMITTED: '已提交，等待排程', IN_REVIEW: '管理员正在编制方案', PENDING_ACK: '分配结果待你确认', ACKNOWLEDGED: '你已确认执行安排', CONFLICT_REPORTED: '冲突已反馈管理员', COMPLETED: '本次协同已完成', CANCELLED: '需求已撤回' }[String(status || '').toUpperCase()] || '尚未提交需求');
+
     const suggestion_plot = computed(() => {
       const plotId = active_suggestion.value?.plotId;
       return find_plot_by_id(plots.value, plotId) || advice_plot.value || plots.value[0] || null;
@@ -1930,11 +1943,12 @@ const app = createApp({
           api.getCropPacks(),
           api.getCropBatches(),
           api.getWaterResourceProfile(),
-          api.listResourcePlans({})
+          api.listResourcePlans({}),
+          api.listResourceRequests({})
         ]);
         const coreFailure = results.slice(0, 5).find((result) => result.status === 'rejected');
         if (coreFailure) throw coreFailure.reason;
-        const [farmsResult, plotsResult, overviewResult, workOrdersResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult] = results;
+        const [farmsResult, plotsResult, overviewResult, workOrdersResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult] = results;
         const farms = farmsResult.value || [];
         const rawPlots = plotsResult.value || [];
         const overview = overviewResult.value || {};
@@ -1942,7 +1956,7 @@ const app = createApp({
         const rawAlerts = alertsResult.value || [];
         const packs = packsResult.status === 'fulfilled' ? packsResult.value || [] : [];
         const batches = batchesResult.status === 'fulfilled' ? batchesResult.value || [] : [];
-        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult].filter((result) => result.status === 'rejected');
+        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult].filter((result) => result.status === 'rejected');
         if (optionalFailures.length) load_error.value = '作物包或种植批次暂不可用，已显示其余正式数据';
         if (resourceProfileResult.status === 'fulfilled' || resourcePlansResult.status === 'fulfilled') {
           const waterProfile = resourceProfileResult.status === 'fulfilled' ? resourceProfileResult.value : null;
@@ -1950,6 +1964,7 @@ const app = createApp({
           resource_plan.value = planList.find((plan) => ['CONFIRMED', 'RUNNING', 'COMPLETED', 'PARTIAL'].includes(String(plan.status || '').toUpperCase())) || planList.find((plan) => plan.status === 'DRAFT') || (waterProfile ? { allocations: [], waterProfile } : null);
         }
         if (version !== workspace_request_version) return false;
+        if (resourceRequestsResult.status === 'fulfilled') resource_requests.value = resourceRequestsResult.value || [];
         crop_pack_catalog = Array.isArray(packs) ? packs : [];
         const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
         const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
@@ -3013,6 +3028,41 @@ const app = createApp({
       close_task();
     };
 
+    const submit_resource_request = async () => {
+      if (resource_request_busy.value) return;
+      if (resource_request_locked.value) { show_toast('当前需求已进入确认或执行阶段，请先完成本轮协同', 'error'); return; }
+      const plot = advice_selected_plot.value || advice_plot.value || plots.value[0];
+      const amount = Number(resource_request_form.value.requestedLitres);
+      if (!plot || !Number.isFinite(amount) || amount <= 0) { show_toast('请选择地块并填写有效申请水量', 'error'); return; }
+      const toIso = value => value ? new Date(value).toISOString() : '';
+      resource_request_busy.value = true;
+      try {
+        const saved = await api.createResourceRequest({
+          farmId: farm.value.farmId || plot.farmId || 'farm-demo', plotId: plot.plotId, requestedLitres: amount,
+          preferredStart: toIso(resource_request_form.value.preferredStart), preferredEnd: toIso(resource_request_form.value.preferredEnd),
+          constraints: resource_request_form.value.constraints, note: resource_request_form.value.note
+        });
+        resource_requests.value = [saved, ...resource_requests.value.filter(item => item.resourceRequestId !== saved.resourceRequestId)];
+        resource_request_form.value.note = ''; resource_request_response_note.value = '';
+        show_toast('用水需求已提交，农场管理员将收到协同提醒');
+      } catch (error) { show_toast(error.message || '用水需求提交失败', 'error'); }
+      finally { resource_request_busy.value = false; }
+    };
+
+    const respond_resource_request = async action => {
+      const request = selected_resource_request.value;
+      if (!request || resource_request_busy.value) return;
+      if (action === 'REPORT_CONFLICT' && !resource_request_response_note.value.trim()) { show_toast('请先说明时段、人员或水量冲突', 'error'); return; }
+      resource_request_busy.value = true;
+      try {
+        const saved = await api.actOnResourceRequest(request.resourceRequestId, { action, note: resource_request_response_note.value.trim() });
+        resource_requests.value = resource_requests.value.map(item => item.resourceRequestId === saved.resourceRequestId ? saved : item);
+        resource_request_response_note.value = '';
+        show_toast(action === 'ACKNOWLEDGE' ? '已确认分配安排，管理员端将实时同步' : action === 'WITHDRAW' ? '需求已撤回' : '冲突已反馈，管理员将重新复核');
+      } catch (error) { show_toast(error.message || '协同回执提交失败', 'error'); }
+      finally { resource_request_busy.value = false; }
+    };
+
     const load_farmer_enhancements = async () => {
       if (farmer_enhancements_refresh_in_flight) return false;
       farmer_enhancements_refresh_in_flight = true;
@@ -3023,16 +3073,18 @@ const app = createApp({
           : Promise.resolve({ status: 'UNAVAILABLE', reason: '没有可预测的地块' });
         const resourcePromise = Promise.all([
           api.getWaterResourceProfile(farm.value.farmId || 'farm-demo'),
-          api.listResourcePlans({ farmId: farm.value.farmId || 'farm-demo' })
+          api.listResourcePlans({ farmId: farm.value.farmId || 'farm-demo' }),
+          api.listResourceRequests({ farmId: farm.value.farmId || 'farm-demo' })
         ]);
         const [forecastResult, resourceResult] = await Promise.allSettled([forecastPromise, resourcePromise]);
         risk_forecast.value = forecastResult.status === 'fulfilled'
           ? forecastResult.value
           : { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' };
         if (resourceResult.status === 'fulfilled') {
-          const [waterProfile, plans] = resourceResult.value || [];
+          const [waterProfile, plans, requests] = resourceResult.value || [];
           const authoritative = (plans || []).find((plan) => ['CONFIRMED', 'RUNNING', 'COMPLETED', 'PARTIAL'].includes(String(plan.status || '').toUpperCase())) || (plans || []).find((plan) => plan.status === 'DRAFT');
           resource_plan.value = authoritative ? { ...authoritative, waterProfile } : { allocations: [], waterProfile };
+          resource_requests.value = requests || [];
         } else resource_plan.value = null;
         return true;
       } finally {
@@ -3198,6 +3250,13 @@ const app = createApp({
       device_attention,
       batch_timeline,
       selected_allocation,
+      resource_requests,
+      selected_resource_request,
+      resource_request_locked,
+      resource_request_form,
+      resource_request_response_note,
+      resource_request_busy,
+      resource_request_status_label,
       similar_cases,
       selected_case_id,
       human_confirmation_checked,
@@ -3297,6 +3356,8 @@ const app = createApp({
       open_tools,
       load_irrigation_plan,
       toggle_irrigation,
+      submit_resource_request,
+      respond_resource_request,
       open_suggestion,
       close_suggestion_flow,
       prepare_suggestion_confirmation,

@@ -726,6 +726,49 @@ export const MOCK_DATA = {
     status: "FEASIBLE"
   },
 
+  resourceRequests: [
+    {
+      resourceRequestId: "resource-request-demo-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      requestedLitres: 120.0,
+      preferredStart: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      preferredEnd: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+      constraints: "避开采摘时段，现场人员 14:00 后可配合",
+      note: "叶片轻微萎蔫，请结合最新湿度复核。",
+      status: "SUBMITTED",
+      requestedBy: "user-farmer",
+      requestedByName: "farmer",
+      requestedByRole: "FARMER",
+      revision: 1,
+      createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      provenance: "USER_PROVIDED",
+      sourceMode: "SIMULATION",
+      history: []
+    },
+    {
+      resourceRequestId: "resource-request-demo-a02",
+      farmId: "farm-demo",
+      plotId: "plot-a02",
+      requestedLitres: 90.0,
+      allocatedLitres: 60.0,
+      preferredStart: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      preferredEnd: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      responseNote: "16:00 前温室有人作业，请调整到 16:30 后。",
+      status: "CONFLICT_REPORTED",
+      requestedBy: "user-farmer",
+      requestedByName: "farmer",
+      requestedByRole: "FARMER",
+      revision: 3,
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      provenance: "USER_PROVIDED",
+      sourceMode: "SIMULATION",
+      history: []
+    }
+  ],
+
   cropPacks: [
     {
       cropCode: "tomato",
