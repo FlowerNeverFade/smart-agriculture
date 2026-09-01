@@ -408,7 +408,9 @@ const ADMIN_CROP_ALIASES = Object.freeze([
   ['rice', ['rice', '水稻', '稻']],
   ['sunflower', ['sunflower', '向日葵', '油葵']],
   ['strawberry', ['strawberry', '草莓']],
-  ['pepper', ['pepper', '辣椒']]
+  ['pepper', ['pepper', '辣椒']],
+  ['eggplant', ['eggplant', '茄子', '茄']],
+  ['lettuce', ['lettuce', '生菜', '莴苣']]
 ]);
 
 const ADMIN_CROP_EMOJIS = Object.freeze({
@@ -419,6 +421,8 @@ const ADMIN_CROP_EMOJIS = Object.freeze({
   sunflower: '🌻',
   strawberry: '🍓',
   pepper: '🌶️',
+  eggplant: '🍆',
+  lettuce: '🥬',
   unknown: '🌱'
 });
 

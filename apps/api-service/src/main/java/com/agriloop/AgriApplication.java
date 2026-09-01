@@ -7158,7 +7158,7 @@ class AgriEngine {
             conversation.put("title", cleanAgentHistoryUserMessage(Jsons.text(conversation, "title", "")));
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
-        result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
+        result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 200))));
         return result;
     }
 
