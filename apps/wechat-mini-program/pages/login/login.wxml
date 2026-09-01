@@ -1,0 +1,34 @@
+<view class="login-page">
+  <view class="brand-mark">🌱</view>
+  <view class="brand-name">农智闭环</view>
+  <view class="brand-subtitle">让每一块地的状态，都有清晰依据</view>
+
+  <view class="login-card">
+    <view class="card-title">登录工作台</view>
+    <view class="field-label">登录身份</view>
+    <picker mode="selector" range="{{roles}}" range-key="label" value="{{roleIndex}}" bindchange="onRoleChange">
+      <view class="picker-field">
+        <text>{{roles[roleIndex].label}}</text>
+        <text class="picker-arrow">⌄</text>
+      </view>
+    </picker>
+    <view class="role-hint">{{roles[roleIndex].description}}</view>
+
+    <view class="field-label">账号</view>
+    <input class="input-field" value="{{username}}" placeholder="请输入账号" placeholder-class="placeholder" maxlength="64" bindinput="onUsernameInput" />
+    <view class="field-label">密码</view>
+    <input class="input-field" value="{{password}}" password placeholder="请输入密码" placeholder-class="placeholder" maxlength="128" bindinput="onPasswordInput" />
+
+    <button class="primary login-button" loading="{{loading}}" disabled="{{loading}}" bindtap="submitLogin">进入工作台</button>
+    <view wx:if="{{error}}" class="error-box">{{error}}</view>
+  </view>
+
+  <view class="demo-panel">
+    <view class="demo-title">快速体验</view>
+    <view class="demo-copy">选择身份后填入演示账号，也可以直接输入已开通的实时账号。</view>
+    <view class="demo-actions">
+      <button wx:for="{{roles}}" wx:key="code" class="demo-button" data-role="{{item.code}}" bindtap="fillDemo">{{item.shortLabel}}</button>
+    </view>
+    <view class="demo-note">演示账号密码：demo123。正式环境请使用服务器账号。</view>
+  </view>
+</view>

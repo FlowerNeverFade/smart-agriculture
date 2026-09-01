@@ -1,0 +1,93 @@
+<view class="page home-page">
+  <view class="home-hero">
+    <view class="hero-kicker">AgriLoop · {{roleLabel}}</view>
+    <view class="hero-title">{{roleTitle}}</view>
+    <view class="hero-meta">
+      <text>{{farmLabel}}</text>
+      <text class="hero-time" wx:if="{{lastUpdated}}">更新于 {{lastUpdated}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{farms.length > 1}}" class="farm-picker card">
+    <text class="picker-label">当前范围</text>
+    <picker mode="selector" range="{{farms}}" range-key="name" value="{{farmIndex}}" bindchange="onFarmChange">
+      <view class="farm-picker-value">{{farms[farmIndex].name}} <text class="picker-arrow">⌄</text></view>
+    </picker>
+  </view>
+
+  <view wx:if="{{loading && !loaded}}" class="loading">正在读取实时数据…</view>
+  <view wx:if="{{error && !loaded}}" class="error-box">{{error}}<button class="secondary retry-button" bindtap="reload">重新加载</button></view>
+  <view wx:if="{{notice}}" class="notice-box">{{notice}}</view>
+
+  <block wx:if="{{loaded}}">
+    <view class="summary-grid">
+      <view class="summary-card" bindtap="goPlots">
+        <view class="summary-icon">▦</view>
+        <view class="summary-value">{{summary.plotCount}}</view>
+        <view class="summary-label">可见地块</view>
+      </view>
+      <view class="summary-card" bindtap="goAlerts">
+        <view class="summary-icon warn">!</view>
+        <view class="summary-value">{{summary.alertCount}}</view>
+        <view class="summary-label">未关闭告警</view>
+      </view>
+      <view class="summary-card" bindtap="goTasks">
+        <view class="summary-icon task">✓</view>
+        <view class="summary-value">{{summary.pendingTaskCount}}</view>
+        <view class="summary-label">待处理任务</view>
+      </view>
+      <view class="summary-card">
+        <view class="summary-icon device">⌁</view>
+        <view class="summary-value">{{summary.onlineDeviceCount}}/{{summary.deviceCount}}</view>
+        <view class="summary-label">在线设备</view>
+      </view>
+    </view>
+
+    <view class="section-head">
+      <text class="section-title">重点地块</text>
+      <button class="link-button" bindtap="goPlots">查看全部</button>
+    </view>
+    <view wx:if="{{plots.length}}">
+      <view wx:for="{{plots}}" wx:key="plotId" class="plot-card card" data-id="{{item.plotId}}" bindtap="openPlot">
+        <view class="plot-card-head">
+          <view>
+            <view class="plot-name">{{item.name}}</view>
+            <view class="plot-sub">{{item.cropName}} · {{item.stageLabel}}</view>
+          </view>
+          <view class="chip chip-{{item.deviceTone}}">{{item.deviceStatusLabel}}</view>
+        </view>
+        <view class="plot-facts">
+          <view class="plot-fact"><text class="fact-label">土壤湿度</text><text class="fact-value">{{item.moisture}}</text></view>
+          <view class="plot-fact"><text class="fact-label">空气温度</text><text class="fact-value">{{item.temperature}}</text></view>
+          <view class="plot-fact"><text class="fact-label">空气湿度</text><text class="fact-value">{{item.humidity}}</text></view>
+        </view>
+        <view class="plot-foot">
+          <text>{{item.facilityLabel}} · {{item.scenarioLabel}}</text>
+          <text class="muted">{{item.lastSeenLabel}}</text>
+        </view>
+      </view>
+    </view>
+    <view wx:else class="card empty">当前范围还没有可显示的地块</view>
+
+    <view class="section-head alert-section-head">
+      <text class="section-title">需要留意</text>
+      <button class="link-button" bindtap="goAlerts">{{summary.alertCount ? '查看告警' : '暂无告警'}}</button>
+    </view>
+    <view wx:if="{{alerts.length}}">
+      <view wx:for="{{alerts}}" wx:key="alertId" class="alert-row card">
+        <view class="alert-row-main">
+          <view class="alert-title"><text class="alert-dot alert-{{item.levelTone}}"></text>{{item.title}}</view>
+          <view class="alert-message">{{item.message}}</view>
+        </view>
+        <view class="alert-side"><text class="chip chip-{{item.levelTone}}">{{item.levelLabel}}</text><text class="tiny">{{item.updatedLabel}}</text></view>
+      </view>
+    </view>
+    <view wx:else class="card empty compact-empty">当前没有未关闭告警</view>
+
+    <view class="assistant-entry card" bindtap="goAssistant">
+      <view class="assistant-mark">✦</view>
+      <view class="assistant-copy"><view class="assistant-title">问问农智助手</view><view class="assistant-sub">结合当前范围和实时数据，继续分析下一步</view></view>
+      <text class="entry-arrow">›</text>
+    </view>
+  </block>
+</view>

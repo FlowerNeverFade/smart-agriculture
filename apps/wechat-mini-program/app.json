@@ -1,0 +1,39 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/home/home",
+    "pages/plots/plots",
+    "pages/tasks/tasks",
+    "pages/assistant/assistant",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarTitleText": "农智闭环",
+    "navigationBarBackgroundColor": "#f4f7f2",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f4f7f2",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#718078",
+    "selectedColor": "#197a55",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/home", "text": "总览" },
+      { "pagePath": "pages/plots/plots", "text": "地块" },
+      { "pagePath": "pages/tasks/tasks", "text": "任务" },
+      { "pagePath": "pages/assistant/assistant", "text": "助手" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  },
+  "networkTimeout": {
+    "request": 15000,
+    "connectSocket": 15000,
+    "uploadFile": 15000,
+    "downloadFile": 15000
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

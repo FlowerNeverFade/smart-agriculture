@@ -1,0 +1,168 @@
+page {
+  background: #f4f7f2;
+  color: #1d2b24;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+view,
+scroll-view,
+text,
+button,
+input,
+textarea,
+picker {
+  box-sizing: border-box;
+}
+
+button::after {
+  border: 0;
+}
+
+button {
+  margin: 0;
+  padding: 0 24rpx;
+  border-radius: 12rpx;
+  font-size: 26rpx;
+  line-height: 76rpx;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 28rpx 28rpx calc(40rpx + env(safe-area-inset-bottom));
+}
+
+.card {
+  margin-bottom: 20rpx;
+  padding: 24rpx;
+  border: 1rpx solid #e1e9e1;
+  border-radius: 18rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 24rpx rgba(37, 74, 54, 0.06);
+}
+
+.section-title {
+  color: #21352b;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12rpx 0 16rpx;
+}
+
+.muted {
+  color: #77877c;
+  font-size: 24rpx;
+}
+
+.tiny {
+  color: #8b998f;
+  font-size: 22rpx;
+}
+
+.primary {
+  color: #ffffff !important;
+  background: #197a55 !important;
+}
+
+.secondary {
+  color: #176848 !important;
+  background: #e7f4eb !important;
+}
+
+.ghost {
+  color: #476154 !important;
+  background: #f2f6f2 !important;
+}
+
+.danger {
+  color: #a43c34 !important;
+  background: #fff0ee !important;
+}
+
+.error-box {
+  margin: 18rpx 0;
+  padding: 18rpx 20rpx;
+  border: 1rpx solid #f2c8c2;
+  border-radius: 12rpx;
+  color: #a43c34;
+  background: #fff6f4;
+  font-size: 24rpx;
+}
+
+.empty {
+  padding: 42rpx 20rpx;
+  color: #829087;
+  text-align: center;
+  font-size: 25rpx;
+}
+
+.loading {
+  padding: 36rpx 0;
+  color: #688174;
+  text-align: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42rpx;
+  margin-right: 8rpx;
+  padding: 0 12rpx;
+  border-radius: 999rpx;
+  color: #4c6758;
+  background: #edf3ee;
+  font-size: 22rpx;
+  line-height: 42rpx;
+}
+
+.chip-online,
+.chip-good {
+  color: #176848;
+  background: #e2f5e9;
+}
+
+.chip-offline,
+.chip-high {
+  color: #a43c34;
+  background: #ffebe8;
+}
+
+.chip-medium {
+  color: #8b641f;
+  background: #fff4d9;
+}
+
+.chip-low {
+  color: #536f60;
+  background: #edf3ee;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.rich-line {
+  min-height: 1.5em;
+}
+
+.rich-bold {
+  font-weight: 700;
+}
+
+.rich-code {
+  padding: 0 6rpx;
+  border-radius: 6rpx;
+  color: #31543d;
+  background: #edf4ee;
+  font-family: monospace;
+}
