@@ -1,6 +1,7 @@
 cropCode: lettuce
 version: 1.0.0
 schemaVersion: '1.0'
+icon: 🥬
 status: ACTIVE
 identity: {name: 生菜, variety: cool-season-leaf, region: 重庆, environment: greenhouse}
 ruleVersion: rule-1.0.0

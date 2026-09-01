@@ -1,6 +1,7 @@
 cropCode: tomato
 version: 1.1.0
 schemaVersion: '1.0'
+icon: 🍅
 status: ACTIVE
 identity: {name: 番茄, variety: demonstration, region: 重庆, environment: greenhouse}
 ruleVersion: rule-1.0.0

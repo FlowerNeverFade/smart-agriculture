@@ -1,6 +1,7 @@
 cropCode: corn
 version: 1.0.0
 schemaVersion: '1.0'
+icon: 🌽
 status: ACTIVE
 identity: {name: 玉米, variety: field-demo, region: 重庆, environment: open_field}
 ruleVersion: rule-1.0.0
