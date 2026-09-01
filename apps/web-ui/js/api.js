@@ -6,9 +6,9 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v593-market-v3';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -643,6 +643,78 @@ function normalizeFarmMember(item, sourceMode) {
   };
 }
 
+const DEMO_MARKET_CATALOG = Object.freeze([
+  { cropCode: 'tomato', cropName: '番茄', marketVarietyName: '西红柿', emoji: '🍅', base: 4.8 },
+  { cropCode: 'corn', cropName: '玉米', marketVarietyName: '鲜食玉米', emoji: '🌽', base: 3.6 },
+  { cropCode: 'cucumber', cropName: '黄瓜', marketVarietyName: '黄瓜', emoji: '🥒', base: 3.9 },
+  { cropCode: 'eggplant', cropName: '茄子', marketVarietyName: '茄子', emoji: '🍆', base: 4.2 },
+  { cropCode: 'lettuce', cropName: '生菜', marketVarietyName: '生菜', emoji: '🥬', base: 5.6 },
+  { cropCode: 'pepper', cropName: '辣椒', marketVarietyName: '青椒', emoji: '🌶️', base: 5.1 },
+  { cropCode: 'rice', cropName: '水稻', marketVarietyName: '大米', emoji: '🌾', base: 4.7 },
+  { cropCode: 'strawberry', cropName: '草莓', marketVarietyName: '草莓', emoji: '🍓', base: 14.8 },
+  { cropCode: 'sunflower', cropName: '向日葵', marketVarietyName: '葵花籽', emoji: '🌻', base: 8.4 }
+]);
+
+function roundedMarketNumber(value) { return Math.round(Number(value || 0) * 100) / 100; }
+function chinaMarketDateKey(value) { return new Date(new Date(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10); }
+
+export function buildDemoMarketOverview(plots = [], { farmId = 'farm-demo', rangeDays = 30, scope = 'farm' } = {}) {
+  const normalizedRange = Number(rangeDays) <= 7 ? 7 : Number(rangeDays) <= 30 ? 30 : 90;
+  const farmCropCodes = [...new Set((plots || [])
+    .filter(plot => (plot.farmId || farmId) === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+    .map(plot => String(plot.cropCode || '').toLowerCase()).filter(Boolean))];
+  const catalog = String(scope || 'farm').toLowerCase() === 'all'
+    ? DEMO_MARKET_CATALOG
+    : DEMO_MARKET_CATALOG.filter(item => farmCropCodes.includes(item.cropCode));
+  const todayKey = chinaMarketDateKey(new Date());
+  const today = new Date(`${todayKey}T12:00:00Z`);
+  const crops = catalog.map((item, cropIndex) => {
+    const phase = item.cropCode.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % 17;
+    const history = Array.from({ length: normalizedRange }, (_, index) => {
+      const date = new Date(today); date.setUTCDate(today.getUTCDate() - (normalizedRange - index - 1));
+      const wave = Math.sin((index + phase) / 4.2) * item.base * .075;
+      const drift = (index - normalizedRange / 2) * item.base * .0009 * ((cropIndex % 3) - 1);
+      const price = roundedMarketNumber(Math.max(.5, item.base + wave + drift));
+      return { date: date.toISOString().slice(0, 10), price, minPrice: roundedMarketNumber(price * .88), maxPrice: roundedMarketNumber(price * 1.14), marketCount: 3, priceBasis: 'PREFERRED_MARKET' };
+    });
+    const latest = history.at(-1); const previous = history.at(-2);
+    const change = roundedMarketNumber(latest.price - previous.price);
+    const changePct = roundedMarketNumber(change / previous.price * 100);
+    const lastSeven = history.slice(-7); const movingAverage7 = roundedMarketNumber(lastSeven.reduce((sum, point) => sum + point.price, 0) / lastSeven.length);
+    const observationTone = changePct >= 1 && latest.price > movingAverage7 ? 'STRONG' : changePct <= -1 && latest.price < movingAverage7 ? 'WEAK' : 'RANGE';
+    const observation = observationTone === 'STRONG'
+      ? ['价格偏强', '可优先向高价市场分批询价，但不要仅凭单日上涨决定全部出货。']
+      : observationTone === 'WEAK'
+        ? ['价格回落', '可优先核对已有订单与耐储性，避免仅凭短期下跌集中出货。']
+        : ['价格震荡', '可采用分批销售，并同步比较采购报价、品质等级、物流和采收窗口。'];
+    return {
+      ...item, inFarm: farmCropCodes.includes(item.cropCode), available: true, status: 'DEMO', quoteDate: latest.date,
+      latestPrice: latest.price, unit: '元/公斤', change, changePct,
+      sevenDayChangePct: roundedMarketNumber((lastSeven.at(-1).price - lastSeven[0].price) / lastSeven[0].price * 100),
+      movingAverage7, minPrice: latest.minPrice, maxPrice: latest.maxPrice, marketCount: 3,
+      priceBasis: 'PREFERRED_MARKET', preferredMarket: '重庆双福国际农贸城', history, historyDays: history.length,
+      requestedRangeDays: normalizedRange,
+      marketQuotes: [
+        { marketName: '重庆双福国际农贸城', price: latest.price, unit: '元/公斤', preferred: true },
+        { marketName: '潼南农副产品批发市场', price: roundedMarketNumber(latest.price * .92), unit: '元/公斤', preferred: false },
+        { marketName: '西三街农副水产品市场', price: roundedMarketNumber(latest.price * 1.08), unit: '元/公斤', preferred: false }
+      ],
+      salesObservation: { tone: observationTone, label: observation[0], message: observation[1], basis: '演示日价与7日简单移动平均', actionable: true }
+    };
+  });
+  return {
+    farmId, scope: String(scope).toLowerCase() === 'all' ? 'ALL_CATALOG' : 'FARM_CROPS', rangeDays: normalizedRange,
+    sourceStatus: 'DEMO', asOf: todayKey, generatedAt: new Date().toISOString(),
+    historyPersistence: 'DEMO', farmCropCodes, availableCropCount: crops.length, totalCropCount: crops.length,
+    source: {
+      provider: 'DEMO', name: '本地演示行情', url: '', cadence: 'DAILY', provinceCode: '500000', provinceName: '重庆市',
+      preferredMarket: '重庆双福国际农贸城', unit: '元/公斤', method: '固定算法生成，仅用于界面展示',
+      disclaimer: '当前为演示行情，不是真实市场价格，不得用于销售决策。'
+    },
+    crops
+  };
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -1117,6 +1189,19 @@ export class ApiService {
     };
   }
 
+  async getMarketPrices({ farmId = '', rangeDays = 30, scope = 'farm' } = {}) {
+    const selectedFarm = farmId || 'farm-demo';
+    const selectedScope = String(scope || 'farm').toLowerCase() === 'all' ? 'all' : 'farm';
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId: selectedFarm, rangeDays: String(rangeDays), scope: selectedScope });
+      const resp = await this._fetch(`/api/v1/market-prices?${query}`);
+      const result = resp?.data || resp;
+      if (result && Array.isArray(result.crops) && result.source) return result;
+      throw new ApiError('后端返回了无效的市场行情数据', { code: 'MARKET_PRICES_INVALID', payload: resp });
+    }
+    return buildDemoMarketOverview(Array.from(this.demoPlots.values()), { farmId: selectedFarm, rangeDays, scope: selectedScope });
+  }
+
   async getSystemStatus() {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/system/status');
@@ -1140,6 +1225,16 @@ export class ApiService {
     this.demoAiMode = aiMode || 'full';
     this.persistDemoAiMode(this.demoAiMode);
     return { aiMode: this.demoAiMode, changed: true, sourceMode: 'SIMULATED' };
+  }
+
+  // 操作审计日志（系统管理员，live 版从后端 event_log 拉取）
+  async getAuditLogs(limit = 50) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/system/audit-logs?limit=${limit}`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的审计日志', { code: 'AUDIT_LOGS_INVALID', payload: resp });
+    }
+    return [];
   }
 
   async getPlotTimeline(plotId) {
