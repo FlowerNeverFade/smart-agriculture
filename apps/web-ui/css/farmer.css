@@ -1725,6 +1725,9 @@
   gap: 12px;
 }
 .farmer-plot-grid-page { margin-bottom: 20px; }
+.farmer-plot-grid-page.is-reordering {
+  user-select: none;
+}
 .farmer-plot-overview-card {
   display: flex;
   flex-direction: column;
@@ -1740,6 +1743,26 @@
   text-align: left;
   cursor: pointer;
   transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.farmer-plot-grid-page .farmer-plot-overview-card {
+  touch-action: pan-y;
+}
+.farmer-plot-grid-page.is-reordering .farmer-plot-overview-card {
+  touch-action: none;
+  cursor: grab;
+}
+.farmer-plot-overview-card.is-dragging {
+  position: relative;
+  z-index: 2;
+  opacity: .78;
+  cursor: grabbing;
+  transform: scale(1.02) rotate(0.4deg);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--g-success) 20%, transparent);
+}
+.farmer-plot-overview-card.is-drop-target {
+  border-color: var(--g-success);
+  outline: 2px dashed color-mix(in srgb, var(--g-success) 55%, transparent);
+  outline-offset: 3px;
 }
 .farmer-plot-overview-card:hover,
 .farmer-plot-overview-card.selected {
@@ -1794,6 +1817,20 @@
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
 .farmer-plot-status.warn { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-plot-drag-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: .78;
+}
+.farmer-plot-drag-hint > span {
+  font-size: 17px;
+  line-height: .7;
+  letter-spacing: -2px;
+}
 .farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
 .farmer-plot-overview-meta {
   color: var(--g-text-secondary);
@@ -1894,6 +1931,10 @@
 .farmer-plot-overview-metric dd.metric-WARN { color: var(--g-warning); }
 .farmer-plot-overview-metric dd.metric-NORMAL { color: var(--g-success); }
 .farmer-plot-overview-metric dd.metric-ALERT { color: var(--g-danger); }
+.farmer-plot-overview-metric dd.metric-UNAVAILABLE {
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-weight: 500;
+}
 @media (max-width: 480px) {
   .farmer-plot-overview-metrics { grid-template-columns: 1fr; }
 }

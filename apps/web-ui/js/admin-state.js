@@ -1,3 +1,5 @@
+import { PLOT_METRIC_CODES } from './plot-display.js';
+
 export const ADMIN_TABS = Object.freeze({
   dashboard: ['overview'],
   'work-orders': ['tasks', 'plans', 'resources', 'crop-packs'],
@@ -36,19 +38,7 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_HEALTH: '设备健康'
 });
 
-export const ADMIN_PLOT_METRIC_CODES = Object.freeze([
-  'SOIL_MOISTURE',
-  'AIR_TEMPERATURE',
-  'AIR_HUMIDITY',
-  'LIGHT',
-  'CO2',
-  'RAINFALL',
-  'PH',
-  'WATER_LEVEL',
-  'NITROGEN',
-  'PHOSPHORUS',
-  'POTASSIUM'
-]);
+export const ADMIN_PLOT_METRIC_CODES = PLOT_METRIC_CODES;
 
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',

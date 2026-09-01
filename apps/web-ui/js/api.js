@@ -12,6 +12,7 @@ import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-m
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+let demoWorkOrderSequence = 0;
 // A stalled browser connection must not keep a role workspace's bootstrap
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
@@ -641,6 +642,11 @@ function normalizeFarmMember(item, sourceMode) {
     status,
     sourceMode
   };
+}
+
+function farmerWorkspacePreferenceStorageKey(user) {
+  const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
+  return `agriloop_demo_farmer_workspace_preference:${identity}`;
 }
 
 export class ApiError extends Error {
@@ -1296,6 +1302,44 @@ export class ApiService {
       .map(plot => ({ ...plot }));
   }
 
+  async getFarmerWorkspacePreference() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace');
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序配置', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const storage = browserStorage('localStorage');
+    try {
+      const raw = storage?.getItem(farmerWorkspacePreferenceStorageKey(this.user));
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && Array.isArray(saved.plotOrder)) return saved;
+    } catch { /* malformed demo preference falls back to the deterministic order */ }
+    return { scope: 'FARMER_WORKSPACE', plotOrder: [], revision: 0, updatedAt: null };
+  }
+
+  async saveFarmerWorkspacePreference(plotOrder = [], expectedRevision = 0) {
+    const normalizedOrder = Array.from(new Set((Array.isArray(plotOrder) ? plotOrder : [])
+      .map((plotId) => String(plotId ?? '').trim())
+      .filter(Boolean)));
+    const revision = Number.isFinite(Number(expectedRevision)) ? Number(expectedRevision) : 0;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace', {
+        method: 'PUT',
+        body: JSON.stringify({ plotOrder: normalizedOrder, expectedRevision: revision })
+      });
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序保存结果', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const saved = {
+      scope: 'FARMER_WORKSPACE',
+      plotOrder: normalizedOrder,
+      revision: revision + 1,
+      updatedAt: new Date().toISOString()
+    };
+    browserStorage('localStorage')?.setItem(farmerWorkspacePreferenceStorageKey(this.user), JSON.stringify(saved));
+    return saved;
+  }
+
   async createPlot(input = {}) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/plots', {
@@ -1779,7 +1823,11 @@ export class ApiService {
       });
       return response?.data || response;
     }
-    const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
+    const requestedWorkOrderId = String(workOrder.workOrderId || '').trim();
+    let workOrderId = requestedWorkOrderId || `wo-demo-${Date.now()}`;
+    while (!requestedWorkOrderId && this.demoWorkOrders.has(workOrderId)) {
+      workOrderId = `wo-demo-${Date.now()}-${++demoWorkOrderSequence}`;
+    }
     const now = new Date().toISOString();
     const actionType = normalizeWorkActionType(workOrder.actionType);
     const saved = cloneWorkOrder({

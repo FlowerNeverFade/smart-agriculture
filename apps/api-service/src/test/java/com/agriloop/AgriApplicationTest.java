@@ -155,6 +155,51 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerPlotOrderIsStableScopedAndOptimisticallyLocked() {
+        String suffix = String.valueOf(System.nanoTime());
+        String firstId = "plot-order-a-" + suffix;
+        String middleId = "plot-order-m-" + suffix;
+        String lastId = "plot-order-z-" + suffix;
+        List<String> plotIds = List.of(firstId, middleId, lastId);
+        plotIds.forEach(plotId -> store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE"))));
+        String userId = "farmer-plot-order-" + suffix;
+        UserPrincipal farmer = new UserPrincipal(userId, "plot-order-farmer", "FARMER", List.of("farm-demo"), plotIds);
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        try {
+            Map<String, Object> initial = responseData(controller.farmerWorkspacePreference(authentication));
+            assertThat(initial.get("revision")).isEqualTo(0L);
+            assertThat(initial.get("plotOrder")).isEqualTo(plotIds);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> apiPlots = (List<Map<String, Object>>) ((Map<String, Object>) controller
+                    .plots(null, null, false, authentication).getBody()).get("data");
+            assertThat(apiPlots).extracting(plot -> plot.get("plotId")).containsExactly(firstId, middleId, lastId);
+
+            Map<String, Object> saved = responseData(controller.updateFarmerWorkspacePreference(Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), authentication));
+            assertThat(saved.get("revision")).isEqualTo(1L);
+            assertThat(saved.get("plotOrder")).isEqualTo(List.of(lastId, firstId, middleId));
+            assertThat(responseData(controller.farmerWorkspacePreference(authentication)).get("plotOrder"))
+                    .isEqualTo(List.of(lastId, firstId, middleId));
+
+            UserPrincipal otherFarmer = new UserPrincipal(userId + "-other", "plot-order-other", "FARMER",
+                    List.of("farm-demo"), List.of(firstId));
+            var otherAuthentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(otherFarmer, null, List.of());
+            assertThat(responseData(controller.farmerWorkspacePreference(otherAuthentication)).get("plotOrder"))
+                    .isEqualTo(List.of(firstId));
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmerWorkspacePreference(Map.of(
+                            "plotOrder", List.of(firstId, lastId), "expectedRevision", 0), authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
+                            .isEqualTo("FARMER_WORKSPACE_PREFERENCE_CONFLICT"));
+        } finally {
+            store.delete("user-preference", userId + ":FARMER_WORKSPACE");
+            plotIds.forEach(plotId -> store.delete("plot", plotId));
+        }
+    }
+
+    @Test
     void accountRegistrationAndRecoveryRotateCredentials() {
         String username = "grower" + System.nanoTime();
         String firstPassword = "FieldPass2026";

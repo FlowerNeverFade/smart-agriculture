@@ -87,6 +87,22 @@ test('demo sessions remain explicitly local and switching sessions clears live h
   assert.ok(farms.every((farm) => farm.sourceMode === 'SIMULATED'));
 });
 
+test('farmer workspace plot order is isolated by account and survives a reread', async () => {
+  const service = new ApiService();
+  const userId = `plot-order-${Date.now()}`;
+  service.sessionMode = 'demo';
+  service.user = { userId, username: `${userId}.farmer`, role: 'FARMER' };
+
+  const initial = await service.getFarmerWorkspacePreference();
+  assert.deepEqual(initial.plotOrder, []);
+  const saved = await service.saveFarmerWorkspacePreference(['plot-b02', 'plot-a01'], initial.revision);
+  assert.equal(saved.revision, 1);
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, ['plot-b02', 'plot-a01']);
+
+  service.user = { userId: `${userId}-other`, username: `${userId}-other.farmer`, role: 'FARMER' };
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, []);
+});
+
 test('demo resource collaboration persists one shared request lifecycle and enforces participants', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';

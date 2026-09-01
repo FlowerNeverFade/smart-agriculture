@@ -68,6 +68,23 @@ paths:
         '401': {description: 未登录或当前密码不正确}
   /api/v1/auth/me:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
+  /api/v1/users/me/preferences/farmer-workspace:
+    get:
+      tags: [farm]
+      description: 返回当前农户账号跨设备使用的地块排列顺序；新增或恢复的授权地块会稳定追加。
+      responses:
+        '200': {description: 当前农户工作台地块顺序}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [farm]
+      description: 保存当前农户工作台地块顺序；使用 expectedRevision 防止多设备静默覆盖。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FarmerWorkspacePreferenceUpdateRequest'}}}}
+      responses:
+        '200': {description: 地块顺序已保存}
+        '400': {description: 地块顺序格式或数量无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 其他设备已更新顺序，需重新读取}
+        '503': {description: 数据库不可用，写入未保存}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
   /api/v1/system/ai-mode:
@@ -548,6 +565,21 @@ components:
       properties:
         currentPassword: {type: string, format: password}
         newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
+    FarmerWorkspacePreference:
+      type: object
+      required: [userId, scope, plotOrder, revision]
+      properties:
+        userId: {type: string}
+        scope: {type: string, enum: [FARMER_WORKSPACE]}
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        revision: {type: integer, minimum: 0}
+        updatedAt: {type: string, format: date-time, nullable: true}
+    FarmerWorkspacePreferenceUpdateRequest:
+      type: object
+      required: [plotOrder, expectedRevision]
+      properties:
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        expectedRevision: {type: integer, minimum: 0}
     TelemetryEvent:
       type: object
       required: [eventId, plotId, deviceId, metric, value, ts]

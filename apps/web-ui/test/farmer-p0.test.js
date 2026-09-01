@@ -271,8 +271,10 @@ test('farmer plot cards hide soil EC charts and localize metric codes', async ()
   ]);
   assert.doesNotMatch(source, /code:\s*['"]SOIL_EC['"]/);
   assert.doesNotMatch(html, /I-19\s*·/);
-  assert.match(html, /metric_label\(code, metric\.label\)/);
+  assert.match(html, /plot_metrics\(plot\)/);
   assert.match(html, /metric_label\(metric\.code, metric\.label\)/);
+  assert.match(html, /data-farmer-plot-id/);
+  assert.match(source, /load_plot_order_preference/);
   assert.equal(metricLabel('AIR_HUMIDITY'), '空气湿度');
   assert.equal(metricLabel('LIGHT'), '光照');
   assert.equal(metricLabel('PH'), '酸碱度');

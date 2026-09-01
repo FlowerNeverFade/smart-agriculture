@@ -1,10 +1,11 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v593-task-report-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v594-plot-order-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
+import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
 import {
   agentResponseSource,
@@ -1191,7 +1192,27 @@ const app = createApp({
       ...plot,
       healthScore: compute_plot_health_score(plot)
     }));
-    const plots = ref(assigned_plots);
+    const initial_ordered_plots = stablePlotSort(assigned_plots);
+    const plots = ref(initial_ordered_plots);
+    const plot_order_ids = ref(initial_ordered_plots.map((plot) => String(plot.plotId || '').trim()).filter(Boolean));
+    const plot_order_revision = ref(0);
+    const plot_order_loaded = ref(false);
+    const plot_order_error = ref('');
+    const plot_order_busy = ref(false);
+    const plot_drag_state = ref({
+      active: false,
+      pointerId: null,
+      sourceIndex: -1,
+      targetIndex: -1,
+      startX: 0,
+      startY: 0,
+      longPressTimer: null,
+      movedBeforeActivation: false,
+      suppressClick: false,
+      snapshot: [],
+      dragPlotId: '',
+      dropTargetId: ''
+    });
     const assistant_view_state = computed(() => ({
       currentUser: user.value,
       plots: plots.value,
@@ -3026,9 +3047,10 @@ const app = createApp({
     const crop_icon = (crop_code) => CROP_ICONS[crop_code] || '🌱';
     const plot_band_status = (plot) => resolve_moisture_band_status(plot);
     const plot_band_label = (plot) => BAND_STATUS_LABELS[resolve_moisture_band_status(plot)] || '正常';
-    const metric_status_of = (plot, code, metric) => (
-      code === 'SOIL_MOISTURE' ? resolve_moisture_band_status(plot) : (metric?.status || 'NORMAL')
-    );
+    const metric_status_of = (plot, code, metric) => {
+      if (metric?.available === false || metric?.value === null || metric?.value === undefined) return 'UNAVAILABLE';
+      return code === 'SOIL_MOISTURE' ? resolve_moisture_band_status(plot) : (metric?.status || 'NORMAL');
+    };
     const health_score = (plot) => health_breakdown(plot).score;
     const health_level_label = (plot) => health_level(health_score(plot), plot);
     const health_summary = (plot) => {
@@ -3059,6 +3081,234 @@ const app = createApp({
 
     const replace_ref_array = (target, values) => {
       target.value.splice(0, target.value.length, ...(Array.isArray(values) ? values : []));
+    };
+
+    const plot_metrics = (plot) => orderedPlotMetrics(plot);
+    const metric_value = (metric) => plotMetricValue(metric);
+    const plot_order_of = (items) => (Array.isArray(items) ? items : [])
+      .map((plot) => String(plot?.plotId || '').trim())
+      .filter(Boolean);
+    const ordered_plot_values = (items) => {
+      const visualOrder = plot_drag_state.value.active ? plot_order_of(plots.value) : plot_order_ids.value;
+      return reconcilePlotOrder(items, visualOrder);
+    };
+    const replace_plots_in_order = (items, { commitOrder = true } = {}) => {
+      const ordered = ordered_plot_values(items);
+      if (commitOrder) plot_order_ids.value = plot_order_of(ordered);
+      replace_ref_array(plots, ordered);
+      return ordered;
+    };
+
+    let plot_order_request_version = 0;
+    let plot_drag_element = null;
+    let plot_click_suppress_timer = null;
+    const schedule_plot_click_suppression_reset = () => {
+      if (plot_click_suppress_timer !== null) window.clearTimeout(plot_click_suppress_timer);
+      plot_click_suppress_timer = window.setTimeout(() => {
+        plot_click_suppress_timer = null;
+        if (!plot_drag_state.value.active) plot_drag_state.value.suppressClick = false;
+      }, 500);
+    };
+    const clear_plot_drag_timer = () => {
+      const timer = plot_drag_state.value.longPressTimer;
+      if (timer !== null) window.clearTimeout(timer);
+      plot_drag_state.value.longPressTimer = null;
+    };
+    const reset_plot_drag_state = ({ suppressClick = false } = {}) => {
+      plot_drag_state.value = {
+        active: false,
+        pointerId: null,
+        sourceIndex: -1,
+        targetIndex: -1,
+        startX: 0,
+        startY: 0,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick,
+        snapshot: [],
+        dragPlotId: '',
+        dropTargetId: ''
+      };
+    };
+    const restore_plot_order = (order) => {
+      const ordered = reconcilePlotOrder(plots.value, order);
+      plot_order_ids.value = plot_order_of(ordered);
+      replace_ref_array(plots, ordered);
+      return ordered;
+    };
+    const load_plot_order_preference = async ({ announce = false } = {}) => {
+      if (plot_order_loaded.value) return true;
+      const requestVersion = ++plot_order_request_version;
+      try {
+        const preference = await api.getFarmerWorkspacePreference();
+        if (requestVersion !== plot_order_request_version) return false;
+        plot_order_revision.value = Number(preference?.revision || 0);
+        const ordered = reconcilePlotOrder(plots.value, preference?.plotOrder || []);
+        plot_order_ids.value = plot_order_of(ordered);
+        replace_ref_array(plots, ordered);
+        plot_order_error.value = '';
+        return true;
+      } catch (error) {
+        if (requestVersion !== plot_order_request_version) return false;
+        plot_order_error.value = error?.message || '地块顺序暂未同步';
+        if (announce) show_toast(`地块顺序暂未同步：${plot_order_error.value}`, 'error');
+        // Keep a deterministic local order and let an explicit drag surface
+        // the persistence error instead of blocking the farmer workspace.
+        const ordered = reconcilePlotOrder(plots.value, plot_order_ids.value);
+        plot_order_ids.value = plot_order_of(ordered);
+        replace_ref_array(plots, ordered);
+        return false;
+      } finally {
+        if (requestVersion === plot_order_request_version) plot_order_loaded.value = true;
+      }
+    };
+    const save_plot_order = async (nextOrder, previousOrder) => {
+      plot_order_busy.value = true;
+      try {
+        const saved = await api.saveFarmerWorkspacePreference(nextOrder, plot_order_revision.value);
+        plot_order_revision.value = Number(saved?.revision || plot_order_revision.value + 1);
+        const ordered = reconcilePlotOrder(plots.value, saved?.plotOrder || nextOrder);
+        plot_order_ids.value = plot_order_of(ordered);
+        replace_ref_array(plots, ordered);
+        plot_order_error.value = '';
+        show_toast('地块排列已保存', 'success');
+        return true;
+      } catch (error) {
+        if (error?.code === 'FARMER_WORKSPACE_PREFERENCE_CONFLICT') {
+          try {
+            const latest = await api.getFarmerWorkspacePreference();
+            plot_order_revision.value = Number(latest?.revision || 0);
+            restore_plot_order(latest?.plotOrder || previousOrder);
+            show_toast('其他设备已更新地块顺序，页面已同步最新排列', 'error');
+          } catch (refreshError) {
+            restore_plot_order(previousOrder);
+            show_toast(`地块顺序冲突，恢复原排列失败：${refreshError?.message || '请刷新页面'}`, 'error');
+          }
+        } else {
+          restore_plot_order(previousOrder);
+          show_toast(`地块排列保存失败：${error?.message || '请稍后重试'}`, 'error');
+        }
+        return false;
+      } finally {
+        plot_order_busy.value = false;
+      }
+    };
+    const plot_index_at_point = (clientX, clientY) => {
+      const elements = document.elementsFromPoint?.(clientX, clientY)
+        || [document.elementFromPoint(clientX, clientY)];
+      const draggingId = String(plot_drag_state.value.dragPlotId || '');
+      const card = elements.map((element) => element?.closest?.('[data-farmer-plot-id]'))
+        .find((candidate) => candidate && String(candidate.dataset?.farmerPlotId || '') !== draggingId);
+      const plotId = String(card?.dataset?.farmerPlotId || '').trim();
+      if (!plotId) return -1;
+      return plots.value.findIndex((plot) => String(plot.plotId) === plotId);
+    };
+    const activate_plot_drag = () => {
+      const state = plot_drag_state.value;
+      if (state.pointerId === null || state.movedBeforeActivation || state.active) return;
+      state.active = true;
+      state.targetIndex = state.sourceIndex;
+      state.dragPlotId = String(plots.value[state.sourceIndex]?.plotId || '');
+      state.dropTargetId = '';
+      document.body.classList.add('farmer-plot-dragging');
+      plot_drag_element?.setPointerCapture?.(state.pointerId);
+    };
+    const remove_plot_drag_listeners = () => {
+      window.removeEventListener('pointermove', handle_plot_pointer_move);
+      window.removeEventListener('pointerup', handle_plot_pointer_up);
+      window.removeEventListener('pointercancel', cancel_plot_drag);
+    };
+    const finish_plot_drag = ({ suppressClick = false } = {}) => {
+      clear_plot_drag_timer();
+      remove_plot_drag_listeners();
+      if (plot_drag_element && plot_drag_state.value.pointerId !== null) {
+        try { plot_drag_element.releasePointerCapture?.(plot_drag_state.value.pointerId); } catch { /* pointer already released */ }
+      }
+      document.body.classList.remove('farmer-plot-dragging');
+      plot_drag_element = null;
+      reset_plot_drag_state({ suppressClick });
+    };
+    const handle_plot_pointer_move = (event) => {
+      const state = plot_drag_state.value;
+      if (state.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+      if (!state.active) {
+        if (distance > 8) {
+          state.movedBeforeActivation = true;
+          clear_plot_drag_timer();
+        }
+        return;
+      }
+      event.preventDefault();
+      const targetIndex = plot_index_at_point(event.clientX, event.clientY);
+      if (targetIndex < 0 || targetIndex === state.sourceIndex) {
+        state.targetIndex = state.sourceIndex;
+        state.dropTargetId = '';
+        return;
+      }
+      const targetId = String(plots.value[targetIndex]?.plotId || '');
+      state.targetIndex = targetIndex;
+      state.dropTargetId = targetId;
+    };
+    const move_plot_to_index = (items, sourceIndex, targetIndex) => {
+      const next = Array.isArray(items) ? items.slice() : [];
+      if (sourceIndex < 0 || sourceIndex >= next.length || targetIndex < 0 || targetIndex >= next.length || sourceIndex === targetIndex) return next;
+      const [dragged] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, dragged);
+      return next;
+    };
+    const handle_plot_pointer_up = async (event) => {
+      const state = plot_drag_state.value;
+      if (state.pointerId !== event.pointerId) return;
+      const wasActive = state.active;
+      const previousOrder = state.snapshot.slice();
+      const nextPlots = wasActive ? move_plot_to_index(plots.value, state.sourceIndex, state.targetIndex) : plots.value;
+      const nextOrder = plot_order_of(nextPlots);
+      const changed = nextOrder.join('\u0001') !== previousOrder.join('\u0001');
+      if (wasActive && changed) replace_ref_array(plots, nextPlots);
+      finish_plot_drag({ suppressClick: wasActive });
+      if (wasActive) schedule_plot_click_suppression_reset();
+      if (!wasActive || !changed) return;
+      await save_plot_order(nextOrder, previousOrder);
+    };
+    const cancel_plot_drag = () => {
+      const state = plot_drag_state.value;
+      if (state.pointerId === null && !state.active) return;
+      const previousOrder = state.snapshot.slice();
+      const wasActive = state.active;
+      finish_plot_drag({ suppressClick: wasActive });
+      if (wasActive) schedule_plot_click_suppression_reset();
+      if (wasActive && previousOrder.length) restore_plot_order(previousOrder);
+    };
+    const handle_plot_pointer_down = (event, plot, index) => {
+      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      plot_drag_element = event.currentTarget;
+      plot_drag_state.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: plot_order_of(plots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handle_plot_pointer_move, { passive: false });
+      window.addEventListener('pointerup', handle_plot_pointer_up);
+      window.addEventListener('pointercancel', cancel_plot_drag);
+      plot_drag_state.value.longPressTimer = window.setTimeout(activate_plot_drag, 400);
+    };
+    const handle_plot_card_click = (plot) => {
+      if (plot_drag_state.value.suppressClick) {
+        plot_drag_state.value.suppressClick = false;
+        return;
+      }
+      open_plot(plot);
     };
 
     const task_identity = (task) => String(task?.workOrderId || task?.id || '').trim();
@@ -3242,6 +3492,8 @@ const app = createApp({
           const merged = mergePlotTelemetryWindow(plot, result.value || []);
           return { ...merged, healthScore: compute_plot_health_score(merged) };
         });
+        const orderedNormalizedPlots = replace_plots_in_order(normalizedPlots, { commitOrder: !plot_drag_state.value.active });
+        normalizedPlots = orderedNormalizedPlots;
         if (showProgress) set_workspace_progress(78, '正在整理巡田与消息…');
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
@@ -3279,10 +3531,10 @@ const app = createApp({
           month_done: profile.month_done,
           completion_rate: profile.completion_rate
         };
-        selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || normalizedPlots[0] || null;
-        advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
-        if (!qa_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
-          qa_plot_id.value = normalizedPlots[0]?.plotId || '';
+        selected_plot.value = orderedNormalizedPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || orderedNormalizedPlots[0] || null;
+        advice_selected_plot.value = orderedNormalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || orderedNormalizedPlots[0] || null;
+        if (!qa_plot_id.value || !orderedNormalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) {
+          qa_plot_id.value = orderedNormalizedPlots[0]?.plotId || '';
         }
         if (!crop_manual_code.value && (normalizedPlots[0]?.cropCode || crop_pack_catalog[0]?.cropCode)) {
           crop_manual_code.value = normalizedPlots[0]?.cropCode || crop_pack_catalog[0]?.cropCode;
@@ -4530,10 +4782,10 @@ const app = createApp({
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
           .map((plot) => ({ ...plot, healthScore: compute_plot_health_score(plot) }));
         const selectedPlotId = selected_plot.value?.plotId || advice_selected_plot.value?.plotId || assistant_plot_id.value;
-        replace_ref_array(plots, normalizedPlots);
-        selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selectedPlotId) || normalizedPlots[0] || null;
-        advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
-        if (!normalizedPlots.some((plot) => plot.plotId === assistant_plot_id.value)) assistant_plot_id.value = normalizedPlots[0]?.plotId || '';
+        const orderedNormalizedPlots = replace_plots_in_order(normalizedPlots);
+        selected_plot.value = orderedNormalizedPlots.find((plot) => plot.plotId === selectedPlotId) || orderedNormalizedPlots[0] || null;
+        advice_selected_plot.value = orderedNormalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || orderedNormalizedPlots[0] || null;
+        if (!orderedNormalizedPlots.some((plot) => plot.plotId === assistant_plot_id.value)) assistant_plot_id.value = orderedNormalizedPlots[0]?.plotId || '';
         const rawTasks = await api.getWorkOrders({ farmId: farm.value.farmId || 'farm-demo' });
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = rawTasks.map((work) => normalizeFarmerTask(work, plotMap));
@@ -5115,6 +5367,7 @@ const app = createApp({
           // A separate public health round trip added several seconds through
           // the remote tunnel before useful data loading could even begin.
           set_workspace_progress(12, '正在读取正式数据…');
+          await load_plot_order_preference();
           await load_live_workspace({ announce: true, trackProgress: true });
           is_live.value = api.isLive;
           // SSE is an enhancement backed by polling. Never keep the full-page
@@ -5122,6 +5375,7 @@ const app = createApp({
           void connect_live_events({ announce: false });
         } else {
           set_workspace_progress(12, '正在检查服务状态…');
+          await load_plot_order_preference();
           is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
         }
@@ -5214,6 +5468,8 @@ const app = createApp({
 
     onBeforeUnmount(() => {
       if (workspace_progress_hide_timer) window.clearTimeout(workspace_progress_hide_timer);
+      cancel_plot_drag();
+      if (plot_click_suppress_timer !== null) window.clearTimeout(plot_click_suppress_timer);
       stop_live_polling();
       stop_plot_simulation_live();
       plot_simulation_chart_instance.value?.dispose();
@@ -5249,6 +5505,13 @@ const app = createApp({
       messages,
       tasks,
       plots,
+      plot_drag_state,
+      plot_order_busy,
+      plot_metrics,
+      metric_value,
+      handle_plot_card_click,
+      handle_plot_pointer_down,
+      cancel_plot_drag,
       selected_plot,
       chart_range,
       chart_range_options,

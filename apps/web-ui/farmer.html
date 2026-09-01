@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260901-v594-plot-order-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v592-main-merge-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v592-main-merge-v1">
@@ -403,7 +403,7 @@
             <div class="farmer-page-header">
               <div>
                 <h2>我的地块</h2>
-                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化。</p>
+                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化；长按地块可调整排列顺序。</p>
               </div>
               <button type="button" class="g-btn primary farmer-btn-analyze" @click="navigate('tasks')">
                 <app-icon name="event_available"></app-icon>
@@ -411,18 +411,23 @@
               </button>
             </div>
 
-            <div class="farmer-plot-grid farmer-plot-grid-page">
+            <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块，可长按拖动排序">
               <button
                 type="button"
-                v-for="plot in plots"
+                v-for="(plot, plot_index) in plots"
                 :key="plot.plotId"
+                :data-farmer-plot-id="plot.plotId"
                 class="farmer-plot-overview-card"
                 :class="{
                   selected: selected_plot && selected_plot.plotId === plot.plotId,
                   'is-warn': plot_band_status(plot) === 'WARN',
-                  'is-alert': plot_band_status(plot) === 'ALERT'
+                  'is-alert': plot_band_status(plot) === 'ALERT',
+                  'is-dragging': plot_drag_state.active && plot_drag_state.dragPlotId === plot.plotId,
+                  'is-drop-target': plot_drag_state.active && plot_drag_state.dropTargetId === plot.plotId
                 }"
-                @click="open_plot(plot)"
+                @click="handle_plot_card_click(plot)"
+                @pointerdown="handle_plot_pointer_down($event, plot, plot_index)"
+                @keydown.esc="cancel_plot_drag"
               >
                 <div class="farmer-plot-overview-head">
                   <div class="farmer-plot-overview-head-left">
@@ -443,12 +448,13 @@
                         risk: plot_band_status(plot) === 'ALERT'
                       }"
                     >{{ plot_band_label(plot) }}</span>
+                    <span class="farmer-plot-drag-hint" title="长按拖动排序"><span aria-hidden="true">⠿</span><small>长按排序</small></span>
                   </div>
                 </div>
                 <dl class="farmer-plot-overview-metrics">
-                  <div v-for="(metric, code) in plot.metrics" :key="code" class="farmer-plot-overview-metric">
-                    <dt>{{ metric_label(code, metric.label) }}</dt>
-                    <dd :class="'metric-' + metric_status_of(plot, code, metric)">{{ metric.value }}<small>{{ metric.unit }}</small></dd>
+                  <div v-for="metric in plot_metrics(plot)" :key="metric.code" class="farmer-plot-overview-metric">
+                    <dt>{{ metric_label(metric.code, metric.label) }}</dt>
+                    <dd :class="'metric-' + metric_status_of(plot, metric.code, metric)">{{ metric_value(metric) }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
               </button>
@@ -1230,9 +1236,9 @@
                           </span>
                         </div>
                         <div class="farmer-plot-metrics">
-                          <div v-for="(metric, code) in selected_task.plot.metrics" :key="code" class="farmer-metric-item">
-                            <span class="farmer-metric-label">{{ metric_label(code, metric.label) }}</span>
-                            <span class="farmer-metric-value" :class="'metric-' + metric.status">{{ metric.value }} {{ metric.unit }}</span>
+                          <div v-for="metric in plot_metrics(selected_task.plot)" :key="metric.code" class="farmer-metric-item">
+                            <span class="farmer-metric-label">{{ metric_label(metric.code, metric.label) }}</span>
+                            <span class="farmer-metric-value" :class="'metric-' + metric_status_of(selected_task.plot, metric.code, metric)">{{ metric_value(metric) }} {{ metric.unit }}</span>
                             <span class="farmer-metric-target">目标 {{ metric.target }}</span>
                           </div>
                         </div>
@@ -1830,6 +1836,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v593-task-report-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-v594-plot-order-v1"></script>
 </body>
 </html>
