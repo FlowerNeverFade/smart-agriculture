@@ -2181,7 +2181,10 @@ export class ApiService {
 
   async getInspections(plotId = '') {
     if (this.sessionMode === 'live') {
-      const response = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/inspections`);
+      const path = plotId
+        ? `/api/v1/plots/${encodeURIComponent(plotId)}/inspections`
+        : '/api/v1/inspections';
+      const response = await this._fetch(path);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }

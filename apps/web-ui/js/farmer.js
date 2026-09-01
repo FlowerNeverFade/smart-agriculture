@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-perf-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
@@ -3003,17 +3003,29 @@ const app = createApp({
       return true;
     };
 
+    const telemetry_refresh_targets = (sourcePlots) => {
+      const source = Array.isArray(sourcePlots) ? sourcePlots : [];
+      const ids = new Set([selected_plot.value?.plotId].filter(Boolean));
+      if (current_view.value === 'advice') ids.add(advice_selected_plot.value?.plotId);
+      if (current_view.value === 'tools' && tools_tab.value === 'risk') ids.add(risk_tool_plot_id.value);
+      if (!ids.size && source[0]?.plotId) ids.add(source[0].plotId);
+      const matches = source.filter((plot) => ids.has(plot.plotId));
+      return matches.length ? matches : source.slice(0, 1);
+    };
+
     const refresh_plot_telemetry = async () => {
       if (!is_formal_session || !plots.value.length) return false;
       const snapshot = plots.value.slice();
-      const telemetryResults = await Promise.allSettled(snapshot.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+      const targets = telemetry_refresh_targets(snapshot);
+      const telemetryResults = await Promise.allSettled(targets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
       if (!plots.value.length) return false;
-      const nextPlots = snapshot.map((plot, index) => {
+      const refreshed = new Map(targets.map((plot, index) => {
         const result = telemetryResults[index];
-        if (result?.status !== 'fulfilled') return plot;
+        if (result?.status !== 'fulfilled') return [plot.plotId, plot];
         const merged = mergePlotTelemetryWindow(plot, result.value || []);
-        return { ...merged, healthScore: compute_plot_health_score(merged) };
-      });
+        return [plot.plotId, { ...merged, healthScore: compute_plot_health_score(merged) }];
+      }));
+      const nextPlots = snapshot.map((plot) => refreshed.get(plot.plotId) || plot);
       // Preserve references when the farmer is reading messages; only swap plots.
       replace_ref_array(plots, nextPlots);
       selected_plot.value = nextPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || nextPlots[0] || null;
@@ -3087,9 +3099,15 @@ const app = createApp({
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         if (showProgress) set_workspace_progress(52, '正在同步地块遥测…');
-        const telemetryResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
-        normalizedPlots = normalizedPlots.map((plot, index) => {
-          const result = telemetryResults[index];
+        // The overview already contains each plot's latest values. Blocking
+        // the first screen on one 120-point history request per plot turned a
+        // 20-plot farm into several browser connection batches. Load only the
+        // active plot's chart window now; other plots load when selected.
+        const initialTelemetryTargets = telemetry_refresh_targets(normalizedPlots);
+        const telemetryResults = await Promise.allSettled(initialTelemetryTargets.map((plot) => api.getPlotTelemetryAll(plot.plotId, 120)));
+        const telemetryByPlot = new Map(initialTelemetryTargets.map((plot, index) => [plot.plotId, telemetryResults[index]]));
+        normalizedPlots = normalizedPlots.map((plot) => {
+          const result = telemetryByPlot.get(plot.plotId);
           if (result?.status !== 'fulfilled') return plot;
           const merged = mergePlotTelemetryWindow(plot, result.value || []);
           return { ...merged, healthScore: compute_plot_health_score(merged) };
@@ -3097,8 +3115,8 @@ const app = createApp({
         if (showProgress) set_workspace_progress(78, '正在整理巡田与消息…');
         const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
         const normalizedTasks = (rawWorkOrders || []).map((work) => normalizeFarmerTask(work, plotMap));
-        const inspectionResults = await Promise.allSettled(normalizedPlots.map((plot) => api.getInspections(plot.plotId)));
-        const records = Array.from(new Map(inspectionResults.flatMap((result) => result.status === 'fulfilled' ? result.value : []).map((record) => [record.inspectionId, {
+        const inspectionResult = await Promise.allSettled([api.getInspections()]);
+        const records = Array.from(new Map((inspectionResult[0]?.status === 'fulfilled' ? inspectionResult[0].value || [] : []).map((record) => [record.inspectionId, {
           ...record,
           plotName: plotMap.get(String(record.plotId))?.name || record.plotId
         }])).values()).sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
@@ -3249,7 +3267,7 @@ const app = createApp({
       // from missed events and keep secondary resources (tasks, inspections,
       // crop batches and device state) current as well.
       const refresh_ms = Math.max(5000, Number(user_settings.value.refreshInterval || 15) * 1000);
-      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, Math.min(5000, refresh_ms));
+      live_telemetry_poll_timer = window.setInterval(poll_live_telemetry, refresh_ms);
       live_workspace_poll_timer = window.setInterval(poll_live_workspace, refresh_ms);
       live_poll_visibility_handler = () => {
         if (!document.hidden) {
@@ -4764,18 +4782,19 @@ const app = createApp({
           apply_farmer_hash();
         }
         window.addEventListener('hashchange', apply_farmer_hash);
-        set_workspace_progress(12, '正在检查服务状态…');
-        is_live.value = await api.checkHealth();
         if (is_formal_session) {
+          // Core authenticated calls establish live availability themselves.
+          // A separate public health round trip added several seconds through
+          // the remote tunnel before useful data loading could even begin.
+          set_workspace_progress(12, '正在读取正式数据…');
           await load_live_workspace({ announce: true, trackProgress: true });
           is_live.value = api.isLive;
-          set_workspace_progress(96, '正在连接实时事件…');
-          const eventsResult = await with_bootstrap_timeout(() => connect_live_events(), 8000);
-          if (eventsResult === BOOTSTRAP_TIMEOUT) {
-            api.sseAbortController?.abort();
-            if (!load_error.value) load_error.value = '实时事件连接超时，已启用定时刷新';
-          }
+          // SSE is an enhancement backed by polling. Never keep the full-page
+          // bootstrap overlay visible while a proxy holds the stream open.
+          void connect_live_events({ announce: false });
         } else {
+          set_workspace_progress(12, '正在检查服务状态…');
+          is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
         }
         // Forecast, simulation, irrigation and assistant panels are secondary

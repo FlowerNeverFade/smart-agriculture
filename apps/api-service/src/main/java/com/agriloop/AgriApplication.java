@@ -300,14 +300,36 @@ final class Jsons {
 
 @Service
 class AgriStore {
+    private static final int IN_MEMORY_TELEMETRY_LIMIT = 20_000;
+    private static final long LIST_CACHE_TTL_MS = 1_000L;
+    private static final long REAL_LOOKUP_CACHE_TTL_MS = 5_000L;
+    private static final Map<String, Integer> ENTITY_CACHE_LIMITS = Map.of(
+            "forecast", 1_000,
+            "diagnosis", 1_000,
+            "readiness", 1_000,
+            "irrigation-plan", 1_000,
+            "evaluation", 1_000,
+            "scenario-run", 1_000
+    );
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
+    private final Map<String, Long> listLoadedAt = new ConcurrentHashMap<>();
+    private final Set<String> loadedTypes = ConcurrentHashMap.newKeySet();
     private final Map<String, Map<String, Object>> users = new ConcurrentHashMap<>();
-    private final List<Map<String, Object>> telemetry = new CopyOnWriteArrayList<>();
+    /**
+     * Emergency read model used only when the database is unavailable. In
+     * database mode PostgreSQL is already the authoritative indexed store, so
+     * mirroring every sample here would make every append copy an ever-growing
+     * array and eventually consume tens of gigabytes of temporary heap.
+     */
+    private final Deque<Map<String, Object>> telemetry = new ConcurrentLinkedDeque<>();
     private final Set<String> eventIds = ConcurrentHashMap.newKeySet();
+    private final AtomicLong telemetryCacheSize = new AtomicLong();
+    private final Map<String, Map<String, Object>> latestRealTelemetry = new ConcurrentHashMap<>();
+    private final Map<String, Long> realLookupAt = new ConcurrentHashMap<>();
     private final AtomicLong eventCount = new AtomicLong();
     private volatile boolean databaseReady;
     private volatile boolean postgres;
@@ -350,9 +372,41 @@ class AgriStore {
         }
     }
 
+    private void cacheRecord(String type, String id, Map<String, Object> value) {
+        Map<String, Map<String, Object>> byType = records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>());
+        byType.put(id, value);
+        int limit = ENTITY_CACHE_LIMITS.getOrDefault(type, Integer.MAX_VALUE);
+        if (byType.size() <= limit) return;
+        for (String candidate : byType.keySet()) {
+            if (byType.size() <= limit) break;
+            if (!id.equals(candidate)) byType.remove(candidate);
+        }
+    }
+
+    private void invalidateListCache(String type) {
+        listLoadedAt.remove(type);
+        loadedTypes.remove(type);
+    }
+
+    private boolean addFallbackTelemetry(String eventId, Map<String, Object> event) {
+        if (!eventIds.add(eventId)) return false;
+        telemetry.addLast(event);
+        long size = telemetryCacheSize.incrementAndGet();
+        while (size > IN_MEMORY_TELEMETRY_LIMIT) {
+            Map<String, Object> removed = telemetry.pollFirst();
+            if (removed == null) break;
+            telemetryCacheSize.decrementAndGet();
+            eventIds.remove(Jsons.text(removed, "eventId", ""));
+            size = telemetryCacheSize.get();
+        }
+        eventCount.incrementAndGet();
+        return true;
+    }
+
     synchronized void save(String type, String id, Map<String, Object> value) {
         Map<String, Object> copy = Jsons.copy(mapper, value);
-        records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
+        cacheRecord(type, id, copy);
+        invalidateListCache(type);
         if (!databaseReady) return;
         try {
             if (postgres) {
@@ -372,6 +426,7 @@ class AgriStore {
     synchronized boolean delete(String type, String id) {
         Map<String, Map<String, Object>> byType = records.get(type);
         boolean removed = byType != null && byType.remove(id) != null;
+        invalidateListCache(type);
         if (!databaseReady) return removed;
         try {
             return jdbc.update("DELETE FROM entity_record WHERE entity_type=? AND entity_id=?", type, id) > 0 || removed;
@@ -436,7 +491,7 @@ class AgriStore {
             String payload = jdbc.queryForObject("SELECT payload FROM entity_record WHERE entity_type=? AND entity_id=?",
                     String.class, type, id);
             Map<String, Object> value = mapper.readValue(payload, Map.class);
-            records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, value);
+            cacheRecord(type, id, value);
             return Jsons.copy(mapper, value);
         } catch (Exception ignored) { return null; }
     }
@@ -445,16 +500,24 @@ class AgriStore {
         Map<String, Map<String, Object>> byType = records.getOrDefault(type, Map.of());
         List<Map<String, Object>> result = byType.values().stream().map(v -> Jsons.copy(mapper, v)).collect(Collectors.toCollection(ArrayList::new));
         if (databaseReady) {
+            long now = System.currentTimeMillis();
+            Long loaded = listLoadedAt.get(type);
+            if (loadedTypes.contains(type) && loaded != null && now - loaded < LIST_CACHE_TTL_MS) return result;
             try {
-                List<Map<String, Object>> persisted = jdbc.query("SELECT entity_id,payload FROM entity_record WHERE entity_type=? ORDER BY updated_at DESC",
+                int readLimit = ENTITY_CACHE_LIMITS.getOrDefault(type, 0);
+                String sql = "SELECT entity_id,payload FROM entity_record WHERE entity_type=? ORDER BY updated_at DESC"
+                        + (readLimit > 0 ? " LIMIT " + readLimit : "");
+                List<Map<String, Object>> persisted = jdbc.query(sql,
                         (rs, rowNum) -> {
                             try {
                                 Map<String, Object> value = mapper.readValue(rs.getString("payload"), Map.class);
-                                records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(rs.getString("entity_id"), value);
+                                cacheRecord(type, rs.getString("entity_id"), value);
                                 return value;
                             } catch (Exception e) { return Map.<String, Object>of(); }
-                        }, type);
+                }, type);
                 if (!persisted.isEmpty()) result = persisted;
+                loadedTypes.add(type);
+                listLoadedAt.put(type, now);
             } catch (DataAccessException ignored) { databaseReady = false; }
         }
         return result;
@@ -462,13 +525,14 @@ class AgriStore {
 
     boolean saveTelemetry(Map<String, Object> event) {
         String eventId = Jsons.text(event, "eventId", Jsons.id("evt"));
-        if (!eventIds.add(eventId)) return false;
         Map<String, Object> copy = Jsons.copy(mapper, event);
         copy.put("eventId", eventId);
+        String sourceMode = Jsons.text(copy, "sourceMode", "SIMULATION").toUpperCase(Locale.ROOT);
+        String realCacheKey = Jsons.text(copy, "plotId", "") + "|" + Jsons.text(copy, "metric", "").toUpperCase(Locale.ROOT);
         if (!databaseReady) {
-            telemetry.add(copy);
-            eventCount.incrementAndGet();
-            return true;
+            boolean inserted = addFallbackTelemetry(eventId, copy);
+            if (inserted && "REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
+            return inserted;
         }
         String sql = "INSERT INTO telemetry(event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         try {
@@ -484,32 +548,47 @@ class AgriStore {
             if (String.valueOf(ignored.getMessage()).toLowerCase(Locale.ROOT).contains("duplicate") ||
                     String.valueOf(ignored.getMessage()).toLowerCase(Locale.ROOT).contains("unique")) return false;
             databaseReady = false;
+            boolean inserted = addFallbackTelemetry(eventId, copy);
+            if (inserted && "REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
+            return inserted;
         }
-        // Only expose an event through the in-memory read model after the
-        // database insert succeeds (or after an explicit persistence
-        // downgrade).  This keeps a duplicate received after a process
-        // restart from appearing twice in API queries.
-        telemetry.add(copy);
+        // PostgreSQL is the indexed read model in database mode. Keeping a
+        // second unbounded Java copy made inserts and reads progressively
+        // slower because the previous CopyOnWriteArrayList copied its entire
+        // backing array for every simulator sample.
+        if ("REAL".equals(sourceMode)) latestRealTelemetry.put(realCacheKey, copy);
         eventCount.incrementAndGet();
         return true;
     }
 
-    List<Map<String, Object>> telemetry(String plotId, String metric, Instant from, Instant to, int limit) {
-        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
-                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
-                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+    private Map<String, Object> readTelemetryRow(ResultSet rs) throws java.sql.SQLException {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", rs.getString("event_id")); event.put("farmId", rs.getString("farm_id"));
+        event.put("plotId", rs.getString("plot_id")); event.put("deviceId", rs.getString("device_id"));
+        event.put("metric", rs.getString("metric")); event.put("value", rs.getDouble("metric_value")); event.put("unit", rs.getString("unit"));
+        event.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
+        event.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
+        event.put("scenarioId", rs.getString("scenario_id")); event.put("scenario", rs.getString("scenario_id")); event.put("branchId", rs.getString("branch_id"));
+        event.put("sourceMode", rs.getString("source_mode")); event.put("provenance", rs.getString("provenance")); event.put("dataOrigin", rs.getString("data_origin"));
+        return event;
+    }
+
+    private List<Map<String, Object>> telemetryFromMemory(String plotId, String metric, Instant from, Instant to, int limit) {
+        Predicate<Map<String, Object>> filter = event -> (plotId == null || plotId.equals(Jsons.text(event, "plotId", "")))
+                && (metric == null || metric.equalsIgnoreCase(Jsons.text(event, "metric", "")))
+                && !Jsons.instant(event.get("ts"), Instant.EPOCH).isBefore(from)
+                && !Jsons.instant(event.get("ts"), Instant.MAX).isAfter(to);
         Comparator<Map<String, Object>> byTimestamp = Comparator
-                .comparing((Map<String, Object> e) -> Jsons.instant(e.get("ts"), Instant.EPOCH))
-                .thenComparing(e -> Jsons.text(e, "eventId", ""));
-        // Select the newest window first, then return that window in
-        // chronological order for charts and deterministic algorithms.
-        // Limiting an ascending stream returned the oldest data of the day and
-        // could make live telemetry/forecasts look stale once history grew.
-        List<Map<String, Object>> result = telemetry.stream().filter(filter)
-                .sorted(byTimestamp.reversed()).limit(cappedLimit).sorted(byTimestamp)
-                .map(e -> Jsons.copy(mapper, e)).collect(Collectors.toCollection(ArrayList::new));
-        if (!result.isEmpty() || !databaseReady) return result;
+                .comparing((Map<String, Object> event) -> Jsons.instant(event.get("ts"), Instant.EPOCH))
+                .thenComparing(event -> Jsons.text(event, "eventId", ""));
+        return telemetry.stream().filter(filter)
+                .sorted(byTimestamp.reversed()).limit(limit).sorted(byTimestamp)
+                .map(event -> Jsons.copy(mapper, event)).collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    List<Map<String, Object>> telemetry(String plotId, String metric, Instant from, Instant to, int limit) {
+        int cappedLimit = Math.max(1, Math.min(limit, 10000));
+        if (!databaseReady) return telemetryFromMemory(plotId, metric, from, to, cappedLimit);
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
@@ -517,30 +596,20 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC, event_id DESC LIMIT ").append(cappedLimit);
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
             Collections.reverse(rows);
             return rows;
-        } catch (Exception ignored) { return result; }
+        } catch (Exception ignored) {
+            databaseReady = false;
+            return telemetryFromMemory(plotId, metric, from, to, cappedLimit);
+        }
     }
 
     Map<String, Object> latestTelemetry(String plotId, String metric, Instant from, Instant to) {
-        Predicate<Map<String, Object>> filter = e -> (plotId == null || plotId.equals(Jsons.text(e, "plotId", ""))) &&
-                (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
-                !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        Map<String, Object> latest = telemetry.stream().filter(filter)
-                .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
-                .map(e -> Jsons.copy(mapper, e)).orElse(null);
-        if (latest != null || !databaseReady) return latest;
+        if (!databaseReady) {
+            List<Map<String, Object>> rows = telemetryFromMemory(plotId, metric, from, to, 1);
+            return rows.isEmpty() ? null : rows.get(0);
+        }
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE 1=1");
             List<Object> args = new ArrayList<>();
@@ -548,19 +617,13 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
             return rows.isEmpty() ? null : rows.get(0);
-        } catch (Exception ignored) { return null; }
+        } catch (Exception ignored) {
+            databaseReady = false;
+            List<Map<String, Object>> rows = telemetryFromMemory(plotId, metric, from, to, 1);
+            return rows.isEmpty() ? null : rows.get(0);
+        }
     }
 
     /**
@@ -573,10 +636,16 @@ class AgriStore {
                 (metric == null || metric.equalsIgnoreCase(Jsons.text(e, "metric", ""))) &&
                 "REAL".equalsIgnoreCase(Jsons.text(e, "sourceMode", "")) &&
                 !Jsons.instant(e.get("ts"), Instant.EPOCH).isBefore(from) && !Jsons.instant(e.get("ts"), Instant.MAX).isAfter(to);
-        Map<String, Object> latest = telemetry.stream().filter(filter)
+        String cacheKey = String.valueOf(plotId) + "|" + String.valueOf(metric).toUpperCase(Locale.ROOT);
+        Map<String, Object> cached = latestRealTelemetry.get(cacheKey);
+        if (cached != null && filter.test(cached)) return Jsons.copy(mapper, cached);
+        long nowMillis = System.currentTimeMillis();
+        Long lastLookup = realLookupAt.get(cacheKey);
+        if (lastLookup != null && nowMillis - lastLookup < REAL_LOOKUP_CACHE_TTL_MS) return null;
+        realLookupAt.put(cacheKey, nowMillis);
+        if (!databaseReady) return telemetry.stream().filter(filter)
                 .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
                 .map(e -> Jsons.copy(mapper, e)).orElse(null);
-        if (latest != null || !databaseReady) return latest;
         try {
             StringBuilder sql = new StringBuilder("SELECT event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin FROM telemetry WHERE source_mode='REAL'");
             List<Object> args = new ArrayList<>();
@@ -584,18 +653,58 @@ class AgriStore {
             if (metric != null) { sql.append(" AND metric=?"); args.add(metric); }
             sql.append(" AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC LIMIT 1");
             args.add(TimestampParser.sql(from)); args.add(TimestampParser.sql(to));
-            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> {
-                Map<String, Object> e = new LinkedHashMap<>();
-                e.put("eventId", rs.getString("event_id")); e.put("farmId", rs.getString("farm_id"));
-                e.put("plotId", rs.getString("plot_id")); e.put("deviceId", rs.getString("device_id"));
-                e.put("metric", rs.getString("metric")); e.put("value", rs.getDouble("metric_value")); e.put("unit", rs.getString("unit"));
-                e.put("ts", rs.getTimestamp("event_ts").toInstant().toString());
-                e.put("quality", Jsons.parseMap(mapper, rs.getString("quality_json")));
-                e.put("scenarioId", rs.getString("scenario_id")); e.put("scenario", rs.getString("scenario_id")); e.put("branchId", rs.getString("branch_id"));
-                e.put("sourceMode", rs.getString("source_mode")); e.put("provenance", rs.getString("provenance")); e.put("dataOrigin", rs.getString("data_origin"));
-                return e;
-            }, args.toArray());
+            List<Map<String, Object>> rows = jdbc.query(sql.toString(), (rs, rowNum) -> readTelemetryRow(rs), args.toArray());
+            if (!rows.isEmpty()) latestRealTelemetry.put(cacheKey, rows.get(0));
             return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ignored) {
+            databaseReady = false;
+            return telemetry.stream().filter(filter)
+                    .max(Comparator.comparing(e -> Jsons.instant(e.get("ts"), Instant.EPOCH)))
+                    .map(e -> Jsons.copy(mapper, e)).orElse(null);
+        }
+    }
+
+    /**
+     * Fetch one latest sample per metric plus the 30-minute valid-sample
+     * counts. PostgreSQL can answer this with indexed, compact result sets;
+     * returning thousands of raw rows for every overview card made a
+     * 20-plot dashboard needlessly parse hundreds of thousands of records.
+     * A null result asks the engine to use the bounded in-memory fallback.
+     */
+    Map<String, Map<String, Object>> latestMetricWindow(String plotId, Instant latestFrom, Instant to,
+                                                        Instant activeRealFrom, Instant qualityFrom) {
+        if (!databaseReady || !postgres) return null;
+        String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
+        try {
+            List<Map<String, Object>> newest = jdbc.query(
+                    "SELECT DISTINCT ON (metric) " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY metric,event_ts DESC,event_id DESC",
+                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(latestFrom), TimestampParser.sql(to));
+            List<Map<String, Object>> activeReal = jdbc.query(
+                    "SELECT DISTINCT ON (metric) " + columns + " FROM telemetry "
+                            + "WHERE plot_id=? AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
+                            + "ORDER BY metric,event_ts DESC,event_id DESC",
+                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(activeRealFrom), TimestampParser.sql(to));
+            Map<String, Long> validCounts = new HashMap<>();
+            List<Map.Entry<String, Long>> countRows = jdbc.query(
+                    "WITH metrics(metric) AS (VALUES "
+                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
+                            + "SELECT m.metric,COALESCE(window.valid_count,0) AS valid_count FROM metrics m "
+                            + "LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE quality_status<>'BAD') AS valid_count "
+                            + "FROM (SELECT quality_status FROM telemetry WHERE plot_id=? AND metric=m.metric "
+                            + "AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC,event_id DESC LIMIT 120) recent) window ON TRUE",
+                    (rs, rowNum) -> Map.entry(rs.getString("metric"), rs.getLong("valid_count")),
+                    plotId, TimestampParser.sql(qualityFrom), TimestampParser.sql(to));
+            countRows.forEach(entry -> validCounts.put(entry.getKey(), entry.getValue()));
+            Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+            for (Map<String, Object> event : newest) result.put(Jsons.text(event, "metric", ""), event);
+            // A fresh hardware reading is authoritative even when a simulator
+            // sample arrives a few milliseconds later.
+            for (Map<String, Object> event : activeReal) result.put(Jsons.text(event, "metric", ""), event);
+            result.forEach((metric, event) -> event.put("_validSamples", validCounts.getOrDefault(metric, 0L)));
+            return result;
         } catch (Exception ignored) { return null; }
     }
 
@@ -2017,19 +2126,27 @@ class AgriEngine {
         boolean inserted = store.saveTelemetry(event);
         if (!inserted) return Map.of("accepted", false, "duplicate", true, "eventId", event.get("eventId"), "quality", event.get("quality"));
         publishTelemetryStream(event);
-        Map<String, Object> device = store.find("device", deviceId);
-        if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
-        Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
-        boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
-                && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
-        if (!realControlPending) {
-        device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
-        device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+        String metric = Jsons.text(event, "metric", "");
+        // A simulator tick emits many metrics for the same device. One
+        // heartbeat-style device update per plot is sufficient; writing the
+        // identical device JSON for all eleven metrics multiplied database
+        // work without changing any visible state. Physical telemetry still
+        // refreshes the device on every reading.
+        if (!"SIMULATION".equals(sourceMode) || "SOIL_MOISTURE".equalsIgnoreCase(metric)) {
+            Map<String, Object> device = store.find("device", deviceId);
+            if (device == null || device.isEmpty()) { device = new LinkedHashMap<>(); device.put("deviceId", deviceId); device.put("plotId", plotId); }
+            Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
+            boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
+                    && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
+            if (!realControlPending) {
+                device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
+                device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
+            }
+            device.put("sourceMode", sourceMode);
+            device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
+            device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
+            store.save("device", deviceId, device);
         }
-        device.put("sourceMode", sourceMode);
-        device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
-        device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
-        store.save("device", deviceId, device);
         Map<String, Object> ruleResult = evaluateRuleForEvent(event);
         // A fresh, good-quality soil reading below the farmer's emergency
         // threshold starts one virtual watering run immediately.  The action
@@ -2042,7 +2159,10 @@ class AgriEngine {
             ruleResult.put("automaticWatering", automaticWateringForEvent(event));
         }
         events.publish("telemetry.received", event);
-        store.logEvent("telemetry.received", event);
+        // The telemetry table is already the durable audit record. Duplicating
+        // every high-frequency sample into event_log grew that table by
+        // millions of rows and added another synchronous insert to the hot
+        // path without adding information.
         return Map.of("accepted", true, "duplicate", false, "event", event, "ruleResult", ruleResult);
     }
 
@@ -2250,6 +2370,10 @@ class AgriEngine {
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
         String metric = Jsons.text(event, "metric", ""); double value = Jsons.number(event, "value", 0); String plotId = Jsons.text(event, "plotId", "");
         Map<String, Object> result = new LinkedHashMap<>(); result.put("metric", metric); result.put("value", value); result.put("evaluatedAt", Instant.now().toString());
+        // Only these two metrics participate in the current rules. Resolving
+        // crop packs and batch context for light/CO2/NPK/etc. performed a
+        // database query for every sample while producing no rule output.
+        if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE").contains(metric)) return result;
         Map<String, Object> context = plotCropContext(plotId);
         Map<String, Object> waterRule = cropPackCatalog.rule(context, "WATER_DEFICIT");
         Map<String, Object> heatRule = cropPackCatalog.rule(context, "HEAT_STRESS");
@@ -2450,35 +2574,48 @@ class AgriEngine {
     Map<String, Object> latestMetrics(String plotId) {
         Instant now = Instant.now();
         Instant from = now.minus(48, ChronoUnit.HOURS);
-        List<Map<String, Object>> samples = store.telemetry(plotId, null, from, now.plusSeconds(1), 10000);
-        Map<String, Map<String, Object>> latest = new LinkedHashMap<>();
-        Map<String, Map<String, Object>> activeReal = new LinkedHashMap<>();
+        Instant to = now.plusSeconds(1);
+        Instant qualityWindowStart = now.minus(30, ChronoUnit.MINUTES);
         Instant realCutoff = now.minus(Math.max(1, properties.getRealSourceTimeoutSeconds()), ChronoUnit.SECONDS);
-        for (Map<String, Object> sample : samples) {
-            String metric = Jsons.text(sample, "metric", "");
-            if (metric.isBlank()) continue;
-            if (newerTelemetry(sample, latest.get(metric))) latest.put(metric, sample);
-            if ("REAL".equalsIgnoreCase(Jsons.text(sample, "sourceMode", ""))
-                    && !Jsons.instant(sample.get("ts"), Instant.EPOCH).isBefore(realCutoff)
-                    && newerTelemetry(sample, activeReal.get(metric))) {
-                activeReal.put(metric, sample);
+        Map<String, Map<String, Object>> latest = new LinkedHashMap<>();
+        Map<String, Long> validSamplesByMetric = new HashMap<>();
+        Map<String, Map<String, Object>> databaseWindow = store.latestMetricWindow(
+                plotId, from, to, realCutoff, qualityWindowStart);
+        if (databaseWindow != null) {
+            databaseWindow.forEach((metric, sample) -> {
+                Map<String, Object> copy = Jsons.copy(mapper, sample);
+                validSamplesByMetric.put(metric, Jsons.whole(copy, "_validSamples", 0));
+                copy.remove("_validSamples");
+                latest.put(metric, copy);
+            });
+        } else {
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, from, to, 10000);
+            Map<String, Map<String, Object>> activeReal = new LinkedHashMap<>();
+            for (Map<String, Object> sample : samples) {
+                String metric = Jsons.text(sample, "metric", "");
+                if (metric.isBlank()) continue;
+                if (newerTelemetry(sample, latest.get(metric))) latest.put(metric, sample);
+                if ("REAL".equalsIgnoreCase(Jsons.text(sample, "sourceMode", ""))
+                        && !Jsons.instant(sample.get("ts"), Instant.EPOCH).isBefore(realCutoff)
+                        && newerTelemetry(sample, activeReal.get(metric))) {
+                    activeReal.put(metric, sample);
+                }
+            }
+            activeReal.forEach(latest::put);
+            for (String metric : latest.keySet()) {
+                long count = samples.stream()
+                        .filter(item -> metric.equalsIgnoreCase(Jsons.text(item, "metric", "")))
+                        .filter(item -> !Jsons.instant(item.get("ts"), Instant.EPOCH).isBefore(qualityWindowStart))
+                        .filter(item -> !"BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, item.get("quality")), "status", "GOOD")))
+                        .count();
+                validSamplesByMetric.put(metric, count);
             }
         }
-        // A synthetic sample can be timestamped a few milliseconds after a
-        // physical reading while both MQTT callbacks are in flight.  Source
-        // priority must win that race, otherwise the overview briefly shows
-        // the simulator even though the hardware is already active.
-        activeReal.forEach(latest::put);
-        Instant qualityWindowStart = now.minus(30, ChronoUnit.MINUTES);
         int expectedSamples = 90; // simulator/default collection cadence: 20 seconds
         latest.replaceAll((metric, sample) -> {
             Map<String, Object> enriched = Jsons.copy(mapper, sample);
             Map<String, Object> quality = Jsons.map(mapper, enriched.get("quality"));
-            long validSamples = samples.stream()
-                    .filter(item -> metric.equalsIgnoreCase(Jsons.text(item, "metric", "")))
-                    .filter(item -> !Jsons.instant(item.get("ts"), Instant.EPOCH).isBefore(qualityWindowStart))
-                    .filter(item -> !"BAD".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, item.get("quality")), "status", "GOOD")))
-                    .count();
+            long validSamples = validSamplesByMetric.getOrDefault(metric, 0L);
             quality.put("freshnessMs", Math.max(0, Duration.between(Jsons.instant(enriched.get("ts"), now), now).toMillis()));
             quality.put("validSamples", validSamples);
             quality.put("expectedSamples", expectedSamples);
@@ -3842,7 +3979,10 @@ class AgriEngine {
 
     Map<String, Object> forecast(String plotId, String metric) {
         requireRecord("plot", plotId);
-        return forecastForSimulation(plotId, metric, plotSimulationView(plotId), true);
+        // A GET refresh is a read-only projection. Persisting a brand-new
+        // forecast and event-log record on every browser poll created tens of
+        // thousands of history rows and made later timeline reads slower.
+        return forecastForSimulation(plotId, metric, plotSimulationView(plotId), false);
     }
 
     /**
@@ -4407,6 +4547,13 @@ class AgriEngine {
     List<Map<String, Object>> inspections(String plotId) {
         return store.list("inspection").stream()
                 .filter(i -> plotId.equals(Jsons.text(i, "plotId", "")))
+                .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
+                .toList();
+    }
+
+    List<Map<String, Object>> inspections(UserPrincipal principal) {
+        return store.list("inspection").stream()
+                .filter(item -> canAccessPlot(principal, Jsons.text(item, "plotId", "")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
                 .toList();
     }
@@ -8049,6 +8196,9 @@ class AgriController {
 
     @PostMapping("/inspections")
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
+
+    @GetMapping("/inspections")
+    ResponseEntity<?> inspections(Authentication a) { return ok(engine.inspections(principal(a))); }
 
     @PostMapping(value = "/inspections/{inspectionId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<?> inspectionPhotos(@PathVariable String inspectionId,
