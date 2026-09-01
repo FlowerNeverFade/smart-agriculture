@@ -56,6 +56,7 @@ class MarketPriceServiceTest {
         assertThat(crops(result).get(0)).containsKey("internationalReference");
         assertThat(result).containsEntry("internationalReferenceCropCount", 1L);
         verify(provider).fetch(MarketPriceService.CATALOG.get(0), "500000");
+        verify(provider).fetch(MarketPriceService.CATALOG.get(0), "");
 
         UserPrincipal farmer = new UserPrincipal("farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a"));
         UserPrincipal systemAdmin = new UserPrincipal("sys", "sys", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
@@ -87,6 +88,36 @@ class MarketPriceServiceTest {
                 .containsEntry("historyDays", 1)
                 .containsEntry("status", "LIVE");
         assertThat((List<?>) crop.get("history")).hasSize(1);
+    }
+
+    @Test
+    void fallsBackToObservedNationalQuotesWhenChongqingHasNoReport() throws Exception {
+        AgriStore store = mock(AgriStore.class);
+        when(store.list("plot")).thenReturn(List.of(
+                Map.of("plotId", "plot-a", "farmId", "farm-demo", "cropCode", "corn", "status", "ACTIVE")));
+        when(store.list(MarketPriceService.SNAPSHOT_TYPE)).thenReturn(List.of());
+        when(store.persistenceKind()).thenReturn("H2_STANDALONE");
+        MarketPriceProvider provider = (definition, provinceCode) -> provinceCode.isBlank()
+                ? Optional.of(new MarketQuoteBatch(
+                        LocalDate.now(MarketPriceService.BUSINESS_ZONE),
+                        List.of(new MarketQuote("全国市场甲", 3.2), new MarketQuote("全国市场乙", 4.0)),
+                        Instant.now()))
+                : Optional.empty();
+        MarketPriceService service = new MarketPriceService(store, provider, properties());
+        UserPrincipal admin = new UserPrincipal("admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+
+        Map<String, Object> overview = service.overview("farm-demo", 30, false, admin);
+        Map<String, Object> crop = crops(overview).get(0);
+
+        assertThat(crop).containsEntry("latestPrice", 3.6)
+                .containsEntry("priceBasis", "NATIONAL_SIMPLE_AVERAGE")
+                .containsEntry("quoteScope", "NATIONAL")
+                .containsEntry("quoteRegionName", "全国")
+                .containsEntry("nationalFallback", true)
+                .containsEntry("historyDays", 1)
+                .containsEntry("status", "LIVE");
+        assertThat(overview).containsEntry("nationalFallbackCropCount", 1L)
+                .containsEntry("availableCropCount", 1L);
     }
 
     @Test

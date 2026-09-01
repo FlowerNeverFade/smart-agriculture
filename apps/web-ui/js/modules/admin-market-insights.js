@@ -1,5 +1,6 @@
 import { api } from '../api.js?v=20260901-v593-market-v3';
 import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260901-v596-official-map-v1';
+import { buildDomesticMarketScenario } from './domestic-market-scenario.js?v=20260901-v598-domestic-data-v1';
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } = Vue;
 
@@ -26,6 +27,13 @@ function localDateKey(date) {
 function sourceLabel(status) {
   return ({ LIVE: '官方日行情', CACHED: '最近归档行情', DEMO: '演示行情 · 非真实价格', DISABLED: '行情源已停用', UNAVAILABLE: '行情暂不可用' })[String(status || '').toUpperCase()] || '行情状态待确认';
 }
+function priceBasisLabel(item) {
+  const basis = String(item?.priceBasis || '').toUpperCase();
+  if (basis === 'PREFERRED_MARKET') return `${item?.preferredMarket || '重庆参考市场'} 报价`;
+  if (basis === 'NATIONAL_SIMPLE_AVERAGE') return '全国上报市场简单均值（非成交量加权）';
+  if (basis === 'PROVINCE_SIMPLE_AVERAGE') return '重庆上报市场简单均值（非成交量加权）';
+  return '当前报价口径待确认';
+}
 
 export const AdminMarketInsightsView = {
   name: 'AdminMarketInsightsView',
@@ -36,6 +44,7 @@ export const AdminMarketInsightsView = {
     const loading = ref(false); const error = ref(null); const market = ref(null);
     const workspaceMode = ref('local');
     const scope = ref('farm'); const rangeDays = ref(30); const selectedCropCode = ref('');
+    const showSimulation = ref(true);
     const chartEl = ref(null); let chart = null; let refreshTimer = null; let resizeObserver = null;
 
     const farmId = computed(() => props.state?.adminContext?.farmId || props.routeParams?.farmId || props.state?.plots?.[0]?.farmId || 'farm-demo');
@@ -46,6 +55,13 @@ export const AdminMarketInsightsView = {
     const sourceTone = computed(() => status.value === 'LIVE' ? 'live' : status.value === 'DEMO' ? 'demo' : status.value === 'CACHED' ? 'cached' : 'unavailable');
     const selectedQuotes = computed(() => Array.isArray(selectedCrop.value?.marketQuotes) ? selectedCrop.value.marketQuotes : []);
     const selectedHistory = computed(() => Array.isArray(selectedCrop.value?.history) ? selectedCrop.value.history : []);
+    const canShowSimulation = computed(() => status.value !== 'DEMO'
+      && selectedHistory.value.length < 3
+      && finite(selectedCrop.value?.latestPrice) != null);
+    const simulatedScenario = computed(() => canShowSimulation.value
+      ? buildDomesticMarketScenario(selectedCrop.value, rangeDays.value)
+      : []);
+    const scenarioVisible = computed(() => showSimulation.value && simulatedScenario.value.length > 0);
     const chartHistory = computed(() => {
       const observed = new Map(selectedHistory.value.map(point => [point.date, point]));
       const end = new Date(); end.setHours(0, 0, 0, 0);
@@ -58,9 +74,11 @@ export const AdminMarketInsightsView = {
     const availableCount = computed(() => crops.value.filter(item => item.available).length);
     const chartUnit = computed(() => '元/公斤');
     const chartRangeLabel = computed(() => `近${rangeDays.value}日`);
-    const axisDisclosure = computed(() => selectedHistory.value.length > 1
-      ? `纵轴按当前${rangeDays.value}日可见价格范围缩放，不从 0 起；缺失日期不连线、不插值。`
-      : '重庆真实历史正在逐日积累，不使用外部参考或模拟值补齐。');
+    const axisDisclosure = computed(() => scenarioVisible.value
+      ? '紫色虚线是基于今日官方报价生成的确定性模拟趋势，不是真实历史，不写入归档，也不参与统计或销售观察。'
+      : selectedHistory.value.length > 1
+        ? `纵轴按当前${rangeDays.value}日可见价格范围缩放，不从 0 起；缺失日期不连线、不插值。`
+        : '真实日价正在逐日积累；缺失日期不插值。可开启模拟趋势辅助查看界面，但不能据此决策。');
 
     const renderChart = async () => {
       await nextTick();
@@ -73,28 +91,37 @@ export const AdminMarketInsightsView = {
       const main = history.map(point => [point.date, finite(point.price)]);
       const minimum = history.map(point => [point.date, finite(point.minPrice)]);
       const maximum = history.map(point => [point.date, finite(point.maxPrice)]);
+      const simulation = scenarioVisible.value
+        ? simulatedScenario.value.map(point => [point.date, finite(point.price)])
+        : [];
       const hasObservedPrice = main.some(point => point[1] != null);
+      const hasSimulation = simulation.some(point => point[1] != null);
       const cropName = selectedCrop.value?.cropName || '作物';
       const margin = values => Math.max(.2, (Number(values.max) - Number(values.min)) * .12);
-      const seriesNames = ['参考价', '市场最低', '市场最高'];
-      const series = [
-        { name: '参考价', type: 'line', data: main, connectNulls: false, showSymbol: true, symbol: 'circle', symbolSize: 7, lineStyle: { color: '#35ae94', width: 2.4 }, itemStyle: { color: '#ffffff', borderColor: '#262626', borderWidth: 1.2 }, emphasis: { focus: 'series' } },
-        { name: '市场最低', type: 'line', data: minimum, connectNulls: false, showSymbol: false, lineStyle: { color: '#5b8dd9', width: 1.3, type: 'dashed' } },
-        { name: '市场最高', type: 'line', data: maximum, connectNulls: false, showSymbol: false, lineStyle: { color: '#ddb68d', width: 1.3, type: 'dotted' } }
+      const observedSeries = [
+        { name: '官方参考价', type: 'line', data: main, connectNulls: false, showSymbol: true, symbol: 'circle', symbolSize: 7, z: 4, lineStyle: { color: '#35ae94', width: 2.4 }, itemStyle: { color: '#ffffff', borderColor: '#262626', borderWidth: 1.2 }, emphasis: { focus: 'series' } },
+        { name: '市场最低', type: 'line', data: minimum, connectNulls: false, showSymbol: false, z: 3, lineStyle: { color: '#5b8dd9', width: 1.3, type: 'dashed' } },
+        { name: '市场最高', type: 'line', data: maximum, connectNulls: false, showSymbol: false, z: 3, lineStyle: { color: '#ddb68d', width: 1.3, type: 'dotted' } }
       ];
+      const simulationSeries = hasSimulation ? [{
+        name: '模拟趋势（非历史）', type: 'line', data: simulation, connectNulls: false, showSymbol: false, z: 1,
+        lineStyle: { color: '#7652c4', width: 2, type: 'dashed', opacity: .88 }, itemStyle: { color: '#7652c4' }, emphasis: { focus: 'series' }
+      }] : [];
+      const series = [...simulationSeries, ...observedSeries];
+      const seriesNames = series.map(item => item.name);
       chart.setOption({
         animation: false,
         backgroundColor: '#ffffff',
         textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
-        aria: { enabled: true, description: `${cropName}${chartRangeLabel.value}价格折线，单位${chartUnit.value}。缺失日期保留为空白。` },
-        title: hasObservedPrice ? undefined : { text: selectedCrop.value?.available ? '重庆历史行情正在积累' : '当前没有重庆报价', left: 'center', top: 'middle', textStyle: { color: '#777777', fontSize: 14, fontWeight: 'normal' } },
+        aria: { enabled: true, description: `${cropName}${chartRangeLabel.value}价格折线，单位${chartUnit.value}。${hasSimulation ? '包含明确标记的模拟趋势，' : ''}真实缺失日期保留为空白。` },
+        title: hasObservedPrice || hasSimulation ? undefined : { text: selectedCrop.value?.available ? '国内真实历史正在积累' : '当前没有国内报价', left: 'center', top: 'middle', textStyle: { color: '#777777', fontSize: 14, fontWeight: 'normal' } },
         tooltip: {
           trigger: 'axis', confine: true, backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1,
           textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
           valueFormatter: value => value == null ? '缺失' : `${Number(value).toFixed(2)} ${chartUnit.value}`
         },
         legend: {
-          show: hasObservedPrice, top: 8, right: 12, data: seriesNames,
+          show: hasObservedPrice || hasSimulation, top: 8, right: 12, data: seriesNames,
           backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1, borderRadius: 4, padding: [5, 8],
           textStyle: { color: '#303030', fontSize: 11, fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' }
         },
@@ -136,6 +163,7 @@ export const AdminMarketInsightsView = {
 
     const chooseCrop = cropCode => {
       selectedCropCode.value = cropCode;
+      showSimulation.value = true;
       if (workspaceMode.value === 'local') void renderChart();
     };
     const chooseWorkspace = mode => {
@@ -146,7 +174,8 @@ export const AdminMarketInsightsView = {
       else { resizeObserver?.disconnect?.(); chart?.dispose?.(); chart = null; }
     };
     const chooseRange = value => { if (rangeDays.value === value) return; rangeDays.value = value; void load(); };
-    const chooseScope = value => { if (scope.value === value) return; scope.value = value; selectedCropCode.value = ''; void load(); };
+    const chooseScope = value => { if (scope.value === value) return; scope.value = value; selectedCropCode.value = ''; showSimulation.value = true; void load(); };
+    const toggleSimulation = () => { showSimulation.value = !showSimulation.value; void renderChart(); };
     const refresh = () => load();
     const observationTone = item => String(item?.salesObservation?.tone || 'NEUTRAL').toLowerCase();
     const quoteDifference = quote => {
@@ -170,8 +199,8 @@ export const AdminMarketInsightsView = {
     return {
       loading, error, market, workspaceMode, scope, rangeDays, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
       sourceTone, selectedQuotes, selectedHistory, chartHistory, chartUnit, chartRangeLabel,
-      availableCount, axisDisclosure, RANGE_OPTIONS,
-      price, signed, changeTone, sourceLabel, chooseCrop, chooseWorkspace, chooseRange, chooseScope, refresh, observationTone, quoteDifference
+      availableCount, axisDisclosure, showSimulation, canShowSimulation, scenarioVisible, RANGE_OPTIONS,
+      price, signed, changeTone, sourceLabel, priceBasisLabel, chooseCrop, chooseWorkspace, chooseRange, chooseScope, toggleSimulation, refresh, observationTone, quoteDifference
     };
   },
   template: `
@@ -200,8 +229,8 @@ export const AdminMarketInsightsView = {
 
       <template v-if="workspaceMode === 'local'">
         <div class="market-source-strip" :class="'is-' + sourceTone">
-          <div><strong>{{ source.name || '行情来源待确认' }}</strong><span>{{ source.provinceName || '当前区域' }} · {{ source.preferredMarket || '区域市场简单均值' }} · {{ source.cadence === 'DAILY' ? '每日更新' : '更新频率待确认' }}</span></div>
-          <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span>历史归档：{{ market?.historyPersistence || '—' }}</span></div>
+          <div><strong>{{ source.name || '行情来源待确认' }}</strong><span>重庆优先 · 全国市场后备 · {{ source.cadence === 'DAILY' ? '每日更新' : '更新频率待确认' }}</span></div>
+          <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span v-if="market?.nationalFallbackCropCount">全国后备 {{ market.nationalFallbackCropCount }} 个</span><span>历史归档：{{ market?.historyPersistence || '—' }}</span></div>
         </div>
 
         <div class="market-toolbar" aria-label="行情范围">
@@ -209,7 +238,7 @@ export const AdminMarketInsightsView = {
             <button type="button" :class="{active: scope === 'farm'}" @click="chooseScope('farm')">本场作物</button>
             <button type="button" :class="{active: scope === 'all'}" @click="chooseScope('all')">全部监测品种</button>
           </div>
-          <span>重庆报价统一为元/公斤；历史曲线只使用系统归档的重庆真实日价。</span>
+          <span>真实当日价优先重庆、缺失时采用全国市场简单均值；模拟趋势与真实归档严格分离。</span>
         </div>
 
         <div v-if="error" class="market-error"><strong>{{ error.code || 'MARKET_PRICE_UNAVAILABLE' }}</strong><span>{{ error.message || error }}</span></div>
@@ -220,10 +249,10 @@ export const AdminMarketInsightsView = {
           <button v-for="item in crops" :key="item.cropCode" type="button" class="market-ticker-card"
                   :class="[{active: selectedCrop?.cropCode === item.cropCode, unavailable: !item.available}, 'is-' + changeTone(item.changePct)]"
                   @click="chooseCrop(item.cropCode)" :aria-pressed="selectedCrop?.cropCode === item.cropCode">
-            <span class="market-ticker-identity"><b>{{ item.emoji || '🌱' }}</b><span><strong>{{ item.cropName }}</strong><small>{{ item.marketVarietyName }}<em v-if="item.inFarm">本场</em></small></span></span>
+            <span class="market-ticker-identity"><b>{{ item.emoji || '🌱' }}</b><span><strong>{{ item.cropName }}</strong><small>{{ item.marketVarietyName }}<em v-if="item.inFarm">本场</em><em v-if="item.nationalFallback" class="is-national">全国后备</em></small></span></span>
             <span class="market-ticker-price"><strong>{{ price(item.latestPrice) }}</strong><small>元/公斤</small></span>
             <span class="market-ticker-change" :class="'is-' + changeTone(item.changePct)"><span aria-hidden="true">{{ changeTone(item.changePct) === 'up' ? '↑' : changeTone(item.changePct) === 'down' ? '↓' : '—' }}</span>{{ signed(item.changePct, '%') }}</span>
-            <span class="market-ticker-date">{{ item.available ? item.quoteDate + ' · ' + item.marketCount + ' 个市场' : '今日暂无上报报价' }}</span>
+            <span class="market-ticker-date">{{ item.available ? item.quoteDate + ' · ' + (item.quoteRegionName || '国内') + ' ' + item.marketCount + ' 个市场' : '今日暂无上报报价' }}</span>
           </button>
         </div>
 
@@ -233,22 +262,24 @@ export const AdminMarketInsightsView = {
               <div class="market-selected-quote">
                 <span>{{ selectedCrop.emoji }} {{ selectedCrop.cropName }} / {{ selectedCrop.marketVarietyName }}</span>
                 <div><strong>{{ price(selectedCrop.latestPrice) }}</strong><small>元/公斤</small><em :class="'is-' + changeTone(selectedCrop.changePct)">{{ signed(selectedCrop.change, ' 元') }} · {{ signed(selectedCrop.changePct, '%') }}</em></div>
-                <p>{{ selectedCrop.priceBasis === 'PREFERRED_MARKET' ? selectedCrop.preferredMarket + ' 报价' : '重庆市场简单均值（非成交量加权）' }}</p>
+                <p>{{ priceBasisLabel(selectedCrop) }}</p>
               </div>
               <div class="market-chart-controls">
-                <div class="market-range-switch" aria-label="重庆历史范围">
+                <div class="market-range-switch" aria-label="国内历史范围">
                   <button v-for="option in RANGE_OPTIONS" :key="option.value" type="button" :class="{active: rangeDays === option.value}" @click="chooseRange(option.value)">{{ option.label }}</button>
                 </div>
+                <button v-if="canShowSimulation" type="button" class="market-scenario-toggle" :class="{active: showSimulation}" :aria-pressed="showSimulation" @click="toggleSimulation"><span class="ph ph-wave-sine" aria-hidden="true"></span>{{ showSimulation ? '隐藏模拟趋势' : '显示模拟趋势' }}</button>
               </div>
             </header>
+            <div v-if="scenarioVisible" class="market-simulation-notice" role="note"><span>SIMULATED</span><p><strong>模拟趋势，不是真实历史</strong>仅以今日{{ selectedCrop.quoteRegionName || '国内' }}官方报价为锚点生成，用于查看曲线界面；不写入数据库、不参与涨跌、均价或销售观察。</p></div>
             <div ref="chartEl" class="market-price-chart" role="img" :aria-label="selectedCrop.cropName + chartRangeLabel + chartUnit + '价格曲线'"></div>
             <p class="market-axis-note"><span class="ph ph-info" aria-hidden="true"></span>{{ axisDisclosure }}</p>
             <details class="market-history-details">
-              <summary>查看已归档日价明细（{{ selectedHistory.length }} 日）</summary>
+              <summary>查看真实归档日价明细（{{ selectedHistory.length }} 日）</summary>
               <div class="market-table-wrap">
                 <table><thead><tr><th scope="col">日期</th><th scope="col">参考价</th><th scope="col">市场低—高</th><th scope="col">上报市场</th></tr></thead>
                   <tbody><tr v-for="point in [...selectedHistory].reverse()" :key="point.date"><td>{{ point.date }}</td><td>{{ price(point.price) }} 元/公斤</td><td>{{ price(point.minPrice) }}—{{ price(point.maxPrice) }}</td><td>{{ point.marketCount || 0 }} 个</td></tr>
-                    <tr v-if="!selectedHistory.length"><td colspan="4">尚未归档真实日价；缺失日期不会用模拟值补齐。</td></tr></tbody>
+                    <tr v-if="!selectedHistory.length"><td colspan="4">尚未归档真实日价；上方模拟趋势不会写入本表。</td></tr></tbody>
                 </table>
               </div>
             </details>

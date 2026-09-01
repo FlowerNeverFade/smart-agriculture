@@ -25,7 +25,8 @@ test('formal market data uses the farm-scoped backend endpoint while demo stays 
   assert.match(apiSource, /当前为演示行情，不是真实市场价格，不得用于销售决策/);
   assert.match(viewSource, /官方日行情/);
   assert.match(viewSource, /最近归档行情/);
-  assert.match(viewSource, /系统不会用演示值补齐正式行情/);
+  assert.match(viewSource, /重庆优先 · 全国市场后备/);
+  assert.match(viewSource, /全国上报市场简单均值/);
 });
 
 test('price chart preserves missing dates and discloses its scale and source limits', () => {
@@ -39,14 +40,17 @@ test('price chart preserves missing dates and discloses its scale and source lim
   assert.match(viewSource, /缺失日期不连线、不插值/);
   assert.match(viewSource, /STIX Two Text/);
   assert.match(viewSource, /aria: \{ enabled: true/);
-  assert.match(viewSource, /查看已归档日价明细/);
+  assert.match(viewSource, /查看真实归档日价明细/);
   assert.match(viewSource, /非自动卖出信号/);
 });
 
-test('domestic market history stays local-only even when the backend carries external observations', () => {
-  assert.match(viewSource, /重庆报价统一为元\/公斤；历史曲线只使用系统归档的重庆真实日价/);
-  assert.match(viewSource, /重庆真实历史正在逐日积累，不使用外部参考或模拟值补齐/);
-  assert.match(viewSource, /aria-label="重庆历史范围"/);
+test('domestic market uses observed national fallback and isolates simulated trend from real facts', () => {
+  assert.match(viewSource, /真实当日价优先重庆、缺失时采用全国市场简单均值/);
+  assert.match(viewSource, /buildDomesticMarketScenario/);
+  assert.match(viewSource, /SIMULATED/);
+  assert.match(viewSource, /不写入数据库、不参与涨跌、均价或销售观察/);
+  assert.match(viewSource, /查看真实归档日价明细/);
+  assert.match(viewSource, /aria-label="国内历史范围"/);
   assert.match(viewSource, /近7日/);
   assert.match(viewSource, /近30日/);
   assert.match(viewSource, /近90日/);
@@ -61,6 +65,6 @@ test('market UI has redundant rise/fall encoding and responsive terminal layout'
   assert.match(viewSource, /changeTone\(item\.changePct\) === 'up' \? '↑'/);
   assert.match(styles, /@media \(max-width: 1100px\)/);
   assert.match(styles, /@media \(max-width: 720px\)/);
-  assert.match(indexSource, /admin-market\.css\?v=20260901-v597-domestic-local-v1/);
-  assert.match(indexSource, /js\/app\.js\?v=20260901-v597-domestic-local-v1/);
+  assert.match(indexSource, /admin-market\.css\?v=20260901-v598-domestic-data-v1/);
+  assert.match(indexSource, /js\/app\.js\?v=20260901-v598-domestic-data-v1/);
 });

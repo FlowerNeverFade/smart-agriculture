@@ -48,6 +48,8 @@ import java.util.stream.Collectors;
 class MarketPriceService {
     static final String SNAPSHOT_TYPE = "market-price-snapshot";
     static final String SOURCE_URL = "https://pfsc.agri.cn/";
+    static final String PROVINCE_SCOPE = "PROVINCE";
+    static final String NATIONAL_SCOPE = "NATIONAL";
     static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
     static final List<CropQuoteDefinition> CATALOG = List.of(
             new CropQuoteDefinition("tomato", "番茄", "西红柿", "135", "🍅"),
@@ -68,7 +70,7 @@ class MarketPriceService {
     private final AgriProperties properties;
     private final MarketReferenceCatalog referenceCatalog;
     private final ConcurrentMap<String, Instant> lastAttemptAt = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, MarketQuoteBatch> transientLatest = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, ScopedMarketQuoteBatch> transientLatest = new ConcurrentHashMap<>();
 
     MarketPriceService(AgriStore store, MarketPriceProvider provider, AgriProperties properties) {
         this.store = store;
@@ -113,7 +115,8 @@ class MarketPriceService {
         source.put("provinceName", properties.getMarketPriceProvinceName());
         source.put("preferredMarket", properties.getMarketPricePreferredMarket());
         source.put("unit", "元/公斤");
-        source.put("method", "市场上报的大宗交易均价；跨市场汇总为简单平均，非成交量加权");
+        source.put("method", "优先采用重庆市场上报的大宗交易均价；重庆无报价时使用全国上报市场简单平均，均非成交量加权");
+        source.put("fallback", "NATIONAL_SIMPLE_AVERAGE");
         source.put("disclaimer", "行情仅供经营参考，不构成保价或销售承诺；出货前仍需核对品质、规格、物流和采购方实时询价。");
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -127,6 +130,8 @@ class MarketPriceService {
         result.put("farmCropCodes", new ArrayList<>(farmCropCodes));
         result.put("availableCropCount", available);
         result.put("totalCropCount", crops.size());
+        result.put("nationalFallbackCropCount", crops.stream()
+                .filter(item -> Boolean.TRUE.equals(item.get("nationalFallback"))).count());
         result.put("internationalReferenceCropCount", crops.stream()
                 .filter(item -> item.containsKey("internationalReference")).count());
         result.put("source", source);
@@ -158,11 +163,17 @@ class MarketPriceService {
         lastAttemptAt.put(key, Instant.now());
         try {
             Optional<MarketQuoteBatch> fetched = provider.fetch(definition, properties.getMarketPriceProvinceCode());
+            String quoteScope = PROVINCE_SCOPE;
+            if (fetched.isEmpty()) {
+                fetched = provider.fetch(definition, "");
+                quoteScope = NATIONAL_SCOPE;
+            }
             if (fetched.isEmpty()) return;
             MarketQuoteBatch batch = fetched.get();
-            transientLatest.put(key, batch);
+            ScopedMarketQuoteBatch scopedBatch = new ScopedMarketQuoteBatch(batch, quoteScope);
+            transientLatest.put(key, scopedBatch);
             if (store.databaseReady()) {
-                Map<String, Object> snapshot = snapshot(definition, batch);
+                Map<String, Object> snapshot = snapshot(definition, scopedBatch);
                 store.save(SNAPSHOT_TYPE, snapshotId(definition.cropCode(), batch.sourceDate()), snapshot);
             }
         } catch (Exception ignored) {
@@ -174,7 +185,7 @@ class MarketPriceService {
     private Map<String, Map<LocalDate, Map<String, Object>>> snapshotIndex(LocalDate cutoff) {
         Map<String, Map<LocalDate, Map<String, Object>>> byCrop = new LinkedHashMap<>();
         for (Map<String, Object> snapshot : store.list(SNAPSHOT_TYPE)) addSnapshot(byCrop, snapshot, cutoff);
-        for (Map.Entry<String, MarketQuoteBatch> entry : transientLatest.entrySet()) {
+        for (Map.Entry<String, ScopedMarketQuoteBatch> entry : transientLatest.entrySet()) {
             String cropCode = entry.getKey().substring(entry.getKey().indexOf('|') + 1);
             CropQuoteDefinition definition = CATALOG_BY_CODE.get(cropCode);
             if (definition != null) addSnapshot(byCrop, snapshot(definition, entry.getValue()), cutoff);
@@ -198,10 +209,13 @@ class MarketPriceService {
                                          Map<LocalDate, Map<String, Object>> dated,
                                          Set<String> farmCropCodes,
                                          int rangeDays) {
-        List<Map<String, Object>> history = dated.entrySet().stream().sorted(Map.Entry.comparingByKey())
-                .map(entry -> historyPoint(entry.getValue())).toList();
         Map<String, Object> latestSnapshot = dated.entrySet().stream().max(Map.Entry.comparingByKey())
                 .map(Map.Entry::getValue).orElse(null);
+        String quoteScope = snapshotQuoteScope(latestSnapshot);
+        List<Map<String, Object>> history = dated.entrySet().stream()
+                .filter(entry -> quoteScope.equals(snapshotQuoteScope(entry.getValue())))
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> historyPoint(entry.getValue())).toList();
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
         boolean fresh = latestSnapshot != null && today.equals(parseDate(latestSnapshot.get("quoteDate")).orElse(null))
                 && transientLatest.containsKey(sourceKey(definition.cropCode()));
@@ -234,6 +248,11 @@ class MarketPriceService {
         view.put("maxPrice", latestSnapshot == null ? null : latestSnapshot.get("maxPrice"));
         view.put("marketCount", latestSnapshot == null ? 0 : latestSnapshot.get("marketCount"));
         view.put("priceBasis", latestSnapshot == null ? null : latestSnapshot.get("priceBasis"));
+        view.put("quoteScope", latestSnapshot == null ? null : quoteScope);
+        view.put("quoteRegionName", latestSnapshot == null ? null
+                : Jsons.text(latestSnapshot, "quoteRegionName",
+                NATIONAL_SCOPE.equals(quoteScope) ? "全国" : properties.getMarketPriceProvinceName()));
+        view.put("nationalFallback", latestSnapshot != null && NATIONAL_SCOPE.equals(quoteScope));
         view.put("preferredMarket", properties.getMarketPricePreferredMarket());
         view.put("marketQuotes", latestSnapshot == null ? List.of() : latestSnapshot.getOrDefault("marketQuotes", List.of()));
         view.put("history", history);
@@ -268,10 +287,12 @@ class MarketPriceService {
         return result;
     }
 
-    private Map<String, Object> snapshot(CropQuoteDefinition definition, MarketQuoteBatch batch) {
+    private Map<String, Object> snapshot(CropQuoteDefinition definition, ScopedMarketQuoteBatch scopedBatch) {
+        MarketQuoteBatch batch = scopedBatch.batch();
+        boolean nationalFallback = NATIONAL_SCOPE.equals(scopedBatch.quoteScope());
         List<MarketQuote> quotes = batch.quotes().stream().filter(quote -> quote.price() > 0).toList();
         double average = quotes.stream().mapToDouble(MarketQuote::price).average().orElse(Double.NaN);
-        MarketQuote preferred = quotes.stream()
+        MarketQuote preferred = nationalFallback ? null : quotes.stream()
                 .filter(quote -> quote.marketName().equals(properties.getMarketPricePreferredMarket()))
                 .findFirst().orElse(null);
         Double price = preferred == null ? (Double.isFinite(average) ? round(average) : null) : round(preferred.price());
@@ -279,7 +300,7 @@ class MarketPriceService {
                 .map(quote -> {
                     Map<String, Object> item = new LinkedHashMap<>();
                     item.put("marketName", quote.marketName()); item.put("price", round(quote.price())); item.put("unit", "元/公斤");
-                    item.put("preferred", quote.marketName().equals(properties.getMarketPricePreferredMarket()));
+                    item.put("preferred", !nationalFallback && quote.marketName().equals(properties.getMarketPricePreferredMarket()));
                     return item;
                 }).toList();
         Map<String, Object> snapshot = new LinkedHashMap<>();
@@ -290,9 +311,13 @@ class MarketPriceService {
         snapshot.put("marketVarietyName", definition.marketVarietyName());
         snapshot.put("provinceCode", properties.getMarketPriceProvinceCode());
         snapshot.put("provinceName", properties.getMarketPriceProvinceName());
+        snapshot.put("quoteScope", nationalFallback ? NATIONAL_SCOPE : PROVINCE_SCOPE);
+        snapshot.put("quoteRegionCode", nationalFallback ? "CN" : properties.getMarketPriceProvinceCode());
+        snapshot.put("quoteRegionName", nationalFallback ? "全国" : properties.getMarketPriceProvinceName());
         snapshot.put("quoteDate", batch.sourceDate().toString());
         snapshot.put("price", price);
-        snapshot.put("priceBasis", preferred == null ? "PROVINCE_SIMPLE_AVERAGE" : "PREFERRED_MARKET");
+        snapshot.put("priceBasis", nationalFallback ? "NATIONAL_SIMPLE_AVERAGE"
+                : preferred == null ? "PROVINCE_SIMPLE_AVERAGE" : "PREFERRED_MARKET");
         snapshot.put("preferredMarket", properties.getMarketPricePreferredMarket());
         snapshot.put("minPrice", quotes.isEmpty() ? null : round(quotes.stream().mapToDouble(MarketQuote::price).min().orElse(0)));
         snapshot.put("maxPrice", quotes.isEmpty() ? null : round(quotes.stream().mapToDouble(MarketQuote::price).max().orElse(0)));
@@ -316,7 +341,15 @@ class MarketPriceService {
         point.put("maxPrice", snapshot.get("maxPrice"));
         point.put("marketCount", snapshot.get("marketCount"));
         point.put("priceBasis", snapshot.get("priceBasis"));
+        point.put("quoteScope", snapshotQuoteScope(snapshot));
+        point.put("quoteRegionName", snapshot.getOrDefault("quoteRegionName", properties.getMarketPriceProvinceName()));
         return point;
+    }
+
+    private String snapshotQuoteScope(Map<String, Object> snapshot) {
+        if (snapshot == null) return PROVINCE_SCOPE;
+        return NATIONAL_SCOPE.equalsIgnoreCase(Jsons.text(snapshot, "quoteScope", PROVINCE_SCOPE))
+                ? NATIONAL_SCOPE : PROVINCE_SCOPE;
     }
 
     private Set<String> activeFarmCropCodes(String farmId) {
@@ -438,6 +471,7 @@ final class MarketReferenceCatalog {
 record CropQuoteDefinition(String cropCode, String cropName, String marketVarietyName, String varietyId, String emoji) { }
 record MarketQuote(String marketName, double price) { }
 record MarketQuoteBatch(LocalDate sourceDate, List<MarketQuote> quotes, Instant fetchedAt) { }
+record ScopedMarketQuoteBatch(MarketQuoteBatch batch, String quoteScope) { }
 
 interface MarketPriceProvider {
     Optional<MarketQuoteBatch> fetch(CropQuoteDefinition definition, String provinceCode) throws Exception;
@@ -464,7 +498,7 @@ class MoaPfscMarketPriceProvider implements MarketPriceProvider {
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1000, properties.getMarketPriceTimeoutMs())))
                 .header("Accept", "application/json")
-                .header("User-Agent", "AgriLoop/5.9.4 market-price-reader")
+                .header("User-Agent", "AgriLoop/5.9.8 market-price-reader")
                 .POST(HttpRequest.BodyPublishers.noBody()).build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (response.statusCode() < 200 || response.statusCode() >= 300) return Optional.empty();
